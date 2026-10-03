@@ -617,6 +617,13 @@ class Builder:
     def rewrite_html(self, h, bases, bank_dir, tid, fallback_imgs=(), remote_base=None):
         img_i = [0]
 
+        def remote_attr(url):
+            """Исходная ссылка на картинку: страница подставит её, если локального файла не окажется
+            (тренажёр запущен не рядом с банками и без --standalone)."""
+            if not url or not re.match(r"^https?://", url, re.I):
+                return ""
+            return f' data-remote="{H.escape(H.unescape(url), quote=True)}"'
+
         def fix_attr(tag, m):
             attr, q, val = m.groups()
             is_img = tag == "img" and attr.strip().lower() == "src"
@@ -633,11 +640,17 @@ class Builder:
                     p = self.by_url_hash(v, bank_dir, remote_base)
                     if p:
                         self.found_by["картинки по хешу ссылки"] += 1
-                        return f"{attr}={q}{self.link(p, bank_dir)}{q}"
+                        return f"{attr}={q}{self.link(p, bank_dir)}{q}" + ("" if self.standalone else remote_attr(v))
                 return f"{attr}={q}{v}{q}"
             p = self.resolve(v, bases, bank_dir, remote_base)
             if p:
-                return f"{attr}={q}{self.link(p, bank_dir)}{q}"
+                orig = ""
+                if is_img and not self.standalone:
+                    if fallback_imgs and idx < len(fallback_imgs) and fallback_imgs[idx]:
+                        orig = fallback_imgs[idx]
+                    elif remote_base and v.startswith("/"):
+                        orig = remote_base + v
+                return f"{attr}={q}{self.link(p, bank_dir)}{q}" + remote_attr(orig)
             new = None
             if is_img and fallback_imgs and idx < len(fallback_imgs) and fallback_imgs[idx]:
                 new = fallback_imgs[idx]
@@ -1037,18 +1050,30 @@ class Builder:
 
 
 # ---------------------------------------------------------------- main
+def find_root(banks):
+    """Папка с банками, если --root не задан: рядом с тренажёром, выше по папкам или в Biblio там."""
+    cands, a = [], HERE
+    for _ in range(4):
+        cands += [a.parent, a.parent / "Biblio"]
+        a = a.parent
+    for c in cands:
+        if any((c / b).is_dir() for b in banks):
+            return c
+    return HERE.parent
+
+
 def main():
     ap = argparse.ArgumentParser(description="Сборка банка заданий для тренажёра")
-    ap.add_argument("--root", default=str(HERE.parent), help="папка Biblio (по умолчанию — родительская)")
+    ap.add_argument("--root", help="папка Biblio с банками (по умолчанию ищется рядом с тренажёром и выше)")
     ap.add_argument("--bank", action="append", help="имя папки банка (можно несколько раз)")
     ap.add_argument("--site", default=str(HERE), help="папка сайта (где лежит index.html)")
     ap.add_argument("--standalone", action="store_true",
                     help="скопировать картинки и файлы в <site>/media, чтобы сайт не зависел от банков")
     args = ap.parse_args()
 
-    root = Path(args.root).resolve()
-    site = Path(args.site).resolve()
     banks = args.bank or DEFAULT_BANKS
+    root = Path(args.root).resolve() if args.root else find_root(banks).resolve()
+    site = Path(args.site).resolve()
     b = Builder(site, args.standalone)
 
     all_tasks, bank_meta = [], []

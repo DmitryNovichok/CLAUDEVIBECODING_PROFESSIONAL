@@ -41,7 +41,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent            # папка trainer
-BIBLIO = HERE.parent
+BIBLIO = HERE.parent                              # где обычно лежат банки: Biblio/trainer + Biblio/*_bank
+BANKS_ROOT = None                                 # папка с банками, заданная вручную (--banks), хранится в базе
 DATA_DIR = HERE / "server_data"
 DB_PATH = DATA_DIR / "trainer.db"
 BANK_JS = HERE / "data" / "bank.js"
@@ -217,6 +218,65 @@ class Opened:
 OPENED = Opened()
 
 
+# ================================================================ где лежат банки с картинками
+_bank_cache = {}
+
+
+def report_roots():
+    """build.py пишет в data/report.txt полные пути к заданиям — по ним видно, где лежат банки,
+    даже если папку тренажёра потом перенесли или скачали заново."""
+    roots = []
+    try:
+        txt = (HERE / "data" / "report.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return roots
+    for m in re.finditer(r"([A-Za-z]:\\[^\r\n]*?|/[^\r\n]*?)[\\/][A-Za-z0-9_\-]+_bank[\\/]", txt):
+        p = Path(m.group(1).strip())
+        if p not in roots:
+            roots.append(p)
+        if len(roots) >= 5:
+            break
+    return roots
+
+
+def bank_roots():
+    """Где искать папки *_bank: заданная вручную, рядом с тренажёром, выше по дереву (и в Biblio там),
+    внутри самого тренажёра, по путям из отчёта сборки."""
+    roots = []
+    if BANKS_ROOT:
+        roots.append(Path(BANKS_ROOT))
+    roots.append(BIBLIO)
+    a = HERE
+    for _ in range(4):
+        roots += [a.parent, a.parent / "Biblio"]
+        a = a.parent
+    roots.append(HERE)
+    roots += report_roots()
+    out = []
+    for r in roots:
+        if r not in out:
+            out.append(r)
+    return out
+
+
+def find_bank(name):
+    """Папка банка по имени (например kompege_bank) или None. Найденное запоминаем."""
+    if not re.fullmatch(r"[A-Za-z0-9_\-]+_bank", name or ""):
+        return None
+    hit = _bank_cache.get(name)
+    if hit and hit.is_dir():
+        return hit
+    for r in bank_roots():
+        try:
+            p = r / name
+            if p.is_dir():
+                _bank_cache[name] = p.resolve()
+                return _bank_cache[name]
+        except OSError:
+            continue
+    return None
+
+
 # ================================================================ банк заданий
 class Bank:
     def __init__(self, path: Path):
@@ -228,6 +288,7 @@ class Bank:
         self.public_raw = b""
         self.etag = ""
         self._snips = {}
+        self.missing_dirs = []     # папки банков, на которые ссылаются картинки, но которых нет рядом
 
     def snippet(self, task_id):
         """Начало условия без разметки — чтобы в журнале было видно, что за задание."""
@@ -245,6 +306,25 @@ class Bank:
         snip = txt[:140]
         self._snips[task_id] = snip
         return snip
+
+    def check_media(self, text):
+        """Картинки и файлы заданий лежат в папках банков рядом с trainer (или в trainer/media после
+        build.py --standalone). Если их нет, в заданиях будет «Рисунок не найден» — предупреждаем сразу."""
+        names = set(re.findall(r'(?:\.\./)+(?:[^"\\\s<>]*?/)?([A-Za-z0-9_\-]+_bank)/', text))
+        found = {d: find_bank(d) for d in sorted(names)}
+        for d, path in found.items():
+            if path:
+                print(f"[банк] файлы {d}: {path}", flush=True)
+        missing = [d for d, path in found.items() if not path]
+        if '"media/' in text or "'media/" in text or 'src=\\"media/' in text:
+            if not (HERE / "media").is_dir():
+                missing.append("trainer/media")
+        self.missing_dirs = missing
+        if missing:
+            print("! Не найдены папки с картинками и файлами заданий: " + ", ".join(missing), flush=True)
+            print(f"  Искал рядом с тренажёром ({BIBLIO}), выше по папкам и по путям из data/report.txt.", flush=True)
+            print('  Укажите папку, где лежат банки:  python server.py --banks "C:\\путь\\к\\Biblio"', flush=True)
+            print("  Или соберите банк так, чтобы всё лежало внутри тренажёра:  python build.py --standalone", flush=True)
 
     def ensure(self):
         try:
@@ -287,6 +367,7 @@ class Bank:
             self.etag = '"%x-%x"' % (int(mt), len(raw))
             self.mtime = mt
             print(f"[банк] загружено заданий: {len(pub_tasks)}", flush=True)
+            self.check_media(text)
         return True
 
 
@@ -498,8 +579,12 @@ class Handler(BaseHTTPRequestHandler):
         for d in SITE_DIRS:
             if rel.startswith(d):
                 return self.serve_file(HERE / d.rstrip("/"), rel[len(d):])
-        # картинки и файлы заданий из банков (../ege_bank/… превращается в /ege_bank/…)
+        # картинки и файлы заданий из банков (../ege_bank/… превращается в /ege_bank/…;
+        # если банк собирали из другой папки, перед именем банка бывают ещё папки: /Documents/Biblio/ege_bank/…)
         parts = rel.split("/")
+        k = next((i for i, x in enumerate(parts[:-1]) if x.endswith("_bank")), None)
+        if k:
+            parts = parts[k:]
         if len(parts) >= 2 and parts[0].endswith("_bank"):
             ext = os.path.splitext(parts[-1])[1].lower()
             in_assets = len(parts) >= 3 and parts[1] in ("assets", "files")
@@ -508,7 +593,10 @@ class Handler(BaseHTTPRequestHandler):
             if parts[1] == "raw":
                 return self.err(404, "нет такого файла")
             if in_assets or ext in BANK_EXT:
-                return self.serve_file(BIBLIO / parts[0], "/".join(parts[1:]))
+                bdir = find_bank(parts[0])
+                if not bdir:
+                    return self.err(404, "нет такого файла")
+                return self.serve_file(bdir, "/".join(parts[1:]))
         return self.err(404, "нет такого файла")
 
     def serve_file(self, root: Path, rel, html=False):
@@ -1092,7 +1180,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/admin/info":
             n_tasks = len(APP.bank.tasks) if APP.bank.ensure() else 0
-            return self.send_json({"tasks": n_tasks, "bank_built": APP.bank.mtime,
+            return self.send_json({"tasks": n_tasks, "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
                                    "invite": db.setting("invite_code") or DEFAULT_INVITE,
                                    "students": db.q("SELECT COUNT(*) c FROM students", one=True)["c"],
                                    "attempts": db.q("SELECT COUNT(*) c FROM attempts", one=True)["c"]})
@@ -1149,6 +1237,7 @@ def main():
     ap.add_argument("--host", default="0.0.0.0", help="0.0.0.0 — доступен из сети, 127.0.0.1 — только с этого компьютера")
     ap.add_argument("--password", help="задать пароль учителя и выйти")
     ap.add_argument("--invite", help="задать код приглашения для учеников и выйти")
+    ap.add_argument("--banks", help="папка, где лежат банки (ege_bank, kompege_bank, …); запоминается")
     args = ap.parse_args()
 
     db = DB(DB_PATH)
@@ -1167,6 +1256,16 @@ def main():
         db.setting("admin_password", hash_pw(args.password))
         print("Пароль учителя сохранён.")
         return
+    global BANKS_ROOT
+    if args.banks:
+        root = Path(args.banks).expanduser()
+        if not root.is_dir():
+            sys.exit(f"Папка не найдена: {root}")
+        if not any(p.is_dir() and p.name.endswith("_bank") for p in root.iterdir()):
+            sys.exit(f"В папке {root} нет папок *_bank (ege_bank, kompege_bank, …). Укажите папку, где они лежат.")
+        db.setting("banks_root", str(root.resolve()))
+        print(f"Папка с банками запомнена: {root.resolve()}")
+    BANKS_ROOT = db.setting("banks_root")
     first_pw = None
     if not db.setting("admin_password"):
         first_pw = secrets.token_urlsafe(6).replace("-", "x").replace("_", "y")

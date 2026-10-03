@@ -153,6 +153,7 @@
       showApp();
       go('students');
       startFeed();
+      api('info').then(showMediaWarning).catch(() => {});
     } catch (err) {
       $('#admLoginErr').textContent = err.message === 'Failed to fetch' ? 'Нет связи с сервером' : err.message;
     } finally {
@@ -504,6 +505,7 @@
     $('#siteUrl').textContent = location.origin + '/';
     try {
       const d = await api('info');
+      showMediaWarning(d);
       $('#infoLine').textContent = `В банке ${d.tasks} заданий · учеников: ${d.students} · записей в журнале: ${d.attempts}. Резервная копия — файл trainer/server_data/trainer.db.`;
       $('#inviteCode').value = d.invite || '';
     } catch (e) { /* не страшно */ }
@@ -533,10 +535,22 @@
     } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
   });
 
+  /** Нет папок с картинками заданий — ученики увидят «Рисунок не загрузился». */
+  function showMediaWarning(info) {
+    const el = $('#mediaWarn');
+    const miss = (info && info.missing_media) || [];
+    el.hidden = !miss.length;
+    if (!miss.length) return;
+    el.innerHTML = `<b>Картинки и файлы к заданиям не найдены:</b> нет ${miss.map(d => `<code>${esc(d)}</code>`).join(', ')}.
+      Укажите, где они лежат, и перезапустите сервер: <code>python server.py --banks "C:\\путь\\к\\Biblio"</code>
+      (папка, внутри которой ege_bank, kompege_bank…; запоминается). Для сервера в интернете проще собрать банк так, чтобы всё лежало
+      внутри тренажёра: <code>python build.py --standalone</code> — и выложить папку <code>media</code> вместе с остальными файлами.`;
+  }
+
   // ------------------------------------------------------------ старт
   (async () => {
     try {
-      await api('info');
+      showMediaWarning(await api('info'));
       showApp();
       go('students');
       startFeed();

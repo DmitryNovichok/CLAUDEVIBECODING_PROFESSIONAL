@@ -96,6 +96,23 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(st, 404, p)
         self.assertEqual(self.req("GET", "/vendor/ok.css")[0], 200)
 
+    def test_bank_images_served_from_found_folder(self):
+        bank = self.tmp / "img_bank" / "assets"
+        bank.mkdir(parents=True)
+        (bank / "a.png").write_bytes(b"\x89PNG")
+        saved = server.BIBLIO
+        server.BIBLIO = self.tmp
+        server._bank_cache.clear()
+        try:
+            self.assertEqual(self.req("GET", "/img_bank/assets/a.png")[0], 200)
+            # банк собран из другой папки: перед именем банка лишние папки — всё равно находим
+            self.assertEqual(self.req("GET", "/Documents/Biblio/img_bank/assets/a.png")[0], 200)
+            self.assertEqual(self.req("GET", "/img_bank/assets/../../server_data/secret.txt", raw_path=True)[0], 404)
+            self.assertEqual(self.req("GET", "/img_bank/task.json")[0], 404)
+        finally:
+            server.BIBLIO = saved
+            server._bank_cache.clear()
+
     def test_bank_has_no_answers(self):
         tok = self.login()
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
