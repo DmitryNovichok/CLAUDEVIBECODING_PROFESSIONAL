@@ -56,6 +56,9 @@ MAX_BODY = 4_000_000
 ADMIN_SESSION_DAYS = 14
 DEFAULT_INVITE = "16082001"        # пригласительный код для учеников (меняется в панели учителя)
 STUDENT_COOKIE_DAYS = 365
+# защита от перебора: столько неудачных попыток с одного адреса за окно — и пауза
+FAIL_WINDOW = 15 * 60
+FAIL_LIMIT = {"invite": 30, "admin": 10}   # код вводит весь класс с одного адреса школы — ему запас больше
 LOCKED_BANK = b'window.EGE_BANK = {"srv":true,"locked":true,"banks":[],"tasks":[]};\n'
 
 mimetypes.add_type("application/javascript", ".js")
@@ -93,6 +96,54 @@ def norm_name(name):
 
 
 NAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'’.\- ]{3,79}$")
+
+
+def csv_cell(v):
+    """Ячейка CSV для Excel: текст, начинающийся с = + - @, иначе выполнится как формула."""
+    v = "" if v is None else str(v)
+    if v[:1] in ("=", "+", "-", "@", "\t", "\r") and not re.fullmatch(r"-?\d+([.,]\d+)?", v):
+        return "'" + v
+    return v
+
+
+class Throttle:
+    """Счётчик неудачных попыток входа по адресу. После лимита — пауза до конца окна."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.fails = {}
+
+    def _recent(self, key, now):
+        arr = [t for t in self.fails.get(key, []) if now - t < FAIL_WINDOW]
+        if arr:
+            self.fails[key] = arr
+        else:
+            self.fails.pop(key, None)
+        return arr
+
+    def blocked(self, kind, ip):
+        """Сколько секунд ещё ждать (0 — можно)."""
+        now = time.time()
+        with self.lock:
+            arr = self._recent((kind, ip), now)
+            if len(arr) < FAIL_LIMIT[kind]:
+                return 0
+            return int(FAIL_WINDOW - (now - arr[0])) + 1
+
+    def fail(self, kind, ip):
+        with self.lock:
+            self.fails.setdefault((kind, ip), []).append(time.time())
+            if len(self.fails) > 10000:          # не даём словарю расти бесконечно
+                now = time.time()
+                for k in list(self.fails):
+                    self._recent(k, now)
+
+    def ok(self, kind, ip):
+        with self.lock:
+            self.fails.pop((kind, ip), None)
+
+
+THROTTLE = Throttle()
 
 
 # ================================================================ банк заданий
@@ -241,6 +292,7 @@ APP = None
 class Handler(BaseHTTPRequestHandler):
     server_version = "EGETrainer/1.0"
     protocol_version = "HTTP/1.1"
+    timeout = 60                      # медленный клиент не держит поток вечно
 
     def log_message(self, fmt, *args):
         pass
@@ -251,6 +303,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -265,8 +318,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"error": msg}, code)
 
     def body_json(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_BODY:
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise ValueError("неверная длина запроса")
+        if n < 0 or n > MAX_BODY:
             raise ValueError("слишком большой запрос")
         raw = self.rfile.read(n) if n else b""
         if not raw:
@@ -310,6 +366,21 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[ошибка] {self.command} {self.path}: {e!r}", flush=True)
         traceback.print_exc()
 
+    def client_ip(self):
+        """Адрес ученика. За Caddy/nginx (запрос пришёл с этого же компьютера) — из X-Forwarded-For."""
+        ip = self.client_address[0]
+        if ip in ("127.0.0.1", "::1"):
+            fwd = (self.headers.get("X-Forwarded-For") or "").split(",")[-1].strip()
+            if fwd:
+                return fwd
+        return ip
+
+    def is_https(self):
+        return (self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
+
+    def cookie_attrs(self):
+        return "; Secure" if self.is_https() else ""
+
     # ---------- статика
     def static(self, path):
         if path in ("", "/"):
@@ -317,11 +388,18 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/admin", "/admin/"):
             path = "/admin.html"
         rel = path.lstrip("/")
+        # «..», обратные слэши и пустые части пути не нужны ни одному честному запросу
+        segs = rel.split("/")
+        if "\\" in rel or "\0" in rel or any(x in ("..", ".") for x in segs) or (rel and "" in segs[:-1]):
+            return self.err(404, "нет такого файла")
         if rel == "data/bank.js":
             return self.serve_bank()
         # файлы сайта
-        if rel in SITE_FILES or any(rel.startswith(d) for d in SITE_DIRS):
-            return self.serve_file(HERE, rel)
+        if rel in SITE_FILES:
+            return self.serve_file(HERE, rel, html=rel.endswith(".html"))
+        for d in SITE_DIRS:
+            if rel.startswith(d):
+                return self.serve_file(HERE / d.rstrip("/"), rel[len(d):])
         # картинки и файлы заданий из банков (../ege_bank/… превращается в /ege_bank/…)
         parts = rel.split("/")
         if len(parts) >= 2 and parts[0].endswith("_bank"):
@@ -332,10 +410,10 @@ class Handler(BaseHTTPRequestHandler):
             if parts[1] == "raw":
                 return self.err(404, "нет такого файла")
             if in_assets or ext in BANK_EXT:
-                return self.serve_file(BIBLIO, rel)
+                return self.serve_file(BIBLIO / parts[0], "/".join(parts[1:]))
         return self.err(404, "нет такого файла")
 
-    def serve_file(self, root: Path, rel):
+    def serve_file(self, root: Path, rel, html=False):
         root = root.resolve()
         p = (root / rel).resolve()
         try:
@@ -351,7 +429,10 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
-        extra = {"ETag": etag, "Cache-Control": "no-cache"}
+        extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
+        if html:
+            extra["X-Frame-Options"] = "DENY"
+            extra["Referrer-Policy"] = "same-origin"
         if p.suffix.lower() not in (".html", ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".woff2"):
             name = p.name
             extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote_rfc(name)
@@ -392,9 +473,12 @@ class Handler(BaseHTTPRequestHandler):
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
         return c[name].value if name in c else None
 
-    @staticmethod
-    def student_cookie(token):
-        return f"egest={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={STUDENT_COOKIE_DAYS * 86400}"
+    def student_cookie(self, token):
+        return f"egest={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={STUDENT_COOKIE_DAYS * 86400}{self.cookie_attrs()}"
+
+    def wait_msg(self, sec):
+        m = max(1, round(sec / 60))
+        return f"Слишком много неверных попыток. Подождите {m} мин."
 
     def student(self, data=None):
         tok = self.headers.get("X-Token") or (data or {}).get("token") or self.cookie("egest")
@@ -419,8 +503,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True, "server": True})
 
         if path == "/api/login" and method == "POST":
+            ip = self.client_ip()
+            wait = THROTTLE.blocked("invite", ip)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
             code = re.sub(r"\s+", "", str(data.get("code") or ""))
-            if not hmac.compare_digest(code, db.setting("invite_code") or DEFAULT_INVITE):
+            if not hmac.compare_digest(code.encode(), (db.setting("invite_code") or DEFAULT_INVITE).encode()):
+                THROTTLE.fail("invite", ip)
                 time.sleep(1.0)
                 return self.err(403, "Неверный код приглашения")
             pretty, key = norm_name(data.get("name"))
@@ -449,7 +538,7 @@ class Handler(BaseHTTPRequestHandler):
                                   extra={"Set-Cookie": self.student_cookie(s["token"])})
 
         if path == "/api/logout" and method == "POST":
-            return self.send_json({"ok": True}, extra={"Set-Cookie": "egest=; Path=/; Max-Age=0"})
+            return self.send_json({"ok": True}, extra={"Set-Cookie": "egest=; Path=/; Max-Age=0" + self.cookie_attrs()})
 
         if path == "/api/progress" and method == "POST":
             s = self.student(data)
@@ -496,12 +585,18 @@ class Handler(BaseHTTPRequestHandler):
 
         # ----- учитель
         if path == "/api/admin/login" and method == "POST":
+            ip = self.client_ip()
+            wait = THROTTLE.blocked("admin", ip)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
             if check_pw(str(data.get("password") or ""), db.setting("admin_password")):
+                THROTTLE.ok("admin", ip)
                 tok = secrets.token_urlsafe(32)
                 db.x("INSERT INTO admin_sessions(token,expires) VALUES(?,?)", (tok, time.time() + ADMIN_SESSION_DAYS * 86400))
                 db.x("DELETE FROM admin_sessions WHERE expires<?", (time.time(),))
                 return self.send_json({"ok": True}, extra={
-                    "Set-Cookie": f"egeadm={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ADMIN_SESSION_DAYS * 86400}"})
+                    "Set-Cookie": f"egeadm={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ADMIN_SESSION_DAYS * 86400}{self.cookie_attrs()}"})
+            THROTTLE.fail("admin", ip)
             time.sleep(1.0)
             return self.err(403, "Неверный пароль")
 
@@ -522,7 +617,7 @@ class Handler(BaseHTTPRequestHandler):
             c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
             if "egeadm" in c:
                 db.x("DELETE FROM admin_sessions WHERE token=?", (c["egeadm"].value,))
-            return self.send_json({"ok": True}, extra={"Set-Cookie": "egeadm=; Path=/; Max-Age=0"})
+            return self.send_json({"ok": True}, extra={"Set-Cookie": "egeadm=; Path=/; Max-Age=0" + self.cookie_attrs()})
 
         if path == "/api/admin/students":
             rows = db.q("""
@@ -537,11 +632,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"students": [dict(r) for r in rows], "now": now})
 
         if path == "/api/admin/student":
-            sid = int(qs.get("id") or 0)
+            sid = to_int(qs.get("id"))
             s = db.q("SELECT id,name,created,last_seen,forecast,progress_ts FROM students WHERE id=?", (sid,), one=True)
             if not s:
                 return self.err(404, "ученик не найден")
-            frm = float(qs.get("from") or 0)
+            frm = to_float(qs.get("from"))
             att = db.q("SELECT * FROM attempts WHERE student_id=? AND ts>=? ORDER BY ts DESC LIMIT 5000", (sid, frm))
             APP.bank.ensure()
             out = []
@@ -560,7 +655,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"student": dict(s), "attempts": out, "forecast_history": fc_hist})
 
         if path == "/api/admin/feed":
-            since = float(qs.get("since") or 0)
+            since = to_float(qs.get("since"))
             rows = db.q("""SELECT a.*, s.name FROM attempts a JOIN students s ON s.id = a.student_id
                            WHERE a.ts > ? ORDER BY a.ts DESC LIMIT 300""", (since,))
             APP.bank.ensure()
@@ -581,12 +676,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/admin/export.csv":
             sid = qs.get("student")
-            frm = float(qs.get("from") or 0)
+            frm = to_float(qs.get("from"))
             args = [frm]
             sql = """SELECT a.*, s.name FROM attempts a JOIN students s ON s.id=a.student_id WHERE a.ts>=?"""
             if sid:
                 sql += " AND a.student_id=?"
-                args.append(int(sid))
+                args.append(to_int(sid))
             sql += " ORDER BY s.name, a.ts"
             rows = db.q(sql, args)
             buf = io.StringIO()
@@ -598,28 +693,36 @@ class Handler(BaseHTTPRequestHandler):
                 dt = datetime.fromtimestamp(a["ts"])
                 res = ("верно" if a["score"] == 1 else "верно со 2-й попытки" if a["score"] == 0.5
                        else "показал ответ" if a["gave_up"] else "ушёл после ошибки" if a["abandoned"] else "неверно")
-                w.writerow([a["name"], dt.strftime("%d.%m.%Y"), dt.strftime("%H:%M"), a["n"], a["task_id"].split(":", 1)[-1],
+                w.writerow([csv_cell(x) for x in [a["name"], dt.strftime("%d.%m.%Y"), dt.strftime("%H:%M"), a["n"], a["task_id"].split(":", 1)[-1],
                             a["bank"], (answers[0] if answers else "").replace("\n", " "),
                             (answers[1] if len(answers) > 1 else "").replace("\n", " "),
                             (a["correct"] or "").replace("\n", " | "), res,
-                            str(a["score"]).replace(".", ","), round((a["spent_ms"] or 0) / 1000), REASONS.get(a["reason"], a["reason"])])
+                            str(a["score"]).replace(".", ","), round((a["spent_ms"] or 0) / 1000), REASONS.get(a["reason"], a["reason"])]])
             body = ("﻿" + buf.getvalue()).encode("utf-8")
             name = "zhurnal.csv"
             return self.send_bytes(200, body, "text/csv; charset=utf-8",
                                    {"Content-Disposition": f"attachment; filename={name}", "Cache-Control": "no-store"})
 
         if path == "/api/admin/password" and method == "POST":
+            ip = self.client_ip()
+            wait = THROTTLE.blocked("admin", ip)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
             if not check_pw(str(data.get("old") or ""), db.setting("admin_password")):
+                THROTTLE.fail("admin", ip)
                 time.sleep(1.0)
                 return self.err(403, "Текущий пароль неверный")
             new = str(data.get("new") or "")
             if len(new) < 6:
                 return self.err(400, "Новый пароль — не короче 6 символов")
             db.setting("admin_password", hash_pw(new))
+            # остальные сессии учителя (например, на забытом компьютере) больше не действуют
+            cur_tok = self.cookie("egeadm") or ""
+            db.x("DELETE FROM admin_sessions WHERE token<>?", (cur_tok,))
             return self.send_json({"ok": True})
 
         if path == "/api/admin/student/rename" and method == "POST":
-            sid = int(data.get("id") or 0)
+            sid = to_int(data.get("id"))
             pretty, key = norm_name(data.get("name"))
             if not NAME_RE.match(pretty) or len(pretty.split()) < 2:
                 return self.err(400, "Нужны фамилия и имя")
@@ -632,7 +735,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True})
 
         if path == "/api/admin/student/delete" and method == "POST":
-            sid = int(data.get("id") or 0)
+            sid = to_int(data.get("id"))
             db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
             db.x("DELETE FROM students WHERE id=?", (sid,))
             return self.send_json({"ok": True})
@@ -656,6 +759,21 @@ class Handler(BaseHTTPRequestHandler):
 
 REASONS = {"new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
            "weak": "слабое место", "repeat": "повтор решённого", "": ""}
+
+
+def to_int(v):
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def to_float(v):
+    try:
+        x = float(v or 0)
+        return x if x == x and abs(x) < 1e12 else 0.0     # без NaN и бесконечности
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def quote_rfc(name):
