@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Тренажёр ЕГЭ · Информатика</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="style.css">
+<script defer src="vendor/katex/katex.min.js"></script>
+<script defer src="vendor/katex/contrib/auto-render.min.js"></script>
+<script src="data/bank.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-title">ЕГЭ · Информатика</span>
+      <span class="brand-sub">адаптивный тренажёр</span>
+    </div>
+
+    <div class="who" id="who" hidden>
+      <span class="who-name"><span class="who-label">Ученик</span><b id="whoName"></b></span>
+      <button type="button" class="link-btn" id="logoutBtn">Сменить</button>
+    </div>
+
+    <div class="banks" id="banks" hidden></div>
+
+    <label class="period">
+      <span>Задания</span>
+      <select id="period" title="Какие задания показывать: только нынешнего формата ЕГЭ, начиная с года или все"></select>
+    </label>
+
+    <button class="all-card" id="allCard" type="button">
+      <span class="all-title">Все задания</span>
+      <span class="all-count" id="allCount">0</span>
+      <i class="bar"><b id="allBar"></b></i>
+    </button>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="legend">
+      <span><i class="lg lg-weak"></i>слабо</span>
+      <span><i class="lg lg-mid"></i>в процессе</span>
+      <span><i class="lg lg-good"></i>освоено</span>
+      <span><i class="lg lg-dot"></i>повторить</span>
+    </div>
+
+    <div class="side-actions">
+      <button type="button" class="link-btn" id="exportBtn">Сохранить прогресс в файл</button>
+      <button type="button" class="link-btn" id="importBtn">Загрузить прогресс</button>
+      <button type="button" class="link-btn danger" id="resetBtn">Сбросить прогресс</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button type="button" class="forecast fc-empty" id="forecastBtn"></button>
+      <div class="scope-info" id="scopeInfo"></div>
+      <div class="session-info" id="sessionInfo"></div>
+    </header>
+    <section class="trainer" id="trainer" aria-live="polite"></section>
+  </main>
+</div>
+
+<div class="lightbox" id="lightbox" hidden><img alt=""></div>
+
+<div class="modal login-modal" id="loginModal" hidden>
+  <div class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <h2 class="fm-title" id="loginTitle">Вход в тренажёр</h2>
+    <p class="fm-note">Код приглашения выдаёт учитель. Фамилию и имя пишите полностью — так учитель увидит ваши результаты, а на другом компьютере прогресс продолжится.</p>
+    <form id="loginForm" class="login-form login-stack" autocomplete="on">
+      <label class="login-field">Код приглашения
+        <input class="inp" id="loginCode" name="code" inputmode="numeric" autocomplete="off" maxlength="40" required>
+      </label>
+      <label class="login-field">Фамилия и имя
+        <input class="inp" id="loginName" name="name" autocomplete="name" placeholder="Иванов Иван Иванович" maxlength="80" required>
+      </label>
+      <button class="btn primary" type="submit">Войти</button>
+    </form>
+    <div class="login-err" id="loginErr" role="alert"></div>
+  </div>
+</div>
+
+<div class="modal" id="forecastModal" hidden>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-label="Прогноз балла ЕГЭ">
+    <button type="button" class="fm-close" aria-label="Закрыть">×</button>
+    <div id="forecastBody"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

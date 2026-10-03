@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Панель учителя · Тренажёр ЕГЭ</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="admin.css">
+<script defer src="vendor/katex/katex.min.js"></script>
+<script defer src="vendor/katex/contrib/auto-render.min.js"></script>
+</head>
+<body class="admin">
+
+<section class="adm-login" id="loginView" hidden>
+  <form class="modal-panel adm-login-panel" id="admLoginForm">
+    <h1 class="fm-title">Панель учителя</h1>
+    <p class="fm-note">Пароль напечатан в окне сервера при первом запуске. Сменить его можно здесь в «Настройках» или командой <code>python server.py --password НОВЫЙ</code>.</p>
+    <div class="login-form">
+      <input class="inp" type="password" id="admPassword" placeholder="Пароль" autocomplete="current-password" required>
+      <button class="btn primary" type="submit">Войти</button>
+    </div>
+    <div class="login-err" id="admLoginErr" role="alert"></div>
+  </form>
+</section>
+
+<div class="adm-app" id="appView" hidden>
+  <header class="adm-top">
+    <div class="adm-brand">Панель учителя <span>тренажёр ЕГЭ · информатика</span></div>
+    <nav class="adm-tabs" id="tabs">
+      <button type="button" data-tab="students" class="on">Ученики</button>
+      <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
+      <button type="button" data-tab="settings">Настройки</button>
+    </nav>
+    <div class="adm-top-right">
+      <a class="link-btn" href="./" target="_blank" rel="noopener">Открыть тренажёр</a>
+      <button type="button" class="link-btn" id="logoutBtn">Выйти</button>
+    </div>
+  </header>
+
+  <main class="adm-main">
+    <!-- Ученики -->
+    <section class="adm-view" id="view-students">
+      <div class="adm-toolbar">
+        <h2 class="adm-h">Ученики <span class="adm-count" id="studentsCount"></span></h2>
+        <input class="inp adm-search" id="studentSearch" placeholder="Поиск по ФИО">
+        <a class="btn" id="exportAll" href="api/admin/export.csv">Скачать журнал всех (CSV)</a>
+      </div>
+      <div class="adm-table-wrap">
+        <table class="adm-table" id="studentsTable">
+          <thead><tr>
+            <th data-sort="name">Ученик</th>
+            <th data-sort="last">Был(а)</th>
+            <th data-sort="today" class="num">Сегодня</th>
+            <th data-sort="week" class="num">За 7 дней</th>
+            <th data-sort="total" class="num">Всего</th>
+            <th data-sort="acc" class="num">Верно с 1-й</th>
+            <th data-sort="bad_week" class="num">Ошибок за 7 дней</th>
+            <th data-sort="forecast" class="num">Прогноз</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="adm-empty" id="studentsEmpty" hidden>Пока никто не заходил. Ученики появятся здесь, когда откроют тренажёр и введут ФИО.</p>
+    </section>
+
+    <!-- Карточка ученика -->
+    <section class="adm-view" id="view-student" hidden>
+      <div class="adm-toolbar">
+        <button type="button" class="btn ghost" id="backBtn">← Все ученики</button>
+        <h2 class="adm-h" id="stName"></h2>
+        <div class="adm-actions">
+          <select class="adm-select" id="stPeriod">
+            <option value="1">Сегодня</option>
+            <option value="7" selected>7 дней</option>
+            <option value="30">30 дней</option>
+            <option value="0">Всё время</option>
+          </select>
+          <a class="btn" id="stExport" href="#">CSV</a>
+          <button type="button" class="btn ghost" id="stRename">Переименовать</button>
+          <button type="button" class="btn ghost danger" id="stDelete">Удалить</button>
+        </div>
+      </div>
+      <div class="adm-cards" id="stCards"></div>
+
+      <h3 class="adm-h3">По номерам <span class="adm-hint">клик — показать только этот номер в журнале</span></h3>
+      <div class="adm-nums" id="stNums"></div>
+
+      <h3 class="adm-h3">По дням</h3>
+      <div class="adm-days" id="stDays"></div>
+
+      <h3 class="adm-h3" id="journalTitle">Журнал</h3>
+      <div class="adm-filters" id="stFilters">
+        <button type="button" data-f="all" class="on">Все</button>
+        <button type="button" data-f="bad">Ошибки</button>
+        <button type="button" data-f="ok">Верно</button>
+        <span class="adm-numfilter" id="numFilter" hidden></span>
+      </div>
+      <div class="adm-table-wrap">
+        <table class="adm-table adm-journal" id="stJournal">
+          <thead><tr><th>Когда</th><th class="num">№</th><th>Задание</th><th>Ответ ученика</th><th>Правильный</th><th>Итог</th><th class="num">Время</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="adm-empty" id="journalEmpty" hidden>За выбранный период записей нет.</p>
+    </section>
+
+    <!-- Лента -->
+    <section class="adm-view" id="view-feed" hidden>
+      <div class="adm-toolbar">
+        <h2 class="adm-h">Лента <span class="adm-hint">все ответы учеников, обновляется сама каждые 20 секунд</span></h2>
+      </div>
+      <div class="adm-table-wrap">
+        <table class="adm-table adm-journal" id="feedTable">
+          <thead><tr><th>Когда</th><th>Ученик</th><th class="num">№</th><th>Задание</th><th>Ответ ученика</th><th>Правильный</th><th>Итог</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="adm-empty" id="feedEmpty" hidden>Ответов пока нет.</p>
+    </section>
+
+    <!-- Настройки -->
+    <section class="adm-view" id="view-settings" hidden>
+      <h2 class="adm-h">Настройки</h2>
+      <div class="adm-settings">
+        <div class="adm-box">
+          <h3 class="adm-h3">Как ученикам открыть тренажёр</h3>
+          <p>Адрес для учеников: <code id="siteUrl"></code></p>
+          <p class="fm-note">Если открываете панель по адресу <code>localhost</code>, ученикам нужен адрес этого компьютера в сети — он напечатан в окне сервера («Для учеников в сети»).</p>
+          <p class="fm-note" id="infoLine"></p>
+        </div>
+        <form class="adm-box" id="inviteForm">
+          <h3 class="adm-h3">Код приглашения</h3>
+          <p class="fm-note">Без него ученик не войдёт на сайт. Скажите код классу; если он разошёлся дальше — поменяйте. Уже вошедшие ученики остаются в системе.</p>
+          <div class="login-form">
+            <input class="inp" id="inviteCode" autocomplete="off" maxlength="40" required>
+            <button class="btn primary" type="submit">Сохранить</button>
+          </div>
+          <div class="login-err" id="inviteMsg"></div>
+        </form>
+        <form class="adm-box" id="pwForm">
+          <h3 class="adm-h3">Сменить пароль</h3>
+          <input class="inp" type="password" id="pwOld" placeholder="Текущий пароль" autocomplete="current-password" required>
+          <input class="inp" type="password" id="pwNew" placeholder="Новый пароль (от 6 символов)" autocomplete="new-password" minlength="6" required>
+          <button class="btn primary" type="submit">Сохранить</button>
+          <div class="login-err" id="pwMsg"></div>
+        </form>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="modal" id="taskModal" hidden>
+  <div class="modal-panel adm-task-panel" role="dialog" aria-modal="true" aria-label="Задание">
+    <button type="button" class="fm-close" aria-label="Закрыть">×</button>
+    <div id="taskBody"></div>
+  </div>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>
