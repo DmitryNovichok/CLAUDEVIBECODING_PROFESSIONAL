@@ -73,7 +73,7 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
 .res-gave { color: var(--review); background: var(--review-soft); border-color: rgba(240, 138, 60, .3); }
 
 .acc-bar { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.acc-bar i { display: inline-block; width: 56px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.acc-bar i { display: inline-block; width: 56px; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
 .acc-bar b { display: block; height: 100%; border-radius: 3px; }
 
 .adm-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }

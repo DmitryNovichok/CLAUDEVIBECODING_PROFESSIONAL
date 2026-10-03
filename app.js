@@ -69,11 +69,39 @@
     return items[items.length - 1];
   }
   function toast(msg, ms = 2600) {
+    let box = document.getElementById('toasts');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'toasts';
+      box.className = 'toasts';
+      box.setAttribute('role', 'status');
+      box.setAttribute('aria-live', 'polite');
+      document.body.appendChild(box);
+    }
     const t = document.createElement('div');
     t.className = 'toast';
     t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), ms);
+    box.appendChild(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, ms);
+  }
+
+  /** Условие задания приходит из чужих банков: убираем всё, что может выполнить код. */
+  const BAD_TAGS = 'script,iframe,object,embed,frame,frameset,link,meta,base,form';
+  function safeHtml(html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = String(html || '');
+    tpl.content.querySelectorAll(BAD_TAGS).forEach(n => n.remove());
+    tpl.content.querySelectorAll('*').forEach(el => {
+      for (const a of Array.from(el.attributes)) {
+        const name = a.name.toLowerCase();
+        if (name.startsWith('on') || name === 'srcdoc' || name === 'formaction') { el.removeAttribute(a.name); continue; }
+        if (['href', 'src', 'xlink:href', 'action', 'poster', 'background'].includes(name)
+            && /^\s*(javascript|vbscript|data:text\/html)/i.test(a.value.replace(/[\u0000-\u001f\s]+/g, ''))) {
+          el.removeAttribute(a.name);
+        }
+      }
+    });
+    return tpl.innerHTML;
   }
 
   // ------------------------------------------------------------ хранилище
@@ -84,6 +112,30 @@
   const readJSON = key => { if (!storage) return null; try { return JSON.parse(storage.getItem(key)); } catch (e) { return null; } };
   const writeJSON = (key, v) => { if (!storage) return; try { storage.setItem(key, JSON.stringify(v)); } catch (e) { /* переполнено */ } };
   const freshProgress = () => ({ v: 1, step: 0, tasks: {}, nums: {}, topics: {}, reviews: {}, log: [] });
+
+  // ------------------------------------------------------------ тема и панель на телефоне
+  const THEME_STORE = 'egeTrainer.theme';
+  const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+  const effectiveTheme = () => document.documentElement.dataset.theme || (mqDark.matches ? 'dark' : 'light');
+  function applyThemeColor() {
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.content = effectiveTheme() === 'light' ? '#f6f7f9' : '#111113';
+  }
+  applyThemeColor();
+  if (mqDark.addEventListener) mqDark.addEventListener('change', applyThemeColor);
+  $('#themeBtn').addEventListener('click', () => {
+    const next = effectiveTheme() === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    if (storage) try { storage.setItem(THEME_STORE, next); } catch (e) { /* не сохранится */ }
+    applyThemeColor();
+  });
+
+  const isNarrow = () => window.matchMedia('(max-width: 860px)').matches;
+  function setSideOpen(open) {
+    $('.sidebar').classList.toggle('open', open);
+    $('#sideToggle').setAttribute('aria-expanded', String(open));
+  }
+  $('#sideToggle').addEventListener('click', () => setSideOpen(!$('.sidebar').classList.contains('open')));
 
   // ------------------------------------------------------------ вход до загрузки заданий
   async function loginRequest(body, token) {
@@ -537,7 +589,7 @@
         <span class="head-chips">${chip}</span>
       </div>
       ${line ? `<p class="reason">${line}</p>` : ''}
-      ${cur.group ? '<div class="gq-list" id="cond"></div>' : `<article class="cond" id="cond">${t.html}</article>`}
+      ${cur.group ? '<div class="gq-list" id="cond"></div>' : `<article class="cond" id="cond">${safeHtml(t.html)}</article>`}
       ${files}
       ${cur.group ? `<div class="answer answer-group">
         <div class="answer-label">На каждый вопрос — две попытки. Проверить можно все сразу или по одному.</div>
@@ -551,6 +603,7 @@
       </div>`}`;
 
     if (cur.group) buildGroupLayout(t);
+    dropDuplicateFileLinks($('#cond'), t.att || []);
     decorateCondition($('#cond'));
     if (!t.parts && markQuestions($('#cond'), t.n)) {
       const lab = $('.answer-label');
@@ -644,7 +697,7 @@
   function buildGroupLayout(t) {
     const list = $('#cond');
     const tmp = document.createElement('div');
-    tmp.innerHTML = t.html;
+    tmp.innerHTML = safeHtml(t.html);
     const r = findSections(tmp);
     const parts = cur.parts.map((x, i) => ({ x, i, n: x.p.n }));
     const byQ = new Map();
@@ -689,6 +742,19 @@
       list.appendChild(card(String(o.n), nodes, o.i));
       list.insertAdjacentHTML('beforeend', partAnswerHtml(o.x, o.i, false));
     }
+  }
+
+  /** «Скачать 9.xlsСкачать 9.ods» в тексте дублирует кнопки файлов под условием — убираем из текста. */
+  function dropDuplicateFileLinks(el, att) {
+    if (!el || !att.length) return;
+    const norm = h => { try { return decodeURIComponent(new URL(h, location.href).pathname); } catch (e) { return h; } };
+    const hrefs = new Set(att.map(a => norm(a.href)));
+    $$('a[href]', el).forEach(a => {
+      if (!hrefs.has(norm(a.getAttribute('href')))) return;
+      const parent = a.parentElement;
+      a.remove();
+      if (parent && parent !== el && !parent.textContent.trim() && !parent.querySelector('img,table')) parent.remove();
+    });
   }
 
   function decorateCondition(el) {
@@ -737,8 +803,8 @@
     }
     a.innerHTML = `
       <button class="btn primary" id="checkBtn" type="button">Проверить<kbd>Enter</kbd></button>
-      <button class="btn" id="giveUpBtn" type="button">Не знаю — показать ответ</button>
-      ${cur.attempt === 0 ? '<button class="btn ghost" id="skipBtn" type="button">Пропустить</button>' : ''}`;
+      <button class="btn" id="giveUpBtn" type="button" title="Показать правильный ответ (засчитается как ошибка)">Показать ответ</button>
+      ${cur.attempt === 0 ? '<button class="btn ghost" id="skipBtn" type="button" title="Пропустить без штрафа">Пропустить →</button>' : ''}`;
     $('#checkBtn').addEventListener('click', check);
     $('#giveUpBtn').addEventListener('click', giveUp);
     const sk = $('#skipBtn');
@@ -794,7 +860,6 @@
   function payloadFor(obj, extra) {
     return Object.assign({ task: obj.id, reason: cur.why.type, spent_ms: Date.now() - cur.started }, extra);
   }
-  const checkPayload = extra => payloadFor(cur.task, extra);
   async function callCheck(obj, extra) {              // может выбросить ошибку сети
     if (!SERVER) return localVerify(obj, extra);
     return api('check', payloadFor(obj, extra));
@@ -871,7 +936,7 @@
     if (score === 1) html = '<span class="gp-ok">Верно</span>';
     else if (score === 0.5) html = '<span class="gp-ok">Верно со второй попытки</span>';
     else html = `<span class="gp-bad">${gaveUp ? 'Ответ' : 'Неверно. Правильный ответ'}:</span> ${answerView(right)}`;
-    if (sol) html += `<details class="solution"><summary>Решение</summary><div class="cond">${sol}</div></details>`;
+    if (sol) html += `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(sol)}</div></details>`;
     box.querySelector('.gpart-fb').innerHTML = html;
     const sd = box.querySelector('.solution .cond');
     if (sd) decorateCondition(sd);
@@ -986,14 +1051,7 @@
     record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null);
     ui.currentId = null;
     save();
-    if (SERVER && student) {
-      const body = checkPayload({ answers: cur.answers, abandoned: true, token: student.token });
-      if (useBeacon && navigator.sendBeacon) {
-        navigator.sendBeacon('api/check', new Blob([JSON.stringify(body)], { type: 'text/plain' }));
-      } else {
-        api('check', body).catch(() => {});
-      }
-    }
+    sendAbandon(cur.task, cur.answers, useBeacon);
   }
 
   function finish(score, gaveUp, res) {
@@ -1019,7 +1077,7 @@
     }
     if (t.link) links.push(`<a href="${esc(t.link)}" target="_blank" rel="noopener">Задание на сайте источника</a>`);
     const extra = (links.length ? `<div class="fb-links">${links.join('')}</div>` : '')
-      + (solution ? `<details class="solution"><summary>Решение</summary><div class="cond">${solution}</div></details>` : '');
+      + (solution ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(solution)}</div></details>` : '');
 
     const streak = currentStreak();
     if (score === 1) {
@@ -1154,7 +1212,7 @@
       last.s = f.score;
     } else P.fc.push({ d: k, s: f.score });
     if (P.fc.length > 120) P.fc.splice(0, P.fc.length - 120);
-    writeJSON(STORE, P);
+    writeJSON(storeKey(), P);
   }
   function weekAgo() {
     if (!P.fc || !P.fc.length) return null;
@@ -1364,6 +1422,7 @@
     }).join('');
 
     renderPeriod();
+    $('#sideToggleLabel').textContent = ui.scope === 'all' ? 'Все задания' : `№ ${numLabel(ui.scope)}`;
 
     // переключатель банков
     const bEl = $('#banks');
@@ -1376,6 +1435,7 @@
 
   function setScope(s) {
     if (s !== 'all') s = scopeOf(s);
+    if (isNarrow()) setSideOpen(false);
     if (ui.scope === s) return;
     ui.scope = s;
     save();

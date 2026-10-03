@@ -39,12 +39,49 @@
   const WEEKDAYS = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
 
   function toast(msg) {
+    let box = document.getElementById('toasts');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'toasts';
+      box.className = 'toasts';
+      box.setAttribute('role', 'status');
+      document.body.appendChild(box);
+    }
     const t = document.createElement('div');
     t.className = 'toast';
     t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 2600);
+    box.appendChild(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, 2600);
   }
+
+  /** Текст задания из чужих банков: без скриптов и обработчиков событий. */
+  function safeHtml(html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = String(html || '');
+    tpl.content.querySelectorAll('script,iframe,object,embed,frame,frameset,link,meta,base,form').forEach(n => n.remove());
+    tpl.content.querySelectorAll('*').forEach(el => {
+      for (const a of Array.from(el.attributes)) {
+        const name = a.name.toLowerCase();
+        if (name.startsWith('on') || name === 'srcdoc' || name === 'formaction') el.removeAttribute(a.name);
+        else if (['href', 'src', 'xlink:href', 'action'].includes(name)
+          && /^(javascript|vbscript|data:text\/html)/i.test(a.value.replace(/[\u0000-\u001f\s]+/g, ''))) el.removeAttribute(a.name);
+      }
+    });
+    return tpl.innerHTML;
+  }
+
+  // тема — общая с тренажёром
+  (() => {
+    const btn = document.getElementById('themeBtn');
+    if (!btn) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    btn.addEventListener('click', () => {
+      const curTheme = document.documentElement.dataset.theme || (mq.matches ? 'dark' : 'light');
+      const next = curTheme === 'light' ? 'dark' : 'light';
+      document.documentElement.dataset.theme = next;
+      try { localStorage.setItem('egeTrainer.theme', next); } catch (e) { /* не сохранится */ }
+    });
+  })();
 
   async function api(path, body) {
     const r = await fetch('api/admin/' + path, {
@@ -407,10 +444,10 @@
       const rows = String(t.ans || '').split('\n').filter(Boolean);
       $('#taskBody').innerHTML = `
         <div class="adm-task-meta"><span class="num-badge">${t.n}</span>${esc(BANK_NAMES[t.bank] || t.bank)} · ${esc(idOf(t.id))}${t.src ? ' · ' + esc(t.src) : ''}${t.link ? ` · <a href="${esc(t.link)}" target="_blank" rel="noopener">на сайте источника</a>` : ''}</div>
-        <article class="cond">${t.html}</article>
+        <article class="cond">${safeHtml(t.html)}</article>
         ${(t.att || []).length ? `<div class="files"><span>Файлы:</span>${t.att.map(a => `<a class="file" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.name)}</a>`).join('')}</div>` : ''}
         <div class="feedback show ok adm-task-ans"><div class="fb-title">Ответ</div><div class="right-answer" style="display:inline-block">${rows.map(esc).join('<br>')}</div></div>
-        ${t.sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${t.sol}</div></details>` : ''}`;
+        ${t.sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(t.sol)}</div></details>` : ''}`;
       $('#taskModal').hidden = false;
       $$('#taskBody .cond table').forEach(tb => {
         const w = document.createElement('div'); w.className = 'table-wrap';
