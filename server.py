@@ -595,9 +595,29 @@ class Handler(BaseHTTPRequestHandler):
             if in_assets or ext in BANK_EXT:
                 bdir = find_bank(parts[0])
                 if not bdir:
-                    return self.err(404, "нет такого файла")
+                    return self.not_found(f"папка {parts[0]} не найдена (см. python server.py --banks)")
                 return self.serve_file(bdir, "/".join(parts[1:]))
-        return self.err(404, "нет такого файла")
+        return self.not_found()
+
+    def not_found(self, disk_path=None):
+        """Файла нет. В окне сервера — полный путь на диске (чтобы было видно, где искали),
+        в браузере — понятная страница, а не голый JSON."""
+        if disk_path is not None:
+            print(f"[нет файла] {unquote(urlparse(self.path).path)} → {disk_path}", flush=True)
+        if "text/html" not in (self.headers.get("Accept") or ""):
+            return self.err(404, "нет такого файла")
+        import html as _h
+        shown = _h.escape(unquote(urlparse(self.path).path))
+        where = f"<p>Сервер искал его здесь: <code>{_h.escape(str(disk_path))}</code></p>" if disk_path is not None else ""
+        body = f"""<!doctype html><meta charset="utf-8"><title>Файл не найден</title>
+<style>body{{font:16px/1.55 system-ui,sans-serif;max-width:720px;margin:48px auto;padding:0 16px;color:#1b1d22;background:#f6f7f9}}
+code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}}a{{color:#4b67e0}}
+@media(prefers-color-scheme:dark){{body{{color:#ececef;background:#111113}}code{{background:#24242a}}a{{color:#7f98f7}}}}</style>
+<h1>Файл не найден</h1><p>Запрошен <code>{shown}</code>.</p>{where}
+<p>Если это картинка или файл к заданию: проверьте, что этот файл есть в папке банка. Если банк пересобирали
+или переносили, пересоберите его (<code>python build.py</code>) и перезапустите сервер. Папку с банками можно указать:
+<code>python server.py --banks "C:\путь\к\Biblio"</code>.</p><p><a href="/">← В тренажёр</a></p>"""
+        return self.send_bytes(404, body.encode("utf-8"), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
 
     def serve_file(self, root: Path, rel, html=False):
         root = root.resolve()
@@ -607,7 +627,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self.err(404, "нет такого файла")
         if not p.is_file():
-            return self.err(404, "нет такого файла")
+            return self.not_found(p)
         st = p.stat()
         etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
         if self.headers.get("If-None-Match") == etag:
