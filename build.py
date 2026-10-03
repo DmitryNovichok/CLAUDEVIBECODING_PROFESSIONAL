@@ -1050,18 +1050,30 @@ class Builder:
 
 
 # ---------------------------------------------------------------- main
+def find_root(banks):
+    """Папка с банками, если --root не задан: рядом с тренажёром, выше по папкам или в Biblio там."""
+    cands, a = [], HERE
+    for _ in range(4):
+        cands += [a.parent, a.parent / "Biblio"]
+        a = a.parent
+    for c in cands:
+        if any((c / b).is_dir() for b in banks):
+            return c
+    return HERE.parent
+
+
 def main():
     ap = argparse.ArgumentParser(description="Сборка банка заданий для тренажёра")
-    ap.add_argument("--root", default=str(HERE.parent), help="папка Biblio (по умолчанию — родительская)")
+    ap.add_argument("--root", help="папка Biblio с банками (по умолчанию ищется рядом с тренажёром и выше)")
     ap.add_argument("--bank", action="append", help="имя папки банка (можно несколько раз)")
     ap.add_argument("--site", default=str(HERE), help="папка сайта (где лежит index.html)")
     ap.add_argument("--standalone", action="store_true",
                     help="скопировать картинки и файлы в <site>/media, чтобы сайт не зависел от банков")
     args = ap.parse_args()
 
-    root = Path(args.root).resolve()
-    site = Path(args.site).resolve()
     banks = args.bank or DEFAULT_BANKS
+    root = Path(args.root).resolve() if args.root else find_root(banks).resolve()
+    site = Path(args.site).resolve()
     b = Builder(site, args.standalone)
 
     all_tasks, bank_meta = [], []
