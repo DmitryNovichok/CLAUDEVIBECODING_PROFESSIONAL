@@ -381,6 +381,11 @@ kbd {
 .cond .linked-task > p:first-child { color: var(--muted); font-size: 13px; margin-bottom: .5em; }
 .cond .katex { font-size: 1.05em; }
 
+.img-missing {
+  display: inline-block; margin: 4px 0; padding: 8px 12px; border-radius: 8px; font-size: 13.5px; line-height: 1.45;
+  color: var(--text); background: var(--review-soft); border: 1px dashed rgba(240, 138, 60, .5);
+}
+.img-missing b { color: var(--review); font-weight: 600; }
 .files { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--muted); }
 .file {
   display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 8px;

@@ -716,7 +716,7 @@
 
     if (cur.group) buildGroupLayout(t);
     dropDuplicateFileLinks($('#cond'), t.att || []);
-    decorateCondition($('#cond'));
+    decorateCondition($('#cond'), cur.task);
     if (!t.parts && markQuestions($('#cond'), t.n)) {
       const lab = $('.answer-label');
       lab.innerHTML = `<b>Ответ на задание ${t.n}</b>` + (cur.shape.type === 'single' ? '' : ' — ' + esc(answerLabel(cur.shape).replace(/^Ответ — /, '')));
@@ -869,7 +869,20 @@
     });
   }
 
-  function decorateCondition(el) {
+  /** Картинка не загрузилась: пробуем исходную ссылку (data-remote), иначе — понятная плашка. */
+  function onImageError(img, task) {
+    const alt = img.getAttribute('data-remote');
+    if (alt && /^https?:/i.test(alt) && img.getAttribute('src') !== alt) { img.src = alt; return; }
+    const s = document.createElement('span');
+    s.className = 'img-missing';
+    s.title = 'Нет файла ' + (img.getAttribute('src') || '');
+    s.innerHTML = `<b>Рисунок не загрузился.</b> ${task && task.link
+      ? `Он есть в <a href="${esc(task.link)}" target="_blank" rel="noopener">задании на сайте источника</a>.`
+      : 'Сообщите учителю.'}`;
+    img.replaceWith(s);
+  }
+
+  function decorateCondition(el, task) {
     $$('table', el).forEach(tb => {
       if (tb.parentElement && tb.parentElement.classList.contains('table-wrap')) return;
       const w = document.createElement('div');
@@ -879,12 +892,8 @@
     });
     $$('img', el).forEach(img => {
       img.addEventListener('click', () => openLightbox(img.currentSrc || img.src));
-      img.addEventListener('error', () => {
-        const s = document.createElement('span');
-        s.className = 'chip weak';
-        s.textContent = 'Рисунок не найден: ' + (img.getAttribute('src') || '');
-        img.replaceWith(s);
-      }, { once: true });
+      img.addEventListener('error', () => onImageError(img, task));
+      if (img.complete && !img.naturalWidth && img.getAttribute('src')) onImageError(img, task);   // ошибка случилась раньше
     });
     $$('a', el).forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
     renderMath(el);
@@ -2139,7 +2148,7 @@
       </div>`;
     $$('#trainer .answer-row[data-key]').forEach(row => fillRow(row, EX.ans[row.dataset.key]));
     dropDuplicateFileLinks($('#cond'), t.att || []);
-    decorateCondition($('#cond'));
+    decorateCondition($('#cond'), t);
     bindInputs(() => { if (!last) exGo(EX.cur + 1); });
     const first = $('#trainer .answer-row input');
     if (first && window.matchMedia('(min-width: 861px)').matches) first.focus({ preventScroll: true });

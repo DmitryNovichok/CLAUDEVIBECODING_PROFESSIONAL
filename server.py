@@ -228,6 +228,7 @@ class Bank:
         self.public_raw = b""
         self.etag = ""
         self._snips = {}
+        self.missing_dirs = []     # папки банков, на которые ссылаются картинки, но которых нет рядом
 
     def snippet(self, task_id):
         """Начало условия без разметки — чтобы в журнале было видно, что за задание."""
@@ -245,6 +246,19 @@ class Bank:
         snip = txt[:140]
         self._snips[task_id] = snip
         return snip
+
+    def check_media(self, text):
+        """Картинки и файлы заданий лежат в папках банков рядом с trainer (или в trainer/media после
+        build.py --standalone). Если их нет, в заданиях будет «Рисунок не найден» — предупреждаем сразу."""
+        missing = sorted(d for d in set(re.findall(r'\.\./([A-Za-z0-9_\-]+_bank)/', text)) if not (BIBLIO / d).is_dir())
+        if '"media/' in text or "'media/" in text or 'src=\\"media/' in text:
+            if not (HERE / "media").is_dir():
+                missing.append("trainer/media")
+        self.missing_dirs = missing
+        if missing:
+            print("! Не найдены папки с картинками и файлами заданий: " + ", ".join(missing), flush=True)
+            print(f"  Они должны лежать рядом с папкой тренажёра ({BIBLIO}).", flush=True)
+            print("  Или соберите банк так, чтобы всё лежало внутри тренажёра:  python build.py --standalone", flush=True)
 
     def ensure(self):
         try:
@@ -287,6 +301,7 @@ class Bank:
             self.etag = '"%x-%x"' % (int(mt), len(raw))
             self.mtime = mt
             print(f"[банк] загружено заданий: {len(pub_tasks)}", flush=True)
+            self.check_media(text)
         return True
 
 
@@ -1092,7 +1107,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/admin/info":
             n_tasks = len(APP.bank.tasks) if APP.bank.ensure() else 0
-            return self.send_json({"tasks": n_tasks, "bank_built": APP.bank.mtime,
+            return self.send_json({"tasks": n_tasks, "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
                                    "invite": db.setting("invite_code") or DEFAULT_INVITE,
                                    "students": db.q("SELECT COUNT(*) c FROM students", one=True)["c"],
                                    "attempts": db.q("SELECT COUNT(*) c FROM attempts", one=True)["c"]})

@@ -617,6 +617,13 @@ class Builder:
     def rewrite_html(self, h, bases, bank_dir, tid, fallback_imgs=(), remote_base=None):
         img_i = [0]
 
+        def remote_attr(url):
+            """Исходная ссылка на картинку: страница подставит её, если локального файла не окажется
+            (тренажёр запущен не рядом с банками и без --standalone)."""
+            if not url or not re.match(r"^https?://", url, re.I):
+                return ""
+            return f' data-remote="{H.escape(H.unescape(url), quote=True)}"'
+
         def fix_attr(tag, m):
             attr, q, val = m.groups()
             is_img = tag == "img" and attr.strip().lower() == "src"
@@ -633,11 +640,17 @@ class Builder:
                     p = self.by_url_hash(v, bank_dir, remote_base)
                     if p:
                         self.found_by["картинки по хешу ссылки"] += 1
-                        return f"{attr}={q}{self.link(p, bank_dir)}{q}"
+                        return f"{attr}={q}{self.link(p, bank_dir)}{q}" + ("" if self.standalone else remote_attr(v))
                 return f"{attr}={q}{v}{q}"
             p = self.resolve(v, bases, bank_dir, remote_base)
             if p:
-                return f"{attr}={q}{self.link(p, bank_dir)}{q}"
+                orig = ""
+                if is_img and not self.standalone:
+                    if fallback_imgs and idx < len(fallback_imgs) and fallback_imgs[idx]:
+                        orig = fallback_imgs[idx]
+                    elif remote_base and v.startswith("/"):
+                        orig = remote_base + v
+                return f"{attr}={q}{self.link(p, bank_dir)}{q}" + remote_attr(orig)
             new = None
             if is_img and fallback_imgs and idx < len(fallback_imgs) and fallback_imgs[idx]:
                 new = fallback_imgs[idx]
