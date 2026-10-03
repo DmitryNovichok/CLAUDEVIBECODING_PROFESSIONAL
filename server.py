@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import io
 import json
+import math
 import mimetypes
 import os
 import re
@@ -59,6 +60,22 @@ STUDENT_COOKIE_DAYS = 365
 # защита от перебора: столько неудачных попыток с одного адреса за окно — и пауза
 FAIL_WINDOW = 15 * 60
 FAIL_LIMIT = {"invite": 30, "admin": 10}   # код вводит весь класс с одного адреса школы — ему запас больше
+# «Показать ответ»: сначала нужно подумать, и показов в час не больше лимита.
+# Иначе, зная код, можно под выдуманным ФИО выкачать ответы на весь банк.
+THINK_SEC_DEFAULT = 40              # через сколько секунд после открытия задания можно открыть ответ
+THINK_SEC_HARD = 90                 # …для длинных задач 24–27
+REVEAL_PER_HOUR = 12                # показов ответа в час на ученика
+REVEAL_PER_HOUR_IP = 150            # …и на один адрес: против выдуманных ФИО (весь класс сидит за одним адресом школы)
+ATTEMPTS_PER_TASK = 2               # попыток на задание; считает сервер, а не страница
+OPEN_TTL = 6 * 3600                 # сколько помнить открытое задание
+# Вариант ЕГЭ
+EXAM_LIMIT_SEC = (3 * 60 + 55) * 60
+EXAM_PER_DAY = 3                    # вариантов в сутки на ученика
+EXAM_PER_DAY_IP = 60                # …и на адрес (класс за одним адресом)
+EXAM_MIN_SEC_FOR_ANSWERS = 20 * 60  # правильные ответы варианта — если над ним сидели хотя бы 20 минут
+# Перевод первичных баллов (0–29) в тестовые, ЕГЭ-2026 (как EGE.scale в app.js)
+EGE_SCALE = [0, 7, 14, 20, 27, 34, 40, 43, 46, 48, 51, 54, 56, 59, 62, 64, 67, 70, 72, 75,
+             78, 80, 83, 85, 88, 90, 93, 95, 98, 100]
 LOCKED_BANK = b'window.EGE_BANK = {"srv":true,"locked":true,"banks":[],"tasks":[]};\n'
 
 mimetypes.add_type("application/javascript", ".js")
@@ -85,6 +102,31 @@ def shape_of(ans):
     if nr >= 3:
         nr = max(nr, 10)
     return {"type": "grid", "rows": nr, "cols": cols}
+
+
+def think_sec(n):
+    return THINK_SEC_HARD if (n or 0) >= 24 else THINK_SEC_DEFAULT
+
+
+def ege_points(n):
+    return 2 if (n or 0) >= 26 else 1
+
+
+def answer_credit(n, expected, answer, cells=None):
+    """1 — верно, 0 — неверно. У №26 и 27 ответ из двух половин (два числа или две пары):
+    верна ровно одна половина — 0.5, на экзамене это 1 балл из 2."""
+    a = tokens(expected)
+    b = tokens(answer)
+    if a and a == b:
+        return 1.0
+    if (n or 0) < 26 or len(a) < 2 or len(a) % 2:
+        return 0.0
+    if cells is not None and len(cells) == len(a):       # пустые ячейки сохраняют позиции чисел
+        b = [(tokens(c) or [""])[0] for c in cells]
+    if len(b) != len(a):
+        return 0.0
+    h = len(a) // 2
+    return ((a[:h] == b[:h]) + (a[h:] == b[h:])) / 2
 
 
 def norm_name(name):
@@ -144,6 +186,35 @@ class Throttle:
 
 
 THROTTLE = Throttle()
+
+
+class Opened:
+    """Задания, которые ученик сейчас решает: когда открыл и что уже отвечал.
+    Число попыток и время на раздумье считает сервер — страница их подделать не может."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.m = {}
+
+    def get(self, sid, tid, create=True):
+        now = time.time()
+        with self.lock:
+            st = self.m.get((sid, tid))
+            if st and now - st["ts"] > OPEN_TTL:
+                st = None
+            if st is None and create:
+                st = self.m[(sid, tid)] = {"ts": now, "tries": [], "final": None}
+                if len(self.m) > 50000:
+                    for k in [k for k, v in self.m.items() if now - v["ts"] > OPEN_TTL]:
+                        del self.m[k]
+            return st
+
+    def reset(self, sid, tid):
+        with self.lock:
+            self.m[(sid, tid)] = {"ts": time.time(), "tries": [], "final": None}
+
+
+OPENED = Opened()
 
 
 # ================================================================ банк заданий
@@ -243,7 +314,29 @@ class DB:
             CREATE INDEX IF NOT EXISTS att_ts ON attempts(ts);
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS admin_sessions(token TEXT PRIMARY KEY, expires REAL);
+            CREATE TABLE IF NOT EXISTS reveal_log(
+                id INTEGER PRIMARY KEY, student_id INTEGER, ip TEXT, ts REAL, task_id TEXT,
+                granted INTEGER, why TEXT);
+            CREATE INDEX IF NOT EXISTS rev_student ON reveal_log(student_id, ts);
+            CREATE INDEX IF NOT EXISTS rev_ip ON reveal_log(ip, ts);
+            CREATE TABLE IF NOT EXISTS exams(
+                id TEXT PRIMARY KEY, student_id INTEGER, ip TEXT, started REAL, finished REAL,
+                items INTEGER, primary_score INTEGER, test_score INTEGER, result TEXT);
+            CREATE INDEX IF NOT EXISTS exams_student ON exams(student_id, started);
             """)
+            # новые поля в старых базах
+            for table, col, decl in (
+                    ("attempts", "rk", "TEXT"),            # ключ повторения, ради которого показано задание
+                    ("attempts", "part", "REAL"),          # доля баллов с 1-й попытки (№26, 27: 0.5 — одна половина)
+                    ("attempts", "grp", "TEXT"),           # задание 19–21, к которому относится вопрос
+                    ("attempts", "revealed", "INTEGER DEFAULT 0"),
+                    ("attempts", "exam", "TEXT"),
+                    ("attempts", "ip", "TEXT"),
+                    ("students", "prefs", "TEXT"),         # избранное, заметки, цель на день
+                    ("students", "fc", "TEXT"),            # прогноз по дням
+                    ("students", "last_ip", "TEXT")):
+                if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             c.commit()
 
     def q(self, sql, args=(), one=False):
@@ -311,8 +404,13 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def send_json(self, obj, code=200, extra=None):
-        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        self.send_bytes(code, body, "application/json; charset=utf-8", dict({"Cache-Control": "no-store"}, **(extra or {})))
+        body = json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        extra = dict({"Cache-Control": "no-store"}, **(extra or {}))
+        if len(body) > 16384 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            body = gzip.compress(body, 6)
+            extra["Content-Encoding"] = "gzip"
+            extra["Vary"] = "Accept-Encoding"
+        self.send_bytes(code, body, "application/json; charset=utf-8", extra)
 
     def err(self, code, msg):
         self.send_json({"error": msg}, code)
@@ -486,8 +584,59 @@ class Handler(BaseHTTPRequestHandler):
             return None
         s = APP.db.q("SELECT * FROM students WHERE token=?", (tok,), one=True)
         if s:
-            APP.db.x("UPDATE students SET last_seen=? WHERE id=?", (time.time(), s["id"]))
+            APP.db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (time.time(), self.client_ip(), s["id"]))
         return s
+
+    # ---------- журнал и показ ответов
+    def log_attempt(self, s, t, answers, score, *, gave_up=False, abandoned=False, reason="", rk=None,
+                    part=None, revealed=0, spent=None, exam=None):
+        return APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,
+                                               spent_ms,reason,rk,part,grp,revealed,exam,ip)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (s["id"], time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps(answers, ensure_ascii=False),
+                         t.get("ans", ""), score, int(gave_up), int(abandoned), spent, reason, rk, part,
+                         t.get("group"), int(revealed), exam, self.client_ip()))
+
+    def reveal_block(self, s, t, st):
+        """None — ответ можно показать; иначе {"why": "think"|"limit", "wait": секунд}."""
+        now = time.time()
+        wait = math.ceil(st["ts"] + think_sec(t.get("n")) - now)
+        if wait > 0:
+            return {"why": "think", "wait": wait}
+        for col, val, lim in (("student_id", s["id"], REVEAL_PER_HOUR), ("ip", self.client_ip(), REVEAL_PER_HOUR_IP)):
+            rows = APP.db.q(f"SELECT ts FROM reveal_log WHERE {col}=? AND granted=1 AND ts>? ORDER BY ts",
+                            (val, now - 3600))
+            if len(rows) >= lim:
+                return {"why": "limit", "wait": max(1, math.ceil(rows[len(rows) - lim]["ts"] + 3600 - now)), "per_hour": lim}
+        return None
+
+    def log_reveal(self, s, t, block):
+        APP.db.x("INSERT INTO reveal_log(student_id,ip,ts,task_id,granted,why) VALUES(?,?,?,?,?,?)",
+                 (s["id"], self.client_ip(), time.time(), t["id"], 0 if block else 1, (block or {}).get("why", "")))
+
+    @staticmethod
+    def with_answer(res, t):
+        res = dict(res)
+        res.pop("hidden", None)
+        res["answer"] = t.get("ans", "")
+        if t.get("sol"):
+            res["sol"] = t["sol"]
+        return res
+
+    @staticmethod
+    def rules():
+        return {"think": THINK_SEC_DEFAULT, "think_hard": THINK_SEC_HARD, "reveal_per_hour": REVEAL_PER_HOUR,
+                "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
+                "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS}
+
+    def me_payload(self, s):
+        def load(v, default):
+            try:
+                return json.loads(v) if v else default
+            except ValueError:
+                return default
+        return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": load(s["prefs"], None),
+                "fc": load(s["fc"], []), "rules": self.rules()}
 
     def is_admin(self):
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
@@ -522,20 +671,31 @@ class Handler(BaseHTTPRequestHandler):
                      (pretty, key, secrets.token_urlsafe(24), now, now))
                 s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
                 print(f"[ученик] новый: {pretty}", flush=True)
-            else:
-                db.x("UPDATE students SET last_seen=? WHERE id=?", (now, s["id"]))
-            prog = json.loads(s["progress"]) if s["progress"] else None
-            return self.send_json({"sid": s["id"], "name": s["name"], "token": s["token"],
-                                   "progress": prog, "progress_ts": s["progress_ts"]},
-                                  extra={"Set-Cookie": self.student_cookie(s["token"])})
+            db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
+            return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(s["token"])})
 
         if path == "/api/me":
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            prog = json.loads(s["progress"]) if s["progress"] else None
-            return self.send_json({"sid": s["id"], "name": s["name"], "token": s["token"], "progress": prog},
-                                  extra={"Set-Cookie": self.student_cookie(s["token"])})
+            return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(s["token"])})
+
+        if path == "/api/history":
+            # Прогресс ученика страница восстанавливает из журнала попыток — один источник правды
+            # для всех устройств, и подправить его в браузере нельзя.
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            APP.bank.ensure()
+            rows = db.q("""SELECT task_id, n, score, ts, reason, rk, part, grp, exam, answers FROM attempts
+                           WHERE student_id=? ORDER BY ts, id""", (s["id"],))
+            tasks = APP.bank.tasks
+            # [id, n, score, ts, reason, rk, part, grp, exam, пустой ответ в варианте]
+            h = [[r["task_id"], r["n"], r["score"], int(r["ts"] * 1000), r["reason"] or "", r["rk"] or "",
+                  r["part"], r["grp"] or (tasks.get(r["task_id"]) or {}).get("group") or "", 1 if r["exam"] else 0,
+                  1 if r["exam"] and r["answers"] in (None, "", "[]") else 0]
+                 for r in rows]
+            return self.send_json({"h": h})
 
         if path == "/api/logout" and method == "POST":
             return self.send_json({"ok": True}, extra={"Set-Cookie": "egest=; Path=/; Max-Age=0" + self.cookie_attrs()})
@@ -544,16 +704,30 @@ class Handler(BaseHTTPRequestHandler):
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            prog = data.get("progress")
-            if not isinstance(prog, dict):
-                return self.err(400, "нет данных")
+            # сам прогресс больше не присылается (он строится из журнала) — только прогноз и настройки
             fc = data.get("forecast")
-            fc = int(fc) if isinstance(fc, (int, float)) and 0 <= fc <= 100 else None
-            db.x("UPDATE students SET progress=?, progress_ts=?, forecast=COALESCE(?, forecast) WHERE id=?",
-                 (json.dumps(prog, ensure_ascii=False, separators=(",", ":")), time.time(), fc, s["id"]))
+            if isinstance(fc, (int, float)) and not isinstance(fc, bool) and 0 <= fc <= 100:
+                fc = int(fc)
+                try:
+                    hist = json.loads(s["fc"] or "[]")
+                except ValueError:
+                    hist = []
+                day = datetime.now().strftime("%Y-%m-%d")
+                if hist and hist[-1].get("d") == day:
+                    hist[-1]["s"] = fc
+                else:
+                    hist.append({"d": day, "s": fc})
+                db.x("UPDATE students SET forecast=?, fc=? WHERE id=?",
+                     (fc, json.dumps(hist[-120:], separators=(",", ":")), s["id"]))
+            prefs = data.get("prefs")
+            if isinstance(prefs, dict):
+                raw = json.dumps(prefs, ensure_ascii=False, separators=(",", ":"))
+                if len(raw) > 300_000:
+                    return self.err(413, "Слишком много заметок")
+                db.x("UPDATE students SET prefs=?, progress_ts=? WHERE id=?", (raw, time.time(), s["id"]))
             return self.send_json({"ok": True})
 
-        if path == "/api/check" and method == "POST":
+        if path in ("/api/open", "/api/check", "/api/reveal") and method == "POST":
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
@@ -562,26 +736,27 @@ class Handler(BaseHTTPRequestHandler):
             t = APP.bank.tasks.get(str(data.get("task") or ""))
             if not t:
                 return self.err(404, "задание не найдено — обновите страницу")
-            answers = [str(a)[:400] for a in (data.get("answers") or [])][:3]
-            gave_up = bool(data.get("gave_up"))
-            abandoned = bool(data.get("abandoned"))
-            last = answers[-1] if answers else ""
-            correct = bool(answers) and not gave_up and tokens(last) == tokens(t.get("ans", ""))
-            final = correct or len(answers) >= 2 or gave_up or abandoned
-            res = {"correct": correct, "final": final}
-            if final:
-                score = (1.0 if len(answers) == 1 else 0.5) if correct else 0.0
-                res["score"] = score
-                res["answer"] = t.get("ans", "")
-                if t.get("sol"):
-                    res["sol"] = t["sol"]
-                spent = data.get("spent_ms")
-                spent = int(spent) if isinstance(spent, (int, float)) and 0 <= spent < 864e5 else None
-                db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,spent_ms,reason)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                     (s["id"], time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps(answers, ensure_ascii=False),
-                      t.get("ans", ""), score, int(gave_up), int(abandoned), spent, str(data.get("reason") or "")[:20]))
-            return self.send_json(res)
+            if path == "/api/open":
+                return self.api_open(s, t)
+            if t.get("parts"):
+                return self.err(400, "вопросы 19–21 проверяются по отдельности")
+            if path == "/api/reveal":
+                return self.api_reveal(s, t)
+            return self.api_check(s, t, data)
+
+        if path == "/api/exam/start" and method == "POST":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            return self.api_exam_start(s)
+
+        if path == "/api/exam/finish" and method == "POST":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            return self.api_exam_finish(s, data)
 
         # ----- учитель
         if path == "/api/admin/login" and method == "POST":
@@ -607,6 +782,152 @@ class Handler(BaseHTTPRequestHandler):
 
         return self.err(404, "нет такого метода")
 
+    # ---------- задание: открыть, проверить, показать ответ
+    def api_open(self, s, t):
+        """Ученик открыл задание: с этого момента идёт время на раздумье.
+        Открыл заново, не закончив после неверной попытки, — засчитываем «ушёл после ошибки»,
+        иначе перезагрузкой страницы можно было бы получать новые попытки без конца."""
+        ids = [p["id"] for p in t["parts"]] if t.get("parts") else [t["id"]]
+        for tid in ids:
+            st = OPENED.get(s["id"], tid, create=False)
+            if st and st["final"] is None and st["tries"]:
+                self.log_attempt(s, APP.bank.tasks[tid], st["tries"], 0.0, abandoned=True,
+                                 reason=st.get("reason", ""), rk=st.get("rk"), part=st.get("part"))
+                OPENED.reset(s["id"], tid)
+            elif st is None or st["final"] is not None:
+                OPENED.reset(s["id"], tid)
+            # открыто и ещё без ответа (например, перезагрузили страницу) — время открытия не сбрасываем
+        st = OPENED.get(s["id"], ids[0])
+        return self.send_json({"ok": True, "think": think_sec(t.get("n")),
+                               "think_left": max(0, math.ceil(st["ts"] + think_sec(t.get("n")) - time.time()))})
+
+    def api_check(self, s, t, data):
+        st = OPENED.get(s["id"], t["id"])
+        if st["final"] is not None:          # повтор того же запроса (например, после обрыва связи)
+            return self.send_json(st["final"])
+        st["reason"] = str(data.get("reason") or "")[:20]
+        st["rk"] = str(data.get("rk") or "")[:200] or None
+        spent = data.get("spent_ms")
+        spent = int(spent) if isinstance(spent, (int, float)) and 0 <= spent < 864e5 else None
+        n = t.get("n") or 0
+
+        if data.get("abandoned"):
+            if not st["tries"]:              # пропустил, не отвечая, — без штрафа
+                OPENED.reset(s["id"], t["id"])
+                return self.send_json({"ok": True, "skipped": True})
+            self.log_attempt(s, t, st["tries"], 0.0, abandoned=True, reason=st["reason"], rk=st["rk"],
+                             part=st.get("part"), spent=spent)
+            st["final"] = {"correct": False, "final": True, "score": 0.0}
+            return self.send_json(st["final"])
+
+        gave_up = bool(data.get("gave_up"))
+        if not gave_up:
+            ans = str(data.get("answer") or "")[:400]
+            if not tokens(ans):
+                return self.err(400, "Пустой ответ")
+            cells = data.get("cells")
+            cells = [str(c)[:100] for c in cells[:40]] if isinstance(cells, list) else None
+            st["tries"].append(ans)
+            credit = answer_credit(n, t.get("ans", ""), ans, cells)
+            if len(st["tries"]) == 1:
+                st["part"] = credit          # на экзамене попытка одна — частичный балл считаем по первой
+            if credit == 1.0:
+                score = 1.0 if len(st["tries"]) == 1 else 0.5
+                self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
+                                 revealed=1, spent=spent)
+                st["final"] = self.with_answer({"correct": True, "final": True, "score": score, "part": st["part"]}, t)
+                return self.send_json(st["final"])
+            if len(st["tries"]) < ATTEMPTS_PER_TASK:
+                return self.send_json({"correct": False, "final": False, "attempts_left": ATTEMPTS_PER_TASK - len(st["tries"]),
+                                       "half": credit == 0.5})
+
+        # итог «не решено»: исчерпаны попытки или «Показать ответ»
+        block = self.reveal_block(s, t, st)
+        part = st.get("part", 0.0) if st["tries"] else 0.0
+        aid = self.log_attempt(s, t, st["tries"], 0.0, gave_up=gave_up, reason=st["reason"], rk=st["rk"],
+                               part=part, revealed=0 if block else 1, spent=spent)
+        self.log_reveal(s, t, block)
+        res = {"correct": False, "final": True, "score": 0.0, "part": part}
+        if block:
+            res["hidden"] = block
+        else:
+            res = self.with_answer(res, t)
+        st["final"] = res
+        st["aid"] = aid
+        return self.send_json(res)
+
+    def api_reveal(self, s, t):
+        """Ответ был скрыт (рано или исчерпан лимит) — показать, если теперь можно."""
+        st = OPENED.get(s["id"], t["id"], create=False)
+        if not st or not st["final"]:
+            return self.err(409, "Ответ открывается после попыток или кнопки «Показать ответ»")
+        if not st["final"].get("hidden"):
+            return self.send_json(st["final"])
+        block = self.reveal_block(s, t, st)
+        self.log_reveal(s, t, block)
+        if block:
+            return self.send_json({"hidden": block})
+        st["final"] = self.with_answer(st["final"], t)
+        if st.get("aid"):
+            APP.db.x("UPDATE attempts SET revealed=1 WHERE id=?", (st["aid"],))
+        return self.send_json(st["final"])
+
+    # ---------- вариант ЕГЭ
+    def api_exam_start(self, s):
+        db = APP.db
+        now = time.time()
+        ip = self.client_ip()
+        if db.q("SELECT COUNT(*) c FROM exams WHERE student_id=? AND started>?", (s["id"], now - 86400), one=True)["c"] >= EXAM_PER_DAY:
+            return self.err(429, f"Не больше {EXAM_PER_DAY} вариантов в сутки. Пока можно тренироваться по номерам.")
+        if db.q("SELECT COUNT(*) c FROM exams WHERE ip=? AND started>?", (ip, now - 86400), one=True)["c"] >= EXAM_PER_DAY_IP:
+            return self.err(429, "С этого адреса сегодня начато слишком много вариантов. Попробуйте завтра.")
+        eid = secrets.token_urlsafe(9)
+        db.x("INSERT INTO exams(id,student_id,ip,started) VALUES(?,?,?,?)", (eid, s["id"], ip, now))
+        return self.send_json({"exam_id": eid, "started": now, "limit": EXAM_LIMIT_SEC,
+                               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS})
+
+    def api_exam_finish(self, s, data):
+        db = APP.db
+        e = db.q("SELECT * FROM exams WHERE id=? AND student_id=?", (str(data.get("exam_id") or ""), s["id"]), one=True)
+        if not e:
+            return self.err(404, "Вариант не найден — начните новый")
+        if e["finished"]:
+            return self.send_json(json.loads(e["result"] or "{}"))
+        now = time.time()
+        spent = now - e["started"]
+        show = spent >= EXAM_MIN_SEC_FOR_ANSWERS
+        items = data.get("answers") if isinstance(data.get("answers"), list) else []
+        results, primary, seen, nums = [], 0, set(), set()
+        for it in items[:40]:
+            if not isinstance(it, dict):
+                continue
+            tid = str(it.get("task") or "")
+            t = APP.bank.tasks.get(tid)
+            if not t or t.get("parts") or tid in seen or t.get("n") in nums:
+                continue                      # по одному заданию на номер, как на экзамене
+            seen.add(tid)
+            n = t.get("n") or 0
+            nums.add(n)
+            ans = str(it.get("answer") or "")[:400]
+            cells = it.get("cells")
+            cells = [str(c)[:100] for c in cells[:40]] if isinstance(cells, list) else None
+            blank = not tokens(ans)
+            credit = 0.0 if blank else answer_credit(n, t.get("ans", ""), ans, cells)
+            pts = ege_points(n) if credit == 1.0 else (1 if credit == 0.5 else 0)
+            primary += pts
+            self.log_attempt(s, t, [] if blank else [ans], 1.0 if credit == 1.0 else 0.0, reason="exam",
+                             part=credit, revealed=int(show and not blank), exam=e["id"])
+            r = {"task": tid, "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank}
+            if show and not blank:
+                r["answer"] = t.get("ans", "")
+            results.append(r)
+        test = EGE_SCALE[min(primary, len(EGE_SCALE) - 1)]
+        out = {"results": results, "primary": primary, "test": test, "spent": int(spent), "shown": show,
+               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS}
+        db.x("UPDATE exams SET finished=?, items=?, primary_score=?, test_score=?, result=? WHERE id=?",
+             (now, len(results), primary, test, json.dumps(out, ensure_ascii=False), e["id"]))
+        return self.send_json(out)
+
     # ---------- API учителя
     def admin_api(self, method, path, qs, data):
         db = APP.db
@@ -626,14 +947,20 @@ class Handler(BaseHTTPRequestHandler):
                      SUM(a.score = 1) AS ok1, SUM(a.score = 0.5) AS ok2, SUM(a.score = 0) AS bad,
                      SUM(a.ts >= ?) AS today, SUM(a.ts >= ?) AS week,
                      SUM(a.ts >= ? AND a.score = 0) AS bad_week,
-                     MAX(a.ts) AS last_attempt
+                     MAX(a.ts) AS last_attempt,
+                     (SELECT COUNT(*) FROM reveal_log r WHERE r.student_id = s.id AND r.granted = 1 AND r.ts >= ?) AS rev_week,
+                     (SELECT COUNT(*) FROM reveal_log r WHERE r.student_id = s.id AND r.granted = 0 AND r.why = 'limit' AND r.ts >= ?) AS blocked_week,
+                     (SELECT test_score FROM exams e WHERE e.student_id = s.id AND e.finished IS NOT NULL
+                       ORDER BY e.finished DESC LIMIT 1) AS exam_last
               FROM students s LEFT JOIN attempts a ON a.student_id = s.id
-              GROUP BY s.id ORDER BY COALESCE(MAX(a.ts), s.last_seen) DESC""", (day0, now - 7 * 86400, now - 7 * 86400))
+              GROUP BY s.id ORDER BY COALESCE(MAX(a.ts), s.last_seen) DESC""",
+                        (day0, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400))
             return self.send_json({"students": [dict(r) for r in rows], "now": now})
 
         if path == "/api/admin/student":
             sid = to_int(qs.get("id"))
-            s = db.q("SELECT id,name,created,last_seen,forecast,progress_ts FROM students WHERE id=?", (sid,), one=True)
+            s = db.q("SELECT id,name,created,last_seen,forecast,progress_ts,last_ip,fc,progress FROM students WHERE id=?",
+                     (sid,), one=True)
             if not s:
                 return self.err(404, "ученик не найден")
             frm = to_float(qs.get("from"))
@@ -645,14 +972,25 @@ class Handler(BaseHTTPRequestHandler):
                 d["answers"] = json.loads(d["answers"] or "[]")
                 d["snip"] = APP.bank.snippet(d["task_id"])
                 out.append(d)
-            prog = db.q("SELECT progress FROM students WHERE id=?", (sid,), one=True)["progress"]
             fc_hist = []
-            if prog:
-                try:
-                    fc_hist = json.loads(prog).get("fc") or []
-                except Exception:
-                    pass
-            return self.send_json({"student": dict(s), "attempts": out, "forecast_history": fc_hist})
+            try:
+                fc_hist = json.loads(s["fc"]) if s["fc"] else (json.loads(s["progress"] or "{}").get("fc") or [])
+            except (ValueError, AttributeError):
+                pass
+            rev = db.q("""SELECT SUM(granted = 1) AS granted, SUM(granted = 0 AND why = 'limit') AS blocked,
+                                 SUM(granted = 0 AND why = 'think') AS early
+                          FROM reveal_log WHERE student_id=? AND ts>=?""", (sid, frm), one=True)
+            exams = db.q("""SELECT started, finished, primary_score, test_score, items FROM exams
+                            WHERE student_id=? AND finished IS NOT NULL ORDER BY finished DESC LIMIT 20""", (sid,))
+            same_ip = []
+            if s["last_ip"]:
+                same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
+                                                     (s["last_ip"], sid))]
+            student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
+            return self.send_json({"student": student, "attempts": out, "forecast_history": fc_hist,
+                                   "reveals": {k: rev[k] or 0 for k in ("granted", "blocked", "early")},
+                                   "exams": [dict(r) for r in exams], "same_ip": same_ip,
+                                   "rules": self.rules()})
 
         if path == "/api/admin/feed":
             since = to_float(qs.get("since"))
@@ -692,7 +1030,10 @@ class Handler(BaseHTTPRequestHandler):
                 answers = json.loads(a["answers"] or "[]")
                 dt = datetime.fromtimestamp(a["ts"])
                 res = ("верно" if a["score"] == 1 else "верно со 2-й попытки" if a["score"] == 0.5
-                       else "показал ответ" if a["gave_up"] else "ушёл после ошибки" if a["abandoned"] else "неверно")
+                       else "показал ответ" if a["gave_up"] else "ушёл после ошибки" if a["abandoned"]
+                       else "нет ответа" if a["reason"] == "exam" and not answers else "неверно")
+                if a["score"] == 0 and a["part"] == 0.5:
+                    res += " (верна половина — 1 балл из 2)"
                 w.writerow([csv_cell(x) for x in [a["name"], dt.strftime("%d.%m.%Y"), dt.strftime("%H:%M"), a["n"], a["task_id"].split(":", 1)[-1],
                             a["bank"], (answers[0] if answers else "").replace("\n", " "),
                             (answers[1] if len(answers) > 1 else "").replace("\n", " "),
@@ -728,7 +1069,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.err(400, "Нужны фамилия и имя")
             other = db.q("SELECT id FROM students WHERE name_key=? AND id<>?", (key, sid), one=True)
             if other:      # такое ФИО уже есть — объединяем журналы
-                db.x("UPDATE attempts SET student_id=? WHERE student_id=?", (other["id"], sid))
+                for table in ("attempts", "reveal_log", "exams"):
+                    db.x(f"UPDATE {table} SET student_id=? WHERE student_id=?", (other["id"], sid))
                 db.x("DELETE FROM students WHERE id=?", (sid,))
                 return self.send_json({"ok": True, "merged_into": other["id"]})
             db.x("UPDATE students SET name=?, name_key=? WHERE id=?", (pretty, key, sid))
@@ -736,7 +1078,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/admin/student/delete" and method == "POST":
             sid = to_int(data.get("id"))
-            db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
+            for table in ("attempts", "reveal_log", "exams"):
+                db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
             db.x("DELETE FROM students WHERE id=?", (sid,))
             return self.send_json({"ok": True})
 
@@ -757,7 +1100,8 @@ class Handler(BaseHTTPRequestHandler):
         return self.err(404, "нет такого метода")
 
 
-REASONS = {"new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
+REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное",
+           "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
            "weak": "слабое место", "repeat": "повтор решённого", "": ""}
 
 

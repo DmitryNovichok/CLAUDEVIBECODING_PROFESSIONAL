@@ -136,3 +136,8 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
   .adm-top-right { margin-left: 0; }
   .adm-day { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* подозрительная активность: много показанных ответов */
+.susp { padding: 0 6px; font-size: 11px; vertical-align: 1px; cursor: help; }
+.adm-ip { margin: -4px 0 14px; font-size: 12.5px; color: var(--muted); }
+.adm-ip[hidden] { display: none; }

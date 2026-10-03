@@ -488,6 +488,104 @@ kbd {
 }
 .toast.out { opacity: 0; }
 
+/* ---------------- избранное, вариант, поиск ---------------- */
+.mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mode-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 10px; min-width: 0;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; text-align: left;
+  transition: background .12s, border-color .12s;
+}
+.mode-card:hover { background: var(--card-hover); }
+.mode-title { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.mode-sub { font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mode-card.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.mode-card.on .mode-sub { color: rgba(255, 255, 255, .85); }
+.exam-card { border-color: rgba(127, 152, 247, .45); }
+.search { display: flex; gap: 6px; }
+.search .inp { flex: 1; min-width: 0; font: 13px/1.2 inherit; font-family: inherit; padding: 7px 10px; }
+.search .icon-btn { height: auto; }
+
+.task-tools { display: inline-flex; gap: 6px; }
+.head-chips + .task-tools { margin-left: 0; }
+.task-head .head-chips { margin-left: auto; }
+.fav-btn { font-size: 16px; line-height: 1; }
+.fav-btn.on { color: var(--mid); border-color: rgba(217, 169, 59, .5); }
+.note-btn { font-size: 13px; }
+.note-btn span { font-size: 12.5px; }
+.note-btn.on { color: var(--accent); border-color: rgba(127, 152, 247, .5); }
+.note-box { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.note-box[hidden] { display: none; }
+.note-box label { font-size: 13px; color: var(--muted); }
+.note-box label span { color: var(--faint); font-size: 12px; margin-left: 6px; }
+.note-box textarea { width: 100%; resize: vertical; min-height: 70px; font: 14.5px/1.5 inherit; font-family: inherit; }
+
+/* ответ скрыт: время на раздумье или лимит */
+.hidden-ans { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 2px; }
+.hidden-ans .ha-text { flex: 1 1 260px; font-size: 13.5px; color: var(--text); }
+.hidden-ans .btn { padding: 6px 12px; font-size: 13px; }
+
+/* цель на день */
+.goal {
+  display: inline-flex; flex-direction: column; gap: 4px; align-items: stretch; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 3px 6px; color: var(--muted); font-size: 13px;
+}
+.goal:hover { border-color: var(--border); background: var(--card); }
+.goal b { color: var(--text); font-weight: 600; }
+.goal-of { color: var(--faint); }
+.goal-bar { display: block; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.goal-bar b { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.goal.done .goal-bar b { background: var(--good); }
+.session-info { position: relative; }
+.chip.streak { color: var(--review); border-color: rgba(240, 138, 60, .35); background: var(--review-soft); }
+.goal-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; min-width: 170px; padding: 6px;
+  display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow);
+}
+.goal-menu[hidden] { display: none; }
+.goal-menu-h { font-size: 11.5px; color: var(--muted); padding: 4px 8px 6px; }
+.goal-menu button { text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 8px; cursor: pointer; font-size: 13.5px; }
+.goal-menu button:hover { background: var(--card-hover); }
+.goal-menu button.on { color: var(--accent); font-weight: 600; }
+
+/* график прогноза */
+.fm-chart-wrap { margin: 4px 0 14px; display: flex; flex-direction: column; gap: 6px; }
+.fc-chart { position: relative; }
+.fc-chart svg { display: block; width: 100%; height: 170px; overflow: visible; touch-action: pan-y; }
+.fc-grid { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fc-thr { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.fc-ax { fill: var(--muted); font-size: 11px; }
+.fc-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.fc-area { fill: var(--accent-soft); stroke: none; }
+.fc-dot, .fc-hover { fill: var(--accent); stroke: var(--panel); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.fc-cross { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fc-tip {
+  position: absolute; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none; white-space: nowrap;
+  background: var(--card); border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px 9px; font-size: 12.5px; box-shadow: var(--shadow);
+  display: flex; gap: 6px; align-items: baseline;
+}
+.fc-tip[hidden] { display: none; }
+.fc-tip span { color: var(--muted); }
+.fc-chart-empty { margin: 0; }
+
+/* вариант ЕГЭ */
+.ex-nav { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 16px; }
+.ex-nav-btn {
+  min-width: 34px; height: 30px; padding: 0 6px; border-radius: 7px; cursor: pointer; font-size: 13px; font-variant-numeric: tabular-nums;
+  background: var(--card); border: 1px solid var(--border); color: var(--muted);
+}
+.ex-nav-btn.wide { min-width: 52px; }
+.ex-nav-btn.done { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+.ex-nav-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.ex-clock { font: 600 18px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--text); }
+.ex-clock.warn { color: var(--weak); }
+.ex-rules { margin: 4px 0 18px; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; }
+.ex-result .fm-title { margin-bottom: 14px; }
+.ex-table .ans { font-family: var(--mono); font-size: 13.5px; white-space: normal; }
+.ex-pts { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ex-table .lv-good .ex-pts { color: var(--good); }
+.ex-table .lv-mid .ex-pts { color: var(--mid); }
+.ex-table .lv-weak .ex-pts { color: var(--weak); }
+
 /* ---------------- mobile ---------------- */
 @media (max-width: 860px) {
   html { scroll-padding-top: 64px; }
@@ -511,6 +609,10 @@ kbd {
   .actions .btn { flex: 1 1 auto; }
   .actions .btn.ghost { flex: 0 0 auto; }
   .btn kbd { display: none; }
+  .note-btn span { display: none; }
+  .task-head .head-chips { margin-left: 0; }
+  .task-tools { margin-left: auto; }
+  .goal-menu { right: auto; left: 0; }
   .scope-title { font-size: 16px; }
   .forecast { padding: 6px 10px; }
   .modal { padding: 12px 8px; }
