@@ -1,0 +1,76 @@
+Сборка: 2026-10-01T03:09:33
+Всего заданий: 8903
+Задания 19–21 (одна игра — одно задание): 3 вопроса — 353, 2 вопроса — 4, 1 вопрос — 11
+Дубли между банками (не вошли, оставлено задание из банка выше по списку): kompege_bank — 85, openfipi_bank — 177
+
+№           ege_bank    kompege_bank   openfipi_bank       всего
+1                 93             239              85         417
+2                 65             230             149         444
+3                 66             223              44         333
+4                 66             221              57         344
+5                104             292              59         455
+6                 74             223              34         331
+7                102             295             114         511
+8                103             331             121         555
+9                 78             217              48         343
+10                81             159              10         250
+11                61             228              67         356
+12                36              66               5         107
+13                63             275              82         420
+14                75             313              79         467
+15               139             272              81         492
+16                67             255              27         349
+17                71             231              32         334
+18                67             228              48         343
+19                85             231              34         350
+20                 0               0               0           0
+21                 0               0               0           0
+22                63             208              36         307
+23                 7              65               1          73
+24                70             308              47         425
+25                74             306              44         424
+26                73             235              35         343
+27                 3             119               8         130
+
+С файлами: 2631   С темой: 1786   Со сложностью: 3915
+
+Год экзамена (по подписи задания или дате появления):
+  ege_bank: нет: 1786
+  kompege_bank: 2020: 2, 2021: 357, 2022: 1524, 2023: 1333, 2024: 914, 2025: 919, 2026: 594, 2027: 127
+  openfipi_bank: 2021: 22, 2022: 689, 2023: 178, 2024: 109, 2025: 164, 2026: 138, 2027: 47
+Устаревшие (старый тип задания или год до смены формата): №2: 1, №7: 1, №13: 162
+Тип по тексту для №6, 13, 22, 27 (cur — новый, old — старый, ? — не распознан): №6: ? 33, cur 298; №13: ? 338, cur 82; №22: ? 2, cur 305; №27: ? 5, cur 125
+Значения difficulty в КомпЕГЭ: 0: 3575, 1: 1816, 2: 438, 3: 27
+Найдено локально: по пути — 7713, по хешу ссылки — 2066
+
+Пропущено:
+  номер вне 1–27 или не указан: 1165
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\100\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\1000\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\1001\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\10018\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\1002\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\10020\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\1003\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\10033\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\1004\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\1005\task.json
+  нет ответа: 86
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\31372\task.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\06\5853eD-0d6b0b.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\07\1c2BB8-4e04bb.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\07\Bcc85F-cf5d30.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\07\c5e407-acafe2.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\08\194B16-e56469.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\08\e22714-dd35b5.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\09\4De1c2-191f0b.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\09\74A8Fe-844030.json
+      C:\Users\Dmitry\Documents\DmitryProject\Biblio\openfipi_bank\tasks\09\Fe0870-7bd9f4.json
+
+Значения number у пропущенных по номеру: 127: 244, 112: 214, 110: 191, 113: 142, 117: 97, 106: 90, 122: 81, 109: 54, 103: 52
+  пример C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\100\task.json:
+    {"id": "02fe8d92-2f36-40f0-a4a5-982edaaf38c0", "number": 117, "taskId": 100, "comment": "Джобс 07.09.2020", "key": "7896 225", "hide": false, "videotype": "yt", "video": "gTgHaHHb4mE", "timecode": "4271", "user_id": "", "files": [], "subTask": [], "table": {"cols": 2, "rows": 1}, "difficulty": 0, "createdAt": "2022-06-26T15:59:09.590Z", "updatedAt": "2022-06-26T15:59:09.590Z"}
+  пример C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\1000\task.json:
+    {"id": "658b5365-4d4c-4059-a96b-df65bc82a1dc", "number": 112, "taskId": 1000, "comment": "100 базовых задач Е. Джобс", "key": "48", "hide": false, "videotype": "yt", "video": "N-cwlD3YgvE", "timecode": "", "user_id": "", "files": [], "subTask": [], "table": {}, "difficulty": 0, "createdAt": "2022-06-26T15:59:09.715Z", "updatedAt": "2025-08-24T10:08:53.218Z"}
+  пример C:\Users\Dmitry\Documents\DmitryProject\Biblio\kompege_bank\tasks\1001\task.json:
+    {"id": "fcd97dd9-48ef-42c0-ad45-224f2055aa7c", "number": 112, "taskId": 1001, "comment": "100 базовых задач Е. Джобс", "key": "224", "hide": false, "videotype": "yt", "video": "VmsJKYSPahQ", "timecode": "", "user_id": "", "files": [], "subTask": [], "table": {}, "difficulty": 0, "createdAt": "2022-06-26T15:59:09.716Z", "updatedAt": "2025-08-24T10:08:53.218Z"}

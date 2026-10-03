@@ -1,0 +1,15 @@
+[Unit]
+Description=Тренажёр ЕГЭ по информатике
+After=network.target
+
+[Service]
+User=trainer
+Group=trainer
+WorkingDirectory=/opt/trainer
+ExecStart=/usr/bin/python3 /opt/trainer/server.py --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

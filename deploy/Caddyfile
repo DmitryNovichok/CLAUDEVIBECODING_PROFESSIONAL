@@ -1,0 +1,6 @@
+# Замените trainer.example.ru на свой домен (его A-запись должна указывать на IP сервера).
+# Caddy сам получит и будет продлевать HTTPS-сертификат.
+trainer.example.ru {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8000
+}
