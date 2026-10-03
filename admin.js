@@ -99,11 +99,22 @@
 
   // ------------------------------------------------------------ результат попытки
   function resultOf(a) {
-    if (a.score === 1) return { cls: 'res-ok', text: 'верно', bad: false };
+    const exam = a.reason === 'exam';
+    const half = a.score === 0 && a.part === 0.5 ? ' · ½' : '';
+    if (a.score === 1) return { cls: 'res-ok', text: exam ? 'вариант: верно' : 'верно', bad: false };
     if (a.score === 0.5) return { cls: 'res-half', text: 'со 2-й попытки', bad: false };
-    if (a.gave_up) return { cls: 'res-gave', text: 'показал ответ', bad: true };
-    if (a.abandoned) return { cls: 'res-bad', text: 'ушёл после ошибки', bad: true };
-    return { cls: 'res-bad', text: 'неверно', bad: true };
+    if (exam) return { cls: 'res-bad', text: (a.answers && a.answers.length ? 'вариант: неверно' : 'вариант: нет ответа') + half, bad: true };
+    if (a.gave_up) return { cls: 'res-gave', text: (a.revealed ? 'показал ответ' : 'сдался, ответ скрыт') + half, bad: true };
+    if (a.abandoned) return { cls: 'res-bad', text: 'ушёл после ошибки' + half, bad: true };
+    return { cls: 'res-bad', text: 'неверно' + half, bad: true };
+  }
+  /** Подозрительно много показанных ответов: так выкачивают ответы, а не решают. */
+  function suspicion(s) {
+    const why = [];
+    if (s.blocked_week) why.push(`упирался в лимит показа ответов ${s.blocked_week} ${plural(s.blocked_week, 'раз', 'раза', 'раз')}`);
+    if (s.rev_week >= 30) why.push(`открыл ${s.rev_week} ответов за неделю`);
+    else if (s.week >= 10 && s.rev_week / s.week >= 0.5) why.push(`ответ открыт в ${pct(s.rev_week / s.week)}% заданий`);
+    return why;
   }
   function answersCell(a) {
     const arr = a.answers || [];
@@ -200,7 +211,8 @@
     $('#studentsTable tbody').innerHTML = list.map(s => {
       const acc = s.total ? s.ok1 / s.total : null;
       const color = acc == null ? '' : acc >= 0.8 ? 'var(--good)' : acc >= 0.5 ? 'var(--mid)' : 'var(--weak)';
-      return `<tr class="click" data-id="${s.id}">
+      const susp = suspicion(s);
+      return `<tr class="click${susp.length ? ' susp-row' : ''}" data-id="${s.id}">
         <td class="name">${esc(s.name)}</td>
         <td class="muted">${fmtWhen(s.last)}</td>
         <td class="num">${s.today || ''}</td>
@@ -208,6 +220,8 @@
         <td class="num">${s.total || 0}</td>
         <td class="num">${acc == null ? '<span class="muted">—</span>' : `<span class="acc-bar"><i><b style="width:${pct(acc)}%;background:${color}"></b></i>${pct(acc)}%</span>`}</td>
         <td class="num">${s.bad_week ? `<span style="color:var(--weak)">${s.bad_week}</span>` : ''}</td>
+        <td class="num">${s.rev_week || ''}${susp.length ? ` <span class="chip weak susp" title="${esc('Подозрительно: ' + susp.join('; '))}">⚠</span>` : ''}</td>
+        <td class="num">${s.exam_last != null ? s.exam_last : '<span class="muted">—</span>'}</td>
         <td class="num">${s.forecast != null ? `<b>${s.forecast}</b>` : '<span class="muted">—</span>'}</td>
       </tr>`;
     }).join('');
@@ -262,6 +276,8 @@
       const dlt = fh[fh.length - 1].s - old.s;
       trend = dlt ? `${dlt > 0 ? '▲ +' : '▼ '}${dlt} с ${old.d.split('-').reverse().slice(0, 2).join('.')}` : 'без изменений';
     }
+    const rv = st.reveals || { granted: 0, blocked: 0, early: 0 };
+    const exams = st.exams || [];
     const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
     $('#stCards').innerHTML = [
       card('Решено заданий', A.length, A.length ? `${ok1} верно · ${ok2} со 2-й · ${bad} ошибок` : 'за выбранный период'),
@@ -270,7 +286,22 @@
       card('Прогноз ЕГЭ', s.forecast != null ? s.forecast : '—', s.forecast != null ? trend : 'появится после 10 ответов'),
       card('Время на задания', spent ? fmtMinutes(spent) : '—', A.length && spent ? `в среднем ${fmtSpent(spent / A.length)} на задание` : ''),
       card('Был(а) на сайте', `<span style="font-size:16px">${fmtWhen(s.last_seen)}</span>`, `в тренажёре с ${fmtDate(s.created)}`),
+      card('Показал ответ', rv.granted, [
+        rv.blocked ? `<span style="color:var(--weak)">упёрся в лимит: ${rv.blocked}</span>` : '',
+        rv.early ? `просил раньше времени: ${rv.early}` : '',
+        A.length ? `${pct(rv.granted / A.length)}% заданий` : ''].filter(Boolean).join(' · '),
+        rv.blocked || (A.length >= 10 && rv.granted / A.length >= 0.5) ? 'var(--weak)' : ''),
+      card('Варианты ЕГЭ', exams.length ? exams[0].test_score : '—', exams.length
+        ? `последний ${fmtDate(exams[0].finished)}: ${exams[0].primary_score} перв. · ${fmtMinutes((exams[0].finished - exams[0].started) * 1000)}${exams.length > 1 ? ` · всего ${exams.length}, лучший ${Math.max(...exams.map(e => e.test_score))}` : ''}`
+        : 'ещё не решал'),
     ].join('');
+    const ipLine = $('#stIp');
+    if (ipLine) {
+      ipLine.hidden = !s.last_ip;
+      ipLine.innerHTML = s.last_ip ? `Последний вход с адреса <code>${esc(s.last_ip)}</code>${(st.same_ip || []).length
+        ? `. С него же входили: ${st.same_ip.map(esc).join(', ')}. Для класса за одним адресом школы это нормально; много новых ФИО с одного адреса — повод проверить.`
+        : ''}` : '';
+    }
 
     // по номерам
     const per = {};

@@ -63,6 +63,8 @@
             <th data-sort="total" class="num">Всего</th>
             <th data-sort="acc" class="num">Верно с 1-й</th>
             <th data-sort="bad_week" class="num">Ошибок за 7 дней</th>
+            <th data-sort="rev_week" class="num" title="Сколько раз за 7 дней открыл правильный ответ, не решив">Показал ответ</th>
+            <th data-sort="exam_last" class="num" title="Тестовый балл за последний вариант ЕГЭ">Вариант</th>
             <th data-sort="forecast" class="num">Прогноз</th>
           </tr></thead>
           <tbody></tbody>
@@ -89,6 +91,7 @@
         </div>
       </div>
       <div class="adm-cards" id="stCards"></div>
+      <p class="adm-hint adm-ip" id="stIp" hidden></p>
 
       <h3 class="adm-h3">По номерам <span class="adm-hint">клик — показать только этот номер в журнале</span></h3>
       <div class="adm-nums" id="stNums"></div>

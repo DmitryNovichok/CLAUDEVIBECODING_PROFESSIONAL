@@ -51,7 +51,23 @@
       <i class="bar"><b id="allBar"></b></i>
     </button>
 
+    <div class="mode-row">
+      <button class="mode-card" id="favCard" type="button" title="Задания, отмеченные звёздочкой">
+        <span class="mode-title">★ Избранное</span><span class="mode-sub" id="favCount">0</span>
+      </button>
+      <button class="mode-card exam-card" id="examCard" type="button" title="27 заданий с таймером, проверка в конце — как на экзамене">
+        <span class="mode-title">Вариант ЕГЭ</span><span class="mode-sub" id="examSub">3 ч 55 мин</span>
+      </button>
+    </div>
+
     <div class="grid" id="grid"></div>
+
+    <form class="search" id="searchForm" role="search" autocomplete="off">
+      <input class="inp" id="searchInp" type="search" placeholder="Найти: № КомпЕГЭ или код ФИПИ" aria-label="Найти задание по номеру КомпЕГЭ или коду ФИПИ" maxlength="80">
+      <button class="icon-btn" type="submit" aria-label="Найти">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      </button>
+    </form>
 
     <div class="legend">
       <span><i class="lg lg-weak"></i>слабо</span>
