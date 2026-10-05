@@ -616,7 +616,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 <h1>Файл не найден</h1><p>Запрошен <code>{shown}</code>.</p>{where}
 <p>Если это картинка или файл к заданию: проверьте, что этот файл есть в папке банка. Если банк пересобирали
 или переносили, пересоберите его (<code>python build.py</code>) и перезапустите сервер. Папку с банками можно указать:
-<code>python server.py --banks "C:\путь\к\Biblio"</code>.</p><p><a href="/">← В тренажёр</a></p>"""
+<code>python server.py --banks "C:\\путь\\к\\Biblio"</code>.</p><p><a href="/">← В тренажёр</a></p>"""
         return self.send_bytes(404, body.encode("utf-8"), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
 
     def serve_file(self, root: Path, rel, html=False):
