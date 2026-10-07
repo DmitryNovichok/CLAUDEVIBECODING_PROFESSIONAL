@@ -914,7 +914,13 @@
   /** «Скачать 9.xlsСкачать 9.ods» в тексте дублирует кнопки файлов под условием — убираем из текста. */
   function dropDuplicateFileLinks(el, att) {
     if (!el || !att.length) return;
-    const norm = h => { try { return decodeURIComponent(new URL(h, location.href).pathname); } catch (e) { return h; } };
+    const norm = h => {
+      try {
+        const path = decodeURIComponent(new URL(h, location.href).pathname);
+        const m = path.match(/\/files\/([0-9a-f]+)\//);     // безликая ссылка сервера: сравниваем по коду
+        return m ? m[1] : path;
+      } catch (e) { return h; }
+    };
     const hrefs = new Set(att.map(a => norm(a.href)));
     $$('a[href]', el).forEach(a => {
       if (!hrefs.has(norm(a.getAttribute('href')))) return;

@@ -27,6 +27,7 @@ import json
 import math
 import mimetypes
 import os
+import posixpath
 import re
 import secrets
 import socket
@@ -34,11 +35,12 @@ import sqlite3
 import sys
 import threading
 import time
+import zipfile
 from datetime import datetime, timedelta
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent            # папка trainer
 BIBLIO = HERE.parent                              # где обычно лежат банки: Biblio/trainer + Biblio/*_bank
@@ -285,18 +287,31 @@ SOURCE_LINK_RE = re.compile(r'<a\b[^>]*href="https?://(?:[^"/]*\.)?(?:kompege\.r
                             re.I | re.S)
 
 
-def public_html(h):
-    return SOURCE_LINK_RE.sub(r"\1", h or "")
+# Картинки и файлы из банков: в путях есть код задания ФИПИ (assets/0079D4-…/, files/ege/3/02143E.zip),
+# по нему на openfipi находится ответ. Ученику они отдаются по безликим ссылкам files/<код>/<имя>.
+LOCAL_REF_RE = re.compile(r'(\b(?:src|href)=")((?:\.\./|media/)[^"]+)(")', re.I)
+LOCAL_ZIP_LINK_RE = re.compile(r'<a\b[^>]*href="((?:\.\./|media/)[^"]+\.zip)"[^>]*>(.*?)</a>', re.I | re.S)
+REMOTE_ATTR_RE = re.compile(r'\sdata-remote="[^"]*devinf\.ru[^"]*"', re.I)
+FIPI_CODE_RE = re.compile(r"(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*\d)[0-9A-Fa-f]{6}(?![0-9A-Za-z])")
+MAX_ZIP_MEMBER = 60 * 1024 * 1024
 
 
-def public_att(att, n):
-    """Имена файлов вроде 3_7831_1698406948.xlsx содержат номер задания на КомпЕГЭ — убираем длинные числа."""
-    out = []
-    for a in att or []:
-        stem, ext = os.path.splitext(str(a.get("name") or ""))
-        stem = re.sub(r"[_\-\s]*\d{4,}", "", stem).strip(" _-") or str(n)
-        out.append(dict(a, name=stem + ext))
-    return out
+def clean_file_name(name, n):
+    """Имя файла для ученика: без номера задания КомпЕГЭ (длинные числа) и кода ФИПИ (6 шестнадцатеричных знаков)."""
+    stem, ext = os.path.splitext(posixpath.basename(str(name or "").replace("\\", "/")))
+    stem = FIPI_CODE_RE.sub("", stem)                  # сначала код ФИПИ (02143E), потом длинные числа
+    stem = re.sub(r"[_\-\s]*\d{4,}", "", stem).strip(" _-.") or str(n or "файл")
+    return stem + ext
+
+
+def zip_display_name(info):
+    """Имена в архивах без флага UTF-8 обычно в cp866 (архивы из Windows)."""
+    if info.flag_bits & 0x800:
+        return info.filename
+    try:
+        return info.filename.encode("cp437").decode("cp866")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return info.filename
 
 
 class Bank:
@@ -307,6 +322,9 @@ class Bank:
         self.secret = (secret or secrets.token_hex(16)).encode()
         self.pub_of = {}
         self.real_of = {}
+        self.files = {}            # безликая ссылка -> (ссылка из банка, файл внутри zip или None)
+        self.zipped = set()
+        self.broken = []
         self.mtime = None
         self.lock = threading.Lock()
         self.tasks = {}
@@ -331,6 +349,91 @@ class Bank:
         if pub in self.real_of:
             return self.real_of[pub]
         return pub if pub in self.tasks else None
+
+    # ---------- картинки и файлы заданий для ученика
+    def ref_path(self, href):
+        """Файл на диске для ссылки из банка (../ege_bank/…, media/…) или None."""
+        rel = posixpath.normpath("/" + unquote(str(href).split("#")[0].split("?")[0])).lstrip("/")
+        parts = rel.split("/")
+        if parts[0] == "media":
+            root, rest = HERE / "media", parts[1:]
+        else:
+            k = next((i for i, x in enumerate(parts[:-1]) if x.endswith("_bank")), None)
+            root = find_bank(parts[k]) if k is not None else None
+            if not root:
+                return None
+            rest = parts[k + 1:]
+        if not rest or any(x in ("", ".", "..") for x in rest):
+            return None
+        root = root.resolve()
+        p = (root / "/".join(rest)).resolve()
+        try:
+            p.relative_to(root)
+        except ValueError:
+            return None
+        return p
+
+    def file_url(self, key, name, target):
+        tok = hmac.new(self.secret, ("f:" + key).encode("utf-8"), hashlib.sha256).hexdigest()[:20]
+        self.files[tok] = target
+        return f"files/{tok}/{quote(name)}"
+
+    def zip_members(self, href):
+        p = self.ref_path(href)
+        if not p or not p.is_file():
+            return []
+        if not zipfile.is_zipfile(p):
+            self.broken.append(str(p))         # вместо архива сохранилась, например, страница сайта
+            return []
+        try:
+            with zipfile.ZipFile(p) as z:
+                return [i for i in z.infolist()
+                        if not i.is_dir() and not i.filename.startswith("__MACOSX/")
+                        and not posixpath.basename(i.filename).startswith(".") and i.file_size <= MAX_ZIP_MEMBER][:30]
+        except (zipfile.BadZipFile, OSError, ValueError):
+            return []
+
+    def public_att(self, att, n):
+        """Файлы к заданию: безликие ссылки, имена без номеров, архивы ФИПИ — сразу файлами из архива."""
+        out, used = [], set()
+
+        def uniq(name):
+            base, ext = os.path.splitext(name)
+            k = 2
+            while name.lower() in used:
+                name = f"{base}_{k}{ext}"
+                k += 1
+            used.add(name.lower())
+            return name
+
+        for a in att or []:
+            href = str(a.get("href") or "")
+            if not href or re.match(r"^[a-z][a-z0-9+.-]*:", href, re.I):      # файл на другом сайте
+                out.append(dict(a, name=uniq(clean_file_name(a.get("name") or href, n))))
+                continue
+            if href.lower().split("?")[0].endswith(".zip"):
+                members = self.zip_members(href)
+                if members:
+                    self.zipped.add(href)
+                    for m in members:
+                        nm = uniq(clean_file_name(zip_display_name(m), n))
+                        out.append({"name": nm, "href": self.file_url(href + "#" + m.filename, nm, (href, m.filename))})
+                    continue
+            nm = uniq(clean_file_name(a.get("name") or href, n))
+            out.append({"name": nm, "href": self.file_url(href, nm, (href, None))})
+        return out
+
+    def public_html(self, h):
+        h = SOURCE_LINK_RE.sub(r"\1", h or "")
+        h = REMOTE_ATTR_RE.sub("", h)
+        # ссылки на распакованные архивы в тексте не нужны — файлы и так лежат под заданием
+        h = LOCAL_ZIP_LINK_RE.sub(lambda m: m.group(2) if m.group(1) in self.zipped else m.group(0), h)
+
+        def sub(m):
+            href = m.group(2)
+            ext = posixpath.splitext(href.split("?")[0].split("#")[0])[1]
+            return m.group(1) + self.file_url(href, "file" + ext, (href, None)) + m.group(3)
+        return LOCAL_REF_RE.sub(sub, h)
 
     def find(self, q):
         """Задание по номеру КомпЕГЭ (или ссылке на него), коду ФИПИ, id. Возвращает настоящий id задания-страницы."""
@@ -399,15 +502,18 @@ class Bank:
             data = json.loads(text[start:end + 1])
             self.tasks = {}
             self._snips = {}
+            self.files = {}
+            self.zipped = set()
+            self.broken = []
             pub_tasks = []
             for t in data.get("tasks", []):
                 self.tasks[t["id"]] = t
                 # без ответа, решения и всего, что ведёт к ответу: ссылки на источник, видеоразбора, настоящего id
                 p = {k: v for k, v in t.items() if k not in ("ans", "sol", "parts", "link", "video")}
                 p["id"] = self.pid(t["id"])
-                p["html"] = public_html(t.get("html"))
                 if t.get("att"):
-                    p["att"] = public_att(t["att"], t.get("n"))
+                    p["att"] = self.public_att(t["att"], t.get("n"))
+                p["html"] = self.public_html(t.get("html"))
                 if t.get("parts"):
                     # задание 19–21: каждую часть проверяем отдельно, в журнал она идёт под своим номером
                     p["parts"] = []
@@ -429,6 +535,9 @@ class Bank:
             self.etag = '"%x-%x"' % (int(mt), len(raw))
             self.mtime = mt
             print(f"[банк] загружено заданий: {len(pub_tasks)}", flush=True)
+            if self.broken:
+                print(f"! Повреждённых архивов к заданиям: {len(self.broken)} (не открываются). Например: {self.broken[0]}", flush=True)
+                print("  Скачайте их заново: удалите эти файлы и запустите python openfipi_parser.py", flush=True)
             self.check_media(text)
         return True
 
@@ -640,6 +749,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.err(404, "нет такого файла")
         if rel == "data/bank.js":
             return self.serve_bank()
+        if rel.startswith("files/"):
+            return self.serve_task_file(rel)
         # файлы сайта
         if rel in SITE_FILES:
             return self.serve_file(HERE, rel, html=rel.endswith(".html"))
@@ -686,7 +797,35 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 <code>python server.py --banks "C:\\путь\\к\\Biblio"</code>.</p><p><a href="/">← В тренажёр</a></p>"""
         return self.send_bytes(404, body.encode("utf-8"), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
 
-    def serve_file(self, root: Path, rel, html=False):
+    def serve_task_file(self, rel):
+        """Картинка или файл задания по безликой ссылке files/<код>/<имя>; файл из архива ФИПИ — прямо из zip."""
+        parts = rel.split("/")
+        APP.bank.ensure()
+        target = APP.bank.files.get(parts[1]) if len(parts) >= 3 else None
+        if not target:
+            return self.not_found()
+        href, member = target
+        p = APP.bank.ref_path(href)
+        if not p or not p.is_file():
+            return self.not_found(p or href)
+        name = unquote(parts[-1])
+        if member is None:
+            return self.serve_file(p.parent, p.name, download_name=name)
+        try:
+            with zipfile.ZipFile(p) as z:
+                info = z.getinfo(member)
+                if info.file_size > MAX_ZIP_MEMBER:
+                    return self.not_found(p)
+                body = z.read(info)
+        except (KeyError, zipfile.BadZipFile, OSError):
+            return self.not_found(p)
+        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        if ctype.startswith("text/"):
+            ctype += "; charset=utf-8"
+        return self.send_bytes(200, body, ctype, {
+            "Cache-Control": "no-cache", "Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name)})
+
+    def serve_file(self, root: Path, rel, html=False, download_name=None):
         root = root.resolve()
         p = (root / rel).resolve()
         try:
@@ -707,7 +846,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             extra["X-Frame-Options"] = "DENY"
             extra["Referrer-Policy"] = "same-origin"
         if p.suffix.lower() not in (".html", ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".woff2"):
-            name = p.name
+            name = download_name or p.name           # настоящее имя может содержать код задания
             extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote_rfc(name)
         self.send_response(200)
         self.send_header("Content-Type", ctype)
