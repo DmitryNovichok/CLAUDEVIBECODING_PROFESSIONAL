@@ -62,7 +62,7 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
 .adm-table .ans s { color: var(--muted); }
 .adm-table tr.fresh td { animation: fresh 2.5s ease-out; }
 @keyframes fresh { from { background: var(--accent-soft); } to { background: transparent; } }
-.task-link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-align: left; }
+.task-link { background: none; border: 0; padding: 0; color: var(--accent-text); cursor: pointer; font: inherit; text-align: left; }
 .task-link:hover { text-decoration: underline; }
 .task-snip { display: block; color: var(--muted); font-size: 12px; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -149,3 +149,52 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
 }
 .adm-warn[hidden] { display: none; }
 .adm-warn b { color: var(--review); }
+
+/* ---------- Egeshka: шапка, выбор учеников, классы, подборки */
+.adm-top { border-bottom: 3px solid var(--ink); }
+.adm-brand { display: flex; flex-direction: column; gap: 3px; }
+.adm-brand .brand-title { font-size: 13px; }
+.adm-brand > span:last-child { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+.adm-tabs { border-width: 2px; }
+.adm-tabs button.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.adm-table-wrap, .adm-box, .adm-card { border-width: 2px; }
+
+.adm-table th.chk, .adm-table td.chk { width: 34px; padding-right: 0; }
+.adm-table input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+.adm-bulk { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 14px;
+  background: var(--accent-soft); border: 2px solid var(--accent); }
+.adm-bulk[hidden] { display: none; }
+.lvl-mini { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 4px; font: 9px var(--pixel);
+  background: var(--accent); color: var(--on-accent); }
+
+.adm-classes { display: grid; grid-template-columns: 240px 1fr; gap: 26px; align-items: start; }
+.adm-class-list { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 90px; }
+.adm-class { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 10px 12px;
+  background: var(--card); border: 0; box-shadow: var(--px); margin: 3px; color: var(--text); cursor: pointer; text-align: left; font: inherit; }
+.adm-class span { color: var(--muted); font-size: 12.5px; }
+.adm-class.on { background: var(--accent); color: var(--on-accent); }
+.adm-class.on span { color: var(--on-accent); opacity: .75; }
+.adm-class-new { display: flex; gap: 8px; margin-top: 6px; }
+.adm-class-new .inp { flex: 1; min-width: 0; font-size: 14px; padding: 8px 10px; }
+
+.adm-asg { background: var(--card); border: 2px solid var(--border); padding: 14px 16px; margin: 0 0 14px; }
+.adm-asg-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.adm-asg-head b { font-size: 16px; }
+.adm-asg-prog { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 14px; }
+.adm-asg-st { display: grid; grid-template-columns: 1fr 70px auto; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+.adm-asg-st span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adm-asg-st i { display: block; height: 8px; background: var(--track); box-shadow: inset 0 0 0 1px var(--ink); }
+.adm-asg-st i b { display: block; height: 100%; background: var(--mid); }
+.adm-asg-st.full i b { background: var(--good); }
+.adm-asg-st.zero span { color: var(--weak); }
+.adm-asg-st small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.adm-draft { margin-bottom: 18px; border-color: var(--accent); }
+.adm-draft-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.adm-draft-row .inp { font-size: 14px; padding: 8px 10px; }
+.adm-draft-row #dTitle { flex: 1; min-width: 240px; }
+.adm-draft-list { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.adm-draft-list li { display: flex; gap: 10px; align-items: center; }
+.adm-draft-list .task-link { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adm-draft-tools { display: flex; gap: 8px; }
+@media (max-width: 860px) { .adm-classes { grid-template-columns: 1fr; } .adm-class-list { position: static; } }

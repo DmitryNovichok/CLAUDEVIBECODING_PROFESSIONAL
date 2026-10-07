@@ -162,6 +162,17 @@ class ServerTest(unittest.TestCase):
         st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Подбиров Пётр", "password": "secret1"})
         self.assertEqual(st, 429)
 
+    def admin(self, method, path, body=None):
+        """Запрос учителя: сессию кладём прямо в базу."""
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request(method, path, body=json.dumps(body) if body is not None else None,
+                  headers={"Content-Type": "application/json", "Cookie": "egeadm=admtest"})
+        r = c.getresponse()
+        data = json.loads(r.read() or b"null")
+        c.close()
+        return r.status, data
+
     def check(self, tok, task, **kw):
         return self.req("POST", "/api/check", dict(task=task, **kw), tok)
 
@@ -276,6 +287,88 @@ class ServerTest(unittest.TestCase):
         finally:
             server.APP.db.setting("authored", "1")
             server.APP.db.x("DELETE FROM admin_sessions WHERE token='admtok'")
+
+    # ------------------------------------------------------------ классы, подборки, опыт
+    def test_classes_and_unassigned_students(self):
+        tok = self.login("Классов Кирилл")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        st, d = self.admin("GET", "/api/admin/students?class_id=none")
+        self.assertIn(sid, [x["id"] for x in d["students"]])
+        st, d = self.admin("POST", "/api/admin/class/save", {"name": "11А"})
+        cid = d["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
+        st, d = self.admin("GET", "/api/admin/students?class_id=none")
+        self.assertNotIn(sid, [x["id"] for x in d["students"]])          # в «новых» его больше нет
+        st, d = self.admin("GET", f"/api/admin/students?class_id={cid}")
+        self.assertEqual([x["id"] for x in d["students"]], [sid])
+        st, d = self.admin("GET", "/api/admin/classes")
+        self.assertEqual([(c["name"], c["students"]) for c in d["classes"] if c["id"] == cid], [("11А", 1)])
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+        st, d = self.admin("GET", "/api/admin/students?class_id=none")
+        self.assertIn(sid, [x["id"] for x in d["students"]])              # удалили класс — снова «новый»
+
+    def test_assignment_progress_and_xp(self):
+        tok = self.login("Подборкин Павел")
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertEqual((me["game"]["level"], me["game"]["xp"]), (1, 0))
+        st, d = self.admin("POST", "/api/admin/class/save", {"name": "10Б"})
+        cid = d["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [me["sid"]]})
+        st, d = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Графы", "tasks": ["b:5", "b:27", "нет:такого"]})
+        self.assertEqual(st, 200, d)
+        st, d = self.req("GET", "/api/assignments", token=tok)
+        a = d["assignments"][0]
+        pid5 = server.APP.bank.pid("b:5")
+        self.assertEqual((a["title"], len(a["tasks"]), a["done"]), ("Графы", 2, []))
+        self.assertNotIn("b:5", json.dumps(d))                             # настоящие id ученику не уходят
+        self.req("POST", "/api/open", {"task": pid5}, tok)
+        st, r = self.check(tok, pid5, answer="12", away=3)
+        self.assertEqual(r["game"]["xp"], 10)                              # №5: 10 XP за первое решение
+        self.assertEqual(r["game"]["ach"][0]["id"], "first")
+        self.assertTrue(r["game"]["ach"][0]["got"])
+        st, d = self.req("GET", "/api/assignments", token=tok)
+        self.assertEqual(d["assignments"][0]["done"], [pid5])
+        st, d = self.admin("GET", f"/api/admin/assignments?class_id={cid}")
+        self.assertEqual(d["assignments"][0]["progress"][0]["done"], 1)
+        row = server.APP.db.q("SELECT away FROM attempts WHERE student_id=? ORDER BY id DESC", (me["sid"],), one=True)
+        self.assertEqual(row["away"], 3)                                   # уходы со вкладки — в журнале
+        # повторное решение того же задания — только 2 XP
+        self.req("POST", "/api/open", {"task": pid5}, tok)
+        st, r = self.check(tok, pid5, answer="12")
+        self.assertEqual(r["game"]["xp"], 12)
+        st, d = self.req("GET", "/api/leaderboard", token=tok)
+        self.assertEqual((d["class"], d["rows"][0]["name"], d["rows"][0]["me"]), ("10Б", "Подборкин П.", True))
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
+    def test_bank_pick_and_find_for_teacher(self):
+        st, d = self.admin("GET", "/api/admin/bank/pick?n=5&count=3")
+        self.assertEqual([t["id"] for t in d["tasks"]], ["b:5"])
+        st, d = self.admin("GET", "/api/admin/bank/find?q=b:27")
+        self.assertEqual((d["id"], d["n"]), ("b:27", 27))
+        self.assertEqual(self.req("GET", "/api/admin/bank/pick?n=5")[0], 401)
+
+    def test_activity_logged_for_teacher(self):
+        tok = self.login("Уходов Ульян")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        pid = server.APP.bank.pid("b:6")
+        st, _ = self.req("POST", "/api/activity", {"events": [{"kind": "away", "dur": 42, "task": pid},
+                                                              {"kind": "shot", "task": pid, "exam": 1},
+                                                              {"kind": "hack"}]}, tok)
+        self.assertEqual(st, 200)
+        st, d = self.admin("GET", f"/api/admin/student?id={sid}&from=0")
+        self.assertEqual(d["activity"]["away"], {"count": 1, "sec": 42, "exam": 0})
+        self.assertEqual(d["activity"]["shot"]["exam"], 1)
+        self.assertNotIn("hack", d["activity"])
+        row = server.APP.db.q("SELECT task_id FROM activity WHERE student_id=? AND kind='away'", (sid,), one=True)
+        self.assertEqual(row["task_id"], "b:6")
+
+    def test_levels(self):
+        self.assertEqual(server.level_of(0)[:2], (1, "Новичок"))
+        self.assertEqual(server.level_of(99)[0], 1)
+        self.assertEqual(server.level_of(100)[0], 2)
+        self.assertEqual(server.level_of(300)[0], 3)
+        lvl, title, cur, need = server.level_of(350)
+        self.assertEqual((lvl, title, cur, need), (3, "Ученик", 50, 300))
 
     def test_find_returns_code_and_is_limited(self):
         tok = self.login("Поисков Пётр")

@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Панель учителя · Тренажёр ЕГЭ</title>
+<title>Egeshka · панель учителя</title>
 <meta name="color-scheme" content="dark light">
 <meta name="robots" content="noindex">
 <script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="admin.css">
@@ -29,9 +30,10 @@
 
 <div class="adm-app" id="appView" hidden>
   <header class="adm-top">
-    <div class="adm-brand">Панель учителя <span>тренажёр ЕГЭ · информатика</span></div>
+    <div class="adm-brand"><span class="brand-title"><b>Ege</b>shka<i class="brand-cursor" aria-hidden="true"></i></span><span>панель учителя</span></div>
     <nav class="adm-tabs" id="tabs">
       <button type="button" data-tab="students" class="on">Ученики</button>
+      <button type="button" data-tab="classes">Классы</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
       <button type="button" data-tab="settings">Настройки</button>
     </nav>
@@ -50,14 +52,26 @@
     <!-- Ученики -->
     <section class="adm-view" id="view-students">
       <div class="adm-toolbar">
-        <h2 class="adm-h">Ученики <span class="adm-count" id="studentsCount"></span></h2>
+        <h2 class="adm-h"><span id="studentsTitle">Новые ученики</span> <span class="adm-count" id="studentsCount"></span></h2>
         <input class="inp adm-search" id="studentSearch" placeholder="Поиск по ФИО">
+        <select class="adm-select" id="studentsScope" title="Каких учеников показать">
+          <option value="none">Без класса</option>
+          <option value="all">Все ученики</option>
+        </select>
         <a class="btn" id="exportAll" href="api/admin/export.csv">Скачать журнал всех (CSV)</a>
+      </div>
+      <div class="adm-bulk" id="bulkBar" hidden>
+        <span id="bulkCount"></span>
+        <select class="adm-select" id="bulkClass"></select>
+        <button type="button" class="btn primary" id="bulkMove">Перенести в класс</button>
+        <button type="button" class="link-btn" id="bulkClear">снять выбор</button>
       </div>
       <div class="adm-table-wrap">
         <table class="adm-table" id="studentsTable">
           <thead><tr>
+            <th class="chk"><input type="checkbox" id="chkAll" title="Выбрать всех"></th>
             <th data-sort="name">Ученик</th>
+            <th data-sort="xp" class="num" title="Уровень в тренажёре (опыт за решённые задания)">Ур.</th>
             <th data-sort="last">Был(а)</th>
             <th data-sort="today" class="num">Сегодня</th>
             <th data-sort="week" class="num">За 7 дней</th>
@@ -65,19 +79,38 @@
             <th data-sort="acc" class="num">Верно с 1-й</th>
             <th data-sort="bad_week" class="num">Ошибок за 7 дней</th>
             <th data-sort="rev_week" class="num" title="Сколько раз за 7 дней открыл правильный ответ, не решив">Показал ответ</th>
+            <th data-sort="away_week" class="num" title="Сколько раз за 7 дней уходил со вкладки или пробовал сделать снимок экрана, пока было открыто задание">Уходил</th>
             <th data-sort="exam_last" class="num" title="Тестовый балл за последний вариант ЕГЭ">Вариант</th>
             <th data-sort="forecast" class="num">Прогноз</th>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <p class="adm-empty" id="studentsEmpty" hidden>Пока никто не заходил. Ученики появятся здесь, когда откроют тренажёр и введут ФИО.</p>
+      <p class="adm-empty" id="studentsEmpty" hidden>Новых учеников нет: все распределены по классам. Ученики появятся здесь, когда зарегистрируются.</p>
+    </section>
+
+    <!-- Классы -->
+    <section class="adm-view" id="view-classes" hidden>
+      <div class="adm-classes">
+        <aside class="adm-class-list">
+          <h2 class="adm-h">Классы</h2>
+          <div id="classList"></div>
+          <form class="adm-class-new" id="classNewForm">
+            <input class="inp" id="classNewName" placeholder="Новый класс, например 11А" maxlength="40" required>
+            <button type="submit" class="btn primary">Создать</button>
+          </form>
+          <p class="adm-hint" id="unassignedHint"></p>
+        </aside>
+        <div class="adm-class-body" id="classBody">
+          <p class="adm-empty">Создайте класс слева, затем перенесите в него учеников со вкладки «Ученики».</p>
+        </div>
+      </div>
     </section>
 
     <!-- Карточка ученика -->
     <section class="adm-view" id="view-student" hidden>
       <div class="adm-toolbar">
-        <button type="button" class="btn ghost" id="backBtn">← Все ученики</button>
+        <button type="button" class="btn ghost" id="backBtn">← Назад</button>
         <h2 class="adm-h" id="stName"></h2>
         <div class="adm-actions">
           <select class="adm-select" id="stPeriod">
@@ -86,6 +119,7 @@
             <option value="30">30 дней</option>
             <option value="0">Всё время</option>
           </select>
+          <select class="adm-select" id="stClass" title="Класс ученика"></select>
           <a class="btn" id="stExport" href="#">CSV</a>
           <button type="button" class="btn ghost" id="stRename">Переименовать</button>
           <button type="button" class="btn ghost" id="stPwReset" title="Ученик забыл пароль: он зарегистрируется заново с тем же ФИО и кодом приглашения, прогресс сохранится">Сбросить пароль</button>
@@ -110,7 +144,7 @@
       </div>
       <div class="adm-table-wrap">
         <table class="adm-table adm-journal" id="stJournal">
-          <thead><tr><th>Когда</th><th class="num">№</th><th>Задание</th><th>Ответ ученика</th><th>Правильный</th><th>Итог</th><th class="num">Время</th></tr></thead>
+          <thead><tr><th>Когда</th><th class="num">№</th><th>Задание</th><th>Ответ ученика</th><th>Правильный</th><th>Итог</th><th class="num">Время</th><th class="num" title="Сколько раз уходил со вкладки, пока решал">Уход</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
