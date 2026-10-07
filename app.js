@@ -1284,8 +1284,9 @@
     const ok = scores.filter(x => x > 0).length;
     const anyHidden = cur.parts.some(x => x.res && x.res.hidden);
     const title = ok === scores.length ? `Все ${scores.length} верно!` : `Верно ${ok} из ${scores.length}`;
+    const withLinks = cur.parts.map(x => x.res).find(r => r && (r.link || r.video)) || {};
     setFeedback(ok === scores.length ? 'ok' : ok ? 'retry' : 'bad', title,
-      `<div class="fb-note">${note}</div>${anyHidden ? '' : taskLinks(t)}`);
+      `<div class="fb-note">${note}</div>${anyHidden ? '' : taskLinks(SERVER ? withLinks : t)}`);
     renderActions();
     renderSidebar();
     renderTopbar();
@@ -1340,7 +1341,9 @@
     });
 
     const solHtml = sol => (sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(sol)}</div></details>` : '');
-    const extra = res.hidden ? '' : taskLinks(t) + solHtml(res.sol);
+    // ссылку на источник и видеоразбор сервер присылает только вместе с ответом
+    const linksOf = r => taskLinks(SERVER ? { link: r.link, video: r.video } : t);
+    const extra = res.hidden ? '' : linksOf(res) + solHtml(res.sol);
     const half = res.part === 0.5 && score < 1
       ? '<div class="fb-note">Одно из двух чисел с первой попытки было верным — на экзамене это 1 балл из 2.</div>' : '';
 
@@ -1358,7 +1361,7 @@
         el.outerHTML = `<div>Правильный ответ: ${answerView(r.answer)}</div>`;
         const fb = $('#feedback');
         if (fb) {
-          fb.insertAdjacentHTML('beforeend', taskLinks(t) + solHtml(r.sol));
+          fb.insertAdjacentHTML('beforeend', linksOf(r) + solHtml(r.sol));
           $$('.solution .cond', fb).forEach(decorateCondition);
         }
       });
@@ -2286,10 +2289,18 @@
     const b = e.target.closest('button[data-bank]');
     if (b) setBank(b.dataset.bank);
   });
-  $('#searchForm').addEventListener('submit', e => {
+  $('#searchForm').addEventListener('submit', async e => {
     e.preventDefault();
     const q = $('#searchInp').value;
-    const t = findTask(q);
+    let t = null;
+    if (SERVER) {        // настоящие номера заданий знает только сервер
+      if (!q.trim()) return;
+      try { t = byId.get((await api('find?q=' + encodeURIComponent(q))).task) || null; } catch (err) {
+        if (err.status && err.status !== 404) { toast(err.message, 3500); return; }
+      }
+    } else {
+      t = findTask(q);
+    }
     if (!t) { toast('Задание не найдено. Введите номер с kompege.ru или код задания ФИПИ.', 3500); return; }
     if (!leaveExam()) return;
     if (isNarrow()) setSideOpen(false);
