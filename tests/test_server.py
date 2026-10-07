@@ -20,8 +20,11 @@ BANK = {
     "generated": "test",
     "banks": [{"id": "b", "title": "Тест", "count": 4}],
     "tasks": [
-        {"id": "b:5", "n": 5, "bank": "b", "html": "<p>Пять</p>", "ans": "12", "sol": "<p>решение</p>"},
-        {"id": "b:6", "n": 6, "bank": "b", "html": "<p>Шесть</p>", "ans": "7"},
+        {"id": "b:5", "n": 5, "bank": "b", "html": "<p>Пять</p>", "ans": "12", "sol": "<p>решение</p>",
+         "link": "https://kompege.ru/task?id=5", "video": {"yt": "abc"},
+         "att": [{"name": "5_7831_1698406948.xlsx", "href": "media/b/assets/x.xlsx"}]},
+        {"id": "b:6", "n": 6, "bank": "b", "ans": "7",
+         "html": '<p>Шесть, как в <a href="https://openfipi.devinf.ru/task/B9FC0F">задании 19</a>, автор <a href="https://vk.com/a">А.</a></p>'},
         {"id": "b:27", "n": 27, "bank": "b", "html": "<p>Двадцать семь</p>", "ans": "10 20"},
         {"id": "b:g", "n": 19, "bank": "b", "html": "<p>Игра</p>",
          "parts": [{"id": "b:g19", "n": 19, "ans": "3"}, {"id": "b:g20", "n": 20, "ans": "4"}]},
@@ -81,9 +84,66 @@ class ServerTest(unittest.TestCase):
         return r.status, data
 
     def login(self, name="Иванов Иван"):
-        st, d = self.req("POST", "/api/login", {"code": "1234", "name": name})
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": name,
+                                                "new_password": "secret1"})
         self.assertEqual(st, 200, d)
         return d["token"]
+
+    # ------------------------------------------------------------ аккаунты
+    def test_register_and_login_with_password(self):
+        tok = self.login("Паролев Павел")
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "паролев  павел", "password": "secret1"})
+        self.assertEqual(st, 200, d)                       # регистр и пробелы в ФИО не важны
+        self.assertEqual(d["token"], tok)
+        self.assertTrue(d["has_password"])
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Паролев Павел", "password": "wrong"})
+        self.assertEqual(st, 403)
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Паролев Павел",
+                                                "new_password": "другой1"})
+        self.assertEqual(st, 409)                          # чужой аккаунт кодом приглашения не перехватить
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Нет Такого", "password": "x"})
+        self.assertEqual(st, 404)
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "0000", "name": "Новый Ученик",
+                                                "new_password": "secret1"})
+        self.assertEqual(st, 403)                          # без верного кода не зарегистрироваться
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Новый Ученик",
+                                                "new_password": "123"})
+        self.assertEqual(st, 400)
+
+    def test_old_student_without_password_keeps_progress(self):
+        db = server.APP.db
+        db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES(?,?,?,?,?)",
+             ("Старый Степан", "старый степан", "oldtok", time.time(), time.time()))
+        sid = db.q("SELECT id FROM students WHERE name_key='старый степан'", one=True)["id"]
+        db.x("INSERT INTO attempts(student_id,ts,task_id,n,score) VALUES(?,?,?,?,?)", (sid, time.time(), "b:5", 5, 1.0))
+        st, d = self.req("GET", "/api/me", token="oldtok")
+        self.assertFalse(d["has_password"])                # страница попросит задать пароль
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Старый Степан", "password": ""})
+        self.assertEqual((st, d.get("need")), (409, "set_password"))
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Старый Степан",
+                                                "new_password": "secret1"})
+        self.assertEqual(st, 200, d)
+        self.assertEqual(d["sid"], sid)                    # тот же ученик — журнал на месте
+        st, h = self.req("GET", "/api/history", token=d["token"])
+        self.assertEqual(len(h["h"]), 1)
+
+    def test_change_password_logs_out_other_devices(self):
+        tok = self.login("Сменов Сергей")
+        st, d = self.req("POST", "/api/password", {"old": "wrong", "new": "newpass1"}, tok)
+        self.assertEqual(st, 403)
+        st, d = self.req("POST", "/api/password", {"old": "secret1", "new": "newpass1"}, tok)
+        self.assertEqual(st, 200)
+        self.assertEqual(self.req("GET", "/api/me", token=tok)[0], 401)       # старый вход больше не действует
+        self.assertEqual(self.req("GET", "/api/me", token=d["token"])[0], 200)
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Сменов Сергей", "password": "newpass1"})
+        self.assertEqual(st, 200)
+
+    def test_password_guessing_is_limited(self):
+        self.login("Подбиров Пётр")
+        for _ in range(server.FAIL_LIMIT["account"]):
+            self.req("POST", "/api/login", {"mode": "login", "name": "Подбиров Пётр", "password": "bad"})
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Подбиров Пётр", "password": "secret1"})
+        self.assertEqual(st, 429)
 
     def check(self, tok, task, **kw):
         return self.req("POST", "/api/check", dict(task=task, **kw), tok)
@@ -112,6 +172,45 @@ class ServerTest(unittest.TestCase):
         finally:
             server.BIBLIO = saved
             server._bank_cache.clear()
+
+    def test_bank_hides_everything_that_leads_to_answer(self):
+        tok = self.login("Скрытов Семён")
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
+        body = c.getresponse().read().decode()
+        c.close()
+        for leak in ("kompege.ru/task", "devinf.ru/task", '"video"', '"link"', "b:5", "b:g19", "7831"):
+            self.assertNotIn(leak, body, leak)
+        self.assertIn("vk.com/a", body)                    # ссылки на авторов остаются
+        self.assertIn("5.xlsx", body)                      # имя файла без номера задания
+        pid = server.APP.bank.pid("b:5")
+        self.assertIn(pid, body)
+        # ссылка на источник приходит только вместе с ответом
+        self.req("POST", "/api/open", {"task": pid}, tok)
+        st, d = self.check(tok, pid, answer="1")
+        self.assertNotIn("link", d)
+        st, d = self.check(tok, pid, answer="12")
+        self.assertEqual(d["link"], "https://kompege.ru/task?id=5")
+        self.assertEqual(d["video"], {"yt": "abc"})
+
+    def test_find_returns_code_and_is_limited(self):
+        tok = self.login("Поисков Пётр")
+        st, d = self.req("GET", "/api/find?q=g20", token=tok)
+        self.assertEqual(d["task"], server.APP.bank.pid("b:g"))   # вопрос 20 открывает всю игру 19–21
+        self.assertEqual(self.req("GET", "/api/find?q=nothing", token=tok)[0], 404)
+        for _ in range(server.FAIL_LIMIT["find"]):
+            self.req("GET", "/api/find?q=5", token=tok)
+        self.assertEqual(self.req("GET", "/api/find?q=5", token=tok)[0], 429)
+
+    def test_prefs_store_real_ids(self):
+        tok = self.login("Избранов Иван")
+        pid = server.APP.bank.pid("b:6")
+        self.req("POST", "/api/progress", {"prefs": {"fav": [pid], "notes": {pid: "заметка"}}}, tok)
+        raw = server.APP.db.q("SELECT prefs FROM students WHERE name='Избранов Иван'", one=True)["prefs"]
+        self.assertIn('"b:6"', raw)                        # если банк пересоберут, коды не потеряются
+        st, d = self.req("GET", "/api/me", token=tok)
+        self.assertEqual(d["prefs"]["fav"], [pid])
+        self.assertEqual(d["prefs"]["notes"], {pid: "заметка"})
 
     def test_bank_has_no_answers(self):
         tok = self.login()
@@ -212,14 +311,15 @@ class ServerTest(unittest.TestCase):
         st, d = self.req("GET", "/api/history", token=tok)
         self.assertEqual(st, 200)
         row = d["h"][-1]
-        self.assertEqual((row[0], row[2], row[5], row[7]), ("b:g19", 1.0, "19|", "b:g"))
+        pid = server.APP.bank.pid
+        self.assertEqual((row[0], row[2], row[5], row[7]), (pid("b:g19"), 1.0, "19|", pid("b:g")))
 
     def test_prefs_and_forecast(self):
         tok = self.login("Настроек Нил")
         st, d = self.req("POST", "/api/progress", {"forecast": 55, "prefs": {"fav": ["b:5"], "goal": 15}}, tok)
         self.assertEqual(st, 200)
         st, d = self.req("GET", "/api/me", token=tok)
-        self.assertEqual(d["prefs"]["fav"], ["b:5"])
+        self.assertEqual(d["prefs"]["fav"], [server.APP.bank.pid("b:5")])
         self.assertEqual(d["fc"][-1]["s"], 55)
         self.assertIn("think", d["rules"])
 

@@ -60,7 +60,9 @@ DEFAULT_INVITE = "16082001"        # пригласительный код дл�
 STUDENT_COOKIE_DAYS = 365
 # защита от перебора: столько неудачных попыток с одного адреса за окно — и пауза
 FAIL_WINDOW = 15 * 60
-FAIL_LIMIT = {"invite": 30, "admin": 10}   # код вводит весь класс с одного адреса школы — ему запас больше
+FAIL_LIMIT = {"invite": 30, "admin": 10, "find": 40,
+              "login": 30,       # неверные пароли учеников с одного адреса
+              "account": 10}     # …и для одного ученика (подбор пароля к конкретному ФИО)   # код вводит весь класс с одного адреса школы — ему запас больше
 # «Показать ответ»: сначала нужно подумать, и показов в час не больше лимита.
 # Иначе, зная код, можно под выдуманным ФИО выкачать ответы на весь банк.
 THINK_SEC_DEFAULT = 40              # через сколько секунд после открытия задания можно открыть ответ
@@ -278,9 +280,33 @@ def find_bank(name):
 
 
 # ================================================================ банк заданий
+# Ссылки на задание на сайте источника внутри условия: там виден ответ — ученику показываем только текст ссылки
+SOURCE_LINK_RE = re.compile(r'<a\b[^>]*href="https?://(?:[^"/]*\.)?(?:kompege\.ru|devinf\.ru)/[^"]*task[^"]*"[^>]*>(.*?)</a>',
+                            re.I | re.S)
+
+
+def public_html(h):
+    return SOURCE_LINK_RE.sub(r"\1", h or "")
+
+
+def public_att(att, n):
+    """Имена файлов вроде 3_7831_1698406948.xlsx содержат номер задания на КомпЕГЭ — убираем длинные числа."""
+    out = []
+    for a in att or []:
+        stem, ext = os.path.splitext(str(a.get("name") or ""))
+        stem = re.sub(r"[_\-\s]*\d{4,}", "", stem).strip(" _-") or str(n)
+        out.append(dict(a, name=stem + ext))
+    return out
+
+
 class Bank:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, secret=None):
         self.path = path
+        # Ученик видит не настоящие id (по ним задание находится на kompege.ru вместе с ответом),
+        # а постоянные коды, которые знает только сервер
+        self.secret = (secret or secrets.token_hex(16)).encode()
+        self.pub_of = {}
+        self.real_of = {}
         self.mtime = None
         self.lock = threading.Lock()
         self.tasks = {}
@@ -289,6 +315,37 @@ class Bank:
         self.etag = ""
         self._snips = {}
         self.missing_dirs = []     # папки банков, на которые ссылаются картинки, но которых нет рядом
+
+    def pid(self, real):
+        """Открытый код задания для страницы ученика."""
+        p = self.pub_of.get(real)
+        if p is None:
+            p = "t" + hmac.new(self.secret, str(real).encode("utf-8"), hashlib.sha256).hexdigest()[:14]
+            self.pub_of[real] = p
+            self.real_of[p] = real
+        return p
+
+    def real(self, pub):
+        """Настоящий id по открытому коду (настоящий id тоже принимается)."""
+        pub = str(pub or "")
+        if pub in self.real_of:
+            return self.real_of[pub]
+        return pub if pub in self.tasks else None
+
+    def find(self, q):
+        """Задание по номеру КомпЕГЭ (или ссылке на него), коду ФИПИ, id. Возвращает настоящий id задания-страницы."""
+        q = re.sub(r"^.*[?&]id=", "", str(q or "").strip().lstrip("№").strip()).lower()
+        if not q:
+            return None
+        tail = lambda i: i.split(":", 1)[-1].lower()
+        hits = [i for i in self.tasks if i.lower() == q or tail(i) == q]
+        if not hits and len(q) >= 4:
+            hits = [i for i in self.tasks if q in tail(i)]
+        if not hits:
+            return None
+        hits.sort(key=lambda i: (not i.startswith("kompege_bank:"), i))
+        t = self.tasks[hits[0]]
+        return t.get("group") or t["id"]
 
     def snippet(self, task_id):
         """Начало условия без разметки — чтобы в журнале было видно, что за задание."""
@@ -345,7 +402,12 @@ class Bank:
             pub_tasks = []
             for t in data.get("tasks", []):
                 self.tasks[t["id"]] = t
-                p = {k: v for k, v in t.items() if k not in ("ans", "sol", "parts")}
+                # без ответа, решения и всего, что ведёт к ответу: ссылки на источник, видеоразбора, настоящего id
+                p = {k: v for k, v in t.items() if k not in ("ans", "sol", "parts", "link", "video")}
+                p["id"] = self.pid(t["id"])
+                p["html"] = public_html(t.get("html"))
+                if t.get("att"):
+                    p["att"] = public_att(t["att"], t.get("n"))
                 if t.get("parts"):
                     # задание 19–21: каждую часть проверяем отдельно, в журнал она идёт под своим номером
                     p["parts"] = []
@@ -354,7 +416,7 @@ class Bank:
                         full.update(part)
                         full["group"] = t["id"]
                         self.tasks[part["id"]] = full
-                        p["parts"].append({"id": part["id"], "n": part["n"], "sh": shape_of(part.get("ans", ""))})
+                        p["parts"].append({"id": self.pid(part["id"]), "n": part["n"], "sh": shape_of(part.get("ans", ""))})
                 else:
                     p["sh"] = shape_of(t.get("ans", ""))
                     if t.get("sol"):
@@ -415,7 +477,8 @@ class DB:
                     ("attempts", "ip", "TEXT"),
                     ("students", "prefs", "TEXT"),         # избранное, заметки, цель на день
                     ("students", "fc", "TEXT"),            # прогноз по дням
-                    ("students", "last_ip", "TEXT")):
+                    ("students", "last_ip", "TEXT"),
+                    ("students", "pw", "TEXT")):           # пароль ученика (хеш); NULL — ещё не задан
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             c.commit()
@@ -456,7 +519,11 @@ def check_pw(pw, stored):
 class App:
     def __init__(self):
         self.db = DB(DB_PATH)
-        self.bank = Bank(BANK_JS)
+        secret = self.db.setting("id_secret")
+        if not secret:
+            secret = secrets.token_hex(16)
+            self.db.setting("id_secret", secret)
+        self.bank = Bank(BANK_JS, secret)
         self.bank.ensure()
 
 
@@ -616,7 +683,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 <h1>Файл не найден</h1><p>Запрошен <code>{shown}</code>.</p>{where}
 <p>Если это картинка или файл к заданию: проверьте, что этот файл есть в папке банка. Если банк пересобирали
 или переносили, пересоберите его (<code>python build.py</code>) и перезапустите сервер. Папку с банками можно указать:
-<code>python server.py --banks "C:\путь\к\Biblio"</code>.</p><p><a href="/">← В тренажёр</a></p>"""
+<code>python server.py --banks "C:\\путь\\к\\Biblio"</code>.</p><p><a href="/">← В тренажёр</a></p>"""
         return self.send_bytes(404, body.encode("utf-8"), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
 
     def serve_file(self, root: Path, rel, html=False):
@@ -729,6 +796,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         res["answer"] = t.get("ans", "")
         if t.get("sol"):
             res["sol"] = t["sol"]
+        for k in ("link", "video"):           # ведут к ответу — отдаём только вместе с ним
+            if t.get(k):
+                res[k] = t[k]
         return res
 
     @staticmethod
@@ -743,8 +813,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return json.loads(v) if v else default
             except ValueError:
                 return default
-        return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": load(s["prefs"], None),
-                "fc": load(s["fc"], []), "rules": self.rules()}
+        prefs = load(s["prefs"], None)
+        if isinstance(prefs, dict) and APP.bank.ensure():
+            pid, tasks = APP.bank.pid, APP.bank.tasks
+            conv = lambda i: pid(i) if i in tasks else i
+            if isinstance(prefs.get("fav"), list):
+                prefs["fav"] = [conv(i) for i in prefs["fav"] if isinstance(i, str)]
+            if isinstance(prefs.get("notes"), dict):
+                prefs["notes"] = {conv(k): v for k, v in prefs["notes"].items()}
+        return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
+                "fc": load(s["fc"], []), "rules": self.rules(), "has_password": bool(s["pw"])}
 
     def is_admin(self):
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
@@ -760,27 +838,72 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "server": True})
 
         if path == "/api/login" and method == "POST":
+            # Вход: ФИО + пароль. Регистрация (и старый ученик без пароля): код приглашения + ФИО + новый пароль.
             ip = self.client_ip()
-            wait = THROTTLE.blocked("invite", ip)
-            if wait:
-                return self.err(429, self.wait_msg(wait))
-            code = re.sub(r"\s+", "", str(data.get("code") or ""))
-            if not hmac.compare_digest(code.encode(), (db.setting("invite_code") or DEFAULT_INVITE).encode()):
-                THROTTLE.fail("invite", ip)
-                time.sleep(1.0)
-                return self.err(403, "Неверный код приглашения")
+            for kind in ("invite", "login"):
+                wait = THROTTLE.blocked(kind, ip)
+                if wait:
+                    return self.err(429, self.wait_msg(wait))
             pretty, key = norm_name(data.get("name"))
             if not NAME_RE.match(pretty) or len(pretty.split()) < 2:
                 return self.err(400, "Введите фамилию и имя (можно с отчеством)")
+            wait = THROTTLE.blocked("account", key)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
             s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
+            register = data.get("mode") == "register"
             now = time.time()
-            if not s:
-                db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES(?,?,?,?,?)",
-                     (pretty, key, secrets.token_urlsafe(24), now, now))
+            if s and s["pw"]:
+                if register:
+                    return self.err(409, f"«{s['name']}» уже зарегистрирован(а). Войдите с паролем на вкладке «Вход».")
+                if not check_pw(str(data.get("password") or ""), s["pw"]):
+                    THROTTLE.fail("login", ip)
+                    THROTTLE.fail("account", key)
+                    time.sleep(1.0)
+                    return self.err(403, "Неверный пароль. Забыли его — попросите учителя сбросить пароль.")
+                THROTTLE.ok("account", key)
+            else:
+                code = re.sub(r"\s+", "", str(data.get("code") or ""))
+                if not register and not code:
+                    if s:
+                        return self.send_json({"error": "Пароль ещё не задан", "need": "set_password"}, 409)
+                    return self.err(404, "Такого ученика нет. Если вы здесь впервые — откройте вкладку «Регистрация».")
+                if not hmac.compare_digest(code.encode(), (db.setting("invite_code") or DEFAULT_INVITE).encode()):
+                    THROTTLE.fail("invite", ip)
+                    time.sleep(1.0)
+                    return self.err(403, "Неверный код приглашения")
+                pw = str(data.get("new_password") or data.get("password") or "")
+                if len(pw) < 6:
+                    return self.err(400, "Пароль — не короче 6 символов")
+                if not s:
+                    db.x("INSERT INTO students(name,name_key,token,created,last_seen,pw) VALUES(?,?,?,?,?,?)",
+                         (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw)))
+                    print(f"[ученик] новый: {pretty}", flush=True)
+                else:                                  # старый ученик без пароля: журнал сохраняется
+                    db.x("UPDATE students SET pw=? WHERE id=?", (hash_pw(pw), s["id"]))
+                    print(f"[ученик] задал пароль: {s['name']}", flush=True)
                 s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
-                print(f"[ученик] новый: {pretty}", flush=True)
             db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
             return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(s["token"])})
+
+        if path == "/api/password" and method == "POST":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            ip = self.client_ip()
+            wait = THROTTLE.blocked("login", ip)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
+            if s["pw"] and not check_pw(str(data.get("old") or ""), s["pw"]):
+                THROTTLE.fail("login", ip)
+                time.sleep(1.0)
+                return self.err(403, "Текущий пароль неверный")
+            new = str(data.get("new") or "")
+            if len(new) < 6:
+                return self.err(400, "Пароль — не короче 6 символов")
+            tok = secrets.token_urlsafe(24)            # вход на других устройствах сбрасывается
+            db.x("UPDATE students SET pw=?, token=? WHERE id=?", (hash_pw(new), tok, s["id"]))
+            return self.send_json({"ok": True, "token": tok}, extra={"Set-Cookie": self.student_cookie(tok)})
 
         if path == "/api/me":
             s = self.student(data)
@@ -797,12 +920,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             APP.bank.ensure()
             rows = db.q("""SELECT task_id, n, score, ts, reason, rk, part, grp, exam, answers FROM attempts
                            WHERE student_id=? ORDER BY ts, id""", (s["id"],))
-            tasks = APP.bank.tasks
-            # [id, n, score, ts, reason, rk, part, grp, exam, пустой ответ в варианте]
-            h = [[r["task_id"], r["n"], r["score"], int(r["ts"] * 1000), r["reason"] or "", r["rk"] or "",
-                  r["part"], r["grp"] or (tasks.get(r["task_id"]) or {}).get("group") or "", 1 if r["exam"] else 0,
-                  1 if r["exam"] and r["answers"] in (None, "", "[]") else 0]
-                 for r in rows]
+            tasks, pid = APP.bank.tasks, APP.bank.pid
+            # [id, n, score, ts, reason, rk, part, grp, exam, пустой ответ в варианте]; id — открытые коды
+            h = []
+            for r in rows:
+                grp = r["grp"] or (tasks.get(r["task_id"]) or {}).get("group") or ""
+                h.append([pid(r["task_id"]), r["n"], r["score"], int(r["ts"] * 1000), r["reason"] or "",
+                          r["rk"] or "", r["part"], pid(grp) if grp else "", 1 if r["exam"] else 0,
+                          1 if r["exam"] and r["answers"] in (None, "", "[]") else 0])
             return self.send_json({"h": h})
 
         if path == "/api/logout" and method == "POST":
@@ -829,6 +954,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                      (fc, json.dumps(hist[-120:], separators=(",", ":")), s["id"]))
             prefs = data.get("prefs")
             if isinstance(prefs, dict):
+                APP.bank.ensure()
+                back = lambda i: APP.bank.real(i) or i
+                if isinstance(prefs.get("fav"), list):
+                    prefs["fav"] = [back(i) for i in prefs["fav"] if isinstance(i, str)][:2000]
+                if isinstance(prefs.get("notes"), dict):
+                    prefs["notes"] = {back(k): v for k, v in prefs["notes"].items()}
                 raw = json.dumps(prefs, ensure_ascii=False, separators=(",", ":"))
                 if len(raw) > 300_000:
                     return self.err(413, "Слишком много заметок")
@@ -841,7 +972,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(401, "нужно войти")
             if not APP.bank.ensure():
                 return self.err(503, "банк заданий не собран")
-            t = APP.bank.tasks.get(str(data.get("task") or ""))
+            t = APP.bank.tasks.get(APP.bank.real(data.get("task")))
             if not t:
                 return self.err(404, "задание не найдено — обновите страницу")
             if path == "/api/open":
@@ -851,6 +982,20 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if path == "/api/reveal":
                 return self.api_reveal(s, t)
             return self.api_check(s, t, data)
+
+        if path == "/api/find":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            key = f"s{s['id']}"
+            if THROTTLE.blocked("find", key):
+                return self.err(429, "Слишком много поисков подряд. Подождите несколько минут.")
+            THROTTLE.fail("find", key)          # считаем каждый поиск: перебором номеров не узнать код задания
+            APP.bank.ensure()
+            rid = APP.bank.find(qs.get("q"))
+            if not rid:
+                return self.err(404, "Задание не найдено")
+            return self.send_json({"task": APP.bank.pid(rid)})
 
         if path == "/api/exam/start" and method == "POST":
             s = self.student(data)
@@ -1009,7 +1154,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         for it in items[:40]:
             if not isinstance(it, dict):
                 continue
-            tid = str(it.get("task") or "")
+            tid = APP.bank.real(it.get("task")) or ""
             t = APP.bank.tasks.get(tid)
             if not t or t.get("parts") or tid in seen or t.get("n") in nums:
                 continue                      # по одному заданию на номер, как на экзамене
@@ -1025,7 +1170,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             primary += pts
             self.log_attempt(s, t, [] if blank else [ans], 1.0 if credit == 1.0 else 0.0, reason="exam",
                              part=credit, revealed=int(show and not blank), exam=e["id"])
-            r = {"task": tid, "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank}
+            r = {"task": APP.bank.pid(tid), "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank}
             if show and not blank:
                 r["answer"] = t.get("ans", "")
             results.append(r)
@@ -1095,6 +1240,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
                                                      (s["last_ip"], sid))]
             student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
+            student["has_password"] = bool(db.q("SELECT pw FROM students WHERE id=?", (sid,), one=True)["pw"])
             return self.send_json({"student": student, "attempts": out, "forecast_history": fc_hist,
                                    "reveals": {k: rev[k] or 0 for k in ("granted", "blocked", "early")},
                                    "exams": [dict(r) for r in exams], "same_ip": same_ip,
@@ -1184,6 +1330,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET name=?, name_key=? WHERE id=?", (pretty, key, sid))
             return self.send_json({"ok": True})
 
+        if path == "/api/admin/student/password-reset" and method == "POST":
+            sid = to_int(data.get("id"))
+            if not db.q("SELECT 1 FROM students WHERE id=?", (sid,), one=True):
+                return self.err(404, "ученик не найден")
+            # пароль стирается, вход на всех устройствах сбрасывается; ученик задаст новый с кодом приглашения
+            db.x("UPDATE students SET pw=NULL, token=? WHERE id=?", (secrets.token_urlsafe(24), sid))
+            return self.send_json({"ok": True})
+
         if path == "/api/admin/student/delete" and method == "POST":
             sid = to_int(data.get("id"))
             for table in ("attempts", "reveal_log", "exams"):
@@ -1208,7 +1362,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.err(404, "нет такого метода")
 
 
-REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное",
+REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное", "history": "повтор из истории",
            "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
            "weak": "слабое место", "repeat": "повтор решённого", "": ""}
 

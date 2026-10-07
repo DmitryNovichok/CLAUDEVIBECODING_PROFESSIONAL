@@ -298,10 +298,11 @@
     ].join('');
     const ipLine = $('#stIp');
     if (ipLine) {
-      ipLine.hidden = !s.last_ip;
-      ipLine.innerHTML = s.last_ip ? `Последний вход с адреса <code>${esc(s.last_ip)}</code>${(st.same_ip || []).length
+      ipLine.hidden = false;
+      ipLine.innerHTML = (s.has_password ? 'Пароль задан. ' : '<b>Пароль не задан</b> — ученик задаст его при следующем входе с кодом приглашения. ')
+        + (s.last_ip ? `Последний вход с адреса <code>${esc(s.last_ip)}</code>${(st.same_ip || []).length
         ? `. С него же входили: ${st.same_ip.map(esc).join(', ')}. Для класса за одним адресом школы это нормально; много новых ФИО с одного адреса — повод проверить.`
-        : ''}` : '';
+        : ''}` : '');
     }
 
     // по номерам
@@ -410,6 +411,15 @@
       const r = await api('student/rename', { id: s.id, name });
       toast(r.merged_into ? 'Журналы объединены' : 'Переименовано');
       openStudent(r.merged_into || s.id);
+    } catch (e) { if (e.status !== 401) toast(e.message); }
+  });
+  $('#stPwReset').addEventListener('click', async () => {
+    const s = st.student;
+    if (!confirm(`Сбросить пароль ученика «${s.name}»?\n\nОн войдёт через «Регистрацию» с тем же ФИО и кодом приглашения и придумает новый пароль. Журнал и прогресс сохранятся.`)) return;
+    try {
+      await api('student/password-reset', { id: s.id });
+      toast('Пароль сброшен');
+      openStudent(s.id);
     } catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#stDelete').addEventListener('click', async () => {
