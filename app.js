@@ -768,6 +768,7 @@
         <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
         <span class="head-chips">${chip}</span>
         <span class="task-tools">
+          ${PY_BTN}
           <button type="button" class="icon-btn fav-btn${fav ? ' on' : ''}" id="favBtn" aria-pressed="${fav}" title="${fav ? 'Убрать из избранного' : 'В избранное'}">${fav ? '★' : '☆'}</button>
           <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
         </span>
@@ -800,8 +801,9 @@
     renderActions();
     bindInputs();
     const first = $('#answerInputs input');
-    if (first && window.matchMedia('(min-width: 861px)').matches) first.focus({ preventScroll: true });
+    if (first && window.matchMedia('(min-width: 861px)').matches && !pyOpen()) first.focus({ preventScroll: true });
     window.scrollTo({ top: 0 });
+    pySync();
   }
 
   /**
@@ -1424,10 +1426,11 @@
       if (i.value.trim()) i.classList.add(score > 0 ? 'ok' : 'bad');
     });
 
-    const solHtml = sol => (sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(sol)}</div></details>` : '');
+    const solHtml = (sol, tsol) => (sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(sol)}</div></details>` : '')
+      + (tsol ? `<details class="solution" open><summary>Решение учителя</summary><pre class="tsol">${esc(tsol)}</pre></details>` : '');
     // ссылку на источник и видеоразбор сервер присылает только вместе с ответом
     const linksOf = r => taskLinks(SERVER ? { link: r.link, video: r.video } : t);
-    const extra = res.hidden ? '' : linksOf(res) + solHtml(res.sol);
+    const extra = res.hidden ? '' : linksOf(res) + solHtml(res.sol, res.tsol);
     const half = res.part === 0.5 && score < 1
       ? '<div class="fb-note">Одно из двух чисел с первой попытки было верным — на экзамене это 1 балл из 2.</div>' : '';
 
@@ -1445,7 +1448,7 @@
         el.outerHTML = `<div>Правильный ответ: ${answerView(r.answer)}</div>`;
         const fb = $('#feedback');
         if (fb) {
-          fb.insertAdjacentHTML('beforeend', linksOf(r) + solHtml(r.sol));
+          fb.insertAdjacentHTML('beforeend', linksOf(r) + solHtml(r.sol, r.tsol));
           $$('.solution .cond', fb).forEach(decorateCondition);
         }
       });
@@ -2319,6 +2322,7 @@
       <div class="task-head">
         <span class="num-badge">${numLabel(t.n)}</span>
         <div class="task-meta">Вариант ЕГЭ · ${EX.cur + 1} из ${EX.items.length}</div>
+        <span class="task-tools">${PY_BTN}</span>
       </div>
       <article class="cond" id="cond">${safeHtml(t.html)}</article>
       ${filesHtml(t)}
@@ -2336,9 +2340,10 @@
     decorateCondition($('#cond'), t);
     bindInputs(() => { if (!last) exGo(EX.cur + 1); });
     const first = $('#trainer .answer-row input');
-    if (first && window.matchMedia('(min-width: 861px)').matches) first.focus({ preventScroll: true });
+    if (first && window.matchMedia('(min-width: 861px)').matches && !pyOpen()) first.focus({ preventScroll: true });
     window.scrollTo({ top: 0 });
     renderTopbar();
+    pySync();
   }
 
   function localExamResult(list) {
@@ -2496,6 +2501,7 @@
 
   trainerEl.addEventListener('click', e => {
     const id = e.target.closest('[id]') && e.target.closest('[id]').id;
+    if (id === 'pyBtn') { togglePy(); return; }
     if (examShown && EX) {
       const nb = e.target.closest('.ex-nav-btn');
       if (nb) { exGo(+nb.dataset.i); return; }
@@ -2779,6 +2785,284 @@
   }
 
 
+
+  // ------------------------------------------------------------ Python в браузере
+  // Настоящий CPython (Pyodide) в отдельном потоке: math, itertools, functools, ipaddress, re, string, collections…
+  // Файлы задания лежат рядом с кодом — open('17.txt') работает. Черепашка для №6 рисует на холсте.
+  const PY_BTN = '<button type="button" class="icon-btn py-btn" id="pyBtn" title="Решить на Python прямо здесь">Python</button>';
+  const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null };
+  const pyOpen = () => !$('#pyDock').hidden;
+  const pyTaskNow = () => (examShown && EX ? byId.get((EX.items[EX.cur] || {}).id) : cur && cur.task) || null;
+  const codeKey = id => `egeshka.code.${student ? student.sid : 'local'}.${id}`;
+  function readCode(id) { try { return localStorage.getItem(codeKey(id)); } catch (e) { return null; } }
+  function writeCode(id, code) { try { if (code.trim()) localStorage.setItem(codeKey(id), code); else localStorage.removeItem(codeKey(id)); } catch (e) { /* нет места */ } }
+  function pyFilesOf(t) {
+    return (t && t.att || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
+      .filter(f => f.url.startsWith(location.origin));       // внешние ссылки браузер не даст прочитать
+  }
+  function pyStarter(t) {
+    const files = pyFilesOf(t).map(f => f.name);
+    const txt = files.find(n => /\.(txt|csv|dat)$/i.test(n));
+    if (t.n === 6) {
+      return "from turtle import *\n\ntracer(0)\nk = 20          # масштаб\nleft(90)        # «смотрит» вверх, как в задании\n\n# команды из условия, например:\n# for i in range(2):\n#     forward(10 * k); right(90); forward(18 * k); right(90)\n\n# точки сетки, чтобы посчитать их внутри фигуры:\n# up()\n# for x in range(-30, 30):\n#     for y in range(-30, 30):\n#         goto(x * k, y * k); dot(3)\n\nupdate()\ndone()\n";
+    }
+    if (txt) return `with open('${txt}') as f:\n    data = f.read().split()\n\nprint(len(data))\n`;
+    return '';
+  }
+  function setPyStatus(text, cls) {
+    const el = $('#pyStatus');
+    el.textContent = text;
+    el.className = 'py-status' + (cls ? ' ' + cls : '');
+  }
+  function ensureWorker() {
+    if (PY.worker) return;
+    PY.ready = false;
+    if (typeof Worker === 'undefined') { setPyStatus('Этот браузер не умеет запускать Python', 'bad'); return; }
+    PY.worker = new Worker('py-worker.js' + (RULES.py_local ? '?local=1' : ''));
+    setPyStatus('Загружаю Python… (в первый раз около 10 МБ, потом из кеша)');
+    PY.worker.onmessage = ev => {
+      const m = ev.data;
+      if (m.type === 'status') setPyStatus(m.text);
+      else if (m.type === 'ready') { PY.ready = true; if (!PY.running) setPyStatus(`Python ${m.version ? '(Pyodide ' + m.version + ') ' : ''}готов. Ctrl+Enter — запустить.`); }
+      else if (m.type === 'out' || m.type === 'err') pyPrint(m.text, m.type === 'err');
+      else if (m.type === 'turtle') drawTurtle(m.ops);
+      else if (m.type === 'done') {
+        PY.running = false;
+        $('#pyRun').hidden = false;
+        $('#pyStop').hidden = true;
+        setPyStatus(m.ok ? `Готово за ${(m.ms / 1000).toFixed(m.ms < 10000 ? 2 : 1)} с` : 'Ошибка — смотрите сообщение ниже', m.ok ? 'ok' : 'bad');
+        if (m.fatal) { PY.worker.terminate(); PY.worker = null; ensureWorker(); }   // интерпретатор сломан — запускаем новый
+      }
+    };
+    PY.worker.onerror = () => { setPyStatus('Python не загрузился. Проверьте интернет и обновите страницу.', 'bad'); };
+  }
+  function pyPrint(text, isErr) {
+    const out = $('#pyOut');
+    if (isErr) {
+      const span = document.createElement('span');
+      span.className = 'py-err';
+      span.textContent = text;
+      out.appendChild(span);
+    } else {
+      out.appendChild(document.createTextNode(text));
+    }
+    out.scrollTop = out.scrollHeight;
+  }
+  function pyRun() {
+    if (PY.running) return;
+    const t = PY.task;
+    const code = $('#pyCode').value;
+    if (t) writeCode(t.id, code);
+    if (!code.trim()) { setPyStatus('Напишите код', 'bad'); return; }
+    ensureWorker();
+    $('#pyOut').textContent = '';
+    $('#pyTurtle').hidden = true;
+    PY.running = true;
+    $('#pyRun').hidden = true;
+    $('#pyStop').hidden = false;
+    setPyStatus(PY.ready ? 'Выполняется…' : 'Загружаю Python… код запустится сразу после загрузки');
+    PY.worker.postMessage({ type: 'run', code, files: pyFilesOf(t), stdin: $('#pyIn').value });
+  }
+  function pyStop() {
+    if (PY.worker) PY.worker.terminate();
+    PY.worker = null;
+    PY.running = false;
+    $('#pyRun').hidden = false;
+    $('#pyStop').hidden = true;
+    pyPrint('\n■ Остановлено\n', true);
+    ensureWorker();                         // сразу готовим новый — следующий запуск будет быстрым
+    setPyStatus('Остановлено. Python перезапускается…');
+  }
+  function togglePy(force) {
+    const open = force != null ? force : !pyOpen();
+    $('#pyDock').hidden = !open;
+    document.body.classList.toggle('py-open', open);
+    $$('#pyBtn').forEach(b => b.classList.toggle('on', open));
+    if (!open) { if (PY.task) writeCode(PY.task.id, $('#pyCode').value); return; }
+    ensureWorker();
+    PY.task = null;
+    pySync();
+    $('#pyCode').focus();
+  }
+  async function pySync() {
+    if (!pyOpen()) return;
+    $$('#pyBtn').forEach(b => b.classList.add('on'));
+    const t = pyTaskNow();
+    if (!t || (PY.task && PY.task.id === t.id)) return;
+    if (PY.task) writeCode(PY.task.id, $('#pyCode').value);
+    PY.task = t;
+    const files = pyFilesOf(t);
+    $('#pyTask').textContent = `задание ${numLabel(t.n)}`;
+    $('#pyFiles').innerHTML = files.length
+      ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ')
+      : (t.att || []).length ? 'Файлы этого задания лежат на другом сайте — скачайте их кнопкой под условием.' : '';
+    $('#pyAttach').textContent = 'Прикрепить решение';
+    $('#pyAttach').hidden = !SERVER || !student;
+    let code = readCode(t.id);
+    if (code == null && SERVER && student) {
+      try { const r = await api('solution?task=' + encodeURIComponent(t.id)); if (r.code) { code = r.code; $('#pyAttach').textContent = 'Решение прикреплено ✓'; } } catch (e) { /* нет решения */ }
+      if (!PY.task || PY.task.id !== t.id) return;   // пока ждали, ученик ушёл на другое задание
+    }
+    $('#pyCode').value = code != null ? code : pyStarter(t);
+    updateGutter();
+    $('#pyOut').textContent = '';
+    $('#pyTurtle').hidden = true;
+  }
+  function updateGutter() {
+    const n = $('#pyCode').value.split('\n').length;
+    const g = $('#pyGutter');
+    if (+g.dataset.n !== n) { g.textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n'); g.dataset.n = n; }
+    g.scrollTop = $('#pyCode').scrollTop;
+  }
+  // редактор: Tab — 4 пробела, Shift+Tab — убрать отступ, Enter — отступ как у строки выше (+4 после «:»)
+  function editKey(e) {
+    const ta = e.target;
+    const v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+    const put = (text, from, to, caretA, caretB) => {
+      ta.setRangeText(text, from, to, 'end');
+      if (caretA != null) ta.setSelectionRange(caretA, caretB == null ? caretA : caretB);
+      ta.dispatchEvent(new Event('input'));
+    };
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); pyRun(); return; }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      if (!e.shiftKey && a === b) { put('    ', a, b); return; }
+      const le = b > a && v[b - 1] === '\n' ? b - 1 : b;
+      const block = v.slice(ls, le);
+      const lines = block.split('\n');
+      const changed = lines.map(l => (e.shiftKey ? l.replace(/^ {1,4}/, '') : '    ' + l)).join('\n');
+      put(changed, ls, le, ls, ls + changed.length);
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      const line = v.slice(ls, a);
+      let ind = (line.match(/^\s*/) || [''])[0];
+      if (/:\s*(#.*)?$/.test(line)) ind += '    ';
+      put('\n' + ind, a, b);
+      return;
+    }
+    if (e.key === 'Backspace' && a === b && a > 0) {
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      const before = v.slice(ls, a);
+      if (before.length && /^ +$/.test(before)) { e.preventDefault(); const k = (before.length - 1) % 4 + 1; put('', a - k, a); }
+    }
+  }
+
+  // черепашка: рисунок на холсте с масштабом колесом и сдвигом мышью
+  const TT = { ops: null, s: 1, ox: 0, oy: 0, drag: null };
+  function drawTurtle(ops) {
+    TT.ops = ops;
+    $('#pyTurtle').hidden = false;
+    fitTurtle();
+  }
+  function ttCanvas() {
+    const c = $('#pyCanvas');
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    return { c, ctx: c.getContext('2d'), w, h, dpr };
+  }
+  function fitTurtle() {
+    if (!TT.ops) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const take = (x, y) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+    for (const o of TT.ops) {
+      if (o[0] === 'l') { take(o[1], o[2]); take(o[3], o[4]); } else if (o[0] === 'f') o[1].forEach(p => take(p[0], p[1])); else take(o[1], o[2]);
+    }
+    if (!isFinite(x0)) { x0 = y0 = -100; x1 = y1 = 100; }
+    const { w, h } = ttCanvas();
+    TT.s = Math.min((w - 40) / Math.max(x1 - x0, 1), (h - 40) / Math.max(y1 - y0, 1));
+    TT.ox = w / 2 - TT.s * (x0 + x1) / 2;
+    TT.oy = h / 2 + TT.s * (y0 + y1) / 2;
+    renderTurtle();
+  }
+  function renderTurtle() {
+    const { ctx, w, h, dpr } = ttCanvas();
+    const css = getComputedStyle(document.documentElement);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = css.getPropertyValue('--input-bg') || '#fff';
+    ctx.fillRect(0, 0, w, h);
+    const X = x => x * TT.s + TT.ox, Y = y => TT.oy - y * TT.s;
+    ctx.strokeStyle = css.getPropertyValue('--track');                 // оси
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.moveTo(X(0), 0); ctx.lineTo(X(0), h); ctx.stroke();
+    for (const o of TT.ops) {
+      if (o[0] === 'f') {
+        ctx.fillStyle = o[2]; ctx.globalAlpha = 0.35;
+        ctx.beginPath(); o[1].forEach((p, i) => (i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])))); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.lineCap = 'round';
+    for (const o of TT.ops) {
+      if (o[0] === 'l') {
+        ctx.strokeStyle = o[5]; ctx.lineWidth = Math.max(1, o[6]);
+        ctx.beginPath(); ctx.moveTo(X(o[1]), Y(o[2])); ctx.lineTo(X(o[3]), Y(o[4])); ctx.stroke();
+      } else if (o[0] === 'd') {
+        ctx.fillStyle = o[4];
+        ctx.beginPath(); ctx.arc(X(o[1]), Y(o[2]), Math.max(1, o[3] / 2), 0, 2 * Math.PI); ctx.fill();
+      } else if (o[0] === 't') {
+        ctx.fillStyle = o[4]; ctx.font = '12px sans-serif'; ctx.fillText(o[3], X(o[1]), Y(o[2]));
+      }
+    }
+  }
+  const pyCanvas = $('#pyCanvas');
+  pyCanvas.addEventListener('wheel', e => {
+    if (!TT.ops) return;
+    e.preventDefault();
+    const r = pyCanvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    const f = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+    TT.ox = mx - (mx - TT.ox) * f; TT.oy = my - (my - TT.oy) * f; TT.s *= f;
+    renderTurtle();
+  }, { passive: false });
+  pyCanvas.addEventListener('pointerdown', e => { TT.drag = { x: e.clientX, y: e.clientY, ox: TT.ox, oy: TT.oy }; pyCanvas.setPointerCapture(e.pointerId); });
+  pyCanvas.addEventListener('pointermove', e => {
+    const r = pyCanvas.getBoundingClientRect();
+    $('#pyXY').textContent = `x = ${((e.clientX - r.left - TT.ox) / TT.s).toFixed(1)}, y = ${((TT.oy - (e.clientY - r.top)) / TT.s).toFixed(1)}`;
+    if (!TT.drag) return;
+    TT.ox = TT.drag.ox + e.clientX - TT.drag.x; TT.oy = TT.drag.oy + e.clientY - TT.drag.y;
+    renderTurtle();
+  });
+  pyCanvas.addEventListener('pointerup', () => { TT.drag = null; });
+  $('#pyFit').addEventListener('click', fitTurtle);
+  window.addEventListener('resize', () => { if (TT.ops && !$('#pyTurtle').hidden) renderTurtle(); });
+
+  $('#pyRun').addEventListener('click', pyRun);
+  $('#pyStop').addEventListener('click', pyStop);
+  $('#pyClose').addEventListener('click', () => togglePy(false));
+  $('#pyCode').addEventListener('keydown', editKey);
+  $('#pyCode').addEventListener('input', () => {
+    updateGutter();
+    $('#pyAttach').textContent = 'Прикрепить решение';
+    clearTimeout(PY.saveTimer);
+    const t = PY.task;
+    PY.saveTimer = setTimeout(() => { if (t) writeCode(t.id, $('#pyCode').value); }, 500);
+  });
+  $('#pyCode').addEventListener('scroll', () => { $('#pyGutter').scrollTop = $('#pyCode').scrollTop; });
+  $('#pyLoad').addEventListener('click', () => $('#pyFile').click());
+  $('#pyFile').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 200000) { toast('Файл слишком большой'); return; }
+    $('#pyCode').value = await f.text();
+    $('#pyCode').dispatchEvent(new Event('input'));
+  });
+  $('#pyAttach').addEventListener('click', async () => {
+    const t = PY.task;
+    if (!t || !SERVER) return;
+    const code = $('#pyCode').value;
+    if (!code.trim()) { toast('Сначала напишите решение'); return; }
+    try {
+      await api('solution', { task: t.id, code });
+      $('#pyAttach').textContent = 'Решение прикреплено ✓';
+      toast('Решение прикреплено — учитель увидит его в журнале рядом с ответом.', 3500);
+    } catch (e) { netError(e); }
+  });
+
   // ------------------------------------------------------------ уровни, опыт, достижения
   // Опыт считает сервер по журналу: за первое решение задания (сложнее номер — больше), за дневную пятёрку,
   // за вариант ЕГЭ. Страница только показывает и празднует.
@@ -2908,22 +3192,16 @@
   }
 
   // ------------------------------------------------------------ уход со вкладки и снимки экрана
-  // Пока страница не в фокусе (другая вкладка, программа, «Ножницы»), она замылена. Уход дольше
-  // пары секунд во время задания записывается — учитель видит это в журнале.
-  // Полностью запретить снимок экрана сайт не может (например, телефоном) — только усложнить.
+  // Уход со страницы дольше пары секунд, пока открыто задание или вариант, и клавиши снимка экрана
+  // записываются — учитель видит это в журнале. Страница при этом ничего не прячет.
   const awayQ = [];
-  let awayFrom = 0, awayWarned = false, veilTimer = null;
-  const veil = on => document.body.classList.toggle('veiled', on);
+  let awayFrom = 0, awayWarned = false;
   function openTaskId() {
     if (examShown && EX) { const it = EX.items[EX.cur]; return it ? it.id : null; }
     return cur && !cur.done ? cur.task.id : null;
   }
-  function goneAway() {
-    veil(true);
-    if (!awayFrom) awayFrom = Date.now();
-  }
+  function goneAway() { if (!awayFrom) awayFrom = Date.now(); }
   function cameBack() {
-    veil(false);
     if (!awayFrom) return;
     const sec = (Date.now() - awayFrom) / 1000;
     awayFrom = 0;
@@ -2941,11 +3219,12 @@
     if (!awayQ.length || !SERVER || !student) return;
     api('activity', { events: awayQ.splice(0, awayQ.length) }).catch(() => {});
   }
+  let shotAt = 0;
   function shotAttempt() {
-    veil(true);
-    clearTimeout(veilTimer);
-    veilTimer = setTimeout(() => { veilTimer = null; if (document.hasFocus() && !awayFrom) veil(false); }, 4000);
-    if (SERVER && student) { awayQ.push({ kind: 'shot', task: openTaskId() || '', exam: examShown ? 1 : 0 }); flushAway(); }
+    if (!SERVER || !student || Date.now() - shotAt < 3000) return;
+    shotAt = Date.now();
+    awayQ.push({ kind: 'shot', task: openTaskId() || '', exam: examShown ? 1 : 0 });
+    flushAway();
   }
   window.addEventListener('blur', goneAway);
   window.addEventListener('focus', cameBack);
@@ -2953,21 +3232,11 @@
     if (document.visibilityState === 'hidden') goneAway();
     else if (document.hasFocus()) cameBack();
   });
-  // окно рядом с программой: навели мышь на страницу — показываем (у «Ножниц» поверх экрана мышь сюда не попадает)
-  document.addEventListener('mousemove', () => {
-    if (document.body.classList.contains('veiled') && document.visibilityState === 'visible' && !veilTimer) veil(false);
-  });
   document.addEventListener('keydown', e => {
-    // Win+Shift+S, Cmd+Shift+3/4/5: замыливаем, как только зажаты Win/Cmd и Shift
+    // Win+Shift+S, Cmd+Shift+3/4/5
     if ((e.metaKey && e.shiftKey) || (e.key === 'Shift' && e.metaKey) || (e.key === 'Meta' && e.shiftKey)) shotAttempt();
   }, true);
-  document.addEventListener('keyup', e => {
-    if (e.key === 'PrintScreen') {
-      shotAttempt();
-      try { navigator.clipboard && navigator.clipboard.writeText(''); } catch (err) { /* нет доступа к буферу */ }
-    }
-  }, true);
-  if (!document.hasFocus()) veil(true);       // открыли в фоновой вкладке — уходом это не считаем
+  document.addEventListener('keyup', e => { if (e.key === 'PrintScreen') shotAttempt(); }, true);
 
   $('#lvlCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openGame(); });
   $('#asgCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openAssignments(); });

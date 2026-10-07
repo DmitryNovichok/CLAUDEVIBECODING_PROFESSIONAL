@@ -50,7 +50,7 @@ DB_PATH = DATA_DIR / "trainer.db"
 BANK_JS = HERE / "data" / "bank.js"
 
 # что можно отдавать из папки trainer
-SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css"}
+SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js"}
 SITE_DIRS = ("vendor/", "media/")
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
@@ -73,6 +73,7 @@ REVEAL_PER_HOUR = 12                # показов ответа в час на
 REVEAL_PER_HOUR_IP = 150            # …и на один адрес: против выдуманных ФИО (весь класс сидит за одним адресом школы)
 ACTIVITY_KINDS = {"away", "shot"}     # ушёл со вкладки; нажал клавиши снимка экрана
 ACTIVITY_PER_HOUR = 300
+MAX_SOLUTION = 50_000                 # символов в решении (код или текст)
 ATTEMPTS_PER_TASK = 2               # попыток на задание; считает сервер, а не страница
 OPEN_TTL = 6 * 3600                 # сколько помнить открытое задание
 # Вариант ЕГЭ
@@ -87,6 +88,8 @@ LOCKED_BANK = b'window.EGE_BANK = {"srv":true,"locked":true,"banks":[],"tasks":[
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("application/vnd.oasis.opendocument.spreadsheet", ".ods")
 mimetypes.add_type("application/vnd.oasis.opendocument.text", ".odt")
 
@@ -305,9 +308,22 @@ OFFICIAL_SRC_RE = re.compile(
 NO_AUTHOR_SRC = {"", "компегэ", "яндекс учебник"}
 
 
-def is_authored(src):
+TEXT_AUTHOR_RE = re.compile(r"^[(\[]([^()\[\]]{2,60})[)\]]")
+
+
+def is_authored(src, html_text=None):
+    """Авторское задание: автор в источнике («КомпЕГЭ · Джобс 14.05.2022») или в начале условия
+    («(Д. Бахтиев) В файле приведён…» — так подписаны задания КомпЕГЭ без источника)."""
     s = re.sub(r"^\s*КомпЕГЭ\s*·\s*", "", str(src or "")).strip()
-    return s.lower() not in NO_AUTHOR_SRC and not OFFICIAL_SRC_RE.search(s)
+    if s.lower() not in NO_AUTHOR_SRC and not OFFICIAL_SRC_RE.search(s):
+        return True
+    if html_text:
+        import html as _h
+        head = re.sub(r"\s+", " ", _h.unescape(re.sub(r"<[^>]+>", " ", html_text[:600]))).strip()
+        m = TEXT_AUTHOR_RE.match(head)
+        if m and re.search(r"[A-Za-zА-Яа-яЁё]{2}", m.group(1)) and not OFFICIAL_SRC_RE.search(m.group(1)):
+            return True
+    return False
 
 
 def clean_file_name(name, n):
@@ -530,7 +546,7 @@ class Bank:
                 if t.get("att"):
                     p["att"] = self.public_att(t["att"], t.get("n"))
                 p["html"] = self.public_html(t.get("html"))
-                if is_authored(t.get("src")):
+                if is_authored(t.get("src"), t.get("html")):
                     p["au"] = 1
                     self.authored += 1
                 if t.get("parts"):
@@ -603,6 +619,10 @@ class DB:
                 id INTEGER PRIMARY KEY, student_id INTEGER, ts REAL, kind TEXT, task_id TEXT, dur REAL,
                 exam INTEGER DEFAULT 0, ip TEXT);
             CREATE INDEX IF NOT EXISTS act_student ON activity(student_id, ts);
+            CREATE TABLE IF NOT EXISTS solutions(
+                student_id INTEGER NOT NULL, task_id TEXT NOT NULL, code TEXT, ts REAL,
+                PRIMARY KEY(student_id, task_id));
+            CREATE TABLE IF NOT EXISTS teacher_solutions(task_id TEXT PRIMARY KEY, text TEXT, ts REAL);
             """)
             # новые поля в старых базах
             for table, col, decl in (
@@ -875,7 +895,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if html:
             extra["X-Frame-Options"] = "DENY"
             extra["Referrer-Policy"] = "same-origin"
-        if p.suffix.lower() not in (".html", ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".woff2"):
+        if p.suffix.lower() not in (".html", ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".woff2", ".wasm"):
             name = download_name or p.name           # настоящее имя может содержать код задания
             extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote_rfc(name)
         self.send_response(200)
@@ -965,6 +985,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         res["answer"] = t.get("ans", "")
         if t.get("sol"):
             res["sol"] = t["sol"]
+        ts = teacher_solution(t)
+        if ts:
+            res["tsol"] = ts
         for k in ("link", "video"):           # ведут к ответу — отдаём только вместе с ним
             if t.get(k):
                 res[k] = t[k]
@@ -974,7 +997,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
     def rules():
         return {"think": THINK_SEC_DEFAULT, "think_hard": THINK_SEC_HARD, "reveal_per_hour": REVEAL_PER_HOUR,
                 "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
-                "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored_on()}
+                "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored_on(),
+                "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()}
 
     def me_payload(self, s):
         def load(v, default):
@@ -1183,6 +1207,29 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("INSERT INTO activity(student_id,ts,kind,task_id,dur,exam,ip) VALUES(?,?,?,?,?,?,?)",
                      (s["id"], now, e["kind"], tid, min(max(dur, 0), 86400), 1 if e.get("exam") else 0, ip))
             return self.send_json({"ok": True})
+
+        if path == "/api/solution":
+            # своё решение к заданию (код из редактора Python или текст): видит учитель
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            APP.bank.ensure()
+            tid = APP.bank.real(str((data or {}).get("task") or qs.get("task") or ""))
+            if not tid or tid not in APP.bank.tasks:
+                return self.err(404, "задание не найдено — обновите страницу")
+            if method == "POST":
+                code = str(data.get("code") or "")
+                if len(code) > MAX_SOLUTION:
+                    return self.err(413, "Решение слишком длинное (больше 50 000 символов)")
+                if code.strip():
+                    db.x("""INSERT INTO solutions(student_id, task_id, code, ts) VALUES(?,?,?,?)
+                            ON CONFLICT(student_id, task_id) DO UPDATE SET code=excluded.code, ts=excluded.ts""",
+                         (s["id"], tid, code, time.time()))
+                else:
+                    db.x("DELETE FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid))
+                return self.send_json({"ok": True})
+            r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid), one=True)
+            return self.send_json({"code": r["code"] if r else "", "ts": r["ts"] if r else None})
 
         if path == "/api/assignments":
             s = self.student(data)
@@ -1471,6 +1518,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                                      (s["last_ip"], sid))]
             student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
             student["has_password"] = bool(db.q("SELECT pw FROM students WHERE id=?", (sid,), one=True)["pw"])
+            coded = {r["task_id"] for r in db.q("SELECT task_id FROM solutions WHERE student_id=?", (sid,))}
+            for d in out:
+                d["has_code"] = 1 if d["task_id"] in coded or (d.get("grp") or "") in coded else 0
             act = db.q("""SELECT kind, COUNT(*) AS c, SUM(dur) AS dur, SUM(exam) AS in_exam FROM activity
                           WHERE student_id=? AND ts>=? GROUP BY kind""", (sid, frm))
             student["class_id"] = db.q("SELECT class_id FROM students WHERE id=?", (sid,), one=True)["class_id"]
@@ -1498,7 +1548,31 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             t = APP.bank.tasks.get(qs.get("id") or "")
             if not t:
                 return self.err(404, "задание не найдено (банк мог быть пересобран)")
-            return self.send_json(t)
+            return self.send_json(dict(t, teacher_sol=teacher_solution(t)))
+
+        if path == "/api/admin/task-solution" and method == "POST":
+            APP.bank.ensure()
+            tid = str(data.get("task") or "")
+            t = APP.bank.tasks.get(tid)
+            if not t:
+                return self.err(404, "задание не найдено")
+            tid = t.get("group") or tid                    # у 19–21 решение одно на всю игру
+            text = str(data.get("text") or "")
+            if len(text) > MAX_SOLUTION:
+                return self.err(413, "Решение слишком длинное")
+            if text.strip():
+                db.x("""INSERT INTO teacher_solutions(task_id, text, ts) VALUES(?,?,?)
+                        ON CONFLICT(task_id) DO UPDATE SET text=excluded.text, ts=excluded.ts""", (tid, text, now))
+            else:
+                db.x("DELETE FROM teacher_solutions WHERE task_id=?", (tid,))
+            return self.send_json({"ok": True})
+
+        if path == "/api/admin/solution":
+            r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?",
+                     (to_int(qs.get("student")), str(qs.get("task") or "")), one=True)
+            if not r:
+                return self.err(404, "решение не прикреплено")
+            return self.send_json({"code": r["code"], "ts": r["ts"]})
 
         if path == "/api/admin/export.csv":
             sid = qs.get("student")
@@ -1559,6 +1633,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if other:      # такое ФИО уже есть — объединяем журналы
                 for table in ("attempts", "reveal_log", "exams", "activity"):
                     db.x(f"UPDATE {table} SET student_id=? WHERE student_id=?", (other["id"], sid))
+                db.x("UPDATE OR IGNORE solutions SET student_id=? WHERE student_id=?", (other["id"], sid))
+                db.x("DELETE FROM solutions WHERE student_id=?", (sid,))
                 db.x("DELETE FROM students WHERE id=?", (sid,))
                 return self.send_json({"ok": True, "merged_into": other["id"]})
             db.x("UPDATE students SET name=?, name_key=? WHERE id=?", (pretty, key, sid))
@@ -1574,7 +1650,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/student/delete" and method == "POST":
             sid = to_int(data.get("id"))
-            for table in ("attempts", "reveal_log", "exams", "activity"):
+            for table in ("attempts", "reveal_log", "exams", "activity", "solutions"):
                 db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
             db.x("DELETE FROM students WHERE id=?", (sid,))
             return self.send_json({"ok": True})
@@ -1686,7 +1762,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             skip = set(str(qs.get("skip") or "").split(","))
             pool = [tid for tid, t in APP.bank.tasks.items()
                     if t.get("n") == n and not t.get("group") and tid not in skip and t.get("fmt") != "old"
-                    and (authored_on() or not is_authored(t.get("src")))]
+                    and (authored_on() or not is_authored(t.get("src"), t.get("html")))]
             pick = secrets.SystemRandom().sample(pool, min(k, len(pool)))
             return self.send_json({"tasks": [{"id": i, "n": n, "snip": APP.bank.snippet(i)} for i in pick]})
 
@@ -1703,6 +1779,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное", "history": "повтор из истории",
            "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
            "weak": "слабое место", "repeat": "повтор решённого", "": ""}
+
+
+def teacher_solution(t):
+    """Решение учителя к заданию (для вопросов 19–21 — к игре целиком)."""
+    for tid in (t.get("id"), t.get("group")):
+        if tid:
+            r = APP.db.q("SELECT text FROM teacher_solutions WHERE task_id=?", (tid,), one=True)
+            if r:
+                return r["text"]
+    return None
 
 
 def authored_on():

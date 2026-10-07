@@ -639,7 +639,7 @@
         <td class="num"><b>${a.n}</b></td>
         <td><button type="button" class="task-link" data-task="${esc(a.task_id)}">${esc(BANK_NAMES[a.bank] || a.bank)} · ${esc(idOf(a.task_id))}</button>
             <span class="task-snip">${esc(a.snip || '')}</span></td>
-        <td class="ans">${answersCell(a)}</td>
+        <td class="ans">${answersCell(a)}${a.has_code ? ` <button type="button" class="link-btn code-link" data-code="${esc(a.task_id)}" title="Решение, которое ученик прикрепил к заданию">код</button>` : ''}</td>
         <td class="ans">${esc(a.correct)}</td>
         <td><span class="res ${r.cls}">${r.text}</span></td>
         <td class="num muted">${fmtSpent(a.spent_ms)}</td>
@@ -743,6 +743,19 @@
     if (b) openStudent(+b.dataset.student);
   });
 
+  // ------------------------------------------------------------ решение ученика
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('[data-code]');
+    if (!b || !st) return;
+    try {
+      const r = await api(`solution?student=${st.student.id}&task=${encodeURIComponent(b.dataset.code)}`);
+      $('#taskBody').innerHTML = `<div class="adm-task-meta">Решение ученика · ${esc(st.student.name)} · ${esc(idOf(b.dataset.code))} · ${fmtWhen(r.ts)}</div>
+        <pre class="tsol">${esc(r.code)}</pre>
+        <button type="button" class="btn" data-task="${esc(b.dataset.code)}">Открыть задание</button>`;
+      $('#taskModal').hidden = false;
+    } catch (err) { if (err.status !== 401) toast(err.message); }
+  });
+
   // ------------------------------------------------------------ просмотр задания
   document.addEventListener('click', async e => {
     const b = e.target.closest('[data-task]');
@@ -755,7 +768,13 @@
         <article class="cond">${safeHtml(t.html)}</article>
         ${(t.att || []).length ? `<div class="files"><span>Файлы:</span>${t.att.map(a => `<a class="file" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.name)}</a>`).join('')}</div>` : ''}
         <div class="feedback show ok adm-task-ans"><div class="fb-title">Ответ</div><div class="right-answer" style="display:inline-block">${rows.map(esc).join('<br>')}</div></div>
-        ${t.sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(t.sol)}</div></details>` : ''}`;
+        ${t.sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(t.sol)}</div></details>` : ''}
+        <form class="adm-box tsol-form" id="tsolForm" data-id="${esc(t.id)}">
+          <h3 class="adm-h3" style="margin:0">Ваше решение</h3>
+          <p class="fm-note">Код или объяснение. Ученики увидят его после того, как ответят на это задание.</p>
+          <textarea class="inp" id="tsolText" rows="8" spellcheck="false" placeholder="например:&#10;with open('17.txt') as f:&#10;    a = [int(x) for x in f]">${esc(t.teacher_sol || '')}</textarea>
+          <div class="adm-draft-row"><button type="submit" class="btn primary">Сохранить решение</button><span class="login-err" id="tsolMsg"></span></div>
+        </form>`;
       $('#taskModal').hidden = false;
       $$('#taskBody .cond table').forEach(tb => {
         const w = document.createElement('div'); w.className = 'table-wrap';
@@ -773,6 +792,16 @@
   });
   $('#taskModal').addEventListener('click', e => {
     if (e.target.id === 'taskModal' || e.target.closest('.fm-close')) $('#taskModal').hidden = true;
+  });
+  $('#taskModal').addEventListener('submit', async e => {
+    if (e.target.id !== 'tsolForm') return;
+    e.preventDefault();
+    const msg = $('#tsolMsg');
+    try {
+      await api('task-solution', { task: e.target.dataset.id, text: $('#tsolText').value });
+      msg.className = 'login-err ok';
+      msg.textContent = $('#tsolText').value.trim() ? 'Сохранено — ученики увидят после ответа' : 'Решение удалено';
+    } catch (err) { if (err.status !== 401) { msg.className = 'login-err'; msg.textContent = err.message; } }
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#taskModal').hidden = true; });
 
