@@ -336,8 +336,9 @@
   if (!validProgress(P)) P = freshProgress();
   const ui = Object.assign({ scope: 'all', bank: 'all', period: 'actual', currentId: null }, readJSON(UI_STORE) || {});
   if (ui.bank !== 'all' && !BANKS.some(b => b.id === ui.bank)) ui.bank = 'all';
-  if (ui.scope !== 'all' && ui.scope !== 'fav' && !(ui.scope >= 1 && ui.scope <= 27)) ui.scope = 'all';
-  if (ui.scope !== 'all' && ui.scope !== 'fav') ui.scope = scopeOf(ui.scope);
+  const SPECIAL = ['all', 'fav', 'asg'];
+  if (!SPECIAL.includes(ui.scope) && !(ui.scope >= 1 && ui.scope <= 27)) ui.scope = 'all';
+  if (!SPECIAL.includes(ui.scope)) ui.scope = scopeOf(ui.scope);
   const save = () => { writeJSON(storeKey(), P); writeJSON(UI_STORE, ui); scheduleSync(); };
 
   // авторские задания (Джобс, /dev/inf, Статград…) учитель может убрать из подборок и вариантов
@@ -356,9 +357,12 @@
   const visible = t => inBank(t) && inPeriod(t);
   function pool() {
     if (ui.scope === 'fav') { const f = favSet(); return TASKS.filter(t => f.has(t.id)); }
+    if (ui.scope === 'asg') { const a = asgOf(ui.asg); return a ? a.tasks.map(id => byId.get(id)).filter(Boolean) : []; }
     return TASKS.filter(t => visible(t) && (ui.scope === 'all' || t.n === ui.scope));
   }
-  const inScope = t => (ui.scope === 'fav' ? favSet().has(t.id) : visible(t) && (ui.scope === 'all' || t.n === ui.scope));
+  const inScope = t => (ui.scope === 'fav' ? favSet().has(t.id)
+    : ui.scope === 'asg' ? !!asgOf(ui.asg) && asgOf(ui.asg).tasks.includes(t.id)
+    : visible(t) && (ui.scope === 'all' || t.n === ui.scope));
   const topicKey = t => t.n + '|' + (t.topic || '');
 
   function countByNum() {
@@ -430,6 +434,13 @@
     const now = Date.now();
     const list = pool();
     if (!list.length) return null;
+    if (ui.scope === 'asg') {               // подборка учителя: по порядку, сначала нерешённые
+      const a = asgOf(ui.asg);
+      const left = asgLeft(a).filter(id => id !== excludeId).map(id => byId.get(id)).filter(Boolean);
+      if (left.length) return { task: left[0], why: { type: 'asg', a } };
+      const rest = list.filter(t => t.id !== excludeId);
+      return { task: rest.length ? rest[Math.floor(Math.random() * rest.length)] : list[0], why: { type: 'asg', a } };
+    }
     const recentSet = new Set(recent.slice(-CFG.recentWindow));
     if (excludeId) recentSet.add(excludeId);
     const fresh = arr => arr.filter(t => !recentSet.has(t.id));
@@ -669,6 +680,13 @@
         return { chip: '<span class="chip accent">Новое</span>', line: '' };
       case 'search':
         return { chip: '<span class="chip">Найдено поиском</span>', line: '' };
+      case 'asg': {
+        const a = why.a;
+        if (!a) return { chip: '<span class="chip accent">Задание учителя</span>', line: '' };
+        const done = a.tasks.length - asgLeft(a).length;
+        return { chip: '<span class="chip accent">Задание учителя</span>',
+          line: `Подборка «${esc(a.title)}»: решено <b>${done}</b> из ${a.tasks.length}${a.due ? ` · срок — до ${fmtDay(a.due * 1000)}` : ''}.` };
+      }
       case 'history':
         return { chip: '<span class="chip">Повтор из истории</span>',
           line: why.last ? `Вы уже решали это задание ${ago(why.last)}. Попробуйте ещё раз — без подсказок.` : '' };
@@ -1134,11 +1152,13 @@
 
   function payloadFor(obj, extra) {
     const rk = cur.group ? cur.revKey : (cur.why.type === 'review' ? cur.why.r.key : '');
-    return Object.assign({ task: obj.id, reason: cur.why.type, rk, spent_ms: Date.now() - cur.started }, extra);
+    return Object.assign({ task: obj.id, reason: cur.why.type, rk, spent_ms: Date.now() - cur.started, away: cur.away || 0 }, extra);
   }
   async function callCheck(obj, extra) {              // может выбросить ошибку сети
     if (!SERVER) return localCheck(obj, extra);
-    return api('check', payloadFor(obj, extra));
+    const res = await api('check', payloadFor(obj, extra));
+    if (res && res.game) onGame(res.game);
+    return res;
   }
   function netError(e) {
     if (e && e.status === 401) { toast('Нужно войти заново'); logout(); return; }
@@ -1434,6 +1454,7 @@
     renderActions();
     renderSidebar();
     renderTopbar();
+    asgAfterAnswer();
   }
 
   function show(pick) {
@@ -1838,10 +1859,16 @@
         <span class="scope-stats">${total} в банке · решено ${solved}${a ? ` · точность ${pct(ok / a)}%` : ''}</span>
         <span class="chip good">освоено номеров: ${mastered} из ${present}</span>
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
+    } else if (ui.scope === 'asg' && asgOf(ui.asg)) {
+      const a = asgOf(ui.asg);
+      const left = asgLeft(a).length;
+      h = `<span class="scope-title">От учителя</span>
+        <span class="scope-stats">«${esc(a.title)}» · решено ${a.tasks.length - left} из ${a.tasks.length}</span>
+        ${a.due ? `<span class="chip ${a.due * 1000 < Date.now() && left ? 'weak' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}`;
     } else if (ui.scope === 'fav') {
       const list = pool();
       const solved = list.filter(t => P.tasks[t.id] && P.tasks[t.id].c > 0).length;
-      h = `<span class="scope-title">★ Избранное</span>
+      h = `<span class="scope-title">Избранное</span>
         <span class="scope-stats">${list.length} ${plural(list.length, 'задание', 'задания', 'заданий')} · решено ${solved}</span>`;
     } else {
       const n = ui.scope;
@@ -1867,7 +1894,7 @@
         <span class="goal-txt">Сегодня <b>${today.length}</b>${goal ? `<span class="goal-of"> / ${goal}</span>` : ''}${today.length ? ` · верно <b>${okToday}</b>` : ''}${streak >= 2 ? ` · серия <b>${streak}</b>` : ''}</span>
         ${goal ? `<i class="goal-bar"><b style="width:${Math.min(100, pct(today.length / goal))}%"></b></i>` : ''}
       </button>
-      ${days >= 1 ? `<span class="chip streak" title="Дней подряд с выполненной целью (${goal} в день)">🔥 ${days} ${plural(days, 'день', 'дня', 'дней')}</span>` : ''}
+      ${days >= 1 ? `<span class="chip streak" title="Дней подряд с выполненной целью (${goal} в день)">серия ${days} ${plural(days, 'день', 'дня', 'дней')}</span>` : ''}
       ${P.log.length ? `<span class="dots" title="Последние ответы">${lastDots}</span>` : ''}
       <div class="goal-menu" id="goalMenu" hidden>
         <div class="goal-menu-h">Цель на день</div>
@@ -1924,7 +1951,12 @@
     }).join('');
 
     renderPeriod();
-    $('#sideToggleLabel').textContent = examShown ? 'Вариант ЕГЭ' : ui.scope === 'all' ? 'Все задания' : ui.scope === 'fav' ? '★ Избранное' : `№ ${numLabel(ui.scope)}`;
+    $('#sideToggleLabel').textContent = examShown ? 'Вариант ЕГЭ' : ui.scope === 'all' ? 'Все задания' : ui.scope === 'fav' ? 'Избранное'
+      : ui.scope === 'asg' ? 'От учителя' : `№ ${numLabel(ui.scope)}`;
+    const asgOn = inTrainer && ui.scope === 'asg';
+    $('#asgCard').classList.toggle('on', asgOn);
+    renderAsgCard();
+    renderLevel();
 
     // переключатель банков
     const bEl = $('#banks');
@@ -1948,8 +1980,19 @@
     return true;
   }
 
-  function setScope(s) {
-    if (s !== 'all' && s !== 'fav') s = scopeOf(s);
+  function setScope(s, asgId) {
+    if (!SPECIAL.includes(s)) s = scopeOf(s);
+    if (s === 'asg') {
+      if (!asgOf(asgId)) return;
+      if (isNarrow()) setSideOpen(false);
+      if (!leaveExam()) return;
+      ui.scope = 'asg';
+      ui.asg = asgId;
+      save();
+      renderSidebar();
+      next();
+      return;
+    }
     if (s === 'fav' && !prefs.fav.length) {
       toast('В избранном пока пусто: отметьте задание звёздочкой ☆ рядом с номером.', 3500);
       return;
@@ -2349,6 +2392,7 @@
     let res;
     try {
       res = SERVER ? await api('exam/finish', { exam_id: EX.id, answers: list }) : localExamResult(list);
+      if (res && res.game) setTimeout(() => onGame(res.game), 800);
     } catch (e) {
       EX.finishing = false;
       netError(e);
@@ -2640,6 +2684,7 @@
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     writeJSON(STUDENT_STORE, student);
     if (me.rules) Object.assign(RULES, me.rules);
+    if (me.game) GAME = me.game;
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);
     writeJSON(prefsKey(), prefs);
@@ -2733,6 +2778,206 @@
     start();
   }
 
+
+  // ------------------------------------------------------------ уровни, опыт, достижения
+  // Опыт считает сервер по журналу: за первое решение задания (сложнее номер — больше), за дневную пятёрку,
+  // за вариант ЕГЭ. Страница только показывает и празднует.
+  let GAME = null;
+  function renderLevel() {
+    const el = $('#lvlCard');
+    if (!el) return;
+    el.hidden = !SERVER || !GAME;
+    if (el.hidden) return;
+    $('#lvlNum').textContent = GAME.level;
+    $('#lvlTitle').textContent = GAME.title;
+    $('#lvlXp').textContent = `${GAME.cur} / ${GAME.need} XP`;
+    $('#xpBar').style.width = pct(GAME.cur / GAME.need) + '%';
+  }
+  function xpPop(v) {
+    const b = document.createElement('div');
+    b.className = 'xp-pop';
+    b.textContent = `+${v} XP`;
+    document.body.appendChild(b);
+    setTimeout(() => b.remove(), 1500);
+  }
+  function levelUp(g) {
+    const box = document.createElement('div');
+    box.className = 'lvlup';
+    box.innerHTML = `<div class="lvlup-box"><div class="lvlup-title">LEVEL UP!</div>
+      <div class="lvlup-sub">Уровень ${g.level} · ${esc(g.title)}</div></div>`;
+    box.addEventListener('click', () => box.remove());
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 3200);
+  }
+  function achToast(a) {
+    const t = document.createElement('div');
+    t.className = 'ach-toast';
+    t.innerHTML = `<span class="ach-icon">${esc(a.icon)}</span><span><small>Новое достижение</small><b>${esc(a.title)}</b><small>${esc(a.desc)}</small></span>`;
+    document.body.appendChild(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 4200);
+  }
+  function onGame(g) {
+    const old = GAME;
+    GAME = g;
+    renderLevel();
+    if (!old) return;
+    if (g.xp > old.xp) xpPop(g.xp - old.xp);
+    if (g.level > old.level) setTimeout(() => levelUp(g), 900);
+    const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
+    (g.ach || []).filter(a => a.got && !had.has(a.id))
+      .forEach((a, i) => setTimeout(() => achToast(a), 1300 + i * 1500));
+  }
+  async function openGame() {
+    if (!GAME) return;
+    const g = GAME;
+    const got = (g.ach || []).filter(a => a.got).length;
+    const ach = (g.ach || []).map(a => `<div class="ach${a.got ? '' : ' locked'}" title="${esc(a.desc)}">
+        <span class="ach-icon">${esc(a.icon)}</span>
+        <span><b>${esc(a.title)}</b><small>${esc(a.desc)}${a.got ? '' : ` · ${a.have}/${a.goal}`}</small></span></div>`).join('');
+    $('#forecastBody').innerHTML = `
+      <div class="gm-head"><span class="gm-level">${g.level}</span>
+        <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(g.title)}</h2>
+          <i class="xp-bar"><b style="width:${pct(g.cur / g.need)}%"></b></i>
+          <span class="fm-muted">${g.cur} / ${g.need} XP до ${g.level + 1}-го уровня · всего ${g.xp} XP · за неделю +${g.week}</span></div></div>
+      <p class="fm-note">Опыт даётся за первое решение задания (№1–10 — 10 XP, сложные номера — до 22 XP), повторное — 2 XP,
+        вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.</p>
+      <h3 class="fm-sub">Достижения · ${got} из ${(g.ach || []).length}</h3>
+      <div class="ach-grid">${ach}</div>
+      <div id="lbBox"></div>`;
+    $('#forecastModal').hidden = false;
+    try {
+      const d = await api('leaderboard');
+      if (d.rows && d.rows.length > 1 && $('#lbBox')) {
+        $('#lbBox').innerHTML = `<h3 class="fm-sub">Рейтинг класса ${esc(d.class || '')} · опыт за неделю</h3>
+          <table class="lb">${d.rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td>${i + 1}</td><td>${esc(r.name)}</td>
+            <td>ур. ${r.level}</td><td class="num">+${r.week} XP</td></tr>`).join('')}</table>`;
+      }
+    } catch (e) { /* без рейтинга */ }
+  }
+
+  // ------------------------------------------------------------ задания от учителя
+  let ASG = [];
+  const fmtDay = ms => { const d = new Date(ms); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`; };
+  function asgOf(id) { return ASG.find(a => a.id === id) || null; }
+  /** Нерешённые задания подборки: по данным сервера и по ответам, данным уже на этой странице. */
+  function asgLeft(a) {
+    if (!a) return [];
+    const done = new Set(a.done);
+    const since = (a.created || 0) * 1000;
+    for (const e of P.log) {
+      if (e.s > 0 && e.t >= since && !e.b) { done.add(e.id); const g = partToGroup.get(e.id); if (g) done.add(g); }
+    }
+    return a.tasks.filter(id => !done.has(id));
+  }
+  async function loadAssignments() {
+    if (!SERVER) return;
+    try { ASG = (await api('assignments')).assignments || []; } catch (e) { if (e.status === 401) throw e; ASG = []; }
+    renderAsgCard();
+  }
+  function renderAsgCard() {
+    const card = $('#asgCard');
+    if (!card) return;
+    card.hidden = !ASG.length;
+    if (!ASG.length) return;
+    const open = ASG.filter(a => asgLeft(a).length);
+    const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
+    $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
+  }
+  function openAssignments() {
+    const rows = ASG.map(a => {
+      const left = asgLeft(a).length, total = a.tasks.length;
+      const late = a.due && a.due * 1000 < Date.now() && left;
+      return `<div class="asg-row">
+        <div><h3>${esc(a.title)}</h3><div class="asg-meta">${total - left} из ${total} решено${a.due ? ` · <span class="${late ? 'chip weak' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}</div></div>
+        <button type="button" class="btn ${left ? 'primary' : ''}" data-asg="${a.id}">${left ? 'Решать' : 'Повторить'}</button>
+        <i class="xp-bar"><b style="width:${pct((total - left) / total)}%"></b></i></div>`;
+    }).join('');
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">Задания от учителя</h2>
+      <p class="fm-note">Подборки, которые выдал учитель вашему классу. Учитель видит, сколько заданий решено.</p>
+      ${rows || '<p class="fm-note">Пока ничего не задано.</p>'}`;
+    $('#forecastModal').hidden = false;
+  }
+  let asgCelebrated = new Set();
+  function asgAfterAnswer() {
+    if (ui.scope !== 'asg') return;
+    const a = asgOf(ui.asg);
+    if (a && !asgLeft(a).length && !asgCelebrated.has(a.id)) {
+      asgCelebrated.add(a.id);
+      toast(`Подборка «${a.title}» решена полностью!`, 4000);
+    }
+  }
+
+  // ------------------------------------------------------------ уход со вкладки и снимки экрана
+  // Пока страница не в фокусе (другая вкладка, программа, «Ножницы»), она замылена. Уход дольше
+  // пары секунд во время задания записывается — учитель видит это в журнале.
+  // Полностью запретить снимок экрана сайт не может (например, телефоном) — только усложнить.
+  const awayQ = [];
+  let awayFrom = 0, awayWarned = false, veilTimer = null;
+  const veil = on => document.body.classList.toggle('veiled', on);
+  function openTaskId() {
+    if (examShown && EX) { const it = EX.items[EX.cur]; return it ? it.id : null; }
+    return cur && !cur.done ? cur.task.id : null;
+  }
+  function goneAway() {
+    veil(true);
+    if (!awayFrom) awayFrom = Date.now();
+  }
+  function cameBack() {
+    veil(false);
+    if (!awayFrom) return;
+    const sec = (Date.now() - awayFrom) / 1000;
+    awayFrom = 0;
+    const id = openTaskId();
+    if (!SERVER || !student || !id || sec < 2) return;
+    if (cur && !cur.done && !examShown) cur.away = (cur.away || 0) + 1;
+    awayQ.push({ kind: 'away', dur: Math.round(sec), task: id, exam: examShown ? 1 : 0 });
+    flushAway();
+    if (!awayWarned) {
+      awayWarned = true;
+      toast('Переход на другую вкладку или программу записывается — учитель видит это в журнале.', 4500);
+    }
+  }
+  function flushAway() {
+    if (!awayQ.length || !SERVER || !student) return;
+    api('activity', { events: awayQ.splice(0, awayQ.length) }).catch(() => {});
+  }
+  function shotAttempt() {
+    veil(true);
+    clearTimeout(veilTimer);
+    veilTimer = setTimeout(() => { veilTimer = null; if (document.hasFocus() && !awayFrom) veil(false); }, 4000);
+    if (SERVER && student) { awayQ.push({ kind: 'shot', task: openTaskId() || '', exam: examShown ? 1 : 0 }); flushAway(); }
+  }
+  window.addEventListener('blur', goneAway);
+  window.addEventListener('focus', cameBack);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') goneAway();
+    else if (document.hasFocus()) cameBack();
+  });
+  // окно рядом с программой: навели мышь на страницу — показываем (у «Ножниц» поверх экрана мышь сюда не попадает)
+  document.addEventListener('mousemove', () => {
+    if (document.body.classList.contains('veiled') && document.visibilityState === 'visible' && !veilTimer) veil(false);
+  });
+  document.addEventListener('keydown', e => {
+    // Win+Shift+S, Cmd+Shift+3/4/5: замыливаем, как только зажаты Win/Cmd и Shift
+    if ((e.metaKey && e.shiftKey) || (e.key === 'Shift' && e.metaKey) || (e.key === 'Meta' && e.shiftKey)) shotAttempt();
+  }, true);
+  document.addEventListener('keyup', e => {
+    if (e.key === 'PrintScreen') {
+      shotAttempt();
+      try { navigator.clipboard && navigator.clipboard.writeText(''); } catch (err) { /* нет доступа к буферу */ }
+    }
+  }, true);
+  if (!document.hasFocus()) veil(true);       // открыли в фоновой вкладке — уходом это не считаем
+
+  $('#lvlCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openGame(); });
+  $('#asgCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openAssignments(); });
+  $('#forecastBody').addEventListener('click', e => {
+    const b = e.target.closest('[data-asg]');
+    if (!b) return;
+    $('#forecastModal').hidden = true;
+    setScope('asg', +b.dataset.asg);
+  });
+
   // ------------------------------------------------------------ старт
   function start() {
     recent.length = 0;
@@ -2746,6 +2991,7 @@
       }
     }
     if (ui.scope === 'fav' && !prefs.fav.length) ui.scope = 'all';
+    if (ui.scope === 'asg' && !asgOf(ui.asg)) ui.scope = 'all';
     lastNum = null;
     renderWho();
     // незаконченный вариант ЕГЭ (например, после перезагрузки страницы)
@@ -2783,6 +3029,7 @@
           applyMe(me);
           mustSetPw = me.has_password === false;      // вошёл раньше, когда пароля ещё не было
           await loadHistory();
+          await loadAssignments();
           ok = true;
         } catch (e) {
           if (e.status === 401) {
