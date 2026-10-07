@@ -44,6 +44,7 @@
     exam_sec: (3 * 60 + 55) * 60,
     exam_per_day: 3,
     exam_min_for_answers: 20 * 60,
+    authored: true,             // давать ли авторские задания в подборках и вариантах
   };
   const thinkSec = n => (n >= 24 ? RULES.think_hard : RULES.think);
   const DAY = 864e5;
@@ -339,7 +340,9 @@
   if (ui.scope !== 'all' && ui.scope !== 'fav') ui.scope = scopeOf(ui.scope);
   const save = () => { writeJSON(storeKey(), P); writeJSON(UI_STORE, ui); scheduleSync(); };
 
-  const inBank = t => ui.bank === 'all' || t.bank === ui.bank;
+  // авторские задания (Джобс, /dev/inf, Статград…) учитель может убрать из подборок и вариантов
+  const authorOk = t => RULES.authored !== false || !t.au;
+  const inBank = t => authorOk(t) && (ui.bank === 'all' || t.bank === ui.bank);
   const formatSince = n => Math.max(CFG.firstKegeYear, CFG.formatSince[n] || 0);
   /** Устаревшее задание: старый тип (по тексту) или год экзамена раньше смены формата. */
   function isOutdated(t) {
@@ -724,7 +727,7 @@
     const meta = [];
     if (t.topic) meta.push(esc(t.topic));
     if (t.lv) meta.push(esc(t.lv));
-    if (t.src) meta.push(esc(t.src));
+    if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
     else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
     if (t.y && !(t.src || '').includes(String(t.y))) {
       meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
@@ -914,7 +917,13 @@
   /** «Скачать 9.xlsСкачать 9.ods» в тексте дублирует кнопки файлов под условием — убираем из текста. */
   function dropDuplicateFileLinks(el, att) {
     if (!el || !att.length) return;
-    const norm = h => { try { return decodeURIComponent(new URL(h, location.href).pathname); } catch (e) { return h; } };
+    const norm = h => {
+      try {
+        const path = decodeURIComponent(new URL(h, location.href).pathname);
+        const m = path.match(/\/files\/([0-9a-f]+)\//);     // безликая ссылка сервера: сравниваем по коду
+        return m ? m[1] : path;
+      } catch (e) { return h; }
+    };
     const hrefs = new Set(att.map(a => norm(a.href)));
     $$('a[href]', el).forEach(a => {
       if (!hrefs.has(norm(a.getAttribute('href')))) return;
@@ -2114,7 +2123,7 @@
     const items = [];
     for (let n = 1; n <= 27; n++) {
       if (HAS_GROUPS && (n === 20 || n === 21)) continue;
-      const fits = t => t.n === n && (n !== 19 || !HAS_GROUPS || t.parts);
+      const fits = t => t.n === n && (n !== 19 || !HAS_GROUPS || t.parts) && authorOk(t);
       let cands = TASKS.filter(t => fits(t) && !isOutdated(t));
       if (!cands.length) cands = TASKS.filter(fits);
       if (!cands.length) continue;

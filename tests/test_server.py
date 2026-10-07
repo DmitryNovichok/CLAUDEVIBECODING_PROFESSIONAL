@@ -4,6 +4,7 @@
 """
 import http.client
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -23,9 +24,13 @@ BANK = {
         {"id": "b:5", "n": 5, "bank": "b", "html": "<p>Пять</p>", "ans": "12", "sol": "<p>решение</p>",
          "link": "https://kompege.ru/task?id=5", "video": {"yt": "abc"},
          "att": [{"name": "5_7831_1698406948.xlsx", "href": "media/b/assets/x.xlsx"}]},
-        {"id": "b:6", "n": 6, "bank": "b", "ans": "7",
+        {"id": "b:6", "n": 6, "bank": "b", "ans": "7", "src": "КомпЕГЭ · Джобс 14.05.2022",
          "html": '<p>Шесть, как в <a href="https://openfipi.devinf.ru/task/B9FC0F">задании 19</a>, автор <a href="https://vk.com/a">А.</a></p>'},
-        {"id": "b:27", "n": 27, "bank": "b", "html": "<p>Двадцать семь</p>", "ans": "10 20"},
+        {"id": "b:27", "n": 27, "bank": "b", "html": "<p>Двадцать семь</p>", "ans": "10 20", "src": "КомпЕГЭ · Демоверсия 2025"},
+        {"id": "fip:02143E", "n": 3, "bank": "fip_bank", "ans": "1",
+         "html": '<p><img src="../fip_bank/assets/0079D4-08bc5d/a.gif"> <a href="../fip_bank/files/ege/3/02143E.zip">Скачать</a></p>',
+         "att": [{"name": "02143E.zip", "href": "../fip_bank/files/ege/3/02143E.zip"},
+                 {"name": "BAD001.zip", "href": "../fip_bank/files/ege/9/BAD001.zip"}]},
         {"id": "b:g", "n": 19, "bank": "b", "html": "<p>Игра</p>",
          "parts": [{"id": "b:g19", "n": 19, "ans": "3"}, {"id": "b:g20", "n": 20, "ans": "4"}]},
     ],
@@ -40,6 +45,18 @@ class ServerTest(unittest.TestCase):
         (cls.tmp / "data" / "bank.js").write_text("window.EGE_BANK = " + json.dumps(BANK) + ";", encoding="utf-8")
         (cls.tmp / "server_data").mkdir()
         (cls.tmp / "server_data" / "secret.txt").write_text("secret")
+        # банк ФИПИ: картинка в папке с кодом задания, файлы — в zip, один архив битый
+        fip = cls.tmp / "fip_bank"
+        (fip / "assets" / "0079D4-08bc5d").mkdir(parents=True)
+        (fip / "assets" / "0079D4-08bc5d" / "a.gif").write_bytes(b"GIF89a")
+        (fip / "files" / "ege" / "3").mkdir(parents=True)
+        (fip / "files" / "ege" / "9").mkdir(parents=True)
+        import zipfile
+        with zipfile.ZipFile(fip / "files" / "ege" / "3" / "02143E.zip", "w") as z:
+            z.writestr("02143E.xls", b"XLSDATA")
+            z.writestr("__MACOSX/._02143E.xls", b"junk")
+            z.writestr("Задание 3.txt", b"1 2 3")
+        (fip / "files" / "ege" / "9" / "BAD001.zip").write_text("<html>Ошибка</html>", encoding="utf-8")
         (cls.tmp / "vendor").mkdir()
         (cls.tmp / "vendor" / "ok.css").write_text("body{}")
         cls.saved = {k: getattr(server, k) for k in ("HERE", "DB_PATH", "BANK_JS", "THINK_SEC_DEFAULT", "THINK_SEC_HARD")}
@@ -192,6 +209,73 @@ class ServerTest(unittest.TestCase):
         st, d = self.check(tok, pid, answer="12")
         self.assertEqual(d["link"], "https://kompege.ru/task?id=5")
         self.assertEqual(d["video"], {"yt": "abc"})
+
+    def test_fipi_files_hide_code_and_unpack_zip(self):
+        tok = self.login("Файлов Фёдор")
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
+        body = c.getresponse().read().decode()
+        c.close()
+        bank = json.loads(body[body.index("{"):body.rindex("}") + 1])
+        task = next(t for t in bank["tasks"] if t["n"] == 3)
+        for leak in ("02143E", "0079D4", "../", "BAD001"):
+            self.assertNotIn(leak, json.dumps(task, ensure_ascii=False), leak)
+        names = [a["name"] for a in task["att"]]
+        self.assertIn("3.xls", names)                       # файл из архива, имя без кода ФИПИ
+        self.assertIn("Задание 3.txt", names)
+        from types import SimpleNamespace                   # архив из Windows: имя в cp866 без флага UTF-8
+        win = SimpleNamespace(flag_bits=0, filename="Задание 3.txt".encode("cp866").decode("cp437"))
+        self.assertEqual(server.zip_display_name(win), "Задание 3.txt")
+        self.assertEqual(server.clean_file_name("02143E.xls", 3), "3.xls")
+        self.assertEqual(server.clean_file_name("3_7831_1698406948.xlsx", 3), "3.xlsx")
+        self.assertEqual(server.clean_file_name("27_A.txt", 27), "27_A.txt")
+        self.assertNotIn("Скачать</a>", task["html"])       # ссылка на распакованный архив убрана из текста
+        self.assertEqual(server.APP.bank.broken[-1:], [str((self.tmp / "fip_bank/files/ege/9/BAD001.zip").resolve())])
+
+        def get(href):
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            c.request("GET", "/" + href)
+            r = c.getresponse()
+            out = (r.status, r.read(), r.headers.get("Content-Disposition") or "")
+            c.close()
+            return out
+        xls = next(a for a in task["att"] if a["name"] == "3.xls")
+        st, data, disp = get(xls["href"])
+        self.assertEqual((st, data), (200, b"XLSDATA"))
+        self.assertIn("3.xls", disp)
+        self.assertNotIn("02143E", disp)
+        img = re.search(r'src="([^"]+)"', task["html"]).group(1)
+        self.assertEqual(get(img)[:2], (200, b"GIF89a"))
+        self.assertEqual(get("files/0000000000000000aaaa/x.png")[0], 404)
+
+    def test_authored_tasks_marked_and_switchable(self):
+        for src, au in (("Джобс Е.", True), ("КомпЕГЭ · /dev/inf 11.22", True), ("КомпЕГЭ · Статград 08.02.2022", True),
+                        ("КомпЕГЭ · Демоверсия 2025", False), ("КомпЕГЭ · Переcдача 04.07.24", False),
+                        ("Открытый банк ФИПИ", False), ("КомпЕГЭ", False), ("", False), (None, False)):
+            self.assertEqual(server.is_authored(src), au, src)
+        tok = self.login("Авторов Антон")
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
+        body = c.getresponse().read().decode()
+        c.close()
+        tasks = {t["id"]: t for t in json.loads(body[body.index("{"):body.rindex("}") + 1])["tasks"]}
+        self.assertEqual(tasks[server.APP.bank.pid("b:6")].get("au"), 1)
+        self.assertNotIn("au", tasks[server.APP.bank.pid("b:27")])
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["authored"])
+        # переключатель — только у учителя
+        self.assertEqual(self.req("POST", "/api/admin/authored", {"on": False})[0], 401)
+        server.APP.db.x("INSERT INTO admin_sessions(token, expires) VALUES('admtok', ?)", (time.time() + 3600,))
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("POST", "/api/admin/authored", body=json.dumps({"on": False}),
+                  headers={"Content-Type": "application/json", "Cookie": "egeadm=admtok"})
+        r = c.getresponse()
+        self.assertEqual((r.status, json.loads(r.read())["on"]), (200, False))
+        c.close()
+        try:
+            self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["rules"]["authored"])
+        finally:
+            server.APP.db.setting("authored", "1")
+            server.APP.db.x("DELETE FROM admin_sessions WHERE token='admtok'")
 
     def test_find_returns_code_and_is_limited(self):
         tok = self.login("Поисков Пётр")
