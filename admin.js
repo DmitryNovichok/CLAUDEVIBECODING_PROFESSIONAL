@@ -518,8 +518,24 @@
       showMediaWarning(d);
       $('#infoLine').textContent = `В банке ${d.tasks} заданий · учеников: ${d.students} · записей в журнале: ${d.attempts}. Резервная копия — файл trainer/server_data/trainer.db.`;
       $('#inviteCode').value = d.invite || '';
+      $('#authoredOn').checked = d.authored_on !== false;
+      $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
     } catch (e) { /* не страшно */ }
   }
+  $('#authoredOn').addEventListener('change', async e => {
+    const msg = $('#authoredMsg');
+    msg.className = 'login-err';
+    msg.textContent = '';
+    try {
+      const r = await api('authored', { on: e.target.checked });
+      e.target.checked = r.on;
+      msg.className = 'login-err ok';
+      msg.textContent = r.on ? 'Авторские задания включены' : 'Авторские задания убраны из подборок и вариантов';
+    } catch (err) {
+      e.target.checked = !e.target.checked;
+      if (err.status !== 401) msg.textContent = err.message;
+    }
+  });
   $('#inviteForm').addEventListener('submit', async e => {
     e.preventDefault();
     const msg = $('#inviteMsg');

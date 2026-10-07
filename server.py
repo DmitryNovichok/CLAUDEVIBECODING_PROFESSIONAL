@@ -296,6 +296,18 @@ FIPI_CODE_RE = re.compile(r"(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*\d)[0-9A-Fa-f]{6}(?![
 MAX_ZIP_MEMBER = 60 * 1024 * 1024
 
 
+# Задания без автора: с экзаменов и из ФИПИ (демоверсии, апробации, волны, ЕГКР) или без указанного источника.
+# Остальные — авторские (Джобс, /dev/inf, Danov, Статград…); учитель решает, давать ли их в подборках и вариантах.
+OFFICIAL_SRC_RE = re.compile(
+    r"фипи|openfipi|демоверси|апробаци|основн\w*\s+волн|досрочн|резерв|пере[сc]дач|егкр|открытый\s+вариант", re.I)
+NO_AUTHOR_SRC = {"", "компегэ", "яндекс учебник"}
+
+
+def is_authored(src):
+    s = re.sub(r"^\s*КомпЕГЭ\s*·\s*", "", str(src or "")).strip()
+    return s.lower() not in NO_AUTHOR_SRC and not OFFICIAL_SRC_RE.search(s)
+
+
 def clean_file_name(name, n):
     """Имя файла для ученика: без номера задания КомпЕГЭ (длинные числа) и кода ФИПИ (6 шестнадцатеричных знаков)."""
     stem, ext = os.path.splitext(posixpath.basename(str(name or "").replace("\\", "/")))
@@ -325,6 +337,7 @@ class Bank:
         self.files = {}            # безликая ссылка -> (ссылка из банка, файл внутри zip или None)
         self.zipped = set()
         self.broken = []
+        self.authored = 0          # сколько заданий с автором
         self.mtime = None
         self.lock = threading.Lock()
         self.tasks = {}
@@ -505,6 +518,7 @@ class Bank:
             self.files = {}
             self.zipped = set()
             self.broken = []
+            self.authored = 0
             pub_tasks = []
             for t in data.get("tasks", []):
                 self.tasks[t["id"]] = t
@@ -514,6 +528,9 @@ class Bank:
                 if t.get("att"):
                     p["att"] = self.public_att(t["att"], t.get("n"))
                 p["html"] = self.public_html(t.get("html"))
+                if is_authored(t.get("src")):
+                    p["au"] = 1
+                    self.authored += 1
                 if t.get("parts"):
                     # задание 19–21: каждую часть проверяем отдельно, в журнал она идёт под своим номером
                     p["parts"] = []
@@ -944,7 +961,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
     def rules():
         return {"think": THINK_SEC_DEFAULT, "think_hard": THINK_SEC_HARD, "reveal_per_hour": REVEAL_PER_HOUR,
                 "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
-                "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS}
+                "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored_on()}
 
     def me_payload(self, s):
         def load(v, default):
@@ -1491,9 +1508,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.setting("invite_code", code)
             return self.send_json({"ok": True, "code": code})
 
+        if path == "/api/admin/authored" and method == "POST":
+            db.setting("authored", "1" if data.get("on") else "0")
+            return self.send_json({"ok": True, "on": authored_on()})
+
         if path == "/api/admin/info":
             n_tasks = len(APP.bank.tasks) if APP.bank.ensure() else 0
-            return self.send_json({"tasks": n_tasks, "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
+            return self.send_json({"tasks": n_tasks, "authored_tasks": APP.bank.authored, "authored_on": authored_on(), "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
                                    "invite": db.setting("invite_code") or DEFAULT_INVITE,
                                    "students": db.q("SELECT COUNT(*) c FROM students", one=True)["c"],
                                    "attempts": db.q("SELECT COUNT(*) c FROM attempts", one=True)["c"]})
@@ -1504,6 +1525,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное", "history": "повтор из истории",
            "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
            "weak": "слабое место", "repeat": "повтор решённого", "": ""}
+
+
+def authored_on():
+    """Давать ли авторские задания в подборках и вариантах (по умолчанию — да)."""
+    return APP.db.setting("authored") != "0"
 
 
 def to_int(v):

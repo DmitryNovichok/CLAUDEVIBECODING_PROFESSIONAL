@@ -24,9 +24,9 @@ BANK = {
         {"id": "b:5", "n": 5, "bank": "b", "html": "<p>Пять</p>", "ans": "12", "sol": "<p>решение</p>",
          "link": "https://kompege.ru/task?id=5", "video": {"yt": "abc"},
          "att": [{"name": "5_7831_1698406948.xlsx", "href": "media/b/assets/x.xlsx"}]},
-        {"id": "b:6", "n": 6, "bank": "b", "ans": "7",
+        {"id": "b:6", "n": 6, "bank": "b", "ans": "7", "src": "КомпЕГЭ · Джобс 14.05.2022",
          "html": '<p>Шесть, как в <a href="https://openfipi.devinf.ru/task/B9FC0F">задании 19</a>, автор <a href="https://vk.com/a">А.</a></p>'},
-        {"id": "b:27", "n": 27, "bank": "b", "html": "<p>Двадцать семь</p>", "ans": "10 20"},
+        {"id": "b:27", "n": 27, "bank": "b", "html": "<p>Двадцать семь</p>", "ans": "10 20", "src": "КомпЕГЭ · Демоверсия 2025"},
         {"id": "fip:02143E", "n": 3, "bank": "fip_bank", "ans": "1",
          "html": '<p><img src="../fip_bank/assets/0079D4-08bc5d/a.gif"> <a href="../fip_bank/files/ege/3/02143E.zip">Скачать</a></p>',
          "att": [{"name": "02143E.zip", "href": "../fip_bank/files/ege/3/02143E.zip"},
@@ -247,6 +247,35 @@ class ServerTest(unittest.TestCase):
         img = re.search(r'src="([^"]+)"', task["html"]).group(1)
         self.assertEqual(get(img)[:2], (200, b"GIF89a"))
         self.assertEqual(get("files/0000000000000000aaaa/x.png")[0], 404)
+
+    def test_authored_tasks_marked_and_switchable(self):
+        for src, au in (("Джобс Е.", True), ("КомпЕГЭ · /dev/inf 11.22", True), ("КомпЕГЭ · Статград 08.02.2022", True),
+                        ("КомпЕГЭ · Демоверсия 2025", False), ("КомпЕГЭ · Переcдача 04.07.24", False),
+                        ("Открытый банк ФИПИ", False), ("КомпЕГЭ", False), ("", False), (None, False)):
+            self.assertEqual(server.is_authored(src), au, src)
+        tok = self.login("Авторов Антон")
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
+        body = c.getresponse().read().decode()
+        c.close()
+        tasks = {t["id"]: t for t in json.loads(body[body.index("{"):body.rindex("}") + 1])["tasks"]}
+        self.assertEqual(tasks[server.APP.bank.pid("b:6")].get("au"), 1)
+        self.assertNotIn("au", tasks[server.APP.bank.pid("b:27")])
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["authored"])
+        # переключатель — только у учителя
+        self.assertEqual(self.req("POST", "/api/admin/authored", {"on": False})[0], 401)
+        server.APP.db.x("INSERT INTO admin_sessions(token, expires) VALUES('admtok', ?)", (time.time() + 3600,))
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("POST", "/api/admin/authored", body=json.dumps({"on": False}),
+                  headers={"Content-Type": "application/json", "Cookie": "egeadm=admtok"})
+        r = c.getresponse()
+        self.assertEqual((r.status, json.loads(r.read())["on"]), (200, False))
+        c.close()
+        try:
+            self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["rules"]["authored"])
+        finally:
+            server.APP.db.setting("authored", "1")
+            server.APP.db.x("DELETE FROM admin_sessions WHERE token='admtok'")
 
     def test_find_returns_code_and_is_limited(self):
         tok = self.login("Поисков Пётр")

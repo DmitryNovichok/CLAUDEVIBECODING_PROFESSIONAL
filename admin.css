@@ -123,6 +123,8 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
 .adm-box p { margin: 0; }
 .adm-box .inp { font-family: inherit; font-size: 14px; }
 .adm-box .btn { align-self: flex-start; }
+.adm-switch { display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.adm-switch input { width: 18px; height: 18px; accent-color: var(--accent); }
 .login-err.ok { color: var(--good); }
 
 .adm-task-panel { max-width: 860px; }
