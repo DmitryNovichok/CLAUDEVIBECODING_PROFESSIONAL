@@ -171,11 +171,80 @@
     });
     let data = {};
     try { data = await r.json(); } catch (e) { /* пусто */ }
-    if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status });
+    if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status, data });
     return data;
   }
 
-  /** Задания закрыты: сначала код приглашения и ФИО, потом перезагрузка страницы. */
+  const LAST_NAME_STORE = 'egeTrainer.lastName';
+  const cleanName = v => String(v || '').replace(/\s+/g, ' ').trim();
+
+  /**
+   * Окно входа: вкладки «Вход» (ФИО + пароль) и «Регистрация» (код + ФИО + пароль).
+   * Поля размечены autocomplete — браузер предложит сохранить пароль и потом подставит его.
+   * Возвращает ответ сервера после успешного входа.
+   */
+  function loginDialog(note) {
+    return new Promise(resolve => {
+      const m = $('#loginModal'), errEl = $('#loginErr');
+      const forms = { login: $('#loginForm'), reg: $('#regForm') };
+      const tabs = $$('#loginTabs button');
+      const setTab = (k, msg, info) => {
+        tabs.forEach(b => { b.classList.toggle('on', b.dataset.tab === k); b.setAttribute('aria-selected', String(b.dataset.tab === k)); });
+        Object.entries(forms).forEach(([kk, f]) => { f.hidden = kk !== k; });
+        errEl.textContent = msg || '';
+        errEl.classList.toggle('info', !!info);
+        setTimeout(() => {
+          const empty = Array.from(forms[k].querySelectorAll('input')).find(i => !i.value);
+          (empty || forms[k].querySelector('input')).focus();
+        }, 30);
+      };
+      tabs.forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+      const last = readJSON(LAST_NAME_STORE);
+      if (last) $('#loginName').value = last;
+      m.hidden = false;
+      setTab(last ? 'login' : 'reg', note || '');
+
+      const run = async (form, body) => {
+        const btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        errEl.textContent = '';
+        try {
+          const r = await loginRequest(body);
+          writeJSON(LAST_NAME_STORE, r.name);
+          m.hidden = true;
+          ['#loginPass', '#regPass', '#regPass2', '#regCode'].forEach(sel => { $(sel).value = ''; });
+          resolve(r);
+        } catch (err) {
+          if (err.data && err.data.need === 'set_password') {
+            $('#regName').value = body.name;
+            setTab('reg', `У ученика «${body.name}» ещё нет пароля. Введите код приглашения и придумайте пароль — прогресс и журнал сохранятся.`, true);
+          } else {
+            errEl.classList.remove('info');
+            errEl.textContent = err.status ? err.message : 'Нет связи с сервером. Проверьте адрес и попробуйте ещё раз.';
+          }
+        } finally {
+          btn.disabled = false;
+        }
+      };
+      forms.login.onsubmit = e => {
+        e.preventDefault();
+        const name = cleanName($('#loginName').value);
+        if (name.split(' ').length < 2) { errEl.textContent = 'Введите фамилию и имя через пробел.'; $('#loginName').focus(); return; }
+        run(forms.login, { mode: 'login', name, password: $('#loginPass').value });
+      };
+      forms.reg.onsubmit = e => {
+        e.preventDefault();
+        const name = cleanName($('#regName').value);
+        const pw = $('#regPass').value;
+        if (name.split(' ').length < 2) { errEl.textContent = 'Введите фамилию и имя через пробел.'; $('#regName').focus(); return; }
+        if (pw.length < 6) { errEl.textContent = 'Пароль — не короче 6 символов.'; $('#regPass').focus(); return; }
+        if (pw !== $('#regPass2').value) { errEl.textContent = 'Пароли не совпадают.'; $('#regPass2').select(); return; }
+        run(forms.reg, { mode: 'register', code: $('#regCode').value.trim(), name, new_password: pw });
+      };
+    });
+  }
+
+  /** Задания закрыты: сначала вход, потом перезагрузка страницы. */
   async function gate() {
     $('#grid').innerHTML = Array.from({ length: 27 }, (_, i) =>
       `<button class="num-card" disabled><span class="n">${i + 1}</span><span class="c">·</span></button>`).join('');
@@ -190,28 +259,10 @@
         return;
       } catch (e) { /* токен устарел — войдём заново */ }
     }
-    const m = $('#loginModal'), form = $('#loginForm'), errEl = $('#loginErr');
-    m.hidden = false;
-    if (tried) errEl.textContent = 'Браузер не сохранил вход. Разрешите cookie для этого сайта и войдите ещё раз.';
-    setTimeout(() => $('#loginCode').focus(), 50);
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      const code = $('#loginCode').value.trim();
-      const name = $('#loginName').value.replace(/\s+/g, ' ').trim();
-      if (name.split(' ').length < 2) { errEl.textContent = 'Введите фамилию и имя через пробел.'; $('#loginName').focus(); return; }
-      const btn = form.querySelector('button');
-      btn.disabled = true;
-      try {
-        const r = await loginRequest({ code, name });
-        writeJSON(STUDENT_STORE, { sid: r.sid, name: r.name, token: r.token });
-        try { sessionStorage.setItem('egeTrainer.relogin', '1'); } catch (e2) { /* нет доступа */ }
-        location.reload();
-      } catch (err) {
-        errEl.textContent = err.status ? err.message : 'Нет связи с сервером. Проверьте адрес и попробуйте ещё раз.';
-        if (err.status === 403) $('#loginCode').select();
-        btn.disabled = false;
-      }
-    });
+    const r = await loginDialog(tried ? 'Браузер не сохранил вход. Разрешите cookie для этого сайта и войдите ещё раз.' : '');
+    writeJSON(STUDENT_STORE, { sid: r.sid, name: r.name, token: r.token });
+    try { sessionStorage.setItem('egeTrainer.relogin', '1'); } catch (e2) { /* нет доступа */ }
+    location.reload();
   }
 
   // ------------------------------------------------------------ данные
@@ -615,6 +666,9 @@
         return { chip: '<span class="chip accent">Новое</span>', line: '' };
       case 'search':
         return { chip: '<span class="chip">Найдено поиском</span>', line: '' };
+      case 'history':
+        return { chip: '<span class="chip">Повтор из истории</span>',
+          line: why.last ? `Вы уже решали это задание ${ago(why.last)}. Попробуйте ещё раз — без подсказок.` : '' };
       default:
         return { chip: '', line: '' };
     }
@@ -688,6 +742,7 @@
 
     trainerEl.innerHTML = `
       <div class="task-head">
+        ${backStack.length ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
         <span class="num-badge">${numLabel(t.n)}</span>
         <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
         <span class="head-chips">${chip}</span>
@@ -1380,6 +1435,10 @@
       return;
     }
     const t0 = pick.task;
+    if (cur && cur.task && cur.task.id !== t0.id && !pick.back) {
+      backStack.push(cur.task.id);
+      if (backStack.length > 50) backStack.shift();
+    }
     const revKey = pick.why.type === 'review' ? pick.why.r.key : topicKey(t0);
     const rv = P.reviews[revKey];
     cur = {
@@ -1828,6 +1887,7 @@
     $('#allBar').style.width = tried ? pct(avg) + '%' : '0';
     $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
     $('#favCount').textContent = prefs.fav.length;
+    $('#histCount').textContent = P.log.filter(e => !e.b).length;
     $('#examCard').classList.toggle('on', examShown);
     $('#examSub').textContent = EX ? `идёт · ${fmtClock((EX.deadline - Date.now()) / 1000)}` : '3 ч 55 мин';
 
@@ -1972,6 +2032,76 @@
     if (!hits.length && q.length >= 4) hits = TASKS.filter(t => own(t).some(id => tail(id).includes(q)));
     hits.sort((a, b) => (b.bank === 'kompege_bank') - (a.bank === 'kompege_bank'));
     return hits[0] || null;
+  }
+
+  // ------------------------------------------------------------ история: вернуться к прошлому заданию
+  const backStack = [];           // задания, показанные в этот заход, — для кнопки «←»
+  let histFilter = 'all', histLimit = 100;
+  const pad2 = x => String(x).padStart(2, '0');
+  const plainCache = new Map();
+  function plainText(t) {
+    if (!plainCache.has(t.id)) {
+      const tpl = document.createElement('template');      // template не загружает картинки
+      tpl.innerHTML = t.html || '';
+      plainCache.set(t.id, tpl.content.textContent.replace(/\s+/g, ' ').trim().slice(0, 120));
+    }
+    return plainCache.get(t.id);
+  }
+
+  /** Открыть прошлое задание (из истории или кнопкой «←»), чтобы решить его ещё раз. */
+  function openPast(id, back) {
+    const gid = partToGroup.get(id) || id;
+    const t = byId.get(gid);
+    if (!t) { toast('Этого задания больше нет в банке'); return; }
+    if (!leaveExam()) return;
+    if (isNarrow()) setSideOpen(false);
+    abandonCurrent();
+    if (cur) lastNum = cur.task.n;
+    show({ task: t, why: { type: 'history', last: (P.tasks[gid] || {}).last }, back });
+    renderSidebar();
+  }
+  function goBack() {
+    while (backStack.length) {
+      const id = backStack.pop();
+      if (!cur || id !== cur.task.id) { openPast(id, true); return; }
+    }
+  }
+
+  function histResult(e) {
+    if (e.s === 1) return ['good', e.x ? 'верно · вариант' : 'верно'];
+    if (e.s === 0.5) return ['mid', 'со 2-й попытки'];
+    if (e.b) return ['', 'без ответа · вариант'];
+    if (e.p === 0.5) return ['mid', 'верна половина'];
+    return ['weak', e.x ? 'ошибка · вариант' : 'ошибка'];
+  }
+
+  function openHistory() {
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const list = P.log.slice().reverse().filter(e => histFilter === 'all'
+      || (histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime()));
+    const when = ts => { const d = new Date(ts); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+    const rows = list.slice(0, histLimit).map(e => {
+      const t = byId.get(partToGroup.get(e.id) || e.id);
+      const [cls, txt] = histResult(e);
+      return `<div class="hist-row">
+        <span class="hist-when">${when(e.t)}</span>
+        <span class="num-badge sm">${e.n}</span>
+        <span class="hist-snip">${t ? esc(plainText(t)) : '<span class="fm-muted">задание удалено из банка</span>'}</span>
+        <span class="chip ${cls}">${txt}</span>
+        ${t ? `<button type="button" class="btn hist-open" data-open="${esc(e.id)}">Открыть</button>` : '<span></span>'}
+      </div>`;
+    }).join('');
+    $('#forecastBody').innerHTML = `
+      <h2 class="fm-title">История заданий</h2>
+      <p class="fm-note">«Открыть» — решить задание ещё раз. Повторное решение засчитывается, но в прогноз балла идёт с меньшим весом: ответ мог запомниться.</p>
+      <div class="hist-filters">
+        ${[['all', 'Все'], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
+          `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
+        <span class="fm-muted">${list.length} ${plural(list.length, 'ответ', 'ответа', 'ответов')}</span>
+      </div>
+      <div class="hist-list">${rows || '<p class="fm-note">Здесь пока пусто.</p>'}</div>
+      ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}`;
+    $('#forecastModal').hidden = false;
   }
 
   // ------------------------------------------------------------ вариант ЕГЭ
@@ -2322,6 +2452,7 @@
       return;
     }
     if (!cur) return;
+    if (id === 'backBtn') { goBack(); return; }
     if (id === 'favBtn') toggleFav(cur.task.id);
     else if (id === 'noteBtn') {
       const box = $('#noteBox');
@@ -2366,7 +2497,13 @@
   });
 
   $('#forecastBtn').addEventListener('click', openForecast);
+  $('#histCard').addEventListener('click', () => { histFilter = 'all'; histLimit = 100; if (isNarrow()) setSideOpen(false); openHistory(); });
   $('#forecastModal').addEventListener('click', e => {
+    const ho = e.target.closest('[data-open]');
+    if (ho) { closeForecast(); openPast(ho.dataset.open); return; }
+    const hf = e.target.closest('[data-hf]');
+    if (hf) { histFilter = hf.dataset.hf; histLimit = 100; openHistory(); return; }
+    if (e.target.closest('[data-hmore]')) { histLimit += 100; openHistory(); return; }
     const go = e.target.closest('[data-go]');
     if (go && !go.disabled) { closeForecast(); setScope(+go.dataset.go); return; }
     if (e.target.id === 'forecastModal' || e.target.closest('.fm-close')) closeForecast();
@@ -2376,6 +2513,7 @@
     if (e.key === 'Escape') {
       $('#lightbox').hidden = true;
       closeForecast();
+      $('#pwModal').hidden = true;
       const menu = $('#goalMenu');
       if (menu) menu.hidden = true;
       return;
@@ -2521,41 +2659,48 @@
     if (student) $('#whoName').textContent = student.name;
   }
 
-  function askName() {
-    return new Promise(resolve => {
-      const m = $('#loginModal');
-      const form = $('#loginForm');
-      const inp = $('#loginName');
-      const codeInp = $('#loginCode');
-      const errEl = $('#loginErr');
-      m.hidden = false;
-      errEl.textContent = '';
-      inp.value = '';
-      codeInp.value = '';
-      setTimeout(() => codeInp.focus(), 50);
-      const onSubmit = async e => {
-        e.preventDefault();
-        const name = inp.value.replace(/\s+/g, ' ').trim();
-        if (name.split(' ').length < 2) { errEl.textContent = 'Введите фамилию и имя через пробел.'; inp.focus(); return; }
-        const btn = form.querySelector('button');
-        btn.disabled = true;
-        try {
-          const r = await api('login', { code: codeInp.value.trim(), name });
-          applyMe(r);
-          await loadHistory();
-          form.removeEventListener('submit', onSubmit);
-          m.hidden = true;
-          resolve();
-        } catch (err) {
-          errEl.textContent = err.status ? err.message : 'Нет связи с сервером. Проверьте адрес и попробуйте ещё раз.';
-          if (err.status === 403) codeInp.select();
-        } finally {
-          btn.disabled = false;
-        }
-      };
-      form.addEventListener('submit', onSubmit);
-    });
+  async function askName() {
+    const r = await loginDialog();
+    applyMe(r);
+    await loadHistory();
   }
+
+  // ---- пароль ученика: смена, а у старых учеников без пароля — задать его
+  function openPasswordDialog(mustSet) {
+    const m = $('#pwModal'), errEl = $('#pwErr');
+    $('#pwTitle').textContent = mustSet ? 'Задайте пароль' : 'Сменить пароль';
+    $('#pwNote').textContent = mustSet
+      ? 'Теперь вход в тренажёр — по ФИО и паролю. Придумайте пароль: с ним вы войдёте с любого устройства, а браузер сможет его запомнить.'
+      : 'После смены пароля вход на других устройствах сбросится — там нужно будет войти заново.';
+    $('#pwOldField').hidden = !!mustSet;
+    $('#pwUser').value = student ? student.name : '';
+    ['#pwOld', '#pwNew', '#pwNew2'].forEach(sel => { $(sel).value = ''; });
+    errEl.textContent = '';
+    m.hidden = false;
+    setTimeout(() => $(mustSet ? '#pwNew' : '#pwOld').focus(), 30);
+    $('#pwForm').onsubmit = async e => {
+      e.preventDefault();
+      const nw = $('#pwNew').value;
+      if (nw.length < 6) { errEl.textContent = 'Пароль — не короче 6 символов.'; return; }
+      if (nw !== $('#pwNew2').value) { errEl.textContent = 'Пароли не совпадают.'; $('#pwNew2').select(); return; }
+      const btn = $('#pwForm button[type="submit"]');
+      btn.disabled = true;
+      try {
+        const r = await api('password', { old: $('#pwOld').value, new: nw });
+        student.token = r.token;
+        writeJSON(STUDENT_STORE, student);
+        m.hidden = true;
+        toast('Пароль сохранён', 2500);
+      } catch (err) {
+        errEl.textContent = err.status ? err.message : 'Нет связи с сервером.';
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  }
+  $('#pwModal').addEventListener('click', e => {
+    if (e.target.id === 'pwModal' || e.target.closest('.fm-close')) $('#pwModal').hidden = true;
+  });
 
   async function logout() {
     if (examShown) saveExamInputs();
@@ -2621,10 +2766,13 @@
     if (SERVER) {
       const saved = readJSON(STUDENT_STORE);
       let ok = false;
+      let mustSetPw = false;
       if (saved && saved.token) {
         student = saved;
         try {
-          applyMe(await api('me'));
+          const me = await api('me');
+          applyMe(me);
+          mustSetPw = me.has_password === false;      // вошёл раньше, когда пароля ещё не было
           await loadHistory();
           ok = true;
         } catch (e) {
@@ -2645,8 +2793,10 @@
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); abandonCurrent(true); flushSync(true); });
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSync(true); });
       $('#logoutBtn').addEventListener('click', () => {
-        if (confirm('Сменить ученика? Прогресс сохранён на сервере.')) logout();
+        if (confirm('Выйти? Прогресс сохранён на сервере, войти можно снова по ФИО и паролю.')) logout();
       });
+      $('#pwBtn').addEventListener('click', () => openPasswordDialog(false));
+      if (mustSetPw) setTimeout(() => openPasswordDialog(true), 400);
     } else {
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); });
     }

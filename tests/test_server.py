@@ -84,9 +84,66 @@ class ServerTest(unittest.TestCase):
         return r.status, data
 
     def login(self, name="Иванов Иван"):
-        st, d = self.req("POST", "/api/login", {"code": "1234", "name": name})
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": name,
+                                                "new_password": "secret1"})
         self.assertEqual(st, 200, d)
         return d["token"]
+
+    # ------------------------------------------------------------ аккаунты
+    def test_register_and_login_with_password(self):
+        tok = self.login("Паролев Павел")
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "паролев  павел", "password": "secret1"})
+        self.assertEqual(st, 200, d)                       # регистр и пробелы в ФИО не важны
+        self.assertEqual(d["token"], tok)
+        self.assertTrue(d["has_password"])
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Паролев Павел", "password": "wrong"})
+        self.assertEqual(st, 403)
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Паролев Павел",
+                                                "new_password": "другой1"})
+        self.assertEqual(st, 409)                          # чужой аккаунт кодом приглашения не перехватить
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Нет Такого", "password": "x"})
+        self.assertEqual(st, 404)
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "0000", "name": "Новый Ученик",
+                                                "new_password": "secret1"})
+        self.assertEqual(st, 403)                          # без верного кода не зарегистрироваться
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Новый Ученик",
+                                                "new_password": "123"})
+        self.assertEqual(st, 400)
+
+    def test_old_student_without_password_keeps_progress(self):
+        db = server.APP.db
+        db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES(?,?,?,?,?)",
+             ("Старый Степан", "старый степан", "oldtok", time.time(), time.time()))
+        sid = db.q("SELECT id FROM students WHERE name_key='старый степан'", one=True)["id"]
+        db.x("INSERT INTO attempts(student_id,ts,task_id,n,score) VALUES(?,?,?,?,?)", (sid, time.time(), "b:5", 5, 1.0))
+        st, d = self.req("GET", "/api/me", token="oldtok")
+        self.assertFalse(d["has_password"])                # страница попросит задать пароль
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Старый Степан", "password": ""})
+        self.assertEqual((st, d.get("need")), (409, "set_password"))
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Старый Степан",
+                                                "new_password": "secret1"})
+        self.assertEqual(st, 200, d)
+        self.assertEqual(d["sid"], sid)                    # тот же ученик — журнал на месте
+        st, h = self.req("GET", "/api/history", token=d["token"])
+        self.assertEqual(len(h["h"]), 1)
+
+    def test_change_password_logs_out_other_devices(self):
+        tok = self.login("Сменов Сергей")
+        st, d = self.req("POST", "/api/password", {"old": "wrong", "new": "newpass1"}, tok)
+        self.assertEqual(st, 403)
+        st, d = self.req("POST", "/api/password", {"old": "secret1", "new": "newpass1"}, tok)
+        self.assertEqual(st, 200)
+        self.assertEqual(self.req("GET", "/api/me", token=tok)[0], 401)       # старый вход больше не действует
+        self.assertEqual(self.req("GET", "/api/me", token=d["token"])[0], 200)
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Сменов Сергей", "password": "newpass1"})
+        self.assertEqual(st, 200)
+
+    def test_password_guessing_is_limited(self):
+        self.login("Подбиров Пётр")
+        for _ in range(server.FAIL_LIMIT["account"]):
+            self.req("POST", "/api/login", {"mode": "login", "name": "Подбиров Пётр", "password": "bad"})
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Подбиров Пётр", "password": "secret1"})
+        self.assertEqual(st, 429)
 
     def check(self, tok, task, **kw):
         return self.req("POST", "/api/check", dict(task=task, **kw), tok)

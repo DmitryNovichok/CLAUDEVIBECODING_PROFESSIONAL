@@ -591,6 +591,39 @@ kbd {
 .ex-table .lv-mid .ex-pts { color: var(--mid); }
 .ex-table .lv-weak .ex-pts { color: var(--weak); }
 
+/* ---------------- вход, пароль ---------------- */
+.login-tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 3px; margin: 6px 0 14px; }
+.login-tabs button {
+  flex: 1; border: 0; background: transparent; color: var(--muted); padding: 8px 10px; border-radius: 7px; cursor: pointer; font-size: 14px;
+}
+.login-tabs button.on { background: var(--card-hover); color: var(--text); font-weight: 600; }
+.login-sub { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
+.login-hint { margin: 2px 0 0; font-size: 12.5px; }
+.login-err.info { color: var(--text); background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; }
+.login-panel .login-form[hidden] { display: none; }
+.who-actions { display: inline-flex; gap: 10px; flex: 0 0 auto; }
+#pwModal { align-items: center; }
+
+/* ---------------- история заданий ---------------- */
+.hist-card { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
+.back-btn { height: 34px; min-width: 34px; font-size: 17px; }
+.hist-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.hist-filters button {
+  border: 1px solid var(--border); background: var(--card); color: var(--muted); border-radius: 999px;
+  padding: 4px 12px; cursor: pointer; font-size: 13px;
+}
+.hist-filters button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.hist-filters .fm-muted { margin-left: auto; font-size: 12.5px; }
+.hist-list { display: flex; flex-direction: column; }
+.hist-row {
+  display: grid; grid-template-columns: 82px auto 1fr auto auto; gap: 10px; align-items: center;
+  padding: 8px 2px; border-bottom: 1px solid var(--border); font-size: 13.5px;
+}
+.hist-when { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hist-snip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.hist-open { padding: 4px 10px; font-size: 12.5px; }
+.hist-more { margin-top: 12px; }
+
 /* ---------------- mobile ---------------- */
 @media (max-width: 860px) {
   html { scroll-padding-top: 64px; }
@@ -615,6 +648,12 @@ kbd {
   .actions .btn.ghost { flex: 0 0 auto; }
   .btn kbd { display: none; }
   .note-btn span { display: none; }
+  .hist-row { grid-template-columns: auto 1fr auto; grid-template-areas: "n snip open" "n res when"; row-gap: 4px; }
+  .hist-row .num-badge { grid-area: n; }
+  .hist-row .hist-snip { grid-area: snip; }
+  .hist-row .hist-open { grid-area: open; }
+  .hist-row .chip { grid-area: res; justify-self: start; }
+  .hist-row .hist-when { grid-area: when; justify-self: end; }
   .task-head .head-chips { margin-left: 0; }
   .task-tools { margin-left: auto; }
   .goal-menu { right: auto; left: 0; }

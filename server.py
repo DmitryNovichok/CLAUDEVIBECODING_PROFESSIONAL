@@ -60,7 +60,9 @@ DEFAULT_INVITE = "16082001"        # пригласительный код дл�
 STUDENT_COOKIE_DAYS = 365
 # защита от перебора: столько неудачных попыток с одного адреса за окно — и пауза
 FAIL_WINDOW = 15 * 60
-FAIL_LIMIT = {"invite": 30, "admin": 10, "find": 40}   # код вводит весь класс с одного адреса школы — ему запас больше
+FAIL_LIMIT = {"invite": 30, "admin": 10, "find": 40,
+              "login": 30,       # неверные пароли учеников с одного адреса
+              "account": 10}     # …и для одного ученика (подбор пароля к конкретному ФИО)   # код вводит весь класс с одного адреса школы — ему запас больше
 # «Показать ответ»: сначала нужно подумать, и показов в час не больше лимита.
 # Иначе, зная код, можно под выдуманным ФИО выкачать ответы на весь банк.
 THINK_SEC_DEFAULT = 40              # через сколько секунд после открытия задания можно открыть ответ
@@ -475,7 +477,8 @@ class DB:
                     ("attempts", "ip", "TEXT"),
                     ("students", "prefs", "TEXT"),         # избранное, заметки, цель на день
                     ("students", "fc", "TEXT"),            # прогноз по дням
-                    ("students", "last_ip", "TEXT")):
+                    ("students", "last_ip", "TEXT"),
+                    ("students", "pw", "TEXT")):           # пароль ученика (хеш); NULL — ещё не задан
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             c.commit()
@@ -819,7 +822,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if isinstance(prefs.get("notes"), dict):
                 prefs["notes"] = {conv(k): v for k, v in prefs["notes"].items()}
         return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
-                "fc": load(s["fc"], []), "rules": self.rules()}
+                "fc": load(s["fc"], []), "rules": self.rules(), "has_password": bool(s["pw"])}
 
     def is_admin(self):
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
@@ -835,27 +838,72 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "server": True})
 
         if path == "/api/login" and method == "POST":
+            # Вход: ФИО + пароль. Регистрация (и старый ученик без пароля): код приглашения + ФИО + новый пароль.
             ip = self.client_ip()
-            wait = THROTTLE.blocked("invite", ip)
-            if wait:
-                return self.err(429, self.wait_msg(wait))
-            code = re.sub(r"\s+", "", str(data.get("code") or ""))
-            if not hmac.compare_digest(code.encode(), (db.setting("invite_code") or DEFAULT_INVITE).encode()):
-                THROTTLE.fail("invite", ip)
-                time.sleep(1.0)
-                return self.err(403, "Неверный код приглашения")
+            for kind in ("invite", "login"):
+                wait = THROTTLE.blocked(kind, ip)
+                if wait:
+                    return self.err(429, self.wait_msg(wait))
             pretty, key = norm_name(data.get("name"))
             if not NAME_RE.match(pretty) or len(pretty.split()) < 2:
                 return self.err(400, "Введите фамилию и имя (можно с отчеством)")
+            wait = THROTTLE.blocked("account", key)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
             s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
+            register = data.get("mode") == "register"
             now = time.time()
-            if not s:
-                db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES(?,?,?,?,?)",
-                     (pretty, key, secrets.token_urlsafe(24), now, now))
+            if s and s["pw"]:
+                if register:
+                    return self.err(409, f"«{s['name']}» уже зарегистрирован(а). Войдите с паролем на вкладке «Вход».")
+                if not check_pw(str(data.get("password") or ""), s["pw"]):
+                    THROTTLE.fail("login", ip)
+                    THROTTLE.fail("account", key)
+                    time.sleep(1.0)
+                    return self.err(403, "Неверный пароль. Забыли его — попросите учителя сбросить пароль.")
+                THROTTLE.ok("account", key)
+            else:
+                code = re.sub(r"\s+", "", str(data.get("code") or ""))
+                if not register and not code:
+                    if s:
+                        return self.send_json({"error": "Пароль ещё не задан", "need": "set_password"}, 409)
+                    return self.err(404, "Такого ученика нет. Если вы здесь впервые — откройте вкладку «Регистрация».")
+                if not hmac.compare_digest(code.encode(), (db.setting("invite_code") or DEFAULT_INVITE).encode()):
+                    THROTTLE.fail("invite", ip)
+                    time.sleep(1.0)
+                    return self.err(403, "Неверный код приглашения")
+                pw = str(data.get("new_password") or data.get("password") or "")
+                if len(pw) < 6:
+                    return self.err(400, "Пароль — не короче 6 символов")
+                if not s:
+                    db.x("INSERT INTO students(name,name_key,token,created,last_seen,pw) VALUES(?,?,?,?,?,?)",
+                         (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw)))
+                    print(f"[ученик] новый: {pretty}", flush=True)
+                else:                                  # старый ученик без пароля: журнал сохраняется
+                    db.x("UPDATE students SET pw=? WHERE id=?", (hash_pw(pw), s["id"]))
+                    print(f"[ученик] задал пароль: {s['name']}", flush=True)
                 s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
-                print(f"[ученик] новый: {pretty}", flush=True)
             db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
             return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(s["token"])})
+
+        if path == "/api/password" and method == "POST":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            ip = self.client_ip()
+            wait = THROTTLE.blocked("login", ip)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
+            if s["pw"] and not check_pw(str(data.get("old") or ""), s["pw"]):
+                THROTTLE.fail("login", ip)
+                time.sleep(1.0)
+                return self.err(403, "Текущий пароль неверный")
+            new = str(data.get("new") or "")
+            if len(new) < 6:
+                return self.err(400, "Пароль — не короче 6 символов")
+            tok = secrets.token_urlsafe(24)            # вход на других устройствах сбрасывается
+            db.x("UPDATE students SET pw=?, token=? WHERE id=?", (hash_pw(new), tok, s["id"]))
+            return self.send_json({"ok": True, "token": tok}, extra={"Set-Cookie": self.student_cookie(tok)})
 
         if path == "/api/me":
             s = self.student(data)
@@ -1192,6 +1240,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
                                                      (s["last_ip"], sid))]
             student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
+            student["has_password"] = bool(db.q("SELECT pw FROM students WHERE id=?", (sid,), one=True)["pw"])
             return self.send_json({"student": student, "attempts": out, "forecast_history": fc_hist,
                                    "reveals": {k: rev[k] or 0 for k in ("granted", "blocked", "early")},
                                    "exams": [dict(r) for r in exams], "same_ip": same_ip,
@@ -1281,6 +1330,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET name=?, name_key=? WHERE id=?", (pretty, key, sid))
             return self.send_json({"ok": True})
 
+        if path == "/api/admin/student/password-reset" and method == "POST":
+            sid = to_int(data.get("id"))
+            if not db.q("SELECT 1 FROM students WHERE id=?", (sid,), one=True):
+                return self.err(404, "ученик не найден")
+            # пароль стирается, вход на всех устройствах сбрасывается; ученик задаст новый с кодом приглашения
+            db.x("UPDATE students SET pw=NULL, token=? WHERE id=?", (secrets.token_urlsafe(24), sid))
+            return self.send_json({"ok": True})
+
         if path == "/api/admin/student/delete" and method == "POST":
             sid = to_int(data.get("id"))
             for table in ("attempts", "reveal_log", "exams"):
@@ -1305,7 +1362,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.err(404, "нет такого метода")
 
 
-REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное",
+REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное", "history": "повтор из истории",
            "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
            "weak": "слабое место", "repeat": "повтор решённого", "": ""}
 
