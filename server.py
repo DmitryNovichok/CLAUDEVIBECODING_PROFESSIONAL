@@ -101,8 +101,16 @@ def tokens(s):
     return [x for x in re.split(r"[\s;|,]+", s) if x]
 
 
+# «13992 или 13993» — в банке ФИПИ несколько допустимых ответов: засчитываем любой
+ALT_RE = re.compile(r"\s+или\s+", re.I)
+
+
+def alternatives(ans):
+    return [x for x in ALT_RE.split(str(ans or "")) if x.strip()] or [str(ans or "")]
+
+
 def shape_of(ans):
-    rows = [tokens(r) for r in str(ans).split("\n")]
+    rows = [tokens(r) for r in alternatives(ans)[0].split("\n")]
     rows = [r for r in rows if r]
     total = sum(len(r) for r in rows)
     if total <= 1:
@@ -124,7 +132,11 @@ def ege_points(n):
 
 def answer_credit(n, expected, answer, cells=None):
     """1 — верно, 0 — неверно. У №26 и 27 ответ из двух половин (два числа или две пары):
-    верна ровно одна половина — 0.5, на экзамене это 1 балл из 2."""
+    верна ровно одна половина — 0.5, на экзамене это 1 балл из 2. «A или B» — верен любой."""
+    return max(_credit(n, alt, answer, cells) for alt in alternatives(expected))
+
+
+def _credit(n, expected, answer, cells=None):
     a = tokens(expected)
     b = tokens(answer)
     if a and a == b:

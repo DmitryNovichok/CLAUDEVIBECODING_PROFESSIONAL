@@ -177,6 +177,14 @@ class ServerTest(unittest.TestCase):
         return self.req("POST", "/api/check", dict(task=task, **kw), tok)
 
     # ------------------------------------------------------------ файлы
+    def test_answer_alternatives(self):
+        # в банке ФИПИ бывает «13992 или 13993»: одна ячейка, засчитывается любой из ответов
+        self.assertEqual(server.shape_of("13992 или 13993"), {"type": "single"})
+        self.assertEqual(server.answer_credit(7, "13992 или 13993", "13993"), 1.0)
+        self.assertEqual(server.answer_credit(7, "13992 или 13993", "13992"), 1.0)
+        self.assertEqual(server.answer_credit(7, "13992 или 13993", "13992 13993"), 0.0)
+        self.assertEqual(server.answer_credit(27, "1 2\n3 4", "1 2 3 5"), 0.5)
+
     def test_path_traversal_blocked(self):
         for p in ("/vendor/../server_data/secret.txt", "/vendor/%2e%2e/server_data/secret.txt",
                   "/media/../server.py", "/vendor/../data/bank.js"):
