@@ -991,4 +991,5 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .cl-now ul { color: var(--text); }
 
 /* подпись автора под названием */
-.brand-by { font-style: italic; letter-spacing: .02em; }
+.brand-by { font-weight: 700; color: var(--muted); }
+.brand-by b { font-weight: 900; background: linear-gradient(90deg, #1cb0f6, #58cc02); -webkit-background-clip: text; background-clip: text; color: transparent; }
