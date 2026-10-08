@@ -620,9 +620,12 @@
   const tokens = s => String(s == null ? '' : s).toLowerCase().replace(/ё/g, 'е')
     .replace(/[−–—]/g, '-').split(/[\s;|,]+/).filter(Boolean);
 
+  // «13992 или 13993» — несколько допустимых ответов: засчитываем любой
+  const alternatives = ans => { const a = String(ans == null ? '' : ans).split(/\s+или\s+/i).filter(x => x.trim()); return a.length ? a : [String(ans == null ? '' : ans)]; };
+
   function shapeOf(t) {
     if (t.sh) return t.sh;                    // от сервера (ответа в странице нет)
-    const ans = t.ans;
+    const ans = alternatives(t.ans)[0];
     const rows = String(ans).split('\n').map(tokens).filter(r => r.length);
     const total = rows.reduce((a, r) => a + r.length, 0);
     if (total <= 1) return { type: 'single' };
@@ -1098,6 +1101,9 @@
 
   /** Доля баллов: 1 — верно; у №26, 27 верна ровно одна половина ответа — 0.5 (1 балл из 2). */
   function answerCredit(n, expected, answer, cells) {
+    return Math.max(...alternatives(expected).map(alt => credit1(n, alt, answer, cells)));
+  }
+  function credit1(n, expected, answer, cells) {
     const a = tokens(expected);
     let b = tokens(answer);
     const eq = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
