@@ -212,6 +212,15 @@
           <p class="fm-note" id="authoredNote"></p>
           <div class="login-err" id="authoredMsg"></div>
         </div>
+        <form class="adm-box main-only" id="metrikaForm">
+          <h3 class="adm-h3">Яндекс Метрика</h3>
+          <p class="fm-note">Номер счётчика из metrika.yandex.ru (только цифры). Код встанет на страницу учеников сам, панель учителя не считается. Пустое поле — Метрика выключена. Цели: <code>register</code> — регистрация, <code>answer</code> — ответ на задание, <code>exam</code> — сдан вариант.</p>
+          <div class="login-form">
+            <input class="inp" id="metrikaId" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="например 98765432">
+            <button class="btn primary" type="submit">Сохранить</button>
+          </div>
+          <div class="login-err" id="metrikaMsg"></div>
+        </form>
         <form class="adm-box" id="inviteForm">
           <h3 class="adm-h3">Код приглашения</h3>
           <p class="fm-note">Без него ученик не войдёт на сайт. Скажите код классу; если он разошёлся дальше — поменяйте. Уже вошедшие ученики остаются в системе.</p>

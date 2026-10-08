@@ -122,6 +122,22 @@ def shape_of(ans):
     return {"type": "grid", "rows": nr, "cols": cols}
 
 
+# Яндекс Метрика: номер счётчика задаёт главный учитель в панели; код вставляется только в страницу ученика.
+# Вебвизор выключен: на сайте занимаются школьники, записывать их экран незачем.
+METRIKA_TAG = """<script>(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
+k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
+window.EGE_YM=%(id)s;ym(%(id)s,"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true});</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/%(id)s" style="position:absolute;left:-9999px" alt=""></div></noscript>
+"""
+
+
+def metrika_id():
+    v = APP.db.setting("metrika_id") or ""
+    return v if re.fullmatch(r"\d{3,12}", v) else ""
+
+
 def think_sec(n):
     return THINK_SEC_HARD if (n or 0) >= 24 else THINK_SEC_DEFAULT
 
@@ -846,6 +862,8 @@ class Handler(BaseHTTPRequestHandler):
         if rel.startswith("files/"):
             return self.serve_task_file(rel)
         # файлы сайта
+        if rel == "index.html" and metrika_id():
+            return self.serve_index_with_metrika()
         if rel in SITE_FILES:
             return self.serve_file(HERE, rel, html=rel.endswith(".html"))
         for d in SITE_DIRS:
@@ -921,6 +939,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             ctype += "; charset=utf-8"
         return self.send_bytes(200, body, ctype, {
             "Cache-Control": "no-cache", "Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name)})
+
+    def serve_index_with_metrika(self):
+        body = (HERE / "index.html").read_text(encoding="utf-8")
+        tag = METRIKA_TAG % {"id": metrika_id()}
+        body = body.replace("</head>", tag + "</head>", 1).encode("utf-8")
+        return self.send_bytes(200, body, "text/html; charset=utf-8",
+                               {"Cache-Control": "no-cache", "X-Frame-Options": "DENY"})
 
     def serve_file(self, root: Path, rel, html=False, download_name=None):
         root = root.resolve()
@@ -1782,6 +1807,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE teachers SET authored=? WHERE id=?", (on, self.T["id"]))
             return self.send_json({"ok": True, "on": bool(on)})
 
+        if path == "/api/admin/metrika" and method == "POST":
+            if not self.T["is_main"]:
+                return self.err(403, "Метрику настраивает главный учитель")
+            v = re.sub(r"\s", "", str(data.get("id") or ""))
+            if v and not re.fullmatch(r"\d{3,12}", v):
+                return self.err(400, "Номер счётчика — только цифры, например 98765432")
+            db.setting("metrika_id", v)
+            return self.send_json({"ok": True, "id": v})
+
         if path == "/api/admin/me":
             return self.send_json({k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")})
 
@@ -1980,7 +2014,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             cond, args = self.student_scope()
             return self.send_json({"tasks": n_tasks, "authored_tasks": APP.bank.authored, "authored_on": bool(self.T["authored"]),
                                    "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
-                                   "invite": self.T["invite"],
+                                   "invite": self.T["invite"], "metrika": metrika_id() if self.T["is_main"] else None,
                                    "students": db.q(f"SELECT COUNT(*) c FROM students s WHERE {cond}", args, one=True)["c"],
                                    "attempts": db.q(f"SELECT COUNT(*) c FROM attempts a JOIN students s ON s.id=a.student_id WHERE {cond}",
                                                     args, one=True)["c"]})
