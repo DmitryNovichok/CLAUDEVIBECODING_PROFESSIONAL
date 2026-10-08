@@ -1,0 +1,669 @@
+{
+"bank": {
+"id": "egeshka_bank",
+"title": "Egeshka",
+"count": 50
+},
+"tasks": [
+{
+"id": "egeshka_bank:e1-01",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">24</td><td style=\"padding:2px 8px;text-align:center\">40</td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\">24</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">7</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\">40</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">23</td><td style=\"padding:2px 8px;text-align:center\">25</td><td style=\"padding:2px 8px;text-align:center\">41</td><td style=\"padding:2px 8px;text-align:center\">34</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">23</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">7</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">25</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">36</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">41</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\">34</td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\">36</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-01.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>Определите, какова сумма протяжённостей дорог из пункта Б в пункт Е и из пункта Б в пункт В.</p><p>В ответе запишите целое число.</p>",
+"ans": "74",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 2, Б — 5, В — 3, Г — 2, Д — 1, Е — 4, Ж — 3. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: 74.</p>"
+},
+{
+"id": "egeshka_bank:e1-02",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">5</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\">6</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\">5</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">5</td><td style=\"padding:2px 8px;text-align:center\">41</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\">49</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">6</td><td style=\"padding:2px 8px;text-align:center\">5</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">35</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">41</td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">21</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">49</td><td style=\"padding:2px 8px;text-align:center\">35</td><td style=\"padding:2px 8px;text-align:center\">21</td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-02.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>На сколько дорога из пункта Е в пункт Ж длиннее дороги из пункта Б в пункт Г? Если короче — запишите отрицательное число.</p><p>В ответе запишите целое число.</p>",
+"ans": "-35",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 3, Б — 3, В — 1, Г — 3, Д — 3, Е — 2, Ж — 3. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: -35.</p>"
+},
+{
+"id": "egeshka_bank:e1-03",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">30</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">16</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">35</td><td style=\"padding:2px 8px;text-align:center\">49</td><td style=\"padding:2px 8px;text-align:center\">30</td><td style=\"padding:2px 8px;text-align:center\">5</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">38</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\">30</td><td style=\"padding:2px 8px;text-align:center\">35</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">30</td><td style=\"padding:2px 8px;text-align:center\">5</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">49</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">30</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">30</td><td style=\"padding:2px 8px;text-align:center\">38</td><td style=\"padding:2px 8px;text-align:center\">5</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">23</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\">5</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">23</td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-03.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>Определите длину кратчайшего пути по дорогам из пункта В в пункт Ж. Передвигаться можно только по дорогам, указанным на схеме.</p><p>В ответе запишите целое число.</p>",
+"ans": "35",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 1, Б — 4, В — 2, Г — 3, Д — 4, Е — 2, Ж — 4. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: 35.</p>"
+},
+{
+"id": "egeshka_bank:e1-04",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">43</td><td style=\"padding:2px 8px;text-align:center\">46</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">31</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\">43</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">9</td><td style=\"padding:2px 8px;text-align:center\">32</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">3</td><td style=\"padding:2px 8px;text-align:center\">10</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\">46</td><td style=\"padding:2px 8px;text-align:center\">9</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\">27</td><td style=\"padding:2px 8px;text-align:center\">29</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">32</td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">27</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">3</td><td style=\"padding:2px 8px;text-align:center\">29</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">37</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\">31</td><td style=\"padding:2px 8px;text-align:center\">10</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">37</td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-04.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>Определите длину дороги из пункта Б в пункт Г.</p><p>В ответе запишите целое число.</p>",
+"ans": "22",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 3, Б — 2, В — 1, Г — 5, Д — 3, Е — 3, Ж — 5. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: 22.</p>"
+},
+{
+"id": "egeshka_bank:e1-05",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">24</td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\">36</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">11</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">44</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">11</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">24</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">3</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\">24</td><td style=\"padding:2px 8px;text-align:center\">44</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">26</td><td style=\"padding:2px 8px;text-align:center\">7</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">24</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">26</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\">36</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">3</td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-05.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>Определите, какова сумма протяжённостей дорог из пункта Г в пункт Е и из пункта В в пункт Г.</p><p>В ответе запишите целое число.</p>",
+"ans": "40",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 2, Б — 1, В — 4, Г — 3, Д — 2, Е — 3, Ж — 3. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: 40.</p>"
+},
+{
+"id": "egeshka_bank:e1-06",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">39</td><td style=\"padding:2px 8px;text-align:center\">25</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">33</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">41</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\">39</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">24</td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\">25</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\">11</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">32</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\">33</td><td style=\"padding:2px 8px;text-align:center\">24</td><td style=\"padding:2px 8px;text-align:center\">11</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">39</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\">41</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">32</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">39</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-06.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>На сколько дорога из пункта Б в пункт Г длиннее дороги из пункта Е в пункт Ж? Если короче — запишите отрицательное число.</p><p>В ответе запишите целое число.</p>",
+"ans": "15",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 4, Б — 1, В — 3, Г — 3, Д — 4, Е — 1, Ж — 4. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: 15.</p>"
+},
+{
+"id": "egeshka_bank:e1-07",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">14</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">21</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">12</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\">14</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">37</td><td style=\"padding:2px 8px;text-align:center\">29</td><td style=\"padding:2px 8px;text-align:center\">46</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">31</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">37</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">23</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\">21</td><td style=\"padding:2px 8px;text-align:center\">29</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\">19</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">46</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">23</td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">42</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\">12</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">31</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">19</td><td style=\"padding:2px 8px;text-align:center\">42</td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-07.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>Определите длину кратчайшего пути по дорогам из пункта Ж в пункт Е. Передвигаться можно только по дорогам, указанным на схеме.</p><p>В ответе запишите целое число.</p>",
+"ans": "89",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 4, Б — 4, В — 4, Г — 3, Д — 4, Е — 1, Ж — 2. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: 89.</p>"
+},
+{
+"id": "egeshka_bank:e1-08",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">41</td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\">26</td><td style=\"padding:2px 8px;text-align:center\">6</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\">41</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">44</td><td style=\"padding:2px 8px;text-align:center\">20</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">11</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\">26</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\">23</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\">6</td><td style=\"padding:2px 8px;text-align:center\">44</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">20</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">23</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">22</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">11</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">22</td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-08.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>Определите длину дороги из пункта А в пункт Ж.</p><p>В ответе запишите целое число.</p>",
+"ans": "41",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 4, Б — 3, В — 4, Г — 2, Д — 3, Е — 3, Ж — 3. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: 41.</p>"
+},
+{
+"id": "egeshka_bank:e1-09",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">49</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">13</td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\">49</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">8</td><td style=\"padding:2px 8px;text-align:center\">33</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">13</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">19</td><td style=\"padding:2px 8px;text-align:center\">26</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">8</td><td style=\"padding:2px 8px;text-align:center\">7</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\">13</td><td style=\"padding:2px 8px;text-align:center\">33</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">16</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">19</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">4</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">13</td><td style=\"padding:2px 8px;text-align:center\">26</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">16</td><td style=\"padding:2px 8px;text-align:center\">4</td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-09.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>Определите, какова сумма протяжённостей дорог из пункта В в пункт Е и из пункта Б в пункт Ж.</p><p>В ответе запишите целое число.</p>",
+"ans": "32",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 2, Б — 3, В — 3, Г — 4, Д — 4, Е — 3, Ж — 3. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: 32.</p>"
+},
+{
+"id": "egeshka_bank:e1-10",
+"n": 1,
+"bank": "egeshka_bank",
+"html": "<p>На рисунке справа схема дорог Н-ского района изображена в виде графа, в таблице содержатся сведения о протяжённости каждой из этих дорог (в километрах).</p><div><div><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\"></th><th style=\"padding:2px 8px;text-align:center\">П1</th><th style=\"padding:2px 8px;text-align:center\">П2</th><th style=\"padding:2px 8px;text-align:center\">П3</th><th style=\"padding:2px 8px;text-align:center\">П4</th><th style=\"padding:2px 8px;text-align:center\">П5</th><th style=\"padding:2px 8px;text-align:center\">П6</th><th style=\"padding:2px 8px;text-align:center\">П7</th></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П1</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">46</td><td style=\"padding:2px 8px;text-align:center\">34</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">4</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П2</b></td><td style=\"padding:2px 8px;text-align:center\">46</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">46</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П3</b></td><td style=\"padding:2px 8px;text-align:center\">34</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">49</td><td style=\"padding:2px 8px;text-align:center\">10</td><td style=\"padding:2px 8px;text-align:center\">9</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П4</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">28</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П5</b></td><td style=\"padding:2px 8px;text-align:center\">4</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">49</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П6</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">46</td><td style=\"padding:2px 8px;text-align:center\">10</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\"><b>П7</b></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">9</td><td style=\"padding:2px 8px;text-align:center\">28</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table></div><div><img src=\"media/egeshka_bank/1/e1-10.svg\" alt=\"Схема дорог\" width=\"340\"></div></div><p>Так как таблицу и схему рисовали независимо друг от друга, нумерация населённых пунктов в таблице никак не связана с буквенными обозначениями на графе.</p><p>На сколько дорога из пункта Е в пункт Ж длиннее дороги из пункта А в пункт В? Если короче — запишите отрицательное число.</p><p>В ответе запишите целое число.</p>",
+"ans": "-42",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Графы и весовые таблицы",
+"sol": "<p>Сопоставьте пункты по числу дорог (степеням вершин): на схеме А — 2, Б — 4, В — 2, Г — 2, Д — 1, Е — 2, Ж — 3. Пункты с уникальной степенью находятся сразу, остальные — по соседям. Ответ: -42.</p>"
+},
+{
+"id": "egeshka_bank:e2-01",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = \\neg w \\to (\\neg (y \\land x) \\to (y \\land \\neg z)) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "zwyx",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = ((not (not w)) or ((not (not (y and x))) or (y and (not z))))\n    if F == 0:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-02",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = (\\neg z \\land w) \\to \\neg (y \\to x) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "xyzw",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = ((not ((not z) and w)) or (not ((not y) or x)))\n    if F == 0:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-03",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = (x \\to \\neg (y \\to \\neg z)) \\lor ((z \\equiv x) \\equiv (x \\land w)) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "yxwz",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = (((not x) or (not ((not y) or (not z)))) or ((z == x) == (x and w)))\n    if F == 0:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-04",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = ((z \\land \\neg y) \\to (\\neg x \\land \\neg w)) \\equiv ((z \\to z) \\equiv (\\neg y \\to \\neg w)) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "zyxw",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = (((not (z and (not y))) or ((not x) and (not w))) == (((not z) or z) == ((not (not y)) or (not w))))\n    if F == 0:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-05",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = \\neg (\\neg (\\neg y \\equiv w) \\land \\neg (z \\to y)) \\equiv ((w \\equiv x) \\to (\\neg w \\lor y)) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "zyxw",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = ((not ((not ((not y) == w)) and (not ((not z) or y)))) == ((not (w == x)) or ((not w) or y)))\n    if F == 0:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-06",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = (\\neg x \\land z) \\land (w \\to y) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">1</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">1</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "xzwy",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = (((not x) and z) and ((not w) or y))\n    if F == 1:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-07",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = (z \\land \\neg x) \\lor (y \\lor \\neg w) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "zwxy",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = ((z and (not x)) or (y or (not w)))\n    if F == 0:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-08",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = ((x \\to \\neg x) \\land y) \\lor (\\neg (w \\to \\neg w) \\to z) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "yxzw",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = ((((not x) or (not x)) and y) or ((not (not ((not w) or (not w)))) or z))\n    if F == 0:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-09",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = (\\neg z \\equiv \\neg (\\neg x \\lor w)) \\land ((x \\lor x) \\equiv (w \\land \\neg y)) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">1</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "wzxy",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = (((not z) == (not ((not x) or w))) and ((x or x) == (w and (not y))))\n    if F == 1:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e2-10",
+"n": 2,
+"bank": "egeshka_bank",
+"html": "<p>Миша заполнял таблицу истинности логической функции \\( F = (y \\to x) \\to (w \\lor \\neg z) \\), но успел заполнить лишь фрагмент из трёх различных её строк, даже не указав, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Перем. 1</th><th style=\"padding:2px 8px;text-align:center\">Перем. 2</th><th style=\"padding:2px 8px;text-align:center\">Перем. 3</th><th style=\"padding:2px 8px;text-align:center\">Перем. 4</th><th style=\"padding:2px 8px;text-align:center\">Функция</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td><td style=\"padding:2px 8px;text-align:center\"></td><td style=\"padding:2px 8px;text-align:center\">1</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr></table><p>Определите, какому столбцу таблицы соответствует каждая из переменных \\( w, x, y, z \\).</p><p>В ответе напишите буквы \\( w, x, y, z \\) в том порядке, в котором идут соответствующие им столбцы (сначала буква, соответствующая первому столбцу; затем буква, соответствующая второму столбцу, и т. д.). Буквы в ответе пишите подряд, никаких разделителей между буквами ставить не нужно.</p>",
+"ans": "zywx",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Таблицы истинности",
+"sol": "<pre class=\"py-sol\"><code>from itertools import product\nprint(&#x27;w x y z&#x27;)\nfor w, x, y, z in product([0, 1], repeat=4):\n    F = ((not ((not y) or x)) or (w or (not z)))\n    if F == 0:\n        print(w, x, y, z)\n# сопоставьте выведенные строки с фрагментом таблицы</code></pre>"
+},
+{
+"id": "egeshka_bank:e3-01",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады августа 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите, на сколько увеличилось количество упаковок всех товаров, название которых начинается со слова «Сахар», имеющихся в наличии в магазинах на улице Лесная, за период с 5 по 8 августа включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "346",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 346.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-01.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-02",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады сентября 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите общую выручку (в рублях) от продажи всех товаров отдела «Кондитерские изделия» в магазинах Центрального района за период с 1 по 10 сентября включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "2312555",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 2312555.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-02.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-03",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады октября 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите, сколько упаковок всех товаров, название которых начинается со слова «Лимонад», было продано во всех магазинах города за период с 1 по 6 октября включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "3592",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 3592.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-03.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-04",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады марта 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите общий объём (в литрах) всех товаров, название которых начинается со слова «Молоко», поступивших в магазины Заречного района за период с 5 по 10 марта включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "1270",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 1270.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-04.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-05",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады июня 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите, на сколько увеличилось количество упаковок всех товаров, название которых начинается со слова «Пшено», имеющихся в наличии в магазинах на улице Садовая, за период с 3 по 6 июня включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "1569",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 1569.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-05.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-06",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады августа 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите общую выручку (в рублях) от продажи всех товаров отдела «Кондитерские изделия» в магазинах Центрального района за период с 3 по 9 августа включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "2158845",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 2158845.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-06.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-07",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады сентября 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите, сколько упаковок всех товаров, название которых начинается со слова «Вода», было продано во всех магазинах города за период с 1 по 8 сентября включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "4099",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 4099.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-07.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-08",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады октября 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите общий вес (в кг) всех товаров, название которых начинается со слова «Йогурт», поступивших в магазины Ленинского района за период с 4 по 8 октября включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "144",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 144.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-08.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-09",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады марта 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите, на сколько увеличилось количество упаковок всех товаров, название которых начинается со слова «Овсяные», имеющихся в наличии в магазинах на улице Строителей, за период с 2 по 8 марта включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "898",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 898.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-09.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e3-10",
+"n": 3,
+"bank": "egeshka_bank",
+"html": "<p>В файле приведён фрагмент базы данных «Продукты» о поставках товаров в магазины районов города. База данных состоит из трёх таблиц.</p><p>Таблица «Движение товаров» содержит записи о поставках товаров в магазины в течение первой декады июня 2025 г., а также информацию о проданных товарах. Поле «Тип операции» содержит значение «Поступление» или «Продажа», а в соответствующее поле «Количество упаковок, шт» внесена информация о том, сколько упаковок товара поступило в магазин или было продано в течение дня. Заголовок таблицы имеет следующий вид.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID операции</th><th style=\"padding:2px 8px;text-align:center\">Дата</th><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Тип операции</th><th style=\"padding:2px 8px;text-align:center\">Количество упаковок, шт</th></tr></table><p>Таблица «Товар» содержит информацию об основных характеристиках каждого товара.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Артикул</th><th style=\"padding:2px 8px;text-align:center\">Отдел</th><th style=\"padding:2px 8px;text-align:center\">Наименование товара</th><th style=\"padding:2px 8px;text-align:center\">Ед. изм.</th><th style=\"padding:2px 8px;text-align:center\">Количество в упаковке</th><th style=\"padding:2px 8px;text-align:center\">Цена за упаковку</th></tr></table><p>Таблица «Магазин» содержит информацию о местонахождении магазинов.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">ID магазина</th><th style=\"padding:2px 8px;text-align:center\">Район</th><th style=\"padding:2px 8px;text-align:center\">Адрес</th></tr></table><p>На рисунке приведена схема указанной базы данных.</p><p><img src=\"media/egeshka_bank/3/schema.svg\" alt=\"Схема базы данных\" width=\"460\"></p><p>Используя информацию из приведённой базы данных, определите общую выручку (в рублях) от продажи всех товаров отдела «Кондитерские изделия» в магазинах Ленинского района за период с 1 по 4 июня включительно.</p><p>В ответе запишите только число.</p>",
+"ans": "666496",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Базы данных",
+"sol": "<p>Добавьте в таблицу «Движение товаров» столбцы с отделом, наименованием, количеством в упаковке и ценой (ВПР по артикулу) и районом/адресом магазина (ВПР по ID магазина). Отфильтруйте по типу операции, датам, товару и месту, затем просуммируйте нужный столбец. Ответ: 666496.</p>",
+"att": [
+{
+"name": "3.xlsx",
+"href": "media/egeshka_bank/3/e3-10.xlsx"
+}
+]
+},
+{
+"id": "egeshka_bank:e4-01",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 8 букв: Б, Г, Е, Н, О, Р, Т, У. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">Б</td><td style=\"padding:2px 8px;text-align:center\">1111</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Г</td><td style=\"padding:2px 8px;text-align:center\">0101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Е</td><td style=\"padding:2px 8px;text-align:center\">1110</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Н</td><td style=\"padding:2px 8px;text-align:center\">110</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">О</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Р</td><td style=\"padding:2px 8px;text-align:center\">1001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Т</td><td style=\"padding:2px 8px;text-align:center\">1000</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">У</td><td style=\"padding:2px 8px;text-align:center\">101</td></tr></table><p>Какова наименьшая возможная длина кодового слова для буквы О, при которой код будет удовлетворять условию Фано?</p>",
+"ans": "2",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 2.</p>"
+},
+{
+"id": "egeshka_bank:e4-02",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 7 букв: Б, Е, И, К, Л, О, У. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">Б</td><td style=\"padding:2px 8px;text-align:center\">00</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Е</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">И</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">К</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Л</td><td style=\"padding:2px 8px;text-align:center\">0110</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">О</td><td style=\"padding:2px 8px;text-align:center\">0101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">У</td><td style=\"padding:2px 8px;text-align:center\">101</td></tr></table><p>Какова наименьшая возможная суммарная длина всех кодовых слов для букв Е, К, И, при которой код будет удовлетворять условию Фано?</p>",
+"ans": "9",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 9.</p>"
+},
+{
+"id": "egeshka_bank:e4-03",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 10 букв: А, Б, Г, К, М, Н, О, С, Т, У. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">А</td><td style=\"padding:2px 8px;text-align:center\">0110</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Б</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Г</td><td style=\"padding:2px 8px;text-align:center\">1110</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">К</td><td style=\"padding:2px 8px;text-align:center\">001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">М</td><td style=\"padding:2px 8px;text-align:center\">0101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Н</td><td style=\"padding:2px 8px;text-align:center\">000</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">О</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">С</td><td style=\"padding:2px 8px;text-align:center\">0100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Т</td><td style=\"padding:2px 8px;text-align:center\">1100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">У</td><td style=\"padding:2px 8px;text-align:center\">1111</td></tr></table><p>Кодовые слова для букв О, Б ещё не выбраны. Какое наименьшее количество двоичных знаков потребуется для кодирования слова АСНОНУС, если код должен удовлетворять условию Фано?</p>",
+"ans": "24",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 24.</p>"
+},
+{
+"id": "egeshka_bank:e4-04",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 8 букв: Б, В, Г, К, П, Р, С, Т. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">Б</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">В</td><td style=\"padding:2px 8px;text-align:center\">00</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Г</td><td style=\"padding:2px 8px;text-align:center\">01010</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">К</td><td style=\"padding:2px 8px;text-align:center\">1100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">П</td><td style=\"padding:2px 8px;text-align:center\">1101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Р</td><td style=\"padding:2px 8px;text-align:center\">100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">С</td><td style=\"padding:2px 8px;text-align:center\">101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Т</td><td style=\"padding:2px 8px;text-align:center\">01011</td></tr></table><p>Укажите кратчайшее кодовое слово для буквы Б, при котором код будет удовлетворять условию Фано. Если таких кодов несколько, укажите код с наименьшим числовым значением.</p>",
+"ans": "011",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 011.</p>"
+},
+{
+"id": "egeshka_bank:e4-05",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 10 букв: А, Б, В, Д, Е, И, Л, О, Р, С. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">А</td><td style=\"padding:2px 8px;text-align:center\">11000</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Б</td><td style=\"padding:2px 8px;text-align:center\">100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">В</td><td style=\"padding:2px 8px;text-align:center\">111</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Д</td><td style=\"padding:2px 8px;text-align:center\">11011</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Е</td><td style=\"padding:2px 8px;text-align:center\">101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">И</td><td style=\"padding:2px 8px;text-align:center\">11001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Л</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">О</td><td style=\"padding:2px 8px;text-align:center\">001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Р</td><td style=\"padding:2px 8px;text-align:center\">010</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">С</td><td style=\"padding:2px 8px;text-align:center\">11010</td></tr></table><p>Какова наименьшая возможная длина кодового слова для буквы Л, при которой код будет удовлетворять условию Фано?</p>",
+"ans": "3",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 3.</p>"
+},
+{
+"id": "egeshka_bank:e4-06",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 10 букв: А, В, Д, Е, И, Л, Н, О, С, У. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">А</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">В</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Д</td><td style=\"padding:2px 8px;text-align:center\">011</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Е</td><td style=\"padding:2px 8px;text-align:center\">10001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">И</td><td style=\"padding:2px 8px;text-align:center\">111</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Л</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Н</td><td style=\"padding:2px 8px;text-align:center\">110</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">О</td><td style=\"padding:2px 8px;text-align:center\">101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">С</td><td style=\"padding:2px 8px;text-align:center\">0100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">У</td><td style=\"padding:2px 8px;text-align:center\">10011</td></tr></table><p>Какова наименьшая возможная суммарная длина всех кодовых слов для букв В, Л, А, при которой код будет удовлетворять условию Фано?</p>",
+"ans": "10",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 10.</p>"
+},
+{
+"id": "egeshka_bank:e4-07",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 9 букв: А, Д, Е, Л, Н, Р, С, Т, У. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">А</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Д</td><td style=\"padding:2px 8px;text-align:center\">01011</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Е</td><td style=\"padding:2px 8px;text-align:center\">001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Л</td><td style=\"padding:2px 8px;text-align:center\">01101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Н</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Р</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">С</td><td style=\"padding:2px 8px;text-align:center\">01110</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Т</td><td style=\"padding:2px 8px;text-align:center\">1</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">У</td><td style=\"padding:2px 8px;text-align:center\">01100</td></tr></table><p>Кодовые слова для букв Р, Н, А ещё не выбраны. Какое наименьшее количество двоичных знаков потребуется для кодирования слова ДУУЛНСДЛАР, если код должен удовлетворять условию Фано?</p>",
+"ans": "47",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 47.</p>"
+},
+{
+"id": "egeshka_bank:e4-08",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 8 букв: А, В, Г, И, Л, Н, П, Т. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">А</td><td style=\"padding:2px 8px;text-align:center\">0001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">В</td><td style=\"padding:2px 8px;text-align:center\">00101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Г</td><td style=\"padding:2px 8px;text-align:center\">11</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">И</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Л</td><td style=\"padding:2px 8px;text-align:center\">0000</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Н</td><td style=\"padding:2px 8px;text-align:center\">0011</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">П</td><td style=\"padding:2px 8px;text-align:center\">00100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Т</td><td style=\"padding:2px 8px;text-align:center\">01</td></tr></table><p>Укажите кратчайшее кодовое слово для буквы И, при котором код будет удовлетворять условию Фано. Если таких кодов несколько, укажите код с наименьшим числовым значением.</p>",
+"ans": "10",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 10.</p>"
+},
+{
+"id": "egeshka_bank:e4-09",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 8 букв: Е, И, К, Л, О, П, С, У. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">Е</td><td style=\"padding:2px 8px;text-align:center\">0001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">И</td><td style=\"padding:2px 8px;text-align:center\">0000</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">К</td><td style=\"padding:2px 8px;text-align:center\">01</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Л</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">О</td><td style=\"padding:2px 8px;text-align:center\">1100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">П</td><td style=\"padding:2px 8px;text-align:center\">1111</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">С</td><td style=\"padding:2px 8px;text-align:center\">001</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">У</td><td style=\"padding:2px 8px;text-align:center\">1110</td></tr></table><p>Какова наименьшая возможная длина кодового слова для буквы Л, при которой код будет удовлетворять условию Фано?</p>",
+"ans": "2",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 2.</p>"
+},
+{
+"id": "egeshka_bank:e4-10",
+"n": 4,
+"bank": "egeshka_bank",
+"html": "<p>По каналу связи передаются сообщения, содержащие только 9 букв: А, В, Д, Е, М, Н, С, Т, У. Для передачи используется неравномерный двоичный код, удовлетворяющий условию Фано: никакое кодовое слово не является началом другого кодового слова. Известны кодовые слова для некоторых букв.</p><table border=\"1\" style=\"border-collapse:collapse\"><tr><th style=\"padding:2px 8px;text-align:center\">Буква</th><th style=\"padding:2px 8px;text-align:center\">Кодовое слово</th></tr><tr><td style=\"padding:2px 8px;text-align:center\">А</td><td style=\"padding:2px 8px;text-align:center\">100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">В</td><td style=\"padding:2px 8px;text-align:center\">11011</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Д</td><td style=\"padding:2px 8px;text-align:center\">10110</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Е</td><td style=\"padding:2px 8px;text-align:center\">1100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">М</td><td style=\"padding:2px 8px;text-align:center\"></td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Н</td><td style=\"padding:2px 8px;text-align:center\">10101</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">С</td><td style=\"padding:2px 8px;text-align:center\">10100</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">Т</td><td style=\"padding:2px 8px;text-align:center\">0</td></tr><tr><td style=\"padding:2px 8px;text-align:center\">У</td><td style=\"padding:2px 8px;text-align:center\"></td></tr></table><p>Какова наименьшая возможная суммарная длина всех кодовых слов для букв М, У, при которой код будет удовлетворять условию Фано?</p>",
+"ans": "8",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Кодирование, условие Фано",
+"sol": "<p>Нарисуйте двоичное дерево известных кодовых слов: свободные ветви — это слова, которые не являются началом и продолжением уже занятых. Выберите самые короткие из них. Ответ: 8.</p>"
+},
+{
+"id": "egeshka_bank:e5-01",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится двоичная запись числа N.<br>2. К этой записи дописываются справа ещё два разряда по следующему правилу: складываются все цифры двоичной записи, и остаток от деления суммы на 2 дописывается в конец числа (справа). Над этой записью производятся те же действия — справа дописывается остаток от деления суммы цифр на 2.<br>3. Полученная таким образом запись является двоичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 100_2\\) результатом является число \\(18_{10}\\).</p><p>Укажите минимальное число N, после обработки которого с помощью этого алгоритма получается число R, большее 2627.</p>",
+"ans": "657",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def R(n):\n    s = bin(n)[2:]\n    for _ in range(2):\n        s += str(s.count(&#x27;1&#x27;) % 2)\n    return int(s, 2)\n\nprint(min(n for n in range(1, 10518) if R(n) &gt; 2627))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-02",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится двоичная запись числа N.<br>2. Далее эта запись обрабатывается по следующему правилу:<br>а) если число N чётное, то к двоичной записи числа слева дописывается 10;<br>б) если число N нечётное, то к двоичной записи числа слева дописывается 1 и справа дописывается 01.<br>3. Полученная таким образом запись является двоичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 100_2\\) результатом является число \\(20_{10}\\).</p><p>Укажите максимальное число N, после обработки которого с помощью этого алгоритма получается число R, меньшее 181. В ответе запишите это число в десятичной системе счисления.</p>",
+"ans": "52",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def R(n):\n    s = bin(n)[2:]\n    if n % 2 == 0:\n        s = &#x27;10&#x27; + s\n    else:\n        s = &#x27;1&#x27; + s + &#x27;01&#x27;\n    return int(s, 2)\n\nprint(max(n for n in range(1, 182) if R(n) &lt; 181))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-03",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится двоичная запись числа N.<br>2. Если количество единиц в двоичной записи чётное, то в конец записи дописывается 0, а в начало — 1; иначе в конец дописывается 11, а в начало — 10.<br>3. Полученная таким образом запись является двоичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 100_2\\) результатом является число \\(83_{10}\\).</p><p>Укажите минимальное число R, большее 1823, которое может быть получено с помощью описанного алгоритма. В ответе запишите это число в десятичной системе счисления.</p>",
+"ans": "1826",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def R(n):\n    s = bin(n)[2:]\n    if s.count(&#x27;1&#x27;) % 2 == 0:\n        s = &#x27;1&#x27; + s + &#x27;0&#x27;\n    else:\n        s = &#x27;10&#x27; + s + &#x27;11&#x27;\n    return int(s, 2)\n\nprint(min(R(n) for n in range(1, 7302) if R(n) &gt; 1823))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-04",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится троичная запись числа N.<br>2. Далее эта запись обрабатывается по следующему правилу:<br>а) если число N делится на 3, то слева к нему приписывается «1», а справа «02»;<br>б) если число N на 3 не делится, то остаток от деления на 3 умножается на 4, переводится в троичную запись и дописывается в конец троичной записи.<br>3. Полученная таким образом запись является троичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 11_3\\) результатом является число \\(40_{10}\\).</p><p>Укажите минимальное число N, после обработки которого с помощью этого алгоритма получается число R, большее 894.</p>",
+"ans": "27",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def tri(n):\n    s = &#x27;&#x27;\n    while n:\n        s = str(n % 3) + s\n        n //= 3\n    return s\n\ndef R(n):\n    s = tri(n)\n    if n % 3 == 0:\n        s = &#x27;1&#x27; + s + &#x27;02&#x27;\n    else:\n        s += tri(n % 3 * 4)\n    return int(s, 3)\n\nprint(min(n for n in range(1, 3586) if R(n) &gt; 894))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-05",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится двоичная запись числа N.<br>2. Далее эта запись обрабатывается по следующему правилу:<br>а) если число N делится на 3, то к этой записи дописываются три последние двоичные цифры;<br>б) если число N на 3 не делится, то остаток от деления умножается на 3, переводится в двоичную систему счисления и дописывается в конец двоичной записи.<br>3. Полученная таким образом запись является двоичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 100_2\\) результатом является число \\(19_{10}\\).</p><p>Укажите минимальное число R, большее 2537, которое может быть получено с помощью описанного алгоритма. В ответе запишите это число в десятичной системе счисления.</p>",
+"ans": "2539",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def R(n):\n    s = bin(n)[2:]\n    if n % 3 == 0:\n        s += s[-3:]\n    else:\n        s += bin(n % 3 * 3)[2:]\n    return int(s, 2)\n\nprint(min(R(n) for n in range(4, 10158) if R(n) &gt; 2537))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-06",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится двоичная запись числа N.<br>2. К этой записи дописываются справа ещё два разряда по следующему правилу: складываются все цифры двоичной записи, и остаток от деления суммы на 2 дописывается в конец числа (справа). Над этой записью производятся те же действия — справа дописывается остаток от деления суммы цифр на 2.<br>3. Полученная таким образом запись является двоичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 100_2\\) результатом является число \\(18_{10}\\).</p><p>Укажите минимальное число N, после обработки которого с помощью этого алгоритма получается число R, большее 278.</p>",
+"ans": "70",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def R(n):\n    s = bin(n)[2:]\n    for _ in range(2):\n        s += str(s.count(&#x27;1&#x27;) % 2)\n    return int(s, 2)\n\nprint(min(n for n in range(1, 1122) if R(n) &gt; 278))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-07",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится двоичная запись числа N.<br>2. Далее эта запись обрабатывается по следующему правилу:<br>а) если число N чётное, то к двоичной записи числа слева дописывается 10;<br>б) если число N нечётное, то к двоичной записи числа слева дописывается 1 и справа дописывается 01.<br>3. Полученная таким образом запись является двоичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 100_2\\) результатом является число \\(20_{10}\\).</p><p>Укажите максимальное число N, после обработки которого с помощью этого алгоритма получается число R, меньшее 1587. В ответе запишите это число в десятичной системе счисления.</p>",
+"ans": "510",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def R(n):\n    s = bin(n)[2:]\n    if n % 2 == 0:\n        s = &#x27;10&#x27; + s\n    else:\n        s = &#x27;1&#x27; + s + &#x27;01&#x27;\n    return int(s, 2)\n\nprint(max(n for n in range(1, 1588) if R(n) &lt; 1587))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-08",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится двоичная запись числа N.<br>2. Если количество единиц в двоичной записи чётное, то в конец записи дописывается 0, а в начало — 1; иначе в конец дописывается 11, а в начало — 10.<br>3. Полученная таким образом запись является двоичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 100_2\\) результатом является число \\(83_{10}\\).</p><p>Укажите минимальное число R, большее 2982, которое может быть получено с помощью описанного алгоритма. В ответе запишите это число в десятичной системе счисления.</p>",
+"ans": "2983",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def R(n):\n    s = bin(n)[2:]\n    if s.count(&#x27;1&#x27;) % 2 == 0:\n        s = &#x27;1&#x27; + s + &#x27;0&#x27;\n    else:\n        s = &#x27;10&#x27; + s + &#x27;11&#x27;\n    return int(s, 2)\n\nprint(min(R(n) for n in range(1, 11938) if R(n) &gt; 2982))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-09",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится троичная запись числа N.<br>2. Далее эта запись обрабатывается по следующему правилу:<br>а) если число N делится на 3, то слева к нему приписывается «1», а справа «02»;<br>б) если число N на 3 не делится, то остаток от деления на 3 умножается на 4, переводится в троичную запись и дописывается в конец троичной записи.<br>3. Полученная таким образом запись является троичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 11_3\\) результатом является число \\(40_{10}\\).</p><p>Укажите минимальное число N, после обработки которого с помощью этого алгоритма получается число R, большее 2739.</p>",
+"ans": "81",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def tri(n):\n    s = &#x27;&#x27;\n    while n:\n        s = str(n % 3) + s\n        n //= 3\n    return s\n\ndef R(n):\n    s = tri(n)\n    if n % 3 == 0:\n        s = &#x27;1&#x27; + s + &#x27;02&#x27;\n    else:\n        s += tri(n % 3 * 4)\n    return int(s, 3)\n\nprint(min(n for n in range(1, 10966) if R(n) &gt; 2739))</code></pre>"
+},
+{
+"id": "egeshka_bank:e5-10",
+"n": 5,
+"bank": "egeshka_bank",
+"html": "<p>На вход алгоритма подаётся натуральное число N. Алгоритм строит по нему новое число R следующим образом.<br>1. Строится двоичная запись числа N.<br>2. Далее эта запись обрабатывается по следующему правилу:<br>а) если число N делится на 3, то к этой записи дописываются три последние двоичные цифры;<br>б) если число N на 3 не делится, то остаток от деления умножается на 3, переводится в двоичную систему счисления и дописывается в конец двоичной записи.<br>3. Полученная таким образом запись является двоичной записью искомого числа R.</p><p>Например, для исходного числа \\(4_{10} = 100_2\\) результатом является число \\(19_{10}\\).</p><p>Укажите минимальное число R, большее 209, которое может быть получено с помощью описанного алгоритма. В ответе запишите это число в десятичной системе счисления.</p>",
+"ans": "211",
+"src": "Egeshka Malevin D.",
+"y": 2026,
+"dt": "2026-10-08",
+"topic": "Алгоритмы обработки чисел",
+"sol": "<pre class=\"py-sol\"><code>def R(n):\n    s = bin(n)[2:]\n    if n % 3 == 0:\n        s += s[-3:]\n    else:\n        s += bin(n % 3 * 3)[2:]\n    return int(s, 2)\n\nprint(min(R(n) for n in range(4, 846) if R(n) &gt; 209))</code></pre>"
+}
+]
+}
