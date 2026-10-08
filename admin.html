@@ -19,9 +19,10 @@
 <section class="adm-login" id="loginView" hidden>
   <form class="modal-panel adm-login-panel" id="admLoginForm">
     <h1 class="fm-title">Панель учителя</h1>
-    <p class="fm-note">Пароль напечатан в окне сервера при первом запуске. Сменить его можно здесь в «Настройках» или командой <code>python server.py --password НОВЫЙ</code>.</p>
-    <div class="login-form">
-      <input class="inp" type="password" id="admPassword" placeholder="Пароль" autocomplete="current-password" required>
+    <p class="fm-note">Логин и пароль выдаёт главный учитель. Главный учитель входит с логином <code>admin</code> (или с пустым логином) и паролем, напечатанным в окне сервера при первом запуске.</p>
+    <div class="login-form login-stack">
+      <input class="inp" id="admLogin" name="username" placeholder="Логин" autocomplete="username" autocapitalize="off" spellcheck="false">
+      <input class="inp" type="password" id="admPassword" name="password" placeholder="Пароль" autocomplete="current-password" required>
       <button class="btn primary" type="submit">Войти</button>
     </div>
     <div class="login-err" id="admLoginErr" role="alert"></div>
@@ -34,6 +35,7 @@
     <nav class="adm-tabs" id="tabs">
       <button type="button" data-tab="students" class="on">Ученики</button>
       <button type="button" data-tab="classes">Классы</button>
+      <button type="button" data-tab="teachers" class="main-only">Учителя</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
       <button type="button" data-tab="settings">Настройки</button>
     </nav>
@@ -42,6 +44,7 @@
         <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
         <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
+      <span class="adm-who" id="admWho"></span>
       <a class="link-btn" href="./" target="_blank" rel="noopener">Открыть тренажёр</a>
       <button type="button" class="link-btn" id="logoutBtn">Выйти</button>
     </div>
@@ -72,6 +75,7 @@
             <th class="chk"><input type="checkbox" id="chkAll" title="Выбрать всех"></th>
             <th data-sort="name">Ученик</th>
             <th data-sort="xp" class="num" title="Уровень в тренажёре (опыт за решённые задания)">Ур.</th>
+            <th data-sort="teacher" class="main-only">Учитель</th>
             <th data-sort="last">Был(а)</th>
             <th data-sort="today" class="num">Сегодня</th>
             <th data-sort="week" class="num">За 7 дней</th>
@@ -87,6 +91,30 @@
         </table>
       </div>
       <p class="adm-empty" id="studentsEmpty" hidden>Новых учеников нет: все распределены по классам. Ученики появятся здесь, когда зарегистрируются.</p>
+    </section>
+
+    <!-- Учителя (только у главного) -->
+    <section class="adm-view" id="view-teachers" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Учителя</h2></div>
+      <p class="adm-hint" style="margin:0 0 12px">У каждого учителя свой логин, пароль и код приглашения. Ученик, который зарегистрировался по коду учителя, попадает к нему. Учитель видит только своих учеников, классы, подборки и ленту; главный — всех.</p>
+      <div class="adm-table-wrap"><table class="adm-table" id="teachersTable">
+        <thead><tr><th>Учитель</th><th>Логин</th><th>Код приглашения</th><th class="num">Учеников</th><th class="num">Классов</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
+      <form class="adm-box adm-teacher-form" id="teacherForm">
+        <h3 class="adm-h3" style="margin:0" id="teacherFormTitle">Добавить учителя</h3>
+        <div class="adm-draft-row">
+          <input class="inp" id="tName" placeholder="Имя, например Мария Ивановна" maxlength="80" required>
+          <input class="inp" id="tLogin" placeholder="Логин латиницей" maxlength="32" autocapitalize="off" spellcheck="false" required>
+          <input class="inp" id="tPass" type="text" placeholder="Пароль (от 6 символов)" autocomplete="new-password">
+          <input class="inp" id="tInvite" placeholder="Код приглашения (можно пусто)" maxlength="40">
+        </div>
+        <div class="adm-draft-row">
+          <button type="submit" class="btn primary" id="tSave">Добавить</button>
+          <button type="button" class="btn ghost" id="tCancel" hidden>Отмена</button>
+          <span class="login-err" id="tMsg"></span>
+        </div>
+        <p class="adm-hint" style="margin:0">Передайте учителю адрес панели (…/admin), логин и пароль, а его ученикам — его код приглашения. При изменении пароль можно оставить пустым — тогда он не меняется.</p>
+      </form>
     </section>
 
     <!-- Классы -->
@@ -120,6 +148,7 @@
             <option value="0">Всё время</option>
           </select>
           <select class="adm-select" id="stClass" title="Класс ученика"></select>
+          <select class="adm-select main-only" id="stTeacher" title="Учитель ученика"></select>
           <a class="btn" id="stExport" href="#">CSV</a>
           <button type="button" class="btn ghost" id="stRename">Переименовать</button>
           <button type="button" class="btn ghost" id="stPwReset" title="Ученик забыл пароль: он зарегистрируется заново с тем же ФИО и кодом приглашения, прогресс сохранится">Сбросить пароль</button>

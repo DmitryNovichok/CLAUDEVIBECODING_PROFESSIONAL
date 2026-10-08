@@ -133,6 +133,15 @@
     $('#loginView').hidden = false;
     setTimeout(() => $('#admPassword').focus(), 30);
   }
+  // кто вошёл: главный учитель видит всех учеников и управляет учителями
+  let ME = { is_main: 1 };
+  let teachers = [];
+  async function loadMe() {
+    ME = await api('me');
+    document.body.classList.toggle('is-main', !!ME.is_main);
+    $('#admWho').textContent = ME.name + (ME.is_main ? ' · главный' : '');
+    if (ME.is_main) { try { teachers = (await api('teachers')).teachers; } catch (e) { teachers = []; } }
+  }
   function showApp() {
     $('#loginView').hidden = true;
     $('#appView').hidden = false;
@@ -145,11 +154,12 @@
     try {
       const r = await fetch('api/admin/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: $('#admPassword').value }), credentials: 'same-origin',
+        body: JSON.stringify({ login: $('#admLogin').value, password: $('#admPassword').value }), credentials: 'same-origin',
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Ошибка входа');
       $('#admPassword').value = '';
+      await loadMe();
       showApp();
       go('students');
       startFeed();
@@ -172,7 +182,8 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'student', 'feed', 'settings'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    if (t === 'teachers') loadTeachers();
     if (t === 'students') loadStudents();
     if (t === 'classes') loadClasses();
     if (t === 'feed') { $('#feedDot').hidden = true; renderFeed(); }
@@ -225,6 +236,7 @@
         <td class="chk"><input type="checkbox" data-pick="${s.id}" ${picked.has(s.id) ? 'checked' : ''}></td>
         <td class="name">${esc(s.name)}${cls ? ` <span class="chip">${esc(cls.name)}</span>` : ''}</td>
         <td class="num"><span class="lvl-mini" title="${s.xp || 0} XP">${s.level || 1}</span></td>
+        <td class="main-only muted">${esc(s.teacher || '')}</td>
         <td class="muted">${fmtWhen(s.last)}</td>
         <td class="num">${s.today || ''}</td>
         <td class="num">${s.week || ''}</td>
@@ -282,6 +294,56 @@
   });
 
 
+  // ------------------------------------------------------------ учителя (главный)
+  let editTeacher = null;
+  async function loadTeachers() {
+    try { teachers = (await api('teachers')).teachers; } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    $('#teachersTable tbody').innerHTML = teachers.map(t => `<tr>
+      <td class="name">${esc(t.name)}${t.is_main ? ' <span class="chip">главный</span>' : ''}</td>
+      <td><code>${esc(t.login)}</code></td>
+      <td><code>${esc(t.invite)}</code></td>
+      <td class="num">${t.students}</td>
+      <td class="num">${t.classes}</td>
+      <td class="num" style="white-space:nowrap">${t.is_main ? '' : `<button type="button" class="link-btn" data-tedit="${t.id}">изменить</button>
+        <button type="button" class="link-btn danger" data-tdel="${t.id}">удалить</button>`}</td></tr>`).join('');
+  }
+  function fillTeacherForm(t) {
+    editTeacher = t;
+    $('#teacherFormTitle').textContent = t ? `Изменить: ${t.name}` : 'Добавить учителя';
+    $('#tSave').textContent = t ? 'Сохранить' : 'Добавить';
+    $('#tCancel').hidden = !t;
+    $('#tName').value = t ? t.name : '';
+    $('#tLogin').value = t ? t.login : '';
+    $('#tPass').value = '';
+    $('#tPass').placeholder = t ? 'Новый пароль (пусто — не менять)' : 'Пароль (от 6 символов)';
+    $('#tInvite').value = t ? t.invite : '';
+    $('#tMsg').textContent = '';
+  }
+  $('#teachersTable tbody').addEventListener('click', async e => {
+    const ed = e.target.closest('[data-tedit]');
+    if (ed) { fillTeacherForm(teachers.find(t => t.id === +ed.dataset.tedit)); $('#tName').focus(); return; }
+    const del = e.target.closest('[data-tdel]');
+    if (!del) return;
+    const t = teachers.find(x => x.id === +del.dataset.tdel);
+    if (!confirm(`Удалить учителя «${t.name}»? Его ученики, классы и подборки перейдут к вам, результаты сохранятся.`)) return;
+    try { await api('teacher/delete', { id: t.id }); loadTeachers(); fetchClasses(); } catch (err) { toast(err.message); }
+  });
+  $('#tCancel').addEventListener('click', () => fillTeacherForm(null));
+  $('#teacherForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = $('#tMsg');
+    msg.className = 'login-err';
+    try {
+      const r = await api('teacher/save', { id: editTeacher && editTeacher.id, name: $('#tName').value, login: $('#tLogin').value,
+        password: $('#tPass').value, invite: $('#tInvite').value });
+      const login = $('#tLogin').value.trim().toLowerCase(), pw = $('#tPass').value;
+      fillTeacherForm(null);
+      msg.className = 'login-err ok';
+      msg.textContent = `Сохранено. Логин: ${login}${pw ? ', пароль: ' + pw : ''}, код для учеников: ${r.invite}`;
+      loadTeachers();
+    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
+  });
+
   // ------------------------------------------------------------ классы
   let classes = [];
   let curClass = null;            // { id, name, students, assignments }
@@ -300,7 +362,7 @@
   }
   function renderClassList() {
     $('#classList').innerHTML = classes.map(c => `<button type="button" class="adm-class${curClass && curClass.id === c.id ? ' on' : ''}" data-class="${c.id}">
-      <b>${esc(c.name)}</b><span>${c.students} ${plural(c.students, 'ученик', 'ученика', 'учеников')}</span></button>`).join('')
+      <b>${esc(c.name)}${ME.is_main && c.teacher_id !== ME.id ? `<small>${esc(c.teacher || '')}</small>` : ''}</b><span>${c.students} ${plural(c.students, 'ученик', 'ученика', 'учеников')}</span></button>`).join('')
       || '<p class="adm-hint">Классов пока нет.</p>';
   }
   $('#classList').addEventListener('click', e => {
@@ -503,6 +565,18 @@
     renderStudent();
   }
   $('#stPeriod').addEventListener('change', () => { if (st) openStudent(st.student.id); });
+  $('#stTeacher').addEventListener('change', async e => {
+    const t = teachers.find(x => x.id === +e.target.value);
+    if (!confirm(`Передать ученика учителю «${t ? t.name : ''}»? Класс у ученика снимется.`)) { renderStudent(); return; }
+    try {
+      await api('student/teacher', { id: st.student.id, teacher_id: +e.target.value });
+      st.student.teacher_id = +e.target.value;
+      st.student.class_id = null;
+      await fetchClasses();
+      renderStudent();
+      toast('Ученик передан');
+    } catch (err) { if (err.status !== 401) toast(err.message); }
+  });
   $('#stClass').addEventListener('change', async e => {
     try {
       await api('class/members', { class_id: +e.target.value || null, students: [st.student.id] });
@@ -535,8 +609,11 @@
     }
     const rv = st.reveals || { granted: 0, blocked: 0, early: 0 };
     const act = st.activity || {};
-    $('#stClass').innerHTML = '<option value="0">Без класса</option>' + classes.map(c =>
-      `<option value="${c.id}" ${c.id === s.class_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    $('#stClass').innerHTML = '<option value="0">Без класса</option>' + classes
+      .filter(c => !ME.is_main || c.teacher_id === s.teacher_id)
+      .map(c => `<option value="${c.id}" ${c.id === s.class_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    $('#stTeacher').innerHTML = teachers.map(t =>
+      `<option value="${t.id}" ${t.id === s.teacher_id ? 'selected' : ''}>Учитель: ${esc(t.name)}</option>`).join('');
     const exams = st.exams || [];
     const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
     $('#stCards').innerHTML = [
@@ -872,6 +949,7 @@
   (async () => {
     try {
       showMediaWarning(await api('info'));
+      await loadMe();
       showApp();
       go('students');
       startFeed();

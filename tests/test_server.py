@@ -64,7 +64,7 @@ class ServerTest(unittest.TestCase):
         server.DB_PATH = cls.tmp / "server_data" / "trainer.db"
         server.BANK_JS = cls.tmp / "data" / "bank.js"
         server.APP = server.App()
-        server.APP.db.setting("invite_code", "1234")
+        server.APP.db.x("UPDATE teachers SET invite=? WHERE is_main=1", ("1234",))
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
@@ -285,7 +285,7 @@ class ServerTest(unittest.TestCase):
         try:
             self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["rules"]["authored"])
         finally:
-            server.APP.db.setting("authored", "1")
+            server.APP.db.x("UPDATE teachers SET authored=1 WHERE is_main=1")
             server.APP.db.x("DELETE FROM admin_sessions WHERE token='admtok'")
 
     # ------------------------------------------------------------ классы, подборки, опыт
@@ -400,6 +400,70 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(server.is_authored("КомпЕГЭ", "<p>(Демоверсия 2025) Текст</p>"))
         self.assertFalse(server.is_authored("КомпЕГЭ", "<p>(1) Сначала…</p>"))
         self.assertFalse(server.is_authored("КомпЕГЭ", "<p>Текст (Д. Бахтиев) в середине</p>"))
+
+    def teacher_req(self, cookie, method, path, body=None):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request(method, path, body=json.dumps(body) if body is not None else None,
+                  headers={"Content-Type": "application/json", "Cookie": cookie})
+        r = c.getresponse()
+        data = json.loads(r.read() or b"null")
+        c.close()
+        return r.status, data, r.getheader("Set-Cookie") or ""
+
+    def test_teachers_and_their_students(self):
+        # главный создаёт учителя со своим кодом приглашения
+        st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Мария Ивановна", "login": "maria",
+                                                                "password": "secret77", "invite": "MARIA1"})
+        self.assertEqual(st, 200, d)
+        tid = d["id"]
+        self.assertEqual(self.admin("POST", "/api/admin/teacher/save", {"name": "X", "login": "maria2",
+                                                                        "password": "secret77", "invite": "MARIA1"})[0], 409)
+        # учитель входит своим логином
+        st, d, ck = self.teacher_req("", "POST", "/api/admin/login", {"login": "maria", "password": "wrong"})
+        self.assertEqual(st, 403)
+        server.THROTTLE.fails.clear()
+        st, d, ck = self.teacher_req("", "POST", "/api/admin/login", {"login": "Maria", "password": "secret77"})
+        self.assertEqual(st, 200)
+        cookie = ck.split(";")[0]
+        st, me, _ = self.teacher_req(cookie, "GET", "/api/admin/me")
+        self.assertEqual((me["name"], me["is_main"], me["invite"]), ("Мария Ивановна", 0, "MARIA1"))
+        # ученик по её коду попадает к ней
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "MARIA1", "name": "Машин Михаил",
+                                                "new_password": "secret1"})
+        self.assertEqual(st, 200, d)
+        her = d["sid"]
+        mine = self.req("GET", "/api/me", token=self.login("Главнов Глеб"))[1]["sid"]
+        st, d, _ = self.teacher_req(cookie, "GET", "/api/admin/students?class_id=all")
+        self.assertEqual([x["id"] for x in d["students"]], [her])              # видит только своего
+        self.assertEqual(self.teacher_req(cookie, "GET", f"/api/admin/student?id={mine}")[0], 404)
+        self.assertEqual(self.teacher_req(cookie, "POST", "/api/admin/student/delete", {"id": mine})[0], 404)
+        self.assertEqual(self.teacher_req(cookie, "GET", "/api/admin/teachers")[0], 403)
+        st, d = self.admin("GET", "/api/admin/students?class_id=all")
+        ids = {x["id"]: x["teacher"] for x in d["students"]}
+        self.assertEqual(ids[her], "Мария Ивановна")                         # главный видит всех
+        self.assertIn(mine, ids)
+        # свои классы: чужой класс учитель не видит
+        st, d, _ = self.teacher_req(cookie, "POST", "/api/admin/class/save", {"name": "9В"})
+        her_class = d["id"]
+        st, d = self.admin("POST", "/api/admin/class/save", {"name": "11Г"})
+        main_class = d["id"]
+        st, d, _ = self.teacher_req(cookie, "GET", "/api/admin/classes")
+        self.assertEqual([c["id"] for c in d["classes"]], [her_class])
+        self.assertEqual(self.teacher_req(cookie, "POST", "/api/admin/class/members",
+                                          {"class_id": main_class, "students": [her]})[0], 404)
+        # своя настройка авторских заданий — у её учеников
+        self.teacher_req(cookie, "POST", "/api/admin/authored", {"on": False})
+        tok = self.req("POST", "/api/login", {"mode": "login", "name": "Машин Михаил", "password": "secret1"})[1]["token"]
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["rules"]["authored"])
+        self.assertTrue(self.req("GET", "/api/me", token=self.login("Главнов Гордей"))[1]["rules"]["authored"])
+        # удалили учителя — ученики и классы переходят главному, вход по её сессии больше не работает
+        self.admin("POST", "/api/admin/teacher/delete", {"id": tid})
+        self.assertEqual(self.teacher_req(cookie, "GET", "/api/admin/me")[0], 401)
+        st, d = self.admin("GET", "/api/admin/students?class_id=all")
+        self.assertEqual({x["id"]: x["teacher"] for x in d["students"]}[her], "Главный учитель")
+        self.assertEqual(self.admin("POST", "/api/admin/teacher/delete", {"id": server.main_teacher()["id"]})[0], 400)
+        for c in (her_class, main_class):
+            self.admin("POST", "/api/admin/class/delete", {"id": c})
 
     def test_levels(self):
         self.assertEqual(server.level_of(0)[:2], (1, "Новичок"))
