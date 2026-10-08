@@ -120,6 +120,10 @@
       <b class="py-title">Python</b>
       <span class="py-task" id="pyTask"></span>
       <span class="py-tools">
+        <span class="py-font" role="group" aria-label="Размер шрифта">
+          <button type="button" class="icon-btn" id="pyFontDown" title="Мельче (Ctrl −)">A−</button>
+          <button type="button" class="icon-btn" id="pyFontUp" title="Крупнее (Ctrl +)">A+</button>
+        </span>
         <button type="button" class="btn primary" id="pyRun" title="Ctrl+Enter">▶ Запустить</button>
         <button type="button" class="btn" id="pyStop" hidden>■ Стоп</button>
         <button type="button" class="icon-btn" id="pyClose" title="Закрыть" aria-label="Закрыть">×</button>
@@ -128,7 +132,10 @@
     <div class="py-files" id="pyFiles"></div>
     <div class="py-editor">
       <pre class="py-gutter" id="pyGutter" aria-hidden="true">1</pre>
-      <textarea class="py-code" id="pyCode" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Код на Python"></textarea>
+      <div class="py-area">
+        <pre class="py-hl" id="pyHl" aria-hidden="true"></pre>
+        <textarea class="py-code" id="pyCode" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Код на Python"></textarea>
+      </div>
     </div>
     <div class="py-sub">
       <details class="py-stdin"><summary>Ввод для input()</summary><textarea class="inp" id="pyIn" rows="3" spellcheck="false" placeholder="Каждая строка — один вызов input()"></textarea></details>
@@ -142,7 +149,17 @@
     <pre class="py-out" id="pyOut"></pre>
     <div class="py-turtle" id="pyTurtle" hidden>
       <canvas id="pyCanvas"></canvas>
-      <div class="py-tt-bar"><span id="pyXY">колесо — масштаб, перетаскивание — сдвиг</span><button type="button" class="link-btn" id="pyFit">весь рисунок</button></div>
+      <div class="py-tt-bar">
+        <span id="pyXY">колесо или щипок — масштаб, перетаскивание — сдвиг</span>
+        <span class="py-tt-tools">
+          <button type="button" class="icon-btn" id="pyZoomOut" title="Отдалить">−</button>
+          <button type="button" class="icon-btn" id="pyZoomIn" title="Приблизить">+</button>
+          <button type="button" class="link-btn" id="pyFit" title="Подогнать под фигуру (без сетки точек)">по фигуре</button>
+          <button type="button" class="link-btn" id="pyFitAll" title="Показать весь рисунок вместе с точками">всё</button>
+          <label class="py-grid-lbl" title="Точки с целыми координатами (в шагах масштаба k)"><input type="checkbox" id="pyGrid" checked> сетка</label>
+          <button type="button" class="link-btn" id="pyBig" title="Развернуть рисунок на весь экран">⤢ крупно</button>
+        </span>
+      </div>
     </div>
   </aside>
 </div>

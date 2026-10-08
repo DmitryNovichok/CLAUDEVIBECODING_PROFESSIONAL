@@ -2909,11 +2909,58 @@
     $('#pyTurtle').hidden = true;
   }
   function updateGutter() {
-    const n = $('#pyCode').value.split('\n').length;
+    const ta = $('#pyCode');
+    const n = ta.value.split('\n').length;
     const g = $('#pyGutter');
     if (+g.dataset.n !== n) { g.textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n'); g.dataset.n = n; }
-    g.scrollTop = $('#pyCode').scrollTop;
+    $('#pyHl').innerHTML = highlightPy(ta.value) + '\n';
+    syncScroll();
   }
+  function syncScroll() {
+    const ta = $('#pyCode'), hl = $('#pyHl');
+    $('#pyGutter').scrollTop = ta.scrollTop;
+    hl.scrollTop = ta.scrollTop;
+    hl.scrollLeft = ta.scrollLeft;
+  }
+
+  // подсветка синтаксиса в цветах PyCharm: под прозрачным полем ввода лежит раскрашенная копия текста
+  const PY_KW = new Set(('False None True and as assert async await break class continue def del elif else except finally for '
+    + 'from global if import in is lambda nonlocal not or pass raise return try while with yield match case').split(' '));
+  const PY_BI = new Set(('abs all any ascii bin bool bytes callable chr complex dict dir divmod enumerate eval exec filter float '
+    + 'format frozenset getattr globals hasattr hash help hex id input int isinstance issubclass iter len list locals map max '
+    + 'min next object oct open ord pow print range repr reversed round set setattr slice sorted str sum super tuple type vars zip '
+    + 'Exception ValueError KeyError IndexError TypeError ZeroDivisionError RecursionError StopIteration NameError').split(' '));
+  const PY_TOK = /(#[^\n]*)|((?:[rRbBuUfF]{1,2})?(?:'''[\s\S]*?(?:'''|$)|"""[\s\S]*?(?:"""|$)|'(?:\\.|[^'\\\n])*'?|"(?:\\.|[^"\\\n])*"?))|(@[A-Za-z_][\w.]*)|(\b(?:0[xXoObB][\da-fA-F_]+|\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?j?)\b|\.\d+\b)|([A-Za-z_\u0400-\u04FF][\w\u0400-\u04FF]*)/g;
+  function highlightPy(code) {
+    let out = '', last = 0, prevWord = '';
+    PY_TOK.lastIndex = 0;
+    for (let m; (m = PY_TOK.exec(code));) {
+      out += esc(code.slice(last, m.index));
+      last = PY_TOK.lastIndex;
+      const [tok, com, str, dec, num, word] = m;
+      let cls = '';
+      if (com) cls = 'com';
+      else if (str) cls = 'str';
+      else if (dec) cls = 'dec';
+      else if (num) cls = 'num';
+      else if (word) {
+        cls = PY_KW.has(word) ? 'kw' : (prevWord === 'def' || prevWord === 'class') ? 'def' : word === 'self' ? 'self' : PY_BI.has(word) ? 'bi' : '';
+        prevWord = word;
+      }
+      if (!word) prevWord = '';
+      out += cls ? `<span class="hl-${cls}">${esc(tok)}</span>` : esc(tok);
+    }
+    return out + esc(code.slice(last));
+  }
+  const FONT_KEY = 'egeshka.pyFont';
+  function setPyFont(px) {
+    px = Math.min(28, Math.max(10, px));
+    $('#pyDock').style.setProperty('--py-fs', px + 'px');
+    try { localStorage.setItem(FONT_KEY, String(px)); } catch (e) { /* нет места */ }
+    syncScroll();
+  }
+  const pyFont = () => parseInt(getComputedStyle($('#pyDock')).getPropertyValue('--py-fs'), 10) || 14;
+  try { const f = +localStorage.getItem(FONT_KEY); if (f) setPyFont(f); } catch (e) { /* нет доступа */ }
   // редактор: Tab — 4 пробела, Shift+Tab — убрать отступ, Enter — отступ как у строки выше (+4 после «:»)
   function editKey(e) {
     const ta = e.target;
@@ -2924,6 +2971,8 @@
       ta.dispatchEvent(new Event('input'));
     };
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); pyRun(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); setPyFont(pyFont() + 1); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); setPyFont(pyFont() - 1); return; }
     if (e.key === 'Tab') {
       e.preventDefault();
       const ls = v.lastIndexOf('\n', a - 1) + 1;
@@ -2951,61 +3000,104 @@
     }
   }
 
-  // черепашка: рисунок на холсте с масштабом колесом и сдвигом мышью
-  const TT = { ops: null, s: 1, ox: 0, oy: 0, drag: null };
+  // черепашка: рисунок на холсте. Сразу подгоняется под фигуру (а не под сетку точек), линии толще и ярче,
+  // масштаб — колесом, щипком тачпада или кнопками, сдвиг — перетаскиванием или двумя пальцами
+  const TT = { ops: null, s: 1, ox: 0, oy: 0, drag: null, step: 1 };
   function drawTurtle(ops) {
     TT.ops = ops;
+    TT.step = gridStep(ops);
     $('#pyTurtle').hidden = false;
-    fitTurtle();
+    fitTurtle(false);
+  }
+  /** Шаг сетки — масштаб k из кода (forward(10*k)): общий делитель координат линий. */
+  function gridStep(ops) {
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    let g = 0, n = 0;
+    for (const o of ops) {
+      if (o[0] !== 'l') continue;
+      for (const v of [o[1], o[2], o[3], o[4]]) {
+        const r = Math.round(Math.abs(v));
+        if (Math.abs(Math.abs(v) - r) > 1e-6) return 1;          // дробные координаты — сетка по единице
+        if (r) { g = gcd(g, r); n++; }
+      }
+    }
+    return n && g ? g : 1;
   }
   function ttCanvas() {
     const c = $('#pyCanvas');
     const dpr = window.devicePixelRatio || 1;
     const w = c.clientWidth, h = c.clientHeight;
-    if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
     return { c, ctx: c.getContext('2d'), w, h, dpr };
   }
-  function fitTurtle() {
+  function fitTurtle(all) {
     if (!TT.ops) return;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     const take = (x, y) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+    const shape = TT.ops.some(o => o[0] === 'l' || o[0] === 'f');
     for (const o of TT.ops) {
-      if (o[0] === 'l') { take(o[1], o[2]); take(o[3], o[4]); } else if (o[0] === 'f') o[1].forEach(p => take(p[0], p[1])); else take(o[1], o[2]);
+      if (o[0] === 'l') { take(o[1], o[2]); take(o[3], o[4]); } else if (o[0] === 'f') o[1].forEach(p => take(p[0], p[1]));
+      else if (all || !shape) take(o[1], o[2]);
     }
     if (!isFinite(x0)) { x0 = y0 = -100; x1 = y1 = 100; }
     const { w, h } = ttCanvas();
-    TT.s = Math.min((w - 40) / Math.max(x1 - x0, 1), (h - 40) / Math.max(y1 - y0, 1));
+    const pad = 36;
+    TT.s = Math.min((w - 2 * pad) / Math.max(x1 - x0, 1e-9), (h - 2 * pad) / Math.max(y1 - y0, 1e-9));
+    if (!isFinite(TT.s) || TT.s <= 0) TT.s = 1;
     TT.ox = w / 2 - TT.s * (x0 + x1) / 2;
     TT.oy = h / 2 + TT.s * (y0 + y1) / 2;
     renderTurtle();
   }
+  function zoomAt(f, mx, my) {
+    TT.ox = mx - (mx - TT.ox) * f; TT.oy = my - (my - TT.oy) * f; TT.s *= f;
+    renderTurtle();
+  }
   function renderTurtle() {
+    if (!TT.ops) return;
     const { ctx, w, h, dpr } = ttCanvas();
     const css = getComputedStyle(document.documentElement);
+    const v = name => css.getPropertyValue(name).trim();
+    const light = v('color-scheme') === 'light';
+    const LINE = light ? '#1c1a36' : '#ffcc00', DOT = light ? '#e8334f' : '#7fdbff';
+    const col = (c, def) => (!c || c === 'default' ? def : (!light || !/^(white|#fff(fff)?)$/i.test(c)) && (light || !/^(black|#000(000)?)$/i.test(c)) ? c : def);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = css.getPropertyValue('--input-bg') || '#fff';
+    ctx.fillStyle = light ? '#ffffff' : '#141229';
     ctx.fillRect(0, 0, w, h);
     const X = x => x * TT.s + TT.ox, Y = y => TT.oy - y * TT.s;
-    ctx.strokeStyle = css.getPropertyValue('--track');                 // оси
+    // сетка: точки с целыми координатами в шагах k — по ним удобно считать точки внутри фигуры
+    const px = TT.step * TT.s;
+    if ($('#pyGrid').checked && px >= 6) {
+      const ix0 = Math.ceil((0 - TT.ox) / px), ix1 = Math.floor((w - TT.ox) / px);
+      const iy0 = Math.ceil((TT.oy - h) / px), iy1 = Math.floor(TT.oy / px);
+      if ((ix1 - ix0 + 1) * (iy1 - iy0 + 1) < 60000) {
+        ctx.fillStyle = light ? 'rgba(28,26,54,.28)' : 'rgba(255,255,255,.22)';
+        const r = Math.min(2.2, Math.max(1, px / 10));
+        for (let i = ix0; i <= ix1; i++) for (let j = iy0; j <= iy1; j++) ctx.fillRect(X(i * TT.step) - r / 2, Y(j * TT.step) - r / 2, r, r);
+      }
+    }
+    ctx.strokeStyle = light ? 'rgba(28,26,54,.35)' : 'rgba(255,255,255,.3)';            // оси
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.moveTo(X(0), 0); ctx.lineTo(X(0), h); ctx.stroke();
     for (const o of TT.ops) {
-      if (o[0] === 'f') {
-        ctx.fillStyle = o[2]; ctx.globalAlpha = 0.35;
-        ctx.beginPath(); o[1].forEach((p, i) => (i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])))); ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      if (o[0] !== 'f') continue;
+      ctx.fillStyle = col(o[2], LINE); ctx.globalAlpha = 0.3;
+      ctx.beginPath(); o[1].forEach((p, i) => (i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])))); ctx.fill();
+      ctx.globalAlpha = 1;
     }
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     for (const o of TT.ops) {
       if (o[0] === 'l') {
-        ctx.strokeStyle = o[5]; ctx.lineWidth = Math.max(1, o[6]);
+        ctx.strokeStyle = col(o[5], LINE); ctx.lineWidth = Math.max(2.5, o[6]);
         ctx.beginPath(); ctx.moveTo(X(o[1]), Y(o[2])); ctx.lineTo(X(o[3]), Y(o[4])); ctx.stroke();
-      } else if (o[0] === 'd') {
-        ctx.fillStyle = o[4];
-        ctx.beginPath(); ctx.arc(X(o[1]), Y(o[2]), Math.max(1, o[3] / 2), 0, 2 * Math.PI); ctx.fill();
+      }
+    }
+    for (const o of TT.ops) {
+      if (o[0] === 'd') {
+        ctx.fillStyle = col(o[4], DOT);
+        ctx.beginPath(); ctx.arc(X(o[1]), Y(o[2]), Math.max(2, o[3] / 2), 0, 2 * Math.PI); ctx.fill();
       } else if (o[0] === 't') {
-        ctx.fillStyle = o[4]; ctx.font = '12px sans-serif'; ctx.fillText(o[3], X(o[1]), Y(o[2]));
+        ctx.fillStyle = col(o[4], LINE); ctx.font = '13px sans-serif'; ctx.fillText(o[3], X(o[1]), Y(o[2]));
       }
     }
   }
@@ -3014,21 +3106,42 @@
     if (!TT.ops) return;
     e.preventDefault();
     const r = pyCanvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-    const f = e.deltaY < 0 ? 1.2 : 1 / 1.2;
-    TT.ox = mx - (mx - TT.ox) * f; TT.oy = my - (my - TT.oy) * f; TT.s *= f;
-    renderTurtle();
+    const dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+    // щипок тачпада (ctrlKey) и колесо мыши — масштаб; прокрутка двумя пальцами — сдвиг
+    if (e.ctrlKey || (e.deltaX === 0 && Math.abs(dy) >= 40 && Number.isInteger(dy))) {
+      zoomAt(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0025)), mx, my);
+    } else {
+      TT.ox -= e.deltaX; TT.oy -= dy;
+      renderTurtle();
+    }
   }, { passive: false });
   pyCanvas.addEventListener('pointerdown', e => { TT.drag = { x: e.clientX, y: e.clientY, ox: TT.ox, oy: TT.oy }; pyCanvas.setPointerCapture(e.pointerId); });
   pyCanvas.addEventListener('pointermove', e => {
     const r = pyCanvas.getBoundingClientRect();
-    $('#pyXY').textContent = `x = ${((e.clientX - r.left - TT.ox) / TT.s).toFixed(1)}, y = ${((TT.oy - (e.clientY - r.top)) / TT.s).toFixed(1)}`;
+    const x = (e.clientX - r.left - TT.ox) / TT.s, y = (TT.oy - (e.clientY - r.top)) / TT.s;
+    const k = TT.step;
+    $('#pyXY').textContent = k > 1 ? `x = ${(x / k).toFixed(1)}, y = ${(y / k).toFixed(1)} (в шагах k = ${k})` : `x = ${x.toFixed(1)}, y = ${y.toFixed(1)}`;
     if (!TT.drag) return;
     TT.ox = TT.drag.ox + e.clientX - TT.drag.x; TT.oy = TT.drag.oy + e.clientY - TT.drag.y;
     renderTurtle();
   });
   pyCanvas.addEventListener('pointerup', () => { TT.drag = null; });
-  $('#pyFit').addEventListener('click', fitTurtle);
+  pyCanvas.addEventListener('dblclick', () => fitTurtle(false));
+  const zoomCenter = f => { const { w, h } = ttCanvas(); zoomAt(f, w / 2, h / 2); };
+  $('#pyZoomIn').addEventListener('click', () => zoomCenter(1.5));
+  $('#pyZoomOut').addEventListener('click', () => zoomCenter(1 / 1.5));
+  $('#pyFit').addEventListener('click', () => fitTurtle(false));
+  $('#pyFitAll').addEventListener('click', () => fitTurtle(true));
+  $('#pyGrid').addEventListener('change', renderTurtle);
+  $('#pyBig').addEventListener('click', () => {
+    const box = $('#pyTurtle');
+    box.classList.toggle('big');
+    document.body.classList.toggle('tt-big', box.classList.contains('big'));
+    $('#pyBig').textContent = box.classList.contains('big') ? '× свернуть' : '⤢ крупно';
+    requestAnimationFrame(() => fitTurtle(false));
+  });
   window.addEventListener('resize', () => { if (TT.ops && !$('#pyTurtle').hidden) renderTurtle(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#pyTurtle').classList.contains('big')) $('#pyBig').click(); });
 
   $('#pyRun').addEventListener('click', pyRun);
   $('#pyStop').addEventListener('click', pyStop);
@@ -3041,7 +3154,9 @@
     const t = PY.task;
     PY.saveTimer = setTimeout(() => { if (t) writeCode(t.id, $('#pyCode').value); }, 500);
   });
-  $('#pyCode').addEventListener('scroll', () => { $('#pyGutter').scrollTop = $('#pyCode').scrollTop; });
+  $('#pyCode').addEventListener('scroll', syncScroll);
+  $('#pyFontUp').addEventListener('click', () => setPyFont(pyFont() + 1));
+  $('#pyFontDown').addEventListener('click', () => setPyFont(pyFont() - 1));
   $('#pyLoad').addEventListener('click', () => $('#pyFile').click());
   $('#pyFile').addEventListener('change', async e => {
     const f = e.target.files[0];
