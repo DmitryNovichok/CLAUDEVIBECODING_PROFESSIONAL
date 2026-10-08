@@ -186,15 +186,17 @@
   function setSideMin(on) {
     document.body.classList.toggle('side-min', on);
     const b = $('#sideMinBtn');
+    if (!b) return;
     b.setAttribute('aria-expanded', String(!on));
     b.title = on ? 'Развернуть меню' : 'Свернуть меню — больше места для задания';
     b.setAttribute('aria-label', on ? 'Развернуть меню' : 'Свернуть меню');
     try { localStorage.setItem(SIDE_MIN_KEY, on ? '1' : '0'); } catch (e) { /* нет доступа */ }
   }
   try { if (localStorage.getItem(SIDE_MIN_KEY) === '1') setSideMin(true); } catch (e) { /* нет доступа */ }
-  $('#sideMinBtn').addEventListener('click', () => setSideMin(!document.body.classList.contains('side-min')));
+  // ?. — страница могла остаться от прошлой версии сайта (index.html не обновили): не падаем
+  $('#sideMinBtn')?.addEventListener('click', () => setSideMin(!document.body.classList.contains('side-min')));
   // в свёрнутом виде клик по значку тоже разворачивает
-  $('.sidebar .brand-mark').addEventListener('click', () => { if (document.body.classList.contains('side-min')) setSideMin(false); });
+  $('.sidebar .brand-mark')?.addEventListener('click', () => { if (document.body.classList.contains('side-min')) setSideMin(false); });
 
   /** Цель в Яндекс Метрике (если счётчик включён в панели учителя). Объявлена до окна входа: оно работает раньше остального. */
   function goal(name) { try { if (window.ym && window.EGE_YM) window.ym(window.EGE_YM, 'reachGoal', name); } catch (e) { /* не мешаем занятию */ } }
@@ -247,7 +249,7 @@
         btn.disabled = true;
         errEl.textContent = '';
         try {
-          const temp = $('#loginTemp').checked;
+          const temp = !!($('#loginTemp') && $('#loginTemp').checked);
           forgetStudent();                               // прежний вход на этом компьютере больше не нужен
           try { if (temp) sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
           const r = await loginRequest(body);
@@ -3693,8 +3695,9 @@
     ['1.0.0', '03.10.2026', ['Первый выпуск: все 27 номеров ЕГЭ по информатике из банков ЕГЭ и КомпЕГЭ',
       'Подборка под ученика: чаще то, что получается хуже, и повторение ошибок']],
   ];
-  $('#versionBtn').textContent = `Версия ${CHANGELOG[0][0]} · что нового`;
-  $('#versionBtn').addEventListener('click', () => {
+  const versionBtn = $('#versionBtn');
+  if (versionBtn) versionBtn.textContent = `Версия ${CHANGELOG[0][0]} · что нового`;
+  versionBtn?.addEventListener('click', () => {
     if (isNarrow()) setSideOpen(false);
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Что нового</h2>
       <div class="changelog">${CHANGELOG.map(([v, d, items], i) => `<section class="cl-ver${i ? '' : ' cl-now'}">
