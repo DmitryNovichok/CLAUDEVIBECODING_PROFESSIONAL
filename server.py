@@ -295,6 +295,7 @@ SOURCE_LINK_RE = re.compile(r'<a\b[^>]*href="https?://(?:[^"/]*\.)?(?:kompege\.r
 # Картинки и файлы из банков: в путях есть код задания ФИПИ (assets/0079D4-…/, files/ege/3/02143E.zip),
 # по нему на openfipi находится ответ. Ученику они отдаются по безликим ссылкам files/<код>/<имя>.
 LOCAL_REF_RE = re.compile(r'(\b(?:src|href)=")((?:\.\./|media/)[^"]+)(")', re.I)
+FIPI_ICON_RE = re.compile(r'<img\b[^>]*cursor:\s*pointer[^>]*>', re.I)
 LOCAL_ZIP_LINK_RE = re.compile(r'<a\b[^>]*href="((?:\.\./|media/)[^"]+\.zip)"[^>]*>(.*?)</a>', re.I | re.S)
 REMOTE_ATTR_RE = re.compile(r'\sdata-remote="[^"]*devinf\.ru[^"]*"', re.I)
 FIPI_CODE_RE = re.compile(r"(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*\d)[0-9A-Fa-f]{6}(?![0-9A-Za-z])")
@@ -459,6 +460,8 @@ class Bank:
         h = REMOTE_ATTR_RE.sub("", h)
         # ссылки на распакованные архивы в тексте не нужны — файлы и так лежат под заданием
         h = LOCAL_ZIP_LINK_RE.sub(lambda m: m.group(2) if m.group(1) in self.zipped else m.group(0), h)
+        # значок «скачать» с сайта ФИПИ (был внутри ссылки на архив) — без ссылки он не нужен
+        h = FIPI_ICON_RE.sub("", h)
 
         def sub(m):
             href = m.group(2)
