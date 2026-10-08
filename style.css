@@ -856,3 +856,9 @@ pre.tsol { margin: 8px 0 0; padding: 10px 12px; background: var(--code-bg); bord
 .py-turtle.big:not([hidden]) { position: fixed; inset: 16px; z-index: 60; display: flex; flex-direction: column; background: var(--panel); box-shadow: var(--px); }
 .py-turtle.big canvas { flex: 1; height: auto; }
 body.tt-big .py-dock { z-index: 80; }
+
+/* таблица и схема рядом («На рисунке справа…») */
+.cond .cond-side { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px 28px; margin: .6em 0 1em; }
+.cond .cond-side > * { margin: 0; min-width: 0; }
+.cond .cond-side .table-wrap { margin: 0; }
+.cond .cond-side img { max-width: 100%; }

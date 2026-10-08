@@ -974,6 +974,7 @@
       tb.parentNode.insertBefore(w, tb);
       w.appendChild(tb);
     });
+    sideBySide(el);
     $$('img', el).forEach(img => {
       img.addEventListener('click', () => openLightbox(img.currentSrc || img.src));
       img.addEventListener('error', () => onImageError(img, task));
@@ -981,6 +982,26 @@
     });
     $$('a', el).forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
     renderMath(el);
+  }
+
+  /**
+   * «На рисунке справа…»: в Яндекс Учебнике таблица и схема лежат в одном блоке, который на их сайте
+   * выстроен в строку их стилями. Стили при сборке банка вычищаются, и картинка падает вниз —
+   * находим такие блоки (таблица + картинка без текста) и ставим их рядом.
+   */
+  function sideBySide(el) {
+    const onlyImage = n => n.querySelector('img') && !n.querySelector('table')
+      && !n.textContent.replace(/[\s\u00a0]+/g, '');
+    $$('div, p, td', el).forEach(box => {
+      const kids = [...box.children];
+      if (kids.length < 2 || kids.length > 3) return;
+      const tables = kids.filter(k => k.querySelector('table') && !k.querySelector('img'));
+      const imgs = kids.filter(onlyImage);
+      if (tables.length !== 1 || !imgs.length || tables.length + imgs.length !== kids.length) return;
+      box.classList.add('cond-side');
+      // отступ неразрывными пробелами перед картинкой в исходнике не нужен
+      imgs.forEach(k => [...k.childNodes].forEach(n => { if (n.nodeType === 3) n.remove(); }));
+    });
   }
 
   function renderMath(el) {
