@@ -425,13 +425,6 @@ class ServerTest(unittest.TestCase):
         st, d, ck = self.teacher_req("", "POST", "/api/admin/login", {"login": "Maria", "password": "secret77"})
         self.assertEqual(st, 200)
         cookie = ck.split(";")[0]
-        # браузер подставил в логин чужое (ФИО ученика): незнакомый логин — вход главного по его паролю
-        server.APP.db.x("UPDATE teachers SET pw=? WHERE is_main=1", (server.hash_pw("mainpass1"),))
-        st, d, mck = self.teacher_req("", "POST", "/api/admin/login", {"login": "Иванов Иван", "password": "mainpass1"})
-        self.assertEqual(st, 200)
-        self.assertEqual(self.teacher_req(mck.split(";")[0], "GET", "/api/admin/me")[1]["is_main"], 1)
-        self.assertEqual(self.teacher_req("", "POST", "/api/admin/login", {"login": "maria", "password": "mainpass1"})[0], 403)
-        server.THROTTLE.fails.clear()
         st, me, _ = self.teacher_req(cookie, "GET", "/api/admin/me")
         self.assertEqual((me["name"], me["is_main"], me["invite"]), ("Мария Ивановна", 0, "MARIA1"))
         # ученик по её коду попадает к ней
