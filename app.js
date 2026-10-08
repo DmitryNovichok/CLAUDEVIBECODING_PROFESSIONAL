@@ -813,6 +813,7 @@
         <span class="head-chips">${chip}</span>
         <span class="task-tools">
           ${PY_BTN}
+          ${MARK_BTN}
           <button type="button" class="icon-btn fav-btn${fav ? ' on' : ''}" id="favBtn" aria-pressed="${fav}" title="${fav ? 'Убрать из избранного' : 'В избранное'}">${fav ? '★' : '☆'}</button>
           <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
         </span>
@@ -2440,7 +2441,7 @@
       <div class="task-head">
         <span class="num-badge">${numLabel(t.n)}</span>
         <div class="task-meta">Вариант ЕГЭ · ${EX.cur + 1} из ${EX.items.length}</div>
-        <span class="task-tools">${PY_BTN}</span>
+        <span class="task-tools">${PY_BTN}${MARK_BTN}</span>
       </div>
       <article class="cond" id="cond">${safeHtml(t.html)}</article>
       ${filesHtml(t)}
@@ -2918,6 +2919,111 @@
   const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null };
   const pyOpen = () => !$('#pyDock').hidden;
   const pyTaskNow = () => (examShown && EX ? byId.get((EX.items[EX.cur] || {}).id) : cur && cur.task) || null;
+
+  // ------------------------------------------------------------ маркер поверх условия
+  // Рисунки — штрихи в долях ширины условия (при смене ширины окна не съезжают); у каждого задания свои,
+  // живут до перезагрузки страницы. Ластик стирает штрих целиком.
+  const MARK_BTN = '<button type="button" class="icon-btn mark-btn" id="markBtn" title="Маркер — рисовать поверх условия" aria-pressed="false">'
+    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Маркер</span></button>';
+  const MARK_COLORS = [['#ef4444', 'Красный'], ['#3b82f6', 'Синий'], ['#22c55e', 'Зелёный']];
+  const MARK = { on: false, tool: 'pen', color: MARK_COLORS[0][0], strokes: new Map(), cv: null, cond: null, key: null, ro: null, drawing: null };
+  const markStrokes = () => { if (!MARK.strokes.has(MARK.key)) MARK.strokes.set(MARK.key, []); return MARK.strokes.get(MARK.key); };
+
+  function markRedraw() {
+    const cv = MARK.cv, cond = MARK.cond;
+    if (!cv || !cond) return;
+    const w = cond.clientWidth, h = cond.scrollHeight, dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+      cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const s of MARK.strokes.get(MARK.key) || []) {
+      g.strokeStyle = s.c; g.lineWidth = 3; g.globalAlpha = .9;
+      g.beginPath();
+      s.p.forEach(([x, y], i) => (i ? g.lineTo(x * w, y * w) : g.moveTo(x * w, y * w)));
+      if (s.p.length === 1) g.lineTo(s.p[0][0] * w + .1, s.p[0][1] * w);
+      g.stroke();
+    }
+  }
+  /** Холст поверх условия текущего задания (после каждой перерисовки задания). */
+  function markAttach() {
+    const cond = $('#cond'), t = pyTaskNow();
+    if (!cond || !t) { MARK.cv = MARK.cond = null; return; }
+    if (MARK.cond === cond && MARK.cv && MARK.cv.isConnected) return;
+    MARK.key = t.id; MARK.cond = cond;
+    cond.classList.add('mark-host');
+    const cv = document.createElement('canvas');
+    cv.className = 'mark-canvas';
+    cond.appendChild(cv);
+    MARK.cv = cv;
+    if (MARK.ro) MARK.ro.disconnect();
+    MARK.ro = new ResizeObserver(markRedraw);
+    MARK.ro.observe(cond);
+    cv.addEventListener('pointerdown', markDown);
+    markRedraw();
+    markSetOn(MARK.on);
+  }
+  function markPoint(e) {
+    const r = MARK.cv.getBoundingClientRect(), w = MARK.cond.clientWidth;
+    return [(e.clientX - r.left) / w, (e.clientY - r.top) / w];
+  }
+  function markErase(pt) {
+    const list = markStrokes(), w = MARK.cond.clientWidth, R = 14 / w;
+    const keep = list.filter(s => !s.p.some(([x, y]) => Math.hypot(x - pt[0], y - pt[1]) < R));
+    if (keep.length !== list.length) { MARK.strokes.set(MARK.key, keep); markRedraw(); }
+  }
+  function markDown(e) {
+    if (!MARK.on) return;
+    e.preventDefault();
+    MARK.cv.setPointerCapture(e.pointerId);
+    const pt = markPoint(e);
+    if (MARK.tool === 'eraser') { MARK.drawing = 'erase'; markErase(pt); }
+    else { MARK.drawing = { c: MARK.color, p: [pt] }; markStrokes().push(MARK.drawing); markRedraw(); }
+    const move = ev => {
+      const p = markPoint(ev);
+      if (MARK.drawing === 'erase') markErase(p);
+      else if (MARK.drawing) { MARK.drawing.p.push(p); markRedraw(); }
+    };
+    const up = () => { MARK.drawing = null; MARK.cv.removeEventListener('pointermove', move); MARK.cv.removeEventListener('pointerup', up); MARK.cv.removeEventListener('pointercancel', up); };
+    MARK.cv.addEventListener('pointermove', move);
+    MARK.cv.addEventListener('pointerup', up);
+    MARK.cv.addEventListener('pointercancel', up);
+  }
+  function markBarHtml() {
+    return MARK_COLORS.map(([c, n]) => `<button type="button" class="mark-swatch${MARK.tool === 'pen' && MARK.color === c ? ' on' : ''}" data-mcolor="${c}" style="--sw:${c}" title="${n}" aria-label="${n}"></button>`).join('')
+      + `<button type="button" class="mark-tool${MARK.tool === 'eraser' ? ' on' : ''}" data-mtool="eraser" title="Ластик — стирает линию целиком" aria-label="Ластик"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21"/><path d="M22 21H7M5 11l9 9"/></svg></button>`
+      + '<button type="button" class="mark-tool" data-mtool="clear" title="Стереть всё на этом задании" aria-label="Стереть всё"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>';
+  }
+  function markSetOn(on) {
+    MARK.on = on;
+    const btn = $('#markBtn');
+    if (btn) { btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', String(on)); }
+    if (MARK.cv) MARK.cv.classList.toggle('active', on);
+    let bar = $('#markBar');
+    if (on && btn && !bar) {
+      bar = document.createElement('span');
+      bar.className = 'mark-bar'; bar.id = 'markBar';
+      btn.after(bar);
+    }
+    if (bar) { if (on) bar.innerHTML = markBarHtml(); else bar.remove(); }
+  }
+  document.addEventListener('click', e => {
+    if (e.target.closest('#markBtn')) { markAttach(); markSetOn(!MARK.on); return; }
+    const sw = e.target.closest('[data-mcolor]');
+    if (sw) { MARK.color = sw.dataset.mcolor; MARK.tool = 'pen'; markSetOn(true); return; }
+    const tl = e.target.closest('[data-mtool]');
+    if (tl) {
+      if (tl.dataset.mtool === 'clear') { MARK.strokes.set(MARK.key, []); markRedraw(); return; }
+      MARK.tool = MARK.tool === 'eraser' ? 'pen' : 'eraser'; markSetOn(true);
+    }
+  });
+  // задание перерисовалось (новое, проверка, вариант) — вернуть холст и рисунок
+  new MutationObserver(() => { if ($('#cond') && (!MARK.cond || !MARK.cond.isConnected || MARK.cond !== $('#cond'))) markAttach(); })
+    .observe(trainerEl, { childList: true });
   const codeKey = id => `egeshka.code.${student ? student.sid : 'local'}.${id}`;
   function readCode(id) { try { return localStorage.getItem(codeKey(id)); } catch (e) { return null; } }
   function writeCode(id, code) { try { if (code.trim()) localStorage.setItem(codeKey(id), code); else localStorage.removeItem(codeKey(id)); } catch (e) { /* нет места */ } }
