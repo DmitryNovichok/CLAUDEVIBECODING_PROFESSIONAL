@@ -863,7 +863,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.err(404, "нет такого файла")
         import html as _h
         shown = _h.escape(unquote(urlparse(self.path).path))
-        where = f"<p>Сервер искал его здесь: <code>{_h.escape(str(disk_path))}</code></p>" if disk_path is not None else ""
+        # путь на диске показываем только тому, кто открыл сайт на самом этом компьютере, — не в интернет
+        local = self.client_address[0] in ("127.0.0.1", "::1") and not self.headers.get("X-Forwarded-For")
+        where = (f"<p>Сервер искал его здесь: <code>{_h.escape(str(disk_path))}</code></p>"
+                 if disk_path is not None and local else "")
         body = f"""<!doctype html><meta charset="utf-8"><title>Файл не найден</title>
 <style>body{{font:16px/1.55 system-ui,sans-serif;max-width:720px;margin:48px auto;padding:0 16px;color:#1b1d22;background:#f6f7f9}}
 code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}}a{{color:#4b67e0}}
