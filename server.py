@@ -1339,8 +1339,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if wait:
                 return self.err(429, self.wait_msg(wait))
             login = str(data.get("login") or "").strip().lower()
-            t = (db.q("SELECT * FROM teachers WHERE lower(login)=?", (login,), one=True) if login
-                 else db.q("SELECT * FROM teachers WHERE is_main=1", one=True))
+            # незнакомый логин (браузер мог подставить туда сохранённое ФИО ученика) — как пустой: вход главного
+            t = (db.q("SELECT * FROM teachers WHERE lower(login)=?", (login,), one=True) if login else None) \
+                or db.q("SELECT * FROM teachers WHERE is_main=1", one=True)
             if t and check_pw(str(data.get("password") or ""), t["pw"]):
                 THROTTLE.ok("admin", ip)
                 tok = secrets.token_urlsafe(32)
