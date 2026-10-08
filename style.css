@@ -942,3 +942,19 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 /* «Чужой компьютер» в окне входа */
 .login-temp { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13.5px; color: var(--muted); cursor: pointer; }
 .login-temp input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+
+/* сворачиваемое меню (только на компьютере; на телефоне меню и так складывается) */
+.side-min-btn { flex: none; }
+.side-min-btn svg { width: 18px; height: 18px; transition: transform .2s; }
+.sidebar { transition: width .2s, flex-basis .2s, padding .2s; }
+@media (min-width: 861px) {
+  body.side-min .sidebar { width: 72px; flex-basis: 72px; padding: 16px 10px; overflow: hidden; }
+  body.side-min .sidebar > *:not(.brand-row) { display: none !important; }
+  body.side-min .brand-row { flex-direction: column; gap: 12px; }
+  body.side-min .brand { display: block; padding: 0; flex: none; }
+  body.side-min .brand-title, body.side-min .brand-sub { display: none; }
+  body.side-min .sidebar .brand-mark { width: 44px; height: 44px; cursor: pointer; }
+  body.side-min .side-min-btn svg { transform: rotate(180deg); }
+  body.side-min .trainer { max-width: 1120px; }       /* освободившееся место — заданию: таблицы и картинки шире */
+}
+@media (max-width: 860px) { .side-min-btn { display: none; } }

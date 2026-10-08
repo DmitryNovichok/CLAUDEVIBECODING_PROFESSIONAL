@@ -181,6 +181,21 @@
   }
   $('#sideToggle').addEventListener('click', () => setSideOpen(!$('.sidebar').classList.contains('open')));
 
+  // Свёрнутое меню на компьютере: остаётся узкая полоска со значком, задание получает всю ширину
+  const SIDE_MIN_KEY = 'egeTrainer.sideMin';
+  function setSideMin(on) {
+    document.body.classList.toggle('side-min', on);
+    const b = $('#sideMinBtn');
+    b.setAttribute('aria-expanded', String(!on));
+    b.title = on ? 'Развернуть меню' : 'Свернуть меню — больше места для задания';
+    b.setAttribute('aria-label', on ? 'Развернуть меню' : 'Свернуть меню');
+    try { localStorage.setItem(SIDE_MIN_KEY, on ? '1' : '0'); } catch (e) { /* нет доступа */ }
+  }
+  try { if (localStorage.getItem(SIDE_MIN_KEY) === '1') setSideMin(true); } catch (e) { /* нет доступа */ }
+  $('#sideMinBtn').addEventListener('click', () => setSideMin(!document.body.classList.contains('side-min')));
+  // в свёрнутом виде клик по значку тоже разворачивает
+  $('.sidebar .brand-mark').addEventListener('click', () => { if (document.body.classList.contains('side-min')) setSideMin(false); });
+
   /** Цель в Яндекс Метрике (если счётчик включён в панели учителя). Объявлена до окна входа: оно работает раньше остального. */
   function goal(name) { try { if (window.ym && window.EGE_YM) window.ym(window.EGE_YM, 'reachGoal', name); } catch (e) { /* не мешаем занятию */ } }
 
