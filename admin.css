@@ -151,12 +151,12 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
 .adm-warn b { color: var(--review); }
 
 /* ---------- Egeshka: шапка, выбор учеников, классы, подборки */
-.adm-top { border-bottom: 3px solid var(--ink); }
+.adm-top { border-bottom: 2px solid var(--border); }
 .adm-brand { display: flex; flex-direction: column; gap: 3px; }
-.adm-brand .brand-title { font-size: 13px; }
+.adm-brand .brand-title { font-size: 22px; }
 .adm-brand > span:last-child { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
 .adm-tabs { border-width: 2px; }
-.adm-tabs button.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.adm-tabs button.on { background: var(--sel); color: var(--sel-text); font-weight: 900; }
 .adm-table-wrap, .adm-box, .adm-card { border-width: 2px; }
 
 .adm-table th.chk, .adm-table td.chk { width: 34px; padding-right: 0; }
@@ -164,13 +164,13 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
 .adm-bulk { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 14px;
   background: var(--accent-soft); border: 2px solid var(--accent); }
 .adm-bulk[hidden] { display: none; }
-.lvl-mini { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 4px; font: 9px var(--pixel);
+.lvl-mini { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 4px; font: 900 12px var(--font); border-radius: 50%;
   background: var(--accent); color: var(--on-accent); }
 
 .adm-classes { display: grid; grid-template-columns: 240px 1fr; gap: 26px; align-items: start; }
 .adm-class-list { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 90px; }
 .adm-class { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 10px 12px;
-  background: var(--card); border: 0; box-shadow: var(--px); margin: 3px; color: var(--text); cursor: pointer; text-align: left; font: inherit; }
+  background: var(--card); margin: 3px; color: var(--text); cursor: pointer; text-align: left; font: inherit; }
 .adm-class span { color: var(--muted); font-size: 12.5px; }
 .adm-class.on { background: var(--accent); color: var(--on-accent); }
 .adm-class.on span { color: var(--on-accent); opacity: .75; }
@@ -209,3 +209,4 @@ body:not(.is-main) .main-only { display: none !important; }
 .adm-login-panel .login-stack { flex-direction: column; align-items: stretch; }
 .adm-login-panel .login-stack .inp { flex: 0 0 auto; }
 .adm-login-panel .login-stack .btn { align-self: flex-start; }
+.adm-brand .brand-title { color: var(--good); font-weight: 900; }
