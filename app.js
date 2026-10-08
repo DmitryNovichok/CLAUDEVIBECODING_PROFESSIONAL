@@ -2436,7 +2436,7 @@
     for (const r of res.results) {
       const g = partToGroup.get(r.task);
       const t = byId.get(r.task) || (g && byId.get(g).parts.find(p => p.id === r.task));
-      if (!t) continue;
+      if (!t || r.blank) continue;      // задание не трогали — это не ошибка
       const score = r.part === 1 ? 1 : 0;
       if (g) {
         recordStats(t, score, now, { part: r.part, exam: true, blank: r.blank });

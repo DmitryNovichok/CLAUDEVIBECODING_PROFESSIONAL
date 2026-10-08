@@ -657,6 +657,8 @@ class DB:
                 main_id = c.execute("SELECT id FROM teachers WHERE is_main=1").fetchone()[0]
                 c.execute("INSERT OR IGNORE INTO tsolutions(teacher_id, task_id, text, ts) SELECT ?, task_id, text, ts FROM teacher_solutions",
                           (main_id,))
+            # прежние версии записывали нетронутые задания варианта как ошибки — убираем их из журнала
+            c.execute("DELETE FROM attempts WHERE reason='exam' AND answers='[]'")
             c.commit()
 
     def q(self, sql, args=(), one=False):
@@ -1498,8 +1500,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             credit = 0.0 if blank else answer_credit(n, t.get("ans", ""), ans, cells)
             pts = ege_points(n) if credit == 1.0 else (1 if credit == 0.5 else 0)
             primary += pts
-            self.log_attempt(s, t, [] if blank else [ans], 1.0 if credit == 1.0 else 0.0, reason="exam",
-                             part=credit, revealed=int(show and not blank), exam=e["id"])
+            if not blank:                     # нетронутое задание варианта — не ошибка: в журнал и статистику не идёт
+                self.log_attempt(s, t, [ans], 1.0 if credit == 1.0 else 0.0, reason="exam",
+                                 part=credit, revealed=int(show), exam=e["id"])
             r = {"task": APP.bank.pid(tid), "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank}
             if show and not blank:
                 r["answer"] = t.get("ans", "")

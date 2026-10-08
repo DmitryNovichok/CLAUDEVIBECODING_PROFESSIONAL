@@ -933,3 +933,8 @@ body.tt-big .py-dock { z-index: 80; }
 .sm-foot { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 10px; }
 .sm-foot b { color: var(--text); }
 @media (max-width: 640px) { .streak-menu { right: auto; left: 0; width: min(300px, calc(100vw - 32px)); } }
+
+/* верхняя панель: заголовок не сжимается в узкую колонку — правая часть переносится на новую строку */
+.scope-info { flex: 1 1 300px; }
+.scope-title { white-space: nowrap; }
+body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }

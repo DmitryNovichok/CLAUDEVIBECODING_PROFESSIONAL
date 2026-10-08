@@ -616,6 +616,9 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(r["test"], server.EGE_SCALE[2])
         self.assertFalse(r["shown"])                      # решали меньше 20 минут — ответы не раскрываем
         self.assertTrue(all("answer" not in x for x in r["results"]))
+        self.assertTrue(any(x["blank"] for x in r["results"]))
+        logged = [x["n"] for x in server.APP.db.q("SELECT n FROM attempts WHERE exam=?", (e["exam_id"],))]
+        self.assertEqual(sorted(logged), [5, 27])          # нетронутое №6 — не ошибка, в журнал не попало
         st, r2 = self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": []}, tok)
         self.assertEqual(r2["primary"], 2)                # повторная отправка не пересчитывает
         for _ in range(server.EXAM_PER_DAY - 1):
