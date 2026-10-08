@@ -623,6 +623,11 @@ class DB:
                 student_id INTEGER NOT NULL, task_id TEXT NOT NULL, code TEXT, ts REAL,
                 PRIMARY KEY(student_id, task_id));
             CREATE TABLE IF NOT EXISTS teacher_solutions(task_id TEXT PRIMARY KEY, text TEXT, ts REAL);
+            CREATE TABLE IF NOT EXISTS teachers(
+                id INTEGER PRIMARY KEY, name TEXT NOT NULL, login TEXT UNIQUE NOT NULL, pw TEXT,
+                invite TEXT UNIQUE NOT NULL, is_main INTEGER DEFAULT 0, authored INTEGER DEFAULT 1, created REAL);
+            CREATE TABLE IF NOT EXISTS tsolutions(
+                teacher_id INTEGER NOT NULL, task_id TEXT NOT NULL, text TEXT, ts REAL, PRIMARY KEY(teacher_id, task_id));
             """)
             # новые поля в старых базах
             for table, col, decl in (
@@ -637,9 +642,21 @@ class DB:
                     ("students", "last_ip", "TEXT"),
                     ("students", "pw", "TEXT"),            # пароль ученика (хеш); NULL — ещё не задан
                     ("students", "class_id", "INTEGER"),   # класс; NULL — ещё не распределён
-                    ("attempts", "away", "INTEGER")):      # сколько раз уходил со вкладки, пока решал
+                    ("attempts", "away", "INTEGER"),       # сколько раз уходил со вкладки, пока решал
+                    ("students", "teacher_id", "INTEGER"), # учитель, по чьему коду зарегистрировался; NULL — главный
+                    ("classes", "teacher_id", "INTEGER"),
+                    ("admin_sessions", "teacher_id", "INTEGER")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            # главный учитель: прежние пароль, код приглашения и настройка авторских заданий переходят к нему
+            if not c.execute("SELECT 1 FROM teachers WHERE is_main=1").fetchone():
+                get = lambda k: (c.execute("SELECT value FROM settings WHERE key=?", (k,)).fetchone() or [None])[0]
+                c.execute("""INSERT INTO teachers(name, login, pw, invite, is_main, authored, created)
+                             VALUES('Главный учитель', 'admin', ?, ?, 1, ?, ?)""",
+                          (get("admin_password"), get("invite_code") or DEFAULT_INVITE, 0 if get("authored") == "0" else 1, time.time()))
+                main_id = c.execute("SELECT id FROM teachers WHERE is_main=1").fetchone()[0]
+                c.execute("INSERT OR IGNORE INTO tsolutions(teacher_id, task_id, text, ts) SELECT ?, task_id, text, ts FROM teacher_solutions",
+                          (main_id,))
             c.commit()
 
     def q(self, sql, args=(), one=False):
@@ -659,6 +676,16 @@ class DB:
             r = self.q("SELECT value FROM settings WHERE key=?", (key,), one=True)
             return r["value"] if r else None
         self.x("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+
+def main_teacher():
+    return APP.db.q("SELECT * FROM teachers WHERE is_main=1", one=True)
+
+
+def teacher_of(s):
+    """Учитель ученика (у старых учеников, зарегистрированных до появления учителей, — главный)."""
+    t = APP.db.q("SELECT * FROM teachers WHERE id=?", (s["teacher_id"],), one=True) if s["teacher_id"] else None
+    return t or main_teacher()
 
 
 def hash_pw(pw, salt=None):
@@ -978,14 +1005,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         APP.db.x("INSERT INTO reveal_log(student_id,ip,ts,task_id,granted,why) VALUES(?,?,?,?,?,?)",
                  (s["id"], self.client_ip(), time.time(), t["id"], 0 if block else 1, (block or {}).get("why", "")))
 
+    def with_answer_s(self, s, res, t):
+        return self.with_answer(res, t, s)
+
     @staticmethod
-    def with_answer(res, t):
+    def with_answer(res, t, s=None):
         res = dict(res)
         res.pop("hidden", None)
         res["answer"] = t.get("ans", "")
         if t.get("sol"):
             res["sol"] = t["sol"]
-        ts = teacher_solution(t)
+        ts = teacher_solution(t, teacher_of(s)["id"] if s else None)
         if ts:
             res["tsol"] = ts
         for k in ("link", "video"):           # ведут к ответу — отдаём только вместе с ним
@@ -994,10 +1024,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return res
 
     @staticmethod
-    def rules():
+    def rules(s=None):
+        authored = bool(teacher_of(s)["authored"]) if s else authored_on()
         return {"think": THINK_SEC_DEFAULT, "think_hard": THINK_SEC_HARD, "reveal_per_hour": REVEAL_PER_HOUR,
                 "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
-                "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored_on(),
+                "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored,
                 "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()}
 
     def me_payload(self, s):
@@ -1015,15 +1046,39 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if isinstance(prefs.get("notes"), dict):
                 prefs["notes"] = {conv(k): v for k, v in prefs["notes"].items()}
         return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
-                "fc": load(s["fc"], []), "rules": self.rules(), "has_password": bool(s["pw"]),
+                "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"]}
 
     def is_admin(self):
+        """Вошёл ли учитель; запоминает его в self.T (сессии без учителя — от прежних версий — главного)."""
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
         if "egeadm" not in c:
             return False
-        r = APP.db.q("SELECT expires FROM admin_sessions WHERE token=?", (c["egeadm"].value,), one=True)
-        return bool(r and r["expires"] > time.time())
+        r = APP.db.q("SELECT expires, teacher_id FROM admin_sessions WHERE token=?", (c["egeadm"].value,), one=True)
+        if not (r and r["expires"] > time.time()):
+            return False
+        t = APP.db.q("SELECT * FROM teachers WHERE id=?", (r["teacher_id"],), one=True) if r["teacher_id"] else main_teacher()
+        if not t:
+            return False
+        self.T = t
+        return True
+
+    # что видит учитель: главный — всех, остальные — только своих учеников и классы
+    def sees_student(self, sid):
+        if self.T["is_main"]:
+            return bool(APP.db.q("SELECT 1 FROM students WHERE id=?", (sid,), one=True))
+        r = APP.db.q("SELECT teacher_id FROM students WHERE id=?", (sid,), one=True)
+        return bool(r) and (r["teacher_id"] or main_teacher()["id"]) == self.T["id"]
+
+    def sees_class(self, cid):
+        r = APP.db.q("SELECT teacher_id FROM classes WHERE id=?", (cid,), one=True)
+        return bool(r) and (self.T["is_main"] or (r["teacher_id"] or main_teacher()["id"]) == self.T["id"])
+
+    def student_scope(self, alias="s"):
+        """Условие SQL на учеников этого учителя и его параметры."""
+        if self.T["is_main"]:
+            return "1=1", ()
+        return f"COALESCE({alias}.teacher_id, ?) = ?", (main_teacher()["id"], self.T["id"])
 
     def api(self, method, path, qs, data):
         db = APP.db
@@ -1062,7 +1117,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if s:
                         return self.send_json({"error": "Пароль ещё не задан", "need": "set_password"}, 409)
                     return self.err(404, "Такого ученика нет. Если вы здесь впервые — откройте вкладку «Регистрация».")
-                if not hmac.compare_digest(code.encode(), (db.setting("invite_code") or DEFAULT_INVITE).encode()):
+                teacher = next((t for t in db.q("SELECT id, invite FROM teachers")
+                                if hmac.compare_digest(code.encode(), t["invite"].encode())), None)
+                if not teacher:
                     THROTTLE.fail("invite", ip)
                     time.sleep(1.0)
                     return self.err(403, "Неверный код приглашения")
@@ -1070,11 +1127,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if len(pw) < 6:
                     return self.err(400, "Пароль — не короче 6 символов")
                 if not s:
-                    db.x("INSERT INTO students(name,name_key,token,created,last_seen,pw) VALUES(?,?,?,?,?,?)",
-                         (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw)))
+                    db.x("INSERT INTO students(name,name_key,token,created,last_seen,pw,teacher_id) VALUES(?,?,?,?,?,?,?)",
+                         (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw), teacher["id"]))
                     print(f"[ученик] новый: {pretty}", flush=True)
                 else:                                  # старый ученик без пароля: журнал сохраняется
-                    db.x("UPDATE students SET pw=? WHERE id=?", (hash_pw(pw), s["id"]))
+                    db.x("UPDATE students SET pw=?, teacher_id=COALESCE(teacher_id, ?) WHERE id=?", (hash_pw(pw), teacher["id"], s["id"]))
                     print(f"[ученик] задал пароль: {s['name']}", flush=True)
                 s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
             db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
@@ -1281,16 +1338,20 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             wait = THROTTLE.blocked("admin", ip)
             if wait:
                 return self.err(429, self.wait_msg(wait))
-            if check_pw(str(data.get("password") or ""), db.setting("admin_password")):
+            login = str(data.get("login") or "").strip().lower()
+            t = (db.q("SELECT * FROM teachers WHERE lower(login)=?", (login,), one=True) if login
+                 else db.q("SELECT * FROM teachers WHERE is_main=1", one=True))
+            if t and check_pw(str(data.get("password") or ""), t["pw"]):
                 THROTTLE.ok("admin", ip)
                 tok = secrets.token_urlsafe(32)
-                db.x("INSERT INTO admin_sessions(token,expires) VALUES(?,?)", (tok, time.time() + ADMIN_SESSION_DAYS * 86400))
+                db.x("INSERT INTO admin_sessions(token,expires,teacher_id) VALUES(?,?,?)",
+                     (tok, time.time() + ADMIN_SESSION_DAYS * 86400, t["id"]))
                 db.x("DELETE FROM admin_sessions WHERE expires<?", (time.time(),))
                 return self.send_json({"ok": True}, extra={
                     "Set-Cookie": f"egeadm={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ADMIN_SESSION_DAYS * 86400}{self.cookie_attrs()}"})
             THROTTLE.fail("admin", ip)
             time.sleep(1.0)
-            return self.err(403, "Неверный пароль")
+            return self.err(403, "Неверный логин или пароль")
 
         if path.startswith("/api/admin/"):
             if not self.is_admin():
@@ -1354,7 +1415,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 score = 1.0 if len(st["tries"]) == 1 else 0.5
                 self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
                                  revealed=1, spent=spent, away=st["away"])
-                st["final"] = self.with_answer({"correct": True, "final": True, "score": score, "part": st["part"]}, t)
+                st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"]}, t)
                 return self.send_json(dict(st["final"], game=game_summary(APP.db, s["id"])))
             if len(st["tries"]) < ATTEMPTS_PER_TASK:
                 return self.send_json({"correct": False, "final": False, "attempts_left": ATTEMPTS_PER_TASK - len(st["tries"]),
@@ -1370,7 +1431,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if block:
             res["hidden"] = block
         else:
-            res = self.with_answer(res, t)
+            res = self.with_answer_s(s, res, t)
         st["final"] = res
         st["aid"] = aid
         return self.send_json(res)
@@ -1386,7 +1447,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         self.log_reveal(s, t, block)
         if block:
             return self.send_json({"hidden": block})
-        st["final"] = self.with_answer(st["final"], t)
+        st["final"] = self.with_answer_s(s, st["final"], t)
         if st.get("aid"):
             APP.db.x("UPDATE attempts SET revealed=1 WHERE id=?", (st["aid"],))
         return self.send_json(st["final"])
@@ -1472,11 +1533,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                      (SELECT test_score FROM exams e WHERE e.student_id = s.id AND e.finished IS NOT NULL
                        ORDER BY e.finished DESC LIMIT 1) AS exam_last,
                      (SELECT COUNT(*) FROM activity v WHERE v.student_id = s.id AND v.ts >= ?) AS away_week,
-                     s.class_id
+                     s.class_id, s.teacher_id
               FROM students s LEFT JOIN attempts a ON a.student_id = s.id
-              GROUP BY s.id ORDER BY COALESCE(MAX(a.ts), s.last_seen) DESC""",
-                        (day0, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400))
+              WHERE {scope}
+              GROUP BY s.id ORDER BY COALESCE(MAX(a.ts), s.last_seen) DESC""".replace("{scope}", self.student_scope()[0]),
+                        (day0, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400)
+                        + self.student_scope()[1])
             cid = qs.get("class_id")
+            names = {t["id"]: t["name"] for t in db.q("SELECT id, name FROM teachers")}
+            main_id = main_teacher()["id"]
             out = []
             for r in rows:
                 if cid == "none" and r["class_id"] is not None or cid not in (None, "", "none", "all") and r["class_id"] != to_int(cid):
@@ -1484,11 +1549,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 d = dict(r)
                 g = game_summary(db, r["id"], brief=True)
                 d["level"], d["xp"] = g["level"], g["xp"]
+                d["teacher_id"] = r["teacher_id"] or main_id
+                d["teacher"] = names.get(d["teacher_id"], "")
                 out.append(d)
             return self.send_json({"students": out, "now": now})
 
         if path == "/api/admin/student":
             sid = to_int(qs.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
             s = db.q("SELECT id,name,created,last_seen,forecast,progress_ts,last_ip,fc,progress FROM students WHERE id=?",
                      (sid,), one=True)
             if not s:
@@ -1523,7 +1592,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 d["has_code"] = 1 if d["task_id"] in coded or (d.get("grp") or "") in coded else 0
             act = db.q("""SELECT kind, COUNT(*) AS c, SUM(dur) AS dur, SUM(exam) AS in_exam FROM activity
                           WHERE student_id=? AND ts>=? GROUP BY kind""", (sid, frm))
-            student["class_id"] = db.q("SELECT class_id FROM students WHERE id=?", (sid,), one=True)["class_id"]
+            row = db.q("SELECT class_id, teacher_id FROM students WHERE id=?", (sid,), one=True)
+            student["class_id"] = row["class_id"]
+            student["teacher_id"] = row["teacher_id"] or main_teacher()["id"]
             return self.send_json({"student": student, "attempts": out, "forecast_history": fc_hist,
                                    "reveals": {k: rev[k] or 0 for k in ("granted", "blocked", "early")},
                                    "exams": [dict(r) for r in exams], "same_ip": same_ip,
@@ -1532,8 +1603,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/feed":
             since = to_float(qs.get("since"))
-            rows = db.q("""SELECT a.*, s.name FROM attempts a JOIN students s ON s.id = a.student_id
-                           WHERE a.ts > ? ORDER BY a.ts DESC LIMIT 300""", (since,))
+            cond, args = self.student_scope()
+            rows = db.q(f"""SELECT a.*, s.name FROM attempts a JOIN students s ON s.id = a.student_id
+                            WHERE a.ts > ? AND {cond} ORDER BY a.ts DESC LIMIT 300""", (since, *args))
             APP.bank.ensure()
             out = []
             for a in rows:
@@ -1548,7 +1620,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             t = APP.bank.tasks.get(qs.get("id") or "")
             if not t:
                 return self.err(404, "задание не найдено (банк мог быть пересобран)")
-            return self.send_json(dict(t, teacher_sol=teacher_solution(t)))
+            own = db.q("SELECT text FROM tsolutions WHERE teacher_id=? AND task_id IN (?, ?)",
+                       (self.T["id"], t["id"], t.get("group") or ""), one=True)
+            return self.send_json(dict(t, teacher_sol=own["text"] if own else None))
 
         if path == "/api/admin/task-solution" and method == "POST":
             APP.bank.ensure()
@@ -1561,13 +1635,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if len(text) > MAX_SOLUTION:
                 return self.err(413, "Решение слишком длинное")
             if text.strip():
-                db.x("""INSERT INTO teacher_solutions(task_id, text, ts) VALUES(?,?,?)
-                        ON CONFLICT(task_id) DO UPDATE SET text=excluded.text, ts=excluded.ts""", (tid, text, now))
+                db.x("""INSERT INTO tsolutions(teacher_id, task_id, text, ts) VALUES(?,?,?,?)
+                        ON CONFLICT(teacher_id, task_id) DO UPDATE SET text=excluded.text, ts=excluded.ts""",
+                     (self.T["id"], tid, text, now))
             else:
-                db.x("DELETE FROM teacher_solutions WHERE task_id=?", (tid,))
+                db.x("DELETE FROM tsolutions WHERE teacher_id=? AND task_id=?", (self.T["id"], tid))
             return self.send_json({"ok": True})
 
         if path == "/api/admin/solution":
+            if not self.sees_student(to_int(qs.get("student"))):
+                return self.err(404, "решение не прикреплено")
             r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?",
                      (to_int(qs.get("student")), str(qs.get("task") or "")), one=True)
             if not r:
@@ -1578,7 +1655,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             sid = qs.get("student")
             frm = to_float(qs.get("from"))
             args = [frm]
-            sql = """SELECT a.*, s.name FROM attempts a JOIN students s ON s.id=a.student_id WHERE a.ts>=?"""
+            cond, sargs = self.student_scope()
+            sql = f"""SELECT a.*, s.name FROM attempts a JOIN students s ON s.id=a.student_id WHERE a.ts>=? AND {cond}"""
+            args += list(sargs)
             if sid:
                 sql += " AND a.student_id=?"
                 args.append(to_int(sid))
@@ -1611,25 +1690,32 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             wait = THROTTLE.blocked("admin", ip)
             if wait:
                 return self.err(429, self.wait_msg(wait))
-            if not check_pw(str(data.get("old") or ""), db.setting("admin_password")):
+            if not check_pw(str(data.get("old") or ""), self.T["pw"]):
                 THROTTLE.fail("admin", ip)
                 time.sleep(1.0)
                 return self.err(403, "Текущий пароль неверный")
             new = str(data.get("new") or "")
             if len(new) < 6:
                 return self.err(400, "Новый пароль — не короче 6 символов")
-            db.setting("admin_password", hash_pw(new))
-            # остальные сессии учителя (например, на забытом компьютере) больше не действуют
+            db.x("UPDATE teachers SET pw=? WHERE id=?", (hash_pw(new), self.T["id"]))
+            if self.T["is_main"]:
+                db.setting("admin_password", hash_pw(new))
+            # остальные сессии этого учителя (например, на забытом компьютере) больше не действуют
             cur_tok = self.cookie("egeadm") or ""
-            db.x("DELETE FROM admin_sessions WHERE token<>?", (cur_tok,))
+            db.x("DELETE FROM admin_sessions WHERE token<>? AND COALESCE(teacher_id, ?)=?",
+                 (cur_tok, main_teacher()["id"], self.T["id"]))
             return self.send_json({"ok": True})
 
         if path == "/api/admin/student/rename" and method == "POST":
             sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
             pretty, key = norm_name(data.get("name"))
             if not NAME_RE.match(pretty) or len(pretty.split()) < 2:
                 return self.err(400, "Нужны фамилия и имя")
             other = db.q("SELECT id FROM students WHERE name_key=? AND id<>?", (key, sid), one=True)
+            if other and not self.sees_student(other["id"]):
+                return self.err(409, "Ученик с таким ФИО уже есть у другого учителя — добавьте отчество")
             if other:      # такое ФИО уже есть — объединяем журналы
                 for table in ("attempts", "reveal_log", "exams", "activity"):
                     db.x(f"UPDATE {table} SET student_id=? WHERE student_id=?", (other["id"], sid))
@@ -1642,6 +1728,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/student/password-reset" and method == "POST":
             sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
             if not db.q("SELECT 1 FROM students WHERE id=?", (sid,), one=True):
                 return self.err(404, "ученик не найден")
             # пароль стирается, вход на всех устройствах сбрасывается; ученик задаст новый с кодом приглашения
@@ -1650,6 +1738,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/student/delete" and method == "POST":
             sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
             for table in ("attempts", "reveal_log", "exams", "activity", "solutions"):
                 db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
             db.x("DELETE FROM students WHERE id=?", (sid,))
@@ -1659,17 +1749,101 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             code = re.sub(r"\s+", "", str(data.get("code") or ""))
             if not 4 <= len(code) <= 40:
                 return self.err(400, "Код — от 4 до 40 символов без пробелов")
-            db.setting("invite_code", code)
+            if db.q("SELECT 1 FROM teachers WHERE invite=? AND id<>?", (code, self.T["id"]), one=True):
+                return self.err(409, "Такой код уже у другого учителя — придумайте другой")
+            db.x("UPDATE teachers SET invite=? WHERE id=?", (code, self.T["id"]))
+            if self.T["is_main"]:
+                db.setting("invite_code", code)
             return self.send_json({"ok": True, "code": code})
 
         if path == "/api/admin/authored" and method == "POST":
-            db.setting("authored", "1" if data.get("on") else "0")
-            return self.send_json({"ok": True, "on": authored_on()})
+            on = 1 if data.get("on") else 0
+            db.x("UPDATE teachers SET authored=? WHERE id=?", (on, self.T["id"]))
+            return self.send_json({"ok": True, "on": bool(on)})
+
+        if path == "/api/admin/me":
+            return self.send_json({k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")})
+
+        if path == "/api/admin/teachers":
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            rows = db.q("""SELECT t.id, t.name, t.login, t.invite, t.is_main, t.created,
+                                  (SELECT COUNT(*) FROM students s WHERE COALESCE(s.teacher_id, ?) = t.id) AS students,
+                                  (SELECT COUNT(*) FROM classes c WHERE COALESCE(c.teacher_id, ?) = t.id) AS classes
+                           FROM teachers t ORDER BY t.is_main DESC, t.name""", (main_teacher()["id"],) * 2)
+            return self.send_json({"teachers": [dict(r) for r in rows]})
+
+        if path == "/api/admin/teacher/save" and method == "POST":
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            tid = to_int(data.get("id"))
+            name = re.sub(r"\s+", " ", str(data.get("name") or "")).strip()[:80]
+            login = str(data.get("login") or "").strip().lower()
+            invite = re.sub(r"\s+", "", str(data.get("invite") or "")) or secrets.token_hex(3).upper() + str(secrets.randbelow(90) + 10)
+            pw = str(data.get("password") or "")
+            if not name:
+                return self.err(400, "Введите имя учителя")
+            if not re.fullmatch(r"[a-z0-9._-]{3,32}", login):
+                return self.err(400, "Логин — 3–32 латинские буквы, цифры, точка, дефис или подчёркивание")
+            if not 4 <= len(invite) <= 40:
+                return self.err(400, "Код приглашения — от 4 до 40 символов без пробелов")
+            if db.q("SELECT 1 FROM teachers WHERE lower(login)=? AND id<>?", (login, tid or 0), one=True):
+                return self.err(409, "Такой логин уже занят")
+            if db.q("SELECT 1 FROM teachers WHERE invite=? AND id<>?", (invite, tid or 0), one=True):
+                return self.err(409, "Такой код приглашения уже у другого учителя")
+            if tid:
+                if not db.q("SELECT 1 FROM teachers WHERE id=?", (tid,), one=True):
+                    return self.err(404, "учитель не найден")
+                db.x("UPDATE teachers SET name=?, login=?, invite=? WHERE id=?", (name, login, invite, tid))
+                if pw:
+                    if len(pw) < 6:
+                        return self.err(400, "Пароль — не короче 6 символов")
+                    db.x("UPDATE teachers SET pw=? WHERE id=?", (hash_pw(pw), tid))
+                    db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))      # старый пароль больше не действует
+            else:
+                if len(pw) < 6:
+                    return self.err(400, "Пароль — не короче 6 символов")
+                tid = db.x("INSERT INTO teachers(name, login, pw, invite, is_main, created) VALUES(?,?,?,?,0,?)",
+                           (name, login, hash_pw(pw), invite, now))
+            return self.send_json({"ok": True, "id": tid, "invite": invite})
+
+        if path == "/api/admin/teacher/delete" and method == "POST":
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            tid = to_int(data.get("id"))
+            t = db.q("SELECT * FROM teachers WHERE id=?", (tid,), one=True)
+            if not t or t["is_main"]:
+                return self.err(400, "Главного учителя удалить нельзя")
+            main_id = main_teacher()["id"]
+            # ученики, классы и подборки остаются — переходят главному учителю
+            db.x("UPDATE students SET teacher_id=? WHERE teacher_id=?", (main_id, tid))
+            db.x("UPDATE classes SET teacher_id=? WHERE teacher_id=?", (main_id, tid))
+            db.x("DELETE FROM tsolutions WHERE teacher_id=?", (tid,))
+            db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
+            db.x("DELETE FROM teachers WHERE id=?", (tid,))
+            return self.send_json({"ok": True})
+
+        if path == "/api/admin/student/teacher" and method == "POST":
+            # главный передаёт ученика другому учителю (класс при этом снимается)
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            sid, tid = to_int(data.get("id")), to_int(data.get("teacher_id"))
+            if not db.q("SELECT 1 FROM teachers WHERE id=?", (tid,), one=True) or not self.sees_student(sid):
+                return self.err(404, "не найдено")
+            db.x("UPDATE students SET teacher_id=?, class_id=NULL WHERE id=?", (tid, sid))
+            return self.send_json({"ok": True})
 
         if path == "/api/admin/classes":
-            rows = db.q("""SELECT c.id, c.name, c.created, COUNT(s.id) AS students FROM classes c
-                           LEFT JOIN students s ON s.class_id = c.id GROUP BY c.id ORDER BY c.name""")
-            free = db.q("SELECT COUNT(*) c FROM students WHERE class_id IS NULL", one=True)["c"]
+            main_id = main_teacher()["id"]
+            ccond = "1=1" if self.T["is_main"] else "COALESCE(c.teacher_id, ?) = ?"
+            cargs = () if self.T["is_main"] else (main_id, self.T["id"])
+            rows = db.q(f"""SELECT c.id, c.name, c.created, COALESCE(c.teacher_id, ?) AS teacher_id, t.name AS teacher,
+                                  COUNT(s.id) AS students FROM classes c
+                           LEFT JOIN students s ON s.class_id = c.id
+                           LEFT JOIN teachers t ON t.id = COALESCE(c.teacher_id, ?)
+                           WHERE {ccond} GROUP BY c.id ORDER BY t.is_main DESC, t.name, c.name""", (main_id, main_id, *cargs))
+            cond, args = self.student_scope()
+            free = db.q(f"SELECT COUNT(*) c FROM students s WHERE class_id IS NULL AND {cond}", args, one=True)["c"]
             return self.send_json({"classes": [dict(r) for r in rows], "unassigned": free})
 
         if path == "/api/admin/class/save" and method == "POST":
@@ -1678,13 +1852,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(400, "Введите название класса, например «11А»")
             cid = to_int(data.get("id"))
             if cid:
+                if not self.sees_class(cid):
+                    return self.err(404, "класс не найден")
                 db.x("UPDATE classes SET name=? WHERE id=?", (name, cid))
             else:
-                cid = db.x("INSERT INTO classes(name, created) VALUES(?,?)", (name, now))
+                cid = db.x("INSERT INTO classes(name, created, teacher_id) VALUES(?,?,?)", (name, now, self.T["id"]))
             return self.send_json({"ok": True, "id": cid})
 
         if path == "/api/admin/class/delete" and method == "POST":
             cid = to_int(data.get("id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
             db.x("UPDATE students SET class_id=NULL WHERE class_id=?", (cid,))      # ученики возвращаются в «нераспределённые»
             db.x("DELETE FROM assignments WHERE class_id=?", (cid,))
             db.x("DELETE FROM classes WHERE id=?", (cid,))
@@ -1692,15 +1870,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/class/members" and method == "POST":
             cid = to_int(data.get("class_id")) or None
-            if cid and not db.q("SELECT 1 FROM classes WHERE id=?", (cid,), one=True):
+            if cid and not self.sees_class(cid):
                 return self.err(404, "класс не найден")
-            ids = [to_int(i) for i in (data.get("students") or []) if to_int(i)][:500]
+            ids = [to_int(i) for i in (data.get("students") or []) if to_int(i) and self.sees_student(to_int(i))][:500]
+            # ученик в классе — ученик учителя этого класса (главный может так передать ученика другому учителю)
+            owner = db.q("SELECT teacher_id FROM classes WHERE id=?", (cid,), one=True)["teacher_id"] if cid else None
             for sid in ids:
-                db.x("UPDATE students SET class_id=? WHERE id=?", (cid, sid))
+                if owner:
+                    db.x("UPDATE students SET class_id=?, teacher_id=? WHERE id=?", (cid, owner, sid))
+                else:
+                    db.x("UPDATE students SET class_id=? WHERE id=?", (cid, sid))
             return self.send_json({"ok": True, "moved": len(ids)})
 
         if path == "/api/admin/assignments":
             cid = to_int(qs.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
             APP.bank.ensure()
             members = db.q("SELECT id, name FROM students WHERE class_id=? ORDER BY name", (cid,))
             out = []
@@ -1716,7 +1901,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/assignment/save" and method == "POST":
             cid = to_int(data.get("class_id"))
-            if not db.q("SELECT 1 FROM classes WHERE id=?", (cid,), one=True):
+            if not self.sees_class(cid):
                 return self.err(404, "класс не найден")
             title = re.sub(r"\s+", " ", str(data.get("title") or "")).strip()[:80]
             if not title:
@@ -1741,6 +1926,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "id": aid})
 
         if path == "/api/admin/assignment/delete" and method == "POST":
+            a = db.q("SELECT class_id FROM assignments WHERE id=?", (to_int(data.get("id")),), one=True)
+            if not a or not self.sees_class(a["class_id"]):
+                return self.err(404, "подборка не найдена")
             db.x("DELETE FROM assignments WHERE id=?", (to_int(data.get("id")),))
             return self.send_json({"ok": True})
 
@@ -1762,16 +1950,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             skip = set(str(qs.get("skip") or "").split(","))
             pool = [tid for tid, t in APP.bank.tasks.items()
                     if t.get("n") == n and not t.get("group") and tid not in skip and t.get("fmt") != "old"
-                    and (authored_on() or not is_authored(t.get("src"), t.get("html")))]
+                    and (self.T["authored"] or not is_authored(t.get("src"), t.get("html")))]
             pick = secrets.SystemRandom().sample(pool, min(k, len(pool)))
             return self.send_json({"tasks": [{"id": i, "n": n, "snip": APP.bank.snippet(i)} for i in pick]})
 
         if path == "/api/admin/info":
             n_tasks = len(APP.bank.tasks) if APP.bank.ensure() else 0
-            return self.send_json({"tasks": n_tasks, "authored_tasks": APP.bank.authored, "authored_on": authored_on(), "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
-                                   "invite": db.setting("invite_code") or DEFAULT_INVITE,
-                                   "students": db.q("SELECT COUNT(*) c FROM students", one=True)["c"],
-                                   "attempts": db.q("SELECT COUNT(*) c FROM attempts", one=True)["c"]})
+            cond, args = self.student_scope()
+            return self.send_json({"tasks": n_tasks, "authored_tasks": APP.bank.authored, "authored_on": bool(self.T["authored"]),
+                                   "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
+                                   "invite": self.T["invite"],
+                                   "students": db.q(f"SELECT COUNT(*) c FROM students s WHERE {cond}", args, one=True)["c"],
+                                   "attempts": db.q(f"SELECT COUNT(*) c FROM attempts a JOIN students s ON s.id=a.student_id WHERE {cond}",
+                                                    args, one=True)["c"]})
 
         return self.err(404, "нет такого метода")
 
@@ -1781,19 +1972,22 @@ REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиск
            "weak": "слабое место", "repeat": "повтор решённого", "": ""}
 
 
-def teacher_solution(t):
-    """Решение учителя к заданию (для вопросов 19–21 — к игре целиком)."""
-    for tid in (t.get("id"), t.get("group")):
-        if tid:
-            r = APP.db.q("SELECT text FROM teacher_solutions WHERE task_id=?", (tid,), one=True)
-            if r:
-                return r["text"]
+def teacher_solution(t, teacher_id=None):
+    """Решение учителя к заданию (для вопросов 19–21 — к игре целиком): своего учителя, иначе главного."""
+    ids = [teacher_id, main_teacher()["id"]] if teacher_id else [main_teacher()["id"]]
+    for who in dict.fromkeys(ids):
+        for tid in (t.get("id"), t.get("group")):
+            if tid:
+                r = APP.db.q("SELECT text FROM tsolutions WHERE teacher_id=? AND task_id=?", (who, tid), one=True)
+                if r:
+                    return r["text"]
     return None
 
 
 def authored_on():
-    """Давать ли авторские задания в подборках и вариантах (по умолчанию — да)."""
-    return APP.db.setting("authored") != "0"
+    """Давать ли авторские задания в подборках и вариантах (настройка главного учителя; по умолчанию — да)."""
+    t = main_teacher()
+    return bool(t["authored"]) if t else True
 
 
 # ================================================================ уровни и достижения
@@ -1998,13 +2192,15 @@ def main():
         if not 4 <= len(code) <= 40:
             sys.exit("Код приглашения — от 4 до 40 символов без пробелов")
         db.setting("invite_code", code)
+        db.x("UPDATE teachers SET invite=? WHERE is_main=1", (code,))
         print(f"Код приглашения: {code}")
         return
     if args.password:
         if len(args.password) < 6:
             sys.exit("Пароль должен быть не короче 6 символов")
         db.setting("admin_password", hash_pw(args.password))
-        print("Пароль учителя сохранён.")
+        db.x("UPDATE teachers SET pw=? WHERE is_main=1", (hash_pw(args.password),))
+        print("Пароль главного учителя сохранён (логин admin).")
         return
     global BANKS_ROOT
     if args.banks:
@@ -2020,6 +2216,7 @@ def main():
     if not db.setting("admin_password"):
         first_pw = secrets.token_urlsafe(6).replace("-", "x").replace("_", "y")
         db.setting("admin_password", hash_pw(first_pw))
+        db.x("UPDATE teachers SET pw=? WHERE is_main=1", (hash_pw(first_pw),))
     APP = App()
     if not APP.bank.tasks:
         print("! Банк заданий не найден (data/bank.js). Сначала выполните: python build.py")
@@ -2033,7 +2230,7 @@ def main():
         for ip in lan_ips():
             print(f"  Для учеников в сети:    http://{ip}:{port}/")
     print(f"  Панель учителя:         http://localhost:{port}/admin")
-    print(f"  Код приглашения:        {db.setting('invite_code')}")
+    print(f"  Код приглашения:        {db.q('SELECT invite FROM teachers WHERE is_main=1', one=True)['invite']}")
     if first_pw:
         print(f"\n  Пароль учителя: {first_pw}")
         print("  (сохраните его; сменить можно в панели или командой: python server.py --password НОВЫЙ)")

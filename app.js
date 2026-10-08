@@ -999,6 +999,8 @@
       const imgs = kids.filter(onlyImage);
       if (tables.length !== 1 || !imgs.length || tables.length + imgs.length !== kids.length) return;
       box.classList.add('cond-side');
+      tables[0].classList.add('side-table');
+      imgs.forEach(k => k.classList.add('side-img'));
       // отступ неразрывными пробелами перед картинкой в исходнике не нужен
       imgs.forEach(k => [...k.childNodes].forEach(n => { if (n.nodeType === 3) n.remove(); }));
     });
