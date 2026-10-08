@@ -1839,7 +1839,7 @@
     return m;
   }
   /** Сколько заданий нужно решить за день, чтобы огонёк продлился. */
-  const fireNeed = () => 1;
+  const fireNeed = () => 3;
   /** Дней подряд с выполненной целью (сегодняшний день ещё может быть не закончен). */
   function dayStreak() {
     const m = dayCounts(), need = fireNeed();
@@ -1879,8 +1879,8 @@
     return `<div class="sm-head"><span class="sm-flame${todayDone ? ' on' : ''}">${FLAME}</span>
         <div><div class="sm-num">${days} ${plural(days, 'день', 'дня', 'дней')}</div>
         <div class="sm-sub">${todayDone ? 'Огонёк на сегодня горит — возвращайся завтра!'
-          : days ? 'Реши сегодня хотя бы одно задание, иначе серия сгорит'
-          : 'Реши одно задание, чтобы зажечь огонёк'}</div></div></div>
+          : days ? `Реши сегодня ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}, иначе серия сгорит`
+          : `Реши ${left} ${plural(left, 'задание', 'задания', 'заданий')}, чтобы зажечь огонёк`}</div></div></div>
       <div class="sm-week">${week}</div>
       <div class="sm-foot">Лучшая серия: <b>${best} ${plural(best, 'день', 'дня', 'дней')}</b></div>`;
   }
@@ -1896,7 +1896,7 @@
       }
     }
     const today = dayKey(Date.now());
-    if ((dayCounts().get(today) || 0) === 1 && fireDay !== today) {
+    if ((dayCounts().get(today) || 0) === fireNeed() && fireDay !== today) {
       fireDay = today; fireBurst = true;
       const st = dayStreak();
       toast(st > 1 ? `Огонёк продлён: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд!` : 'Огонёк зажжён! Возвращайся завтра, чтобы продлить серию', 3500);
@@ -1958,7 +1958,7 @@
     const menuOpen = $('#streakMenu') && !$('#streakMenu').hidden;
     $('#sessionInfo').innerHTML = `
       <button type="button" class="fire ${todayDone ? 'on' : days ? 'wait' : 'off'}${fireBurst ? ' burst' : ''}" id="streakBtn" aria-haspopup="true"
-        title="${todayDone ? 'Огонёк на сегодня горит' : 'Реши одно задание, чтобы зажечь огонёк'}">
+        title="${todayDone ? 'Огонёк на сегодня горит' : `Реши ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}, чтобы зажечь огонёк`}">
         ${FLAME}<b>${days}</b>
       </button>
       <div class="streak-menu" id="streakMenu"${menuOpen ? '' : ' hidden'}>${streakMenuHtml(days, todayDone, left)}</div>
