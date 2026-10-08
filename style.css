@@ -858,7 +858,10 @@ pre.tsol { margin: 8px 0 0; padding: 10px 12px; background: var(--code-bg); bord
 body.tt-big .py-dock { z-index: 80; }
 
 /* таблица и схема рядом («На рисунке справа…») */
-.cond .cond-side { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px 28px; margin: .6em 0 1em; }
-.cond .cond-side > * { margin: 0; min-width: 0; }
+.cond .cond-side { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px 24px; margin: .6em 0 1em; }
+.cond .cond-side > * { margin: 0; }
+.cond .cond-side > .side-table { flex: 0 0 auto; max-width: 100%; }
+/* схема занимает место справа от таблицы и ужимается; если справа меньше 180px — уходит вниз */
+.cond .cond-side > .side-img { flex: 1 1 180px; min-width: 180px; }
 .cond .cond-side .table-wrap { margin: 0; }
-.cond .cond-side img { max-width: 100%; }
+.cond .cond-side img { max-width: 100%; height: auto; }
