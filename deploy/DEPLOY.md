@@ -23,12 +23,12 @@ python build.py --standalone
 
 ## 2. Загрузить на сервер
 
-Скопируйте папку `trainer` целиком в `/opt/trainer` на сервере (в WinSCP — перетащить папку). Папки `.git` и файлы `*.zip`, `*.rar` копировать не нужно.
+Скопируйте папку `trainer` целиком в `/opt/trainer` на сервере (в WinSCP — перетащить папку). Папку `.git` копировать не нужно. Архивы `*.zip` и `*.rar` в `media` **нужны**: это файлы к заданиям ФИПИ (3, 9, 17, 18, 22, 24, 26, 27), без них ученик получит «Файл недоступен на сайте».
 
 Тысячи мелких файлов быстрее загрузить одним архивом. Из PowerShell (в папке `Biblio`):
 
 ```
-tar -czf trainer.tgz --exclude=.git --exclude=*.zip --exclude=*.rar trainer
+tar -czf trainer.tgz --exclude=.git trainer
 scp trainer.tgz root@IP_СЕРВЕРА:/opt/
 ssh root@IP_СЕРВЕРА "cd /opt && tar -xzf trainer.tgz && rm trainer.tgz"
 ```
