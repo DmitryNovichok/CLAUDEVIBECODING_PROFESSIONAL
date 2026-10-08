@@ -1838,20 +1838,53 @@
     for (const e of P.log) { if (e.b) continue; const k = dayKey(e.t); m.set(k, (m.get(k) || 0) + 1); }
     return m;
   }
+  /** Сколько заданий нужно решить за день, чтобы огонёк продлился. */
+  const fireNeed = () => prefs.goal || 1;
   /** Дней подряд с выполненной целью (сегодняшний день ещё может быть не закончен). */
   function dayStreak() {
-    if (!prefs.goal) return 0;
-    const m = dayCounts();
+    const m = dayCounts(), need = fireNeed();
     const d = new Date();
-    let s = (m.get(dayKey(d.getTime())) || 0) >= prefs.goal ? 1 : 0;
+    let s = (m.get(dayKey(d.getTime())) || 0) >= need ? 1 : 0;
     for (;;) {
       d.setDate(d.getDate() - 1);
-      if ((m.get(dayKey(d.getTime())) || 0) >= prefs.goal) s++;
+      if ((m.get(dayKey(d.getTime())) || 0) >= need) s++;
       else break;
     }
     return s;
   }
-  let goalToastDay = null;
+  /** Самая длинная серия дней за всё время. */
+  function bestDayStreak() {
+    const need = fireNeed();
+    const days = [...dayCounts()].filter(([, c]) => c >= need).map(([k]) => k).sort();
+    let best = 0, run = 0, prev = null;
+    for (const k of days) {
+      const t = new Date(k + 'T12:00').getTime();
+      run = prev != null && Math.round((t - prev) / 864e5) === 1 ? run + 1 : 1;
+      best = Math.max(best, run); prev = t;
+    }
+    return best;
+  }
+  const FLAME = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="fl-out" d="M12 1.8c.5 3.2 2.6 4.9 4.4 6.9 1.9 2.1 3.3 4.2 3.3 7.1 0 4.3-3.4 7.4-7.7 7.4S4.3 20.1 4.3 15.8c0-2.4 1-4.4 2.6-6 .3 1.6 1 2.8 2.2 3.5-.4-4.5 1-8.5 2.9-11.5z"/><path class="fl-in" d="M12.2 11.6c1.7 1.8 3.4 3.4 3.4 5.7 0 2.2-1.6 3.8-3.6 3.8s-3.6-1.6-3.6-3.8c0-1.2.5-2.2 1.3-3 .2.8.7 1.4 1.3 1.7-.2-1.6.3-3.1 1.2-4.4z"/></svg>';
+  function streakMenuHtml(days, todayDone, left) {
+    const m = dayCounts(), need = fireNeed();
+    const d = new Date(); d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // понедельник этой недели
+    const todayK = dayKey(Date.now());
+    const week = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(w => {
+      const k = dayKey(d.getTime()); d.setDate(d.getDate() + 1);
+      const ok = (m.get(k) || 0) >= need;
+      return `<span class="sw-day${ok ? ' ok' : ''}${k === todayK ? ' now' : ''}${k > todayK ? ' future' : ''}"><i>${ok ? FLAME : ''}</i>${w}</span>`;
+    }).join('');
+    const best = Math.max(bestDayStreak(), days);
+    return `<div class="sm-head"><span class="sm-flame${todayDone ? ' on' : ''}">${FLAME}</span>
+        <div><div class="sm-num">${days} ${plural(days, 'день', 'дня', 'дней')}</div>
+        <div class="sm-sub">${todayDone ? 'Огонёк на сегодня продлён — возвращайся завтра!'
+          : days ? `Реши ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')} сегодня, иначе серия сгорит`
+          : `Реши ${left} ${plural(left, 'задание', 'задания', 'заданий')} сегодня, чтобы зажечь огонёк`}</div></div></div>
+      <div class="sm-week">${week}</div>
+      <div class="sm-foot">Лучшая серия: <b>${best} ${plural(best, 'день', 'дня', 'дней')}</b> · норма: ${need} ${plural(need, 'задание', 'задания', 'заданий')} в день</div>`;
+  }
+  let goalToastDay = null, fireBurst = false;
   /** После каждого засчитанного ответа: поздравить с целью дня, отправить прогноз учителю. */
   function afterAnswer() {
     if (prefs.goal) {
@@ -1860,7 +1893,15 @@
       if (c >= prefs.goal && goalToastDay !== today && c - prefs.goal < 3) {
         goalToastDay = today;
         const st = dayStreak();
-        toast(`Цель на сегодня выполнена!${st > 1 ? ` Серия: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд.` : ''}`, 4500);
+        fireBurst = true;
+        toast(`Цель на сегодня выполнена! Огонёк горит: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд.`, 4500);
+      }
+    } else {
+      const today = dayKey(Date.now());
+      if ((dayCounts().get(today) || 0) === 1 && goalToastDay !== today) {
+        goalToastDay = today; fireBurst = true;
+        const st = dayStreak();
+        toast(`Огонёк продлён: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд!`, 3500);
       }
     }
     scheduleSync();
@@ -1914,18 +1955,27 @@
     const streak = currentStreak();
     const goal = prefs.goal;
     const days = dayStreak();
+    const need = fireNeed();
+    const todayDone = today.length >= need;
+    const left = Math.max(0, need - today.length);
+    const menuOpen = $('#streakMenu') && !$('#streakMenu').hidden;
     $('#sessionInfo').innerHTML = `
+      <button type="button" class="fire ${todayDone ? 'on' : days ? 'wait' : 'off'}${fireBurst ? ' burst' : ''}" id="streakBtn" aria-haspopup="true"
+        title="${todayDone ? 'Огонёк на сегодня продлён' : `Реши ещё ${left} сегодня, чтобы продлить огонёк`}">
+        ${FLAME}<b>${days}</b>
+      </button>
+      <div class="streak-menu" id="streakMenu"${menuOpen ? '' : ' hidden'}>${streakMenuHtml(days, todayDone, left)}</div>
       <button type="button" class="goal${goal && today.length >= goal ? ' done' : ''}" id="goalBtn" aria-haspopup="true"
         title="Цель на день — нажмите, чтобы изменить">
         <span class="goal-txt">Сегодня <b>${today.length}</b>${goal ? `<span class="goal-of"> / ${goal}</span>` : ''}${today.length ? ` · верно <b>${okToday}</b>` : ''}${streak >= 2 ? ` · серия <b>${streak}</b>` : ''}</span>
         ${goal ? `<i class="goal-bar"><b style="width:${Math.min(100, pct(today.length / goal))}%"></b></i>` : ''}
       </button>
-      ${days >= 1 ? `<span class="chip streak" title="Дней подряд с выполненной целью (${goal} в день)">серия ${days} ${plural(days, 'день', 'дня', 'дней')}</span>` : ''}
       ${P.log.length ? `<span class="dots" title="Последние ответы">${lastDots}</span>` : ''}
       <div class="goal-menu" id="goalMenu" hidden>
         <div class="goal-menu-h">Цель на день</div>
         ${[10, 20, 30, 50, 0].map(g => `<button type="button" data-goal="${g}" class="${g === goal ? 'on' : ''}">${g ? `${g} заданий` : 'Без цели'}</button>`).join('')}
       </div>`;
+    fireBurst = false;
     renderForecast();
   }
 
@@ -2563,8 +2613,9 @@
 
   $('#scopeInfo').addEventListener('click', e => { if (e.target.id === 'exQuit') quitExam(); });
   $('#sessionInfo').addEventListener('click', e => {
-    const menu = $('#goalMenu');
-    if (e.target.closest('#goalBtn')) { menu.hidden = !menu.hidden; return; }
+    const menu = $('#goalMenu'), sm = $('#streakMenu');
+    if (e.target.closest('#goalBtn')) { menu.hidden = !menu.hidden; sm.hidden = true; return; }
+    if (e.target.closest('#streakBtn')) { sm.hidden = !sm.hidden; menu.hidden = true; return; }
     const g = e.target.closest('button[data-goal]');
     if (g) {
       prefs.goal = +g.dataset.goal;
@@ -2576,6 +2627,8 @@
   document.addEventListener('click', e => {
     const menu = $('#goalMenu');
     if (menu && !menu.hidden && !e.target.closest('#sessionInfo')) menu.hidden = true;
+    const sm = $('#streakMenu');
+    if (sm && !sm.hidden && !e.target.closest('#sessionInfo')) sm.hidden = true;
   });
 
   $('#forecastBtn').addEventListener('click', openForecast);
@@ -2598,6 +2651,8 @@
       $('#pwModal').hidden = true;
       const menu = $('#goalMenu');
       if (menu) menu.hidden = true;
+      const sm = $('#streakMenu');
+      if (sm) sm.hidden = true;
       return;
     }
     if (!$('#forecastModal').hidden) return;
