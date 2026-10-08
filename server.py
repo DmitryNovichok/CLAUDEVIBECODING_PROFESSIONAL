@@ -570,7 +570,7 @@ class Bank:
             raw = ("window.EGE_BANK = " + json.dumps(pub, ensure_ascii=False, separators=(",", ":")) + ";\n").encode("utf-8")
             self.public_raw = raw
             self.public_gz = gzip.compress(raw, 6)
-            self.etag = '"%x-%x"' % (int(mt), len(raw))
+            self.etag = '"%s"' % hashlib.md5(raw).hexdigest()[:16]   # меняется при любом изменении банка или его обработки
             self.mtime = mt
             print(f"[банк] загружено заданий: {len(pub_tasks)}", flush=True)
             if self.broken:
