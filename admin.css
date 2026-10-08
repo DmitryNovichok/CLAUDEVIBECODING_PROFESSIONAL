@@ -198,3 +198,6 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
 .adm-draft-list .task-link { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .adm-draft-tools { display: flex; gap: 8px; }
 @media (max-width: 860px) { .adm-classes { grid-template-columns: 1fr; } .adm-class-list { position: static; } }
+.code-link { font-size: 12px; color: var(--good); text-decoration: underline; margin-left: 4px; }
+.tsol-form { margin-top: 16px; }
+.tsol-form textarea { font: 13px/1.5 var(--mono); width: 100%; resize: vertical; }

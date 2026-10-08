@@ -362,6 +362,45 @@ class ServerTest(unittest.TestCase):
         row = server.APP.db.q("SELECT task_id FROM activity WHERE student_id=? AND kind='away'", (sid,), one=True)
         self.assertEqual(row["task_id"], "b:6")
 
+    def test_solutions_student_and_teacher(self):
+        tok = self.login("Решалов Роман")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        pid = server.APP.bank.pid("b:5")
+        st, _ = self.req("POST", "/api/solution", {"task": pid, "code": "print(12)"}, tok)
+        self.assertEqual(st, 200)
+        st, d = self.req("GET", "/api/solution?task=" + pid, token=tok)
+        self.assertEqual(d["code"], "print(12)")
+        self.assertEqual(self.req("POST", "/api/solution", {"task": pid, "code": "x" * 60000}, tok)[0], 413)
+        # учитель видит код в журнале
+        self.req("POST", "/api/open", {"task": pid}, tok)
+        self.check(tok, pid, answer="1")
+        st, d = self.admin("GET", f"/api/admin/student?id={sid}&from=0")
+        self.assertEqual(d["attempts"], [])                                # попытка ещё не закончена — в журнале её нет
+        self.check(tok, pid, answer="12")
+        st, d = self.admin("GET", f"/api/admin/student?id={sid}&from=0")
+        self.assertEqual(d["attempts"][0]["has_code"], 1)
+        st, d = self.admin("GET", f"/api/admin/solution?student={sid}&task=b:5")
+        self.assertEqual(d["code"], "print(12)")
+        # решение учителя приходит ученику только вместе с ответом
+        self.admin("POST", "/api/admin/task-solution", {"task": "b:6", "text": "ответ 7 — перебором"})
+        st, d = self.admin("GET", "/api/admin/task?id=b:6")
+        self.assertEqual(d["teacher_sol"], "ответ 7 — перебором")
+        p6 = server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": p6}, tok)
+        st, r = self.check(tok, p6, answer="1")
+        self.assertNotIn("tsol", r)
+        st, r = self.check(tok, p6, answer="7")
+        self.assertEqual(r["tsol"], "ответ 7 — перебором")
+        self.admin("POST", "/api/admin/task-solution", {"task": "b:6", "text": ""})
+        self.assertIsNone(self.admin("GET", "/api/admin/task?id=b:6")[1]["teacher_sol"])
+
+    def test_author_in_task_text(self):
+        self.assertTrue(server.is_authored("КомпЕГЭ", "<p>(Д. Бахтиев) В файле приведён фрагмент</p>"))
+        self.assertTrue(server.is_authored("КомпЕГЭ", "<div><p><b>(PRO100 ЕГЭ)</b> Текст</p></div>"))
+        self.assertFalse(server.is_authored("КомпЕГЭ", "<p>(Демоверсия 2025) Текст</p>"))
+        self.assertFalse(server.is_authored("КомпЕГЭ", "<p>(1) Сначала…</p>"))
+        self.assertFalse(server.is_authored("КомпЕГЭ", "<p>Текст (Д. Бахтиев) в середине</p>"))
+
     def test_levels(self):
         self.assertEqual(server.level_of(0)[:2], (1, "Новичок"))
         self.assertEqual(server.level_of(99)[0], 1)
