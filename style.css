@@ -938,3 +938,7 @@ body.tt-big .py-dock { z-index: 80; }
 .scope-info { flex: 1 1 300px; }
 .scope-title { white-space: nowrap; }
 body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
+
+/* «Чужой компьютер» в окне входа */
+.login-temp { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13.5px; color: var(--muted); cursor: pointer; }
+.login-temp input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }

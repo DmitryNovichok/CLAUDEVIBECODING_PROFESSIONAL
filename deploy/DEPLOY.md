@@ -104,3 +104,24 @@ systemctl reload caddy
 - **Файлы.** Сервер отдаёт только файлы сайта, `vendor/`, `media/` и картинки/файлы заданий из банков. Пути с `..` отклоняются, база `server_data/` и `data/bank.js` с ответами наружу не отдаются.
 - **Смена пароля** в панели завершает все остальные сессии учителя.
 - **Пароль учителя.** Пароль учителя не должен совпадать с кодом приглашения. Код можно менять в панели, когда он «ушёл» за пределы класса.
+
+## Резервные копии
+
+Скрипт `deploy/backup.sh` раз в сутки копирует базу в `/opt/trainer-backups/trainer-ГГГГ-ММ-ДД.db.gz` и хранит последние 14 копий. Включить (один раз, под root):
+
+```
+chmod +x /opt/trainer/deploy/backup.sh
+echo "30 3 * * * root /opt/trainer/deploy/backup.sh >/dev/null" > /etc/cron.d/egeshka-backup
+/opt/trainer/deploy/backup.sh
+```
+
+Последняя команда сразу делает первую копию — проверка, что всё работает. Копии лежат на том же сервере: раз в месяц скачивайте свежую к себе (`scp root@egeshka.online:/opt/trainer-backups/trainer-*.db.gz .`).
+
+Восстановить базу из копии:
+
+```
+systemctl stop ege-trainer
+cd /opt/trainer/server_data && rm -f trainer.db-wal trainer.db-shm
+gunzip -c /opt/trainer-backups/trainer-2026-10-08.db.gz > trainer.db
+chown trainer:trainer trainer.db && systemctl start ege-trainer
+```

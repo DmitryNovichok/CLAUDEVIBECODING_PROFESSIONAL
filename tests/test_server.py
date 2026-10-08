@@ -144,6 +144,26 @@ class ServerTest(unittest.TestCase):
         st, h = self.req("GET", "/api/history", token=d["token"])
         self.assertEqual(len(h["h"]), 1)
 
+    def test_registration_limit_per_ip(self):
+        server._REG_LOG.clear()
+        server._REG_LOG["127.0.0.1"] = [time.time()] * server.REG_PER_HOUR_IP
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Лимитов Лев",
+                                                "new_password": "secret1"})
+        self.assertEqual(st, 429, d)
+        server._REG_LOG.clear()
+        self.login("Лимитов Лев")                         # через час (здесь — после очистки) снова можно
+
+    def test_student_cookie_lifetime(self):
+        def cookie(headers):
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            c.request("POST", "/api/login", body=json.dumps({"mode": "register", "code": "1234",
+                      "name": headers.pop("name"), "new_password": "secret1"}),
+                      headers=dict({"Content-Type": "application/json"}, **headers))
+            r = c.getresponse(); r.read(); c.close()
+            return r.getheader("Set-Cookie")
+        self.assertIn("Max-Age=%d" % (30 * 86400), cookie({"name": "Куков Карл"}))
+        self.assertNotIn("Max-Age", cookie({"name": "Чужаков Чеслав", "X-Temp": "1"}))   # «Чужой компьютер»
+
     def test_change_password_logs_out_other_devices(self):
         tok = self.login("Сменов Сергей")
         st, d = self.req("POST", "/api/password", {"old": "wrong", "new": "newpass1"}, tok)

@@ -137,6 +137,24 @@
   })();
   const readJSON = key => { if (!storage) return null; try { return JSON.parse(storage.getItem(key)); } catch (e) { return null; } };
   const writeJSON = (key, v) => { if (!storage) return; try { storage.setItem(key, JSON.stringify(v)); } catch (e) { /* переполнено */ } };
+  // Вход ученика: в localStorage на 30 дней с последнего захода; «Чужой компьютер» — только до закрытия браузера
+  const TEMP_KEY = 'egeTrainer.temp';
+  const LOGIN_DAYS = 30;
+  const isTemp = () => { try { return sessionStorage.getItem(TEMP_KEY) === '1'; } catch (e) { return false; } };
+  function readStudent() {
+    if (isTemp()) { try { return JSON.parse(sessionStorage.getItem(STUDENT_STORE)); } catch (e) { return null; } }
+    const s = readJSON(STUDENT_STORE);
+    return s && s.at && Date.now() - s.at > LOGIN_DAYS * 864e5 ? null : s;
+  }
+  function writeStudent(v) {
+    const rec = Object.assign({}, v, { at: Date.now() });
+    if (isTemp()) { try { sessionStorage.setItem(STUDENT_STORE, JSON.stringify(rec)); } catch (e) { /* нет доступа */ } return; }
+    writeJSON(STUDENT_STORE, rec);
+  }
+  function forgetStudent() {
+    try { localStorage.removeItem(STUDENT_STORE); } catch (e) { /* нет доступа */ }
+    try { sessionStorage.removeItem(STUDENT_STORE); sessionStorage.removeItem(TEMP_KEY); } catch (e) { /* нет доступа */ }
+  }
   const freshProgress = () => ({ v: 1, step: 0, tasks: {}, nums: {}, topics: {}, reviews: {}, log: [] });
 
   // ------------------------------------------------------------ тема и панель на телефоне
@@ -163,10 +181,14 @@
   }
   $('#sideToggle').addEventListener('click', () => setSideOpen(!$('.sidebar').classList.contains('open')));
 
+  /** Цель в Яндекс Метрике (если счётчик включён в панели учителя). Объявлена до окна входа: оно работает раньше остального. */
+  function goal(name) { try { if (window.ym && window.EGE_YM) window.ym(window.EGE_YM, 'reachGoal', name); } catch (e) { /* не мешаем занятию */ } }
+
   // ------------------------------------------------------------ вход до загрузки заданий
   async function loginRequest(body, token) {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['X-Token'] = token;
+    if (isTemp()) headers['X-Temp'] = '1';
     const r = await fetch('api/' + (body ? 'login' : 'me'), {
       method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin',
     });
@@ -210,9 +232,12 @@
         btn.disabled = true;
         errEl.textContent = '';
         try {
+          const temp = $('#loginTemp').checked;
+          forgetStudent();                               // прежний вход на этом компьютере больше не нужен
+          try { if (temp) sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
           const r = await loginRequest(body);
           if (body.mode === 'register') goal('register');
-          writeJSON(LAST_NAME_STORE, r.name);
+          if (!temp) writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
           ['#loginPass', '#regPass', '#regPass2', '#regCode'].forEach(sel => { $(sel).value = ''; });
           resolve(r);
@@ -250,7 +275,7 @@
   async function gate() {
     $('#grid').innerHTML = Array.from({ length: 27 }, (_, i) =>
       `<button class="num-card" disabled><span class="n">${i + 1}</span><span class="c">·</span></button>`).join('');
-    const saved = readJSON(STUDENT_STORE);
+    const saved = readStudent();
     let tried = null;
     try { tried = sessionStorage.getItem('egeTrainer.relogin'); } catch (e) { /* нет доступа */ }
     if (saved && saved.token && !tried) {
@@ -262,7 +287,7 @@
       } catch (e) { /* токен устарел — войдём заново */ }
     }
     const r = await loginDialog(tried ? 'Браузер не сохранил вход. Разрешите cookie для этого сайта и войдите ещё раз.' : '');
-    writeJSON(STUDENT_STORE, { sid: r.sid, name: r.name, token: r.token });
+    writeStudent({ sid: r.sid, name: r.name, token: r.token });
     try { sessionStorage.setItem('egeTrainer.relogin', '1'); } catch (e2) { /* нет доступа */ }
     location.reload();
   }
@@ -616,9 +641,6 @@
     endGroup();
     if (lastDay && lastDay !== dayKey(Date.now())) snapshotForecast(lastDay, Date.now());
   }
-
-  /** Цель в Яндекс Метрике (если счётчик включён в панели учителя). */
-  const goal = name => { try { if (window.ym && window.EGE_YM) window.ym(window.EGE_YM, 'reachGoal', name); } catch (e) { /* не мешаем занятию */ } };
 
   // ------------------------------------------------------------ ответы
   const tokens = s => String(s == null ? '' : s).toLowerCase().replace(/ё/g, 'е')
@@ -2728,6 +2750,7 @@
   async function api(path, body, method) {
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
+    if (isTemp()) headers['X-Temp'] = '1';
     const r = await fetch('api/' + path, {
       method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined,
     });
@@ -2775,7 +2798,7 @@
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
-    writeJSON(STUDENT_STORE, student);
+    writeStudent(student);
     if (me.rules) Object.assign(RULES, me.rules);
     if (me.game) GAME = me.game;
     const local = readJSON(prefsKey());
@@ -2835,7 +2858,7 @@
       try {
         const r = await api('password', { old: $('#pwOld').value, new: nw });
         student.token = r.token;
-        writeJSON(STUDENT_STORE, student);
+        writeStudent(student);
         m.hidden = true;
         toast('Пароль сохранён', 2500);
       } catch (err) {
@@ -2854,7 +2877,7 @@
     abandonCurrent();
     flushSync(false);
     try { await api('logout', {}); } catch (e) { /* cookie сотрётся при следующем входе */ }
-    try { localStorage.removeItem(STUDENT_STORE); } catch (e) { /* нет доступа */ }
+    forgetStudent();
     clearInterval(exTimer);
     EX = null;
     examShown = false;
@@ -3518,11 +3541,13 @@
   async function boot() {
     try { sessionStorage.removeItem('egeTrainer.relogin'); } catch (e) { /* нет доступа */ }
     if (SERVER) {
-      const saved = readJSON(STUDENT_STORE);
+      const saved = readStudent();
       let ok = false;
       let mustSetPw = false;
-      if (saved && saved.token) {
-        student = saved;
+      {                                            // записи в браузере нет, но cookie жив — тоже войдём
+        student = saved && saved.token ? saved : null;
+        // вход только по cookie (новая вкладка на «чужом компьютере»): токен в localStorage не кладём
+        if (!student) { try { sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ } }
         try {
           const me = await api('me');
           applyMe(me);
