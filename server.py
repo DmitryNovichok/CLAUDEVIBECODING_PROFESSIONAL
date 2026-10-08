@@ -59,7 +59,8 @@ BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".
 MAX_BODY = 4_000_000
 ADMIN_SESSION_DAYS = 14
 DEFAULT_INVITE = "16082001"        # пригласительный код для учеников (меняется в панели учителя)
-STUDENT_COOKIE_DAYS = 365
+STUDENT_COOKIE_DAYS = 30                 # вход живёт месяц с последнего захода
+REG_PER_HOUR_IP = 60                     # регистраций в час с одного адреса (класс за одним школьным IP — влезает)
 # защита от перебора: столько неудачных попыток с одного адреса за окно — и пауза
 FAIL_WINDOW = 15 * 60
 FAIL_LIMIT = {"invite": 30, "admin": 10, "find": 40,
@@ -224,6 +225,21 @@ class Throttle:
 
 
 THROTTLE = Throttle()
+_REG_LOG = {}                              # ip -> время регистраций за последний час
+_REG_LOCK = threading.Lock()
+
+
+def reg_allowed(ip, add=False):
+    now = time.time()
+    with _REG_LOCK:
+        if len(_REG_LOG) > 10000:
+            for k in [k for k, v in _REG_LOG.items() if not v or v[-1] < now - 3600]:
+                del _REG_LOG[k]
+        arr = [t for t in _REG_LOG.get(ip, []) if t > now - 3600]
+        if add:
+            arr.append(now)
+        _REG_LOG[ip] = arr
+        return len(arr) < REG_PER_HOUR_IP or add
 
 
 class Opened:
@@ -1008,7 +1024,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return c[name].value if name in c else None
 
     def student_cookie(self, token):
-        return f"egest={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={STUDENT_COOKIE_DAYS * 86400}{self.cookie_attrs()}"
+        # «Чужой компьютер» (заголовок X-Temp): cookie без срока — сотрётся, когда закроют браузер
+        life = "" if self.headers.get("X-Temp") == "1" else f"; Max-Age={STUDENT_COOKIE_DAYS * 86400}"
+        return f"egest={token}; Path=/; HttpOnly; SameSite=Lax{life}{self.cookie_attrs()}"
 
     def wait_msg(self, sec):
         m = max(1, round(sec / 60))
@@ -1172,6 +1190,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if len(pw) < 6:
                     return self.err(400, "Пароль — не короче 6 символов")
                 if not s:
+                    if not reg_allowed(ip):
+                        return self.err(429, "С этого адреса за час зарегистрировалось слишком много учеников. Попробуйте позже.")
+                    reg_allowed(ip, add=True)
                     db.x("INSERT INTO students(name,name_key,token,created,last_seen,pw,teacher_id) VALUES(?,?,?,?,?,?,?)",
                          (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw), teacher["id"]))
                     print(f"[ученик] новый: {pretty}", flush=True)
@@ -1205,7 +1226,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(s["token"])})
+            # вход по сохранённому в браузере токену продлевает cookie; вход по одной cookie её срок не трогает
+            # (иначе вкладка без «Чужого компьютера» сделала бы временный вход постоянным)
+            extra = {"Set-Cookie": self.student_cookie(s["token"])} if self.headers.get("X-Token") else None
+            return self.send_json(self.me_payload(s), extra=extra)
 
         if path == "/api/history":
             # Прогресс ученика страница восстанавливает из журнала попыток — один источник правды
