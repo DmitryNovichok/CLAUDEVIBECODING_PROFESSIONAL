@@ -59,10 +59,11 @@ class ServerTest(unittest.TestCase):
         (fip / "files" / "ege" / "9" / "BAD001.zip").write_text("<html>Ошибка</html>", encoding="utf-8")
         (cls.tmp / "vendor").mkdir()
         (cls.tmp / "vendor" / "ok.css").write_text("body{}")
-        cls.saved = {k: getattr(server, k) for k in ("HERE", "DB_PATH", "BANK_JS", "THINK_SEC_DEFAULT", "THINK_SEC_HARD")}
+        cls.saved = {k: getattr(server, k) for k in ("HERE", "DB_PATH", "BANK_JS", "EXTRA_BANK", "THINK_SEC_DEFAULT", "THINK_SEC_HARD")}
         server.HERE = cls.tmp
         server.DB_PATH = cls.tmp / "server_data" / "trainer.db"
         server.BANK_JS = cls.tmp / "data" / "bank.js"
+        server.EXTRA_BANK = cls.tmp / "data" / "egeshka_bank.json"   # своего авторского банка у тестов нет
         server.APP = server.App()
         server.APP.db.x("UPDATE teachers SET invite=? WHERE is_main=1", ("1234",))
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
@@ -197,6 +198,22 @@ class ServerTest(unittest.TestCase):
         return self.req("POST", "/api/check", dict(task=task, **kw), tok)
 
     # ------------------------------------------------------------ файлы
+    def test_extra_bank_merged(self):
+        # авторский банк Egeshka лежит отдельным файлом и подмешивается к bank.js без пересборки
+        extra = {"bank": {"id": "egeshka_bank", "title": "Egeshka", "count": 1},
+                 "tasks": [{"id": "egeshka_bank:e5-01", "n": 5, "bank": "egeshka_bank", "html": "<p>Задача</p>",
+                            "ans": "657", "src": "Egeshka Malevin D.", "y": 2026}]}
+        server.EXTRA_BANK.write_text(json.dumps(extra, ensure_ascii=False), encoding="utf-8")
+        try:
+            self.assertTrue(server.APP.bank.ensure())
+            self.assertIn("egeshka_bank:e5-01", server.APP.bank.tasks)
+            pub = server.APP.bank.public_raw.decode("utf-8")
+            self.assertIn('"title":"Egeshka"', pub)
+            self.assertNotIn("657", pub)                            # ответ ученику не уходит
+        finally:
+            server.EXTRA_BANK.unlink()
+            server.APP.bank.ensure()
+
     def test_answer_alternatives(self):
         # в банке ФИПИ бывает «13992 или 13993»: одна ячейка, засчитывается любой из ответов
         self.assertEqual(server.shape_of("13992 или 13993"), {"type": "single"})

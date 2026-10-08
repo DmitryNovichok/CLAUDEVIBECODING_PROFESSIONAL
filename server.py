@@ -48,6 +48,7 @@ BANKS_ROOT = None                                 # папка с банками
 DATA_DIR = HERE / "server_data"
 DB_PATH = DATA_DIR / "trainer.db"
 BANK_JS = HERE / "data" / "bank.js"
+EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк Egeshka (tools/gen_egeshka.py) — подмешивается к bank.js
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js"}
@@ -402,6 +403,7 @@ class Bank:
         self.broken = []
         self.authored = 0          # сколько заданий с автором
         self.mtime = None
+        self.extra_mtime = None
         self.lock = threading.Lock()
         self.tasks = {}
         self.public_gz = b""
@@ -569,15 +571,26 @@ class Bank:
             mt = self.path.stat().st_mtime
         except FileNotFoundError:
             return False
-        if mt == self.mtime:
+        try:
+            xmt = EXTRA_BANK.stat().st_mtime
+        except OSError:
+            xmt = None
+        if mt == self.mtime and xmt == self.extra_mtime:
             return True
         with self.lock:
-            if mt == self.mtime:
+            if mt == self.mtime and xmt == self.extra_mtime:
                 return True
             text = self.path.read_text(encoding="utf-8")
             start = text.index("{")
             end = text.rindex("}")
             data = json.loads(text[start:end + 1])
+            if xmt is not None:
+                try:
+                    extra = json.loads(EXTRA_BANK.read_text(encoding="utf-8"))
+                    data["tasks"] = data.get("tasks", []) + extra.get("tasks", [])
+                    data["banks"] = [b for b in data.get("banks", []) if b.get("id") != extra["bank"]["id"]] + [extra["bank"]]
+                except (ValueError, KeyError, OSError) as e:
+                    print(f"! Банк Egeshka не прочитан ({EXTRA_BANK.name}): {e}", flush=True)
             self.tasks = {}
             self._snips = {}
             self.files = {}
@@ -616,6 +629,7 @@ class Bank:
             self.public_gz = gzip.compress(raw, 6)
             self.etag = '"%s"' % hashlib.md5(raw).hexdigest()[:16]   # меняется при любом изменении банка или его обработки
             self.mtime = mt
+            self.extra_mtime = xmt
             print(f"[банк] загружено заданий: {len(pub_tasks)}", flush=True)
             if self.broken:
                 print(f"! Повреждённых архивов к заданиям: {len(self.broken)} (не открываются). Например: {self.broken[0]}", flush=True)
