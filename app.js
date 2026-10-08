@@ -211,6 +211,7 @@
         errEl.textContent = '';
         try {
           const r = await loginRequest(body);
+          if (body.mode === 'register') goal('register');
           writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
           ['#loginPass', '#regPass', '#regPass2', '#regCode'].forEach(sel => { $(sel).value = ''; });
@@ -615,6 +616,9 @@
     endGroup();
     if (lastDay && lastDay !== dayKey(Date.now())) snapshotForecast(lastDay, Date.now());
   }
+
+  /** Цель в Яндекс Метрике (если счётчик включён в панели учителя). */
+  const goal = name => { try { if (window.ym && window.EGE_YM) window.ym(window.EGE_YM, 'reachGoal', name); } catch (e) { /* не мешаем занятию */ } };
 
   // ------------------------------------------------------------ ответы
   const tokens = s => String(s == null ? '' : s).toLowerCase().replace(/ё/g, 'е')
@@ -1259,6 +1263,7 @@
       return;
     }
     const answer = got.join(' ');
+    goal('answer');
     const res = await verify({ answer, cells: cellsIn($('#answerInputs'), cur.shape) });
     if (!res || !cur || cur.done) return;
     cur.answers = cur.answers.concat(answer);
@@ -2485,6 +2490,7 @@
     examShown = false;
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     recordExam(res);
+    goal('exam');
     renderExamResult(res, done);
   }
 
