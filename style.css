@@ -865,3 +865,14 @@ body.tt-big .py-dock { z-index: 80; }
 .cond .cond-side > .side-img { flex: 1 1 180px; min-width: 180px; }
 .cond .cond-side .table-wrap { margin: 0; }
 .cond .cond-side img { max-width: 100%; height: auto; }
+
+/* ---------- знакомство с сайтом */
+.tour-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.tour-title .brand-title { font-size: 18px; }
+.tour-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin: 14px 0 18px; }
+.tour-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; background: var(--card); border: 2px solid var(--border); }
+.tour-ico { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; margin: 3px; font: 12px var(--pixel);
+  background: var(--accent); color: var(--on-accent); box-shadow: var(--px); }
+.tour-item b { display: block; font-size: 15px; margin-bottom: 3px; }
+.tour-item p { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--muted); }
+.tour-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }

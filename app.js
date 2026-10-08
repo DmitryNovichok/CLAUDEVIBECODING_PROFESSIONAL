@@ -3421,7 +3421,35 @@
     } else {
       next();
     }
+    if (!P.log.length && !tourSeen()) setTimeout(openTour, 400);      // новичку — коротко о том, как всё устроено
   }
+
+  // ------------------------------------------------------------ знакомство с сайтом
+  const tourKey = () => `egeshka.tour.v1.${student ? student.sid : 'local'}`;
+  function tourSeen() { try { return !!localStorage.getItem(tourKey()); } catch (e) { return true; } }
+  function openTour() {
+    try { localStorage.setItem(tourKey(), '1'); } catch (e) { /* не страшно */ }
+    const items = [
+      ['', 'Подбор под тебя', 'Тренажёр следит за точностью по каждому номеру и чаще даёт то, что пока получается хуже. Слабые места — красные полоски на плитках слева.'],
+      ['', 'Работа над ошибками', 'Ошибся — через пару заданий придёт похожее, а само задание вернётся через несколько дней. Так тип задания запоминается надолго.'],
+      ['', 'Прогноз балла', 'По твоим ответам считается ожидаемый балл ЕГЭ — он вверху слева, клик покажет график по дням.'],
+      ['', 'Вариант ЕГЭ', '27 заданий, 3 ч 55 мин, проверка в конце — как на настоящем экзамене. В конце — первичный и тестовый балл.'],
+      ['', 'Python прямо здесь', 'Кнопка «Python» рядом с номером: решай кодом, файлы задания открываются через open(), черепашка для №6 рисует на экране.'],
+      ['', 'Опыт и достижения', 'За решённые задания и варианты — опыт, уровни, достижения и рейтинг класса за неделю.'],
+      ['', 'Сначала подумай', 'На задание две попытки. Ответ можно открыть не сразу — через 40 секунд (у №24–27 — через 90). Учитель видит журнал ответов.'],
+    ].filter(([, t]) => SERVER || !/Опыт|Python/.test(t));
+    $('#forecastBody').innerHTML = `
+      <h2 class="fm-title tour-title">Привет! Это <span class="brand-title"><b>Ege</b>shka</span></h2>
+      <p class="fm-note">Тренажёр ЕГЭ по информатике, который подстраивается под тебя. Коротко о главном:</p>
+      <div class="tour-grid">${items.map(([, t, d], k) => `<div class="tour-item"><span class="tour-ico" aria-hidden="true">${k + 1}</span>
+        <div><b>${t}</b><p>${d}</p></div></div>`).join('')}</div>
+      <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">Начать решать</button>
+        <span class="fm-muted">Это окно всегда можно открыть снова: «Как работает Egeshka» внизу левой панели.</span></div>`;
+    $('#forecastModal').hidden = false;
+    setTimeout(() => { const b = $('#tourGo'); if (b) b.focus(); }, 50);
+  }
+  $('#tourBtn').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openTour(); });
+  $('#forecastBody').addEventListener('click', e => { if (e.target.closest('#tourGo')) closeForecast(); });
 
   async function boot() {
     try { sessionStorage.removeItem('egeTrainer.relogin'); } catch (e) { /* нет доступа */ }
