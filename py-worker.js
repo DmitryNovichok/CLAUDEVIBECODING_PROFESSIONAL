@@ -31,8 +31,8 @@ class Turtle:
         self._y = 0.0
         self._h = 0.0
         self._down = True
-        self._color = '#2b6cff'
-        self._fill = '#2b6cff'
+        self._color = 'default'          # цвет по умолчанию подберёт страница под тему
+        self._fill = 'default'
         self._w = 1
         self._poly = None
         self._visible = True
@@ -174,7 +174,7 @@ class Turtle:
 
 def _col(c):
     if not c:
-        return '#2b6cff'
+        return 'default'
     if len(c) == 1:
         c = c[0]
     if isinstance(c, (tuple, list)):
