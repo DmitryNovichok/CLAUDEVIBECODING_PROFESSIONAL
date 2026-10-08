@@ -989,3 +989,7 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .cl-num { font-family: var(--font); font-weight: 900; font-size: 17px; }
 .cl-ver ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; line-height: 1.55; }
 .cl-now ul { color: var(--text); }
+
+/* подпись автора под названием */
+.brand-by { font-weight: 700; color: var(--muted); }
+.brand-by b { font-weight: 900; background: linear-gradient(90deg, #1cb0f6, #58cc02); -webkit-background-clip: text; background-clip: text; color: transparent; }
