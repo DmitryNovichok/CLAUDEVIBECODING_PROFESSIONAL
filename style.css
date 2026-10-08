@@ -958,3 +958,9 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
   body.side-min .trainer { max-width: 1120px; }       /* освободившееся место — заданию: таблицы и картинки шире */
 }
 @media (max-width: 860px) { .side-min-btn { display: none; } }
+
+/* кнопки темы и сворачивания — столбиком, чтобы не наезжали на название */
+.brand-btns { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.brand-btns .icon-btn { width: 34px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+@media (max-width: 860px) { .brand-btns { flex-direction: row; } .brand-btns .side-min-btn { display: none; } }
+@media (min-width: 861px) { body.side-min .brand-btns { flex-direction: column; } }
