@@ -1839,7 +1839,7 @@
     return m;
   }
   /** Сколько заданий нужно решить за день, чтобы огонёк продлился. */
-  const fireNeed = () => prefs.goal || 1;
+  const fireNeed = () => 1;
   /** Дней подряд с выполненной целью (сегодняшний день ещё может быть не закончен). */
   function dayStreak() {
     const m = dayCounts(), need = fireNeed();
@@ -1864,7 +1864,7 @@
     }
     return best;
   }
-  const FLAME = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="fl-out" d="M12 1.8c.5 3.2 2.6 4.9 4.4 6.9 1.9 2.1 3.3 4.2 3.3 7.1 0 4.3-3.4 7.4-7.7 7.4S4.3 20.1 4.3 15.8c0-2.4 1-4.4 2.6-6 .3 1.6 1 2.8 2.2 3.5-.4-4.5 1-8.5 2.9-11.5z"/><path class="fl-in" d="M12.2 11.6c1.7 1.8 3.4 3.4 3.4 5.7 0 2.2-1.6 3.8-3.6 3.8s-3.6-1.6-3.6-3.8c0-1.2.5-2.2 1.3-3 .2.8.7 1.4 1.3 1.7-.2-1.6.3-3.1 1.2-4.4z"/></svg>';
+  const FLAME = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path class="fl-out" d="M12 1.8c.5 3.2 2.6 4.9 4.4 6.9 1.9 2.1 3.3 4.2 3.3 7.1 0 4.3-3.4 7.4-7.7 7.4S4.3 20.1 4.3 15.8c0-2.4 1-4.4 2.6-6 .3 1.6 1 2.8 2.2 3.5-.4-4.5 1-8.5 2.9-11.5z"/><path class="fl-in" d="M12.2 11.6c1.7 1.8 3.4 3.4 3.4 5.7 0 2.2-1.6 3.8-3.6 3.8s-3.6-1.6-3.6-3.8c0-1.2.5-2.2 1.3-3 .2.8.7 1.4 1.3 1.7-.2-1.6.3-3.1 1.2-4.4z"/></svg>';
   function streakMenuHtml(days, todayDone, left) {
     const m = dayCounts(), need = fireNeed();
     const d = new Date(); d.setHours(12, 0, 0, 0);
@@ -1878,13 +1878,13 @@
     const best = Math.max(bestDayStreak(), days);
     return `<div class="sm-head"><span class="sm-flame${todayDone ? ' on' : ''}">${FLAME}</span>
         <div><div class="sm-num">${days} ${plural(days, 'день', 'дня', 'дней')}</div>
-        <div class="sm-sub">${todayDone ? 'Огонёк на сегодня продлён — возвращайся завтра!'
-          : days ? `Реши ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')} сегодня, иначе серия сгорит`
-          : `Реши ${left} ${plural(left, 'задание', 'задания', 'заданий')} сегодня, чтобы зажечь огонёк`}</div></div></div>
+        <div class="sm-sub">${todayDone ? 'Огонёк на сегодня горит — возвращайся завтра!'
+          : days ? 'Реши сегодня хотя бы одно задание, иначе серия сгорит'
+          : 'Реши одно задание, чтобы зажечь огонёк'}</div></div></div>
       <div class="sm-week">${week}</div>
-      <div class="sm-foot">Лучшая серия: <b>${best} ${plural(best, 'день', 'дня', 'дней')}</b> · норма: ${need} ${plural(need, 'задание', 'задания', 'заданий')} в день</div>`;
+      <div class="sm-foot">Лучшая серия: <b>${best} ${plural(best, 'день', 'дня', 'дней')}</b></div>`;
   }
-  let goalToastDay = null, fireBurst = false;
+  let goalToastDay = null, fireDay = null, fireBurst = false;
   /** После каждого засчитанного ответа: поздравить с целью дня, отправить прогноз учителю. */
   function afterAnswer() {
     if (prefs.goal) {
@@ -1892,17 +1892,14 @@
       const c = (dayCounts().get(today) || 0);
       if (c >= prefs.goal && goalToastDay !== today && c - prefs.goal < 3) {
         goalToastDay = today;
-        const st = dayStreak();
-        fireBurst = true;
-        toast(`Цель на сегодня выполнена! Огонёк горит: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд.`, 4500);
+        toast('Цель на сегодня выполнена!', 4000);
       }
-    } else {
-      const today = dayKey(Date.now());
-      if ((dayCounts().get(today) || 0) === 1 && goalToastDay !== today) {
-        goalToastDay = today; fireBurst = true;
-        const st = dayStreak();
-        toast(`Огонёк продлён: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд!`, 3500);
-      }
+    }
+    const today = dayKey(Date.now());
+    if ((dayCounts().get(today) || 0) === 1 && fireDay !== today) {
+      fireDay = today; fireBurst = true;
+      const st = dayStreak();
+      toast(st > 1 ? `Огонёк продлён: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд!` : 'Огонёк зажжён! Возвращайся завтра, чтобы продлить серию', 3500);
     }
     scheduleSync();
   }
@@ -1961,7 +1958,7 @@
     const menuOpen = $('#streakMenu') && !$('#streakMenu').hidden;
     $('#sessionInfo').innerHTML = `
       <button type="button" class="fire ${todayDone ? 'on' : days ? 'wait' : 'off'}${fireBurst ? ' burst' : ''}" id="streakBtn" aria-haspopup="true"
-        title="${todayDone ? 'Огонёк на сегодня продлён' : `Реши ещё ${left} сегодня, чтобы продлить огонёк`}">
+        title="${todayDone ? 'Огонёк на сегодня горит' : 'Реши одно задание, чтобы зажечь огонёк'}">
         ${FLAME}<b>${days}</b>
       </button>
       <div class="streak-menu" id="streakMenu"${menuOpen ? '' : ' hidden'}>${streakMenuHtml(days, todayDone, left)}</div>
