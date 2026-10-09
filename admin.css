@@ -214,3 +214,4 @@ body:not(.is-main) .main-only { display: none !important; }
 /* журнал: подборки по сменам 05:00–16:15 / 16:15–05:00 и варианты ЕГЭ */
 .j-group td { background: var(--card-hover, rgba(127,127,127,.08)); padding-top: 10px !important; padding-bottom: 10px !important; border-top: 2px solid var(--border); }
 .j-group.j-exam td { background: rgba(28, 176, 246, .1); }
+.adm-goal { margin-top: 22px; }

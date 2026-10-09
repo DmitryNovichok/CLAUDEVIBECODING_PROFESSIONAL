@@ -28,6 +28,7 @@ import math
 import mimetypes
 import os
 import posixpath
+import random
 import re
 import secrets
 import socket
@@ -835,6 +836,19 @@ class DB:
                 invite TEXT UNIQUE NOT NULL, is_main INTEGER DEFAULT 0, authored INTEGER DEFAULT 1, created REAL);
             CREATE TABLE IF NOT EXISTS tsolutions(
                 teacher_id INTEGER NOT NULL, task_id TEXT NOT NULL, text TEXT, ts REAL, PRIMARY KEY(teacher_id, task_id));
+            -- соревнования: лиги, задание дня, дуэли, переходы опыта
+            CREATE TABLE IF NOT EXISTS leagues(
+                student_id INTEGER PRIMARY KEY, league INTEGER NOT NULL DEFAULT 0, week TEXT,
+                result TEXT, result_place INTEGER, result_league INTEGER, result_week TEXT);
+            CREATE TABLE IF NOT EXISTS daily_results(
+                day TEXT NOT NULL, student_id INTEGER NOT NULL, task_id TEXT, ms INTEGER, ts REAL, PRIMARY KEY(day, student_id));
+            CREATE TABLE IF NOT EXISTS duels(
+                id INTEGER PRIMARY KEY, a INTEGER NOT NULL, b INTEGER NOT NULL, tasks TEXT NOT NULL, created REAL,
+                status TEXT NOT NULL DEFAULT 'pending', accepted REAL, a_start REAL, b_start REAL, a_done REAL, b_done REAL,
+                a_solved INTEGER, b_solved INTEGER, winner INTEGER, stake INTEGER, finished REAL);
+            CREATE TABLE IF NOT EXISTS xp_adjust(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT);
+            CREATE INDEX IF NOT EXISTS xp_adjust_student ON xp_adjust(student_id);
             """)
             # новые поля в старых базах
             for table, col, decl in (
@@ -852,7 +866,9 @@ class DB:
                     ("attempts", "away", "INTEGER"),       # сколько раз уходил со вкладки, пока решал
                     ("students", "teacher_id", "INTEGER"), # учитель, по чьему коду зарегистрировался; NULL — главный
                     ("classes", "teacher_id", "INTEGER"),
-                    ("admin_sessions", "teacher_id", "INTEGER")):
+                    ("admin_sessions", "teacher_id", "INTEGER"),
+                    ("classes", "goal_tasks", "INTEGER"),  # цель класса на неделю (заданий) — битва классов
+                    ("classes", "goal_reward", "TEXT")):   # награда за цель, её задаёт учитель
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # главный учитель: прежние пароль, код приглашения и настройка авторских заданий переходят к нему
@@ -1543,29 +1559,92 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"assignments": out})
 
         if path == "/api/leaderboard":
-            # рейтинг среди учеников того же учителя: ТОП-10 по опыту за день, неделю, месяц и по огоньку
+            # рейтинги среди учеников того же учителя: лига недели, ТОП-10 за день/неделю/месяц, огонёк, классы
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            tid = teacher_of(s)["id"]
-            main_id = main_teacher()["id"]
+            league_rollover(db)
+            mates = teacher_students(db, teacher_of(s)["id"])
+            crown = daily_crown(db, [m["id"] for m in mates])
             people = []
-            for m in db.q("SELECT id, name, teacher_id FROM students"):
-                if (m["teacher_id"] or main_id) != tid:
-                    continue
+            for m in mates:
                 g = game_summary(db, m["id"], brief=True)
-                parts = m["name"].split()
-                short = parts[0] + (" " + parts[1][0] + "." if len(parts) > 1 else "")
-                people.append({"name": short, "me": m["id"] == s["id"], "level": g["level"],
-                               "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"]})
+                lg = league_row(db, m["id"])["league"]
+                badges = ([f"🔥{g['fire']}"] if g["fire"] >= 7 else []) + (["👑"] if m["id"] == crown else []) \
+                    + (["💎"] if lg == len(LEAGUES) - 1 else [])
+                people.append({"sid": m["id"], "name": short_name(m["name"]), "me": m["id"] == s["id"], "level": g["level"],
+                               "badges": badges, "league": lg, "class_id": m["class_id"],
+                               "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"], "wk": g["wk"]})
+            pub = lambda p, key, place: {"place": place, "name": p["name"], "me": p["me"], "level": p["level"],
+                                         "badges": p["badges"], "value": p[key]}
             boards = {}
             for key in ("day", "week", "month", "fire"):
                 ranked = sorted((p for p in people if p[key] > 0), key=lambda p: (-p[key], p["name"]))
-                top = [dict(p, place=i + 1, value=p[key]) for i, p in enumerate(ranked[:10])]
                 mine = next(({"place": i + 1, "value": p[key]} for i, p in enumerate(ranked) if p["me"]), None)
-                boards[key] = {"top": [{k: r[k] for k in ("place", "name", "me", "level", "value")} for r in top],
-                               "me": mine, "total": len(ranked)}
+                boards[key] = {"top": [pub(p, key, i + 1) for i, p in enumerate(ranked[:10])], "me": mine, "total": len(ranked)}
+            # лига: все из моей лиги, по опыту с понедельника
+            me = next(p for p in people if p["me"])
+            lr = league_row(db, s["id"])
+            members = sorted((p for p in people if p["league"] == me["league"]), key=lambda p: (-p["wk"], p["name"]))
+            n = len(members)
+            result = None
+            if lr["result"] and lr["result_week"] and lr["week"] == week_key():
+                result = {"result": lr["result"], "place": lr["result_place"], "from": lr["result_league"],
+                          "week": lr["result_week"]}
+            boards["league"] = {
+                "idx": me["league"], "name": LEAGUES[me["league"]][0], "icon": LEAGUES[me["league"]][1],
+                "top": [pub(p, "wk", i + 1) for i, p in enumerate(members[:100])],
+                "me": next({"place": i + 1, "value": p["wk"]} for i, p in enumerate(members) if p["me"]),
+                "total": n, "up": LEAGUE_MOVE if me["league"] < len(LEAGUES) - 1 else 0,
+                "down": LEAGUE_MOVE if me["league"] > 0 and n >= LEAGUE_MIN_DEMOTE else 0,
+                "ends": week_start() + 7 * 86400, "result": result, "week": week_key()}
+            # битва классов: опыт класса с понедельника и цель по решённым заданиям
+            wk0 = week_start()
+            classes = []
+            for c in db.q("SELECT id, name, goal_tasks, goal_reward FROM classes WHERE COALESCE(teacher_id, ?) = ?",
+                          (main_teacher()["id"], teacher_of(s)["id"])):
+                cm = [p for p in people if p["class_id"] == c["id"]]
+                if not cm:
+                    continue
+                ids = [p["sid"] for p in cm]
+                solved = db.q(f"SELECT COUNT(*) AS c FROM attempts WHERE score>0 AND ts>=? AND student_id IN ({','.join('?' * len(ids))})",
+                              (wk0, *ids), one=True)["c"]
+                classes.append({"name": c["name"], "xp": sum(p["wk"] for p in cm), "members": len(cm), "solved": solved,
+                                "goal": c["goal_tasks"] or 0, "reward": c["goal_reward"] or "", "mine": c["id"] == s["class_id"]})
+            classes.sort(key=lambda c: -c["xp"])
+            boards["classes"] = {"list": classes}
             return self.send_json({"boards": boards})
+
+        if path == "/api/daily":
+            # задание дня: одно на всех; рейтинг по времени решения с первой попытки (время считает сервер)
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            day = datetime.now().strftime("%Y-%m-%d")
+            tid = daily_task_id(day)
+            if not tid:
+                return self.send_json({"task": None})
+            mates = teacher_students(db, teacher_of(s)["id"])
+            names = {m["id"]: short_name(m["name"]) for m in mates}
+            ids = list(names)
+            rows = db.q(f"SELECT student_id, ms FROM daily_results WHERE day=? AND student_id IN ({','.join('?' * len(ids))}) "
+                        "ORDER BY ms, ts", (day, *ids)) if ids else []
+            crown = daily_crown(db, ids)
+            mine = next((r["ms"] for r in rows if r["student_id"] == s["id"]), None)
+            t = APP.bank.tasks[tid]
+            return self.send_json({"task": APP.bank.pid(tid), "n": t.get("n"), "day": day, "count": len(rows),
+                                   "mine": mine, "crown": names.get(crown),
+                                   "top": [{"place": i + 1, "name": names[r["student_id"]], "ms": r["ms"],
+                                            "me": r["student_id"] == s["id"]} for i, r in enumerate(rows[:10])],
+                                   "my_place": next((i + 1 for i, r in enumerate(rows) if r["student_id"] == s["id"]), None)})
+
+        if path.startswith("/api/duel"):
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            return self.api_duels(s, path, method, data)
 
         if path == "/api/exam/start" and method == "POST":
             s = self.student(data)
@@ -1610,6 +1689,83 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.err(404, "нет такого метода")
 
     # ---------- задание: открыть, проверить, показать ответ
+    def api_duels(self, s, path, method, data):
+        db = APP.db
+        tid = teacher_of(s)["id"]
+        mates = {m["id"]: m for m in teacher_students(db, tid) if m["id"] != s["id"]}
+        if path == "/api/duels":
+            for d in db.q("SELECT * FROM duels WHERE (a=? OR b=?) AND status IN ('pending','active')", (s["id"], s["id"])):
+                duel_settle(db, d)
+            out = []
+            for d in db.q("""SELECT * FROM duels WHERE (a=? OR b=?) AND (status IN ('pending','active') OR finished>?)
+                             ORDER BY id DESC LIMIT 20""", (s["id"], s["id"], time.time() - 7 * 86400)):
+                me, op = ("a", "b") if d["a"] == s["id"] else ("b", "a")
+                opr = db.q("SELECT name FROM students WHERE id=?", (d[op],), one=True)
+                item = {"id": d["id"], "status": d["status"], "mine": me == "a", "opponent": short_name(opr["name"] if opr else "?"),
+                        "started": bool(d[me + "_start"]), "done": bool(d[me + "_done"]), "op_done": bool(d[op + "_done"]),
+                        "ends": (d["accepted"] or d["created"]) + DUEL_HOURS * 3600}
+                if d["status"] == "active" and d[me + "_start"]:
+                    item["tasks"] = [APP.bank.pid(x) for x in json.loads(d["tasks"])]
+                    item["since"] = d[me + "_start"]
+                if d["status"] == "finished":
+                    item.update(my_solved=d[me + "_solved"], op_solved=d[op + "_solved"], stake=d["stake"] or 0,
+                                result="draw" if not d["winner"] else ("win" if d["winner"] == s["id"] else "lose"))
+                out.append(item)
+            lv = lambda sid: game_summary(db, sid, brief=True)["level"]
+            return self.send_json({"duels": out, "stake": DUEL_STAKE, "tasks": DUEL_TASKS, "hours": DUEL_HOURS,
+                                   "mates": sorted(({"sid": m["id"], "name": short_name(m["name"]), "level": lv(m["id"])}
+                                                    for m in mates.values()), key=lambda x: x["name"])})
+        if method != "POST":
+            return self.err(405, "нужен POST")
+        if path == "/api/duel/create":
+            op = to_int(data.get("sid"))
+            if op not in mates:
+                return self.err(404, "Соперник не найден — вызвать можно только ученика своего учителя")
+            if db.q("""SELECT 1 FROM duels WHERE status IN ('pending','active') AND ((a=? AND b=?) OR (a=? AND b=?))""",
+                    (s["id"], op, op, s["id"]), one=True):
+                return self.err(409, "С этим соперником дуэль уже идёт")
+            if db.q("SELECT COUNT(*) AS c FROM duels WHERE status IN ('pending','active') AND (a=? OR b=?)",
+                    (s["id"], s["id"]), one=True)["c"] >= DUEL_MAX_OPEN:
+                return self.err(429, f"Не больше {DUEL_MAX_OPEN} дуэлей одновременно — закончи начатые")
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            pool = {}
+            for i, t in APP.bank.tasks.items():
+                if (t.get("n") in DUEL_NUMS and not t.get("parts") and not t.get("group") and t.get("ans")
+                        and (t.get("y") or 2026) >= 2024 and not is_authored(t.get("src"), t.get("html"))):
+                    pool.setdefault(t["n"], []).append(i)
+            nums = random.sample(sorted(pool), min(DUEL_TASKS, len(pool)))
+            tasks = [random.choice(pool[n]) for n in sorted(nums)]
+            if not tasks:
+                return self.err(503, "нет подходящих заданий")
+            did = db.x("INSERT INTO duels(a, b, tasks, created, status) VALUES(?,?,?,?, 'pending')",
+                       (s["id"], op, json.dumps(tasks), time.time()))
+            return self.send_json({"ok": True, "id": did})
+        d = db.q("SELECT * FROM duels WHERE id=? AND (a=? OR b=?)", (to_int(data.get("id")), s["id"], s["id"]), one=True)
+        if not d:
+            return self.err(404, "дуэль не найдена")
+        me = "a" if d["a"] == s["id"] else "b"
+        if path == "/api/duel/respond":
+            if d["status"] != "pending" or me != "b":
+                return self.err(409, "Вызов уже не ждёт ответа")
+            if data.get("accept"):
+                db.x("UPDATE duels SET status='active', accepted=? WHERE id=?", (time.time(), d["id"]))
+            else:
+                db.x("UPDATE duels SET status='declined', finished=? WHERE id=?", (time.time(), d["id"]))
+            return self.send_json({"ok": True})
+        if path == "/api/duel/start":
+            if d["status"] != "active":
+                return self.err(409, "Дуэль не идёт")
+            if not d[me + "_start"]:
+                db.x(f"UPDATE duels SET {me}_start=? WHERE id=?", (time.time(), d["id"]))
+            return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in json.loads(d["tasks"])]})
+        if path == "/api/duel/finish":
+            if d["status"] == "active" and d[me + "_start"] and not d[me + "_done"]:
+                db.x(f"UPDATE duels SET {me}_done=? WHERE id=?", (time.time(), d["id"]))
+                duel_settle(db, db.q("SELECT * FROM duels WHERE id=?", (d["id"],), one=True))
+            return self.send_json({"ok": True})
+        return self.err(404, "нет такого метода")
+
     def api_open(self, s, t):
         """Ученик открыл задание: с этого момента идёт время на раздумье.
         Открыл заново, не закончив после неверной попытки, — засчитываем «ушёл после ошибки»,
@@ -1662,6 +1818,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 st["part"] = credit          # на экзамене попытка одна — частичный балл считаем по первой
             if credit == 1.0:
                 score = 1.0 if len(st["tries"]) == 1 else 0.5
+                if score == 1.0 and t["id"] == daily_task_id():
+                    APP.db.x("INSERT OR IGNORE INTO daily_results(day, student_id, task_id, ms, ts) VALUES(?,?,?,?,?)",
+                             (datetime.now().strftime("%Y-%m-%d"), s["id"], t["id"],
+                              int((time.time() - st["ts"]) * 1000), time.time()))
                 self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
                                  revealed=1, spent=spent, away=st["away"])
                 st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"]}, t)
@@ -2097,6 +2257,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             ccond = "COALESCE(c.teacher_id, ?) = ?"                 # только свои классы, и у главного тоже
             cargs = (main_id, self.T["id"])
             rows = db.q(f"""SELECT c.id, c.name, c.created, COALESCE(c.teacher_id, ?) AS teacher_id, t.name AS teacher,
+                                  c.goal_tasks, c.goal_reward,
+                                  (SELECT COUNT(*) FROM attempts a JOIN students s2 ON s2.id = a.student_id
+                                   WHERE s2.class_id = c.id AND a.score > 0 AND a.ts >= {week_start()}) AS week_solved,
                                   COUNT(s.id) AS students FROM classes c
                            LEFT JOIN students s ON s.class_id = c.id
                            LEFT JOIN teachers t ON t.id = COALESCE(c.teacher_id, ?)
@@ -2104,6 +2267,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             cond, args = self.student_scope()
             free = db.q(f"SELECT COUNT(*) c FROM students s WHERE class_id IS NULL AND {cond}", args, one=True)["c"]
             return self.send_json({"classes": [dict(r) for r in rows], "unassigned": free})
+
+        if path == "/api/admin/class/goal" and method == "POST":
+            # битва классов: цель на неделю (сколько заданий решить) и награда, которую обещает учитель
+            cid = to_int(data.get("id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            goal = max(0, min(to_int(data.get("goal_tasks")) or 0, 100000))
+            reward = re.sub(r"\s+", " ", str(data.get("goal_reward") or "")).strip()[:120]
+            db.x("UPDATE classes SET goal_tasks=?, goal_reward=? WHERE id=?", (goal or None, reward or None, cid))
+            return self.send_json({"ok": True, "goal_tasks": goal, "goal_reward": reward})
 
         if path == "/api/admin/class/save" and method == "POST":
             name = re.sub(r"\s+", " ", str(data.get("name") or "")).strip()[:40]
@@ -2292,7 +2465,20 @@ def level_of(xp):
     return lvl, title, xp - lo, hi - lo
 
 
-def game_summary(db, sid, brief=False):
+def week_start(ts=None):
+    """Понедельник 00:00 (время сервера) недели, в которую попадает ts."""
+    d = datetime.fromtimestamp(ts if ts is not None else time.time()).date()
+    return time.mktime((d - timedelta(days=d.weekday())).timetuple())
+
+
+def week_key(ts=None):
+    return datetime.fromtimestamp(week_start(ts)).strftime("%Y-%m-%d")
+
+
+def game_summary(db, sid, brief=False, windows=None):
+    """Опыт, уровень и достижения. windows — {имя: (с, до)}: опыт за произвольные промежутки (лиги, прошлая неделя)."""
+    windows = windows or {}
+    sums = {k: 0 for k in windows}
     rows = db.q("""SELECT task_id, grp, n, score, ts, exam FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
     exams = db.q("""SELECT started, finished, primary_score, test_score FROM exams
                     WHERE student_id=? AND finished IS NOT NULL ORDER BY finished""", (sid,))
@@ -2306,9 +2492,17 @@ def game_summary(db, sid, brief=False):
     nums, per_day, days = set(), {}, set()
     got = {}
 
+    wk0 = week_start(now)
+    xp_wk = 0
+
     def gain(v, ts):
-        nonlocal xp, week, xp_day, xp_month
+        nonlocal xp, week, xp_day, xp_month, xp_wk
         xp += v
+        if ts >= wk0:
+            xp_wk += v
+        for k, (a, b) in windows.items():
+            if a <= ts < b:
+                sums[k] += v
         if ts >= week0:
             week += v
         if ts >= month0:
@@ -2377,6 +2571,10 @@ def game_summary(db, sid, brief=False):
         for aid in ("days7", "days30"):
             if aid not in got and run >= ACH_GOAL[aid]:
                 got[aid] = time.mktime(cur.timetuple()) + 43200
+    # поправки опыта: выигрыш и проигрыш в дуэлях
+    for a in db.q("SELECT ts, delta FROM xp_adjust WHERE student_id=?", (sid,)):
+        gain(a["delta"], a["ts"])
+    xp = max(0, xp)
     # огонёк: дни подряд, в каждый из которых решено не меньше FIRE_NEED заданий (сегодняшний ещё может идти)
     fire, d = 0, datetime.now().date()
     if fire_days.get(d.isoformat(), 0) < FIRE_NEED:
@@ -2385,7 +2583,7 @@ def game_summary(db, sid, brief=False):
         fire += 1
         d -= timedelta(days=1)
     lvl, title, cur_xp, need = level_of(xp)
-    out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire,
+    out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}
     if brief:
         return out
@@ -2401,6 +2599,138 @@ def game_summary(db, sid, brief=False):
 
 ACH_GOAL = {a: g for a, _, _, _, g in ACHIEVEMENTS}
 FIRE_NEED = 3                          # заданий за день, чтобы огонёк продлился (как в app.js)
+
+# ================================================================ соревнования
+LEAGUES = [("Бронзовая лига", "🥉"), ("Серебряная лига", "🥈"), ("Золотая лига", "🥇"), ("Алмазная лига", "💎")]
+LEAGUE_MOVE = 3            # тройка лидеров — в лигу выше, последние трое — ниже
+LEAGUE_MIN_DEMOTE = 7      # опускаем, только если в лиге не меньше 7 человек: в маленькой лиге вылетали бы почти все
+DAILY_NUMS = set(range(1, 19)) | {22, 23, 24, 25}
+DUEL_TASKS = 5
+DUEL_NUMS = list(range(1, 16))
+DUEL_STAKE = 15            # столько опыта победитель дуэли забирает у проигравшего
+DUEL_HOURS = 24
+DUEL_MAX_OPEN = 3
+_COMP_LOCK = threading.Lock()
+_DAILY_CACHE = {}
+
+
+def short_name(name):
+    parts = str(name or "").split()
+    return parts[0] + (" " + parts[1][0] + "." if len(parts) > 1 else "") if parts else ""
+
+
+def teacher_students(db, tid):
+    main_id = main_teacher()["id"]
+    return [r for r in db.q("SELECT id, name, teacher_id, class_id FROM students") if (r["teacher_id"] or main_id) == tid]
+
+
+def league_row(db, sid):
+    r = db.q("SELECT * FROM leagues WHERE student_id=?", (sid,), one=True)
+    if not r:
+        db.x("INSERT OR IGNORE INTO leagues(student_id, league, week) VALUES(?,0,?)", (sid, week_key()))
+        r = db.q("SELECT * FROM leagues WHERE student_id=?", (sid,), one=True)
+    return r
+
+
+def league_rollover(db):
+    """В понедельник: тройка лидеров каждой лиги поднимается, последние трое опускаются. Лениво, один раз за неделю."""
+    cur = week_key()
+    with _COMP_LOCK:
+        prev = db.setting("league_week")
+        if prev == cur:
+            return
+        db.setting("league_week", cur)
+    if prev is None:                   # самый первый запуск лиг — все начинают в бронзе
+        return
+    w1 = week_start()
+    w0 = week_start(w1 - 3 * 86400)    # начало прошлой недели (с учётом перевода часов)
+    main_id = main_teacher()["id"]
+    groups = {}
+    for r in db.q("SELECT id, teacher_id FROM students"):
+        groups.setdefault(r["teacher_id"] or main_id, []).append(r["id"])
+    for ids in groups.values():
+        by_league = {}
+        for sid in ids:
+            lg = league_row(db, sid)["league"]
+            xpw = game_summary(db, sid, brief=True, windows={"prev": (w0, w1)})["win"]["prev"]
+            by_league.setdefault(lg, []).append((xpw, sid))
+        for lg, members in by_league.items():
+            members.sort(key=lambda x: -x[0])
+            n = len(members)
+            for place, (xpw, sid) in enumerate(members, 1):
+                new, res = lg, ("stay" if xpw > 0 else None)
+                if place <= LEAGUE_MOVE and xpw > 0 and lg < len(LEAGUES) - 1:
+                    new, res = lg + 1, "up"
+                elif n >= LEAGUE_MIN_DEMOTE and place > n - LEAGUE_MOVE and lg > 0:
+                    new, res = lg - 1, "down"
+                db.x("""UPDATE leagues SET league=?, week=?, result=?, result_place=?, result_league=?, result_week=?
+                        WHERE student_id=?""", (new, cur, res, place, lg, prev, sid))
+
+
+def daily_task_id(day=None):
+    """Задание дня — одно на всех: по дате выбирается актуальное задание без автора (кроме 19–21, 26, 27)."""
+    day = day or datetime.now().strftime("%Y-%m-%d")
+    hit = _DAILY_CACHE.get(day)
+    if hit and hit[1] == APP.bank.mtime:
+        return hit[0]
+    cands = sorted(i for i, t in APP.bank.tasks.items()
+                   if t.get("n") in DAILY_NUMS and not t.get("parts") and not t.get("group") and t.get("ans")
+                   and (t.get("y") or 2026) >= 2024 and not is_authored(t.get("src"), t.get("html")))
+    tid = cands[int(hashlib.sha256(("daily:" + day).encode()).hexdigest(), 16) % len(cands)] if cands else None
+    _DAILY_CACHE[day] = (tid, APP.bank.mtime)
+    return tid
+
+
+def daily_crown(db, ids):
+    """👑 на сутки — у самого быстрого вчера (из учеников одного учителя)."""
+    if not ids:
+        return None
+    y = (datetime.now().date() - timedelta(days=1)).isoformat()
+    r = db.q(f"SELECT student_id FROM daily_results WHERE day=? AND student_id IN ({','.join('?' * len(ids))}) "
+             "ORDER BY ms, ts LIMIT 1", (y, *ids), one=True)
+    return r["student_id"] if r else None
+
+
+def duel_solved(db, sid, tasks, t0, t1):
+    if not t0:
+        return 0
+    rows = db.q(f"SELECT DISTINCT task_id FROM attempts WHERE student_id=? AND score>0 AND ts>=? AND ts<=? "
+                f"AND task_id IN ({','.join('?' * len(tasks))})", (sid, t0, t1, *tasks))
+    return len(rows)
+
+
+def duel_settle(db, d):
+    """Дуэль окончена, когда оба закончили или прошли сутки. Больше решённых — победа, поровну — быстрее."""
+    now = time.time()
+    if d["status"] == "pending" and now > (d["created"] or 0) + DUEL_HOURS * 3600:
+        db.x("UPDATE duels SET status='expired', finished=? WHERE id=?", (now, d["id"]))
+        return
+    if d["status"] != "active":
+        return
+    deadline = (d["accepted"] or now) + DUEL_HOURS * 3600
+    if not ((d["a_done"] and d["b_done"]) or now > deadline):
+        return
+    tasks = json.loads(d["tasks"])
+    res = {}
+    for side in ("a", "b"):
+        st, dn = d[side + "_start"], d[side + "_done"] or min(now, deadline)
+        res[side] = (duel_solved(db, d[side], tasks, st, dn), (dn - st) if st else float("inf"))
+    (sa, ta), (sb, tb) = res["a"], res["b"]
+    if sa != sb:
+        win = "a" if sa > sb else "b"
+    elif sa and ta != tb:
+        win = "a" if ta < tb else "b"
+    else:
+        win = None
+    stake = 0
+    if win:
+        lose = "b" if win == "a" else "a"
+        stake = min(DUEL_STAKE, game_summary(db, d[lose], brief=True)["xp"])
+        if stake:
+            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, stake, f"duel:{d['id']}"))
+            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[lose], now, -stake, f"duel:{d['id']}"))
+    db.x("UPDATE duels SET status='finished', a_solved=?, b_solved=?, winner=?, stake=?, finished=? WHERE id=?",
+         (sa, sb, d[win] if win else None, stake, now, d["id"]))
 
 
 def assignment_done(db, sid, task_ids, since):
