@@ -168,18 +168,68 @@
   const tLight = (bg, panel, card, hover, border, strong, text, muted, faint) => ({ bg, panel, card, 'card-hover': hover, border, 'border-strong': strong,
     text, muted, faint, track: border, 'input-bg': hover, 'code-bg': hover, 'topbar-bg': panel, ink: border, linked: text, 'overlay-strong': panel + 'f0' });
   const THEMES = [
-    { id: 'graphite', mode: 'dark', name: 'Графит', from: 'Egeshka', v: null, bg: '#16181d', card: '#22262e' },
+    { id: 'graphite', mode: 'dark', name: 'Графит', from: 'Egeshka', base: true, v: tDark('#16181d', '#1a1d23', '#22262e', '#2a2f38', '#343a45', '#4a5262', '#eef1f6', '#98a2b3', '#687183') },
     { id: 'github-dark', mode: 'dark', name: 'GitHub Dark', from: 'GitHub', v: tDark('#0d1117', '#10151c', '#161b22', '#1c232c', '#30363d', '#454c56', '#e6edf3', '#8d96a0', '#656c76') },
     { id: 'dracula', mode: 'dark', name: 'Dracula', from: 'редакторы кода', v: tDark('#282a36', '#21222c', '#313341', '#3a3d4e', '#44475a', '#5a5e78', '#f8f8f2', '#a9acc8', '#6f749a') },
     { id: 'nord', mode: 'dark', name: 'Nord', from: 'Linux и редакторы', v: tDark('#2e3440', '#2a303b', '#3b4252', '#434c5e', '#4c566a', '#5f6a82', '#eceff4', '#a7b1c4', '#737e94') },
     { id: 'mocha', mode: 'dark', name: 'Catppuccin Mocha', from: 'Catppuccin', v: tDark('#1e1e2e', '#181825', '#272738', '#313244', '#3d3e52', '#585b70', '#cdd6f4', '#a6adc8', '#6c7086') },
-    { id: 'paper', mode: 'light', name: 'Бумага', from: 'Egeshka', v: null, bg: '#f5f2eb', card: '#fffdf8' },
+    { id: 'paper', mode: 'light', name: 'Бумага', from: 'Egeshka', base: true, v: tLight('#f5f2eb', '#fbf9f4', '#fffdf8', '#f7f3ea', '#e6dfd0', '#d3c9b5', '#2c2923', '#7a7264', '#aaa292') },
     { id: 'github-light', mode: 'light', name: 'GitHub Light', from: 'GitHub', v: tLight('#f6f8fa', '#ffffff', '#ffffff', '#f3f5f8', '#d0d7de', '#b6bfc8', '#1f2328', '#59636e', '#8c959f') },
     { id: 'macos', mode: 'light', name: 'macOS', from: 'Apple', v: tLight('#f5f5f7', '#fbfbfd', '#ffffff', '#f2f2f5', '#d9d9de', '#c4c4ca', '#1d1d1f', '#6e6e73', '#a1a1a6') },
     { id: 'solarized', mode: 'light', name: 'Solarized Light', from: 'редакторы кода', v: tLight('#fdf6e3', '#f8f0da', '#fffbee', '#f5edd6', '#e4dbc2', '#d3c7a8', '#073642', '#586e75', '#93a1a1') },
     { id: 'latte', mode: 'light', name: 'Catppuccin Latte', from: 'Catppuccin', v: tLight('#eff1f5', '#e6e9ef', '#f8f9fb', '#e9ecf2', '#ccd0da', '#bcc0cc', '#4c4f69', '#6c6f85', '#9ca0b0') },
   ];
-  THEMES.forEach(t => { if (t.v) { t.bg = t.v.bg; t.card = t.v.card; } });
+  THEMES.forEach(t => { t.bg = t.v.bg; t.card = t.v.card; });
+  // настройки вида: размер текста, яркость, контраст, акцент, анимации, режим «Фокус»
+  const VIEW_STORE = 'egeTrainer.view';
+  const VIEW_DEF = { size: 1, bright: 0, contrast: false, accent: 'blue', anim: true, focus: false };
+  const SIZES = [['S', 0.9], ['M', 1], ['L', 1.1], ['XL', 1.2]];
+  // акцент: основной, светлый (текст на тёмном), тёмный (текст на светлом)
+  const ACCENTS = { blue: ['Синий', '#1cb0f6', '#49c0f8', '#1899d6'], purple: ['Фиолетовый', '#a560e8', '#bd88f0', '#8a43cf'],
+    teal: ['Бирюзовый', '#14b8a6', '#3fd0bf', '#0f8f84'], pink: ['Розовый', '#ec4899', '#f472b6', '#cf2f7c'], orange: ['Оранжевый', '#ff9600', '#ffad33', '#d97a00'] };
+  const viewPrefs = () => Object.assign({}, VIEW_DEF, readJSON(VIEW_STORE) || {});
+  const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const mix = (a, b, t) => '#' + hexRgb(a).map((x, i) => Math.round(x + (hexRgb(b)[i] - x) * t).toString(16).padStart(2, '0')).join('');
+  const rgba = (h, a) => `rgba(${hexRgb(h).join(', ')}, ${a})`;
+  /** Переменные темы с учётом яркости, контраста и акцента. */
+  function themeVars(t, vp) {
+    const v = Object.assign({}, t.v), dark = t.mode === 'dark';
+    if (vp.bright) {
+      const to = vp.bright > 0 ? '#ffffff' : '#000000', k = Math.abs(vp.bright) * (dark ? 0.045 : 0.03);
+      for (const key of ['bg', 'panel', 'card', 'card-hover', 'border', 'border-strong', 'track', 'input-bg', 'code-bg', 'topbar-bg', 'ink']) v[key] = mix(v[key], to, k);
+    }
+    if (vp.contrast) {
+      v.text = mix(v.text, dark ? '#ffffff' : '#000000', 0.6);
+      v.muted = mix(v.muted, v.text, 0.4);
+      v.faint = mix(v.faint, v.muted, 0.45);
+      v.border = mix(v.border, v.text, 0.22);
+      v['border-strong'] = mix(v['border-strong'], v.text, 0.3);
+    }
+    v['overlay-strong'] = (dark ? v.bg : v.panel) + 'f0';
+    if (vp.accent !== 'blue' && ACCENTS[vp.accent]) {
+      const [, a, lt, dk] = ACCENTS[vp.accent], txt = dark ? lt : dk;
+      Object.assign(v, { accent: a, 'accent-strong': dark ? lt : dk, 'accent-soft': rgba(a, dark ? 0.18 : 0.14), 'accent-text': txt, link: txt,
+        sel: dark ? rgba(a, 0.16) : mix(v.card, a, 0.14), 'sel-border': dark ? a : mix(a, '#ffffff', 0.35), 'sel-text': txt });
+    }
+    return v;
+  }
+  function applyView() {
+    const vp = viewPrefs();
+    const b = document.body;
+    if (!b) return;
+    const z = (SIZES[vp.size] || SIZES[1])[1];
+    b.style.setProperty('--ui-zoom', z);
+    b.style.setProperty('--ui-zoom-side', 1 + (z - 1) / 2);    // меню узкое — увеличиваем вдвое слабее
+    b.classList.toggle('no-anim', !vp.anim);
+    b.classList.toggle('focus-mode', !!vp.focus);
+  }
+  function setView(key, val) {
+    const vp = viewPrefs();
+    vp[key] = val;
+    writeJSON(VIEW_STORE, vp);
+    applyTheme(effectiveTheme());
+    applyView();
+  }
   const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
   const effectiveTheme = () => document.documentElement.dataset.theme || (mqDark.matches ? 'dark' : 'light');
   function themePick() {
@@ -195,9 +245,12 @@
   function applyTheme(mode) {
     const pick = themePick();
     if (mode) document.documentElement.dataset.theme = mode;
+    const vp = viewPrefs();
+    const plain = !vp.bright && !vp.contrast && vp.accent === 'blue';
     const css = ['dark', 'light'].map(m => {
       const t = THEMES.find(x => x.id === pick[m]);
-      return t && t.v ? `:root:root[data-theme="${m}"]{${Object.entries(t.v).map(([k, v]) => `--${k}:${v}`).join(';')}}` : '';
+      if (!t || (t.base && plain)) return '';      // встроенная тема без настроек — хватает style.css
+      return `:root:root[data-theme="${m}"]{${Object.entries(themeVars(t, vp)).map(([k, v]) => `--${k}:${v}`).join(';')}}`;
     }).join('');
     let st = document.getElementById('themeVars');
     if (!st) { st = document.createElement('style'); st.id = 'themeVars'; document.head.appendChild(st); }
@@ -217,11 +270,12 @@
     applyTheme(t.mode);
   }
   applyTheme(document.documentElement.dataset.theme || null);
+  applyView();
   if (mqDark.addEventListener) mqDark.addEventListener('change', applyThemeColor);
   // кнопка ☀/☾ — между выбранной тёмной и выбранной светлой
   $('#themeBtn').addEventListener('click', () => applyTheme(effectiveTheme() === 'light' ? 'dark' : 'light'));
   function themeCard(t, on) {
-    return `<button type="button" class="th-card${on ? ' on' : ''}" data-theme-id="${t.id}" style="--tb:${t.bg};--tc:${t.card};--tt:${t.v ? t.v.text : t.mode === 'dark' ? '#eef1f6' : '#2c2923'};--tm:${t.v ? t.v.muted : t.mode === 'dark' ? '#98a2b3' : '#7a7264'};--tr:${t.v ? t.v.border : t.mode === 'dark' ? '#343a45' : '#e6dfd0'}">
+    return `<button type="button" class="th-card${on ? ' on' : ''}" data-theme-id="${t.id}" style="--tb:${t.bg};--tc:${t.card};--tt:${t.v.text};--tm:${t.v.muted};--tr:${t.v.border}">
         <span class="th-prev"><span class="th-side"><i></i><i></i><i></i></span><span class="th-main"><b></b><span class="th-box"><i></i><i></i><em></em></span></span></span>
         <span class="th-name"><b>${esc(t.name)}</b><small>${esc(t.from)}</small></span></button>`;
   }
@@ -229,9 +283,25 @@
     const pick = themePick(), mode = effectiveTheme();
     const sec = (m, title) => `<div class="fm-h">${title}</div><div class="th-grid">${THEMES.filter(t => t.mode === m)
       .map(t => themeCard(t, pick[m] === t.id && mode === m)).join('')}</div>`;
+    const vp = viewPrefs();
+    const tog = (key, title, sub) => `<label class="vw-row"><span><b>${title}</b><small>${sub}</small></span>
+      <input type="checkbox" class="vw-switch" data-view="${key}"${vp[key] ? ' checked' : ''}></label>`;
     $('#forecastBody').innerHTML = `<h2 class="fm-title">🎨 Тема оформления</h2>
       <p class="fm-note">Кнопка ☀ в меню переключает между выбранной тёмной и выбранной светлой темой.</p>
-      ${sec('dark', 'Тёмные')}${sec('light', 'Светлые')}`;
+      ${sec('dark', 'Тёмные')}${sec('light', 'Светлые')}
+      <div class="fm-h">Вид</div>
+      <div class="vw">
+        <div class="vw-row"><span><b>Размер текста</b><small>условия, ответы и меню</small></span>
+          <span class="vw-seg">${SIZES.map(([n], i) => `<button type="button" data-view-size="${i}" class="${vp.size === i ? 'on' : ''}">${n}</button>`).join('')}</span></div>
+        <div class="vw-row"><span><b>Яркость фона</b><small>${vp.bright ? (vp.bright > 0 ? 'светлее' : 'темнее') + ' на ' + Math.abs(vp.bright) : 'как в теме'}</small></span>
+          <span class="vw-range"><small>темнее</small><input type="range" min="-3" max="3" step="1" value="${vp.bright}" data-view-bright><small>светлее</small></span></div>
+        <div class="vw-row"><span><b>Акцентный цвет</b><small>выделение, ссылки, выбранный номер</small></span>
+          <span class="vw-acc">${Object.entries(ACCENTS).map(([id, [n, c]]) => `<button type="button" title="${n}" data-view-accent="${id}" class="${vp.accent === id ? 'on' : ''}" style="--sw:${c}"></button>`).join('')}</span></div>
+        ${tog('contrast', 'Повышенная контрастность', 'текст темнее или ярче, рамки чётче — для слабых экранов и проектора')}
+        ${tog('anim', 'Анимации', 'огонёк, всплывающий опыт, плавные переходы')}
+        ${tog('focus', 'Режим «Фокус»', 'скрыть рейтинг, огонёк, уровень, цель дня, дуэли — только задания и прогноз')}
+        <button type="button" class="link-btn vw-reset" data-view-reset>Сбросить вид</button>
+      </div>`;
     $('#forecastModal').hidden = false;
   }
 
@@ -2834,9 +2904,22 @@
 
   $('#forecastBtn').addEventListener('click', openForecast);
   $('#histCard').addEventListener('click', () => { histFilter = 'all'; histLimit = 100; if (isNarrow()) setSideOpen(false); openHistory(); });
+  $('#forecastModal').addEventListener('change', e => {
+    const t = e.target;
+    if (t.matches('[data-view]')) { setView(t.dataset.view, t.checked); return; }
+    if (t.matches('[data-view-bright]')) { setView('bright', +t.value); openThemes(); }
+  });
+  $('#forecastModal').addEventListener('input', e => {
+    if (e.target.matches('[data-view-bright]')) setView('bright', +e.target.value);   // видно сразу, пока тянешь
+  });
   $('#forecastModal').addEventListener('click', e => {
     const th = e.target.closest('[data-theme-id]');
     if (th) { setThemePick(th.dataset.themeId); openThemes(); return; }
+    const vs = e.target.closest('[data-view-size]');
+    if (vs) { setView('size', +vs.dataset.viewSize); openThemes(); return; }
+    const va = e.target.closest('[data-view-accent]');
+    if (va) { setView('accent', va.dataset.viewAccent); openThemes(); return; }
+    if (e.target.closest('[data-view-reset]')) { writeJSON(VIEW_STORE, VIEW_DEF); applyTheme(effectiveTheme()); applyView(); openThemes(); return; }
     const ho = e.target.closest('[data-open]');
     if (ho) { closeForecast(); openPast(ho.dataset.open); return; }
     const hf = e.target.closest('[data-hf]');
@@ -3588,6 +3671,7 @@
     el.title = `Уровень ${GAME.level} · ${GAME.title} — опыт и достижения`;
   }
   function xpPop(v) {
+    if (viewPrefs().focus || !viewPrefs().anim) return;
     const b = document.createElement('div');
     b.className = 'xp-pop';
     b.textContent = `+${v} XP`;
@@ -3897,6 +3981,7 @@
 
   /** При входе (не в первый раз) — раз в день сводка: итоги недели, кто обогнал, задание дня, вызовы, лига. */
   async function showDailyRating() {
+    if (viewPrefs().focus) return;                 // режим «Фокус» — без соревнований
     const key = `egeTrainer.lbShown.${student ? student.sid : ''}`;
     const today = dayKey(Date.now());
     let shown = null;
@@ -4117,6 +4202,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.22.0', '10.10.2026', ['Настройки вида в «Тема оформления»: размер текста, яркость фона, повышенная контрастность, акцентный цвет, отключение анимаций',
+      'Режим «Фокус»: без рейтинга, огонька, уровня и дуэлей — только задания и прогноз']],
     ['1.21.0', '10.10.2026', ['10 тем оформления на выбор: тёмные Графит, GitHub Dark, Dracula, Nord, Catppuccin Mocha и светлые Бумага, GitHub Light, macOS, Solarized Light, Catppuccin Latte — в меню профиля «Тема оформления»',
       'Кнопка ☀ переключает между выбранной тёмной и светлой темой']],
     ['1.20.0', '10.10.2026', ['Новые цвета тем: тёмная «Графит» — нейтральная, без зеленоватого оттенка; светлая «Бумага» — тёплая и мягкая для глаз']],
