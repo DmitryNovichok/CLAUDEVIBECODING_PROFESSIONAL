@@ -726,9 +726,17 @@
         return { chip: '<span class="chip accent">Новое</span>', line: '' };
       case 'search':
         return { chip: '<span class="chip">Найдено поиском</span>', line: '' };
+      case 'daily':
+        return { chip: '<span class="chip accent">👑 Задание дня</span>',
+          line: 'Одно задание для всех. Решишь с первой попытки — попадёшь в рейтинг по времени.' };
       case 'asg': {
         const a = why.a;
         if (!a) return { chip: '<span class="chip accent">Задание учителя</span>', line: '' };
+        if (a.duel) {
+          const done = a.tasks.length - asgLeft(a).length;
+          return { chip: '<span class="chip accent">⚔ Дуэль</span>',
+            line: `${esc(a.title)}: задание ${Math.min(done + 1, a.tasks.length)} из ${a.tasks.length}. Решай точно — важны и число верных, и время.` };
+        }
         const done = a.tasks.length - asgLeft(a).length;
         return { chip: '<span class="chip accent">Задание учителя</span>',
           line: `Подборка «${esc(a.title)}»: решено <b>${done}</b> из ${a.tasks.length}${a.due ? ` · срок — до ${fmtDay(a.due * 1000)}` : ''}.` };
@@ -1953,7 +1961,11 @@
       toast(st > 1 ? `Огонёк продлён: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд!` : 'Огонёк зажжён! Возвращайся завтра, чтобы продлить серию', 3500);
     }
     scheduleSync();
-    if (SERVER) { clearTimeout(lbTimer); lbTimer = setTimeout(loadRating, 1500); }
+    if (SERVER) {
+      clearTimeout(lbTimer);
+      lbTimer = setTimeout(() => { loadRating(); if (DAILY && cur && cur.task && cur.task.id === DAILY.task) loadDaily(); }, 1500);
+      checkDuelDone();
+    }
   }
 
   function renderTopbar() {
@@ -1978,7 +1990,7 @@
     } else if (ui.scope === 'asg' && asgOf(ui.asg)) {
       const a = asgOf(ui.asg);
       const left = asgLeft(a).length;
-      h = `<span class="scope-title">От учителя</span>
+      h = `<span class="scope-title">${a.duel ? '⚔ Дуэль' : 'От учителя'}</span>
         <span class="scope-stats">«${esc(a.title)}» · решено ${a.tasks.length - left} из ${a.tasks.length}</span>
         ${a.due ? `<span class="chip ${a.due * 1000 < Date.now() && left ? 'weak' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}`;
     } else if (ui.scope === 'fav') {
@@ -2078,7 +2090,7 @@
 
     renderPeriod();
     $('#sideToggleLabel').textContent = examShown ? 'Вариант ЕГЭ' : ui.scope === 'all' ? 'Все задания' : ui.scope === 'fav' ? 'Избранное'
-      : ui.scope === 'asg' ? 'От учителя' : `№ ${numLabel(ui.scope)}`;
+      : ui.scope === 'asg' ? (asgOf(ui.asg) && asgOf(ui.asg).duel ? 'Дуэль' : 'От учителя') : `№ ${numLabel(ui.scope)}`;
     const asgOn = inTrainer && ui.scope === 'asg';
     $('#asgCard').classList.toggle('on', asgOn);
     renderAsgCard();
@@ -3475,17 +3487,55 @@
     $('#forecastModal').hidden = false;
   }
 
-  // ------------------------------------------------------------ рейтинг: день, неделя, месяц, огонёк
-  const LB_TABS = [['day', 'День'], ['week', 'Неделя'], ['month', 'Месяц'], ['fire', 'Огонёк']];
+  // ------------------------------------------------------------ соревнования: лига, рейтинги, классы, значки
+  const LB_TABS = [['league', 'Лига'], ['day', 'День'], ['week', 'Неделя'], ['month', 'Месяц'], ['fire', 'Огонёк'], ['classes', 'Классы']];
+  const LEAGUE_ICONS = ['🥉', '🥈', '🥇', '💎'];
+  const LEAGUE_NAMES = ['Бронзовая', 'Серебряная', 'Золотая', 'Алмазная'];
   const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `+${v} XP`;
+  const badgesHtml = r => (r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(esc).join(' ')}</span>` : '';
+  const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
+  const daysLeft = endSec => Math.max(0, Math.ceil((endSec * 1000 - Date.now()) / 864e5));
+
+  function leagueHtml(L) {
+    const shown = L.top.filter(r => r.value > 0 || r.me);              // без опыта на этой неделе — одной строкой
+    const idle = L.total - shown.length;
+    const n = shown.length;
+    const rows = shown.map(r => {
+      const zone = r.value > 0 && r.place <= L.up ? 'up' : L.down && r.place > L.total - L.down ? 'down' : '';
+      return `<tr class="${r.me ? 'me' : ''} ${zone ? 'z-' + zone : ''}"><td class="lb-place">${placeHtml(r.place)}</td>
+        <td>${esc(r.name)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td>
+        <td class="num">${zone === 'up' ? '<span class="z-mark up" title="Поднимется в лигу выше">▲</span>' : zone === 'down' ? '<span class="z-mark down" title="Опустится в лигу ниже">▼</span>' : ''} +${r.value} XP</td></tr>`;
+    }).join('');
+    const left = daysLeft(L.ends);
+    return `<div class="lg-head"><span class="lg-icon">${L.icon}</span><div><b>${esc(L.name)}</b>
+        <div class="fm-muted">Итоги в понедельник — ${left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'сегодня ночью'}.
+        ${L.up ? `Тройка лидеров поднимется в ${LEAGUE_NAMES[L.idx + 1].toLowerCase()} лигу.` : 'Это высшая лига — удержись в ней!'}
+        ${L.down ? ' Последние трое опустятся.' : ''}</div></div></div>
+      ${n ? `<table class="lb">${rows}</table>` : '<p class="fm-muted lb-empty">В лиге пока никого — реши задание, и ты в игре.</p>'}
+      ${idle > 0 ? `<p class="fm-muted lb-mine">Ещё ${idle} ${plural(idle, 'ученик', 'ученика', 'учеников')} в лиге пока без опыта на этой неделе.</p>` : ''}`;
+  }
+  function classesHtml(C) {
+    if (!C.list.length) return '<p class="fm-muted lb-empty">Классов пока нет: битва начнётся, когда учитель распределит учеников по классам.</p>';
+    return C.list.map((c, i) => {
+      const goal = c.goal ? `<div class="cl-goal"><i class="xp-bar"><b style="width:${Math.min(100, pct(c.solved / c.goal))}%"></b></i>
+        <span>${c.solved} / ${c.goal} заданий${c.reward ? ` — ${esc(c.reward)}` : ''}${c.solved >= c.goal ? ' ✅' : ''}</span></div>` : '';
+      return `<div class="cl-row${c.mine ? ' me' : ''}"><span class="lb-place">${placeHtml(i + 1)}</span>
+        <div class="cl-main"><b>${esc(c.name)}</b>${c.mine ? ' <span class="chip good">твой класс</span>' : ''}
+          <span class="fm-muted"> · ${c.members} ${plural(c.members, 'ученик', 'ученика', 'учеников')}</span>${goal}</div>
+        <span class="num">+${c.xp} XP</span></div>`;
+    }).join('') + '<p class="fm-muted lb-mine">Опыт всех учеников класса с понедельника. Цель и награду задаёт учитель.</p>';
+  }
   function boardHtml(d, key) {
-    const b = (d.boards || {})[key] || { top: [] };
+    const B = d.boards || {};
+    if (key === 'league') return B.league ? leagueHtml(B.league) : '';
+    if (key === 'classes') return B.classes ? classesHtml(B.classes) : '';
+    const b = B[key] || { top: [] };
     if (!b.top.length) {
       return `<p class="fm-muted lb-empty">${key === 'day' ? 'Сегодня ещё никто не решал — стань первым!'
         : key === 'fire' ? 'Пока ни у кого не горит огонёк. Реши 3 задания за день, чтобы зажечь его.' : 'Пока пусто.'}</p>`;
     }
-    const rows = b.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${r.place <= 3 ? ['🥇', '🥈', '🥉'][r.place - 1] : r.place}</td>
-      <td>${esc(r.name)}</td><td class="fm-muted">ур. ${r.level}</td><td class="num">${lbValue(key, r.value)}</td></tr>`).join('');
+    const rows = b.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td>
+      <td>${esc(r.name)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td><td class="num">${lbValue(key, r.value)}</td></tr>`).join('');
     const mine = b.me && b.me.place > 10
       ? `<p class="lb-mine">Твоё место: <b>${b.me.place}</b> из ${b.total} · ${lbValue(key, b.me.value)}</p>`
       : (!b.me ? `<p class="lb-mine fm-muted">${key === 'fire' ? 'Зажги огонёк — и попадёшь в рейтинг' : 'Реши задание — и попадёшь в рейтинг'}</p>` : '');
@@ -3494,7 +3544,8 @@
   function boardsHtml(d, key) {
     return `<div class="lb-wrap" data-lb='${esc(JSON.stringify(d))}'>
       <div class="lb-tabs" role="tablist">${LB_TABS.map(([k, t]) => `<button type="button" data-lbtab="${k}" class="${k === key ? 'on' : ''}">${t}</button>`).join('')}</div>
-      <div class="lb-body">${boardHtml(d, key)}</div></div>`;
+      <div class="lb-body">${boardHtml(d, key)}</div>
+      <p class="fm-muted lb-legend">Значки: 🔥 — огонёк 7+ дней, 👑 — быстрее всех решил вчерашнее задание дня, 💎 — алмазная лига.</p></div>`;
   }
   document.addEventListener('click', e => {
     const tab = e.target.closest('[data-lbtab]');
@@ -3505,45 +3556,224 @@
     $$('[data-lbtab]', wrap).forEach(b => b.classList.toggle('on', b === tab));
     $('.lb-body', wrap).innerHTML = boardHtml(d, tab.dataset.lbtab);
   });
-  // кнопка в верхней панели: место за неделю; по клику — рейтинг
+
+  // кнопка в верхней панели: лига и место в ней; по клику — все рейтинги
   let LB = null, lbTimer = null;
   const CUP = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path class="cup-b" d="M7 3h10v2h3a1 1 0 0 1 1 1v2a5 5 0 0 1-4.6 5A5 5 0 0 1 13 15.9V18h3v3H8v-3h3v-2.1A5 5 0 0 1 7.6 13 5 5 0 0 1 3 8V6a1 1 0 0 1 1-1h3V3Zm10 4v3.9A3 3 0 0 0 19 8V7h-2ZM5 7v1a3 3 0 0 0 2 2.9V7H5Z"/></svg>';
   function rankBtnHtml() {
-    const me = LB && LB.boards && LB.boards.week && LB.boards.week.me;
-    const top3 = me && me.place <= 3;
-    return `<button type="button" class="rank-btn${me ? '' : ' none'}${top3 ? ' top' : ''}" id="rankBtn" title="Рейтинг: день, неделя, месяц, огонёк">
-      ${CUP}<span>${me ? `<b>${me.place}</b> место` : 'Рейтинг'}</span></button>`;
+    const L = LB && LB.boards && LB.boards.league;
+    const me = L && L.me;
+    const top3 = me && me.value > 0 && me.place <= 3;
+    return `<button type="button" class="rank-btn${me && me.value ? '' : ' none'}${top3 ? ' top' : ''}" id="rankBtn" title="${L ? esc(L.name) + ' · ' : ''}рейтинги: лига, день, неделя, месяц, огонёк, классы">
+      ${L ? `<span class="rank-lg">${L.icon}</span>` : CUP}<span>${me && me.value ? `<b>${me.place}</b> место` : 'Рейтинг'}</span></button>`;
   }
   async function loadRating() {
     try { LB = await api('leaderboard'); } catch (e) { return; }
     const b = $('#rankBtn');
     if (b) b.outerHTML = rankBtnHtml();
+    saveLeagueSnap();
   }
-  async function openRating() {
+  async function openRating(tab) {
     if (isNarrow()) setSideOpen(false);
-    $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг · ТОП-10</h2><p class="fm-muted">Загружаю…</p>';
+    $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Загружаю…</p>';
     $('#forecastModal').hidden = false;
     await loadRating();
     if (!LB) { $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Нет связи с сервером.</p>'; return; }
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг · ТОП-10</h2>
-      <p class="fm-note">Ученики твоего учителя: опыт за день, неделю и месяц и серия огонька.</p>${boardsHtml(LB, 'week')}`;
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг</h2>
+      <p class="fm-note">Ученики твоего учителя. Лига — опыт с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
   }
 
-  /** При входе (не в первый раз) — раз в день окно «Рейтинг дня». */
+  // «Тебя обогнали!»: сравниваем лигу с тем, что видели в прошлый раз
+  const snapKey = () => `egeTrainer.lgSnap.${student ? student.sid : ''}`;
+  function saveLeagueSnap() {
+    const L = LB && LB.boards && LB.boards.league;
+    if (!L || !L.me) return;
+    writeJSON(snapKey(), { week: L.week, place: L.me.place, xp: L.me.value, above: L.top.filter(r => r.place < L.me.place).map(r => r.name) });
+  }
+  function overtakeNote(L) {
+    if (!L || !L.me || !L.me.value && !L.top.length) return '';
+    const prev = readJSON(snapKey());
+    const me = L.me, above = L.top.find(r => r.place === me.place - 1);
+    const tasks = gap => Math.max(1, Math.ceil((gap + 1) / 10));
+    if (prev && prev.week === L.week && me.place > prev.place) {
+      const passer = L.top.find(r => r.place < me.place && !(prev.above || []).includes(r.name));
+      if (passer) {
+        const gap = passer.value - me.value;
+        const k = tasks(above ? above.value - me.value : 0);
+        return `<b>${esc(passer.name)}</b> обогнал тебя на ${gap} XP — до ${me.place - 1}-го места ${k} ${plural(k, 'задание', 'задания', 'заданий')}. Отыграйся!`;
+      }
+    }
+    if (!me.value) {                                         // ещё без опыта на этой неделе
+      const last = L.top.filter(r => r.value > 0 && !r.me).pop();
+      if (!last) return 'В лиге на этой неделе ещё никто не набрал опыт — реши задание и стань первым!';
+      const k = tasks(last.value);
+      return `Реши ${k} ${plural(k, 'задание', 'задания', 'заданий')} — и обгонишь ${esc(last.name)} (${last.place}-е место в лиге)`;
+    }
+    if (above) {
+      const gap = above.value - me.value;
+      return `До ${me.place - 1}-го места ${gap + 1} XP — примерно ${tasks(gap)} ${plural(tasks(gap), 'задание', 'задания', 'заданий')}. Впереди — ${esc(above.name)}`;
+    }
+    return 'Ты первый в лиге — держи отрыв!';
+  }
+
+  // ------------------------------------------------------------ задание дня
+  let DAILY = null;
+  async function loadDaily() {
+    try { DAILY = await api('daily'); } catch (e) { DAILY = null; }
+    renderDailyCard();
+  }
+  const fmtMs = ms => { const s = Math.round(ms / 1000); return s >= 60 ? `${Math.floor(s / 60)}:${pad2(s % 60)}` : `${s} с`; };
+  function renderDailyCard() {
+    const card = $('#dailyCard');
+    if (!card) return;
+    card.hidden = !(DAILY && DAILY.task && byId.get(DAILY.task));
+    if (card.hidden) return;
+    $('#dailySub').textContent = DAILY.my_place ? `ты ${DAILY.my_place}-й · ${fmtMs(DAILY.mine)}`
+      : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n} · будь первым`;
+    card.classList.toggle('done', !!DAILY.my_place);
+  }
+  function dailyHtml() {
+    if (!DAILY || !DAILY.task) return '';
+    const rows = DAILY.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td><td>${esc(r.name)}</td><td class="num">${fmtMs(r.ms)}</td></tr>`).join('');
+    return `<p class="fm-note">Одно задание для всех на сегодня, №${DAILY.n}. Место — по времени решения <b>с первой попытки</b>
+        (время считает сервер с момента открытия задания). Самый быстрый завтра весь день носит 👑.${DAILY.crown ? ` Сегодня корона у <b>${esc(DAILY.crown)}</b>.` : ''}</p>
+      ${DAILY.my_place ? `<p class="lb-mine">Ты решил за <b>${fmtMs(DAILY.mine)}</b> — ${DAILY.my_place}-е место из ${DAILY.count}.</p>`
+        : '<p><button type="button" class="btn primary" id="dailyGo">Решать задание дня</button></p>'}
+      ${rows ? `<table class="lb">${rows}</table>` : '<p class="fm-muted lb-empty">Пока никто не решил — стань первым!</p>'}`;
+  }
+  async function openDaily() {
+    if (isNarrow()) setSideOpen(false);
+    await loadDaily();
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">👑 Задание дня</h2>${dailyHtml()}`;
+    $('#forecastModal').hidden = false;
+  }
+  function goDaily() {
+    const t = DAILY && byId.get(DAILY.task);
+    if (!t) return;
+    closeForecast();
+    if (!leaveExam()) return;
+    show({ task: t, why: { type: 'daily' } });
+  }
+
+  // ------------------------------------------------------------ дуэли
+  let DUELS = { duels: [], mates: [] };
+  async function loadDuels() {
+    try { DUELS = await api('duels'); } catch (e) { return; }
+    // идущие дуэли, которые я начал, решаются как подборка: 5 заданий по порядку
+    ASG = ASG.filter(a => !a.duel);
+    for (const d of DUELS.duels) {
+      if (d.status === 'active' && d.tasks && !d.done) {
+        ASG.push({ id: 'duel-' + d.id, duel: d.id, title: `Дуэль с ${d.opponent}`, tasks: d.tasks, done: [], created: d.since });
+      }
+    }
+    renderDuelCard();
+    renderAsgCard();
+  }
+  function renderDuelCard() {
+    const card = $('#duelCard');
+    if (!card) return;
+    card.hidden = !SERVER || !student || !(DUELS.mates || []).length && !DUELS.duels.length;
+    const inv = DUELS.duels.filter(d => d.status === 'pending' && !d.mine).length;
+    const act = DUELS.duels.filter(d => d.status === 'active').length;
+    $('#duelSub').textContent = inv ? `тебя вызвали: ${inv}!` : act ? `идёт: ${act}` : 'вызови соперника';
+    card.classList.toggle('alert', !!inv);
+  }
+  function duelRow(d) {
+    const ends = Math.max(0, Math.round((d.ends * 1000 - Date.now()) / 3600e3));
+    let st, btn = '';
+    if (d.status === 'pending') {
+      st = d.mine ? `ждём ответа · ещё ${ends} ч` : 'вызывает тебя на дуэль!';
+      if (!d.mine) btn = `<button type="button" class="btn primary" data-duel-acc="${d.id}">Принять</button><button type="button" class="btn ghost" data-duel-dec="${d.id}">Отказаться</button>`;
+    } else if (d.status === 'active') {
+      st = d.done ? (d.op_done ? 'подводим итоги…' : 'ты закончил — ждём соперника') : `идёт · осталось ${ends} ч`;
+      if (!d.done) btn = `<button type="button" class="btn primary" data-duel-go="${d.id}">${d.started ? 'Продолжить' : 'Начать'}</button>`;
+    } else if (d.status === 'finished') {
+      st = d.result === 'win' ? `победа ${d.my_solved}:${d.op_solved}${d.stake ? ` · +${d.stake} XP` : ''}`
+        : d.result === 'lose' ? `поражение ${d.my_solved}:${d.op_solved}${d.stake ? ` · −${d.stake} XP` : ''}` : `ничья ${d.my_solved}:${d.op_solved}`;
+    } else st = d.status === 'declined' ? 'отказался' : 'вызов истёк';
+    return `<div class="duel-row ${d.status} ${d.result || ''}"><div><b>${esc(d.opponent)}</b><div class="fm-muted">${st}</div></div><span class="duel-btns">${btn}</span></div>`;
+  }
+  async function openDuels(fresh = true) {
+    if (isNarrow()) setSideOpen(false);
+    if (fresh) await loadDuels();                       // соперники и вызовы могли появиться после входа
+    const list = DUELS.duels.map(duelRow).join('');
+    const busy = new Set(DUELS.duels.filter(d => d.status === 'pending' || d.status === 'active').map(d => d.opponent));
+    const mates = (DUELS.mates || []).map(m => `<div class="duel-row"><div><b>${esc(m.name)}</b> <span class="fm-muted">ур. ${m.level}</span></div>
+      <span class="duel-btns">${busy.has(m.name) ? '<span class="fm-muted">дуэль идёт</span>' : `<button type="button" class="btn ghost" data-duel-new="${m.sid}">Вызвать</button>`}</span></div>`).join('');
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">⚔ Дуэли</h2>
+      <p class="fm-note">Тебе и сопернику выпадают одни и те же ${DUELS.tasks || 5} заданий. Побеждает тот, кто решит больше, при равенстве — кто быстрее.
+        Победитель забирает у проигравшего ${DUELS.stake || 15} XP. На дуэль — ${DUELS.hours || 24} часа после того, как вызов принят.</p>
+      ${list ? `<h3 class="fm-sub">Мои дуэли</h3>${list}` : ''}
+      <h3 class="fm-sub">Вызвать соперника</h3>${mates || '<p class="fm-muted">Пока не с кем — у твоего учителя других учеников нет.</p>'}`;
+    $('#forecastModal').hidden = false;
+  }
+  async function duelAction(path, body, msg) {
+    try { await api(path, body); if (msg) toast(msg, 2500); } catch (e) { toast(e.message || 'Не получилось', 3000); }
+    await loadDuels();
+    openDuels(false);
+  }
+  async function startDuel(id) {
+    try { await api('duel/start', { id }); } catch (e) { toast(e.message, 3000); return; }
+    await loadDuels();
+    closeForecast();
+    setScope('asg', 'duel-' + id);
+  }
+  /** Решил последнее задание дуэли — сообщаем серверу, он подведёт итог, когда закончит и соперник. */
+  async function checkDuelDone() {
+    const a = ui.scope === 'asg' && asgOf(ui.asg);
+    if (!a || !a.duel || asgLeft(a).length) return;
+    try { await api('duel/finish', { id: a.duel }); } catch (e) { return; }
+    toast('Дуэль: ты решил все задания! Итог — когда закончит соперник.', 4000);
+    await loadDuels();
+    ui.scope = 'all';
+    renderSidebar();
+  }
+  $('#forecastBody').addEventListener('click', e => {
+    const t = e.target;
+    if (t.closest('#dailyGo')) return goDaily();
+    const acc = t.closest('[data-duel-acc]'), dec = t.closest('[data-duel-dec]'), go = t.closest('[data-duel-go]'), nw = t.closest('[data-duel-new]');
+    if (acc) return duelAction('duel/respond', { id: +acc.dataset.duelAcc, accept: true }, 'Вызов принят — нажми «Начать», когда будешь готов');
+    if (dec) return duelAction('duel/respond', { id: +dec.dataset.duelDec, accept: false });
+    if (go) return startDuel(+go.dataset.duelGo);
+    if (nw) return duelAction('duel/create', { sid: +nw.dataset.duelNew }, 'Вызов отправлен!');
+    if (t.closest('#sumDuels')) return openDuels();
+  });
+  $('#dailyCard').addEventListener('click', openDaily);
+  $('#duelCard').addEventListener('click', () => openDuels());
+
+  /** При входе (не в первый раз) — раз в день сводка: итоги недели, кто обогнал, задание дня, вызовы, лига. */
   async function showDailyRating() {
     const key = `egeTrainer.lbShown.${student ? student.sid : ''}`;
     const today = dayKey(Date.now());
-    try { if (localStorage.getItem(key) === today) return; } catch (e) { return; }
+    let shown = null;
+    try { shown = localStorage.getItem(key); } catch (e) { return; }
     let d;
     try { d = await api('leaderboard'); } catch (e) { return; }
     LB = d;
     const rb = $('#rankBtn');
     if (rb) rb.outerHTML = rankBtnHtml();
-    if (!$('#forecastModal').hidden) return;                 // уже открыто другое окно (знакомство и т. п.)
+    const L = d.boards.league;
+    const note = overtakeNote(L);
+    const passed = /обогнал/.test(note);
+    saveLeagueSnap();
+    if (shown === today && !passed) {                         // сводку сегодня уже видел — но про обгон скажем
+      return;
+    }
+    if (!$('#forecastModal').hidden) { if (passed) toast(note.replace(/<[^>]+>/g, ''), 6000); return; }
     try { localStorage.setItem(key, today); } catch (e) { /* не страшно */ }
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг дня</h2>
-      <p class="fm-note">ТОП-10 учеников твоего учителя по опыту. Переключай: день, неделя, месяц и огонёк.</p>
-      ${boardsHtml(d, 'day')}
+    const R = L.result;
+    const resKey = `egeTrainer.lgRes.${student ? student.sid : ''}`;
+    const showRes = R && readJSON(resKey) !== R.week;
+    if (showRes) writeJSON(resKey, R.week);
+    const res = !showRes ? '' : R.result === 'up' ? `<div class="sum-res up">🎉 Неделя завершена: ${R.place}-е место — ты поднялся в <b>${esc(L.name.toLowerCase())}</b>!</div>`
+      : R.result === 'down' ? `<div class="sum-res down">Неделя завершена: ${R.place}-е место — ты опустился в ${esc(L.name.toLowerCase())}. Новая неделя — новый шанс!</div>`
+        : `<div class="sum-res">Неделя завершена: ${R.place}-е место, ты остаёшься в ${esc(L.name.toLowerCase())}.</div>`;
+    const inv = DUELS.duels.filter(x => x.status === 'pending' && !x.mine);
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">Привет! Вот что нового</h2>${res}
+      ${note ? `<div class="sum-note${passed ? ' hot' : ''}">${note}</div>` : ''}
+      ${inv.length ? `<div class="sum-note hot">⚔ ${inv.map(x => esc(x.opponent)).join(', ')} ${inv.length > 1 ? 'вызывают' : 'вызывает'} тебя на дуэль! <button type="button" class="btn ghost" id="sumDuels">Ответить</button></div>` : ''}
+      ${DAILY && DAILY.task && !DAILY.my_place ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
+      ${boardsHtml(d, 'league')}
       <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
     $('#forecastModal').hidden = false;
   }
@@ -3558,26 +3788,29 @@
     const done = new Set(a.done);
     const since = (a.created || 0) * 1000;
     for (const e of P.log) {
-      if (e.s > 0 && e.t >= since && !e.b) { done.add(e.id); const g = partToGroup.get(e.id); if (g) done.add(g); }
+      if ((e.s > 0 || a.duel) && e.t >= since && !e.b) { done.add(e.id); const g = partToGroup.get(e.id); if (g) done.add(g); }
     }
     return a.tasks.filter(id => !done.has(id));
   }
   async function loadAssignments() {
     if (!SERVER) return;
+    const duels = ASG.filter(a => a.duel);
     try { ASG = (await api('assignments')).assignments || []; } catch (e) { if (e.status === 401) throw e; ASG = []; }
+    ASG = ASG.concat(duels);
     renderAsgCard();
   }
   function renderAsgCard() {
     const card = $('#asgCard');
     if (!card) return;
-    card.hidden = !ASG.length;
-    if (!ASG.length) return;
-    const open = ASG.filter(a => asgLeft(a).length);
+    const own = ASG.filter(a => !a.duel);
+    card.hidden = !own.length;
+    if (!own.length) return;
+    const open = own.filter(a => asgLeft(a).length);
     const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
     $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
   }
   function openAssignments() {
-    const rows = ASG.map(a => {
+    const rows = ASG.filter(a => !a.duel).map(a => {
       const left = asgLeft(a).length, total = a.tasks.length;
       const late = a.due && a.due * 1000 < Date.now() && left;
       return `<div class="asg-row">
@@ -3693,8 +3926,11 @@
       next();
     }
     if (!P.log.length && !tourSeen()) setTimeout(openTour, 400);      // новичку — коротко о том, как всё устроено
-    else if (SERVER && student) setTimeout(showDailyRating, 600);    // уже знакомым — рейтинг дня, раз в день
-    if (SERVER && student) setTimeout(loadRating, 900);               // место в рейтинге — на кнопку вверху
+    if (SERVER && student) {
+      const ready = Promise.all([loadDaily(), loadDuels()]);
+      if (P.log.length || tourSeen()) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
+      setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
+    }
   }
 
   // ------------------------------------------------------------ знакомство с сайтом
@@ -3726,6 +3962,11 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.17.0', '09.10.2026', ['Лиги на неделю: бронза → серебро → золото → алмаз; в понедельник тройка лидеров поднимается, последние трое опускаются',
+      '«Тебя обогнали!» — при входе видно, кто тебя обошёл и сколько заданий до места выше',
+      'Задание дня: одно на всех, рейтинг по скорости решения с первой попытки, самый быстрый носит 👑',
+      'Дуэли: вызови одноклассника — 5 одинаковых заданий, победитель забирает опыт',
+      'Битва классов: опыт классов за неделю и цель от учителя', 'Значки в рейтинге: 🔥 огонёк, 👑 задание дня, 💎 алмазная лига']],
     ['1.16.0', '09.10.2026', ['Рейтинг переехал в верхнюю панель: кубок с твоим местом за неделю рядом с огоньком']],
     ['1.15.0', '09.10.2026', ['Рейтинг ТОП-10 за день, неделю и месяц и рейтинг огонька',
       'Раз в день при входе — окно «Рейтинг дня»', 'Задание 9: к таблице добавлен 9.txt — сразу открывается в Python',

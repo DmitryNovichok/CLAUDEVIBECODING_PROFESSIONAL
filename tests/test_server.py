@@ -210,7 +210,7 @@ class ServerTest(unittest.TestCase):
             self.assertIn("egeshka_bank:e5-01", server.APP.bank.tasks)
             pub = server.APP.bank.public_raw.decode("utf-8")
             self.assertIn('"title":"Egeshka"', pub)
-            self.assertNotIn("657", pub)                            # ответ ученику не уходит
+            self.assertNotIn('"657"', pub)                          # ответ ученику не уходит
         finally:
             server.EXTRA_BANK.unlink()
             server.APP.bank.ensure()
@@ -426,6 +426,95 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.game_summary(db, sid, brief=True)["fire"], 3)
         for t in ("attempts", "students"):
             db.x(f"DELETE FROM {t} WHERE {'student_id' if t == 'attempts' else 'id'}=?", (sid,))
+
+    # ------------------------------------------------------------ соревнования
+    def test_league_week_rollover(self):
+        db = server.APP.db
+        prev = server.week_start() - 4 * 86400                           # середина прошлой недели
+        sids = []
+        for i in range(8):                                                # 8 человек в серебряной лиге
+            sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES(?,?,?,0,0)",
+                       (f"Лигов{chr(1040 + i)} Л", f"лигов{i} л", f"tklg{i}"))
+            db.x("INSERT INTO leagues(student_id, league, week) VALUES(?,1,?)", (sid, server.week_key(prev)))
+            for k in range(i):                                            # i-й ученик решил i заданий
+                db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
+                     (sid, prev + k, f"lg:{i}:{k}", 2, "[]", "1", 1.0))
+            sids.append(sid)
+        db.setting("league_week", server.week_key(prev))
+        server.league_rollover(db)
+        got = {sid: db.q("SELECT league, result, result_place FROM leagues WHERE student_id=?", (sid,), one=True) for sid in sids}
+        self.assertEqual([got[x]["league"] for x in sids], [0, 0, 0, 1, 1, 2, 2, 2])   # трое вниз, трое вверх
+        self.assertEqual(got[sids[7]]["result"], "up")
+        self.assertEqual(got[sids[7]]["result_place"], 1)
+        self.assertEqual(got[sids[0]]["result"], "down")
+        server.league_rollover(db)                                        # повторно в ту же неделю — ничего не меняется
+        self.assertEqual(db.q("SELECT league FROM leagues WHERE student_id=?", (sids[7],), one=True)["league"], 2)
+        for sid in sids:
+            for t in ("attempts", "leagues"):
+                db.x(f"DELETE FROM {t} WHERE student_id=?", (sid,))
+            db.x("DELETE FROM students WHERE id=?", (sid,))
+
+    def test_daily_task_and_crown(self):
+        tok = self.login("Дневной Денис")
+        st, d = self.req("GET", "/api/daily", token=tok)
+        self.assertEqual(st, 200, d)
+        real = server.APP.bank.real(d["task"])
+        ans = next(t for t in BANK["tasks"] if t["id"] == real)["ans"]
+        self.req("POST", "/api/open", {"task": d["task"]}, tok)
+        self.check(tok, d["task"], answer=ans)
+        st, d = self.req("GET", "/api/daily", token=tok)
+        mine = next(r for r in d["top"] if r["me"])                       # другие ученики тестов могли решить раньше
+        self.assertEqual((mine["name"], mine["place"], d["my_place"]), ("Дневной Д.", d["my_place"], d["my_place"]))
+        self.assertGreaterEqual(d["mine"], 0)
+        # вчерашний самый быстрый носит корону
+        me = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        y = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+        server.APP.db.x("INSERT INTO daily_results(day, student_id, task_id, ms, ts) VALUES(?,?,?,?,?)", (y, me, real, 5000, 0))
+        self.assertEqual(self.req("GET", "/api/daily", token=tok)[1]["crown"], "Дневной Д.")
+        board = self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]
+        self.assertIn("👑", next(r for r in board["day"]["top"] if r["me"])["badges"])
+        self.assertEqual(board["league"]["name"], "Бронзовая лига")
+
+    def test_duel_full_cycle(self):
+        ta, tb = self.login("Дуэлев Аркадий"), self.login("Дуэлев Борис")
+        sb = self.req("GET", "/api/me", token=tb)[1]["sid"]
+        server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
+                        (sb, time.time() - 100, "du:old", 5, "[]", "1", 1.0))   # у Бориса есть опыт — будет что забрать
+        mates = self.req("GET", "/api/duels", token=ta)[1]["mates"]
+        self.assertIn("Дуэлев Б.", [m["name"] for m in mates])
+        st, d = self.req("POST", "/api/duel/create", {"sid": sb}, ta)
+        self.assertEqual(st, 200, d)
+        did = d["id"]
+        self.assertEqual(self.req("POST", "/api/duel/create", {"sid": sb}, ta)[0], 409)   # второй вызов тому же — нельзя
+        inv = self.req("GET", "/api/duels", token=tb)[1]["duels"][0]
+        self.assertEqual((inv["status"], inv["mine"], inv["opponent"]), ("pending", False, "Дуэлев А."))
+        self.req("POST", "/api/duel/respond", {"id": did, "accept": True}, tb)
+        tasks = self.req("POST", "/api/duel/start", {"id": did}, ta)[1]["tasks"]
+        for pid in tasks:                                                 # Аркадий решает всё верно
+            real = server.APP.bank.real(pid)
+            self.req("POST", "/api/open", {"task": pid}, ta)
+            self.check(ta, pid, answer=next(t for t in BANK["tasks"] if t["id"] == real)["ans"])
+        self.req("POST", "/api/duel/finish", {"id": did}, ta)
+        self.req("POST", "/api/duel/start", {"id": did}, tb)
+        self.req("POST", "/api/duel/finish", {"id": did}, tb)              # Борис ничего не решил
+        res = {d["id"]: d for d in self.req("GET", "/api/duels", token=ta)[1]["duels"]}[did]
+        self.assertEqual((res["status"], res["result"], res["my_solved"], res["op_solved"]), ("finished", "win", len(tasks), 0))
+        self.assertEqual(res["stake"], 10)                                # забрал весь опыт Бориса (10 < 15)
+        self.assertEqual(self.req("GET", "/api/me", token=tb)[1]["game"]["xp"], 0)
+
+    def test_class_battle_goal(self):
+        tok = self.login("Классный Карл")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "9Ц"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
+        st, d = self.admin("POST", "/api/admin/class/goal", {"id": cid, "goal_tasks": 300, "goal_reward": "отменю домашку"})
+        self.assertEqual((st, d["goal_tasks"]), (200, 300))
+        self.req("POST", "/api/open", {"task": server.APP.bank.pid("b:5")}, tok)
+        self.check(tok, server.APP.bank.pid("b:5"), answer="12")
+        cl = next(c for c in self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]["classes"]["list"] if c["mine"])
+        self.assertEqual((cl["name"], cl["goal"], cl["reward"], cl["solved"]), ("9Ц", 300, "отменю домашку", 1))
+        self.assertGreater(cl["xp"], 0)
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
 
     def test_bank_pick_and_find_for_teacher(self):
         st, d = self.admin("GET", "/api/admin/bank/pick?n=5&count=3")

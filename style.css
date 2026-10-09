@@ -1010,3 +1010,39 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .rank-btn b { color: var(--text); font-weight: 900; font-size: 17px; }
 .rank-btn.none .cup-b { fill: var(--faint); }
 .rank-btn.top b { color: #e6a700; }
+
+/* соревнования: лига, классы, значки, задание дня, дуэли, сводка */
+.lb-tabs { flex-wrap: wrap; }
+.lb-tabs button { flex: 1 1 auto; min-width: 70px; }
+.lb-badges { font-size: 13px; margin-left: 4px; white-space: nowrap; }
+.lb-legend { font-size: 12px; margin-top: 10px; }
+.lg-head { display: flex; gap: 12px; align-items: center; margin: 4px 0 10px; }
+.lg-icon { font-size: 34px; line-height: 1; }
+.lg-head b { font-size: 17px; }
+.lg-head .fm-muted { font-size: 13px; line-height: 1.4; }
+.lb tr.z-up td:first-child { box-shadow: inset 4px 0 0 var(--good); }
+.lb tr.z-down td:first-child { box-shadow: inset 4px 0 0 var(--weak); }
+.z-mark { font-size: 11px; margin-right: 4px; }
+.z-mark.up { color: var(--good); }
+.z-mark.down { color: var(--weak); }
+.cl-row { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+.cl-row.me { background: var(--accent-soft); border-radius: 10px; }
+.cl-main { flex: 1; min-width: 0; }
+.cl-goal { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.cl-row .num { font-weight: 800; white-space: nowrap; }
+.comp-card .mode-sub { color: var(--accent-text); }
+.comp-card.done .mode-sub { color: var(--good); }
+.comp-card.alert { border-color: var(--review); }
+.comp-card.alert .mode-sub { color: var(--review); font-weight: 800; }
+.rank-lg { font-size: 20px; line-height: 1; }
+.duel-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 9px 4px; border-bottom: 1px solid var(--border); }
+.duel-row .fm-muted { font-size: 13px; }
+.duel-row.win .fm-muted { color: var(--good); font-weight: 700; }
+.duel-row.lose .fm-muted { color: var(--weak); font-weight: 700; }
+.duel-btns { display: inline-flex; gap: 6px; flex: none; }
+.duel-btns .btn { padding: 6px 12px; font-size: 13px; }
+.sum-res, .sum-note { padding: 10px 14px; border-radius: 12px; margin: 8px 0; background: var(--card); border: 2px solid var(--border); font-size: 14.5px; line-height: 1.45; }
+.sum-res.up { border-color: var(--good); }
+.sum-res.down { border-color: var(--weak); }
+.sum-note.hot { border-color: var(--review); }
+.sum-note .btn { padding: 4px 12px; font-size: 13px; margin-left: 6px; }

@@ -381,7 +381,9 @@
   async function openClass(id) {
     try {
       const [s, a] = await Promise.all([api('students?class_id=' + id), api('assignments?class_id=' + id)]);
-      curClass = { id, name: (classes.find(c => c.id === id) || {}).name || '', students: s.students, assignments: a.assignments };
+      const cl = classes.find(c => c.id === id) || {};
+      curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0,
+        students: s.students, assignments: a.assignments };
     } catch (e) { if (e.status !== 401) toast(e.message); return; }
     renderClass();
   }
@@ -424,11 +426,31 @@
         <th>Ученик</th><th class="num">Ур.</th><th>Был(а)</th><th class="num">За 7 дней</th><th class="num">Верно с 1-й</th>
         <th class="num" title="Уходил со вкладки за 7 дней">Уходил</th><th class="num">Прогноз</th><th></th></tr></thead><tbody>${members}</tbody></table></div>`
         : '<p class="adm-empty">В классе пока нет учеников. Отметьте их галочками на вкладке «Ученики» и нажмите «Перенести в класс».</p>'}
+      <form class="adm-box adm-goal" id="goalForm">
+        <h3 class="adm-h3">Битва классов · цель на неделю</h3>
+        <p class="adm-hint">Ученики видят цель и прогресс класса в рейтинге (вкладка «Классы»). Считаются верно решённые задания с понедельника.
+          Сейчас: <b>${c.weekSolved}</b>${c.goal ? ` из ${c.goal}` : ''}.</p>
+        <div class="login-form">
+          <input class="inp" id="goalTasks" type="number" min="0" max="100000" placeholder="Заданий, например 300" value="${c.goal || ''}" style="max-width:190px">
+          <input class="inp" id="goalReward" maxlength="120" placeholder="Награда, например «отменю домашку»" value="${esc(c.reward)}">
+          <button class="btn primary" type="submit">Сохранить</button>
+        </div>
+      </form>
       <div class="adm-toolbar" style="margin-top:28px"><h2 class="adm-h">Подборки заданий</h2>
         <span class="adm-actions"><button type="button" class="btn primary" id="asgNew">Новая подборка</button></span></div>
       <div id="asgEditor"></div>
       ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}`;
   }
+  $('#classBody').addEventListener('submit', async e => {
+    if (e.target.id !== 'goalForm' || !curClass) return;
+    e.preventDefault();
+    try {
+      const r = await api('class/goal', { id: curClass.id, goal_tasks: +$('#goalTasks').value || 0, goal_reward: $('#goalReward').value });
+      curClass.goal = r.goal_tasks; curClass.reward = r.goal_reward;
+      await fetchClasses();
+      toast(r.goal_tasks ? `Цель класса: ${r.goal_tasks} заданий за неделю` : 'Цель класса убрана');
+    } catch (err) { if (err.status !== 401) toast(err.message); }
+  });
   $('#classBody').addEventListener('click', async e => {
     const c = curClass;
     if (!c) return;
