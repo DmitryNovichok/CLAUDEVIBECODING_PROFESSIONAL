@@ -382,7 +382,7 @@
     try {
       const [s, a] = await Promise.all([api('students?class_id=' + id), api('assignments?class_id=' + id)]);
       const cl = classes.find(c => c.id === id) || {};
-      curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0,
+      curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0, battle: !!cl.battle,
         students: s.students, assignments: a.assignments };
     } catch (e) { if (e.status !== 401) toast(e.message); return; }
     renderClass();
@@ -428,7 +428,9 @@
         : '<p class="adm-empty">В классе пока нет учеников. Отметьте их галочками на вкладке «Ученики» и нажмите «Перенести в класс».</p>'}
       <form class="adm-box adm-goal" id="goalForm">
         <h3 class="adm-h3">Битва классов · цель на неделю</h3>
-        <p class="adm-hint">Ученики видят цель и прогресс класса в рейтинге (вкладка «Классы»). Считаются верно решённые задания с понедельника.
+        <label class="adm-switch"><input type="checkbox" id="goalBattle"${c.battle ? ' checked' : ''}> Класс участвует в битве классов</label>
+        <p class="adm-hint">Ученики видят классы-участники, их опыт за неделю, цель и прогресс во вкладке «Классы» рейтинга.
+          Если ни один класс не участвует, вкладки нет. Считаются верно решённые задания с понедельника.
           Сейчас: <b>${c.weekSolved}</b>${c.goal ? ` из ${c.goal}` : ''}.</p>
         <div class="login-form">
           <input class="inp" id="goalTasks" type="number" min="0" max="100000" placeholder="Заданий, например 300" value="${c.goal || ''}" style="max-width:190px">
@@ -445,10 +447,11 @@
     if (e.target.id !== 'goalForm' || !curClass) return;
     e.preventDefault();
     try {
-      const r = await api('class/goal', { id: curClass.id, goal_tasks: +$('#goalTasks').value || 0, goal_reward: $('#goalReward').value });
-      curClass.goal = r.goal_tasks; curClass.reward = r.goal_reward;
+      const r = await api('class/goal', { id: curClass.id, goal_tasks: +$('#goalTasks').value || 0, goal_reward: $('#goalReward').value,
+        battle: $('#goalBattle').checked });
+      curClass.goal = r.goal_tasks; curClass.reward = r.goal_reward; curClass.battle = r.battle;
       await fetchClasses();
-      toast(r.goal_tasks ? `Цель класса: ${r.goal_tasks} заданий за неделю` : 'Цель класса убрана');
+      toast(!r.battle ? 'Класс не участвует в битве классов' : r.goal_tasks ? `В битве · цель: ${r.goal_tasks} заданий за неделю` : 'Класс участвует в битве классов');
     } catch (err) { if (err.status !== 401) toast(err.message); }
   });
   $('#classBody').addEventListener('click', async e => {

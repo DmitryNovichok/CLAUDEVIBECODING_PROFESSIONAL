@@ -432,7 +432,7 @@ class ServerTest(unittest.TestCase):
         db = server.APP.db
         prev = server.week_start() - 4 * 86400                           # середина прошлой недели
         sids = []
-        for i in range(8):                                                # 8 человек в серебряной лиге
+        for i in range(16):                                               # 16 человек в серебряной лиге
             sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES(?,?,?,0,0)",
                        (f"Лигов{chr(1040 + i)} Л", f"лигов{i} л", f"tklg{i}"))
             db.x("INSERT INTO leagues(student_id, league, week) VALUES(?,1,?)", (sid, server.week_key(prev)))
@@ -443,12 +443,12 @@ class ServerTest(unittest.TestCase):
         db.setting("league_week", server.week_key(prev))
         server.league_rollover(db)
         got = {sid: db.q("SELECT league, result, result_place FROM leagues WHERE student_id=?", (sid,), one=True) for sid in sids}
-        self.assertEqual([got[x]["league"] for x in sids], [0, 0, 0, 1, 1, 2, 2, 2])   # трое вниз, трое вверх
-        self.assertEqual(got[sids[7]]["result"], "up")
-        self.assertEqual(got[sids[7]]["result_place"], 1)
+        self.assertEqual([got[x]["league"] for x in sids], [0, 0, 0, 1, 1, 1] + [2] * 10)   # трое вниз, десятка вверх
+        self.assertEqual(got[sids[15]]["result"], "up")
+        self.assertEqual(got[sids[15]]["result_place"], 1)
         self.assertEqual(got[sids[0]]["result"], "down")
         server.league_rollover(db)                                        # повторно в ту же неделю — ничего не меняется
-        self.assertEqual(db.q("SELECT league FROM leagues WHERE student_id=?", (sids[7],), one=True)["league"], 2)
+        self.assertEqual(db.q("SELECT league FROM leagues WHERE student_id=?", (sids[15],), one=True)["league"], 2)
         for sid in sids:
             for t in ("attempts", "leagues"):
                 db.x(f"DELETE FROM {t} WHERE student_id=?", (sid,))
@@ -507,7 +507,9 @@ class ServerTest(unittest.TestCase):
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
         cid = self.admin("POST", "/api/admin/class/save", {"name": "9Ц"})[1]["id"]
         self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
-        st, d = self.admin("POST", "/api/admin/class/goal", {"id": cid, "goal_tasks": 300, "goal_reward": "отменю домашку"})
+        self.assertEqual(self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]["classes"]["list"], [])   # пока не участвует
+        st, d = self.admin("POST", "/api/admin/class/goal", {"id": cid, "goal_tasks": 300, "goal_reward": "отменю домашку",
+                                                             "battle": True})
         self.assertEqual((st, d["goal_tasks"]), (200, 300))
         self.req("POST", "/api/open", {"task": server.APP.bank.pid("b:5")}, tok)
         self.check(tok, server.APP.bank.pid("b:5"), answer="12")

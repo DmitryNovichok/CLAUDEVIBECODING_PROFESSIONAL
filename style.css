@@ -1046,3 +1046,8 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .sum-res.down { border-color: var(--weak); }
 .sum-note.hot { border-color: var(--review); }
 .sum-note .btn { padding: 4px 12px; font-size: 13px; margin-left: 6px; }
+
+/* карточки «Задание дня» и «Дуэли»: текст не шире карточки */
+.mode-row > .mode-card { min-width: 0; }
+.comp-card .mode-title, .comp-card .mode-sub { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb tr.lb-gap td { text-align: center; color: var(--faint); padding: 2px; }

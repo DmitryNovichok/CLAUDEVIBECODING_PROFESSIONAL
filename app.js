@@ -3497,22 +3497,21 @@
   const daysLeft = endSec => Math.max(0, Math.ceil((endSec * 1000 - Date.now()) / 864e5));
 
   function leagueHtml(L) {
-    const shown = L.top.filter(r => r.value > 0 || r.me);              // без опыта на этой неделе — одной строкой
-    const idle = L.total - shown.length;
-    const n = shown.length;
-    const rows = shown.map(r => {
+    const row = r => {
       const zone = r.value > 0 && r.place <= L.up ? 'up' : L.down && r.place > L.total - L.down ? 'down' : '';
       return `<tr class="${r.me ? 'me' : ''} ${zone ? 'z-' + zone : ''}"><td class="lb-place">${placeHtml(r.place)}</td>
         <td>${esc(r.name)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td>
         <td class="num">${zone === 'up' ? '<span class="z-mark up" title="Поднимется в лигу выше">▲</span>' : zone === 'down' ? '<span class="z-mark down" title="Опустится в лигу ниже">▼</span>' : ''} +${r.value} XP</td></tr>`;
-    }).join('');
+    };
+    const mineOut = L.me && L.me.place > L.top.length;              // я ниже 20-го места — покажу свою строку отдельно
     const left = daysLeft(L.ends);
     return `<div class="lg-head"><span class="lg-icon">${L.icon}</span><div><b>${esc(L.name)}</b>
         <div class="fm-muted">Итоги в понедельник — ${left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'сегодня ночью'}.
-        ${L.up ? `Тройка лидеров поднимется в ${LEAGUE_NAMES[L.idx + 1].toLowerCase()} лигу.` : 'Это высшая лига — удержись в ней!'}
-        ${L.down ? ' Последние трое опустятся.' : ''}</div></div></div>
-      ${n ? `<table class="lb">${rows}</table>` : '<p class="fm-muted lb-empty">В лиге пока никого — реши задание, и ты в игре.</p>'}
-      ${idle > 0 ? `<p class="fm-muted lb-mine">Ещё ${idle} ${plural(idle, 'ученик', 'ученика', 'учеников')} в лиге пока без опыта на этой неделе.</p>` : ''}`;
+        ${L.up ? `Первые ${L.up} поднимутся в ${LEAGUE_NAMES[L.idx + 1].toLowerCase()} лигу.` : 'Это высшая лига — удержись в ней!'}
+        ${L.down ? ` Последние ${L.down} опустятся.` : ''}</div></div></div>
+      ${L.top.length ? `<table class="lb">${L.top.map(row).join('')}${mineOut ? `<tr class="lb-gap"><td colspan="4">…</td></tr>${row({ place: L.me.place, name: 'Ты', me: true, level: '', badges: [], value: L.me.value })}` : ''}</table>`
+        : '<p class="fm-muted lb-empty">В лиге пока никого — реши задание, и ты в игре.</p>'}
+      ${L.total > L.top.length ? `<p class="fm-muted lb-mine">Показаны первые ${L.top.length} из ${L.total}.</p>` : ''}`;
   }
   function classesHtml(C) {
     if (!C.list.length) return '<p class="fm-muted lb-empty">Классов пока нет: битва начнётся, когда учитель распределит учеников по классам.</p>';
@@ -3542,8 +3541,10 @@
     return `<table class="lb">${rows}</table>${mine}`;
   }
   function boardsHtml(d, key) {
+    const noClasses = !(d.boards && d.boards.classes && d.boards.classes.list.length);   // учитель не включил битву классов
+    const tabs = LB_TABS.filter(([k]) => k !== 'classes' || !noClasses);
     return `<div class="lb-wrap" data-lb='${esc(JSON.stringify(d))}'>
-      <div class="lb-tabs" role="tablist">${LB_TABS.map(([k, t]) => `<button type="button" data-lbtab="${k}" class="${k === key ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <div class="lb-tabs" role="tablist">${tabs.map(([k, t]) => `<button type="button" data-lbtab="${k}" class="${k === key ? 'on' : ''}">${t}</button>`).join('')}</div>
       <div class="lb-body">${boardHtml(d, key)}</div>
       <p class="fm-muted lb-legend">Значки: 🔥 — огонёк 7+ дней, 👑 — быстрее всех решил вчерашнее задание дня, 💎 — алмазная лига.</p></div>`;
   }
@@ -3628,8 +3629,7 @@
     if (!card) return;
     card.hidden = !(DAILY && DAILY.task && byId.get(DAILY.task));
     if (card.hidden) return;
-    $('#dailySub').textContent = DAILY.my_place ? `ты ${DAILY.my_place}-й · ${fmtMs(DAILY.mine)}`
-      : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n} · будь первым`;
+    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
     card.classList.toggle('done', !!DAILY.my_place);
   }
   function dailyHtml() {
@@ -3675,7 +3675,7 @@
     card.hidden = !SERVER || !student || !(DUELS.mates || []).length && !DUELS.duels.length;
     const inv = DUELS.duels.filter(d => d.status === 'pending' && !d.mine).length;
     const act = DUELS.duels.filter(d => d.status === 'active').length;
-    $('#duelSub').textContent = inv ? `тебя вызвали: ${inv}!` : act ? `идёт: ${act}` : 'вызови соперника';
+    $('#duelSub').textContent = inv ? `вызов: ${inv}!` : act ? `идёт: ${act}` : 'вызвать';
     card.classList.toggle('alert', !!inv);
   }
   function duelRow(d) {
@@ -3962,6 +3962,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.17.1', '09.10.2026', ['Лига: в таблице 20 мест, в лигу выше выходят первые 10', 'Битва классов — только для классов, которые выбрал учитель',
+      'Поправлены карточки «Задание дня» и «Дуэли» в меню']],
     ['1.17.0', '09.10.2026', ['Лиги на неделю: бронза → серебро → золото → алмаз; в понедельник тройка лидеров поднимается, последние трое опускаются',
       '«Тебя обогнали!» — при входе видно, кто тебя обошёл и сколько заданий до места выше',
       'Задание дня: одно на всех, рейтинг по скорости решения с первой попытки, самый быстрый носит 👑',
