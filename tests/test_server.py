@@ -518,6 +518,30 @@ class ServerTest(unittest.TestCase):
         self.assertGreater(cl["xp"], 0)
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
 
+    def test_class_stats_for_grades(self):
+        tok = self.login("Оценкин Олег")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "8Ж"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
+        p5, p6 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": p5}, tok)
+        self.check(tok, p5, answer="12")                                  # верно с 1-й
+        self.req("POST", "/api/open", {"task": p6}, tok)
+        self.check(tok, p6, answer="1")
+        self.check(tok, p6, answer="7")                                   # со 2-й
+        st, a = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Урок", "tasks": ["b:5"]})
+        aid = self.admin("GET", f"/api/admin/assignments?class_id={cid}")[1]["assignments"][0]["id"]
+        now = time.time()
+        st, d = self.admin("GET", f"/api/admin/class/stats?class_id={cid}&from={now - 3600}&to={now + 60}")
+        r = d["rows"][0]
+        self.assertEqual((r["name"], r["tasks"], r["solved"], r["ok1"], r["ok2"], r["nums"]), ("Оценкин Олег", 2, 2, 1, 1, [5, 6]))
+        self.assertIsNone(d["asg_total"])
+        st, d = self.admin("GET", f"/api/admin/class/stats?class_id={cid}&from={now - 3600}&to={now + 60}&asg={aid}")
+        self.assertEqual((d["asg_total"], d["rows"][0]["solved"], d["rows"][0]["tasks"]), (1, 1, 1))   # только задания подборки
+        st, d = self.admin("GET", f"/api/admin/class/stats?class_id={cid}&from={now - 7200}&to={now - 3600}")
+        self.assertEqual(d["rows"][0]["tasks"], 0)                                                   # вне периода — пусто
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
     def test_bank_pick_and_find_for_teacher(self):
         st, d = self.admin("GET", "/api/admin/bank/pick?n=5&count=3")
         self.assertEqual([t["id"] for t in d["tasks"]], ["b:5"])

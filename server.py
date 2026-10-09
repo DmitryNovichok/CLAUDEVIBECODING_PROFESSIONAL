@@ -2316,6 +2316,53 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("UPDATE students SET class_id=? WHERE id=?", (cid, sid))
             return self.send_json({"ok": True, "moved": len(ids)})
 
+        if path == "/api/admin/class/stats":
+            # статистика класса за период (урок, день, неделя) — по всем заданиям или по одной подборке: для оценок
+            cid = to_int(qs.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            try:
+                t0, t1 = float(qs.get("from") or 0), float(qs.get("to") or now)
+            except ValueError:
+                return self.err(400, "неверный период")
+            members = db.q("SELECT id, name FROM students WHERE class_id=? ORDER BY name", (cid,))
+            asg_tasks = None
+            aid = to_int(qs.get("asg"))
+            if aid:
+                a = db.q("SELECT tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
+                if not a:
+                    return self.err(404, "подборка не найдена")
+                asg_tasks = json.loads(a["tasks"] or "[]")
+            rows = {}
+            if members:
+                ids = [m["id"] for m in members]
+                cond, args = f"student_id IN ({','.join('?' * len(ids))}) AND ts>=? AND ts<? AND exam IS NULL", (*ids, t0, t1)
+                if asg_tasks is not None:
+                    qm = ",".join("?" * len(asg_tasks)) or "NULL"
+                    cond += f" AND (task_id IN ({qm}) OR grp IN ({qm}))"
+                    args += (*asg_tasks, *asg_tasks)
+                for r in db.q(f"""SELECT student_id, COUNT(*) AS answers, COUNT(DISTINCT COALESCE(grp, task_id)) AS tasks,
+                                         SUM(score = 1) AS ok1, SUM(score = 0.5) AS ok2, SUM(score = 0) AS bad,
+                                         SUM(score = 0 AND gave_up = 1 AND revealed = 1) AS shown,
+                                         COUNT(DISTINCT CASE WHEN score > 0 THEN COALESCE(grp, task_id) END) AS solved,
+                                         SUM(COALESCE(spent_ms, 0)) AS spent, SUM(COALESCE(away, 0)) AS away,
+                                         MIN(ts) AS first, MAX(ts) AS last, GROUP_CONCAT(DISTINCT n) AS nums
+                                  FROM attempts WHERE {cond} GROUP BY student_id""", args):
+                    rows[r["student_id"]] = dict(r)
+                for r in db.q(f"""SELECT student_id, MAX(test_score) AS exam FROM exams WHERE finished>=? AND finished<?
+                                  AND student_id IN ({','.join('?' * len(ids))}) GROUP BY student_id""", (t0, t1, *ids)):
+                    rows.setdefault(r["student_id"], {})["exam"] = r["exam"]
+            out = []
+            for m in members:
+                r = rows.get(m["id"], {})
+                nums = sorted({int(x) for x in str(r.get("nums") or "").split(",") if x.strip().isdigit()})
+                out.append({"id": m["id"], "name": m["name"], "answers": r.get("answers") or 0, "tasks": r.get("tasks") or 0,
+                            "solved": r.get("solved") or 0, "ok1": r.get("ok1") or 0, "ok2": r.get("ok2") or 0,
+                            "bad": r.get("bad") or 0, "shown": r.get("shown") or 0, "spent": r.get("spent") or 0,
+                            "away": r.get("away") or 0, "first": r.get("first"), "last": r.get("last"), "nums": nums,
+                            "exam": r.get("exam")})
+            return self.send_json({"rows": out, "asg_total": len(asg_tasks) if asg_tasks is not None else None})
+
         if path == "/api/admin/assignments":
             cid = to_int(qs.get("class_id"))
             if not self.sees_class(cid):
