@@ -1219,3 +1219,44 @@ body.side-min .rail-logo { cursor: pointer; }
 }
 @media (min-width: 861px) and (max-width: 1700px) { .topbar .dots { display: none; } }
 @media (min-width: 861px) and (max-width: 1250px) { .lvl-pill .lvl-info { display: none; } .goal-txt .goal-of ~ * { display: none; } }
+
+/* достижения: длинный текст переносится внутри карточки, а не вылезает за неё */
+.ach-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.ach { align-items: flex-start; }
+.ach > span:last-child { min-width: 0; flex: 1; }
+.ach b, .ach small { overflow-wrap: anywhere; hyphens: auto; }
+
+/* верхняя панель чуть крупнее (на широких экранах) */
+@media (min-width: 1300px) {
+  .topbar { padding-top: 14px; padding-bottom: 14px; }
+  .forecast { padding: 8px 16px 8px 12px; gap: 12px; }
+  .forecast .fc-ico { width: 40px; height: 40px; }
+  .forecast .fc-label { font-size: 13px; }
+  .forecast .fc-value { font-size: 22px; }
+  .forecast.fc-empty .fc-value { font-size: 16px; }
+  .scope-title { font-size: 26px; }
+  .scope-stats { font-size: 14px; }
+  .rank-btn { font-size: 16px; }
+  .rank-btn b { font-size: 20px; }
+  .rank-lg { font-size: 24px; }
+  .rank-btn svg { width: 28px; height: 28px; }
+  .fire { font-size: 20px; }
+  .fire svg { width: 30px; height: 30px; }
+  .session-info { font-size: 15px; gap: 16px; }
+  .goal-bar { height: 5px; }
+  .lvl-pill { padding: 7px 14px; gap: 9px; }
+  .lvl-star { font-size: 19px; }
+  .lvl-txt { font-size: 17px; }
+  .lvl-pill .lvl-info { width: 92px; }
+  .lvl-pill .xp-bar { height: 8px; }
+  .lvl-pill small { font-size: 12px; }
+  .ava { width: 46px; height: 46px; font-size: 16px; }
+}
+@media (min-width: 861px) {
+  .scope-info { min-width: 0; }
+  .scope-stats { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+}
+@media (min-width: 861px) and (max-width: 1500px) { .scope-info .chip { font-size: 12px; } }
+.goal-txt { white-space: nowrap; }
+/* тема и «свернуть» — сразу под разделами, через черту */
+@media (min-width: 861px) { .rail-sp { flex: none; width: 28px; height: 2px; border-radius: 2px; background: var(--border); margin: 4px 0; } }
