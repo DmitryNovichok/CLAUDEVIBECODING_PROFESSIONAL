@@ -1176,3 +1176,11 @@ body.side-min .rail-logo { cursor: pointer; }
 .side-panel .banks { background: none; border: 0; padding: 0; gap: 5px; }
 .side-panel .banks button { flex: 0 0 auto; padding: 4px 10px; border: 2px solid var(--border); border-radius: 999px; font-weight: 700; }
 .side-panel .banks button.on { background: var(--sel); border-color: var(--sel-border); color: var(--sel-text); }
+/* значки панели — «объёмные» SVG; плитка 19–21 занимает свободное место рядом с 17 и 18 */
+.r-ico { display: grid; place-items: center; }
+.r-ico svg { width: 28px; height: 28px; display: block; }
+@media (max-width: 860px) { .r-ico svg { width: 25px; height: 25px; } }
+.num-card.wide { grid-column: span 2; height: 62px; padding: 4px 0 10px; border-radius: 14px; }
+.num-card.wide .n { font-size: 17px; }
+.num-card.wide .c { font-size: 10px; }
+@media (max-width: 860px) { .num-card.wide { height: 60px; } }
