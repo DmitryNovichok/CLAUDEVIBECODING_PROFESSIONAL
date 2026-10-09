@@ -125,7 +125,7 @@
     }).join(' → ');
   }
   const idOf = taskId => String(taskId || '').split(':').slice(1).join(':') || taskId;
-  const BANK_NAMES = { ege_bank: 'Банк ЕГЭ', kompege_bank: 'КомпЕГЭ', openfipi_bank: 'ФИПИ' };
+  const BANK_NAMES = { ege_bank: 'Банк ЕГЭ', kompege_bank: 'КомпЕГЭ', openfipi_bank: 'ФИПИ', egeshka_bank: 'Egeshka' };
 
   // ------------------------------------------------------------ вход
   function showLogin() {
@@ -709,7 +709,32 @@
     $('#journalTitle').textContent = `Журнал · ${A.length} ${plural(A.length, 'запись', 'записи', 'записей')}`;
     $('#journalEmpty').hidden = A.length > 0;
     $('#stJournal').hidden = A.length === 0;
-    $('#stJournal tbody').innerHTML = A.map(a => {
+    // одна подборка — смена 05:00–16:15 или 16:15–05:00 (ночь — к вечеру прошлого дня); вариант ЕГЭ — своей подборкой
+    const groups = new Map();
+    for (const a of A) {
+      let key, label;
+      if (a.exam) {
+        key = 'x:' + a.exam;
+        label = `Вариант ЕГЭ · ${fmtDate(a.ts)}`;
+      } else {
+        const d = new Date(a.ts * 1000);
+        const mins = d.getHours() * 60 + d.getMinutes();
+        const day = mins >= 16 * 60 + 15 ? 'pm' : mins >= 5 * 60 ? 'am' : 'pm';
+        if (mins < 5 * 60) d.setDate(d.getDate() - 1);
+        key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${day}`;
+        label = `${fmtDate(d.getTime() / 1000)} · ${day === 'am' ? '05:00–16:15' : '16:15–05:00'}`;
+      }
+      if (!groups.has(key)) groups.set(key, { label, exam: !!a.exam, rows: [] });
+      groups.get(key).rows.push(a);
+    }
+    const groupHead = g => {
+      const ok = g.rows.filter(a => !resultOf(a).bad).length;
+      const spent = g.rows.reduce((x, a) => x + (a.spent_ms || 0), 0);
+      const tasks = new Set(g.rows.map(a => a.task_id)).size;
+      return `<tr class="j-group${g.exam ? ' j-exam' : ''}"><td colspan="8"><b>${esc(g.label)}</b>
+        <span class="muted"> · ${tasks} ${plural(tasks, 'задание', 'задания', 'заданий')} · верно ${ok}, ошибок ${g.rows.length - ok}${spent ? ` · ${fmtSpent(spent)}` : ''}</span></td></tr>`;
+    };
+    $('#stJournal tbody').innerHTML = [...groups.values()].map(g => groupHead(g) + g.rows.map(a => {
       const r = resultOf(a);
       return `<tr>
         <td class="muted" style="white-space:nowrap">${fmtDate(a.ts)} ${fmtTime(a.ts)}</td>
@@ -722,7 +747,7 @@
         <td class="num muted">${fmtSpent(a.spent_ms)}</td>
         <td class="num">${a.away ? `<span style="color:var(--review)" title="уходил со вкладки, пока решал">${a.away}</span>` : ''}</td>
       </tr>`;
-    }).join('');
+    }).join('')).join('');
   }
   $('#stFilters').addEventListener('click', e => {
     const b = e.target.closest('button[data-f]');

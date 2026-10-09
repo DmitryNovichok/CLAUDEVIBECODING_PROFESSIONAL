@@ -3,6 +3,7 @@
 Поднимают server.py на свободном порту с временной базой и маленьким банком заданий.
 """
 import http.client
+import datetime
 import json
 import re
 import shutil
@@ -214,6 +215,31 @@ class ServerTest(unittest.TestCase):
             server.EXTRA_BANK.unlink()
             server.APP.bank.ensure()
 
+    def test_task9_gets_txt_copy_of_table(self):
+        # №9 решают, скопировав таблицу в .txt: сервер сам даёт 9.txt (ячейки через табуляцию)
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+        import gen_egeshka
+        media = self.tmp / "media" / "t9"
+        media.mkdir(parents=True, exist_ok=True)
+        gen_egeshka.write_xlsx(media / "9.xlsx", [("Лист1", [[12, 7, 33], [100, 8, "x"]])])
+        extra = {"bank": {"id": "egeshka_bank", "title": "Egeshka", "count": 1},
+                 "tasks": [{"id": "egeshka_bank:t9", "n": 9, "bank": "egeshka_bank", "html": "<p>9</p>", "ans": "1",
+                            "att": [{"name": "9.xlsx", "href": "media/t9/9.xlsx"}]}]}
+        server.EXTRA_BANK.write_text(json.dumps(extra, ensure_ascii=False), encoding="utf-8")
+        try:
+            server.APP.bank.ensure()
+            pub = json.loads(server.APP.bank.public_raw.decode()[len("window.EGE_BANK = "):-2])
+            att = next(t for t in pub["tasks"] if t["n"] == 9 and t["bank"] == "egeshka_bank")["att"]
+            self.assertEqual([a["name"] for a in att], ["9.xlsx", "9.txt"])
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            c.request("GET", "/" + att[1]["href"])
+            r = c.getresponse()
+            self.assertEqual((r.status, r.read()), (200, b"12\t7\t33\n100\t8\tx\n"))
+            c.close()
+        finally:
+            server.EXTRA_BANK.unlink()
+            server.APP.bank.ensure()
+
     def test_answer_alternatives(self):
         # в банке ФИПИ бывает «13992 или 13993»: одна ячейка, засчитывается любой из ответов
         self.assertEqual(server.shape_of("13992 или 13993"), {"type": "single"})
@@ -382,8 +408,24 @@ class ServerTest(unittest.TestCase):
         st, r = self.check(tok, pid5, answer="12")
         self.assertEqual(r["game"]["xp"], 12)
         st, d = self.req("GET", "/api/leaderboard", token=tok)
-        self.assertEqual((d["class"], d["rows"][0]["name"], d["rows"][0]["me"]), ("10Б", "Подборкин П.", True))
+        me_row = next(r for r in d["boards"]["day"]["top"] if r["me"])          # рейтинг дня: опыт за сегодня
+        self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", 12))
+        self.assertEqual(d["boards"]["day"]["me"]["value"], 12)
+        self.assertLessEqual(len(d["boards"]["week"]["top"]), 10)
+        self.assertIn("fire", d["boards"])
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
+    def test_fire_streak_on_server(self):
+        db = server.APP.db
+        sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Огнев Олег','огнев олег','tkfire',0,0)")
+        noon = time.mktime(datetime.date.today().timetuple()) + 12 * 3600
+        for back, n in ((0, 3), (1, 4), (2, 3), (4, 5)):      # сегодня, вчера, позавчера; 3 дня назад — пропуск
+            for i in range(n):
+                db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
+                     (sid, noon - back * 86400 + i, f"b:{i}", 5, "[]", "1", 0))
+        self.assertEqual(server.game_summary(db, sid, brief=True)["fire"], 3)
+        for t in ("attempts", "students"):
+            db.x(f"DELETE FROM {t} WHERE {'student_id' if t == 'attempts' else 'id'}=?", (sid,))
 
     def test_bank_pick_and_find_for_teacher(self):
         st, d = self.admin("GET", "/api/admin/bank/pick?n=5&count=3")
@@ -496,6 +538,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in d["classes"]], [her_class])
         self.assertEqual(self.teacher_req(cookie, "POST", "/api/admin/class/members",
                                           {"class_id": main_class, "students": [her]})[0], 404)
+        # и главный учитель не видит классы других учителей
+        st, d = self.admin("GET", "/api/admin/classes")
+        self.assertNotIn(her_class, [c["id"] for c in d["classes"]])
+        self.assertEqual(self.admin("GET", f"/api/admin/assignments?class_id={her_class}")[0], 404)
         # своя настройка авторских заданий — у её учеников
         self.teacher_req(cookie, "POST", "/api/admin/authored", {"on": False})
         tok = self.req("POST", "/api/login", {"mode": "login", "name": "Машин Михаил", "password": "secret1"})[1]["token"]
