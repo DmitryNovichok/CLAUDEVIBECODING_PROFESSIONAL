@@ -1,18 +1,18 @@
 :root {
-  --bg: #131f24; --panel: #131f24; --card: #1a2a31; --card-hover: #202f36;
-  --border: #37464f; --border-strong: #4b5c66;
-  --text: #f1f7fb; --muted: #8a9ba5; --faint: #5f717b;
+  --bg: #16181d; --panel: #1a1d23; --card: #22262e; --card-hover: #2a2f38;
+  --border: #343a45; --border-strong: #4a5262;
+  --text: #eef1f6; --muted: #98a2b3; --faint: #687183;
   --accent: #1cb0f6; --accent-strong: #49c0f8; --accent-soft: rgba(28, 176, 246, .18); --accent-text: #49c0f8; --link: #49c0f8;
   --good: #58cc02; --good-strong: #58a700; --good-soft: rgba(88, 204, 2, .14);
   --mid: #ffc800; --weak: #ff4b4b; --weak-soft: rgba(255, 75, 75, .14);
   --review: #ff9600; --review-soft: rgba(255, 150, 0, .16);
   --on-accent: #ffffff; --on-good: #ffffff; --badge: #58cc02;
   --sel: rgba(28, 176, 246, .16); --sel-border: #1cb0f6; --sel-text: #49c0f8;
-  --input-bg: #1a2a31; --code-bg: #16232a; --topbar-bg: #131f24;
-  --track: #37464f; --subtle: rgba(255, 255, 255, .03); --linked: #d4e2ea;
-  --answer-bg: rgba(0, 0, 0, .25); --overlay: rgba(5, 12, 16, .7); --overlay-strong: rgba(19, 31, 36, .94);
+  --input-bg: #22262e; --code-bg: #1a1d23; --topbar-bg: #16181d;
+  --track: #343a45; --subtle: rgba(255, 255, 255, .03); --linked: #d9dee7;
+  --answer-bg: rgba(0, 0, 0, .25); --overlay: rgba(6, 7, 9, .7); --overlay-strong: rgba(22, 24, 29, .94);
   --shadow: 0 20px 60px rgba(0, 0, 0, .5);
-  --ink: #37464f;
+  --ink: #343a45;
   color-scheme: dark;
   --radius: 16px;
   --px: none;
@@ -25,38 +25,38 @@
 /* светлая тема: по настройке системы или по кнопке в панели */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #ffffff; --panel: #ffffff; --card: #ffffff; --card-hover: #f7f7f7;
-    --border: #e5e5e5; --border-strong: #d0d0d0;
-    --text: #3c3c3c; --muted: #777777; --faint: #afafaf;
+    --bg: #f5f2eb; --panel: #fbf9f4; --card: #fffdf8; --card-hover: #f7f3ea;
+    --border: #e6dfd0; --border-strong: #d3c9b5;
+    --text: #2c2923; --muted: #7a7264; --faint: #aaa292;
     --accent: #1cb0f6; --accent-strong: #1899d6; --accent-soft: rgba(28, 176, 246, .14); --accent-text: #1899d6; --link: #1899d6;
     --good: #58cc02; --good-strong: #58a700; --good-soft: #d7ffb8;
     --mid: #ffc800; --weak: #ff4b4b; --weak-soft: #ffdfe0;
     --review: #ff9600; --review-soft: rgba(255, 150, 0, .12);
     --on-accent: #ffffff; --on-good: #ffffff; --badge: #58cc02;
     --sel: #ddf4ff; --sel-border: #84d8ff; --sel-text: #1899d6;
-    --input-bg: #f7f7f7; --code-bg: #f7f7f7; --topbar-bg: #ffffff;
-    --track: #e5e5e5; --subtle: rgba(0, 0, 0, .03); --linked: #4b4b4b;
-    --answer-bg: rgba(0, 0, 0, .05); --overlay: rgba(0, 0, 0, .45); --overlay-strong: rgba(255, 255, 255, .94);
+    --input-bg: #f7f3ea; --code-bg: #f7f3ea; --topbar-bg: #fbf9f4;
+    --track: #e6dfd0; --subtle: rgba(0, 0, 0, .03); --linked: #4a443a;
+    --answer-bg: rgba(0, 0, 0, .05); --overlay: rgba(0, 0, 0, .45); --overlay-strong: rgba(251, 249, 244, .94);
     --shadow: 0 20px 50px rgba(0, 0, 0, .18);
-    --ink: #e5e5e5;
+    --ink: #e6dfd0;
     color-scheme: light;
   }
 }
 :root[data-theme="light"] {
-  --bg: #ffffff; --panel: #ffffff; --card: #ffffff; --card-hover: #f7f7f7;
-  --border: #e5e5e5; --border-strong: #d0d0d0;
-  --text: #3c3c3c; --muted: #777777; --faint: #afafaf;
+  --bg: #f5f2eb; --panel: #fbf9f4; --card: #fffdf8; --card-hover: #f7f3ea;
+  --border: #e6dfd0; --border-strong: #d3c9b5;
+  --text: #2c2923; --muted: #7a7264; --faint: #aaa292;
   --accent: #1cb0f6; --accent-strong: #1899d6; --accent-soft: rgba(28, 176, 246, .14); --accent-text: #1899d6; --link: #1899d6;
   --good: #58cc02; --good-strong: #58a700; --good-soft: #d7ffb8;
   --mid: #ffc800; --weak: #ff4b4b; --weak-soft: #ffdfe0;
   --review: #ff9600; --review-soft: rgba(255, 150, 0, .12);
   --on-accent: #ffffff; --on-good: #ffffff; --badge: #58cc02;
   --sel: #ddf4ff; --sel-border: #84d8ff; --sel-text: #1899d6;
-  --input-bg: #f7f7f7; --code-bg: #f7f7f7; --topbar-bg: #ffffff;
-  --track: #e5e5e5; --subtle: rgba(0, 0, 0, .03); --linked: #4b4b4b;
-  --answer-bg: rgba(0, 0, 0, .05); --overlay: rgba(0, 0, 0, .45); --overlay-strong: rgba(255, 255, 255, .94);
+  --input-bg: #f7f3ea; --code-bg: #f7f3ea; --topbar-bg: #fbf9f4;
+  --track: #e6dfd0; --subtle: rgba(0, 0, 0, .03); --linked: #4a443a;
+  --answer-bg: rgba(0, 0, 0, .05); --overlay: rgba(0, 0, 0, .45); --overlay-strong: rgba(251, 249, 244, .94);
   --shadow: 0 20px 50px rgba(0, 0, 0, .18);
-  --ink: #e5e5e5;
+  --ink: #e6dfd0;
   color-scheme: light;
 }
 
