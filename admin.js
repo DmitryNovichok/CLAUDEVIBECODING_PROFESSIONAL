@@ -382,10 +382,11 @@
     try {
       const [s, a] = await Promise.all([api('students?class_id=' + id), api('assignments?class_id=' + id)]);
       const cl = classes.find(c => c.id === id) || {};
-      curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0,
+      curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0, battle: !!cl.battle,
         students: s.students, assignments: a.assignments };
     } catch (e) { if (e.status !== 401) toast(e.message); return; }
     renderClass();
+    setCsPreset('today');
   }
   function renderClass() {
     const c = curClass;
@@ -426,9 +427,30 @@
         <th>Ученик</th><th class="num">Ур.</th><th>Был(а)</th><th class="num">За 7 дней</th><th class="num">Верно с 1-й</th>
         <th class="num" title="Уходил со вкладки за 7 дней">Уходил</th><th class="num">Прогноз</th><th></th></tr></thead><tbody>${members}</tbody></table></div>`
         : '<p class="adm-empty">В классе пока нет учеников. Отметьте их галочками на вкладке «Ученики» и нажмите «Перенести в класс».</p>'}
+      <div class="adm-box cls-stats" id="clsStats">
+        <h3 class="adm-h3">Статистика класса за период — для оценок</h3>
+        <div class="cls-stats-bar">
+          <span class="cs-seg" id="csPreset">
+            <button type="button" data-cs="lesson">Последний час</button><button type="button" data-cs="today" class="on">Сегодня</button>
+            <button type="button" data-cs="yesterday">Вчера</button><button type="button" data-cs="week">7 дней</button>
+          </span>
+          <label>с <input class="inp" type="datetime-local" id="csFrom"></label>
+          <label>по <input class="inp" type="datetime-local" id="csTo"></label>
+          <select class="adm-select" id="csAsg"><option value="">Все задания</option>
+            ${c.assignments.map(a => `<option value="${a.id}">Подборка «${esc(a.title)}» (${a.tasks.length})</option>`).join('')}</select>
+          <button type="button" class="btn primary" id="csShow">Показать</button>
+          <button type="button" class="btn ghost" id="csCsv">Скачать для Excel</button>
+        </div>
+        <div class="adm-hint cls-grade-cfg">Подсказка оценки по проценту: «5» от <input type="number" min="0" max="100" data-g="5">%,
+          «4» от <input type="number" min="0" max="100" data-g="4">%, «3» от <input type="number" min="0" max="100" data-g="3">%.
+          Процент — доля верно решённых среди начатых заданий, а для подборки — решённых из всех заданий подборки.</div>
+        <div id="csTable"></div>
+      </div>
       <form class="adm-box adm-goal" id="goalForm">
         <h3 class="adm-h3">Битва классов · цель на неделю</h3>
-        <p class="adm-hint">Ученики видят цель и прогресс класса в рейтинге (вкладка «Классы»). Считаются верно решённые задания с понедельника.
+        <label class="adm-switch"><input type="checkbox" id="goalBattle"${c.battle ? ' checked' : ''}> Класс участвует в битве классов</label>
+        <p class="adm-hint">Ученики видят классы-участники, их опыт за неделю, цель и прогресс во вкладке «Классы» рейтинга.
+          Если ни один класс не участвует, вкладки нет. Считаются верно решённые задания с понедельника.
           Сейчас: <b>${c.weekSolved}</b>${c.goal ? ` из ${c.goal}` : ''}.</p>
         <div class="login-form">
           <input class="inp" id="goalTasks" type="number" min="0" max="100000" placeholder="Заданий, например 300" value="${c.goal || ''}" style="max-width:190px">
@@ -441,14 +463,106 @@
       <div id="asgEditor"></div>
       ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}`;
   }
+  // ---------- статистика класса за период: урок, день, неделя — по всем заданиям или по подборке
+  const GRADE_KEY = 'egeAdmin.grades';
+  const grades = () => { try { return Object.assign({ 5: 85, 4: 65, 3: 45 }, JSON.parse(localStorage.getItem(GRADE_KEY)) || {}); } catch (e) { return { 5: 85, 4: 65, 3: 45 }; } };
+  const toLocalInput = ms => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  let csData = null;
+  function setCsPreset(kind) {
+    if (!$('#csFrom')) return;
+    const now = new Date(), d0 = new Date(now); d0.setHours(0, 0, 0, 0);
+    let from = d0.getTime(), to = now.getTime() + 60e3;
+    if (kind === 'lesson') from = now.getTime() - 3600e3;
+    if (kind === 'yesterday') { to = d0.getTime(); from = to - 864e5; }
+    if (kind === 'week') from = d0.getTime() - 6 * 864e5;
+    $('#csFrom').value = toLocalInput(from);
+    $('#csTo').value = toLocalInput(to);
+    $$('#csPreset button').forEach(b => b.classList.toggle('on', b.dataset.cs === kind));
+    const g = grades();
+    $$('.cls-grade-cfg [data-g]').forEach(i => { i.value = g[i.dataset.g]; });
+    loadClassStats();
+  }
+  async function loadClassStats() {
+    if (!curClass) return;
+    const from = new Date($('#csFrom').value).getTime() / 1000, to = new Date($('#csTo').value).getTime() / 1000;
+    if (!(from < to)) { $('#csTable').innerHTML = '<p class="adm-hint">Начало периода должно быть раньше конца.</p>'; return; }
+    try {
+      csData = await api(`class/stats?class_id=${curClass.id}&from=${from}&to=${to}&asg=${$('#csAsg').value || ''}`);
+    } catch (err) { if (err.status !== 401) toast(err.message); return; }
+    csData.from = from; csData.to = to; csData.asgTitle = $('#csAsg').selectedOptions[0].textContent;
+    renderClassStats();
+  }
+  function csPercent(r) {
+    if (csData.asg_total != null) return csData.asg_total ? r.solved / csData.asg_total : 0;
+    return r.tasks ? r.solved / r.tasks : 0;
+  }
+  function csGrade(r) {
+    if (!r.tasks) return '';
+    const p = pct(csPercent(r)), g = grades();
+    return p >= g[5] ? 5 : p >= g[4] ? 4 : p >= g[3] ? 3 : 2;
+  }
+  function renderClassStats() {
+    const asg = csData.asg_total != null;
+    const rows = csData.rows.map(r => {
+      const g = csGrade(r);
+      return `<tr${r.tasks ? '' : ' class="muted-row"'}>
+        <td class="name">${esc(r.name)}</td>
+        <td class="num"><b>${asg ? `${r.solved} / ${csData.asg_total}` : r.solved}</b></td>
+        <td class="num">${r.tasks}</td><td class="num">${r.ok1}</td><td class="num">${r.ok2}</td><td class="num">${r.bad}</td>
+        <td class="num">${r.shown || ''}</td>
+        <td class="num">${r.tasks ? pct(csPercent(r)) + '%' : '<span class="muted">—</span>'}</td>
+        <td class="num">${r.spent ? fmtSpent(r.spent) : ''}</td>
+        <td class="num">${r.away ? `<span style="color:var(--review)">${r.away}</span>` : ''}</td>
+        <td class="muted">${r.nums.join(', ')}</td>
+        <td class="num">${r.exam != null ? r.exam : ''}</td>
+        <td class="num cs-grade">${g ? `<b class="g${g}">${g}</b>` : ''}</td></tr>`;
+    }).join('');
+    const worked = csData.rows.filter(r => r.tasks).length;
+    $('#csTable').innerHTML = `<p class="adm-hint">${fmtDate(csData.from)} ${fmtTime(csData.from)} — ${fmtDate(csData.to)} ${fmtTime(csData.to)} · ${esc(csData.asgTitle)} ·
+        занимались ${worked} из ${csData.rows.length}. Вариант ЕГЭ в счёт заданий не идёт — его балл в отдельном столбце.</p>
+      <div class="adm-table-wrap"><table class="adm-table"><thead><tr>
+        <th>Ученик</th><th class="num">${asg ? 'Решено из подборки' : 'Решено'}</th><th class="num" title="Разных заданий, к которым приступал">Начал</th>
+        <th class="num">С 1-й</th><th class="num">Со 2-й</th><th class="num">Неверно</th><th class="num" title="Открыл ответ, не решив">Ответ показан</th>
+        <th class="num">%</th><th class="num">Время</th><th class="num" title="Уходил со вкладки">Уходил</th><th>Номера</th>
+        <th class="num">Вариант</th><th class="num">Оценка</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  function csCsv() {
+    if (!csData) return;
+    const asg = csData.asg_total != null;
+    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходил', 'Номера', 'Вариант', 'Оценка (подсказка)'];
+    const q = v => { v = String(v == null ? '' : v); if (/^[=+\-@]/.test(v)) v = "'" + v; return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const lines = [head, ...csData.rows.map(r => [r.name, asg ? `${r.solved} из ${csData.asg_total}` : r.solved, r.tasks, r.ok1, r.ok2, r.bad, r.shown,
+      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.away, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
+    const csv = '﻿' + lines.map(l => l.map(q).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `${curClass.name} ${fmtDate(csData.from)}.csv`.replace(/[\\/:*?"<>|]/g, '-');
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+  $('#classBody').addEventListener('click', e => {
+    const p = e.target.closest('[data-cs]');
+    if (p) return setCsPreset(p.dataset.cs);
+    if (e.target.closest('#csShow')) { $$('#csPreset button').forEach(b => b.classList.remove('on')); return loadClassStats(); }
+    if (e.target.closest('#csCsv')) return csCsv();
+  });
+  $('#classBody').addEventListener('change', e => {
+    if (e.target.id === 'csAsg') return loadClassStats();
+    if (e.target.matches('.cls-grade-cfg [data-g]')) {
+      const g = grades(); g[e.target.dataset.g] = +e.target.value || 0;
+      try { localStorage.setItem(GRADE_KEY, JSON.stringify(g)); } catch (err) { /* не страшно */ }
+      if (csData) renderClassStats();
+    }
+  });
   $('#classBody').addEventListener('submit', async e => {
     if (e.target.id !== 'goalForm' || !curClass) return;
     e.preventDefault();
     try {
-      const r = await api('class/goal', { id: curClass.id, goal_tasks: +$('#goalTasks').value || 0, goal_reward: $('#goalReward').value });
-      curClass.goal = r.goal_tasks; curClass.reward = r.goal_reward;
+      const r = await api('class/goal', { id: curClass.id, goal_tasks: +$('#goalTasks').value || 0, goal_reward: $('#goalReward').value,
+        battle: $('#goalBattle').checked });
+      curClass.goal = r.goal_tasks; curClass.reward = r.goal_reward; curClass.battle = r.battle;
       await fetchClasses();
-      toast(r.goal_tasks ? `Цель класса: ${r.goal_tasks} заданий за неделю` : 'Цель класса убрана');
+      toast(!r.battle ? 'Класс не участвует в битве классов' : r.goal_tasks ? `В битве · цель: ${r.goal_tasks} заданий за неделю` : 'Класс участвует в битве классов');
     } catch (err) { if (err.status !== 401) toast(err.message); }
   });
   $('#classBody').addEventListener('click', async e => {

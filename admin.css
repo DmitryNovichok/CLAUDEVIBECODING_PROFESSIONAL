@@ -215,3 +215,16 @@ body:not(.is-main) .main-only { display: none !important; }
 .j-group td { background: var(--card-hover, rgba(127,127,127,.08)); padding-top: 10px !important; padding-bottom: 10px !important; border-top: 2px solid var(--border); }
 .j-group.j-exam td { background: rgba(28, 176, 246, .1); }
 .adm-goal { margin-top: 22px; }
+
+/* статистика класса за период */
+.cls-stats { margin-top: 22px; }
+.cls-stats-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.cls-stats-bar label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.cls-stats-bar .inp { width: auto; padding: 6px 8px; }
+.cs-seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; }
+.cs-seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+.cs-seg button.on { background: var(--card-hover); color: var(--text); font-weight: 700; }
+.cls-grade-cfg input { width: 52px; padding: 2px 4px; margin: 0 2px; font: inherit; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text); }
+.adm-table tr.muted-row td { opacity: .55; }
+.cs-grade b { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: #fff; }
+.cs-grade .g5 { background: #58cc02; } .cs-grade .g4 { background: #1cb0f6; } .cs-grade .g3 { background: #ff9600; } .cs-grade .g2 { background: #ff4b4b; }

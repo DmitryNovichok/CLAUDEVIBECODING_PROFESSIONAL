@@ -868,7 +868,8 @@ class DB:
                     ("classes", "teacher_id", "INTEGER"),
                     ("admin_sessions", "teacher_id", "INTEGER"),
                     ("classes", "goal_tasks", "INTEGER"),  # цель класса на неделю (заданий) — битва классов
-                    ("classes", "goal_reward", "TEXT")):   # награда за цель, её задаёт учитель
+                    ("classes", "goal_reward", "TEXT"),    # награда за цель, её задаёт учитель
+                    ("classes", "battle", "INTEGER DEFAULT 0")):   # участвует ли класс в битве классов (решает учитель)
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # главный учитель: прежние пароль, код приглашения и настройка авторских заданий переходят к нему
@@ -1593,15 +1594,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                           "week": lr["result_week"]}
             boards["league"] = {
                 "idx": me["league"], "name": LEAGUES[me["league"]][0], "icon": LEAGUES[me["league"]][1],
-                "top": [pub(p, "wk", i + 1) for i, p in enumerate(members[:100])],
+                "top": [pub(p, "wk", i + 1) for i, p in enumerate(members[:LEAGUE_SHOW])],
                 "me": next({"place": i + 1, "value": p["wk"]} for i, p in enumerate(members) if p["me"]),
-                "total": n, "up": LEAGUE_MOVE if me["league"] < len(LEAGUES) - 1 else 0,
-                "down": LEAGUE_MOVE if me["league"] > 0 and n >= LEAGUE_MIN_DEMOTE else 0,
+                "total": n, "up": LEAGUE_UP if me["league"] < len(LEAGUES) - 1 else 0,
+                "down": LEAGUE_DOWN if me["league"] > 0 and n >= LEAGUE_MIN_DEMOTE else 0,
                 "ends": week_start() + 7 * 86400, "result": result, "week": week_key()}
             # битва классов: опыт класса с понедельника и цель по решённым заданиям
             wk0 = week_start()
             classes = []
-            for c in db.q("SELECT id, name, goal_tasks, goal_reward FROM classes WHERE COALESCE(teacher_id, ?) = ?",
+            for c in db.q("SELECT id, name, goal_tasks, goal_reward FROM classes WHERE COALESCE(teacher_id, ?) = ? AND battle = 1",
                           (main_teacher()["id"], teacher_of(s)["id"])):
                 cm = [p for p in people if p["class_id"] == c["id"]]
                 if not cm:
@@ -2257,7 +2258,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             ccond = "COALESCE(c.teacher_id, ?) = ?"                 # только свои классы, и у главного тоже
             cargs = (main_id, self.T["id"])
             rows = db.q(f"""SELECT c.id, c.name, c.created, COALESCE(c.teacher_id, ?) AS teacher_id, t.name AS teacher,
-                                  c.goal_tasks, c.goal_reward,
+                                  c.goal_tasks, c.goal_reward, COALESCE(c.battle, 0) AS battle,
                                   (SELECT COUNT(*) FROM attempts a JOIN students s2 ON s2.id = a.student_id
                                    WHERE s2.class_id = c.id AND a.score > 0 AND a.ts >= {week_start()}) AS week_solved,
                                   COUNT(s.id) AS students FROM classes c
@@ -2275,8 +2276,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "класс не найден")
             goal = max(0, min(to_int(data.get("goal_tasks")) or 0, 100000))
             reward = re.sub(r"\s+", " ", str(data.get("goal_reward") or "")).strip()[:120]
-            db.x("UPDATE classes SET goal_tasks=?, goal_reward=? WHERE id=?", (goal or None, reward or None, cid))
-            return self.send_json({"ok": True, "goal_tasks": goal, "goal_reward": reward})
+            battle = 1 if data.get("battle") else 0
+            db.x("UPDATE classes SET goal_tasks=?, goal_reward=?, battle=? WHERE id=?", (goal or None, reward or None, battle, cid))
+            return self.send_json({"ok": True, "goal_tasks": goal, "goal_reward": reward, "battle": bool(battle)})
 
         if path == "/api/admin/class/save" and method == "POST":
             name = re.sub(r"\s+", " ", str(data.get("name") or "")).strip()[:40]
@@ -2313,6 +2315,53 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 else:
                     db.x("UPDATE students SET class_id=? WHERE id=?", (cid, sid))
             return self.send_json({"ok": True, "moved": len(ids)})
+
+        if path == "/api/admin/class/stats":
+            # статистика класса за период (урок, день, неделя) — по всем заданиям или по одной подборке: для оценок
+            cid = to_int(qs.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            try:
+                t0, t1 = float(qs.get("from") or 0), float(qs.get("to") or now)
+            except ValueError:
+                return self.err(400, "неверный период")
+            members = db.q("SELECT id, name FROM students WHERE class_id=? ORDER BY name", (cid,))
+            asg_tasks = None
+            aid = to_int(qs.get("asg"))
+            if aid:
+                a = db.q("SELECT tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
+                if not a:
+                    return self.err(404, "подборка не найдена")
+                asg_tasks = json.loads(a["tasks"] or "[]")
+            rows = {}
+            if members:
+                ids = [m["id"] for m in members]
+                cond, args = f"student_id IN ({','.join('?' * len(ids))}) AND ts>=? AND ts<? AND exam IS NULL", (*ids, t0, t1)
+                if asg_tasks is not None:
+                    qm = ",".join("?" * len(asg_tasks)) or "NULL"
+                    cond += f" AND (task_id IN ({qm}) OR grp IN ({qm}))"
+                    args += (*asg_tasks, *asg_tasks)
+                for r in db.q(f"""SELECT student_id, COUNT(*) AS answers, COUNT(DISTINCT COALESCE(grp, task_id)) AS tasks,
+                                         SUM(score = 1) AS ok1, SUM(score = 0.5) AS ok2, SUM(score = 0) AS bad,
+                                         SUM(score = 0 AND gave_up = 1 AND revealed = 1) AS shown,
+                                         COUNT(DISTINCT CASE WHEN score > 0 THEN COALESCE(grp, task_id) END) AS solved,
+                                         SUM(COALESCE(spent_ms, 0)) AS spent, SUM(COALESCE(away, 0)) AS away,
+                                         MIN(ts) AS first, MAX(ts) AS last, GROUP_CONCAT(DISTINCT n) AS nums
+                                  FROM attempts WHERE {cond} GROUP BY student_id""", args):
+                    rows[r["student_id"]] = dict(r)
+                for r in db.q(f"""SELECT student_id, MAX(test_score) AS exam FROM exams WHERE finished>=? AND finished<?
+                                  AND student_id IN ({','.join('?' * len(ids))}) GROUP BY student_id""", (t0, t1, *ids)):
+                    rows.setdefault(r["student_id"], {})["exam"] = r["exam"]
+            out = []
+            for m in members:
+                r = rows.get(m["id"], {})
+                nums = sorted({int(x) for x in str(r.get("nums") or "").split(",") if x.strip().isdigit()})
+                out.append({"id": m["id"], "name": m["name"], "answers": r.get("answers") or 0, "tasks": r.get("tasks") or 0,
+                            "solved": r.get("solved") or 0, "ok1": r.get("ok1") or 0, "ok2": r.get("ok2") or 0,
+                            "bad": r.get("bad") or 0, "shown": r.get("shown") or 0, "spent": r.get("spent") or 0,
+                            "away": r.get("away") or 0, "first": r.get("first"), "last": r.get("last"), "nums": nums,
+                            "exam": r.get("exam")})
+            return self.send_json({"rows": out, "asg_total": len(asg_tasks) if asg_tasks is not None else None})
 
         if path == "/api/admin/assignments":
             cid = to_int(qs.get("class_id"))
@@ -2602,8 +2651,10 @@ FIRE_NEED = 3                          # заданий за день, чтоб�
 
 # ================================================================ соревнования
 LEAGUES = [("Бронзовая лига", "🥉"), ("Серебряная лига", "🥈"), ("Золотая лига", "🥇"), ("Алмазная лига", "💎")]
-LEAGUE_MOVE = 3            # тройка лидеров — в лигу выше, последние трое — ниже
-LEAGUE_MIN_DEMOTE = 7      # опускаем, только если в лиге не меньше 7 человек: в маленькой лиге вылетали бы почти все
+LEAGUE_UP = 10             # первые 10 по опыту за неделю — в лигу выше
+LEAGUE_DOWN = 3            # последние трое — в лигу ниже
+LEAGUE_MIN_DEMOTE = LEAGUE_UP + LEAGUE_DOWN   # опускаем, только если в лиге столько человек: иначе зоны пересекались бы
+LEAGUE_SHOW = 20           # мест в таблице лиги
 DAILY_NUMS = set(range(1, 19)) | {22, 23, 24, 25}
 DUEL_TASKS = 5
 DUEL_NUMS = list(range(1, 16))
@@ -2633,7 +2684,7 @@ def league_row(db, sid):
 
 
 def league_rollover(db):
-    """В понедельник: тройка лидеров каждой лиги поднимается, последние трое опускаются. Лениво, один раз за неделю."""
+    """В понедельник: первые 10 каждой лиги поднимаются, последние трое опускаются. Лениво, один раз за неделю."""
     cur = week_key()
     with _COMP_LOCK:
         prev = db.setting("league_week")
@@ -2659,9 +2710,9 @@ def league_rollover(db):
             n = len(members)
             for place, (xpw, sid) in enumerate(members, 1):
                 new, res = lg, ("stay" if xpw > 0 else None)
-                if place <= LEAGUE_MOVE and xpw > 0 and lg < len(LEAGUES) - 1:
+                if place <= LEAGUE_UP and xpw > 0 and lg < len(LEAGUES) - 1:
                     new, res = lg + 1, "up"
-                elif n >= LEAGUE_MIN_DEMOTE and place > n - LEAGUE_MOVE and lg > 0:
+                elif n >= LEAGUE_MIN_DEMOTE and place > n - LEAGUE_DOWN and lg > 0:
                     new, res = lg - 1, "down"
                 db.x("""UPDATE leagues SET league=?, week=?, result=?, result_place=?, result_league=?, result_week=?
                         WHERE student_id=?""", (new, cur, res, place, lg, prev, sid))
