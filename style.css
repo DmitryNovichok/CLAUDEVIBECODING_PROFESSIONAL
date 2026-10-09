@@ -1064,7 +1064,7 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 :root[data-theme="light"] .rail { background: rgba(0, 0, 0, .03); }
 .side-panel { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 12px 20px; display: flex; flex-direction: column; gap: 12px; }
 .side-panel > * { flex-shrink: 0; }
-.side-panel .brand { display: flex; flex-direction: column; align-items: flex-start; padding: 0 2px; }
+.side-panel .brand { display: flex; flex-direction: column; align-items: flex-start; padding: 0 2px; flex: none; }
 .side-panel .brand-title { font-size: 24px; }
 .rail-logo { border: 0; background: none; padding: 0; margin-bottom: 6px; cursor: default; flex: none; }
 .rail-logo .brand-mark { width: 40px; height: 40px; }
@@ -1184,3 +1184,38 @@ body.side-min .rail-logo { cursor: pointer; }
 .num-card.wide .n { font-size: 17px; }
 .num-card.wide .c { font-size: 10px; }
 @media (max-width: 860px) { .num-card.wide { height: 60px; } }
+
+/* прогноз ЕГЭ в верхней панели: значок-столбики + «72 балла» */
+.forecast { display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 10px; }
+.forecast .fc-ico { width: 34px; height: 34px; flex: none; }
+.fc-ico g rect { fill: var(--track); }
+.fc-ico g rect.sh { fill: #000; opacity: .25; }
+.fc-ico g.on rect { fill: var(--band, var(--good)); }
+.fc-ico g.on rect.sh { fill: #000; opacity: .25; }
+.forecast .fc-txt { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
+.forecast .fc-label { font-size: 12px; color: var(--muted); font-weight: 700; }
+.forecast .fc-value { font-size: 19px; font-weight: 900; color: var(--text); white-space: nowrap; }
+.forecast.fc-empty .fc-value { font-size: 14px; color: var(--muted); }
+@media (max-width: 860px) { .forecast .fc-ico { width: 28px; height: 28px; } .forecast .fc-value { font-size: 17px; } }
+/* окно прогноза: что потренировать */
+.tp { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.tp-goal { font-size: 14px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); color: var(--text); }
+.tp-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--border); border-bottom-width: 4px; border-radius: 14px; background: var(--card); }
+.tp-n { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--badge); color: #fff; font: 900 16px var(--font); }
+.tp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tp-main b { font-weight: 800; font-size: 15px; }
+.tp-main small { color: var(--muted); font-size: 12.5px; }
+.tp-gain { flex: none; text-align: center; font: 900 20px/1 var(--font); color: var(--good); }
+.tp-gain small { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 2px; }
+.tp-go { flex: none; }
+.tp-note { margin: 0; font-size: 12px; }
+@media (max-width: 560px) { .tp-card { flex-wrap: wrap; } .tp-go { width: 100%; } }
+.tp-n { width: auto; min-width: 40px; padding: 0 8px; border-radius: 20px; font-size: 15px; white-space: nowrap; }
+/* уровень и профиль не должны уезжать на вторую строку */
+@media (min-width: 861px) {
+  .topbar { flex-wrap: nowrap; gap: 14px; padding-left: 24px; padding-right: 24px; }
+  .scope-info { flex: 1 1 200px; }
+  .session-info { flex: none; }
+}
+@media (min-width: 861px) and (max-width: 1700px) { .topbar .dots { display: none; } }
+@media (min-width: 861px) and (max-width: 1250px) { .lvl-pill .lvl-info { display: none; } .goal-txt .goal-of ~ * { display: none; } }

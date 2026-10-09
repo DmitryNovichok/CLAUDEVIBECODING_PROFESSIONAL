@@ -1631,8 +1631,8 @@
   }
 
   /** Распределение первичных баллов → тестовые баллы, диапазон, шансы. */
-  function forecast(now = Date.now()) {
-    const probs = solveProbs(now);
+  /** Распределение первичных баллов по вероятностям решить каждый номер. */
+  function primaryDist(probs) {
     let dist = [1];
     for (let n = 1; n <= 27; n++) {
       const { p, ph } = probs[n], pts = EGE.points(n);
@@ -1644,6 +1644,12 @@
       });
       dist = nd;
     }
+    return dist;
+  }
+  const expScore = probs => primaryDist(probs).reduce((a, q, k) => a + q * testScore(k), 0);
+  function forecast(now = Date.now()) {
+    const probs = solveProbs(now);
+    const dist = primaryDist(probs);
     let exp = 0, primary = 0;
     dist.forEach((q, k) => { exp += q * testScore(k); primary += q * k; });
     const quant = x => {
@@ -1700,6 +1706,12 @@
     return pick && pick.d !== today ? pick : null;
   }
 
+  /** Значок прогноза: три «объёмных» столбика, горят 1–3 в зависимости от балла. */
+  function fcIcon(lit) {
+    const bars = [[2.5, 13, 8.5], [9.3, 8.5, 13], [16.1, 3, 18.5]];
+    return `<svg class="fc-ico" viewBox="0 0 24 25" aria-hidden="true">${bars.map(([x, y, h], i) =>
+      `<g class="${i < lit ? 'on' : ''}"><rect x="${x}" y="${y + 1.6}" width="5.4" height="${h}" rx="1.6"/><rect x="${x}" y="${y + 1.6}" width="5.4" height="${h}" rx="1.6" class="sh"/><rect x="${x}" y="${y}" width="5.4" height="${h}" rx="1.6"/></g>`).join('')}</svg>`;
+  }
   function renderForecast() {
     const el = $('#forecastBtn');
     if (!el) return;
@@ -1707,21 +1719,19 @@
     if (P.log.length < F.minAnswers) {
       const left = F.minAnswers - P.log.length;
       el.className = 'forecast fc-empty';
-      el.innerHTML = `<span class="fc-label">Прогноз ЕГЭ</span>
-        <span class="fc-main"><span class="fc-value">—</span></span>
-        <span class="fc-range">ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}</span>`;
+      el.innerHTML = `${fcIcon(0)}<span class="fc-txt"><span class="fc-label">Прогноз ЕГЭ</span>
+        <span class="fc-value">ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}</span></span>`;
+      el.title = 'Прогноз появится, когда наберётся немного ответов';
       return;
     }
     const f = forecast();
     rememberForecast(f);
     el.className = `forecast band-${bandOf(f.score)}`;
     const prelim = f.covered < 27;
-    el.innerHTML = `<span class="fc-label">Прогноз ЕГЭ${prelim ? ' *' : ''}</span>
-      <span class="fc-main"><span class="fc-value">${f.score}</span><span class="fc-max">/100</span></span>
-      <span class="fc-range">${f.lo}–${f.hi}</span>`;
-    el.title = prelim
-      ? `Подробнее о прогнозе. * Данные есть по ${f.covered} из 27 номерам — остальные пока считаются нерешёнными.`
-      : 'Подробнее о прогнозе';
+    el.innerHTML = `${fcIcon(f.score >= 70 ? 3 : f.score >= EGE.minScore ? 2 : 1)}<span class="fc-txt"><span class="fc-label">Прогноз ЕГЭ${prelim ? ' *' : ''}</span>
+      <span class="fc-value">${f.score} ${plural(f.score, 'балл', 'балла', 'баллов')}</span></span>`;
+    el.title = `Скорее всего ${f.lo}–${f.hi} баллов. Нажмите — что подтянуть, чтобы поднять балл`
+      + (prelim ? `\n* Данные есть по ${f.covered} из 27 номерам — остальные пока считаются нерешёнными.` : '');
   }
 
   /** График прогноза за последние дни: одна линия, порог 40 пунктиром, подсказка при наведении. */
@@ -1844,6 +1854,8 @@
         </div>
       </div>
 
+      ${trainPlan(f)}
+
       <div class="fm-chart-wrap">
         <div class="fm-h">Прогноз за ${F.chartDays} дней</div>
         ${chart.html}
@@ -1853,7 +1865,7 @@
         ${untried.length ? 'Номера, которые ещё не решали, считаются нерешёнными — прогноз вырастет, когда вы их попробуете.' : ''}</p>
 
       ${untried.length || weak.length ? `<div class="fm-where">
-        <div class="fm-h">Где быстрее всего добрать баллы</div>
+        <div class="fm-h">Ещё можно добрать</div>
         ${untried.length ? `<div class="fm-line"><span class="fm-muted">Ещё не решали:</span> ${untried.map(n => chipN(n, EGE.points(n) > 1 ? ' · 2 б.' : '')).join(' ')}</div>` : ''}
         ${weak.length ? `<div class="fm-line"><span class="fm-muted">Слабые места:</span> ${weak.slice(0, 6).map(w => chipN(w.n, ` · ${pct(w.p)}%`)).join(' ')}</div>` : ''}
       </div>` : ''}
@@ -1873,6 +1885,67 @@
   }
 
   function closeForecast() { $('#forecastModal').hidden = true; }
+
+  const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',
+    'Черепаха', 'Изображения и звук', 'Комбинаторика', 'Электронные таблицы', 'Поиск в тексте', 'Объём информации',
+    'Исполнитель Редактор', 'IP-адреса и маски', 'Системы счисления', 'Логические выражения', 'Рекурсия',
+    'Обработка последовательностей', 'Динамика: Робот', 'Теория игр', 'Теория игр', 'Теория игр', 'Параллельные процессы',
+    'Исполнитель: число программ', 'Обработка строк', 'Делители и маски', 'Сортировка, жадные алгоритмы', 'Анализ данных'];
+
+  /** «Что потренировать»: номера, которые дадут больше всего тестовых баллов, если довести их до 85%. */
+  function trainPlan(f) {
+    const TARGET = 0.85;
+    const base = expScore(f.probs);
+    const now = Date.now();
+    const cand = [];
+    for (let n = 1; n <= 27; n++) {
+      if (HAS_GROUPS && (n === 20 || n === 21)) continue;
+      const x = f.probs[n];
+      if (x.exp >= TARGET) continue;
+      const ns = HAS_GROUPS && n === 19 ? [19, 20, 21] : [n];
+      const pr = Object.assign({}, f.probs);
+      for (const k of ns) pr[k] = { ...pr[k], p: Math.max(pr[k].p, TARGET), ph: 0 };
+      const gain = expScore(pr) - base;
+      if (gain < 0.5) continue;
+      const why = !x.tried ? 'ещё не решали' : `сейчас решаете на ${pct(x.exp)}%`;
+      cand.push({ n, gain, why, pts: ns.reduce((a, k) => a + EGE.points(k), 0) });
+    }
+    cand.sort((a, b) => b.gain - a.gain || a.n - b.n);
+    const top = cand.slice(0, 3);
+    // ближайшая цель: следующий рубеж и сколько первичных до него
+    const goals = [EGE.minScore, 60, 70, 80, 90, 100].filter(g => g > f.score);
+    let goalHtml = '';
+    if (goals.length) {
+      const g = goals[0];
+      let k = 0;
+      while (k < EGE.scale.length - 1 && testScore(k) < g) k++;
+      const need = Math.max(1, Math.ceil(k - f.primary));
+      goalHtml = `<div class="tp-goal">🎯 До <b>${g} баллов</b> не хватает примерно <b>${need}</b> ${plural(need, 'первичного балла', 'первичных баллов', 'первичных баллов')}${
+        top.length ? ` — это ${top.slice(0, Math.min(3, need)).map(c => `№${numLabel(c.n)}`).join(' и ').replace(/ и (?=.* и )/, ', ')}` : ''}.</div>`;
+    }
+    const strong = [];
+    for (let n = 1; n <= 27; n++) if (f.probs[n].tried && f.probs[n].exp >= TARGET) strong.push(n);
+    const due = [];
+    for (let n = 1; n <= 27; n++) if (reviewsOf(n).some(r => isDue(r, now))) due.push(n);
+    const counts = countByNum();
+    const card = c => `<div class="tp-card">
+        <span class="tp-n">${numLabel(c.n)}</span>
+        <span class="tp-main"><b>${esc(NUM_TOPIC[c.n])}</b><small>${c.why}${c.pts > 1 ? ` · ${c.pts} перв. балла` : ''}</small></span>
+        <span class="tp-gain">+${Math.round(c.gain)}<small>${plural(Math.round(c.gain), 'балл', 'балла', 'баллов')}</small></span>
+        <button type="button" class="btn primary tp-go" data-go="${c.n}" ${counts[scopeOf(c.n)] ? '' : 'disabled'}>Тренировать</button>
+      </div>`;
+    if (!top.length && !due.length) {
+      return `<div class="tp"><div class="fm-h">Что потренировать</div><p class="fm-note">Все номера решаются уверенно — держите форму вариантами ЕГЭ 💪</p></div>`;
+    }
+    return `<div class="tp">
+      <div class="fm-h">Что потренировать — больше всего баллов</div>
+      ${goalHtml}
+      ${top.map(card).join('')}
+      ${top.length ? '<p class="fm-note tp-note">«+N баллов» — насколько вырастет прогноз, если решать этот номер на 85%.</p>' : ''}
+      ${due.length ? `<div class="fm-line"><span class="fm-muted">🔁 Пора повторить:</span> ${due.slice(0, 10).map(n => `<button class="chip num-chip" type="button" data-go="${n}">№${numLabel(n)}</button>`).join(' ')}</div>` : ''}
+      ${strong.length ? `<div class="fm-line"><span class="fm-muted">💪 Сильные стороны:</span> ${strong.map(n => `<span class="chip good">№${n}</span>`).join(' ')}</div>` : ''}
+    </div>`;
+  }
 
   // ------------------------------------------------------------ статистика
   function numStats(n) {
@@ -3981,6 +4054,11 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.19.1', '10.10.2026', ['10 новых достижений: «Упрямец», «Подглядыватель», «Обеденный перерыв», «Медленно, но верно», «Радуга», «Идеальный день», «Ещё одну серию», «Спидран», «Новичкам везёт», «Дежавю»',
+      'Убраны достижения SIX SEVEN за №6 и №7, «Ответ на всё» и «1337 h4x0r»']],
+    ['1.19.0', '10.10.2026', ['Новый вид прогноза ЕГЭ: столбики загораются по мере роста балла',
+      'В окне прогноза — «Что потренировать»: три номера, которые дадут больше всего баллов, сколько не хватает до следующего рубежа, что пора повторить и сильные стороны',
+      'Новые смешные достижения: «Золушка», «Пятница, 13-е», «Оливье подождёт», «Феникс» и другие — ищи в меню уровня']],
     ['1.18.1', '10.10.2026', ['Новые объёмные значки в панели слева', 'Плитка 19–21 стала компактной и встала рядом с 17 и 18']],
     ['1.18.0', '10.10.2026', ['Новое меню: слева панель иконок — все задания, избранное, история, вариант, задание дня, дуэли; при наведении — подсказка',
       'Вокруг каждого номера кольцо освоения: чем больше решено, тем полнее круг',

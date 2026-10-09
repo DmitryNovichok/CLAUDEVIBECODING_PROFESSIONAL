@@ -427,6 +427,25 @@ class ServerTest(unittest.TestCase):
         for t in ("attempts", "students"):
             db.x(f"DELETE FROM {t} WHERE {'student_id' if t == 'attempts' else 'id'}=?", (sid,))
 
+    def test_funny_achievements(self):
+        db = server.APP.db
+        sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Шутов Шура','шутов шура','tkfun',0,0)")
+        fri13 = time.mktime((2026, 3, 13, 12, 0, 0, 0, 0, -1))            # пятница, 13 марта 2026
+        rows = [(fri13 - 30 * 86400, 2, 1, None)]                          # месяц назад — потом перерыв (Феникс)
+        rows += [(fri13 + i, 3, 0, None) for i in range(1, 6)]             # пять ошибок подряд…
+        rows += [(fri13 + 10, 6, 1, 15000), (fri13 + 11, 27, 1, 60000)]   # …и решено: №6 быстро, первое же №27 верно
+        for i, (ts, n, sc, ms) in enumerate(rows):
+            db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
+                 (sid, ts, f"fun:{i}", n, "[]", "1", sc, ms))
+        for k, sc in enumerate((0, 0, 0, 1)):                               # одно и то же задание: три раза мимо, потом верно
+            db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
+                 (sid, fri13 + 20 + k, "fun:stub", 8, "[]", "1", sc, 2000000))
+        got = {a["id"] for a in server.game_summary(db, sid)["ach"] if a["got"]}
+        self.assertTrue({"bug", "flash", "phoenix", "fri13", "lucky", "stubborn", "snail"} <= got, got)
+        self.assertFalse({"pi", "newyear", "cinderella", "perfect", "dejavu", "rainbow"} & got)
+        db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
+        db.x("DELETE FROM students WHERE id=?", (sid,))
+
     # ------------------------------------------------------------ соревнования
     def test_league_week_rollover(self):
         db = server.APP.db
