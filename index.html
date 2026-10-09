@@ -7,7 +7,7 @@
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#16181d">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20x='4'%20y='9'%20width='56'%20height='51'%20rx='16'%20fill='%2358a700'/%3E%3Crect%20x='4'%20y='4'%20width='56'%20height='51'%20rx='16'%20fill='%2358cc02'/%3E%3Crect%20x='20'%20y='15'%20width='9'%20height='29'%20rx='4'%20fill='%23fff'/%3E%3Crect%20x='20'%20y='15'%20width='24'%20height='8.5'%20rx='4.25'%20fill='%23fff'/%3E%3Crect%20x='20'%20y='25.5'%20width='19'%20height='8'%20rx='4'%20fill='%23fff'/%3E%3Crect%20x='20'%20y='35.5'%20width='24'%20height='8.5'%20rx='4.25'%20fill='%23fff'/%3E%3Ccircle%20cx='48.5'%20cy='43'%20r='5'%20fill='%231cb0f6'%20stroke='%23fff'%20stroke-width='2.5'/%3E%3C/svg%3E">
-<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;var c=localStorage.getItem('egeTrainer.themeCss');if(c&&/^[^<]*$/.test(c)){var st=document.createElement('style');st.id='themeVars';st.textContent=c;document.head.appendChild(st);}}catch(e){}</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
@@ -95,7 +95,7 @@
           <div class="who-menu" id="whoMenu" hidden>
             <span class="who-label">Ученик</span><b id="whoName"></b>
             <button type="button" class="wm-item" id="whoLvl">🏅 Уровень и достижения</button>
-            <button type="button" class="wm-item" id="whoTheme">🌓 Светлая / тёмная тема</button>
+            <button type="button" class="wm-item" id="whoTheme">🎨 Тема оформления</button>
             <button type="button" class="wm-item" id="pwBtn">🔑 Сменить пароль</button>
             <button type="button" class="wm-item danger" id="logoutBtn">↪ Выйти</button>
           </div>
