@@ -1283,3 +1283,33 @@ body.side-min .rail-logo { cursor: pointer; }
 .th-name b { font-weight: 800; font-size: 14px; }
 .th-name small { color: var(--muted); font-size: 11.5px; }
 @media (min-width: 700px) { .th-grid { grid-template-columns: repeat(5, 1fr); } .th-prev { height: 64px; } }
+
+/* настройки вида */
+.trainer, #forecastBody { zoom: var(--ui-zoom, 1); }
+.side-body { zoom: var(--ui-zoom-side, 1); }
+.brand-title b { color: #1cb0f6; }   /* логотип не перекрашивается акцентом */
+body.no-anim *, body.no-anim *::before, body.no-anim *::after { animation: none !important; transition: none !important; }
+body.focus-mode #rankBtn, body.focus-mode .fire, body.focus-mode #streakMenu, body.focus-mode #goalBtn, body.focus-mode #goalMenu,
+body.focus-mode .dots, body.focus-mode #lvlCard, body.focus-mode #dailyCard, body.focus-mode #duelCard,
+body.focus-mode .ach-toast, body.focus-mode .lvlup, body.focus-mode .xp-pop { display: none !important; }
+.vw { display: flex; flex-direction: column; border: 2px solid var(--border); border-radius: 14px; background: var(--card); padding: 4px 14px; margin-top: 8px; }
+.vw-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; border-top: 1px solid var(--border); cursor: default; }
+.vw-row:first-child { border-top: 0; }
+.vw-row > span:first-child { display: flex; flex-direction: column; min-width: 0; }
+.vw-row b { font-weight: 800; font-size: 14.5px; }
+.vw-row small { color: var(--muted); font-size: 12px; }
+.vw-seg { display: inline-flex; padding: 3px; gap: 3px; border: 2px solid var(--border); border-radius: 12px; background: var(--bg); flex: none; }
+.vw-seg button { min-width: 40px; padding: 5px 8px; border: 0; border-radius: 9px; background: none; color: var(--muted); font: 800 13px var(--font); cursor: pointer; }
+.vw-seg button.on { background: var(--sel); color: var(--sel-text); box-shadow: inset 0 0 0 2px var(--sel-border); }
+.vw-range { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.vw-range input { width: 150px; accent-color: var(--accent); }
+.vw-acc { display: inline-flex; gap: 8px; flex: none; }
+.vw-acc button { width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; background: var(--sw); cursor: pointer; padding: 0; box-shadow: inset 0 0 0 2px var(--card); }
+.vw-acc button.on { border-color: var(--text); }
+.vw-switch { appearance: none; -webkit-appearance: none; flex: none; width: 46px; height: 26px; border-radius: 26px; background: var(--track); position: relative; cursor: pointer; transition: background .15s; margin: 0; }
+.vw-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .15s; }
+.vw-switch:checked { background: var(--good); }
+.vw-switch:checked::after { transform: translateX(20px); }
+label.vw-row { cursor: pointer; }
+.vw-reset { align-self: flex-start; margin: 6px 0 8px; font-size: 13px; }
+@media (max-width: 560px) { .vw-row { flex-wrap: wrap; } .vw-range input { width: 120px; } }
