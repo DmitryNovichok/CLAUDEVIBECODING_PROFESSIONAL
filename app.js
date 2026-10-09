@@ -1953,6 +1953,7 @@
       toast(st > 1 ? `Огонёк продлён: ${st} ${plural(st, 'день', 'дня', 'дней')} подряд!` : 'Огонёк зажжён! Возвращайся завтра, чтобы продлить серию', 3500);
     }
     scheduleSync();
+    if (SERVER) { clearTimeout(lbTimer); lbTimer = setTimeout(loadRating, 1500); }
   }
 
   function renderTopbar() {
@@ -2008,6 +2009,7 @@
     const left = Math.max(0, need - today.length);
     const menuOpen = $('#streakMenu') && !$('#streakMenu').hidden;
     $('#sessionInfo').innerHTML = `
+      ${SERVER && student ? rankBtnHtml() : ''}
       <button type="button" class="fire ${todayDone ? 'on' : days ? 'wait' : 'off'}${fireBurst ? ' burst' : ''}" id="streakBtn" aria-haspopup="true"
         title="${todayDone ? 'Огонёк на сегодня горит' : `Реши ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}, чтобы зажечь огонёк`}">
         ${FLAME}<b>${days}</b>
@@ -2665,6 +2667,7 @@
     const menu = $('#goalMenu'), sm = $('#streakMenu');
     if (e.target.closest('#goalBtn')) { menu.hidden = !menu.hidden; sm.hidden = true; return; }
     if (e.target.closest('#streakBtn')) { sm.hidden = !sm.hidden; menu.hidden = true; return; }
+    if (e.target.closest('#rankBtn')) { menu.hidden = true; sm.hidden = true; openRating(); return; }
     const g = e.target.closest('button[data-goal]');
     if (g) {
       prefs.goal = +g.dataset.goal;
@@ -3468,12 +3471,8 @@
         вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.</p>
       <h3 class="fm-sub">Достижения · ${got} из ${(g.ach || []).length}</h3>
       <div class="ach-grid">${ach}</div>
-      <div id="lbBox"></div>`;
+      <p class="fm-note">Рейтинг — кнопка с кубком в верхней панели.</p>`;
     $('#forecastModal').hidden = false;
-    try {
-      const d = await api('leaderboard');
-      if ($('#lbBox')) { $('#lbBox').innerHTML = `<h3 class="fm-sub">Рейтинг · ТОП-10</h3>${boardsHtml(d, 'week')}`; }
-    } catch (e) { /* без рейтинга */ }
   }
 
   // ------------------------------------------------------------ рейтинг: день, неделя, месяц, огонёк
@@ -3506,6 +3505,30 @@
     $$('[data-lbtab]', wrap).forEach(b => b.classList.toggle('on', b === tab));
     $('.lb-body', wrap).innerHTML = boardHtml(d, tab.dataset.lbtab);
   });
+  // кнопка в верхней панели: место за неделю; по клику — рейтинг
+  let LB = null, lbTimer = null;
+  const CUP = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path class="cup-b" d="M7 3h10v2h3a1 1 0 0 1 1 1v2a5 5 0 0 1-4.6 5A5 5 0 0 1 13 15.9V18h3v3H8v-3h3v-2.1A5 5 0 0 1 7.6 13 5 5 0 0 1 3 8V6a1 1 0 0 1 1-1h3V3Zm10 4v3.9A3 3 0 0 0 19 8V7h-2ZM5 7v1a3 3 0 0 0 2 2.9V7H5Z"/></svg>';
+  function rankBtnHtml() {
+    const me = LB && LB.boards && LB.boards.week && LB.boards.week.me;
+    const top3 = me && me.place <= 3;
+    return `<button type="button" class="rank-btn${me ? '' : ' none'}${top3 ? ' top' : ''}" id="rankBtn" title="Рейтинг: день, неделя, месяц, огонёк">
+      ${CUP}<span>${me ? `<b>${me.place}</b> место` : 'Рейтинг'}</span></button>`;
+  }
+  async function loadRating() {
+    try { LB = await api('leaderboard'); } catch (e) { return; }
+    const b = $('#rankBtn');
+    if (b) b.outerHTML = rankBtnHtml();
+  }
+  async function openRating() {
+    if (isNarrow()) setSideOpen(false);
+    $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг · ТОП-10</h2><p class="fm-muted">Загружаю…</p>';
+    $('#forecastModal').hidden = false;
+    await loadRating();
+    if (!LB) { $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Нет связи с сервером.</p>'; return; }
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг · ТОП-10</h2>
+      <p class="fm-note">Ученики твоего учителя: опыт за день, неделю и месяц и серия огонька.</p>${boardsHtml(LB, 'week')}`;
+  }
+
   /** При входе (не в первый раз) — раз в день окно «Рейтинг дня». */
   async function showDailyRating() {
     const key = `egeTrainer.lbShown.${student ? student.sid : ''}`;
@@ -3513,6 +3536,9 @@
     try { if (localStorage.getItem(key) === today) return; } catch (e) { return; }
     let d;
     try { d = await api('leaderboard'); } catch (e) { return; }
+    LB = d;
+    const rb = $('#rankBtn');
+    if (rb) rb.outerHTML = rankBtnHtml();
     if (!$('#forecastModal').hidden) return;                 // уже открыто другое окно (знакомство и т. п.)
     try { localStorage.setItem(key, today); } catch (e) { /* не страшно */ }
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг дня</h2>
@@ -3668,6 +3694,7 @@
     }
     if (!P.log.length && !tourSeen()) setTimeout(openTour, 400);      // новичку — коротко о том, как всё устроено
     else if (SERVER && student) setTimeout(showDailyRating, 600);    // уже знакомым — рейтинг дня, раз в день
+    if (SERVER && student) setTimeout(loadRating, 900);               // место в рейтинге — на кнопку вверху
   }
 
   // ------------------------------------------------------------ знакомство с сайтом
@@ -3699,6 +3726,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.16.0', '09.10.2026', ['Рейтинг переехал в верхнюю панель: кубок с твоим местом за неделю рядом с огоньком']],
     ['1.15.0', '09.10.2026', ['Рейтинг ТОП-10 за день, неделю и месяц и рейтинг огонька',
       'Раз в день при входе — окно «Рейтинг дня»', 'Задание 9: к таблице добавлен 9.txt — сразу открывается в Python',
       'Редактор Python открывается пустым, без вспомогательного кода']],
