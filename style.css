@@ -993,3 +993,11 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 /* подпись автора под названием */
 .brand-by { font-weight: 700; color: var(--muted); }
 .brand-by b { font-weight: 900; background: linear-gradient(90deg, #1cb0f6, #58cc02); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* рейтинг: вкладки день / неделя / месяц / огонёк */
+.lb-tabs { display: flex; gap: 4px; padding: 4px; margin: 6px 0 10px; border: 2px solid var(--border); border-radius: 14px; background: var(--card); }
+.lb-tabs button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 800; font-size: 13.5px; padding: 7px 6px; border-radius: 10px; cursor: pointer; }
+.lb-tabs button.on { background: var(--sel, var(--track)); color: var(--sel-text, var(--text)); }
+.lb-place { width: 34px; text-align: center; font-weight: 900; }
+.lb-empty, .lb-mine { margin: 8px 2px 0; font-size: 13.5px; }
+.lb-wrap + .tour-foot { margin-top: 16px; }

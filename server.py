@@ -390,6 +390,130 @@ def zip_display_name(info):
         return info.filename
 
 
+# ---------------- №9: таблица → текст, как если бы ученик скопировал её в .txt
+try:
+    import xlrd                     # старый формат .xls; на сервере: apt install python3-xlrd (необязательно)
+except ImportError:
+    xlrd = None
+TABLE_EXT = (".xlsx", ".ods", ".xls", ".csv")
+MAX_TABLE_CELLS = 2_000_000
+
+
+def _num_text(v):
+    """Число как в Excel при копировании: 12.0 → 12."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    return str(int(f)) if f.is_integer() and abs(f) < 1e15 else repr(f)
+
+
+def _xlsx_rows(data):
+    import xml.etree.ElementTree as ET
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        shared = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", ns):
+                shared.append("".join(t.text or "" for t in si.iter("{%s}t" % ns["m"])))
+        sheets = sorted(n for n in z.namelist() if re.match(r"xl/worksheets/sheet\d+\.xml$", n))
+        if not sheets:
+            return []
+        first = "xl/worksheets/sheet1.xml" if "xl/worksheets/sheet1.xml" in sheets else sheets[0]
+        root = ET.fromstring(z.read(first))
+    rows = []
+    for r in root.iter("{%s}row" % ns["m"]):
+        row = {}
+        for c in r.findall("m:c", ns):
+            ref = c.get("r") or ""
+            col = 0
+            for ch in re.match(r"[A-Z]*", ref).group(0):
+                col = col * 26 + ord(ch) - 64
+            col = col - 1 if col else len(row)
+            t, v = c.get("t"), c.find("m:v", ns)
+            if t == "s" and v is not None:
+                val = shared[int(v.text)]
+            elif t == "inlineStr":
+                val = "".join(x.text or "" for x in c.iter("{%s}t" % ns["m"]))
+            elif v is not None and v.text is not None:
+                val = v.text if t in ("str", "e") else _num_text(v.text)
+            else:
+                val = ""
+            row[col] = val
+        rows.append([row.get(i, "") for i in range(max(row) + 1)] if row else [])
+    return rows
+
+
+def _ods_rows(data):
+    import xml.etree.ElementTree as ET
+    T = "urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+    O = "urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+    X = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        root = ET.fromstring(z.read("content.xml"))
+    table = next(root.iter("{%s}table" % T), None)
+    rows, cells_total = [], 0
+    if table is None:
+        return rows
+    for r in table.iter("{%s}table-row" % T):
+        row = []
+        for c in r:
+            if c.tag not in ("{%s}table-cell" % T, "{%s}covered-table-cell" % T):
+                continue
+            rep_n = min(int(c.get("{%s}number-columns-repeated" % T, "1")), 1000)
+            if c.get("{%s}value" % O) is not None and c.get("{%s}value-type" % O) in ("float", "percentage", "currency"):
+                val = _num_text(c.get("{%s}value" % O))
+            else:
+                val = "\n".join("".join(p.itertext()) for p in c.findall("{%s}p" % X))
+            row += [val] * rep_n
+        while row and row[-1] == "":
+            row.pop()
+        rep_r = min(int(r.get("{%s}number-rows-repeated" % T, "1")), 1000)
+        rows += [row] * (rep_r if row else 1)
+        cells_total += len(row) * rep_r
+        if cells_total > MAX_TABLE_CELLS:
+            break
+    return rows
+
+
+def _xls_rows(data):
+    if xlrd is None:
+        return None
+    sh = xlrd.open_workbook(file_contents=data).sheet_by_index(0)
+    out = []
+    for i in range(sh.nrows):
+        out.append([_num_text(c.value) if c.ctype == xlrd.XL_CELL_NUMBER else str(c.value) for c in sh.row(i)])
+    return out
+
+
+def table_to_text(data, ext):
+    """Первый лист таблицы — строками, ячейки через табуляцию (как при копировании из Excel). None — не умеем."""
+    ext = ext.lower()
+    try:
+        if ext == ".xlsx":
+            rows = _xlsx_rows(data)
+        elif ext == ".ods":
+            rows = _ods_rows(data)
+        elif ext == ".xls":
+            rows = _xls_rows(data)
+        elif ext == ".csv":
+            text = data.decode("utf-8-sig", errors="replace")
+            dialect = csv.Sniffer().sniff(text[:4096], delimiters=";,\t") if text.strip() else csv.excel
+            rows = list(csv.reader(io.StringIO(text), dialect))
+        else:
+            return None
+    except Exception:
+        return None
+    if rows is None:
+        return None
+    while rows and not any(rows[-1]):
+        rows.pop()
+    for r in rows:
+        while r and r[-1] == "":
+            r.pop()
+    return ("\n".join("\t".join(r) for r in rows) + "\n").encode("utf-8")
+
+
 class Bank:
     def __init__(self, path: Path, secret=None):
         self.path = path
@@ -499,7 +623,29 @@ class Bank:
                     continue
             nm = uniq(clean_file_name(a.get("name") or href, n))
             out.append({"name": nm, "href": self.file_url(href, nm, (href, None))})
+        if n == 9:
+            self.add_txt_copy(out, uniq)
         return out
+
+    def add_txt_copy(self, out, uniq):
+        """№9: таблицу копируют в .txt и обрабатывают на Python — даём готовый 9.txt из xlsx/ods/xls/csv."""
+        if any(o["name"].lower().endswith(".txt") for o in out):
+            return
+        order = {".xlsx": 0, ".ods": 1, ".xls": 2, ".csv": 3}
+        best = None
+        for o in out:
+            ext = os.path.splitext(o["name"])[1].lower()
+            if ext not in order or (ext == ".xls" and xlrd is None):
+                continue
+            tok = o["href"].split("/")[1] if o["href"].startswith("files/") else None
+            target = self.files.get(tok)
+            if target and (best is None or order[ext] < best[0]):
+                best = (order[ext], ext, target)
+        if not best:
+            return
+        _, ext, (href, member) = best
+        nm = uniq("9.txt")
+        out.append({"name": nm, "href": self.file_url(f"{href}#{member}#txt", nm, (href, member, ext))})
 
     def public_html(self, h):
         h = SOURCE_LINK_RE.sub(r"\1", h or "")
@@ -949,21 +1095,31 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         target = APP.bank.files.get(parts[1]) if len(parts) >= 3 else None
         if not target:
             return self.not_found()
-        href, member = target
+        href, member = target[0], target[1]
+        as_text = target[2] if len(target) > 2 else None      # №9: таблица, отдаём текстом
         p = APP.bank.ref_path(href)
         if not p or not p.is_file():
             return self.not_found(p or href)
         name = unquote(parts[-1])
-        if member is None:
+        if member is None and not as_text:
             return self.serve_file(p.parent, p.name, download_name=name)
         try:
-            with zipfile.ZipFile(p) as z:
-                info = z.getinfo(member)
-                if info.file_size > MAX_ZIP_MEMBER:
+            if member is None:
+                if p.stat().st_size > MAX_ZIP_MEMBER:
                     return self.not_found(p)
-                body = z.read(info)
+                body = p.read_bytes()
+            else:
+                with zipfile.ZipFile(p) as z:
+                    info = z.getinfo(member)
+                    if info.file_size > MAX_ZIP_MEMBER:
+                        return self.not_found(p)
+                    body = z.read(info)
         except (KeyError, zipfile.BadZipFile, OSError):
             return self.not_found(p)
+        if as_text:
+            body = table_to_text(body, as_text)
+            if body is None:
+                return self.not_found(p)
         ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
         if ctype.startswith("text/"):
             ctype += "; charset=utf-8"
@@ -1148,8 +1304,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return bool(r) and (r["teacher_id"] or main_teacher()["id"]) == self.T["id"]
 
     def sees_class(self, cid):
+        """Классы — только свои: главный учитель тоже не видит классы других учителей."""
         r = APP.db.q("SELECT teacher_id FROM classes WHERE id=?", (cid,), one=True)
-        return bool(r) and (self.T["is_main"] or (r["teacher_id"] or main_teacher()["id"]) == self.T["id"])
+        return bool(r) and (r["teacher_id"] or main_teacher()["id"]) == self.T["id"]
 
     def student_scope(self, alias="s"):
         """Условие SQL на учеников этого учителя и его параметры."""
@@ -1386,20 +1543,29 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"assignments": out})
 
         if path == "/api/leaderboard":
+            # рейтинг среди учеников того же учителя: ТОП-10 по опыту за день, неделю, месяц и по огоньку
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            if not s["class_id"]:
-                return self.send_json({"rows": [], "class": None})
-            c = db.q("SELECT name FROM classes WHERE id=?", (s["class_id"],), one=True)
-            rows = []
-            for m in db.q("SELECT id, name FROM students WHERE class_id=?", (s["class_id"],)):
+            tid = teacher_of(s)["id"]
+            main_id = main_teacher()["id"]
+            people = []
+            for m in db.q("SELECT id, name, teacher_id FROM students"):
+                if (m["teacher_id"] or main_id) != tid:
+                    continue
                 g = game_summary(db, m["id"], brief=True)
                 parts = m["name"].split()
                 short = parts[0] + (" " + parts[1][0] + "." if len(parts) > 1 else "")
-                rows.append({"name": short, "me": m["id"] == s["id"], "level": g["level"], "xp": g["xp"], "week": g["week"]})
-            rows.sort(key=lambda r: (-r["week"], -r["xp"]))
-            return self.send_json({"rows": rows, "class": c["name"] if c else ""})
+                people.append({"name": short, "me": m["id"] == s["id"], "level": g["level"],
+                               "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"]})
+            boards = {}
+            for key in ("day", "week", "month", "fire"):
+                ranked = sorted((p for p in people if p[key] > 0), key=lambda p: (-p[key], p["name"]))
+                top = [dict(p, place=i + 1, value=p[key]) for i, p in enumerate(ranked[:10])]
+                mine = next(({"place": i + 1, "value": p[key]} for i, p in enumerate(ranked) if p["me"]), None)
+                boards[key] = {"top": [{k: r[k] for k in ("place", "name", "me", "level", "value")} for r in top],
+                               "me": mine, "total": len(ranked)}
+            return self.send_json({"boards": boards})
 
         if path == "/api/exam/start" and method == "POST":
             s = self.student(data)
@@ -1928,8 +2094,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/classes":
             main_id = main_teacher()["id"]
-            ccond = "1=1" if self.T["is_main"] else "COALESCE(c.teacher_id, ?) = ?"
-            cargs = () if self.T["is_main"] else (main_id, self.T["id"])
+            ccond = "COALESCE(c.teacher_id, ?) = ?"                 # только свои классы, и у главного тоже
+            cargs = (main_id, self.T["id"])
             rows = db.q(f"""SELECT c.id, c.name, c.created, COALESCE(c.teacher_id, ?) AS teacher_id, t.name AS teacher,
                                   COUNT(s.id) AS students FROM classes c
                            LEFT JOIN students s ON s.class_id = c.id
@@ -2130,20 +2296,29 @@ def game_summary(db, sid, brief=False):
     rows = db.q("""SELECT task_id, grp, n, score, ts, exam FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
     exams = db.q("""SELECT started, finished, primary_score, test_score FROM exams
                     WHERE student_id=? AND finished IS NOT NULL ORDER BY finished""", (sid,))
-    week0 = time.time() - 7 * 86400
-    xp = week = 0
+    now = time.time()
+    week0, month0 = now - 7 * 86400, now - 30 * 86400
+    day0 = time.mktime(datetime.now().date().timetuple())          # сегодня с 00:00 (время сервера)
+    xp = week = xp_day = xp_month = 0
+    fire_days = {}                     # день → заданий (как огонёк на сайте: любые ответы, и в варианте тоже)
     solved, failed = set(), set()
     cnt = {k: 0 for k in ("solved", "row", "best_row", "hard", "fix", "night", "early")}
     nums, per_day, days = set(), {}, set()
     got = {}
 
     def gain(v, ts):
-        nonlocal xp, week
+        nonlocal xp, week, xp_day, xp_month
         xp += v
         if ts >= week0:
             week += v
+        if ts >= month0:
+            xp_month += v
+        if ts >= day0:
+            xp_day += v
 
     for r in rows:
+        fd = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
+        fire_days[fd] = fire_days.get(fd, 0) + 1
         if r["exam"]:
             continue
         ts, tid = r["ts"], r["task_id"]
@@ -2202,8 +2377,16 @@ def game_summary(db, sid, brief=False):
         for aid in ("days7", "days30"):
             if aid not in got and run >= ACH_GOAL[aid]:
                 got[aid] = time.mktime(cur.timetuple()) + 43200
+    # огонёк: дни подряд, в каждый из которых решено не меньше FIRE_NEED заданий (сегодняшний ещё может идти)
+    fire, d = 0, datetime.now().date()
+    if fire_days.get(d.isoformat(), 0) < FIRE_NEED:
+        d -= timedelta(days=1)
+    while fire_days.get(d.isoformat(), 0) >= FIRE_NEED:
+        fire += 1
+        d -= timedelta(days=1)
     lvl, title, cur_xp, need = level_of(xp)
-    out = {"xp": xp, "week": week, "level": lvl, "title": title, "cur": cur_xp, "need": need}
+    out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire,
+           "level": lvl, "title": title, "cur": cur_xp, "need": need}
     if brief:
         return out
     prog = {"first": cnt["solved"], "s10": cnt["solved"], "s100": cnt["solved"], "s500": cnt["solved"],
@@ -2217,6 +2400,7 @@ def game_summary(db, sid, brief=False):
 
 
 ACH_GOAL = {a: g for a, _, _, _, g in ACHIEVEMENTS}
+FIRE_NEED = 3                          # заданий за день, чтобы огонёк продлился (как в app.js)
 
 
 def assignment_done(db, sid, task_ids, since):

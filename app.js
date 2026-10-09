@@ -3033,15 +3033,8 @@
     return (t && t.att || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
       .filter(f => f.url.startsWith(location.origin));       // внешние ссылки браузер не даст прочитать
   }
-  function pyStarter(t) {
-    const files = pyFilesOf(t).map(f => f.name);
-    const txt = files.find(n => /\.(txt|csv|dat)$/i.test(n));
-    if (t.n === 6) {
-      return "from turtle import *\n\ntracer(0)\nk = 20          # масштаб\nleft(90)        # «смотрит» вверх, как в задании\n\n# команды из условия, например:\n# for i in range(2):\n#     forward(10 * k); right(90); forward(18 * k); right(90)\n\n# точки сетки, чтобы посчитать их внутри фигуры:\n# up()\n# for x in range(-30, 30):\n#     for y in range(-30, 30):\n#         goto(x * k, y * k); dot(3)\n\nupdate()\ndone()\n";
-    }
-    if (txt) return `with open('${txt}') as f:\n    data = f.read().split()\n\nprint(len(data))\n`;
-    return '';
-  }
+  /** Редактор открывается пустым: заготовки для черепахи (№6) и файлов (№17 и др.) убраны — пишем сами. */
+  function pyStarter() { return ''; }
   function setPyStatus(text, cls) {
     const el = $('#pyStatus');
     el.textContent = text;
@@ -3479,12 +3472,54 @@
     $('#forecastModal').hidden = false;
     try {
       const d = await api('leaderboard');
-      if (d.rows && d.rows.length > 1 && $('#lbBox')) {
-        $('#lbBox').innerHTML = `<h3 class="fm-sub">Рейтинг класса ${esc(d.class || '')} · опыт за неделю</h3>
-          <table class="lb">${d.rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td>${i + 1}</td><td>${esc(r.name)}</td>
-            <td>ур. ${r.level}</td><td class="num">+${r.week} XP</td></tr>`).join('')}</table>`;
-      }
+      if ($('#lbBox')) { $('#lbBox').innerHTML = `<h3 class="fm-sub">Рейтинг · ТОП-10</h3>${boardsHtml(d, 'week')}`; }
     } catch (e) { /* без рейтинга */ }
+  }
+
+  // ------------------------------------------------------------ рейтинг: день, неделя, месяц, огонёк
+  const LB_TABS = [['day', 'День'], ['week', 'Неделя'], ['month', 'Месяц'], ['fire', 'Огонёк']];
+  const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `+${v} XP`;
+  function boardHtml(d, key) {
+    const b = (d.boards || {})[key] || { top: [] };
+    if (!b.top.length) {
+      return `<p class="fm-muted lb-empty">${key === 'day' ? 'Сегодня ещё никто не решал — стань первым!'
+        : key === 'fire' ? 'Пока ни у кого не горит огонёк. Реши 3 задания за день, чтобы зажечь его.' : 'Пока пусто.'}</p>`;
+    }
+    const rows = b.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${r.place <= 3 ? ['🥇', '🥈', '🥉'][r.place - 1] : r.place}</td>
+      <td>${esc(r.name)}</td><td class="fm-muted">ур. ${r.level}</td><td class="num">${lbValue(key, r.value)}</td></tr>`).join('');
+    const mine = b.me && b.me.place > 10
+      ? `<p class="lb-mine">Твоё место: <b>${b.me.place}</b> из ${b.total} · ${lbValue(key, b.me.value)}</p>`
+      : (!b.me ? `<p class="lb-mine fm-muted">${key === 'fire' ? 'Зажги огонёк — и попадёшь в рейтинг' : 'Реши задание — и попадёшь в рейтинг'}</p>` : '');
+    return `<table class="lb">${rows}</table>${mine}`;
+  }
+  function boardsHtml(d, key) {
+    return `<div class="lb-wrap" data-lb='${esc(JSON.stringify(d))}'>
+      <div class="lb-tabs" role="tablist">${LB_TABS.map(([k, t]) => `<button type="button" data-lbtab="${k}" class="${k === key ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <div class="lb-body">${boardHtml(d, key)}</div></div>`;
+  }
+  document.addEventListener('click', e => {
+    const tab = e.target.closest('[data-lbtab]');
+    if (!tab) return;
+    const wrap = tab.closest('.lb-wrap');
+    let d = {};
+    try { d = JSON.parse(wrap.dataset.lb); } catch (err) { return; }
+    $$('[data-lbtab]', wrap).forEach(b => b.classList.toggle('on', b === tab));
+    $('.lb-body', wrap).innerHTML = boardHtml(d, tab.dataset.lbtab);
+  });
+  /** При входе (не в первый раз) — раз в день окно «Рейтинг дня». */
+  async function showDailyRating() {
+    const key = `egeTrainer.lbShown.${student ? student.sid : ''}`;
+    const today = dayKey(Date.now());
+    try { if (localStorage.getItem(key) === today) return; } catch (e) { return; }
+    let d;
+    try { d = await api('leaderboard'); } catch (e) { return; }
+    if (!$('#forecastModal').hidden) return;                 // уже открыто другое окно (знакомство и т. п.)
+    try { localStorage.setItem(key, today); } catch (e) { /* не страшно */ }
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг дня</h2>
+      <p class="fm-note">ТОП-10 учеников твоего учителя по опыту. Переключай: день, неделя, месяц и огонёк.</p>
+      ${boardsHtml(d, 'day')}
+      <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
+    $('#forecastModal').hidden = false;
   }
 
   // ------------------------------------------------------------ задания от учителя
@@ -3632,6 +3667,7 @@
       next();
     }
     if (!P.log.length && !tourSeen()) setTimeout(openTour, 400);      // новичку — коротко о том, как всё устроено
+    else if (SERVER && student) setTimeout(showDailyRating, 600);    // уже знакомым — рейтинг дня, раз в день
   }
 
   // ------------------------------------------------------------ знакомство с сайтом
@@ -3663,6 +3699,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.15.0', '09.10.2026', ['Рейтинг ТОП-10 за день, неделю и месяц и рейтинг огонька',
+      'Раз в день при входе — окно «Рейтинг дня»', 'Задание 9: к таблице добавлен 9.txt — сразу открывается в Python',
+      'Редактор Python открывается пустым, без вспомогательного кода']],
     ['1.14.0', '08.10.2026', ['Новый банк Egeshka: 50 авторских заданий №1–5 (Egeshka Malevin D.) с файлами и решениями']],
     ['1.13.2', '08.10.2026', ['Подпись by Malevin — фамилия в цветах логотипа']],
     ['1.13.1', '08.10.2026', ['Под названием Egeshka — подпись автора: by Malevin']],
