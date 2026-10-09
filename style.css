@@ -1261,3 +1261,25 @@ body.side-min .rail-logo { cursor: pointer; }
 /* тема и «свернуть» — сразу под разделами, через черту */
 @media (min-width: 861px) { .rail-sp { flex: none; width: 28px; height: 2px; border-radius: 2px; background: var(--border); margin: 4px 0; } }
 @media (min-width: 861px) and (max-width: 1099px) { .topbar { padding-top: 8px; padding-bottom: 8px; } }
+
+/* выбор темы: карточки с мини-превью */
+.th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 18px; }
+.th-card { display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 2px solid var(--border); border-bottom-width: 4px; border-radius: 14px;
+  background: var(--card); color: var(--text); cursor: pointer; text-align: left; font: inherit; }
+.th-card:hover { border-color: var(--border-strong); }
+.th-card.on { border-color: var(--sel-border); box-shadow: 0 0 0 2px var(--accent-soft); }
+.th-prev { display: flex; height: 74px; border-radius: 9px; overflow: hidden; background: var(--tb); border: 1px solid var(--tr); }
+.th-side { width: 18px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 6px; border-right: 1px solid var(--tr); }
+.th-side i { width: 9px; height: 9px; border-radius: 3px; background: #1cb0f6; }
+.th-side i:nth-child(2) { background: #ffc800; }
+.th-side i:nth-child(3) { background: #a560e8; }
+.th-main { flex: 1; padding: 6px; display: flex; flex-direction: column; gap: 5px; }
+.th-main > b { display: block; width: 55%; height: 6px; border-radius: 3px; background: var(--tt); }
+.th-box { flex: 1; border-radius: 6px; background: var(--tc); border: 1px solid var(--tr); padding: 5px; display: flex; flex-direction: column; gap: 4px; }
+.th-box i { display: block; height: 4px; border-radius: 2px; background: var(--tm); width: 85%; }
+.th-box i + i { width: 60%; }
+.th-box em { margin-top: auto; width: 34px; height: 9px; border-radius: 4px; background: #58cc02; }
+.th-name { display: flex; flex-direction: column; line-height: 1.2; }
+.th-name b { font-weight: 800; font-size: 14px; }
+.th-name small { color: var(--muted); font-size: 11.5px; }
+@media (min-width: 700px) { .th-grid { grid-template-columns: repeat(5, 1fr); } .th-prev { height: 64px; } }

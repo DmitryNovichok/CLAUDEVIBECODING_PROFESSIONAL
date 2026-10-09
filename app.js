@@ -158,21 +158,82 @@
   const freshProgress = () => ({ v: 1, step: 0, tasks: {}, nums: {}, topics: {}, reviews: {}, log: [] });
 
   // ------------------------------------------------------------ тема и панель на телефоне
-  const THEME_STORE = 'egeTrainer.theme';
+  // 10 тем: 5 тёмных и 5 светлых. Меняются только фон, карточки, рамки и серые оттенки —
+  // цветные значки, кольца и кнопки остаются, поэтому подходят ко всем.
+  const THEME_STORE = 'egeTrainer.theme';            // 'dark' | 'light' — какой режим включён
+  const THEME_PICK = 'egeTrainer.themePick';         // {dark: id, light: id} — выбранная тема каждого режима
+  const THEME_CSS = 'egeTrainer.themeCss';           // готовый CSS — его ставит скрипт в <head> до отрисовки
+  const tDark = (bg, panel, card, hover, border, strong, text, muted, faint) => ({ bg, panel, card, 'card-hover': hover, border, 'border-strong': strong,
+    text, muted, faint, track: border, 'input-bg': card, 'code-bg': panel, 'topbar-bg': bg, ink: border, linked: text, 'overlay-strong': bg + 'f0' });
+  const tLight = (bg, panel, card, hover, border, strong, text, muted, faint) => ({ bg, panel, card, 'card-hover': hover, border, 'border-strong': strong,
+    text, muted, faint, track: border, 'input-bg': hover, 'code-bg': hover, 'topbar-bg': panel, ink: border, linked: text, 'overlay-strong': panel + 'f0' });
+  const THEMES = [
+    { id: 'graphite', mode: 'dark', name: 'Графит', from: 'Egeshka', v: null, bg: '#16181d', card: '#22262e' },
+    { id: 'github-dark', mode: 'dark', name: 'GitHub Dark', from: 'GitHub', v: tDark('#0d1117', '#10151c', '#161b22', '#1c232c', '#30363d', '#454c56', '#e6edf3', '#8d96a0', '#656c76') },
+    { id: 'dracula', mode: 'dark', name: 'Dracula', from: 'редакторы кода', v: tDark('#282a36', '#21222c', '#313341', '#3a3d4e', '#44475a', '#5a5e78', '#f8f8f2', '#a9acc8', '#6f749a') },
+    { id: 'nord', mode: 'dark', name: 'Nord', from: 'Linux и редакторы', v: tDark('#2e3440', '#2a303b', '#3b4252', '#434c5e', '#4c566a', '#5f6a82', '#eceff4', '#a7b1c4', '#737e94') },
+    { id: 'mocha', mode: 'dark', name: 'Catppuccin Mocha', from: 'Catppuccin', v: tDark('#1e1e2e', '#181825', '#272738', '#313244', '#3d3e52', '#585b70', '#cdd6f4', '#a6adc8', '#6c7086') },
+    { id: 'paper', mode: 'light', name: 'Бумага', from: 'Egeshka', v: null, bg: '#f5f2eb', card: '#fffdf8' },
+    { id: 'github-light', mode: 'light', name: 'GitHub Light', from: 'GitHub', v: tLight('#f6f8fa', '#ffffff', '#ffffff', '#f3f5f8', '#d0d7de', '#b6bfc8', '#1f2328', '#59636e', '#8c959f') },
+    { id: 'macos', mode: 'light', name: 'macOS', from: 'Apple', v: tLight('#f5f5f7', '#fbfbfd', '#ffffff', '#f2f2f5', '#d9d9de', '#c4c4ca', '#1d1d1f', '#6e6e73', '#a1a1a6') },
+    { id: 'solarized', mode: 'light', name: 'Solarized Light', from: 'редакторы кода', v: tLight('#fdf6e3', '#f8f0da', '#fffbee', '#f5edd6', '#e4dbc2', '#d3c7a8', '#073642', '#586e75', '#93a1a1') },
+    { id: 'latte', mode: 'light', name: 'Catppuccin Latte', from: 'Catppuccin', v: tLight('#eff1f5', '#e6e9ef', '#f8f9fb', '#e9ecf2', '#ccd0da', '#bcc0cc', '#4c4f69', '#6c6f85', '#9ca0b0') },
+  ];
+  THEMES.forEach(t => { if (t.v) { t.bg = t.v.bg; t.card = t.v.card; } });
   const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
   const effectiveTheme = () => document.documentElement.dataset.theme || (mqDark.matches ? 'dark' : 'light');
+  function themePick() {
+    const p = readJSON(THEME_PICK) || {};
+    return { dark: THEMES.some(t => t.id === p.dark) ? p.dark : 'graphite', light: THEMES.some(t => t.id === p.light) ? p.light : 'paper' };
+  }
+  const curTheme = () => THEMES.find(t => t.id === themePick()[effectiveTheme()]);
   function applyThemeColor() {
     const m = document.querySelector('meta[name="theme-color"]');
-    if (m) m.content = effectiveTheme() === 'light' ? '#f5f2eb' : '#16181d';
+    if (m) m.content = curTheme().bg;
   }
-  applyThemeColor();
-  if (mqDark.addEventListener) mqDark.addEventListener('change', applyThemeColor);
-  $('#themeBtn').addEventListener('click', () => {
-    const next = effectiveTheme() === 'light' ? 'dark' : 'light';
-    document.documentElement.dataset.theme = next;
-    if (storage) try { storage.setItem(THEME_STORE, next); } catch (e) { /* не сохранится */ }
+  /** Ставит режим и выбранные темы. CSS сохраняем — его подхватит скрипт в <head> при следующем открытии. */
+  function applyTheme(mode) {
+    const pick = themePick();
+    if (mode) document.documentElement.dataset.theme = mode;
+    const css = ['dark', 'light'].map(m => {
+      const t = THEMES.find(x => x.id === pick[m]);
+      return t && t.v ? `:root:root[data-theme="${m}"]{${Object.entries(t.v).map(([k, v]) => `--${k}:${v}`).join(';')}}` : '';
+    }).join('');
+    let st = document.getElementById('themeVars');
+    if (!st) { st = document.createElement('style'); st.id = 'themeVars'; document.head.appendChild(st); }
+    st.textContent = css;
+    if (storage) try {
+      if (mode) storage.setItem(THEME_STORE, mode);
+      storage.setItem(THEME_CSS, css);
+    } catch (e) { /* не сохранится */ }
     applyThemeColor();
-  });
+  }
+  function setThemePick(id) {
+    const t = THEMES.find(x => x.id === id);
+    if (!t) return;
+    const pick = themePick();
+    pick[t.mode] = id;
+    writeJSON(THEME_PICK, pick);
+    applyTheme(t.mode);
+  }
+  applyTheme(document.documentElement.dataset.theme || null);
+  if (mqDark.addEventListener) mqDark.addEventListener('change', applyThemeColor);
+  // кнопка ☀/☾ — между выбранной тёмной и выбранной светлой
+  $('#themeBtn').addEventListener('click', () => applyTheme(effectiveTheme() === 'light' ? 'dark' : 'light'));
+  function themeCard(t, on) {
+    return `<button type="button" class="th-card${on ? ' on' : ''}" data-theme-id="${t.id}" style="--tb:${t.bg};--tc:${t.card};--tt:${t.v ? t.v.text : t.mode === 'dark' ? '#eef1f6' : '#2c2923'};--tm:${t.v ? t.v.muted : t.mode === 'dark' ? '#98a2b3' : '#7a7264'};--tr:${t.v ? t.v.border : t.mode === 'dark' ? '#343a45' : '#e6dfd0'}">
+        <span class="th-prev"><span class="th-side"><i></i><i></i><i></i></span><span class="th-main"><b></b><span class="th-box"><i></i><i></i><em></em></span></span></span>
+        <span class="th-name"><b>${esc(t.name)}</b><small>${esc(t.from)}</small></span></button>`;
+  }
+  function openThemes() {
+    const pick = themePick(), mode = effectiveTheme();
+    const sec = (m, title) => `<div class="fm-h">${title}</div><div class="th-grid">${THEMES.filter(t => t.mode === m)
+      .map(t => themeCard(t, pick[m] === t.id && mode === m)).join('')}</div>`;
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">🎨 Тема оформления</h2>
+      <p class="fm-note">Кнопка ☀ в меню переключает между выбранной тёмной и выбранной светлой темой.</p>
+      ${sec('dark', 'Тёмные')}${sec('light', 'Светлые')}`;
+    $('#forecastModal').hidden = false;
+  }
 
   const isNarrow = () => window.matchMedia('(max-width: 860px)').matches;
   function setSideOpen(open) {
@@ -2774,6 +2835,8 @@
   $('#forecastBtn').addEventListener('click', openForecast);
   $('#histCard').addEventListener('click', () => { histFilter = 'all'; histLimit = 100; if (isNarrow()) setSideOpen(false); openHistory(); });
   $('#forecastModal').addEventListener('click', e => {
+    const th = e.target.closest('[data-theme-id]');
+    if (th) { setThemePick(th.dataset.themeId); openThemes(); return; }
     const ho = e.target.closest('[data-open]');
     if (ho) { closeForecast(); openPast(ho.dataset.open); return; }
     const hf = e.target.closest('[data-hf]');
@@ -2949,7 +3012,7 @@
   }
   $('#avaBtn')?.addEventListener('click', () => setWhoMenu($('#whoMenu').hidden));
   $('#whoLvl')?.addEventListener('click', () => { setWhoMenu(false); openGame(); });
-  $('#whoTheme')?.addEventListener('click', () => $('#themeBtn').click());
+  $('#whoTheme')?.addEventListener('click', () => { setWhoMenu(false); openThemes(); });
   document.addEventListener('click', e => { if (!e.target.closest('#who')) setWhoMenu(false); });
 
   async function askName() {
@@ -4054,6 +4117,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.21.0', '10.10.2026', ['10 тем оформления на выбор: тёмные Графит, GitHub Dark, Dracula, Nord, Catppuccin Mocha и светлые Бумага, GitHub Light, macOS, Solarized Light, Catppuccin Latte — в меню профиля «Тема оформления»',
+      'Кнопка ☀ переключает между выбранной тёмной и светлой темой']],
     ['1.20.0', '10.10.2026', ['Новые цвета тем: тёмная «Графит» — нейтральная, без зеленоватого оттенка; светлая «Бумага» — тёплая и мягкая для глаз']],
     ['1.19.4', '10.10.2026', ['Верхняя панель стала тоньше, а прогноз, рейтинг, огонёк и уровень в ней — крупнее']],
     ['1.19.3', '10.10.2026', ['Кнопки темы и сворачивания меню — сразу под значками разделов']],
