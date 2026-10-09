@@ -2494,6 +2494,20 @@ ACHIEVEMENTS = [
     ("exam1", "EX", "Первый вариант", "Завершить вариант ЕГЭ", 1),
     ("exam80", "80+", "Высокий балл", "Набрать 80+ баллов за вариант", 1),
     ("exam100", "100!", "Сотка", "Набрать 100 баллов за вариант", 1),
+    # смешные и пасхальные
+    ("six7", "67", "SIX SEVEN", "Решить №6, а сразу следом — №7 🤷", 1),
+    ("exam67", "67!", "SIX SEVEN на экзамене", "Набрать за вариант ровно 67 баллов", 1),
+    ("s42", "42", "Ответ на всё", "Решить 42 задания — ответ на главный вопрос жизни, вселенной и всего такого", 42),
+    ("xp1337", "1337", "1337 h4x0r", "Набрать 1337 опыта", 1337),
+    ("turtle", "🐢", "Повелитель черепах", "Решить 15 заданий №6 с Черепахой", 15),
+    ("flash", "⚡", "Флэш", "Верно с первой попытки решить задание быстрее 20 секунд", 1),
+    ("bug", "BUG", "Это не баг, это фича", "Ошибиться 5 раз подряд — и всё равно решить следующее", 1),
+    ("phoenix", "🔥", "Феникс", "Вернуться к занятиям после перерыва в неделю и больше", 1),
+    ("cinderella", "00:00", "Золушка", "Решить задание ровно в полночь — с 00:00 до 00:05", 1),
+    ("weekend", "ZZZ", "Выходной? Не слышал", "Решить 20 заданий за субботу или воскресенье", 20),
+    ("fri13", "13", "Пятница, 13-е", "Решить задание в пятницу 13-го. Страшно? Нет, программист", 1),
+    ("pi", "π", "День числа π", "Решить задание 14 марта", 1),
+    ("newyear", "🎄", "Оливье подождёт", "Решить задание 31 декабря или 1 января", 1),
 ]
 EXAM_MIN_SEC_FOR_XP = 20 * 60          # вариант, сданный быстрее, опыта не даёт (иначе его «фармят»)
 
@@ -2528,7 +2542,7 @@ def game_summary(db, sid, brief=False, windows=None):
     """Опыт, уровень и достижения. windows — {имя: (с, до)}: опыт за произвольные промежутки (лиги, прошлая неделя)."""
     windows = windows or {}
     sums = {k: 0 for k in windows}
-    rows = db.q("""SELECT task_id, grp, n, score, ts, exam FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
+    rows = db.q("""SELECT task_id, grp, n, score, ts, exam, spent_ms FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
     exams = db.q("""SELECT started, finished, primary_score, test_score FROM exams
                     WHERE student_id=? AND finished IS NOT NULL ORDER BY finished""", (sid,))
     now = time.time()
@@ -2537,7 +2551,10 @@ def game_summary(db, sid, brief=False, windows=None):
     xp = week = xp_day = xp_month = 0
     fire_days = {}                     # день → заданий (как огонёк на сайте: любые ответы, и в варианте тоже)
     solved, failed = set(), set()
-    cnt = {k: 0 for k in ("solved", "row", "best_row", "hard", "fix", "night", "early")}
+    cnt = {k: 0 for k in ("solved", "row", "best_row", "hard", "fix", "night", "early",
+                          "six7", "turtle", "flash", "fails", "bug", "phoenix", "cinderella", "fri13", "pi", "newyear")}
+    prev_ok_n = None                   # номер предыдущего ответа, если он был верным (для SIX SEVEN)
+    prev_day = None
     nums, per_day, days = set(), {}, set()
     got = {}
 
@@ -2547,6 +2564,8 @@ def game_summary(db, sid, brief=False, windows=None):
     def gain(v, ts):
         nonlocal xp, week, xp_day, xp_month, xp_wk
         xp += v
+        if "xp1337" not in got and xp >= ACH_GOAL["xp1337"]:
+            got["xp1337"] = ts
         if ts >= wk0:
             xp_wk += v
         for k, (a, b) in windows.items():
@@ -2567,8 +2586,29 @@ def game_summary(db, sid, brief=False, windows=None):
         ts, tid = r["ts"], r["task_id"]
         lt = time.localtime(ts)
         day = time.strftime("%Y-%m-%d", lt)
+        if prev_day and day != prev_day and (datetime.strptime(day, "%Y-%m-%d") - datetime.strptime(prev_day, "%Y-%m-%d")).days >= 8:
+            cnt["phoenix"] = 1                 # между днями занятий — неделя без единого ответа
+        prev_day = day
         days.add(day)
         if r["score"] and r["score"] > 0:
+            if r["n"] == 7 and prev_ok_n == 6:
+                cnt["six7"] = 1
+            if r["n"] == 6:
+                cnt["turtle"] += 1
+            if r["score"] == 1 and r["spent_ms"] is not None and 0 < r["spent_ms"] < 20000:
+                cnt["flash"] = 1
+            if cnt["fails"] >= 5:
+                cnt["bug"] = 1
+            cnt["fails"] = 0
+            if lt.tm_hour == 0 and lt.tm_min < 5:
+                cnt["cinderella"] = 1
+            if lt.tm_wday == 4 and lt.tm_mday == 13:
+                cnt["fri13"] = 1
+            if lt.tm_mon == 3 and lt.tm_mday == 14:
+                cnt["pi"] = 1
+            if (lt.tm_mon, lt.tm_mday) in ((12, 31), (1, 1)):
+                cnt["newyear"] = 1
+            prev_ok_n = r["n"]
             first_time = tid not in solved
             gain(round(task_xp(r["n"]) * (1 if r["score"] == 1 else 0.5)) if first_time else 2, ts)
             if first_time:
@@ -2591,12 +2631,18 @@ def game_summary(db, sid, brief=False, windows=None):
         else:
             failed.add(tid)
             cnt["row"] = 0
+            cnt["fails"] += 1
+            prev_ok_n = None
         cnt["best_row"] = max(cnt["best_row"], cnt["row"])
         # отметки времени получения достижений
         for aid, val in (("first", cnt["solved"]), ("s10", cnt["solved"]), ("s100", cnt["solved"]), ("s500", cnt["solved"]),
                          ("s1000", cnt["solved"]), ("row10", cnt["best_row"]), ("row25", cnt["best_row"]),
                          ("hard10", cnt["hard"]), ("all27", len(nums)), ("fix20", cnt["fix"]),
-                         ("day50", per_day.get(day, 0)), ("night", cnt["night"]), ("early", cnt["early"])):
+                         ("day50", per_day.get(day, 0)), ("night", cnt["night"]), ("early", cnt["early"]),
+                         ("six7", cnt["six7"]), ("s42", cnt["solved"]), ("turtle", cnt["turtle"]), ("flash", cnt["flash"]),
+                         ("bug", cnt["bug"]), ("phoenix", cnt["phoenix"]), ("cinderella", cnt["cinderella"]),
+                         ("weekend", per_day.get(day, 0) if lt.tm_wday >= 5 else 0), ("fri13", cnt["fri13"]),
+                         ("pi", cnt["pi"]), ("newyear", cnt["newyear"])):
             if aid not in got and val >= ACH_GOAL[aid]:
                 got[aid] = ts
     ex_best = 0
@@ -2609,6 +2655,8 @@ def game_summary(db, sid, brief=False, windows=None):
             got.setdefault("exam80", e["finished"])
         if (e["test_score"] or 0) >= 100:
             got.setdefault("exam100", e["finished"])
+        if e["test_score"] == 67:
+            got.setdefault("exam67", e["finished"])
     # дни подряд
     run = best = 0
     prev = None
@@ -2640,7 +2688,12 @@ def game_summary(db, sid, brief=False, windows=None):
             "s1000": cnt["solved"], "row10": cnt["best_row"], "row25": cnt["best_row"], "hard10": cnt["hard"],
             "all27": len(nums), "fix20": cnt["fix"], "day50": max(per_day.values(), default=0),
             "days7": best, "days30": best, "night": cnt["night"], "early": cnt["early"],
-            "exam1": len(exams), "exam80": int(ex_best >= 80), "exam100": int(ex_best >= 100)}
+            "exam1": len(exams), "exam80": int(ex_best >= 80), "exam100": int(ex_best >= 100),
+            "exam67": int(any(e["test_score"] == 67 for e in exams)), "xp1337": xp,
+            "weekend": max((v for k, v in per_day.items() if datetime.strptime(k, "%Y-%m-%d").weekday() >= 5), default=0)}
+    for k in ("six7", "turtle", "flash", "bug", "phoenix", "cinderella", "fri13", "pi", "newyear"):
+        prog[k] = cnt[k]
+    prog["s42"] = cnt["solved"]
     out["ach"] = [{"id": a, "icon": i, "title": t, "desc": d, "goal": g, "have": min(prog.get(a, 0), g),
                    "got": int(got[a]) if a in got else 0} for a, i, t, d, g in ACHIEVEMENTS]
     return out
