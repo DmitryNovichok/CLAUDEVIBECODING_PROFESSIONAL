@@ -2057,7 +2057,7 @@
     const avg = present ? sum / present : 0;
     const all = $('#allCard');
     const inTrainer = !examShown;
-    all.className = 'all-card' + (inTrainer && ui.scope === 'all' ? ' on' : '') + (tried ? ` has-progress lvl-${avg >= CFG.mastered ? 'good' : avg >= CFG.weak ? 'mid' : 'weak'}` : '');
+    all.className = 'rail-btn' + (inTrainer && ui.scope === 'all' ? ' on' : '');
     $('#allBar').style.width = tried ? pct(avg) + '%' : '0';
     $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
     $('#favCount').textContent = prefs.fav.length;
@@ -2083,9 +2083,12 @@
         st.solved ? `решено ${st.solved}` : '',
         st.acc != null ? `точность ${pct(st.acc)}%` : '',
         rv.length ? `на повторении: ${rv.length}` : ''].filter(Boolean).join(' · ');
+      const p = st.s && st.s.a ? pct(st.s.m) : 0;
+      // кольцо освоения вокруг номера; у широкой плитки 19–21 — полоска
+      const body = wide ? `<span class="n">${numLabel(n)}</span><span class="c">${counts[n]}</span><i class="bar"><b style="width:${p}%"></b></i>`
+        : `<span class="ring" style="--p:${p}"><span class="n">${numLabel(n)}</span></span><span class="c">${counts[n]}</span>`;
       return `<button class="${cls.join(' ')}" data-n="${n}" type="button" title="${esc(tip)}" ${counts[n] ? '' : 'disabled'}>
-        <span class="n">${numLabel(n)}</span><span class="c">${counts[n]}</span>
-        <i class="bar"><b style="width:${st.s && st.s.a ? pct(st.s.m) : 0}%"></b></i><i class="dot"></i></button>`;
+        ${body}<i class="dot"></i></button>`;
     }).join('');
 
     renderPeriod();
@@ -2859,8 +2862,22 @@
     const w = $('#who');
     if (!w) return;
     w.hidden = !(SERVER && student);
-    if (student) $('#whoName').textContent = student.name;
+    if (!student) return;
+    $('#whoName').textContent = student.name;
+    const ini = student.name.trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
+    if ($('#avaTxt')) $('#avaTxt').textContent = ini || '?';
   }
+  // меню профиля под кружком с инициалами
+  function setWhoMenu(open) {
+    const m = $('#whoMenu');
+    if (!m) return;
+    m.hidden = !open;
+    $('#avaBtn').setAttribute('aria-expanded', String(open));
+  }
+  $('#avaBtn')?.addEventListener('click', () => setWhoMenu($('#whoMenu').hidden));
+  $('#whoLvl')?.addEventListener('click', () => { setWhoMenu(false); openGame(); });
+  $('#whoTheme')?.addEventListener('click', () => $('#themeBtn').click());
+  document.addEventListener('click', e => { if (!e.target.closest('#who')) setWhoMenu(false); });
 
   async function askName() {
     const r = await loginDialog();
@@ -3432,6 +3449,7 @@
     $('#lvlTitle').textContent = GAME.title;
     $('#lvlXp').textContent = `${GAME.cur} / ${GAME.need} XP`;
     $('#xpBar').style.width = pct(GAME.cur / GAME.need) + '%';
+    el.title = `Уровень ${GAME.level} · ${GAME.title} — опыт и достижения`;
   }
   function xpPop(v) {
     const b = document.createElement('div');
@@ -3807,6 +3825,7 @@
     if (!own.length) return;
     const open = own.filter(a => asgLeft(a).length);
     const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
+    card.classList.toggle('alert', !!left);
     $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
   }
   function openAssignments() {
@@ -3962,6 +3981,10 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.18.0', '10.10.2026', ['Новое меню: слева панель иконок — все задания, избранное, история, вариант, задание дня, дуэли; при наведении — подсказка',
+      'Вокруг каждого номера кольцо освоения: чем больше решено, тем полнее круг',
+      'Уровень и опыт — в верхней панели; имя, тема, пароль и выход — в меню под кружком с инициалами',
+      'Свёрнутое меню оставляет полоску иконок — разделы всегда под рукой']],
     ['1.17.1', '09.10.2026', ['Лига: в таблице 20 мест, в лигу выше выходят первые 10', 'Битва классов — только для классов, которые выбрал учитель',
       'Поправлены карточки «Задание дня» и «Дуэли» в меню']],
     ['1.17.0', '09.10.2026', ['Лиги на неделю: бронза → серебро → золото → алмаз; в понедельник тройка лидеров поднимается, последние трое опускаются',
