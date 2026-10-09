@@ -1258,3 +1258,5 @@ body.side-min .rail-logo { cursor: pointer; }
 }
 @media (min-width: 861px) and (max-width: 1500px) { .scope-info .chip { font-size: 12px; } }
 .goal-txt { white-space: nowrap; }
+/* тема и «свернуть» — сразу под разделами, через черту */
+@media (min-width: 861px) { .rail-sp { flex: none; width: 28px; height: 2px; border-radius: 2px; background: var(--border); margin: 4px 0; } }
