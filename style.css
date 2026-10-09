@@ -1226,9 +1226,9 @@ body.side-min .rail-logo { cursor: pointer; }
 .ach > span:last-child { min-width: 0; flex: 1; }
 .ach b, .ach small { overflow-wrap: anywhere; hyphens: auto; }
 
-/* верхняя панель чуть крупнее (на широких экранах) */
-@media (min-width: 1300px) {
-  .topbar { padding-top: 14px; padding-bottom: 14px; }
+/* верхняя панель: сама тоньше, элементы внутри крупнее */
+@media (min-width: 1100px) {
+  .topbar { padding-top: 8px; padding-bottom: 8px; }
   .forecast { padding: 8px 16px 8px 12px; gap: 12px; }
   .forecast .fc-ico { width: 40px; height: 40px; }
   .forecast .fc-label { font-size: 13px; }
@@ -1260,3 +1260,4 @@ body.side-min .rail-logo { cursor: pointer; }
 .goal-txt { white-space: nowrap; }
 /* тема и «свернуть» — сразу под разделами, через черту */
 @media (min-width: 861px) { .rail-sp { flex: none; width: 28px; height: 2px; border-radius: 2px; background: var(--border); margin: 4px 0; } }
+@media (min-width: 861px) and (max-width: 1099px) { .topbar { padding-top: 8px; padding-bottom: 8px; } }
