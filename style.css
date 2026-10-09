@@ -949,7 +949,7 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .sidebar { transition: width .2s, flex-basis .2s, padding .2s; }
 @media (min-width: 861px) {
   body.side-min .sidebar { width: 72px; flex-basis: 72px; padding: 16px 10px; overflow: hidden; }
-  body.side-min .sidebar > *:not(.brand-row) { display: none !important; }
+  body.side-min .sidebar > *:not(.rail) { display: none !important; }
   body.side-min .brand-row { flex-direction: column; gap: 12px; }
   body.side-min .brand { display: block; padding: 0; flex: none; }
   body.side-min .brand-title, body.side-min .brand-sub { display: none; }
@@ -1051,3 +1051,128 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .mode-row > .mode-card { min-width: 0; }
 .comp-card .mode-title, .comp-card .mode-sub { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lb tr.lb-gap td { text-align: center; color: var(--faint); padding: 2px; }
+
+/* =====================================================================
+   1.18: панель иконок слева (разделы) + номера с кольцами освоения;
+   уровень и профиль — в верхней панели
+   ===================================================================== */
+.sidebar { width: 300px; flex: 0 0 300px; padding: 0; flex-direction: row; gap: 0; overflow: visible; }
+.rail {
+  position: relative; z-index: 6; width: 60px; flex: none; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 14px 0; border-right: 2px solid var(--border); background: rgba(0, 0, 0, .12);
+}
+:root[data-theme="light"] .rail { background: rgba(0, 0, 0, .03); }
+.side-panel { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 12px 20px; display: flex; flex-direction: column; gap: 12px; }
+.side-panel > * { flex-shrink: 0; }
+.side-panel .brand { display: flex; flex-direction: column; align-items: flex-start; padding: 0 2px; }
+.side-panel .brand-title { font-size: 24px; }
+.rail-logo { border: 0; background: none; padding: 0; margin-bottom: 6px; cursor: default; flex: none; }
+.rail-logo .brand-mark { width: 40px; height: 40px; }
+body.side-min .rail-logo { cursor: pointer; }
+.rail-btn {
+  position: relative; width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 12px; background: transparent; cursor: pointer; font-size: 21px; line-height: 1; color: var(--text);
+}
+.rail-btn:hover { background: var(--card-hover); }
+.rail-btn:focus-visible { box-shadow: var(--focus); outline: none; }
+.rail-btn.on { background: var(--sel); box-shadow: inset 3px 0 0 var(--sel-border); }
+.rail-btn[hidden] { display: none; }
+.r-tip {
+  position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%); white-space: nowrap; z-index: 30;
+  background: var(--panel); border: 2px solid var(--border-strong); border-radius: 10px; padding: 5px 10px;
+  font-size: 13px; color: var(--muted); box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.r-tip b { color: var(--text); font-weight: 800; }
+.rail-btn:hover .r-tip, .rail-btn:focus-visible .r-tip { opacity: 1; }
+/* точки: задание дня ещё не решено, вызов на дуэль, невыполненная подборка учителя */
+#dailyCard:not(.done)::after, .rail-btn.alert::after {
+  content: ""; position: absolute; top: 5px; right: 5px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--review); box-shadow: 0 0 0 2px var(--panel);
+}
+.rail-btn.alert::after { background: var(--weak); }
+.rail-sp { flex: 1; }
+.rail .icon-btn { width: 36px; height: 36px; padding: 0; flex: none; }
+.rail .side-toggle { display: none; }
+
+/* номера: 4 в ряд, вокруг номера кольцо освоения */
+.grid { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.num-card.wide { grid-column: 1 / -1; }
+.num-card:not(.wide) { height: 62px; padding: 4px 0 3px; gap: 1px; border-radius: 14px; }
+.num-card:not(.wide) .c { font-size: 10px; line-height: 1.1; }
+.num-card .ring { --rc: var(--track); position: relative; width: 38px; height: 38px; flex: none; display: grid; place-items: center; }
+.num-card .ring::before {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(var(--rc) calc(var(--p, 0) * 1%), var(--track) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+}
+.num-card .ring .n { position: relative; font-size: 16px; line-height: 1; margin: 0; }
+.num-card.lvl-weak .ring { --rc: var(--weak); }
+.num-card.lvl-mid .ring { --rc: var(--mid); }
+.num-card.lvl-good .ring { --rc: var(--good); }
+.num-card .dot { top: 4px; right: 5px; }
+
+/* верхняя панель: уровень и профиль */
+.me-box { display: flex; align-items: center; gap: 10px; flex: none; }
+.lvl-pill {
+  display: flex; align-items: center; gap: 7px; padding: 5px 12px; cursor: pointer; font: inherit; color: var(--text);
+  border: 2px solid var(--border); border-radius: 14px; background: var(--card);
+}
+.lvl-pill:hover { background: var(--card-hover); }
+.lvl-pill[hidden] { display: none; }
+.lvl-star { color: var(--mid); font-size: 16px; line-height: 1; }
+.lvl-txt { font-weight: 900; font-size: 15px; white-space: nowrap; }
+.lvl-txt b { font-weight: 900; }
+.lvl-pill .lvl-info { width: 76px; flex: none; gap: 2px; }
+.lvl-pill .xp-bar { height: 6px; }
+.lvl-pill .xp-bar b { background: var(--mid); }
+.lvl-pill small { font-size: 10.5px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.me-box .who { position: relative; display: block; padding: 0; border: 0; background: none; }
+.me-box .who[hidden] { display: none; }
+.ava {
+  width: 40px; height: 40px; border-radius: 50%; border: 0; cursor: pointer; padding: 0;
+  background: var(--track); color: var(--text); font: 900 14px/1 var(--font); display: grid; place-items: center;
+}
+.ava:hover, .ava[aria-expanded="true"] { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent); }
+.who-menu {
+  position: absolute; right: 0; top: calc(100% + 8px); width: 240px; z-index: 21; padding: 12px;
+  display: flex; flex-direction: column; background: var(--panel); border: 2px solid var(--border-strong);
+  border-radius: 16px; box-shadow: var(--shadow); color: var(--text);
+}
+.who-menu[hidden] { display: none; }
+.who-menu > b { font-size: 15px; font-weight: 800; margin: 1px 0 8px; overflow-wrap: anywhere; }
+.wm-item { text-align: left; background: none; border: 0; border-top: 1px solid var(--border); padding: 9px 4px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; }
+.wm-item:hover { color: var(--accent-text); }
+.wm-item.danger { color: var(--weak); }
+
+@media (min-width: 861px) {
+  body.side-min .sidebar { width: 62px; flex-basis: 62px; padding: 0; overflow: visible; }
+}
+@media (max-width: 860px) {
+  .sidebar { flex: none; flex-direction: column; padding: 0; width: 100%; overflow: visible; }
+  .lvl-pill { padding: 4px 9px; }
+  .lvl-pill .lvl-info { width: 54px; }
+  .lvl-pill small { display: none; }
+  .ava { width: 36px; height: 36px; font-size: 13px; }
+  .rail { flex-direction: row; width: 100%; padding: 8px 10px; gap: 2px; border-right: 0; overflow-x: auto; scrollbar-width: none; }
+  .rail-logo { margin: 0 6px 0 0; }
+  .rail-logo .brand-mark { width: 32px; height: 32px; }
+  .rail-btn { width: 38px; height: 38px; font-size: 19px; }
+  .rail-btn.on { box-shadow: inset 0 -3px 0 var(--sel-border); }
+  .r-tip { display: none; }
+  .rail .side-toggle { display: inline-flex; margin-left: 4px; }
+  .rail .side-toggle { width: auto; padding: 0 8px; }
+  body:has(#who:not([hidden])) .rail .theme-btn { display: none; }   /* тема — в меню профиля */
+  .side-panel { display: none; padding: 4px 14px 12px; max-height: calc(100vh - 56px); }
+  .sidebar.open .side-panel { display: flex; }
+  .side-panel .brand { display: none; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
+  .num-card:not(.wide) { height: 60px; }
+  .topbar .forecast { order: -2; }
+  .me-box { order: -1; margin-left: auto; }
+  .scope-info { flex-basis: 100%; }
+}
+/* банки — «таблетки» в одну-две строки */
+.side-panel .banks { background: none; border: 0; padding: 0; gap: 5px; }
+.side-panel .banks button { flex: 0 0 auto; padding: 4px 10px; border: 2px solid var(--border); border-radius: 999px; font-weight: 700; }
+.side-panel .banks button.on { background: var(--sel); border-color: var(--sel-border); color: var(--sel-text); }
