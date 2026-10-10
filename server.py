@@ -2545,7 +2545,37 @@ def week_key(ts=None):
     return datetime.fromtimestamp(week_start(ts)).strftime("%Y-%m-%d")
 
 
+# Краткая сводка (опыт, уровень, огонёк) нужна рейтингу для всех учеников сразу, а он перезапрашивается
+# после каждого ответа. Пересчёт по всему журналу дорогой — кэшируем, пока у ученика не появилось новых
+# ответов, поправок опыта или вариантов (и не дольше 5 минут: окна «неделя/месяц» скользят).
+_GS_CACHE = {}
+_GS_LOCK = threading.Lock()
+
+
+def _gs_stamp(db, sid):
+    a = db.q("SELECT MAX(id) m, COUNT(*) c FROM attempts WHERE student_id=?", (sid,), one=True)
+    x = db.q("SELECT COUNT(*) c, COALESCE(SUM(delta), 0) s FROM xp_adjust WHERE student_id=?", (sid,), one=True)
+    e = db.q("SELECT COUNT(*) c FROM exams WHERE student_id=? AND finished IS NOT NULL", (sid,), one=True)
+    return (a["m"], a["c"], x["c"], x["s"], e["c"], time.strftime("%Y-%m-%d"), int(time.time() // 300))
+
+
 def game_summary(db, sid, brief=False, windows=None):
+    if not brief or windows:
+        return _game_summary(db, sid, brief, windows)
+    stamp = _gs_stamp(db, sid)
+    with _GS_LOCK:
+        hit = _GS_CACHE.get(sid)
+    if hit and hit[0] == stamp:
+        return dict(hit[1])
+    out = _game_summary(db, sid, True)
+    with _GS_LOCK:
+        if len(_GS_CACHE) > 20000:
+            _GS_CACHE.clear()
+        _GS_CACHE[sid] = (stamp, out)
+    return dict(out)
+
+
+def _game_summary(db, sid, brief=False, windows=None):
     """Опыт, уровень и достижения. windows — {имя: (с, до)}: опыт за произвольные промежутки (лиги, прошлая неделя)."""
     windows = windows or {}
     sums = {k: 0 for k in windows}
