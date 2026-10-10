@@ -1496,3 +1496,4 @@ label.vw-row { cursor: pointer; }
   .crs-thumbs .crs-thumb { min-width: 150px; }
   .sl-tab td:first-child, .sl-tab th:first-child { width: 40%; }
 }
+.crs-nav { flex-wrap: wrap; } .crs-nav .mark-btn { height: 40px; }

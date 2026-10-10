@@ -2044,6 +2044,35 @@
     { key: 'hard', name: 'Сложные', icon: '🔥', d: [3], note: 'для тех, кто идёт на 90+' },
     { key: 'test', name: 'Контрольная', icon: '🏆', d: null, note: '10 заданий подряд без подсказок — проверка темы' },
   ];
+  // подборки урока — из банка, по сложности; состав постоянный (сортировка по хешу id), по 10 заданий
+  const EXAM_SRC = /Демоверсия|Апробация|Резерв|Основная|ЕГКР|Пересдача|Досрочн/;
+  const idHash = id => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0; return h >>> 0; };
+  function courseSetTasks(n) {
+    const pool = TASKS.filter(t => t.n === n && !t.parts && !isOutdated(t)).sort((a, b) => idHash(a.id) - idHash(b.id));
+    const used = new Set(), take = (list, k) => { const out = list.filter(t => !used.has(t.id)).slice(0, k); out.forEach(t => used.add(t.id)); return out; };
+    const byD = d => pool.filter(t => t.d === d);
+    const sets = {};
+    sets.warm = take(byD(1), 10);
+    sets.base = take(byD(2).concat(byD(1)), 10);
+    sets.exam = take(pool.filter(t => EXAM_SRC.test(t.src || '')), 10);
+    sets.hard = take(byD(3), 10);
+    sets.test = [...take(byD(1), 3), ...take(byD(2), 4), ...take(byD(3), 3)];
+    if (sets.test.length < 10) sets.test.push(...take(pool, 10 - sets.test.length));
+    return Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.map(t => t.id)]));
+  }
+  /** Подборка курса как «подборка учителя»: решается по порядку, прогресс считается по журналу. */
+  function courseSet(id) {
+    const m = /^crs-(\d+)-(\w+)$/.exec(id || '');
+    if (!m) return null;
+    const n = +m[1], st = COURSE_SETS.find(x => x.key === m[2]);
+    if (!st) return null;
+    let a = ASG.find(x => x.id === id);
+    if (!a) {
+      a = { id, course: n, title: `№${numLabel(n)} · ${st.name}`, tasks: courseSetTasks(n)[st.key] || [], done: [], created: 0 };
+      ASG.push(a);
+    }
+    return a;
+  }
   let courseShown = false;
   let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
   function courseLock() {
@@ -2130,6 +2159,7 @@
     const sl = DECK.slides;
     deckI = Math.max(0, Math.min(deckI, sl.length - 1));
     box.querySelector('.crs-stage').innerHTML = slideHtml(sl[deckI], deckI);
+    if (MARK.on || MARK.strokes.has(`deck:${DECK.n}:${deckI}`)) markAttach();   // рисунок этого слайда
     box.querySelector('.crs-count').textContent = `${deckI + 1} / ${sl.length}`;
     box.querySelector('[data-deck="-1"]').disabled = deckI === 0;
     box.querySelector('[data-deck="1"]').disabled = deckI === sl.length - 1;
@@ -2155,6 +2185,7 @@
     const deck = has ? `<div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
+            ${MARK_BTN}
             <button type="button" class="btn ghost crs-full" data-deck-full title="На весь экран">⤢</button>
             <button type="button" class="btn primary" data-deck="1">Далее →</button></div></div>
         <div class="crs-thumbs">${lesson.slides.map((t, i) => `<button type="button" class="crs-thumb" data-slide="${i}"><span>${i + 1}. ${esc(t.h)}</span></button>`).join('')}</div>
@@ -2173,14 +2204,15 @@
       ${deck}
       <div class="fm-h">2. Практика по уровням</div>
       <div class="crs-sets">${COURSE_SETS.map((st, i) => {
-        const c = st.d ? counts(st.d) : Math.min(10, counts(null));
-        return `<div class="crs-set"><span class="crs-set-ic">${st.icon}</span>
-          <span class="crs-set-txt"><b>${i + 1}. ${st.name}</b><small>${st.note}</small></span>
-          <span class="crs-set-n">${st.d ? `${c} в банке` : `${c} заданий`}</span>
-          <button type="button" class="btn ghost" disabled title="Подборка появится по ходу курса">Скоро</button></div>`;
+        const a = courseSet(`crs-${n}-${st.key}`), total = a ? a.tasks.length : 0, done = total - asgLeft(a).length;
+        return `<div class="crs-set${total && done === total ? ' done' : ''}"><span class="crs-set-ic">${st.icon}</span>
+          <span class="crs-set-txt"><b>${i + 1}. ${st.name}</b><small>${st.note}</small>
+            <i class="xp-bar"><b style="width:${total ? pct(done / total) : 0}%"></b></i></span>
+          <span class="crs-set-n">${total ? `решено ${done} из ${total}` : 'нет заданий'}</span>
+          <button type="button" class="btn ${total && done < total ? 'primary' : 'ghost'}" data-course-set="${a ? a.id : ''}" ${total ? '' : 'disabled'}>${!total ? '—' : done === total ? 'Повторить' : done ? 'Продолжить' : 'Решать'}</button></div>`;
       }).join('')}</div>
-      <p class="fm-note">Подборки соберём вручную по ходу курса. А пока можно решать все задания этого номера:</p>
-      <button type="button" class="btn primary" data-go-num="${n}">Решать №${numLabel(n)} в тренажёре</button>
+      <p class="fm-note">Задания внутри подборки идут по порядку, сначала нерешённые. Решённое засчитывается и в тренажёре.</p>
+      <button type="button" class="btn ghost" data-go-num="${n}">Все задания №${numLabel(n)} в тренажёре</button>
     </div>`;
     if (has) renderDeck();
     window.scrollTo(0, 0);
@@ -2219,6 +2251,8 @@
     }
     const g = e.target.closest('[data-go-num]');
     if (g) setScope(+g.dataset.goNum);
+    const cs = e.target.closest('[data-course-set]');
+    if (cs && cs.dataset.courseSet && courseSet(cs.dataset.courseSet)) setScope('asg', cs.dataset.courseSet);
   });
 
   const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',
@@ -2398,7 +2432,7 @@
     } else if (ui.scope === 'asg' && asgOf(ui.asg)) {
       const a = asgOf(ui.asg);
       const left = asgLeft(a).length;
-      h = `<span class="scope-title">${a.duel ? '⚔ Дуэль' : 'От учителя'}</span>
+      h = `<span class="scope-title">${a.duel ? '⚔ Дуэль' : a.course ? '🎓 Курс' : 'От учителя'}</span>
         <span class="scope-stats">«${esc(a.title)}» · решено ${a.tasks.length - left} из ${a.tasks.length}</span>
         ${a.due ? `<span class="chip ${a.due * 1000 < Date.now() && left ? 'weak' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}`;
     } else if (ui.scope === 'fav') {
@@ -2501,8 +2535,9 @@
 
     renderPeriod();
     $('#sideToggleLabel').textContent = examShown ? 'Вариант ЕГЭ' : ui.scope === 'all' ? 'Все задания' : ui.scope === 'fav' ? 'Избранное'
-      : ui.scope === 'asg' ? (asgOf(ui.asg) && asgOf(ui.asg).duel ? 'Дуэль' : 'От учителя') : `№ ${numLabel(ui.scope)}`;
-    const asgOn = inTrainer && ui.scope === 'asg';
+      : ui.scope === 'asg' ? (asgOf(ui.asg) && asgOf(ui.asg).duel ? 'Дуэль' : asgOf(ui.asg) && asgOf(ui.asg).course ? 'Курс' : 'От учителя') : `№ ${numLabel(ui.scope)}`;
+    const asgOn = inTrainer && ui.scope === 'asg' && !(asgOf(ui.asg) || {}).course;
+    $('#courseCard')?.classList.toggle('on', courseShown || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
     $('#asgCard').classList.toggle('on', asgOn);
     renderAsgCard();
     renderLevel();
@@ -3410,10 +3445,14 @@
   }
   /** Холст поверх условия текущего задания (после каждой перерисовки задания). */
   function markAttach() {
-    const cond = $('#cond'), t = pyTaskNow();
-    if (!cond || !t) { MARK.cv = MARK.cond = null; return; }
-    if (MARK.cond === cond && MARK.cv && MARK.cv.isConnected) return;
-    MARK.key = t.id; MARK.cond = cond;
+    // слайд курса или условие задания; у каждого слайда свой рисунок
+    const stage = courseShown && DECK && $('#crsDeck .crs-stage');
+    const cond = stage || $('#cond'), t = stage ? null : pyTaskNow();
+    const key = stage ? `deck:${DECK.n}:${deckI}` : t && t.id;
+    if (!cond || !key) { MARK.cv = MARK.cond = null; return; }
+    if (MARK.cond === cond && MARK.cv && MARK.cv.isConnected && MARK.key === key) return;
+    if (MARK.cv && MARK.cv.isConnected) MARK.cv.remove();
+    MARK.key = key; MARK.cond = cond;
     cond.classList.add('mark-host');
     const cv = document.createElement('canvas');
     cv.className = 'mark-canvas';
@@ -4229,7 +4268,7 @@
   // ------------------------------------------------------------ задания от учителя
   let ASG = [];
   const fmtDay = ms => { const d = new Date(ms); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`; };
-  function asgOf(id) { return ASG.find(a => a.id === id) || null; }
+  function asgOf(id) { return ASG.find(a => a.id === id) || (COURSE_OK && courseSet(id)) || null; }
   /** Нерешённые задания подборки: по данным сервера и по ответам, данным уже на этой странице. */
   function asgLeft(a) {
     if (!a) return [];
@@ -4242,7 +4281,7 @@
   }
   async function loadAssignments() {
     if (!SERVER) return;
-    const duels = ASG.filter(a => a.duel);
+    const duels = ASG.filter(a => a.duel || a.course);
     try { ASG = (await api('assignments')).assignments || []; } catch (e) { if (e.status === 401) throw e; ASG = []; }
     ASG = ASG.concat(duels);
     renderAsgCard();
@@ -4250,7 +4289,7 @@
   function renderAsgCard() {
     const card = $('#asgCard');
     if (!card) return;
-    const own = ASG.filter(a => !a.duel);
+    const own = ASG.filter(a => !a.duel && !a.course);
     card.hidden = !own.length;
     if (!own.length) return;
     const open = own.filter(a => asgLeft(a).length);
@@ -4411,6 +4450,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.26.0', '10.10.2026', ['Курс: в уроке пять подборок по 10 заданий — разминка, базовый, как на ЕГЭ, сложные, контрольная; виден прогресс',
+      'Курс: на слайдах можно рисовать маркером', 'Презентация №5: добавлены десятичные автоматы — что делать с цифрами, решение руками и код']],
     ['1.25.0', '10.10.2026', ['Курс: первая презентация — №5 «Анализ алгоритма», 18 слайдов с теорией, разбором руками и кодом. Код со слайда открывается в Python одной кнопкой',
       'Курс: исправлены темы по формату ЕГЭ 2026–2027 — №10 IP-адреса, №12 машина Тьюринга, №13 траектории программ, №23 поиск пути в графе']],
     ['1.24.0', '10.10.2026', ['Курс открывается паролем от учителя — ввести его нужно один раз']],
