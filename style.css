@@ -1313,3 +1313,19 @@ body.focus-mode .ach-toast, body.focus-mode .lvlup, body.focus-mode .xp-pop { di
 label.vw-row { cursor: pointer; }
 .vw-reset { align-self: flex-start; margin: 6px 0 8px; font-size: 13px; }
 @media (max-width: 560px) { .vw-row { flex-wrap: wrap; } .vw-range input { width: 120px; } }
+
+/* верхняя панель подстраивается под ширину своей колонки (окно Python забирает половину экрана) */
+.main { container-type: inline-size; container-name: main; }
+@container main (max-width: 820px) {
+  .topbar { flex-wrap: wrap; row-gap: 8px; }
+  .topbar .forecast { order: -2; }
+  .me-box { order: -1; margin-left: auto; }
+  .scope-info { flex-basis: 100%; }
+  .session-info { flex: 1 1 100%; justify-content: flex-start; flex-wrap: wrap; }
+}
+@container main (max-width: 520px) {
+  .lvl-pill .lvl-info { display: none; }
+  .forecast .fc-ico { width: 30px; height: 30px; }
+  .forecast .fc-value { font-size: 17px; }
+  .session-info { gap: 10px; }
+}
