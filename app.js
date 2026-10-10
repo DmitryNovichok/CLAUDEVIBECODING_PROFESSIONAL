@@ -2208,8 +2208,35 @@
     box.querySelectorAll('.crs-thumb').forEach((t, k) => t.classList.toggle('on', k === deckI));
     box.querySelector('.crs-thumb.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     renderMath(box.querySelector('.crs-stage'));
+    fitSlide();
   }
   function deckGo(d) { deckI += d; renderDeck(); }
+  // масштаб слайда: на весь экран — подгоняем под экран; кнопки − / + меняют размер вручную
+  let DECK_SCALE = 1;
+  try { DECK_SCALE = +localStorage.getItem('egeTrainer.deckScale') || 1; } catch (e) { /* нет доступа */ }
+  const DECK_W = 960;                                    // «расчётная» ширина слайда для полноэкранного режима
+  function fitSlide() {
+    const deck = $('#crsDeck'), stage = deck && deck.querySelector('.crs-stage'), sl = stage && stage.querySelector('.sl');
+    if (!sl) return;
+    sl.style.zoom = '';
+    sl.style.width = '';
+    if (document.fullscreenElement !== deck) {
+      if (DECK_SCALE !== 1) sl.style.zoom = DECK_SCALE;
+      return;
+    }
+    sl.style.width = DECK_W + 'px';
+    const h = sl.scrollHeight, W = stage.clientWidth - 8, H = stage.clientHeight - 8;
+    sl.style.zoom = Math.max(0.4, Math.min(W / DECK_W, H / h) * DECK_SCALE);
+  }
+  function deckZoom(d) {
+    DECK_SCALE = d ? Math.round(Math.min(1.8, Math.max(0.6, DECK_SCALE + d * 0.1)) * 10) / 10 : 1;
+    try { localStorage.setItem('egeTrainer.deckScale', DECK_SCALE); } catch (e) { /* нет доступа */ }
+    fitSlide();
+    const lbl = $('#deckZoomLbl');
+    if (lbl) lbl.textContent = Math.round(DECK_SCALE * 100) + '%';
+  }
+  document.addEventListener('fullscreenchange', () => setTimeout(fitSlide, 50));
+  window.addEventListener('resize', () => { if (document.fullscreenElement) fitSlide(); });
   async function openLesson(n) {
     if (!COURSE_OK) return openCourse();
     courseShown = true;
@@ -2228,6 +2255,9 @@
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
             ${MARK_BTN}
+            <span class="crs-zoom"><button type="button" class="icon-btn" data-deck-zoom="-1" title="Мельче">−</button>
+              <button type="button" class="link-btn" data-deck-zoom="0" id="deckZoomLbl" title="Обычный размер">${Math.round(DECK_SCALE * 100)}%</button>
+              <button type="button" class="icon-btn" data-deck-zoom="1" title="Крупнее">+</button></span>
             <button type="button" class="btn ghost crs-full" data-deck-full title="На весь экран">⤢</button>
             <button type="button" class="btn primary" data-deck="1">Далее →</button></div></div>
         <div class="crs-thumbs">${lesson.slides.map((t, i) => `<button type="button" class="crs-thumb" data-slide="${i}"><span>${i + 1}. ${esc(t.h)}</span></button>`).join('')}</div>
@@ -2288,6 +2318,8 @@
     if (th) { deckI = +th.dataset.slide; renderDeck(); return; }
     const py = e.target.closest('[data-py-slide]');
     if (py) { slideToPy(py.dataset.pySlide); return; }
+    const dz = e.target.closest('[data-deck-zoom]');
+    if (dz) { deckZoom(+dz.dataset.deckZoom); return; }
     if (e.target.closest('[data-deck-full]')) {
       const d = $('#crsDeck');
       if (document.fullscreenElement) document.exitFullscreen(); else d?.requestFullscreen?.().catch(() => {});
