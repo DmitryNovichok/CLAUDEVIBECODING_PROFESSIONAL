@@ -427,6 +427,20 @@ class ServerTest(unittest.TestCase):
         for t in ("attempts", "students"):
             db.x(f"DELETE FROM {t} WHERE {'student_id' if t == 'attempts' else 'id'}=?", (sid,))
 
+    def test_brief_summary_cache_refreshes(self):
+        db = server.APP.db
+        sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Кэшев Кирилл','кэшев кирилл','tkcache',0,0)")
+        def add(i):
+            db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
+                 (sid, time.time() - 60 + i, f"cache:{i}", 2, "[]", "1", 1.0))
+        add(0)
+        xp1 = server.game_summary(db, sid, brief=True)["xp"]
+        self.assertEqual(server.game_summary(db, sid, brief=True)["xp"], xp1)      # из кэша — то же самое
+        add(1)                                                                     # новый ответ — кэш сбрасывается
+        self.assertGreater(server.game_summary(db, sid, brief=True)["xp"], xp1)
+        db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
+        db.x("DELETE FROM students WHERE id=?", (sid,))
+
     def test_funny_achievements(self):
         db = server.APP.db
         sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Шутов Шура','шутов шура','tkfun',0,0)")
