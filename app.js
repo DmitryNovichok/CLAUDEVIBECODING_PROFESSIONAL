@@ -2062,28 +2062,34 @@
     return v;
   }
   function courseSetTasks(n) {
-    const pool = TASKS.filter(t => t.n === n && !t.parts && !isOutdated(t)).sort((a, b) => idHash(a.id) - idHash(b.id));
-    const used = new Set(), take = (list, k) => { const out = list.filter(t => !used.has(t.id)).slice(0, k); out.forEach(t => used.add(t.id)); return out; };
-    const byD = d => pool.filter(t => t.d === d);
+    // все задания номера (без фильтра «Актуальные»: подборки курса собраны заранее), порядок постоянный
+    const pool = TASKS.filter(t => t.n === n && !t.parts).sort((a, b) => idHash(a.id) - idHash(b.id));
+    const used = new Set();
+    const take = (list, k) => { const out = list.filter(t => !used.has(t.id)).slice(0, Math.max(0, k)); out.forEach(t => used.add(t.id)); return out; };
+    // набрать k заданий: сначала из первого списка, не хватило — из следующих
+    const fill = (k, ...lists) => { const out = []; for (const l of lists) out.push(...take(l, k - out.length)); return out; };
+    const easy = t => t.d === 1 || /Прост|Проще/.test(t.lv || '');
+    const hard = t => t.d === 3 || /Сложн/.test(t.lv || '');
     const real = t => EXAM_SRC.test(t.src || '');
-    const order = (list, first) => list.filter(first).concat(list.filter(t => !first(t)));
+    const short = list => list.slice().sort((a, b) => String(a.html || '').length - String(b.html || '').length);
+    const first = (list, f) => list.filter(f).concat(list.filter(t => !f(t)));
     const sets = {};
     if (n === 5) {
-      const sys = v => pool.filter(t => (Array.isArray(v) ? v : [v]).includes(sysOf(t)));
-      sets.warm = take(byD(1), SET_SIZE);                                          // самые простые из всех банков
-      sets.base = take(order(sys(2), t => t.d !== 3), SET_SIZE);                   // двоичная запись
-      sets.exam = [...take(order(sys(2), real), SET_SIZE / 2), ...take(order(sys(3), real), SET_SIZE / 2)];   // 2-я и 3-я системы
-      if (sets.exam.length < SET_SIZE) sets.exam.push(...take(sys([2, 3]), SET_SIZE - sets.exam.length));
-      sets.hard = take(order(sys(['other', 10]), t => t.d === 3), SET_SIZE);       // остальные системы и десятичные цифры
-      sets.test = [2, 3, 'other', 10].flatMap(v => take(order(sys(v), t => t.d >= 2), SET_SIZE / 4));      // по всем видам
+      const sys = (...v) => pool.filter(t => v.includes(sysOf(t)));
+      sets.warm = fill(SET_SIZE, pool.filter(easy), short(sys(2)), short(pool));                       // самые простые
+      sets.base = fill(SET_SIZE, first(sys(2), t => !hard(t)));                                        // двоичная
+      sets.exam = [...fill(SET_SIZE / 2, first(sys(2), real)), ...fill(SET_SIZE / 2, first(sys(3), real))];   // 2-я и 3-я
+      sets.exam.push(...fill(SET_SIZE - sets.exam.length, sys(3), sys(2)));
+      sets.hard = fill(SET_SIZE, first(sys('other', 10), hard), first(sys(3), hard), pool);           // остальные + 10-я
+      sets.test = [2, 3, 'other', 10].flatMap(v => fill(SET_SIZE / 4, first(sys(v), t => !easy(t))));  // по всем видам
     } else {
-      sets.warm = take(byD(1), SET_SIZE);
-      sets.base = take(byD(2).concat(byD(1)), SET_SIZE);
-      sets.exam = take(pool.filter(real), SET_SIZE);
-      sets.hard = take(byD(3), SET_SIZE);
-      sets.test = [...take(byD(1), 6), ...take(byD(2), 7), ...take(byD(3), 7)];
+      sets.warm = fill(SET_SIZE, pool.filter(easy), short(pool));
+      sets.base = fill(SET_SIZE, pool.filter(t => !easy(t) && !hard(t)), pool);
+      sets.exam = fill(SET_SIZE, pool.filter(real), pool);
+      sets.hard = fill(SET_SIZE, pool.filter(hard), pool);
+      sets.test = [];
     }
-    if (sets.test.length < SET_SIZE) sets.test.push(...take(pool, SET_SIZE - sets.test.length));
+    sets.test.push(...fill(SET_SIZE - sets.test.length, pool));
     return Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.map(t => t.id)]));
   }
   /** Подборка курса как «подборка учителя»: решается по порядку, прогресс считается по журналу. */
@@ -2289,6 +2295,35 @@
     if (has) renderDeck();
     window.scrollTo(0, 0);
   }
+  /** Страница подборки курса: все задания списком, видно решённые, любое можно открыть. */
+  function openCourseSet(id) {
+    const a = courseSet(id);
+    if (!a) return;
+    courseShown = true;
+    const left = new Set(asgLeft(a)), total = a.tasks.length, done = total - left.size;
+    const st = COURSE_SETS.find(x => id.endsWith('-' + x.key)) || {};
+    // начало у заданий одинаковое («На вход алгоритма подаётся…») — показываем само правило
+    const snip = t => String(t.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+      .replace(/^\([^)]{0,40}\)\s*/, '')
+      .replace(/^(На вход алгоритма подаётся|Алгоритм получает на вход|Автомат получает на вход|На вход программе подаётся)[\s\S]{0,200}?(следующим образом|по следующим правилам|по следующему алгоритму|следующему алгоритму)[.:]?\s*/i, '')
+      .replace(/^1[.)]\s*Строится [^.]*?(запись|число)[^.]*\.\s*/i, '')
+      .replace(/^2[.)]\s*Далее эта запись обрабатывается по следующему правилу:?\s*/i, '')
+      .slice(0, 170);
+    $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(a.course)}</span><span class="scope-stats">${esc(st.name || '')}</span>`;
+    trainerEl.innerHTML = `<div class="course">
+      <button type="button" class="link-btn crs-back" data-lesson="${a.course}">← К уроку №${numLabel(a.course)}</button>
+      <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div><div class="crs-kicker">Подборка · ${total} заданий</div>
+        <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
+        <div class="crs-set-prog"><b>${done}</b><span>из ${total}</span><i class="xp-bar"><b style="width:${total ? pct(done / total) : 0}%"></b></i></div></div>
+      <button type="button" class="btn primary crs-set-start" data-set-start="${esc(id)}">${done === total ? 'Решать заново' : done ? 'Продолжить с нерешённого' : 'Начать подборку'}</button>
+      <div class="crs-tasks">${a.tasks.map((tid, k) => { const t = byId.get(tid); if (!t) return '';
+        const ok = !left.has(tid);
+        return `<button type="button" class="crs-task${ok ? ' ok' : ''}" data-set-task="${esc(tid)}" data-set="${esc(id)}">
+          <span class="crs-task-n">${k + 1}</span><span class="crs-task-txt">${esc(snip(t))}…</span>
+          <span class="crs-task-st">${ok ? '✓ решено' : 'решать →'}</span></button>`; }).join('')}</div>
+    </div>`;
+    window.scrollTo(0, 0);
+  }
   /** Код со слайда — в окно Python: можно запустить и поменять. */
   function slideToPy(ref) {
     const [i, k] = String(ref).split(':').map(Number);
@@ -2328,7 +2363,16 @@
     const g = e.target.closest('[data-go-num]');
     if (g) setScope(+g.dataset.goNum);
     const cs = e.target.closest('[data-course-set]');
-    if (cs && cs.dataset.courseSet && courseSet(cs.dataset.courseSet)) setScope('asg', cs.dataset.courseSet);
+    if (cs && cs.dataset.courseSet && courseSet(cs.dataset.courseSet)) { openCourseSet(cs.dataset.courseSet); return; }
+    const ss = e.target.closest('[data-set-start]');
+    if (ss) { setScope('asg', ss.dataset.setStart); return; }
+    const stk = e.target.closest('[data-set-task]');
+    if (stk) {
+      const a = courseSet(stk.dataset.set), t = byId.get(stk.dataset.setTask);
+      if (!a || !t) return;
+      setScope('asg', a.id);
+      if (!cur || cur.task.id !== t.id) show({ task: t, why: { type: 'asg', a } });
+    }
   });
 
   const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',
