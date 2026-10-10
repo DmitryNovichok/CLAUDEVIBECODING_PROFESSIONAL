@@ -2045,6 +2045,33 @@
     { key: 'test', name: 'Контрольная', icon: '🏆', d: null, note: '10 заданий подряд без подсказок — проверка темы' },
   ];
   let courseShown = false;
+  let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
+  function courseLock() {
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span>';
+    trainerEl.innerHTML = `<div class="course"><div class="crs-lock">
+      <div class="crs-lock-ic">🔒</div>
+      <h2>Курс доступен по паролю</h2>
+      <p>Пароль выдаёт учитель. Ввести его нужно один раз — дальше курс будет открыт на любом устройстве.</p>
+      <form class="login-form crs-lock-form" id="courseForm" autocomplete="off">
+        <input class="inp" id="coursePw" type="password" maxlength="200" placeholder="Пароль курса" autocomplete="off" required>
+        <button class="btn primary" type="submit">Открыть курс</button>
+      </form>
+      <div class="login-err" id="courseMsg"></div>
+    </div></div>`;
+    $('#coursePw').focus();
+    $('#courseForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const msg = $('#courseMsg');
+      msg.textContent = '';
+      try {
+        await api('course/unlock', { password: $('#coursePw').value });
+        COURSE_OK = true;
+        $('#courseCard')?.classList.remove('locked');
+        toast('Курс открыт 🎓', 2500);
+        openCourse();
+      } catch (err) { msg.textContent = err.message || 'Не получилось — попробуйте ещё раз'; }
+    });
+  }
   function leaveCourse() {
     if (!courseShown) return;
     courseShown = false;
@@ -2061,6 +2088,7 @@
     cur = null;
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
     $('#courseCard')?.classList.add('on');
+    if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
     const all = COURSE.flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
     const nextN = all.find(n => lessonState(n) !== 'done');
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">27 тем по плану</span>';
@@ -2085,6 +2113,7 @@
     window.scrollTo(0, 0);
   }
   function openLesson(n) {
+    if (!COURSE_OK) return openCourse();
     courseShown = true;
     const counts = d => TASKS.filter(t => t.n === n && visible(t) && (!d || d.includes(t.d))).length;
     const mod = COURSE.findIndex(m => m.lessons.includes(n));
@@ -3163,6 +3192,8 @@
     writeStudent(student);
     if (me.rules) Object.assign(RULES, me.rules);
     if (me.game) GAME = me.game;
+    COURSE_OK = !!me.course;
+    $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);
     writeJSON(prefsKey(), prefs);
@@ -4312,6 +4343,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.24.0', '10.10.2026', ['Курс открывается паролем от учителя — ввести его нужно один раз']],
     ['1.23.0', '10.10.2026', ['Новый раздел «Курс» (значок 🎓 слева): план из 5 модулей и 27 тем — у каждой будут презентация и подборки по уровням. Пока это каркас, наполнение появится по ходу',
       'За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
     ['1.22.3', '10.10.2026', ['Исправлены формулы в «Банке ЕГЭ»: снова видны степени и индексы (около 1100 заданий, в том числе №14)', 'Верхняя панель больше не наезжает на окно Python']],

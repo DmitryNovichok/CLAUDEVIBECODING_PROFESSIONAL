@@ -869,7 +869,8 @@ class DB:
                     ("admin_sessions", "teacher_id", "INTEGER"),
                     ("classes", "goal_tasks", "INTEGER"),  # цель класса на неделю (заданий) — битва классов
                     ("classes", "goal_reward", "TEXT"),    # награда за цель, её задаёт учитель
-                    ("classes", "battle", "INTEGER DEFAULT 0")):   # участвует ли класс в битве классов (решает учитель)
+                    ("classes", "battle", "INTEGER DEFAULT 0"),    # участвует ли класс в битве классов (решает учитель)
+                    ("students", "course", "INTEGER DEFAULT 0")):  # открыт ли курс (ввёл пароль курса)   # участвует ли класс в битве классов (решает учитель)
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # главный учитель: прежние пароль, код приглашения и настройка авторских заданий переходят к нему
@@ -1297,7 +1298,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 prefs["notes"] = {conv(k): v for k, v in prefs["notes"].items()}
         return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
-                "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"]}
+                "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s)}
 
     def is_admin(self):
         """Вошёл ли учитель; запоминает его в self.T (сессии без учителя — от прежних версий — главного)."""
@@ -1418,6 +1419,28 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             # (иначе вкладка без «Чужого компьютера» сделала бы временный вход постоянным)
             extra = {"Set-Cookie": self.student_cookie(s["token"])} if self.headers.get("X-Token") else None
             return self.send_json(self.me_payload(s), extra=extra)
+
+        if path == "/api/course/unlock" and method == "POST":
+            # курс — по паролю от учителя; попыток немного, чтобы пароль не подбирали
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if course_open(s):
+                return self.send_json({"ok": True})
+            stored = db.setting("course_pw")
+            if not stored:
+                return self.err(403, "Учитель ещё не открыл курс")
+            now = time.time()
+            with _COURSE_LOCK:
+                tries = [t for t in _COURSE_TRIES.get(s["id"], []) if now - t < COURSE_WINDOW]
+                if len(tries) >= COURSE_TRIES:
+                    return self.err(429, f"Слишком много попыток — попробуйте через {int((COURSE_WINDOW - (now - tries[0])) // 60) + 1} мин")
+                tries.append(now)
+                _COURSE_TRIES[s["id"]] = tries
+            if not check_pw(str(data.get("password") or "")[:200], stored):
+                return self.err(403, "Неверный пароль курса")
+            db.x("UPDATE students SET course=1 WHERE id=?", (s["id"],))
+            return self.send_json({"ok": True})
 
         if path == "/api/history":
             # Прогресс ученика страница восстанавливает из журнала попыток — один источник правды
@@ -2200,6 +2223,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.setting("metrika_id", v)
             return self.send_json({"ok": True, "id": v})
 
+        if path == "/api/admin/course" and method == "POST":
+            # пароль курса: задать или сменить; revoke — закрыть курс всем, кто уже вошёл
+            if not self.T["is_main"]:
+                return self.err(403, "Пароль курса задаёт главный учитель")
+            pw = str(data.get("password") or "").strip()
+            if pw:
+                if len(pw) < 4:
+                    return self.err(400, "Пароль курса — не короче 4 символов")
+                db.setting("course_pw", hash_pw(pw[:200]))
+            if data.get("off"):
+                db.setting("course_pw", "")
+            if data.get("revoke") or data.get("off"):
+                db.x("UPDATE students SET course=0")
+            n = db.q("SELECT COUNT(*) c FROM students WHERE course=1", one=True)["c"]
+            return self.send_json({"ok": True, "set": bool(db.setting("course_pw")), "students": n})
+
         if path == "/api/admin/me":
             return self.send_json({k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")})
 
@@ -2460,6 +2499,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"tasks": n_tasks, "authored_tasks": APP.bank.authored, "authored_on": bool(self.T["authored"]),
                                    "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
                                    "invite": self.T["invite"], "metrika": metrika_id() if self.T["is_main"] else None,
+                                   "course_set": bool(db.setting("course_pw")),
+                                   "course_students": db.q("SELECT COUNT(*) c FROM students WHERE course=1", one=True)["c"],
                                    "students": db.q(f"SELECT COUNT(*) c FROM students s WHERE {cond}", args, one=True)["c"],
                                    "attempts": db.q(f"SELECT COUNT(*) c FROM attempts a JOIN students s ON s.id=a.student_id WHERE {cond}",
                                                     args, one=True)["c"]})
@@ -2585,6 +2626,16 @@ def _gs_stamp(db, sid):
     x = db.q("SELECT COUNT(*) c, COALESCE(SUM(delta), 0) s FROM xp_adjust WHERE student_id=?", (sid,), one=True)
     e = db.q("SELECT COUNT(*) c FROM exams WHERE student_id=? AND finished IS NOT NULL", (sid,), one=True)
     return (a["m"], a["c"], x["c"], x["s"], e["c"], time.strftime("%Y-%m-%d"), int(time.time() // 300))
+
+
+COURSE_TRIES, COURSE_WINDOW = 8, 15 * 60  # попыток ввести пароль курса за 15 минут
+_COURSE_TRIES = {}
+_COURSE_LOCK = threading.Lock()
+
+
+def course_open(s):
+    """Курс открыт ученику, если он ввёл пароль, а учитель не выключил курс."""
+    return bool(s["course"]) and bool(APP.db.setting("course_pw"))
 
 
 _LB_PEOPLE = {}                         # учитель → (когда собран, строки рейтинга)

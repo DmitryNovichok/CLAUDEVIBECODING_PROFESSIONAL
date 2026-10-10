@@ -1052,6 +1052,7 @@
       $('#infoLine').textContent = `В банке ${d.tasks} заданий · учеников: ${d.students} · записей в журнале: ${d.attempts}. Резервная копия — файл trainer/server_data/trainer.db.`;
       $('#inviteCode').value = d.invite || '';
       $('#metrikaId').value = d.metrika || '';
+      courseState(d.course_set, d.course_students);
       $('#authoredOn').checked = d.authored_on !== false;
       $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
     } catch (e) { /* не страшно */ }
@@ -1069,6 +1070,32 @@
       e.target.checked = !e.target.checked;
       if (err.status !== 401) msg.textContent = err.message;
     }
+  });
+  function courseState(set, n) {
+    const el = $('#courseState');
+    if (el) el.textContent = set ? `Курс включён · открыт у ${n} ${n % 10 === 1 && n % 100 !== 11 ? 'ученика' : 'учеников'}` : 'Курс выключен: пароль не задан';
+  }
+  async function courseSave(body, okText) {
+    const msg = $('#courseMsgAdm');
+    msg.className = 'login-err';
+    msg.textContent = '';
+    try {
+      const r = await api('course', body);
+      courseState(r.set, r.students);
+      $('#coursePwAdm').value = '';
+      msg.className = 'login-err ok';
+      msg.textContent = okText;
+    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
+  }
+  $('#courseForm')?.addEventListener('submit', e => {
+    e.preventDefault();
+    if ($('#coursePwAdm').value.trim()) courseSave({ password: $('#coursePwAdm').value }, 'Пароль курса сохранён');
+  });
+  $('#courseRevoke')?.addEventListener('click', () => {
+    if (confirm('Закрыть курс всем ученикам? Им придётся снова ввести пароль.')) courseSave({ revoke: true }, 'Курс закрыт всем — нужен пароль');
+  });
+  $('#courseOff')?.addEventListener('click', () => {
+    if (confirm('Выключить курс? Пароль сбросится, раздел будет закрыт у всех.')) courseSave({ off: true }, 'Курс выключен');
   });
   $('#metrikaForm').addEventListener('submit', async e => {
     e.preventDefault();
