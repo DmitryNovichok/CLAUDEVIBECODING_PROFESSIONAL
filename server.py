@@ -870,7 +870,8 @@ class DB:
                     ("classes", "goal_tasks", "INTEGER"),  # цель класса на неделю (заданий) — битва классов
                     ("classes", "goal_reward", "TEXT"),    # награда за цель, её задаёт учитель
                     ("classes", "battle", "INTEGER DEFAULT 0"),    # участвует ли класс в битве классов (решает учитель)
-                    ("students", "course", "INTEGER DEFAULT 0")):  # открыт ли курс (ввёл пароль курса)   # участвует ли класс в битве классов (решает учитель)
+                    ("students", "course", "INTEGER DEFAULT 0"),   # открыт ли курс (ввёл пароль курса)
+                    ("students", "course_ts", "REAL")):            # когда ввёл пароль курса   # участвует ли класс в битве классов (решает учитель)
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # главный учитель: прежние пароль, код приглашения и настройка авторских заданий переходят к нему
@@ -1455,7 +1456,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 _COURSE_TRIES[s["id"]] = tries
             if not check_pw(str(data.get("password") or "")[:200], stored):
                 return self.err(403, "Неверный пароль курса")
-            db.x("UPDATE students SET course=1 WHERE id=?", (s["id"],))
+            db.x("UPDATE students SET course=1, course_ts=? WHERE id=?", (time.time(), s["id"]))
             return self.send_json({"ok": True})
 
         if path == "/api/history":
@@ -2238,6 +2239,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(400, "Номер счётчика — только цифры, например 98765432")
             db.setting("metrika_id", v)
             return self.send_json({"ok": True, "id": v})
+
+        if path == "/api/admin/course/list":
+            # кто открыл курс паролем — список для главного учителя
+            if not self.T["is_main"]:
+                return self.err(403, "Список видит главный учитель")
+            rows = db.q("""SELECT s.name, s.course_ts, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id
+                           WHERE s.course=1 ORDER BY s.course_ts DESC, s.name""")
+            return self.send_json({"students": [{"name": r["name"], "class": r["cls"], "ts": r["course_ts"]} for r in rows]})
 
         if path == "/api/admin/course" and method == "POST":
             # пароль курса: задать или сменить; revoke — закрыть курс всем, кто уже вошёл

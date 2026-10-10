@@ -1071,10 +1071,28 @@
       if (err.status !== 401) msg.textContent = err.message;
     }
   });
+  const pluralRu = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 10 || b >= 20) ? few : many; };
   function courseState(set, n) {
     const el = $('#courseState');
-    if (el) el.textContent = set ? `Курс включён · открыт у ${n} ${n % 10 === 1 && n % 100 !== 11 ? 'ученика' : 'учеников'}` : 'Курс выключен: пароль не задан';
+    if (el) el.textContent = set ? 'Курс включён' : 'Курс выключен: пароль не задан';
+    if ($('#courseCount')) {
+      $('#courseCount').textContent = n || 0;
+      $('#courseCountTxt').textContent = `${pluralRu(n || 0, 'ученик открыл', 'ученика открыли', 'учеников открыли')} курс паролем`;
+      if ($('#courseWho').open) loadCourseList();
+    }
   }
+  async function loadCourseList() {
+    const box = $('#courseList');
+    box.textContent = 'Загружаю…';
+    try {
+      const r = await api('course/list');
+      box.innerHTML = r.students.length
+        ? `<table class="adm-table course-table"><tr><th>Ученик</th><th>Класс</th><th>Когда открыл</th></tr>${r.students.map(x =>
+            `<tr><td>${esc(x.name)}</td><td>${esc(x.class || '—')}</td><td>${x.ts ? `${fmtDate(x.ts)} ${fmtTime(x.ts)}` : '—'}</td></tr>`).join('')}</table>`
+        : '<p class="fm-note">Пока никто не вводил пароль курса.</p>';
+    } catch (err) { box.textContent = err.message; }
+  }
+  $('#courseWho')?.addEventListener('toggle', e => { if (e.target.open) loadCourseList(); });
   async function courseSave(body, okText) {
     const msg = $('#courseMsgAdm');
     msg.className = 'login-err';
