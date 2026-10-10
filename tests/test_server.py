@@ -450,6 +450,9 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "неверно"}, tok)[0], 403)
         self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "сова2026"}, tok)[0], 200)
         self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["course"])
+        who = self.admin("GET", "/api/admin/course/list")[1]["students"]                          # список для главного учителя
+        self.assertEqual([w["name"] for w in who], ["Курсовой Кирилл"])
+        self.assertTrue(who[0]["ts"])
         self.admin("POST", "/api/admin/course", {"revoke": True})                                 # закрыть всем
         self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["course"])
         tok2 = self.login("Подборщик Пароля")
