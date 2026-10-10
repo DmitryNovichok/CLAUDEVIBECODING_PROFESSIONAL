@@ -394,7 +394,7 @@ class ServerTest(unittest.TestCase):
         self.assertNotIn("b:5", json.dumps(d))                             # настоящие id ученику не уходят
         self.req("POST", "/api/open", {"task": pid5}, tok)
         st, r = self.check(tok, pid5, answer="12", away=3)
-        self.assertEqual(r["game"]["xp"], 10)                              # №5: 10 XP за первое решение
+        self.assertEqual(r["game"]["xp"], 15)                              # №5: 10 XP за первое решение + 5 за «Первый шаг»
         self.assertEqual(r["game"]["ach"][0]["id"], "first")
         self.assertTrue(r["game"]["ach"][0]["got"])
         st, d = self.req("GET", "/api/assignments", token=tok)
@@ -406,11 +406,11 @@ class ServerTest(unittest.TestCase):
         # повторное решение того же задания — только 2 XP
         self.req("POST", "/api/open", {"task": pid5}, tok)
         st, r = self.check(tok, pid5, answer="12")
-        self.assertEqual(r["game"]["xp"], 12)
+        self.assertEqual(r["game"]["xp"], 17)
         st, d = self.req("GET", "/api/leaderboard", token=tok)
         me_row = next(r for r in d["boards"]["day"]["top"] if r["me"])          # рейтинг дня: опыт за сегодня
-        self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", 12))
-        self.assertEqual(d["boards"]["day"]["me"]["value"], 12)
+        self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", 17))
+        self.assertEqual(d["boards"]["day"]["me"]["value"], 17)
         self.assertLessEqual(len(d["boards"]["week"]["top"]), 10)
         self.assertIn("fire", d["boards"])
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
@@ -440,6 +440,24 @@ class ServerTest(unittest.TestCase):
         self.assertGreater(server.game_summary(db, sid, brief=True)["xp"], xp1)
         db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
         db.x("DELETE FROM students WHERE id=?", (sid,))
+
+    def test_course_password(self):
+        tok = self.login("Курсовой Кирилл")
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["course"])
+        self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "x"}, tok)[0], 403)      # пароль ещё не задан
+        st, d = self.admin("POST", "/api/admin/course", {"password": "сова2026"})
+        self.assertEqual((st, d["set"]), (200, True))
+        self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "неверно"}, tok)[0], 403)
+        self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "сова2026"}, tok)[0], 200)
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["course"])
+        self.admin("POST", "/api/admin/course", {"revoke": True})                                 # закрыть всем
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["course"])
+        tok2 = self.login("Подборщик Пароля")
+        codes = [self.req("POST", "/api/course/unlock", {"password": f"p{i}"}, tok2)[0] for i in range(server.COURSE_TRIES + 1)]
+        self.assertEqual(codes[-1], 429)                                                          # подбор пароля — стоп
+        self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "сова2026"}, tok2)[0], 429)
+        self.admin("POST", "/api/admin/course", {"off": True})
+        self.assertFalse(self.admin("GET", "/api/admin/info")[1]["course_set"])
 
     def test_funny_achievements(self):
         db = server.APP.db
@@ -532,7 +550,7 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/duel/finish", {"id": did}, tb)              # Борис ничего не решил
         res = {d["id"]: d for d in self.req("GET", "/api/duels", token=ta)[1]["duels"]}[did]
         self.assertEqual((res["status"], res["result"], res["my_solved"], res["op_solved"]), ("finished", "win", len(tasks), 0))
-        self.assertEqual(res["stake"], 10)                                # забрал весь опыт Бориса (10 < 15)
+        self.assertEqual(res["stake"], 15)                                # у Бориса 10 + 5 за «Первый шаг» — ровно ставка
         self.assertEqual(self.req("GET", "/api/me", token=tb)[1]["game"]["xp"], 0)
 
     def test_class_battle_goal(self):

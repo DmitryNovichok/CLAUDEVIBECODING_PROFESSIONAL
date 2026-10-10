@@ -212,6 +212,20 @@
           <p class="fm-note" id="authoredNote"></p>
           <div class="login-err" id="authoredMsg"></div>
         </div>
+        <form class="adm-box main-only" id="courseForm">
+          <h3 class="adm-h3">Пароль курса</h3>
+          <p class="fm-note">Раздел «Курс» у учеников открывается по этому паролю. Ученик вводит его один раз. Новый пароль действует для новых входов; «Закрыть всем» снова попросит пароль у всех.</p>
+          <div class="login-form">
+            <input class="inp" id="coursePwAdm" type="text" autocomplete="off" maxlength="200" placeholder="новый пароль курса">
+            <button class="btn primary" type="submit">Сохранить</button>
+          </div>
+          <div class="adm-row-btns">
+            <button class="btn ghost" type="button" id="courseRevoke">Закрыть всем</button>
+            <button class="btn ghost" type="button" id="courseOff">Выключить курс</button>
+          </div>
+          <p class="fm-note" id="courseState"></p>
+          <div class="login-err" id="courseMsgAdm"></div>
+        </form>
         <form class="adm-box main-only" id="metrikaForm">
           <h3 class="adm-h3">Яндекс Метрика</h3>
           <p class="fm-note">Номер счётчика из metrika.yandex.ru (только цифры). Код встанет на страницу учеников сам, панель учителя не считается. Пустое поле — Метрика выключена. Цели: <code>register</code> — регистрация, <code>answer</code> — ответ на задание, <code>exam</code> — сдан вариант.</p>
