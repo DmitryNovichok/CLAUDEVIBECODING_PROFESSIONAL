@@ -1420,6 +1420,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             extra = {"Set-Cookie": self.student_cookie(s["token"])} if self.headers.get("X-Token") else None
             return self.send_json(self.me_payload(s), extra=extra)
 
+        if path == "/api/course/lesson":
+            # презентация урока — только тем, у кого курс открыт паролем (файлы course/ напрямую не раздаются)
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not course_open(s):
+                return self.err(403, "курс закрыт")
+            n = to_int(qs.get("n"))
+            f = HERE / "course" / f"{n}.json"
+            if not (n and 1 <= n <= 27 and f.is_file()):
+                return self.send_json({"n": n, "slides": []})
+            try:
+                return self.send_json(json.loads(f.read_text(encoding="utf-8")))
+            except ValueError:
+                return self.err(500, "презентация повреждена")
+
         if path == "/api/course/unlock" and method == "POST":
             # курс — по паролю от учителя; попыток немного, чтобы пароль не подбирали
             s = self.student(data)

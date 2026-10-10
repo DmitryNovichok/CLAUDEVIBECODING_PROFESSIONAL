@@ -456,6 +456,15 @@ class ServerTest(unittest.TestCase):
         codes = [self.req("POST", "/api/course/unlock", {"password": f"p{i}"}, tok2)[0] for i in range(server.COURSE_TRIES + 1)]
         self.assertEqual(codes[-1], 429)                                                          # подбор пароля — стоп
         self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "сова2026"}, tok2)[0], 429)
+        self.assertEqual(self.req("GET", "/api/course/lesson?n=5", token=tok)[0], 403)            # курс закрыт — слайдов нет
+        self.admin("POST", "/api/admin/course", {"password": "сова2026"})
+        self.req("POST", "/api/course/unlock", {"password": "сова2026"}, tok)
+        (server.HERE / "course").mkdir(exist_ok=True)                                              # презентация из репозитория
+        (server.HERE / "course" / "5.json").write_text((Path(__file__).resolve().parent.parent / "course" / "5.json").read_text(encoding="utf-8"), encoding="utf-8")
+        st, d = self.req("GET", "/api/course/lesson?n=5", token=tok)
+        self.assertEqual(st, 200)
+        self.assertGreater(len(d["slides"]), 10)                                                  # презентация №5 на месте
+        self.assertEqual(self.req("GET", "/api/course/lesson?n=99", token=tok)[1]["slides"], [])
         self.admin("POST", "/api/admin/course", {"off": True})
         self.assertFalse(self.admin("GET", "/api/admin/info")[1]["course_set"])
 
