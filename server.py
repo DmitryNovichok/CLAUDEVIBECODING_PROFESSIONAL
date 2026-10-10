@@ -1565,17 +1565,33 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             league_rollover(db)
-            mates = teacher_students(db, teacher_of(s)["id"])
-            crown = daily_crown(db, [m["id"] for m in mates])
-            people = []
-            for m in mates:
-                g = game_summary(db, m["id"], brief=True)
-                lg = league_row(db, m["id"])["league"]
-                badges = ([f"🔥{g['fire']}"] if g["fire"] >= 7 else []) + (["👑"] if m["id"] == crown else []) \
-                    + (["💎"] if lg == len(LEAGUES) - 1 else [])
-                people.append({"sid": m["id"], "name": short_name(m["name"]), "me": m["id"] == s["id"], "level": g["level"],
-                               "badges": badges, "league": lg, "class_id": m["class_id"],
-                               "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"], "wk": g["wk"]})
+            tid = teacher_of(s)["id"]
+            # список учеников учителя собираем не чаще раза в LB_TTL секунд (рейтинг перезапрашивают после каждого ответа),
+            # а свою строку ученик всегда видит свежей
+            with _GS_LOCK:
+                hit = _LB_PEOPLE.get(tid)
+            if hit and time.time() - hit[0] < LB_TTL:
+                base = hit[1]
+            elif hit and not _LB_BUILD.acquire(blocking=False):
+                base = hit[1]                   # список уже пересобирает другой запрос — пока отдаём прежний
+            else:
+                if not hit:
+                    _LB_BUILD.acquire()         # первый раз — ждём, пока соберёт кто-то один (при hit замок уже взят выше)
+                try:
+                    with _GS_LOCK:
+                        hit2 = _LB_PEOPLE.get(tid)
+                    if hit2 and time.time() - hit2[0] < LB_TTL:
+                        base = hit2[1]
+                    else:
+                        mates = teacher_students(db, tid)
+                        crown = daily_crown(db, [m["id"] for m in mates])
+                        base = [lb_person(db, m, crown) for m in mates]
+                        with _GS_LOCK:
+                            _LB_PEOPLE[tid] = (time.time(), base)
+                finally:
+                    _LB_BUILD.release()
+            mine = lb_person(db, s, daily_crown(db, [p["sid"] for p in base] + [s["id"]]))
+            people = [dict(p, me=False) for p in base if p["sid"] != s["id"]] + [dict(mine, me=True)]
             pub = lambda p, key, place: {"place": place, "name": p["name"], "me": p["me"], "level": p["level"],
                                          "badges": p["badges"], "value": p[key]}
             boards = {}
@@ -1685,6 +1701,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path.startswith("/api/admin/"):
             if not self.is_admin():
                 return self.err(401, "нужен вход учителя")
+            if method == "POST":
+                with _GS_LOCK:
+                    _LB_PEOPLE.clear()          # учитель поменял классы, учеников, цели — рейтинг соберём заново
             return self.admin_api(method, path, qs, data)
 
         return self.err(404, "нет такого метода")
@@ -2559,6 +2578,22 @@ def _gs_stamp(db, sid):
     return (a["m"], a["c"], x["c"], x["s"], e["c"], time.strftime("%Y-%m-%d"), int(time.time() // 300))
 
 
+_LB_PEOPLE = {}                         # учитель → (когда собран, строки рейтинга)
+_LB_BUILD = threading.Lock()            # собирает один запрос, остальные не дублируют работу
+LB_TTL = 15
+
+
+def lb_person(db, m, crown):
+    """Строка рейтинга: опыт за день/неделю/месяц, огонёк, лига, значки."""
+    g = game_summary(db, m["id"], brief=True)
+    lg = league_row(db, m["id"])["league"]
+    badges = ([f"🔥{g['fire']}"] if g["fire"] >= 7 else []) + (["👑"] if m["id"] == crown else []) \
+        + (["💎"] if lg == len(LEAGUES) - 1 else [])
+    return {"sid": m["id"], "name": short_name(m["name"]), "level": g["level"], "badges": badges, "league": lg,
+            "class_id": m["class_id"], "crown": crown if m["id"] == crown else None,
+            "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"], "wk": g["wk"]}
+
+
 def game_summary(db, sid, brief=False, windows=None):
     if not brief or windows:
         return _game_summary(db, sid, brief, windows)
@@ -3000,6 +3035,7 @@ def main():
     if not APP.bank.tasks:
         print("! Банк заданий не найден (data/bank.js). Сначала выполните: python build.py")
 
+    ThreadingHTTPServer.request_queue_size = 128     # по умолчанию 5: в начале урока соединения отбрасывались бы
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     httpd.daemon_threads = True
     port = args.port
