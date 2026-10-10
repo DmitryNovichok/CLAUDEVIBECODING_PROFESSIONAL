@@ -459,6 +459,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/course/lesson?n=5", token=tok)[0], 403)            # курс закрыт — слайдов нет
         self.admin("POST", "/api/admin/course", {"password": "сова2026"})
         self.req("POST", "/api/course/unlock", {"password": "сова2026"}, tok)
+        (server.HERE / "course").mkdir(exist_ok=True)                                              # презентация из репозитория
+        (server.HERE / "course" / "5.json").write_text((Path(__file__).resolve().parent.parent / "course" / "5.json").read_text(encoding="utf-8"), encoding="utf-8")
         st, d = self.req("GET", "/api/course/lesson?n=5", token=tok)
         self.assertEqual(st, 200)
         self.assertGreater(len(d["slides"]), 10)                                                  # презентация №5 на месте
