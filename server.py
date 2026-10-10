@@ -2535,6 +2535,15 @@ ACHIEVEMENTS = [
     ("lucky", "🍀", "Новичкам везёт", "Самое первое задание №27 — и сразу верно", 1),
     ("dejavu", "🔁", "Дежавю", "Решить одно и то же задание три раза", 1),
 ]
+# опыт за достижение — по трудности: лёгкие 5–15, средние 20–40, трудные 50–100, редкие 150–300
+ACH_XP = {
+    "first": 5, "s10": 10, "s100": 50, "s500": 150, "s1000": 300, "row10": 30, "row25": 80, "hard10": 40,
+    "all27": 60, "fix20": 40, "day50": 80, "days7": 50, "days30": 200, "night": 10, "early": 10,
+    "exam1": 30, "exam80": 100, "exam100": 300, "exam67": 30, "turtle": 20, "flash": 15, "bug": 15,
+    "phoenix": 20, "cinderella": 25, "weekend": 30, "fri13": 20, "pi": 20, "newyear": 30,
+    "stubborn": 15, "peek": 5, "lunch": 15, "snail": 10, "rainbow": 30, "perfect": 40, "binge": 40,
+    "speedrun": 80, "lucky": 25, "dejavu": 10,
+}
 EXAM_MIN_SEC_FOR_XP = 20 * 60          # вариант, сданный быстрее, опыта не даёт (иначе его «фармят»)
 
 
@@ -2768,6 +2777,9 @@ def _game_summary(db, sid, brief=False, windows=None):
         for aid in ("days7", "days30"):
             if aid not in got and run >= ACH_GOAL[aid]:
                 got[aid] = time.mktime(cur.timetuple()) + 43200
+    # опыт за достижения — в момент получения
+    for aid, ts in got.items():
+        gain(ACH_XP.get(aid, 0), ts)
     # поправки опыта: выигрыш и проигрыш в дуэлях
     for a in db.q("SELECT ts, delta FROM xp_adjust WHERE student_id=?", (sid,)):
         gain(a["delta"], a["ts"])
@@ -2797,7 +2809,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     for k in ("turtle", "flash", "bug", "phoenix", "cinderella", "fri13", "pi", "newyear",
               "stubborn", "peek", "snail", "perfect", "lucky", "dejavu"):
         prog[k] = cnt[k]
-    out["ach"] = [{"id": a, "icon": i, "title": t, "desc": d, "goal": g, "have": min(prog.get(a, 0), g),
+    out["ach"] = [{"id": a, "icon": i, "title": t, "desc": d, "goal": g, "have": min(prog.get(a, 0), g), "xp": ACH_XP.get(a, 0),
                    "got": int(got[a]) if a in got else 0} for a, i, t, d, g in ACHIEVEMENTS]
     return out
 

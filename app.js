@@ -1681,6 +1681,7 @@
   }
 
   function show(pick) {
+    leaveCourse();
     if (!pick) {
       cur = null;
       trainerEl.innerHTML = `<div class="empty"><h2>Нет заданий</h2><p>В выбранном разделе нет заданий${ui.bank !== 'all' ? ' этого банка' : ''}${ui.period !== 'all' ? ' за выбранный период' : ''}. Попробуйте другой период в панели слева.</p></div>`;
@@ -2024,6 +2025,105 @@
 
   function closeForecast() { $('#forecastModal').hidden = true; }
 
+  // ------------------------------------------------------------ курс по плану (пока структура, наполнение — по ходу)
+  // Порядок не 1→27, а по темам: сначала без программирования, потом логика, системы счисления, программирование, сложные.
+  const COURSE = [
+    { title: 'Старт без программирования', icon: '🧭', sub: 'Таблицы, кодирование, объёмы — задания, которые решаются руками',
+      lessons: [1, 4, 7, 11, 3, 10, 9, 13] },
+    { title: 'Логика', icon: '🧩', sub: 'Таблицы истинности и логические выражения', lessons: [2, 15] },
+    { title: 'Системы счисления и исполнители', icon: '🔢', sub: 'Перевод, длинная арифметика, Черепаха, Редактор, число программ',
+      lessons: [14, 5, 6, 12, 8, 23] },
+    { title: 'Программирование', icon: '🐍', sub: 'Рекурсия, последовательности, строки, делители и маски', lessons: [16, 17, 24, 25] },
+    { title: 'Финишная прямая', icon: '🏁', sub: 'Задачи на 26–27, теория игр, процессы и динамика', lessons: [19, 22, 18, 26, 27] },
+  ];
+  // подборки урока: одинаковые для всех номеров; d — сложность в банке (1 — простая, 2 — средняя, 3 — сложная)
+  const COURSE_SETS = [
+    { key: 'warm', name: 'Разминка', icon: '🌱', d: [1], note: 'простые задания, чтобы понять идею' },
+    { key: 'base', name: 'Базовый уровень', icon: '📘', d: [1, 2], note: 'типовые задания как в демоверсии' },
+    { key: 'exam', name: 'Как на ЕГЭ', icon: '🎯', d: [2], note: 'формат и сложность реального экзамена' },
+    { key: 'hard', name: 'Сложные', icon: '🔥', d: [3], note: 'для тех, кто идёт на 90+' },
+    { key: 'test', name: 'Контрольная', icon: '🏆', d: null, note: '10 заданий подряд без подсказок — проверка темы' },
+  ];
+  let courseShown = false;
+  function leaveCourse() {
+    if (!courseShown) return;
+    courseShown = false;
+    $('#courseCard')?.classList.remove('on');
+  }
+  function lessonState(n) {
+    const st = numStats(n);
+    return st.lvl === 'good' ? 'done' : st.lvl === 'none' ? 'new' : 'go';
+  }
+  function openCourse() {
+    if (!leaveExam()) return;
+    if (isNarrow()) setSideOpen(false);
+    courseShown = true;
+    cur = null;
+    document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
+    $('#courseCard')?.classList.add('on');
+    const all = COURSE.flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
+    const nextN = all.find(n => lessonState(n) !== 'done');
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">27 тем по плану</span>';
+    trainerEl.innerHTML = `<div class="course">
+      <div class="crs-hero">
+        <div><div class="crs-kicker">Курс Egeshka</div><h2>ЕГЭ по информатике: от №1 до №27</h2>
+          <p>Уроки идут по плану: от простых тем к сложным. В каждом — презентация с разбором и подборки заданий по уровням.</p></div>
+        <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
+      </div>
+      ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>следующая тема по плану</small></span></button>` : ''}
+      ${COURSE.map((m, i) => `<section class="crs-mod">
+        <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>Модуль ${i + 1}. ${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
+          <span class="crs-mod-n">${m.lessons.filter(n => lessonState(n) === 'done').length}/${m.lessons.length}</span></div>
+        <div class="crs-path">${m.lessons.map(n => {
+          const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
+          return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
+            <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · презентация · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-go">›</span></button>`;
+        }).join('')}</div></section>`).join('')}
+    </div>`;
+    window.scrollTo(0, 0);
+  }
+  function openLesson(n) {
+    courseShown = true;
+    const counts = d => TASKS.filter(t => t.n === n && visible(t) && (!d || d.includes(t.d))).length;
+    const mod = COURSE.findIndex(m => m.lessons.includes(n));
+    $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(n)}</span>`;
+    const slides = ['Что проверяет задание', 'Разбор типового задания', 'Как решать руками', 'Как решать на Python', 'Частые ошибки', 'Итоги и шпаргалка'];
+    trainerEl.innerHTML = `<div class="course lesson">
+      <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
+      <div class="crs-l-head"><span class="num-badge">${numLabel(n)}</span><div><div class="crs-kicker">Модуль ${mod + 1} · ${esc(COURSE[mod].title)}</div>
+        <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
+      <div class="fm-h">1. Теория</div>
+      <div class="crs-deck">
+        <div class="crs-slide"><span class="crs-slide-no">1 / ${slides.length}</span>
+          <div class="crs-slide-body"><div class="crs-kicker">Egeshka · урок ${numLabel(n)}</div><h3>${esc(NUM_TOPIC[n])}</h3>
+            <p>Презентация с разбором появится здесь</p></div>
+          <span class="crs-soon">скоро</span></div>
+        <div class="crs-thumbs">${slides.map((t, i) => `<div class="crs-thumb${i ? '' : ' on'}"><i></i><i></i><span>${i + 1}. ${t}</span></div>`).join('')}</div>
+      </div>
+      <div class="fm-h">2. Практика по уровням</div>
+      <div class="crs-sets">${COURSE_SETS.map((st, i) => {
+        const c = st.d ? counts(st.d) : Math.min(10, counts(null));
+        return `<div class="crs-set"><span class="crs-set-ic">${st.icon}</span>
+          <span class="crs-set-txt"><b>${i + 1}. ${st.name}</b><small>${st.note}</small></span>
+          <span class="crs-set-n">${st.d ? `${c} в банке` : `${c} заданий`}</span>
+          <button type="button" class="btn ghost" disabled title="Подборка появится по ходу курса">Скоро</button></div>`;
+      }).join('')}</div>
+      <p class="fm-note">Подборки соберём вручную по ходу курса. А пока можно решать все задания этого номера:</p>
+      <button type="button" class="btn primary" data-go-num="${n}">Решать №${numLabel(n)} в тренажёре</button>
+    </div>`;
+    window.scrollTo(0, 0);
+  }
+  trainerEl.addEventListener('click', e => {
+    if (!courseShown) return;
+    const l = e.target.closest('[data-lesson]');
+    if (l) { openLesson(+l.dataset.lesson); return; }
+    if (e.target.closest('[data-course-back]')) { openCourse(); return; }
+    const g = e.target.closest('[data-go-num]');
+    if (g) setScope(+g.dataset.goNum);
+  });
+
   const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',
     'Черепаха', 'Изображения и звук', 'Комбинаторика', 'Электронные таблицы', 'Поиск в тексте', 'Объём информации',
     'Исполнитель Редактор', 'IP-адреса и маски', 'Системы счисления', 'Логические выражения', 'Рекурсия',
@@ -2267,7 +2367,7 @@
     }
     const avg = present ? sum / present : 0;
     const all = $('#allCard');
-    const inTrainer = !examShown;
+    const inTrainer = !examShown && !courseShown;
     all.className = 'rail-btn' + (inTrainer && ui.scope === 'all' ? ' on' : '');
     $('#allBar').style.width = tried ? pct(avg) + '%' : '0';
     $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
@@ -3697,7 +3797,7 @@
   function achToast(a) {
     const t = document.createElement('div');
     t.className = 'ach-toast';
-    t.innerHTML = `<span class="ach-icon">${esc(a.icon)}</span><span><small>Новое достижение</small><b>${esc(a.title)}</b><small>${esc(a.desc)}</small></span>`;
+    t.innerHTML = `<span class="ach-icon">${esc(a.icon)}</span><span><small>Новое достижение${a.xp ? ` · +${a.xp} XP` : ''}</small><b>${esc(a.title)}</b><small>${esc(a.desc)}</small></span>`;
     document.body.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 4200);
   }
@@ -3718,14 +3818,16 @@
     const got = (g.ach || []).filter(a => a.got).length;
     const ach = (g.ach || []).map(a => `<div class="ach${a.got ? '' : ' locked'}" title="${esc(a.desc)}">
         <span class="ach-icon">${esc(a.icon)}</span>
-        <span><b>${esc(a.title)}</b><small>${esc(a.desc)}${a.got ? '' : ` · ${a.have}/${a.goal}`}</small></span></div>`).join('');
+        <span><b>${esc(a.title)}</b><small>${esc(a.desc)}${a.got ? '' : ` · ${a.have}/${a.goal}`}</small></span>
+        ${a.xp ? `<span class="ach-xp${a.xp >= 150 ? ' epic' : a.xp >= 50 ? ' hard' : ''}">+${a.xp}</span>` : ''}</div>`).join('');
     $('#forecastBody').innerHTML = `
       <div class="gm-head"><span class="gm-level">${g.level}</span>
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(g.title)}</h2>
           <i class="xp-bar"><b style="width:${pct(g.cur / g.need)}%"></b></i>
           <span class="fm-muted">${g.cur} / ${g.need} XP до ${g.level + 1}-го уровня · всего ${g.xp} XP · за неделю +${g.week}</span></div></div>
       <p class="fm-note">Опыт даётся за первое решение задания (№1–10 — 10 XP, сложные номера — до 22 XP), повторное — 2 XP,
-        вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.</p>
+        вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.
+        За достижения — от 5 до 300 XP: чем труднее получить, тем больше.</p>
       <h3 class="fm-sub">Достижения · ${got} из ${(g.ach || []).length}</h3>
       <div class="ach-grid">${ach}</div>
       <p class="fm-note">Рейтинг — кнопка с кубком в верхней панели.</p>`;
@@ -3984,6 +4086,7 @@
     if (t.closest('#sumDuels')) return openDuels();
   });
   $('#dailyCard').addEventListener('click', openDaily);
+  $('#courseCard')?.addEventListener('click', openCourse);
   $('#duelCard').addEventListener('click', () => openDuels());
 
   /** При входе (не в первый раз) — раз в день сводка: итоги недели, кто обогнал, задание дня, вызовы, лига. */
@@ -4209,6 +4312,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.23.0', '10.10.2026', ['Новый раздел «Курс» (значок 🎓 слева): план из 5 модулей и 27 тем — у каждой будут презентация и подборки по уровням. Пока это каркас, наполнение появится по ходу',
+      'За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
     ['1.22.3', '10.10.2026', ['Исправлены формулы в «Банке ЕГЭ»: снова видны степени и индексы (около 1100 заданий, в том числе №14)', 'Верхняя панель больше не наезжает на окно Python']],
     ['1.22.2', '10.10.2026', ['Сервер выдерживает больше учеников одновременно: рейтинг собирается один раз на всех, соединения в начале урока не теряются']],
     ['1.22.1', '10.10.2026', ['Рейтинг и дуэли открываются заметно быстрее, когда учеников много']],
