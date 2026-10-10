@@ -2037,27 +2037,53 @@
     { title: 'Финишная прямая', icon: '🏁', sub: 'Теория игр, процессы, динамика, графы, задачи 26–27', lessons: [19, 22, 18, 23, 26, 27] },
   ];
   // подборки урока: одинаковые для всех номеров; d — сложность в банке (1 — простая, 2 — средняя, 3 — сложная)
+  // описания подборок №5 — по системам счисления
+  const COURSE_SET_NOTES = { 5: { warm: 'самые простые задания из всех банков', base: 'двоичная запись', exam: 'двоичная и троичная системы — как на ЕГЭ',
+    hard: 'другие системы счисления и десятичные цифры', test: 'по 5 заданий каждого вида: 2-я, 3-я, другие системы, десятичные цифры' } };
   const COURSE_SETS = [
     { key: 'warm', name: 'Разминка', icon: '🌱', d: [1], note: 'простые задания, чтобы понять идею' },
     { key: 'base', name: 'Базовый уровень', icon: '📘', d: [1, 2], note: 'типовые задания как в демоверсии' },
     { key: 'exam', name: 'Как на ЕГЭ', icon: '🎯', d: [2], note: 'формат и сложность реального экзамена' },
     { key: 'hard', name: 'Сложные', icon: '🔥', d: [3], note: 'для тех, кто идёт на 90+' },
-    { key: 'test', name: 'Контрольная', icon: '🏆', d: null, note: '10 заданий подряд без подсказок — проверка темы' },
+    { key: 'test', name: 'Контрольная', icon: '🏆', d: null, note: '20 заданий разных видов — проверка темы' },
   ];
   // подборки урока — из банка, по сложности; состав постоянный (сортировка по хешу id), по 10 заданий
   const EXAM_SRC = /Демоверсия|Апробация|Резерв|Основная|ЕГКР|Пересдача|Досрочн/;
   const idHash = id => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0; return h >>> 0; };
+  const SET_SIZE = 20;
+  // №5: какая система счисления в задании — по тексту условия
+  const sysCache = new Map();
+  function sysOf(t) {
+    if (sysCache.has(t.id)) return sysCache.get(t.id);
+    const x = String(t.html || '').replace(/<[^>]+>/g, ' ').toLowerCase();
+    const v = /двоичн/.test(x) ? 2 : /троичн/.test(x) ? 3
+      : /(четвер|пятер|шестер|семер|восьмер|девятер|шестнадцатер)ичн/.test(x) ? 'other' : /значн|цифр/.test(x) ? 10 : 'other';
+    sysCache.set(t.id, v);
+    return v;
+  }
   function courseSetTasks(n) {
     const pool = TASKS.filter(t => t.n === n && !t.parts && !isOutdated(t)).sort((a, b) => idHash(a.id) - idHash(b.id));
     const used = new Set(), take = (list, k) => { const out = list.filter(t => !used.has(t.id)).slice(0, k); out.forEach(t => used.add(t.id)); return out; };
     const byD = d => pool.filter(t => t.d === d);
+    const real = t => EXAM_SRC.test(t.src || '');
+    const order = (list, first) => list.filter(first).concat(list.filter(t => !first(t)));
     const sets = {};
-    sets.warm = take(byD(1), 10);
-    sets.base = take(byD(2).concat(byD(1)), 10);
-    sets.exam = take(pool.filter(t => EXAM_SRC.test(t.src || '')), 10);
-    sets.hard = take(byD(3), 10);
-    sets.test = [...take(byD(1), 3), ...take(byD(2), 4), ...take(byD(3), 3)];
-    if (sets.test.length < 10) sets.test.push(...take(pool, 10 - sets.test.length));
+    if (n === 5) {
+      const sys = v => pool.filter(t => (Array.isArray(v) ? v : [v]).includes(sysOf(t)));
+      sets.warm = take(byD(1), SET_SIZE);                                          // самые простые из всех банков
+      sets.base = take(order(sys(2), t => t.d !== 3), SET_SIZE);                   // двоичная запись
+      sets.exam = [...take(order(sys(2), real), SET_SIZE / 2), ...take(order(sys(3), real), SET_SIZE / 2)];   // 2-я и 3-я системы
+      if (sets.exam.length < SET_SIZE) sets.exam.push(...take(sys([2, 3]), SET_SIZE - sets.exam.length));
+      sets.hard = take(order(sys(['other', 10]), t => t.d === 3), SET_SIZE);       // остальные системы и десятичные цифры
+      sets.test = [2, 3, 'other', 10].flatMap(v => take(order(sys(v), t => t.d >= 2), SET_SIZE / 4));      // по всем видам
+    } else {
+      sets.warm = take(byD(1), SET_SIZE);
+      sets.base = take(byD(2).concat(byD(1)), SET_SIZE);
+      sets.exam = take(pool.filter(real), SET_SIZE);
+      sets.hard = take(byD(3), SET_SIZE);
+      sets.test = [...take(byD(1), 6), ...take(byD(2), 7), ...take(byD(3), 7)];
+    }
+    if (sets.test.length < SET_SIZE) sets.test.push(...take(pool, SET_SIZE - sets.test.length));
     return Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.map(t => t.id)]));
   }
   /** Подборка курса как «подборка учителя»: решается по порядку, прогресс считается по журналу. */
@@ -2143,15 +2169,31 @@
   }
   let DECK = null, deckI = 0;
   function slideHtml(sl, i) {
+    const kick = sl.k ? `<div class="sl-k ${sl.kc || ''}">${esc(sl.k)}</div>` : '';
+    const runBtn = (k, ans) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button>
+        ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><b>${esc(ans)}</b></details>` : ''}</div>`;
+    const codeBox = (code, k, ans) => `<div class="sl-codecol"><pre class="sl-code">${highlightPy(code)}</pre>${runBtn(k, ans)}</div>`;
     if (sl.t === 'title') {
-      return `<div class="sl sl-title"><div class="crs-kicker">Egeshka · курс ЕГЭ</div><h3>${esc(sl.h)}</h3><p>${esc(sl.sub || '')}</p>
-        <div class="sl-chips">${(sl.chips || []).map(c => `<span>${esc(c)}</span>`).join('')}</div></div>`;
+      return `<div class="sl sl-title"><div class="sl-title-main"><div class="crs-kicker">${esc(sl.k || 'Egeshka · курс ЕГЭ')}</div><h3>${esc(sl.h)}</h3><p>${esc(sl.sub || '')}</p>
+        ${(sl.chips || []).length ? `<div class="sl-chips">${sl.chips.map(c => `<span>${esc(c)}</span>`).join('')}</div>` : ''}</div>
+        ${sl.aside ? `<div class="sl-title-aside">${safeHtml(sl.aside)}</div>` : ''}</div>`;
     }
-    const code = sl.t === 'code' ? `<pre class="sl-code">${highlightPy(sl.code)}</pre>
-      <div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}">▶ Открыть в Python</button>
-        ${sl.ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><b>${esc(sl.ans)}</b></details>` : ''}
-        ${sl.src ? `<span class="sl-src">${esc(sl.src)}</span>` : ''}</div>` : '';
-    return `<div class="sl"><h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-body">${safeHtml(sl.html || '')}${code}</div></div>`;
+    if (sl.t === 'section') {
+      return `<div class="sl sl-section"><div class="sl-k ${sl.kc || ''}">${esc(sl.k)}</div><h3>${esc(sl.h)}</h3><p>${esc(sl.sub || '')}</p>
+        ${sl.tag ? `<code class="sl-tag">${esc(sl.tag)}</code>` : ''}</div>`;
+    }
+    if (sl.t === 'code' && sl.cond != null) {
+      return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-split">
+        <div class="sl-left"><div class="sl-cond"><div class="sl-cond-h">Условие</div>${safeHtml(sl.cond)}</div>
+          ${sl.note ? `<div class="sl-nuance ${sl.kc || ''}">${safeHtml(sl.note)}</div>` : ''}</div>
+        ${codeBox(sl.code, 0, sl.ans)}</div></div>`;
+    }
+    if (sl.t === 'codes') {
+      return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-blocks n${sl.blocks.length}">${sl.blocks.map((b, k) =>
+        `<div class="sl-block"><p>${safeHtml(b.cond)}</p>${codeBox(b.code, k, b.ans)}</div>`).join('')}</div></div>`;
+    }
+    const code = sl.t === 'code' ? `<pre class="sl-code">${highlightPy(sl.code)}</pre>${runBtn(0, sl.ans)}` : '';
+    return `<div class="sl${sl.dark ? ' sl-dark' : ''}">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-body">${safeHtml(sl.html || '')}${code}</div></div>`;
   }
   function renderDeck() {
     const box = $('#crsDeck');
@@ -2206,7 +2248,7 @@
       <div class="crs-sets">${COURSE_SETS.map((st, i) => {
         const a = courseSet(`crs-${n}-${st.key}`), total = a ? a.tasks.length : 0, done = total - asgLeft(a).length;
         return `<div class="crs-set${total && done === total ? ' done' : ''}"><span class="crs-set-ic">${st.icon}</span>
-          <span class="crs-set-txt"><b>${i + 1}. ${st.name}</b><small>${st.note}</small>
+          <span class="crs-set-txt"><b>${i + 1}. ${st.name}</b><small>${(COURSE_SET_NOTES[n] || {})[st.key] || st.note}</small>
             <i class="xp-bar"><b style="width:${total ? pct(done / total) : 0}%"></b></i></span>
           <span class="crs-set-n">${total ? `решено ${done} из ${total}` : 'нет заданий'}</span>
           <button type="button" class="btn ${total && done < total ? 'primary' : 'ghost'}" data-course-set="${a ? a.id : ''}" ${total ? '' : 'disabled'}>${!total ? '—' : done === total ? 'Повторить' : done ? 'Продолжить' : 'Решать'}</button></div>`;
@@ -2218,12 +2260,14 @@
     window.scrollTo(0, 0);
   }
   /** Код со слайда — в окно Python: можно запустить и поменять. */
-  function slideToPy(i) {
+  function slideToPy(ref) {
+    const [i, k] = String(ref).split(':').map(Number);
     const sl = DECK && DECK.slides[i];
-    if (!sl || !sl.code) return;
+    const code = sl && (sl.blocks ? (sl.blocks[k || 0] || {}).code : sl.code);
+    if (!code) return;
     togglePy(true);
     const ta = $('#pyCode');
-    ta.value = sl.code;
+    ta.value = code;
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     $('#pyTask').textContent = `курс · №${DECK.n}`;
   }
@@ -2243,7 +2287,7 @@
     const th = e.target.closest('[data-slide]');
     if (th) { deckI = +th.dataset.slide; renderDeck(); return; }
     const py = e.target.closest('[data-py-slide]');
-    if (py) { slideToPy(+py.dataset.pySlide); return; }
+    if (py) { slideToPy(py.dataset.pySlide); return; }
     if (e.target.closest('[data-deck-full]')) {
       const d = $('#crsDeck');
       if (document.fullscreenElement) document.exitFullscreen(); else d?.requestFullscreen?.().catch(() => {});
