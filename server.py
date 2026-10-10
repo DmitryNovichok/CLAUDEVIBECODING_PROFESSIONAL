@@ -74,7 +74,9 @@ THINK_SEC_DEFAULT = 40              # через сколько секунд п�
 THINK_SEC_HARD = 90                 # …для длинных задач 24–27
 REVEAL_PER_HOUR = 12                # показов ответа в час на ученика
 REVEAL_PER_HOUR_IP = 150            # …и на один адрес: против выдуманных ФИО (весь класс сидит за одним адресом школы)
-ACTIVITY_KINDS = {"away", "shot"}     # ушёл со вкладки; нажал клавиши снимка экрана
+ACTIVITY_KINDS = {"away", "shot", "fs", "paste"}   # ушёл со вкладки; клавиши снимка экрана; вышел из полного экрана в варианте; вставил ответ в варианте
+SUS_AWAY_SEC = 30                   # «подозрительный верный ответ»: ушёл со страницы хотя бы на столько секунд…
+SUS_BACK_SEC = 60                   # …и ответил верно не позже чем через столько секунд после возвращения
 ACTIVITY_PER_HOUR = 300
 MAX_SOLUTION = 50_000                 # символов в решении (код или текст)
 ATTEMPTS_PER_TASK = 2               # попыток на задание; считает сервер, а не страница
@@ -864,6 +866,8 @@ class DB:
                     ("students", "pw", "TEXT"),            # пароль ученика (хеш); NULL — ещё не задан
                     ("students", "class_id", "INTEGER"),   # класс; NULL — ещё не распределён
                     ("attempts", "away", "INTEGER"),       # сколько раз уходил со вкладки, пока решал
+                    ("attempts", "away_sec", "REAL"),      # сколько секунд всего был вне страницы, пока решал
+                    ("attempts", "flags", "TEXT"),         # отметки через запятую: sus — ушёл и сразу верно, paste — ответ вставлен
                     ("students", "teacher_id", "INTEGER"), # учитель, по чьему коду зарегистрировался; NULL — главный
                     ("classes", "teacher_id", "INTEGER"),
                     ("admin_sessions", "teacher_id", "INTEGER"),
@@ -1232,13 +1236,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     # ---------- журнал и показ ответов
     def log_attempt(self, s, t, answers, score, *, gave_up=False, abandoned=False, reason="", rk=None,
-                    part=None, revealed=0, spent=None, exam=None, away=None):
+                    part=None, revealed=0, spent=None, exam=None, away=None, st=None):
+        away_sec = flags = None
+        if st:
+            away_sec = st.get("away_sec") or None
+            fl = []
+            if score > 0 and st.get("back_sec") is not None and st["back_sec"] <= SUS_BACK_SEC:
+                fl.append("sus")
+            if st.get("paste"):
+                fl.append("paste")
+            flags = ",".join(fl) or None
         return APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,
-                                               spent_ms,reason,rk,part,grp,revealed,exam,ip,away)
-                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                               spent_ms,reason,rk,part,grp,revealed,exam,ip,away,away_sec,flags)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (s["id"], time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps(answers, ensure_ascii=False),
                          t.get("ans", ""), score, int(gave_up), int(abandoned), spent, reason, rk, part,
-                         t.get("group"), int(revealed), exam, self.client_ip(), away or None))
+                         t.get("group"), int(revealed), exam, self.client_ip(), away or None, away_sec, flags))
 
     def reveal_block(self, s, t, st):
         """None — ответ можно показать; иначе {"why": "think"|"limit", "wait": секунд}."""
@@ -1854,6 +1867,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         spent = int(spent) if isinstance(spent, (int, float)) and 0 <= spent < 864e5 else None
         away = to_int(data.get("away"))
         st["away"] = min(max(away or 0, st.get("away") or 0), 999)
+        st["away_sec"] = min(max(to_float(data.get("away_sec")), st.get("away_sec") or 0, 0), 86400)
+        # сколько секунд назад ученик вернулся после долгого (30+ с) ухода; None — долгих уходов не было
+        back = data.get("back_sec")
+        st["back_sec"] = round(min(max(float(back), 0), 86400), 1) if isinstance(back, (int, float)) else None
+        st["paste"] = bool(st.get("paste") or data.get("paste"))
         n = t.get("n") or 0
 
         if data.get("abandoned"):
@@ -1861,7 +1879,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 OPENED.reset(s["id"], t["id"])
                 return self.send_json({"ok": True, "skipped": True})
             self.log_attempt(s, t, st["tries"], 0.0, abandoned=True, reason=st["reason"], rk=st["rk"],
-                             part=st.get("part"), spent=spent, away=st["away"])
+                             part=st.get("part"), spent=spent, away=st["away"], st=st)
             st["final"] = {"correct": False, "final": True, "score": 0.0}
             return self.send_json(st["final"])
 
@@ -1883,7 +1901,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                              (datetime.now().strftime("%Y-%m-%d"), s["id"], t["id"],
                               int((time.time() - st["ts"]) * 1000), time.time()))
                 self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
-                                 revealed=1, spent=spent, away=st["away"])
+                                 revealed=1, spent=spent, away=st["away"], st=st)
                 st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"]}, t)
                 return self.send_json(dict(st["final"], game=game_summary(APP.db, s["id"])))
             if len(st["tries"]) < ATTEMPTS_PER_TASK:
@@ -1894,7 +1912,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         block = self.reveal_block(s, t, st)
         part = st.get("part", 0.0) if st["tries"] else 0.0
         aid = self.log_attempt(s, t, st["tries"], 0.0, gave_up=gave_up, reason=st["reason"], rk=st["rk"],
-                               part=part, revealed=0 if block else 1, spent=spent, away=st["away"])
+                               part=part, revealed=0 if block else 1, spent=spent, away=st["away"], st=st)
         self.log_reveal(s, t, block)
         res = {"correct": False, "final": True, "score": 0.0, "part": part}
         if block:
@@ -2049,8 +2067,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             rev = db.q("""SELECT SUM(granted = 1) AS granted, SUM(granted = 0 AND why = 'limit') AS blocked,
                                  SUM(granted = 0 AND why = 'think') AS early
                           FROM reveal_log WHERE student_id=? AND ts>=?""", (sid, frm), one=True)
-            exams = db.q("""SELECT started, finished, primary_score, test_score, items FROM exams
-                            WHERE student_id=? AND finished IS NOT NULL ORDER BY finished DESC LIMIT 20""", (sid,))
+            exams = db.q("""SELECT started, finished, primary_score, test_score, items,
+                                   (SELECT COUNT(*) FROM activity v WHERE v.student_id = e.student_id AND v.exam = 1 AND v.kind = 'away'
+                                      AND v.ts BETWEEN e.started AND e.finished + 5) AS away,
+                                   (SELECT COALESCE(SUM(v.dur), 0) FROM activity v WHERE v.student_id = e.student_id AND v.exam = 1
+                                      AND v.kind = 'away' AND v.ts BETWEEN e.started AND e.finished + 5) AS away_sec,
+                                   (SELECT COUNT(*) FROM activity v WHERE v.student_id = e.student_id AND v.exam = 1 AND v.kind = 'fs'
+                                      AND v.ts BETWEEN e.started AND e.finished + 5) AS fs,
+                                   (SELECT COUNT(*) FROM activity v WHERE v.student_id = e.student_id AND v.exam = 1 AND v.kind = 'paste'
+                                      AND v.ts BETWEEN e.started AND e.finished + 5) AS paste
+                            FROM exams e WHERE student_id=? AND finished IS NOT NULL ORDER BY finished DESC LIMIT 20""", (sid,))
             same_ip = []
             if s["last_ip"]:
                 same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
@@ -2062,6 +2088,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 d["has_code"] = 1 if d["task_id"] in coded or (d.get("grp") or "") in coded else 0
             act = db.q("""SELECT kind, COUNT(*) AS c, SUM(dur) AS dur, SUM(exam) AS in_exam FROM activity
                           WHERE student_id=? AND ts>=? GROUP BY kind""", (sid, frm))
+            # каждый уход со страницы: когда, насколько, на каком задании (сводка «вне тренажёра»)
+            away_log = []
+            for r in db.q("""SELECT ts, kind, task_id, dur, exam FROM activity WHERE student_id=? AND ts>=?
+                             ORDER BY ts DESC LIMIT 300""", (sid, frm)):
+                d = dict(r)
+                tk = APP.bank.tasks.get(d["task_id"]) if d["task_id"] else None
+                d["n"] = tk.get("n") if tk else None
+                d["snip"] = APP.bank.snippet(d["task_id"]) if tk else ""
+                away_log.append(d)
             row = db.q("SELECT class_id, teacher_id FROM students WHERE id=?", (sid,), one=True)
             student["class_id"] = row["class_id"]
             student["teacher_id"] = row["teacher_id"] or main_teacher()["id"]
@@ -2069,6 +2104,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "reveals": {k: rev[k] or 0 for k in ("granted", "blocked", "early")},
                                    "exams": [dict(r) for r in exams], "same_ip": same_ip,
                                    "activity": {r["kind"]: {"count": r["c"], "sec": round(r["dur"] or 0), "exam": r["in_exam"] or 0} for r in act},
+                                   "away_log": away_log,
                                    "game": game_summary(db, sid), "rules": self.rules()})
 
         if path == "/api/admin/feed":
@@ -2429,12 +2465,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                          SUM(score = 0 AND gave_up = 1 AND revealed = 1) AS shown,
                                          COUNT(DISTINCT CASE WHEN score > 0 THEN COALESCE(grp, task_id) END) AS solved,
                                          SUM(COALESCE(spent_ms, 0)) AS spent, SUM(COALESCE(away, 0)) AS away,
+                                         SUM(',' || COALESCE(flags, '') || ',' LIKE '%,sus,%') AS sus,
+                                         SUM(',' || COALESCE(flags, '') || ',' LIKE '%,paste,%') AS paste,
                                          MIN(ts) AS first, MAX(ts) AS last, GROUP_CONCAT(DISTINCT n) AS nums
                                   FROM attempts WHERE {cond} GROUP BY student_id""", args):
                     rows[r["student_id"]] = dict(r)
                 for r in db.q(f"""SELECT student_id, MAX(test_score) AS exam FROM exams WHERE finished>=? AND finished<?
                                   AND student_id IN ({','.join('?' * len(ids))}) GROUP BY student_id""", (t0, t1, *ids)):
                     rows.setdefault(r["student_id"], {})["exam"] = r["exam"]
+                # вне тренажёра за период: все уходы со страницы (и в заданиях, и в варианте)
+                for r in db.q(f"""SELECT student_id, COUNT(*) AS c, SUM(dur) AS sec FROM activity WHERE kind = 'away'
+                                  AND ts>=? AND ts<? AND student_id IN ({','.join('?' * len(ids))}) GROUP BY student_id""", (t0, t1, *ids)):
+                    rows.setdefault(r["student_id"], {}).update(out_n=r["c"], out_sec=round(r["sec"] or 0))
             out = []
             for m in members:
                 r = rows.get(m["id"], {})
@@ -2443,7 +2485,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             "solved": r.get("solved") or 0, "ok1": r.get("ok1") or 0, "ok2": r.get("ok2") or 0,
                             "bad": r.get("bad") or 0, "shown": r.get("shown") or 0, "spent": r.get("spent") or 0,
                             "away": r.get("away") or 0, "first": r.get("first"), "last": r.get("last"), "nums": nums,
-                            "exam": r.get("exam")})
+                            "exam": r.get("exam"), "sus": r.get("sus") or 0, "paste": r.get("paste") or 0,
+                            "out_n": r.get("out_n") or 0, "out_sec": r.get("out_sec") or 0})
             return self.send_json({"rows": out, "asg_total": len(asg_tasks) if asg_tasks is not None else None})
 
         if path == "/api/admin/assignments":

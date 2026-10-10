@@ -1632,3 +1632,12 @@ label.vw-row { cursor: pointer; }
 .crs-legend .ok { color: var(--good); }
 .crs-legend .bad { color: var(--weak); }
 .task-head .crs-up { flex: none; white-space: nowrap; }
+
+/* строгий режим варианта */
+.ex-strict { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px; padding: 8px 14px;
+  border: 2px solid var(--border); border-radius: 12px; background: var(--card); font-size: 13.5px; color: var(--muted); }
+.ex-strict b { color: var(--text); }
+.ex-strict.warn { border-color: color-mix(in srgb, var(--weak) 55%, transparent); background: var(--weak-soft); }
+.ex-strict.warn b { color: var(--weak); }
+.ex-strict.off { border-color: var(--weak); }
+.ex-strict .btn { margin-left: auto; padding: 6px 14px; }

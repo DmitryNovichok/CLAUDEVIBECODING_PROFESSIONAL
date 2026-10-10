@@ -627,6 +627,40 @@ class ServerTest(unittest.TestCase):
         row = server.APP.db.q("SELECT task_id FROM activity WHERE student_id=? AND kind='away'", (sid,), one=True)
         self.assertEqual(row["task_id"], "b:6")
 
+    def test_integrity_flags(self):
+        # ⚠ — вернулся после долгого ухода и сразу верно; 📋 — ответ вставлен; сводка «вне тренажёра» и строгий режим варианта
+        tok = self.login("Честнов Чеслав")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        p5, p6 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": p5}, tok)
+        self.check(tok, p5, answer="12", away=1, away_sec=95, back_sec=8)
+        self.req("POST", "/api/open", {"task": p6}, tok)
+        self.check(tok, p6, answer="1", paste=1)
+        self.check(tok, p6, answer="2", back_sec=5)                # неверный ответ не бывает «подозрительным»
+        self.req("POST", "/api/activity", {"events": [{"kind": "away", "dur": 95, "task": p5},
+                                                      {"kind": "fs", "task": p6, "exam": 1},
+                                                      {"kind": "paste", "task": p6, "exam": 1}]}, tok)
+        st, d = self.admin("GET", f"/api/admin/student?id={sid}&from=0")
+        by = {a["task_id"]: a for a in d["attempts"]}
+        self.assertEqual((by["b:5"]["flags"], by["b:5"]["away_sec"]), ("sus", 95))
+        self.assertEqual(by["b:6"]["flags"], "paste")
+        self.assertEqual({e["kind"] for e in d["away_log"]}, {"away", "fs", "paste"})
+        self.assertEqual(next(e for e in d["away_log"] if e["kind"] == "away")["n"], 5)
+        # без долгого ухода и без вставки — без отметок
+        tok2 = self.login("Чистов Чеслав")
+        self.req("POST", "/api/open", {"task": p5}, tok2)
+        self.check(tok2, p5, answer="12", back_sec=None)
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        self.assertIsNone(self.admin("GET", f"/api/admin/student?id={sid2}&from=0")[1]["attempts"][0]["flags"])
+        # статистика класса: отметки и время вне тренажёра
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "Честный класс"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
+        now = time.time()
+        st, d = self.admin("GET", f"/api/admin/class/stats?class_id={cid}&from={now - 3600}&to={now + 60}")
+        r = d["rows"][0]
+        self.assertEqual((r["sus"], r["paste"], r["out_n"], r["out_sec"]), (1, 1, 1, 95))
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
     def test_solutions_student_and_teacher(self):
         tok = self.login("Решалов Роман")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
