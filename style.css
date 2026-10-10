@@ -1624,3 +1624,11 @@ label.vw-row { cursor: pointer; }
 .crs-task-st { flex: none; font-weight: 800; font-size: 13px; color: var(--accent-text); }
 .crs-task.ok .crs-task-st { color: var(--good); }
 @media (max-width: 600px) { .crs-set-head { flex-wrap: wrap; } .crs-set-prog { margin-left: 0; width: 100%; } .crs-task-st { display: none; } }
+.crs-task.bad { border-color: color-mix(in srgb, var(--weak) 55%, transparent); background: var(--weak-soft); }
+.crs-task.bad .crs-task-n { background: var(--weak); color: #fff; }
+.crs-task.bad .crs-task-st { color: var(--weak); }
+.crs-task.ok { background: color-mix(in srgb, var(--good) 8%, var(--card)); }
+.crs-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.crs-legend .ok { color: var(--good); }
+.crs-legend .bad { color: var(--weak); }
+.task-head .crs-up { flex: none; white-space: nowrap; }

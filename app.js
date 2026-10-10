@@ -869,7 +869,7 @@
             line: `${esc(a.title)}: задание ${Math.min(done + 1, a.tasks.length)} из ${a.tasks.length}. Решай точно — важны и число верных, и время.` };
         }
         const done = a.tasks.length - asgLeft(a).length;
-        return { chip: '<span class="chip accent">Задание учителя</span>',
+        return { chip: `<span class="chip accent">${a.course ? '🎓 Курс' : 'Задание учителя'}</span>`,
           line: `Подборка «${esc(a.title)}»: решено <b>${done}</b> из ${a.tasks.length}${a.due ? ` · срок — до ${fmtDay(a.due * 1000)}` : ''}.` };
       }
       case 'history':
@@ -948,6 +948,7 @@
 
     trainerEl.innerHTML = `
       <div class="task-head">
+        ${inCourseSet() ? '<button type="button" class="btn ghost crs-up" id="crsUpBtn" title="Вернуться к списку заданий подборки">← К подборке</button>' : ''}
         ${backStack.length ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
         <span class="num-badge">${numLabel(t.n)}</span>
         <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
@@ -1219,7 +1220,9 @@
     if (!a) return;
     clearInterval(thinkTimer);
     if (cur.done) {
-      a.innerHTML = `<button class="btn primary" id="nextBtn" type="button">Следующее задание →<kbd>Enter</kbd></button>`;
+      a.innerHTML = `<button class="btn primary" id="nextBtn" type="button">Следующее задание →<kbd>Enter</kbd></button>`
+        + (inCourseSet() && cur.score === 0 && !cur.group ? '<button class="btn" id="retryBtn" type="button" title="Решить это задание ещё раз">↻ Решить заново</button>' : '')
+        + (inCourseSet() ? '<button class="btn ghost" id="crsUpBtn" type="button">К подборке</button>' : '');
       $('#nextBtn').addEventListener('click', next);
       setTimeout(() => $('#nextBtn') && $('#nextBtn').focus({ preventScroll: true }), 0);
       return;
@@ -1634,6 +1637,7 @@
   function finish(score, gaveUp, res) {
     if (!cur || cur.done) return;
     cur.done = true;
+    cur.score = score;
     const t = cur.task;
     res = res || {};
     const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part });
@@ -2106,6 +2110,45 @@
     return a;
   }
   let courseShown = false;
+  // Окна курса (план → урок → подборка → задание) пишутся в историю браузера: кнопка «Назад» ведёт по ним
+  let navSilent = false;
+  function navPush(st) {
+    if (navSilent) return;
+    try {
+      const was = history.state;
+      if (!was) history.replaceState({ v: 'main' }, '');
+      else if (JSON.stringify(was) === JSON.stringify(st)) return;
+      history.pushState(st, '');
+    } catch (e) {}
+  }
+  function inCourseSet() { return ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course; }
+  /** Задание из подборки курса: подборка становится текущим разделом. */
+  function openSetTask(a, t) {
+    abandonCurrent();
+    leaveExam();
+    ui.scope = 'asg';
+    ui.asg = a.id;
+    save();
+    renderSidebar();
+    if (!cur || cur.done || cur.task.id !== t.id || courseShown) show({ task: t, why: { type: 'asg', a } });
+    navPush({ v: 'task', set: a.id, id: t.id });
+  }
+  window.addEventListener('popstate', e => {
+    const st = e.state || { v: 'main' };
+    navSilent = true;
+    try {
+      if (examShown) return;
+      if (st.v === 'course') openCourse();
+      else if (st.v === 'lesson') openLesson(st.n);
+      else if (st.v === 'set' && courseSet(st.id)) { abandonCurrent(); openCourseSet(st.id); }
+      else if (st.v === 'task' && courseSet(st.set) && byId.get(st.id)) openSetTask(courseSet(st.set), byId.get(st.id));
+      else if (courseShown || inCourseSet()) {
+        leaveCourse();
+        if (inCourseSet()) { ui.scope = 'all'; save(); renderSidebar(); }
+        next();
+      }
+    } finally { navSilent = false; }
+  });
   let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
   function courseLock() {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span>';
@@ -2145,8 +2188,10 @@
   function openCourse() {
     if (!leaveExam()) return;
     if (isNarrow()) setSideOpen(false);
+    abandonCurrent();
     courseShown = true;
     cur = null;
+    navPush({ v: 'course' });
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
@@ -2245,7 +2290,9 @@
   window.addEventListener('resize', () => { if (document.fullscreenElement) fitSlide(); });
   async function openLesson(n) {
     if (!COURSE_OK) return openCourse();
+    abandonCurrent();
     courseShown = true;
+    navPush({ v: 'lesson', n });
     DECK = null;
     deckI = 0;
     const counts = d => TASKS.filter(t => t.n === n && visible(t) && (!d || d.includes(t.d))).length;
@@ -2300,10 +2347,16 @@
     const a = courseSet(id);
     if (!a) return;
     courseShown = true;
+    navPush({ v: 'set', id });
     const left = new Set(asgLeft(a)), total = a.tasks.length, done = total - left.size;
     const st = COURSE_SETS.find(x => id.endsWith('-' + x.key)) || {};
+    // красным — задания, где была попытка, но верного ответа нет: их можно решить заново
+    const tried = new Set(P.log.filter(e => !e.b).map(e => e.id));
+    const bad = tid => left.has(tid) && (tried.has(tid) || ((P.tasks[tid] || {}).a > 0));
+    const nBad = a.tasks.filter(bad).length;
     // начало у заданий одинаковое («На вход алгоритма подаётся…») — показываем само правило
-    const snip = t => String(t.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    const snip = t => String(t.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
       .replace(/^\([^)]{0,40}\)\s*/, '')
       .replace(/^(На вход алгоритма подаётся|Алгоритм получает на вход|Автомат получает на вход|На вход программе подаётся)[\s\S]{0,200}?(следующим образом|по следующим правилам|по следующему алгоритму|следующему алгоритму)[.:]?\s*/i, '')
       .replace(/^1[.)]\s*Строится [^.]*?(запись|число)[^.]*\.\s*/i, '')
@@ -2315,12 +2368,13 @@
       <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div><div class="crs-kicker">Подборка · ${total} заданий</div>
         <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
         <div class="crs-set-prog"><b>${done}</b><span>из ${total}</span><i class="xp-bar"><b style="width:${total ? pct(done / total) : 0}%"></b></i></div></div>
+      <div class="crs-legend"><span class="ok">✓ верно: ${done}</span><span class="bad">✗ с ошибкой: ${nBad}</span><span>не начато: ${total - done - nBad}</span></div>
       <button type="button" class="btn primary crs-set-start" data-set-start="${esc(id)}">${done === total ? 'Решать заново' : done ? 'Продолжить с нерешённого' : 'Начать подборку'}</button>
       <div class="crs-tasks">${a.tasks.map((tid, k) => { const t = byId.get(tid); if (!t) return '';
-        const ok = !left.has(tid);
-        return `<button type="button" class="crs-task${ok ? ' ok' : ''}" data-set-task="${esc(tid)}" data-set="${esc(id)}">
-          <span class="crs-task-n">${k + 1}</span><span class="crs-task-txt">${esc(snip(t))}…</span>
-          <span class="crs-task-st">${ok ? '✓ решено' : 'решать →'}</span></button>`; }).join('')}</div>
+        const ok = !left.has(tid), no = bad(tid);
+        return `<button type="button" class="crs-task${ok ? ' ok' : no ? ' bad' : ''}" data-set-task="${esc(tid)}" data-set="${esc(id)}">
+          <span class="crs-task-n">${ok ? '✓' : no ? '✗' : k + 1}</span><span class="crs-task-txt">${esc(snip(t))}…</span>
+          <span class="crs-task-st">${ok ? 'верно' : no ? 'исправить →' : 'решать →'}</span></button>`; }).join('')}</div>
     </div>`;
     window.scrollTo(0, 0);
   }
@@ -2365,13 +2419,16 @@
     const cs = e.target.closest('[data-course-set]');
     if (cs && cs.dataset.courseSet && courseSet(cs.dataset.courseSet)) { openCourseSet(cs.dataset.courseSet); return; }
     const ss = e.target.closest('[data-set-start]');
-    if (ss) { setScope('asg', ss.dataset.setStart); return; }
+    if (ss) {
+      const a = courseSet(ss.dataset.setStart);
+      setScope('asg', ss.dataset.setStart);
+      if (a && cur) navPush({ v: 'task', set: a.id, id: cur.task.id });
+      return;
+    }
     const stk = e.target.closest('[data-set-task]');
     if (stk) {
       const a = courseSet(stk.dataset.set), t = byId.get(stk.dataset.setTask);
-      if (!a || !t) return;
-      setScope('asg', a.id);
-      if (!cur || cur.task.id !== t.id) show({ task: t, why: { type: 'asg', a } });
+      if (a && t) openSetTask(a, t);
     }
   });
 
@@ -3214,6 +3271,13 @@
     }
     if (!cur) return;
     if (id === 'backBtn') { goBack(); return; }
+    if (id === 'crsUpBtn') {
+      const h = history.state;
+      if (h && h.v === 'task' && h.set === ui.asg) history.back();   // вернёт к подборке через историю
+      else { abandonCurrent(); openCourseSet(ui.asg); }
+      return;
+    }
+    if (id === 'retryBtn') { show({ task: cur.task, why: cur.why, back: true }); return; }
     if (id === 'favBtn') toggleFav(cur.task.id);
     else if (id === 'noteBtn') {
       const box = $('#noteBox');
@@ -3301,7 +3365,7 @@
       return;
     }
     if (!$('#forecastModal').hidden) return;
-    if (e.key !== 'Enter' || !cur || !cur.done) return;
+    if (e.key !== 'Enter' || !cur || !cur.done || courseShown) return;
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'button' || tag === 'a' || tag === 'input' || tag === 'textarea' || tag === 'summary') return;
     e.preventDefault();
