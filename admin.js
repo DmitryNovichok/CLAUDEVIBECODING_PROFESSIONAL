@@ -108,6 +108,13 @@
     if (a.abandoned) return { cls: 'res-bad', text: 'ушёл после ошибки' + half, bad: true };
     return { cls: 'res-bad', text: 'неверно' + half, bad: true };
   }
+  /** Отметки попытки: ⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — ответ вставлен из буфера. */
+  const flagsOf = a => String(a.flags || '').split(',').filter(Boolean);
+  function flagsHtml(a) {
+    const f = flagsOf(a);
+    return (f.includes('sus') ? ' <span class="flag sus" title="Ушёл со страницы на 30 секунд или дольше и сразу после возвращения ответил верно">⚠ ушёл и сразу верно</span>' : '')
+      + (f.includes('paste') ? ' <span class="flag paste" title="Ответ не набран, а вставлен из буфера обмена (не из окна Python тренажёра)">📋 вставлен</span>' : '');
+  }
   /** Подозрительно много показанных ответов: так выкачивают ответы, а не решают. */
   function suspicion(s) {
     const why = [];
@@ -512,7 +519,8 @@
         <td class="num">${r.shown || ''}</td>
         <td class="num">${r.tasks ? pct(csPercent(r)) + '%' : '<span class="muted">—</span>'}</td>
         <td class="num">${r.spent ? fmtSpent(r.spent) : ''}</td>
-        <td class="num">${r.away ? `<span style="color:var(--review)">${r.away}</span>` : ''}</td>
+        <td class="num">${r.out_n ? `<span style="color:var(--review)" title="уходов со страницы: ${r.out_n}">${r.out_n} · ${fmtSpent(r.out_sec * 1000) || '0 с'}</span>` : ''}</td>
+        <td class="num">${r.sus || r.paste ? `<span style="color:var(--weak)" title="⚠ ушёл на 30+ с и сразу верно · 📋 вставил ответ">${r.sus ? '⚠' + r.sus : ''}${r.sus && r.paste ? ' ' : ''}${r.paste ? '📋' + r.paste : ''}</span>` : ''}</td>
         <td class="muted">${r.nums.join(', ')}</td>
         <td class="num">${r.exam != null ? r.exam : ''}</td>
         <td class="num cs-grade">${g ? `<b class="g${g}">${g}</b>` : ''}</td></tr>`;
@@ -523,16 +531,17 @@
       <div class="adm-table-wrap"><table class="adm-table"><thead><tr>
         <th>Ученик</th><th class="num">${asg ? 'Решено из подборки' : 'Решено'}</th><th class="num" title="Разных заданий, к которым приступал">Начал</th>
         <th class="num">С 1-й</th><th class="num">Со 2-й</th><th class="num">Неверно</th><th class="num" title="Открыл ответ, не решив">Ответ показан</th>
-        <th class="num">%</th><th class="num">Время</th><th class="num" title="Уходил со вкладки">Уходил</th><th>Номера</th>
+        <th class="num">%</th><th class="num">Время</th><th class="num" title="Сколько раз уходил со страницы и сколько всего был вне тренажёра">Вне тренажёра</th>
+        <th class="num" title="⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — вставил ответ из буфера">Отметки</th><th>Номера</th>
         <th class="num">Вариант</th><th class="num">Оценка</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   function csCsv() {
     if (!csData) return;
     const asg = csData.asg_total != null;
-    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходил', 'Номера', 'Вариант', 'Оценка (подсказка)'];
+    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходов со страницы', 'Вне тренажёра, мин', 'Ушёл и сразу верно', 'Вставил ответ', 'Номера', 'Вариант', 'Оценка (подсказка)'];
     const q = v => { v = String(v == null ? '' : v); if (/^[=+\-@]/.test(v)) v = "'" + v; return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     const lines = [head, ...csData.rows.map(r => [r.name, asg ? `${r.solved} из ${csData.asg_total}` : r.solved, r.tasks, r.ok1, r.ok2, r.bad, r.shown,
-      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.away, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
+      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.out_n, Math.round(r.out_sec / 60), r.sus, r.paste, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
     const csv = '﻿' + lines.map(l => l.map(q).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -745,6 +754,7 @@
     }
     const rv = st.reveals || { granted: 0, blocked: 0, early: 0 };
     const act = st.activity || {};
+    const nSus = A.filter(a => flagsOf(a).includes('sus')).length, nPaste = A.filter(a => flagsOf(a).includes('paste')).length;
     $('#stClass').innerHTML = '<option value="0">Без класса</option>' + classes
       .filter(c => !ME.is_main || c.teacher_id === s.teacher_id)
       .map(c => `<option value="${c.id}" ${c.id === s.class_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
@@ -767,11 +777,16 @@
       card('Уровень', st.game ? `${st.game.level}` : '—', st.game ? `${esc(st.game.title)} · ${st.game.xp} XP · за неделю +${st.game.week} · достижений ${(st.game.ach || []).filter(a => a.got).length}` : ''),
       card('Уходил со вкладки', act.away ? act.away.count : 0, [
         act.away ? `всего ${fmtMinutes(act.away.sec * 1000)}` : 'ни разу за период',
+        nSus ? `<span style="color:var(--weak)">⚠ ушёл и сразу верно: ${nSus}</span>` : '',
+        nPaste ? `<span style="color:var(--weak)">📋 вставил ответ: ${nPaste}</span>` : '',
         act.away && act.away.exam ? `<span style="color:var(--weak)">во время варианта: ${act.away.exam}</span>` : '',
         act.shot ? `<span style="color:var(--weak)">клавиши снимка экрана: ${act.shot.count}</span>` : ''].filter(Boolean).join(' · '),
-        (act.shot && act.shot.count) || (act.away && act.away.exam) ? 'var(--weak)' : ''),
+        (act.shot && act.shot.count) || (act.away && act.away.exam) || nSus || nPaste ? 'var(--weak)' : ''),
       card('Варианты ЕГЭ', exams.length ? exams[0].test_score : '—', exams.length
         ? `последний ${fmtDate(exams[0].finished)}: ${exams[0].primary_score} перв. · ${fmtMinutes((exams[0].finished - exams[0].started) * 1000)}${exams.length > 1 ? ` · всего ${exams.length}, лучший ${Math.max(...exams.map(e => e.test_score))}` : ''}`
+          + (exams[0].away || exams[0].fs || exams[0].paste
+            ? `<br><span style="color:var(--weak)">строгий режим: уходов ${exams[0].away}${exams[0].away_sec ? ` (${fmtMinutes(exams[0].away_sec * 1000)})` : ''}, выходов из полного экрана ${exams[0].fs}${exams[0].paste ? `, вставок ${exams[0].paste}` : ''}</span>`
+            : '<br>строгий режим: без нарушений')
         : 'ещё не решал'),
     ].join('');
     const ipLine = $('#stIp');
@@ -831,12 +846,47 @@
       </div>`;
     }).join('') : '<p class="adm-empty">За выбранный период ученик не решал.</p>';
 
+    renderAway();
     renderJournal();
+  }
+
+  /** Сводка «вне тренажёра» по дням: сколько раз уходил, сколько всего и на каких заданиях. */
+  const AWAY_KIND = { away: 'ушёл со страницы', fs: 'вышел из полного экрана', paste: 'вставил ответ', shot: 'клавиши снимка экрана' };
+  function renderAway() {
+    const L = st.away_log || [];
+    if (!L.length) { $('#stAway').innerHTML = '<p class="adm-empty">За выбранный период со страницы не уходил.</p>'; return; }
+    const days = new Map();
+    for (const e of L) {
+      const k = fmtDate(e.ts);
+      if (!days.has(k)) days.set(k, []);
+      days.get(k).push(e);
+    }
+    $('#stAway').innerHTML = [...days].map(([day, arr]) => {
+      const aw = arr.filter(e => e.kind === 'away');
+      const sec = aw.reduce((x, e) => x + (e.dur || 0), 0);
+      const by = new Map();
+      for (const e of aw) {
+        const k = e.exam ? 'Вариант ЕГЭ' : e.n ? '№' + e.n : 'задание';
+        const x = by.get(k) || { c: 0, s: 0 };
+        x.c++; x.s += e.dur || 0;
+        by.set(k, x);
+      }
+      const other = arr.filter(e => e.kind !== 'away');
+      const chips = [...by].map(([k, x]) => `<span class="chip${x.s >= 60 ? ' weak' : ''}">${k}${x.c > 1 ? ' ×' + x.c : ''} · ${fmtSpent(x.s * 1000) || '0 с'}</span>`).join('')
+        + other.map(e => `<span class="chip weak">${AWAY_KIND[e.kind] || e.kind}${e.exam ? ' (вариант)' : ''}</span>`).join('');
+      const rows = arr.map(e => `<tr><td class="muted">${fmtTime(e.ts)}</td><td>${AWAY_KIND[e.kind] || e.kind}</td>
+        <td class="num">${e.kind === 'away' ? fmtSpent(e.dur * 1000) || '—' : ''}</td>
+        <td>${e.exam ? '<b>вариант ЕГЭ</b> · ' : ''}${e.n ? `<button type="button" class="task-link" data-task="${esc(e.task_id)}">№${e.n}</button> <span class="task-snip">${esc(e.snip || '')}</span>` : ''}</td></tr>`).join('');
+      return `<div class="adm-away-day"><div class="adm-away-sum"><b>${day}</b> · уходил ${aw.length} ${plural(aw.length, 'раз', 'раза', 'раз')}, всего ${sec ? (sec < 60 ? fmtSpent(sec * 1000) : fmtMinutes(sec * 1000)) : '—'}
+          <div class="chips">${chips}</div></div>
+        <details><summary>Подробно</summary><div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Время</th><th>Что</th><th class="num">Сколько</th><th>Задание</th></tr></thead>
+          <tbody>${rows}</tbody></table></div></details></div>`;
+    }).join('');
   }
 
   function renderJournal() {
     const A = st.attempts.filter(a => (jNum == null || a.n === jNum) &&
-      (jFilter === 'all' || (jFilter === 'bad' ? resultOf(a).bad : !resultOf(a).bad)));
+      (jFilter === 'all' || (jFilter === 'flag' ? flagsOf(a).length > 0 : jFilter === 'bad' ? resultOf(a).bad : !resultOf(a).bad)));
     $$('#stFilters button').forEach(b => b.classList.toggle('on', b.dataset.f === jFilter));
     const nf = $('#numFilter');
     nf.hidden = jNum == null;
@@ -879,9 +929,9 @@
             <span class="task-snip">${esc(a.snip || '')}</span></td>
         <td class="ans">${answersCell(a)}${a.has_code ? ` <button type="button" class="link-btn code-link" data-code="${esc(a.task_id)}" title="Решение, которое ученик прикрепил к заданию">код</button>` : ''}</td>
         <td class="ans">${esc(a.correct)}</td>
-        <td><span class="res ${r.cls}">${r.text}</span></td>
+        <td><span class="res ${r.cls}">${r.text}</span>${flagsHtml(a)}</td>
         <td class="num muted">${fmtSpent(a.spent_ms)}</td>
-        <td class="num">${a.away ? `<span style="color:var(--review)" title="уходил со вкладки, пока решал">${a.away}</span>` : ''}</td>
+        <td class="num">${a.away ? `<span style="color:var(--review)" title="уходил со вкладки, пока решал${a.away_sec ? ' · всего ' + fmtSpent(a.away_sec * 1000) : ''}">${a.away}${a.away_sec ? `<small> · ${fmtSpent(a.away_sec * 1000)}</small>` : ''}</span>` : ''}</td>
       </tr>`;
     }).join('')).join('');
   }
@@ -971,7 +1021,7 @@
             <span class="task-snip">${esc(a.snip || '')}</span></td>
         <td class="ans">${answersCell(a)}</td>
         <td class="ans">${esc(a.correct)}</td>
-        <td><span class="res ${r.cls}">${r.text}</span></td>
+        <td><span class="res ${r.cls}">${r.text}</span>${flagsHtml(a)}</td>
       </tr>`;
     }).join('');
     freshIds.clear();

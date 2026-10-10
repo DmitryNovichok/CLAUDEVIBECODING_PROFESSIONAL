@@ -869,7 +869,7 @@
             line: `${esc(a.title)}: задание ${Math.min(done + 1, a.tasks.length)} из ${a.tasks.length}. Решай точно — важны и число верных, и время.` };
         }
         const done = a.tasks.length - asgLeft(a).length;
-        return { chip: '<span class="chip accent">Задание учителя</span>',
+        return { chip: `<span class="chip accent">${a.course ? '🎓 Курс' : 'Задание учителя'}</span>`,
           line: `Подборка «${esc(a.title)}»: решено <b>${done}</b> из ${a.tasks.length}${a.due ? ` · срок — до ${fmtDay(a.due * 1000)}` : ''}.` };
       }
       case 'history':
@@ -948,6 +948,7 @@
 
     trainerEl.innerHTML = `
       <div class="task-head">
+        ${inCourseSet() ? '<button type="button" class="btn ghost crs-up" id="crsUpBtn" title="Вернуться к списку заданий подборки">← К подборке</button>' : ''}
         ${backStack.length ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
         <span class="num-badge">${numLabel(t.n)}</span>
         <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
@@ -1219,7 +1220,9 @@
     if (!a) return;
     clearInterval(thinkTimer);
     if (cur.done) {
-      a.innerHTML = `<button class="btn primary" id="nextBtn" type="button">Следующее задание →<kbd>Enter</kbd></button>`;
+      a.innerHTML = `<button class="btn primary" id="nextBtn" type="button">Следующее задание →<kbd>Enter</kbd></button>`
+        + (inCourseSet() && cur.score === 0 && !cur.group ? '<button class="btn" id="retryBtn" type="button" title="Решить это задание ещё раз">↻ Решить заново</button>' : '')
+        + (inCourseSet() ? '<button class="btn ghost" id="crsUpBtn" type="button">К подборке</button>' : '');
       $('#nextBtn').addEventListener('click', next);
       setTimeout(() => $('#nextBtn') && $('#nextBtn').focus({ preventScroll: true }), 0);
       return;
@@ -1373,7 +1376,8 @@
 
   function payloadFor(obj, extra) {
     const rk = cur.group ? cur.revKey : (cur.why.type === 'review' ? cur.why.r.key : '');
-    return Object.assign({ task: obj.id, reason: cur.why.type, rk, spent_ms: Date.now() - cur.started, away: cur.away || 0 }, extra);
+    return Object.assign({ task: obj.id, reason: cur.why.type, rk, spent_ms: Date.now() - cur.started, away: cur.away || 0,
+      away_sec: Math.round(cur.awaySec || 0), back_sec: cur.backAt ? (Date.now() - cur.backAt) / 1000 : null, paste: cur.paste ? 1 : 0 }, extra);
   }
   async function callCheck(obj, extra) {              // может выбросить ошибку сети
     if (!SERVER) return localCheck(obj, extra);
@@ -1634,6 +1638,7 @@
   function finish(score, gaveUp, res) {
     if (!cur || cur.done) return;
     cur.done = true;
+    cur.score = score;
     const t = cur.task;
     res = res || {};
     const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part });
@@ -2106,6 +2111,45 @@
     return a;
   }
   let courseShown = false;
+  // Окна курса (план → урок → подборка → задание) пишутся в историю браузера: кнопка «Назад» ведёт по ним
+  let navSilent = false;
+  function navPush(st) {
+    if (navSilent) return;
+    try {
+      const was = history.state;
+      if (!was) history.replaceState({ v: 'main' }, '');
+      else if (JSON.stringify(was) === JSON.stringify(st)) return;
+      history.pushState(st, '');
+    } catch (e) {}
+  }
+  function inCourseSet() { return ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course; }
+  /** Задание из подборки курса: подборка становится текущим разделом. */
+  function openSetTask(a, t) {
+    abandonCurrent();
+    leaveExam();
+    ui.scope = 'asg';
+    ui.asg = a.id;
+    save();
+    renderSidebar();
+    if (!cur || cur.done || cur.task.id !== t.id || courseShown) show({ task: t, why: { type: 'asg', a } });
+    navPush({ v: 'task', set: a.id, id: t.id });
+  }
+  window.addEventListener('popstate', e => {
+    const st = e.state || { v: 'main' };
+    navSilent = true;
+    try {
+      if (examShown) return;
+      if (st.v === 'course') openCourse();
+      else if (st.v === 'lesson') openLesson(st.n);
+      else if (st.v === 'set' && courseSet(st.id)) { abandonCurrent(); openCourseSet(st.id); }
+      else if (st.v === 'task' && courseSet(st.set) && byId.get(st.id)) openSetTask(courseSet(st.set), byId.get(st.id));
+      else if (courseShown || inCourseSet()) {
+        leaveCourse();
+        if (inCourseSet()) { ui.scope = 'all'; save(); renderSidebar(); }
+        next();
+      }
+    } finally { navSilent = false; }
+  });
   let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
   function courseLock() {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span>';
@@ -2145,8 +2189,10 @@
   function openCourse() {
     if (!leaveExam()) return;
     if (isNarrow()) setSideOpen(false);
+    abandonCurrent();
     courseShown = true;
     cur = null;
+    navPush({ v: 'course' });
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
@@ -2245,7 +2291,9 @@
   window.addEventListener('resize', () => { if (document.fullscreenElement) fitSlide(); });
   async function openLesson(n) {
     if (!COURSE_OK) return openCourse();
+    abandonCurrent();
     courseShown = true;
+    navPush({ v: 'lesson', n });
     DECK = null;
     deckI = 0;
     const counts = d => TASKS.filter(t => t.n === n && visible(t) && (!d || d.includes(t.d))).length;
@@ -2300,10 +2348,16 @@
     const a = courseSet(id);
     if (!a) return;
     courseShown = true;
+    navPush({ v: 'set', id });
     const left = new Set(asgLeft(a)), total = a.tasks.length, done = total - left.size;
     const st = COURSE_SETS.find(x => id.endsWith('-' + x.key)) || {};
+    // красным — задания, где была попытка, но верного ответа нет: их можно решить заново
+    const tried = new Set(P.log.filter(e => !e.b).map(e => e.id));
+    const bad = tid => left.has(tid) && (tried.has(tid) || ((P.tasks[tid] || {}).a > 0));
+    const nBad = a.tasks.filter(bad).length;
     // начало у заданий одинаковое («На вход алгоритма подаётся…») — показываем само правило
-    const snip = t => String(t.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    const snip = t => String(t.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
       .replace(/^\([^)]{0,40}\)\s*/, '')
       .replace(/^(На вход алгоритма подаётся|Алгоритм получает на вход|Автомат получает на вход|На вход программе подаётся)[\s\S]{0,200}?(следующим образом|по следующим правилам|по следующему алгоритму|следующему алгоритму)[.:]?\s*/i, '')
       .replace(/^1[.)]\s*Строится [^.]*?(запись|число)[^.]*\.\s*/i, '')
@@ -2315,12 +2369,13 @@
       <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div><div class="crs-kicker">Подборка · ${total} заданий</div>
         <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
         <div class="crs-set-prog"><b>${done}</b><span>из ${total}</span><i class="xp-bar"><b style="width:${total ? pct(done / total) : 0}%"></b></i></div></div>
+      <div class="crs-legend"><span class="ok">✓ верно: ${done}</span><span class="bad">✗ с ошибкой: ${nBad}</span><span>не начато: ${total - done - nBad}</span></div>
       <button type="button" class="btn primary crs-set-start" data-set-start="${esc(id)}">${done === total ? 'Решать заново' : done ? 'Продолжить с нерешённого' : 'Начать подборку'}</button>
       <div class="crs-tasks">${a.tasks.map((tid, k) => { const t = byId.get(tid); if (!t) return '';
-        const ok = !left.has(tid);
-        return `<button type="button" class="crs-task${ok ? ' ok' : ''}" data-set-task="${esc(tid)}" data-set="${esc(id)}">
-          <span class="crs-task-n">${k + 1}</span><span class="crs-task-txt">${esc(snip(t))}…</span>
-          <span class="crs-task-st">${ok ? '✓ решено' : 'решать →'}</span></button>`; }).join('')}</div>
+        const ok = !left.has(tid), no = bad(tid);
+        return `<button type="button" class="crs-task${ok ? ' ok' : no ? ' bad' : ''}" data-set-task="${esc(tid)}" data-set="${esc(id)}">
+          <span class="crs-task-n">${ok ? '✓' : no ? '✗' : k + 1}</span><span class="crs-task-txt">${esc(snip(t))}…</span>
+          <span class="crs-task-st">${ok ? 'верно' : no ? 'исправить →' : 'решать →'}</span></button>`; }).join('')}</div>
     </div>`;
     window.scrollTo(0, 0);
   }
@@ -2365,13 +2420,16 @@
     const cs = e.target.closest('[data-course-set]');
     if (cs && cs.dataset.courseSet && courseSet(cs.dataset.courseSet)) { openCourseSet(cs.dataset.courseSet); return; }
     const ss = e.target.closest('[data-set-start]');
-    if (ss) { setScope('asg', ss.dataset.setStart); return; }
+    if (ss) {
+      const a = courseSet(ss.dataset.setStart);
+      setScope('asg', ss.dataset.setStart);
+      if (a && cur) navPush({ v: 'task', set: a.id, id: cur.task.id });
+      return;
+    }
     const stk = e.target.closest('[data-set-task]');
     if (stk) {
       const a = courseSet(stk.dataset.set), t = byId.get(stk.dataset.setTask);
-      if (!a || !t) return;
-      setScope('asg', a.id);
-      if (!cur || cur.task.id !== t.id) show({ task: t, why: { type: 'asg', a } });
+      if (a && t) openSetTask(a, t);
     }
   });
 
@@ -2680,6 +2738,7 @@
     if (!confirm('Выйти из варианта? Ответы сохранятся, но время идёт. Вернуться — кнопкой «Вариант ЕГЭ».')) return false;
     saveExamInputs();
     examShown = false;
+    exStrictLeave();
     cur = null;
     return true;
   }
@@ -2902,6 +2961,7 @@
         <li>В конце — первичный и тестовый балл. За №26 и 27 засчитывается и половина ответа (1 балл из 2).</li>
         <li>Правильные ответы покажем, если над вариантом работать не меньше ${Math.round(RULES.exam_min_for_answers / 60)} минут. Ошибки сразу встанут на повторение.</li>
         ${SERVER ? `<li>Не больше ${RULES.exam_per_day} вариантов в сутки.</li>` : ''}
+        ${SERVER ? '<li><b>Строгий режим:</b> вариант открывается на весь экран. Выход из полного экрана, переход на другие вкладки и программы и вставка ответа из буфера записываются — учитель видит это в результатах.</li>' : ''}
       </ul>
       <div class="actions">
         <button type="button" class="btn primary" id="exStart">Начать вариант</button>
@@ -2932,6 +2992,7 @@
     saveExam();
     closeForecast();
     examShown = true;
+    if (SERVER) exStrictEnter();
     startExamTimer();
     renderExam();
     renderSidebar();
@@ -2944,6 +3005,7 @@
       cur = null;
       examShown = true;
     }
+    if (SERVER) exStrictEnter();
     if (isNarrow()) setSideOpen(false);
     startExamTimer();
     renderExam();
@@ -3019,6 +3081,7 @@
       ? t.parts.map(exPartHtml).join('')
       : `<div class="answer-row" data-key="${esc(t.id)}">${inputsHtml(shapeOf(t))}</div>`;
     trainerEl.innerHTML = `
+      ${SERVER ? strictHtml() : ''}
       <nav class="ex-nav" aria-label="Задания варианта">${nav}</nav>
       <div class="task-head">
         <span class="num-badge">${numLabel(t.n)}</span>
@@ -3108,6 +3171,7 @@
     const done = EX;
     EX = null;
     examShown = false;
+    exStrictLeave();
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     recordExam(res);
     goal('exam');
@@ -3119,6 +3183,7 @@
     clearInterval(exTimer);
     EX = null;
     examShown = false;
+    exStrictLeave();
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     cur = null;
     renderSidebar();
@@ -3149,6 +3214,7 @@
           <div class="fm-facts">
             <div>Время: <b>${fmtClock(res.spent)}</b> из 3:55:00</div>
             <div>Полностью верно: <b>${full}</b> из ${res.results.length}</div>
+            ${ex.away || ex.fsExits || ex.paste ? `<div>Строгий режим: уходов ${ex.away || 0}, выходов из полного экрана ${ex.fsExits || 0}${ex.paste ? `, вставок ${ex.paste}` : ''} — видно учителю</div>` : ''}
             <div class="fm-chips">${res.test >= EGE.minScore ? `<span class="chip good">порог ${EGE.minScore} пройден</span>` : `<span class="chip weak">ниже порога ${EGE.minScore}</span>`}</div>
           </div>
         </div>
@@ -3207,6 +3273,7 @@
     if (examShown && EX) {
       const nb = e.target.closest('.ex-nav-btn');
       if (nb) { exGo(+nb.dataset.i); return; }
+      if (id === 'exFsBtn') { exStrictEnter(); return; }
       if (id === 'exPrev') exGo(EX.cur - 1);
       else if (id === 'exNext') exGo(EX.cur + 1);
       else if (id === 'exFinish') finishExam(false);
@@ -3214,6 +3281,13 @@
     }
     if (!cur) return;
     if (id === 'backBtn') { goBack(); return; }
+    if (id === 'crsUpBtn') {
+      const h = history.state;
+      if (h && h.v === 'task' && h.set === ui.asg) history.back();   // вернёт к подборке через историю
+      else { abandonCurrent(); openCourseSet(ui.asg); }
+      return;
+    }
+    if (id === 'retryBtn') { show({ task: cur.task, why: cur.why, back: true }); return; }
     if (id === 'favBtn') toggleFav(cur.task.id);
     else if (id === 'noteBtn') {
       const box = $('#noteBox');
@@ -3301,7 +3375,7 @@
       return;
     }
     if (!$('#forecastModal').hidden) return;
-    if (e.key !== 'Enter' || !cur || !cur.done) return;
+    if (e.key !== 'Enter' || !cur || !cur.done || courseShown) return;
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'button' || tag === 'a' || tag === 'input' || tag === 'textarea' || tag === 'summary') return;
     e.preventDefault();
@@ -4457,9 +4531,20 @@
     awayFrom = 0;
     const id = openTaskId();
     if (!SERVER || !student || !id || sec < 2) return;
-    if (cur && !cur.done && !examShown) cur.away = (cur.away || 0) + 1;
+    if (cur && !cur.done && !examShown) {
+      cur.away = (cur.away || 0) + 1;
+      cur.awaySec = (cur.awaySec || 0) + sec;
+      if (sec >= 30) cur.backAt = Date.now();      // долгий уход: верный ответ сразу после него отметится ⚠
+    }
     awayQ.push({ kind: 'away', dur: Math.round(sec), task: id, exam: examShown ? 1 : 0 });
     flushAway();
+    if (examShown && EX) {
+      EX.away = (EX.away || 0) + 1;
+      saveExam();
+      updStrict();
+      toast(`Уход со страницы во время варианта записан (${EX.away}) — учитель увидит это в результатах.`, 4500);
+      return;
+    }
     if (!awayWarned) {
       awayWarned = true;
       toast('Переход на другую вкладку или программу записывается — учитель видит это в журнале.', 4500);
@@ -4476,6 +4561,69 @@
     awayQ.push({ kind: 'shot', task: openTaskId() || '', exam: examShown ? 1 : 0 });
     flushAway();
   }
+  // Вставка ответа: отмечаем, если текст скопирован не на этой же странице (вывод Python, условие — не в счёт)
+  let lastCopy = '', pasteWarned = false;
+  const normCopy = x => String(x || '').replace(/\s+/g, ' ').trim();
+  document.addEventListener('copy', e => {
+    const t = e.target;
+    const inField = t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') && t.selectionEnd > t.selectionStart;
+    lastCopy = normCopy(inField ? t.value.slice(t.selectionStart, t.selectionEnd) : window.getSelection());
+  }, true);
+  document.addEventListener('paste', e => {
+    if (!SERVER || !student || !e.target.closest || !e.target.closest('#trainer .answer-row')) return;
+    const text = normCopy((e.clipboardData || window.clipboardData).getData('text'));
+    if (!text || (lastCopy && lastCopy.includes(text))) return;
+    if (examShown && EX) {
+      EX.paste = (EX.paste || 0) + 1;
+      saveExam();
+      awayQ.push({ kind: 'paste', task: openTaskId() || '', exam: 1 });
+      flushAway();
+      updStrict();
+    } else if (cur && !cur.done) cur.paste = true;
+    else return;
+    if (!pasteWarned) {
+      pasteWarned = true;
+      toast('Вставленный ответ отмечается в журнале учителя. Скопированное из окна Python тренажёра — не отмечается.', 5000);
+    }
+  }, true);
+
+  // Строгий режим варианта: на весь экран; выход из него и уход со страницы записываются и видны
+  const canFs = () => !!document.documentElement.requestFullscreen;
+  function exStrictEnter() {
+    if (!canFs() || document.fullscreenElement) return;
+    document.documentElement.requestFullscreen().catch(() => {}).finally(updStrict);
+  }
+  function strictHtml() {
+    if (!EX) return '';
+    const n = (EX.away || 0) + (EX.fsExits || 0) + (EX.paste || 0);
+    const off = canFs() && !document.fullscreenElement;
+    const parts = [`уходов со страницы: <b>${EX.away || 0}</b>`];
+    if (canFs()) parts.push(`выходов из полного экрана: <b>${EX.fsExits || 0}</b>`);
+    if (EX.paste) parts.push(`вставок ответа: <b>${EX.paste}</b>`);
+    return `<div class="ex-strict${n ? ' warn' : ''}${off ? ' off' : ''}" id="exStrict">
+      <span>🔒 <b>Строгий режим</b> · ${parts.join(' · ')}</span>
+      ${off ? '<button type="button" class="btn primary" id="exFsBtn">⤢ Вернуться в полный экран</button>' : ''}</div>`;
+  }
+  function updStrict() {
+    const el = $('#exStrict');
+    if (el && examShown && EX) el.outerHTML = strictHtml();
+  }
+  document.addEventListener('fullscreenchange', () => {
+    if (!examShown || !EX) return;
+    if (document.fullscreenElement) { EX.fsOn = true; updStrict(); return; }
+    if (!EX.fsOn) { updStrict(); return; }
+    EX.fsOn = false;
+    EX.fsExits = (EX.fsExits || 0) + 1;
+    saveExam();
+    awayQ.push({ kind: 'fs', task: openTaskId() || '', exam: 1 });
+    flushAway();
+    updStrict();
+    toast(`Выход из полноэкранного режима записан (${EX.fsExits}). Вернитесь в полный экран кнопкой над заданием.`, 5000);
+  });
+  function exStrictLeave() {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+
   window.addEventListener('blur', goneAway);
   window.addEventListener('focus', cameBack);
   document.addEventListener('visibilitychange', () => {
@@ -4518,6 +4666,7 @@
     if (ex && Array.isArray(ex.items) && ex.items.length && ex.deadline) {
       EX = Object.assign({ ans: {}, cur: 0 }, ex);
       delete EX.finishing;
+      EX.fsOn = false;                     // после перезагрузки полный экран снят — над заданием будет кнопка вернуть
       examShown = true;
       renderSidebar();
       startExamTimer();
@@ -4570,6 +4719,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.24.0', '10.10.2026', ['Строгий режим варианта ЕГЭ: вариант идёт на весь экран, выход из него и уход на другие вкладки видны над заданием и записываются для учителя',
+      'Ответ, вставленный в задание из буфера обмена, отмечается в журнале учителя (скопированное из окна Python тренажёра — не отмечается)']],
     ['1.23.0', '10.10.2026', ['За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
     ['1.22.3', '10.10.2026', ['Исправлены формулы в «Банке ЕГЭ»: снова видны степени и индексы (около 1100 заданий, в том числе №14)', 'Верхняя панель больше не наезжает на окно Python']],
     ['1.22.2', '10.10.2026', ['Сервер выдерживает больше учеников одновременно: рейтинг собирается один раз на всех, соединения в начале урока не теряются']],
