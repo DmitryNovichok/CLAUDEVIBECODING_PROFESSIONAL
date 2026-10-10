@@ -2028,13 +2028,13 @@
   // ------------------------------------------------------------ курс по плану (пока структура, наполнение — по ходу)
   // Порядок не 1→27, а по темам: сначала без программирования, потом логика, системы счисления, программирование, сложные.
   const COURSE = [
-    { title: 'Старт без программирования', icon: '🧭', sub: 'Таблицы, кодирование, объёмы — задания, которые решаются руками',
-      lessons: [1, 4, 7, 11, 3, 10, 9, 13] },
+    { title: 'Старт без программирования', icon: '🧭', sub: 'Графы, кодирование, объёмы, базы данных, таблицы, IP-адреса',
+      lessons: [1, 4, 7, 11, 3, 9, 10] },
     { title: 'Логика', icon: '🧩', sub: 'Таблицы истинности и логические выражения', lessons: [2, 15] },
-    { title: 'Системы счисления и исполнители', icon: '🔢', sub: 'Перевод, длинная арифметика, Черепаха, Редактор, число программ',
-      lessons: [14, 5, 6, 12, 8, 23] },
+    { title: 'Системы счисления и исполнители', icon: '🔢', sub: 'Анализ алгоритмов, Черепаха, машина Тьюринга, траектории, комбинаторика',
+      lessons: [5, 14, 6, 12, 13, 8] },
     { title: 'Программирование', icon: '🐍', sub: 'Рекурсия, последовательности, строки, делители и маски', lessons: [16, 17, 24, 25] },
-    { title: 'Финишная прямая', icon: '🏁', sub: 'Задачи на 26–27, теория игр, процессы и динамика', lessons: [19, 22, 18, 26, 27] },
+    { title: 'Финишная прямая', icon: '🏁', sub: 'Теория игр, процессы, динамика, графы, задачи 26–27', lessons: [19, 22, 18, 23, 26, 27] },
   ];
   // подборки урока: одинаковые для всех номеров; d — сложность в банке (1 — простая, 2 — средняя, 3 — сложная)
   const COURSE_SETS = [
@@ -2112,25 +2112,65 @@
     </div>`;
     window.scrollTo(0, 0);
   }
-  function openLesson(n) {
+  let DECK = null, deckI = 0;
+  function slideHtml(sl, i) {
+    if (sl.t === 'title') {
+      return `<div class="sl sl-title"><div class="crs-kicker">Egeshka · курс ЕГЭ</div><h3>${esc(sl.h)}</h3><p>${esc(sl.sub || '')}</p>
+        <div class="sl-chips">${(sl.chips || []).map(c => `<span>${esc(c)}</span>`).join('')}</div></div>`;
+    }
+    const code = sl.t === 'code' ? `<pre class="sl-code">${highlightPy(sl.code)}</pre>
+      <div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}">▶ Открыть в Python</button>
+        ${sl.ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><b>${esc(sl.ans)}</b></details>` : ''}
+        ${sl.src ? `<span class="sl-src">${esc(sl.src)}</span>` : ''}</div>` : '';
+    return `<div class="sl"><h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-body">${safeHtml(sl.html || '')}${code}</div></div>`;
+  }
+  function renderDeck() {
+    const box = $('#crsDeck');
+    if (!box || !DECK) return;
+    const sl = DECK.slides;
+    deckI = Math.max(0, Math.min(deckI, sl.length - 1));
+    box.querySelector('.crs-stage').innerHTML = slideHtml(sl[deckI], deckI);
+    box.querySelector('.crs-count').textContent = `${deckI + 1} / ${sl.length}`;
+    box.querySelector('[data-deck="-1"]').disabled = deckI === 0;
+    box.querySelector('[data-deck="1"]').disabled = deckI === sl.length - 1;
+    box.querySelectorAll('.crs-thumb').forEach((t, k) => t.classList.toggle('on', k === deckI));
+    box.querySelector('.crs-thumb.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    renderMath(box.querySelector('.crs-stage'));
+  }
+  function deckGo(d) { deckI += d; renderDeck(); }
+  async function openLesson(n) {
     if (!COURSE_OK) return openCourse();
     courseShown = true;
+    DECK = null;
+    deckI = 0;
     const counts = d => TASKS.filter(t => t.n === n && visible(t) && (!d || d.includes(t.d))).length;
     const mod = COURSE.findIndex(m => m.lessons.includes(n));
     $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(n)}</span>`;
-    const slides = ['Что проверяет задание', 'Разбор типового задания', 'Как решать руками', 'Как решать на Python', 'Частые ошибки', 'Итоги и шпаргалка'];
+    let lesson = null;
+    try { lesson = await api('course/lesson?n=' + n); } catch (e) { if (e.status === 403) { COURSE_OK = false; return openCourse(); } }
+    if (!courseShown) return;                       // пока грузили, ученик ушёл к заданию
+    const has = lesson && lesson.slides && lesson.slides.length;
+    if (has) DECK = lesson;
+    const plan = ['Что проверяет задание', 'Разбор типового задания', 'Как решать руками', 'Как решать на Python', 'Частые ошибки', 'Итоги и шпаргалка'];
+    const deck = has ? `<div class="crs-deck" id="crsDeck">
+        <div class="crs-main"><div class="crs-stage"></div>
+          <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
+            <button type="button" class="btn ghost crs-full" data-deck-full title="На весь экран">⤢</button>
+            <button type="button" class="btn primary" data-deck="1">Далее →</button></div></div>
+        <div class="crs-thumbs">${lesson.slides.map((t, i) => `<button type="button" class="crs-thumb" data-slide="${i}"><span>${i + 1}. ${esc(t.h)}</span></button>`).join('')}</div>
+      </div>` : `<div class="crs-deck">
+        <div class="crs-slide"><span class="crs-slide-no">1 / ${plan.length}</span>
+          <div class="crs-slide-body"><div class="crs-kicker">Egeshka · урок ${numLabel(n)}</div><h3>${esc(NUM_TOPIC[n])}</h3>
+            <p>Презентация с разбором появится здесь</p></div>
+          <span class="crs-soon">скоро</span></div>
+        <div class="crs-thumbs">${plan.map((t, i) => `<div class="crs-thumb${i ? '' : ' on'}"><i></i><i></i><span>${i + 1}. ${t}</span></div>`).join('')}</div>
+      </div>`;
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
       <div class="crs-l-head"><span class="num-badge">${numLabel(n)}</span><div><div class="crs-kicker">Модуль ${mod + 1} · ${esc(COURSE[mod].title)}</div>
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
-      <div class="fm-h">1. Теория</div>
-      <div class="crs-deck">
-        <div class="crs-slide"><span class="crs-slide-no">1 / ${slides.length}</span>
-          <div class="crs-slide-body"><div class="crs-kicker">Egeshka · урок ${numLabel(n)}</div><h3>${esc(NUM_TOPIC[n])}</h3>
-            <p>Презентация с разбором появится здесь</p></div>
-          <span class="crs-soon">скоро</span></div>
-        <div class="crs-thumbs">${slides.map((t, i) => `<div class="crs-thumb${i ? '' : ' on'}"><i></i><i></i><span>${i + 1}. ${t}</span></div>`).join('')}</div>
-      </div>
+      <div class="fm-h">1. Теория${has ? ` · ${lesson.slides.length} слайдов` : ''}</div>
+      ${deck}
       <div class="fm-h">2. Практика по уровням</div>
       <div class="crs-sets">${COURSE_SETS.map((st, i) => {
         const c = st.d ? counts(st.d) : Math.min(10, counts(null));
@@ -2142,22 +2182,50 @@
       <p class="fm-note">Подборки соберём вручную по ходу курса. А пока можно решать все задания этого номера:</p>
       <button type="button" class="btn primary" data-go-num="${n}">Решать №${numLabel(n)} в тренажёре</button>
     </div>`;
+    if (has) renderDeck();
     window.scrollTo(0, 0);
   }
+  /** Код со слайда — в окно Python: можно запустить и поменять. */
+  function slideToPy(i) {
+    const sl = DECK && DECK.slides[i];
+    if (!sl || !sl.code) return;
+    togglePy(true);
+    const ta = $('#pyCode');
+    ta.value = sl.code;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    $('#pyTask').textContent = `курс · №${DECK.n}`;
+  }
+  document.addEventListener('keydown', e => {
+    if (!courseShown || !DECK || !$('#crsDeck') || e.target.closest('input, textarea, select')) return;
+    if (!$('#forecastModal').hidden) return;
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); deckGo(1); }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); deckGo(-1); }
+  });
   trainerEl.addEventListener('click', e => {
     if (!courseShown) return;
     const l = e.target.closest('[data-lesson]');
     if (l) { openLesson(+l.dataset.lesson); return; }
     if (e.target.closest('[data-course-back]')) { openCourse(); return; }
+    const dg = e.target.closest('[data-deck]');
+    if (dg) { deckGo(+dg.dataset.deck); return; }
+    const th = e.target.closest('[data-slide]');
+    if (th) { deckI = +th.dataset.slide; renderDeck(); return; }
+    const py = e.target.closest('[data-py-slide]');
+    if (py) { slideToPy(+py.dataset.pySlide); return; }
+    if (e.target.closest('[data-deck-full]')) {
+      const d = $('#crsDeck');
+      if (document.fullscreenElement) document.exitFullscreen(); else d?.requestFullscreen?.().catch(() => {});
+      return;
+    }
     const g = e.target.closest('[data-go-num]');
     if (g) setScope(+g.dataset.goNum);
   });
 
   const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',
-    'Черепаха', 'Изображения и звук', 'Комбинаторика', 'Электронные таблицы', 'Поиск в тексте', 'Объём информации',
-    'Исполнитель Редактор', 'IP-адреса и маски', 'Системы счисления', 'Логические выражения', 'Рекурсия',
+    'Черепаха', 'Изображения и звук', 'Комбинаторика', 'Электронные таблицы', 'IP-адреса и маски', 'Объём информации',
+    'Машина Тьюринга', 'Исполнитель: траектории программ', 'Системы счисления', 'Логические выражения', 'Рекурсия',
     'Обработка последовательностей', 'Динамика: Робот', 'Теория игр', 'Теория игр', 'Теория игр', 'Параллельные процессы',
-    'Исполнитель: число программ', 'Обработка строк', 'Делители и маски', 'Сортировка, жадные алгоритмы', 'Анализ данных'];
+    'Граф: поиск пути', 'Обработка строк', 'Делители и маски', 'Сортировка, жадные алгоритмы', 'Анализ данных'];
 
   /** «Что потренировать»: номера, которые дадут больше всего тестовых баллов, если довести их до 85%. */
   function trainPlan(f) {
@@ -4343,6 +4411,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.25.0', '10.10.2026', ['Курс: первая презентация — №5 «Анализ алгоритма», 18 слайдов с теорией, разбором руками и кодом. Код со слайда открывается в Python одной кнопкой',
+      'Курс: исправлены темы по формату ЕГЭ 2026–2027 — №10 IP-адреса, №12 машина Тьюринга, №13 траектории программ, №23 поиск пути в графе']],
     ['1.24.0', '10.10.2026', ['Курс открывается паролем от учителя — ввести его нужно один раз']],
     ['1.23.0', '10.10.2026', ['Новый раздел «Курс» (значок 🎓 слева): план из 5 модулей и 27 тем — у каждой будут презентация и подборки по уровням. Пока это каркас, наполнение появится по ходу',
       'За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
