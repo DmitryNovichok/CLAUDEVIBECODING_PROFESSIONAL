@@ -3828,14 +3828,39 @@
     if (!ta) return;
     BD.text = null;
     const t = ta.value.replace(/\s+$/, '');
-    if (t) { const st = { k: 'text', c: BD.color, w: BD.size, fs: +ta.dataset.fs || BD.fs, x: +ta.dataset.x, y: +ta.dataset.y, t: t.slice(0, 2000) }; BD.strokes.push(st); bdDo({ add: [st] }); bdSaveSoon(); }
+    if (t) { const st = { k: 'text', c: BD.color, w: BD.size, fs: +ta.dataset.fs || BD.fs, x: +ta.dataset.x, y: +ta.dataset.y, t: bdWrap(t.slice(0, 2000), +ta.dataset.fs || BD.fs, +ta.dataset.w || 1e9) }; BD.strokes.push(st); bdDo({ add: [st] }); bdSaveSoon(); }
     ta.remove();
     bdRedraw();
+  }
+  /** Переносим длинные строки по ширине доски — как они переносились в поле ввода. */
+  function bdWrap(text, fs, maxW) {
+    const g = $('#bdCanvas').getContext('2d');
+    g.font = bdFont(fs);
+    return text.split('\n').map(line => {
+      const out = [];
+      let cur = '';
+      for (const word of line.split(/(\s+)/)) {
+        if (cur && g.measureText(cur + word).width > maxW) { out.push(cur.trimEnd()); cur = word.trimStart(); }
+        else cur += word;
+        while (cur.length > 1 && g.measureText(cur).width > maxW) {          // слово длиннее строки — режем по буквам
+          let k = cur.length - 1;
+          while (k > 1 && g.measureText(cur.slice(0, k)).width > maxW) k--;
+          out.push(cur.slice(0, k)); cur = cur.slice(k);
+        }
+      }
+      out.push(cur);
+      return out.join('\n');
+    }).join('\n');
   }
   function bdTextAt(x, y) {
     bdTextCommit();
     const ta = document.createElement('textarea');
     ta.className = 'bd-text';
+    // поле не шире свободного места до правого края: иначе лист уезжает вбок и справа остаются «следы» рисования
+    const avail = Math.max(40, $('#bdSheet').clientWidth - x - 10);
+    ta.style.width = avail + 'px';
+    ta.style.minWidth = '0';
+    ta.dataset.w = avail - 6;
     ta.dataset.x = x; ta.dataset.y = y;
     ta.style.left = x + 'px'; ta.style.top = y + 'px';
     ta.style.color = bdInk(BD.color);
@@ -4014,6 +4039,8 @@
         if (k !== last) { last = k; requestAnimationFrame(bdRedraw); }
       });
       BD.ro.observe($('#bdSheet'));
+      // по горизонтали лист не прокручивается никогда (браузер может сдвинуть его к курсору в поле текста)
+      $('#bdSheet').addEventListener('scroll', e => { if (e.currentTarget.scrollLeft) e.currentTarget.scrollLeft = 0; });
     }
   }
   /** Доска следует за открытым заданием: у каждого своя. */
@@ -5283,6 +5310,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.27.1', '12.10.2026', ['Доска: крупный текст у правого края больше не сдвигает лист вбок (из-за этого справа оставались «следы» линий) — длинный текст переносится по ширине доски']],
     ['1.27.0', '12.10.2026', ['Профиль: нажми на имя в рейтинге — увидишь награды и достижения ученика',
       'Сам выбираешь до трёх значков у своего ника — награды или достижения (кнопка «Мой профиль» в окне опыта)',
       'Повторяемые награды со счётчиком: 👑 корона дня, 🏆 победа в лиге, 🚀 повышение, ⚔️ победа в дуэли — у значка маленькое число, сколько раз получена. Достижения даются один раз',
