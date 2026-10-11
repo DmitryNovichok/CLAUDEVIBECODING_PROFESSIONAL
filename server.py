@@ -1734,6 +1734,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "total": n, "up": LEAGUE_UP if me["league"] < len(LEAGUES) - 1 else 0,
                 "down": LEAGUE_DOWN if me["league"] > 0 and n >= LEAGUE_MIN_DEMOTE else 0,
                 "ends": week_start() + 7 * 86400, "result": result, "week": week_key()}
+            # все лиги — посмотреть, кто в других и сколько опыта у лидеров (своя строка «me» — только в своей)
+            others = []
+            for i, (lname, licon) in enumerate(LEAGUES):
+                mem = sorted((p for p in people if p["league"] == i), key=lambda p: (-p["wk"], p["name"]))
+                others.append({"idx": i, "name": lname, "icon": licon, "total": len(mem),
+                               "top": [pub(p, "wk", k + 1) for k, p in enumerate(mem[:LEAGUE_SHOW])],
+                               "up": LEAGUE_UP if i < len(LEAGUES) - 1 else 0,
+                               "down": LEAGUE_DOWN if i > 0 and len(mem) >= LEAGUE_MIN_DEMOTE else 0})
+            boards["leagues"] = others
             # битва классов: опыт класса с понедельника и цель по решённым заданиям
             wk0 = week_start()
             classes = []
