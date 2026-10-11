@@ -757,8 +757,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.teacher_req(cookie, "GET", "/api/admin/teachers")[0], 403)
         st, d = self.admin("GET", "/api/admin/students?class_id=all")
         ids = {x["id"]: x["teacher"] for x in d["students"]}
-        self.assertEqual(ids[her], "Мария Ивановна")                         # главный видит всех
+        self.assertNotIn(her, ids)                                           # главный тоже видит только своих…
         self.assertIn(mine, ids)
+        self.assertEqual(self.admin("GET", f"/api/admin/student?id={her}")[0], 404)
+        st, d = self.admin("GET", "/api/admin/site-stats")                   # …а по всему сайту — только цифры
+        self.assertEqual(st, 200, d)
+        self.assertEqual(next(t for t in d["by_teacher"] if t["name"] == "Мария Ивановна")["students"], 1)
+        self.assertEqual(self.teacher_req(cookie, "GET", "/api/admin/site-stats")[0], 403)
         # свои классы: чужой класс учитель не видит
         st, d, _ = self.teacher_req(cookie, "POST", "/api/admin/class/save", {"name": "9В"})
         her_class = d["id"]
@@ -781,10 +786,50 @@ class ServerTest(unittest.TestCase):
         self.admin("POST", "/api/admin/teacher/delete", {"id": tid})
         self.assertEqual(self.teacher_req(cookie, "GET", "/api/admin/me")[0], 401)
         st, d = self.admin("GET", "/api/admin/students?class_id=all")
-        self.assertEqual({x["id"]: x["teacher"] for x in d["students"]}[her], "Главный учитель")
+        self.assertEqual({x["id"]: x["teacher"] for x in d["students"]}[her], "Главный учитель")   # теперь её ученик — свой
         self.assertEqual(self.admin("POST", "/api/admin/teacher/delete", {"id": server.main_teacher()["id"]})[0], 400)
         for c in (her_class, main_class):
             self.admin("POST", "/api/admin/class/delete", {"id": c})
+
+    def test_teacher_solves_as_student(self):
+        # учитель решает тренажёр своим аккаунтом: без кода и пароля, в рейтингах и списках учеников его нет
+        st, d = self.admin("POST", "/api/admin/as-student", {})
+        self.assertEqual(st, 200, d)
+        tok, tsid = d["token"], d["sid"]
+        self.assertEqual(self.admin("POST", "/api/admin/as-student", {})[1]["sid"], tsid)   # тот же аккаунт
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertTrue(me["teacher"])
+        self.assertTrue(me["course"])                                        # курс учителю открыт без пароля
+        pid = server.APP.bank.pid("b:5")
+        self.req("POST", "/api/open", {"task": pid}, tok)
+        self.assertEqual(self.check(tok, pid, answer="12")[0], 200)
+        lb = self.req("GET", "/api/leaderboard", token=tok)[1]
+        self.assertTrue(lb["spectator"])
+        self.assertIsNone(lb["boards"]["week"]["me"])
+        stud = self.login("Рейтингов Роман")
+        lb = self.req("GET", "/api/leaderboard", token=stud)[1]
+        self.assertNotIn(me["name"], [r["name"] for r in lb["boards"]["week"]["top"]])
+        self.assertNotIn(tsid, [m["sid"] for m in self.req("GET", "/api/duels", token=stud)[1]["mates"]])
+        self.assertEqual(self.req("GET", "/api/duels", token=tok)[1]["mates"], [])
+        st, d = self.admin("GET", "/api/admin/students?class_id=all")
+        self.assertNotIn(tsid, [x["id"] for x in d["students"]])
+        self.assertEqual(self.admin("GET", f"/api/admin/student?id={tsid}")[0], 404)
+        # по имени войти в учительский аккаунт нельзя
+        self.assertNotEqual(self.req("POST", "/api/login", {"mode": "login", "name": me["name"], "password": ""})[0], 200)
+
+    def test_site_stats_counts(self):
+        self.req("GET", "/")
+        tok = self.login("Статистиков Сергей")
+        pid = server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": pid}, tok)
+        self.check(tok, pid, answer="7")
+        st, d = self.admin("GET", "/api/admin/site-stats")
+        self.assertGreaterEqual(d["users"], 1)
+        self.assertGreaterEqual(d["solved"], 1)
+        self.assertGreaterEqual(d["online"], 1)
+        self.assertGreaterEqual(d["visitors_today"], 1)
+        self.assertEqual(len(d["series"]), 14)
+        self.assertGreaterEqual(d["series"][-1]["solved"], 1)
 
     def test_levels(self):
         self.assertEqual(server.level_of(0)[:2], (1, "Новичок"))

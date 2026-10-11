@@ -2114,6 +2114,7 @@
     return a;
   }
   let courseShown = false;
+  let TEACHER = false;
   // Окна курса (план → урок → подборка → задание) пишутся в историю браузера: кнопка «Назад» ведёт по ним
   let navSilent = false;
   function navPush(st) {
@@ -2928,14 +2929,32 @@
   let exTimer = null;
 
   /** По заданию на каждый номер: актуального формата, по возможности новое для ученика и свежее. */
+  /** Задания, решённые верно в последних VARIANT_GAP вариантах: снова попадут в вариант не раньше, чем через столько вариантов.
+   *  Ответы одного варианта записаны в журнал с общим временем окончания — по нему и различаем варианты. */
+  const VARIANT_GAP = 3;
+  function recentExamSolved() {
+    const ends = [...new Set(P.log.filter(e => e.x).map(e => e.t))].sort((a, b) => b - a).slice(0, VARIANT_GAP);
+    const from = ends.length ? ends[ends.length - 1] : Infinity;
+    const out = new Set();
+    for (const e of P.log) {
+      if (!e.x || e.t < from || !(e.s > 0)) continue;
+      out.add(e.id);
+      const g = partToGroup.get(e.id);
+      if (g) out.add(g);
+    }
+    return out;
+  }
   function pickVariant() {
     const items = [];
+    const skip = recentExamSolved();
     for (let n = 1; n <= 27; n++) {
       if (HAS_GROUPS && (n === 20 || n === 21)) continue;
       const fits = t => t.n === n && (n !== 19 || !HAS_GROUPS || t.parts) && authorOk(t);
       let cands = TASKS.filter(t => fits(t) && !isOutdated(t));
       if (!cands.length) cands = TASKS.filter(fits);
       if (!cands.length) continue;
+      const fresh = cands.filter(t => !skip.has(t.id));
+      if (fresh.length) cands = fresh;              // верно решённые в прошлых 3 вариантах — пропускаем
       const score = t => {
         let s = Math.random();
         if (!P.tasks[t.id]) s += 1.5;
@@ -3502,6 +3521,8 @@
     if (me.rules) Object.assign(RULES, me.rules);
     if (me.game) GAME = me.game;
     COURSE_OK = !!me.course;
+    TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
+    document.body.classList.toggle('teacher-mode', TEACHER);
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);
@@ -3530,6 +3551,8 @@
     w.hidden = !(SERVER && student);
     if (!student) return;
     $('#whoName').textContent = student.name;
+    const lbl = $('#who .who-label');
+    if (lbl) lbl.textContent = TEACHER ? 'Учитель · решает как ученик' : 'Ученик';
     const ini = student.name.trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
     if ($('#avaTxt')) $('#avaTxt').textContent = ini || '?';
   }
@@ -4239,6 +4262,28 @@
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); pyRun(); return; }
     if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); setPyFont(pyFont() + 1); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); setPyFont(pyFont() - 1); return; }
+    // Ctrl+/ — закомментировать строку или выделенные строки (повторно — снять), как в PyCharm.
+    // По физической клавише: в русской раскладке на ней точка
+    if ((e.ctrlKey || e.metaKey) && (e.code === 'Slash' || e.key === '/')) {
+      e.preventDefault();
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      let le = v.indexOf('\n', b > a && v[b - 1] === '\n' ? b - 1 : b);
+      if (le < 0) le = v.length;
+      const lines = v.slice(ls, le).split('\n');
+      const code = lines.filter(l => l.trim());
+      const off = code.length && code.every(l => /^\s*#/.test(l));
+      const ind = Math.min(...code.map(l => l.match(/^ */)[0].length), Infinity);
+      const out = lines.map(l => {
+        if (!l.trim()) return l;
+        return off ? l.replace(/^(\s*)# ?/, '$1') : l.slice(0, ind) + '# ' + l.slice(ind);
+      }).join('\n');
+      const d = out.length - (le - ls);
+      if (a === b) {                              // без выделения — курсор остаётся на своём месте в строке
+        const k = off ? Math.max(ls, a + d) : a + d;
+        put(out, ls, le, k);
+      } else put(out, ls, le, ls, ls + out.length);
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       const ls = v.lastIndexOf('\n', a - 1) + 1;
@@ -4611,7 +4656,8 @@
     await loadRating();
     if (!LB) { $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Нет связи с сервером.</p>'; return; }
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг</h2>
-      <p class="fm-note">Ученики твоего учителя. Лига — опыт с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
+      ${LB.spectator ? '<p class="daily-used">🎓 Вы учитель: рейтинг ваших учеников виден, но вы сами в нём не участвуете — ни в лиге, ни в ТОП-10, ни в дуэлях.</p>' : ''}
+      <p class="fm-note">${LB.spectator ? 'Ваши ученики' : 'Ученики твоего учителя'}. Лига — опыт с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
   }
 
   // «Тебя обогнали!»: сравниваем лигу с тем, что видели в прошлый раз

@@ -37,6 +37,7 @@
       <button type="button" data-tab="students" class="on">Ученики</button>
       <button type="button" data-tab="classes">Классы</button>
       <button type="button" data-tab="teachers" class="main-only">Учителя</button>
+      <button type="button" data-tab="site" class="main-only">Статистика сайта</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
       <button type="button" data-tab="settings">Настройки</button>
     </nav>
@@ -46,7 +47,7 @@
         <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
       <span class="adm-who" id="admWho"></span>
-      <a class="link-btn" href="./" target="_blank" rel="noopener">Открыть тренажёр</a>
+      <button type="button" class="btn primary adm-solve" id="asStudentBtn" title="Решать задания в тренажёре своим аккаунтом учителя — в рейтингах и списках учеников вас не будет">Решать как ученик</button>
       <button type="button" class="link-btn" id="logoutBtn">Выйти</button>
     </div>
   </header>
@@ -76,7 +77,7 @@
             <th class="chk"><input type="checkbox" id="chkAll" title="Выбрать всех"></th>
             <th data-sort="name">Ученик</th>
             <th data-sort="xp" class="num" title="Уровень в тренажёре (опыт за решённые задания)">Ур.</th>
-            <th data-sort="teacher" class="main-only">Учитель</th>
+            <th data-sort="teacher" class="adm-off">Учитель</th>
             <th data-sort="last">Был(а)</th>
             <th data-sort="today" class="num">Сегодня</th>
             <th data-sort="week" class="num">За 7 дней</th>
@@ -95,9 +96,17 @@
     </section>
 
     <!-- Учителя (только у главного) -->
+    <section class="adm-view" id="view-site" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Статистика сайта</h2>
+        <button type="button" class="btn ghost" id="siteReload">Обновить</button></div>
+      <p class="adm-hint" style="margin:0 0 12px">Цифры по всему тренажёру, у всех учителей. Имён чужих учеников здесь нет — только количество.
+        Посетители считаются обезличенно: адреса не хранятся. Учительские аккаунты в цифры учеников не входят.</p>
+      <div id="siteBody"><p class="adm-hint">Загружаю…</p></div>
+    </section>
+
     <section class="adm-view" id="view-teachers" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Учителя</h2></div>
-      <p class="adm-hint" style="margin:0 0 12px">У каждого учителя свой логин, пароль и код приглашения. Ученик, который зарегистрировался по коду учителя, попадает к нему. Учитель видит только своих учеников, классы, подборки и ленту; главный — всех.</p>
+      <p class="adm-hint" style="margin:0 0 12px">У каждого учителя свой логин, пароль и код приглашения. Ученик, который зарегистрировался по коду учителя, попадает к нему. Каждый учитель — и главный тоже — видит только своих учеников, классы, подборки и ленту. По всему сайту у главного — вкладка «Статистика сайта».</p>
       <div class="adm-table-wrap"><table class="adm-table" id="teachersTable">
         <thead><tr><th>Учитель</th><th>Логин</th><th>Код приглашения</th><th class="num">Учеников</th><th class="num">Классов</th><th></th></tr></thead>
         <tbody></tbody></table></div>

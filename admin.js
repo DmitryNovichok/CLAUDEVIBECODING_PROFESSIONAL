@@ -182,6 +182,57 @@
     showLogin();
   });
 
+  // ------------------------------------------------------------ учитель решает как ученик
+  // Сервер выдаёт учительский аккаунт ученика (без кода и пароля) и ставит его cookie — тренажёр открывается уже с входом
+  $('#asStudentBtn').addEventListener('click', async () => {
+    const w = window.open('', '_blank');
+    try {
+      const d = await api('as-student', {});
+      try { localStorage.setItem('egeTrainer.student.v1', JSON.stringify({ sid: d.sid, name: d.name, token: d.token, at: Date.now() })); } catch (e) { /* нет доступа */ }
+      if (w) w.location.href = './'; else location.href = './';
+    } catch (err) { if (w) w.close(); if (err.status !== 401) toast(err.message); }
+  });
+
+  // ------------------------------------------------------------ статистика всего сайта (главный учитель)
+  async function loadSite() {
+    let d;
+    try { d = await api('site-stats'); } catch (err) { if (err.status !== 401) $('#siteBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    const n = v => Number(v || 0).toLocaleString('ru-RU');
+    const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+    const maxS = Math.max(1, ...d.series.map(x => Math.max(x.solved, x.visitors, x.active)));
+    const bars = d.series.map(x => {
+      const [y, m, dd] = x.day.split('-');
+      return `<div class="st-col" title="${dd}.${m}: решено ${x.solved}, занимались ${x.active}, посетителей ${x.visitors}">
+        <div class="st-bars"><i class="b-solved" style="height:${x.solved / maxS * 100}%"></i><i class="b-active" style="height:${x.active / maxS * 100}%"></i><i class="b-vis" style="height:${x.visitors / maxS * 100}%"></i></div>
+        <span>${dd}.${m}</span></div>`;
+    }).join('');
+    const maxN = Math.max(1, ...d.nums.map(x => x.answers));
+    const nums = d.nums.map(x => `<div class="st-num" title="№${x.n}: ответов ${x.answers}, верных ${x.solved}">
+        <b>${x.n}</b><i><s style="width:${x.answers / maxN * 100}%"></s><u style="width:${x.solved / maxN * 100}%"></u></i>
+        <small>${n(x.answers)} · ${x.answers ? Math.round(x.solved / x.answers * 100) : 0}%</small></div>`).join('');
+    $('#siteBody').innerHTML = `
+      <div class="adm-cards">
+        ${card('Онлайн сейчас', n(d.online), 'за последние 5 минут', d.online ? 'var(--good)' : '')}
+        ${card('Пользователей', n(d.users), `+${n(d.new_today)} сегодня · +${n(d.new_week)} за неделю`)}
+        ${card('Посетителей сегодня', n(d.visitors_today), `за 7 дней — ${n(d.visitors_week)} разных`)}
+        ${card('Занимались', n(d.active_today), `сегодня · за неделю ${n(d.active_week)} · за месяц ${n(d.active_month)}`)}
+        ${card('Решено заданий', n(d.solved), `за всё время · из ${n(d.answers)} ответов`)}
+        ${card('Решено сегодня', n(d.solved_today), `за неделю — ${n(d.solved_week)}`)}
+        ${card('С первой попытки', d.answers ? Math.round(d.first / d.answers * 100) + '%' : '—', `разных заданий решали: ${n(d.tasks)} из ${n(d.bank)}`)}
+        ${card('Время на задания', n(d.hours) + ' ч', 'всего у всех учеников')}
+        ${card('Варианты ЕГЭ', n(d.exams), d.exam_avg != null ? `средний балл ${d.exam_avg}` : 'ещё не решали')}
+        ${card('Учителей', n(d.teachers), `курс открыт у ${n(d.course)} учеников · дуэлей ${n(d.duels)}`)}
+      </div>
+      <h3 class="adm-h3">По дням <span class="adm-hint"><i class="lg b-solved"></i> решено <i class="lg b-active"></i> занимались <i class="lg b-vis"></i> посетители</span></h3>
+      <div class="st-chart">${bars}</div>
+      <h3 class="adm-h3">По номерам ЕГЭ <span class="adm-hint">ответов за всё время · доля верных</span></h3>
+      <div class="st-nums">${nums || '<p class="adm-empty">Ещё нет ответов.</p>'}</div>
+      <h3 class="adm-h3">По учителям</h3>
+      <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Учитель</th><th class="num">Учеников</th><th class="num">Занимались за неделю</th><th class="num">Решено за неделю</th></tr></thead>
+        <tbody>${d.by_teacher.map(t => `<tr><td class="name">${esc(t.name)}${t.is_main ? ' <span class="muted">· главный</span>' : ''}</td><td class="num">${n(t.students)}</td><td class="num">${n(t.active_week)}</td><td class="num">${n(t.solved_week)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  $('#siteReload').addEventListener('click', loadSite);
+
   // ------------------------------------------------------------ вкладки
   let tab = 'students';
   let backTab = 'students';            // куда вернуться из карточки ученика
@@ -189,7 +240,8 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    if (t === 'site') loadSite();
     if (t === 'teachers') loadTeachers();
     if (t === 'students') loadStudents();
     if (t === 'classes') loadClasses();
@@ -243,7 +295,7 @@
         <td class="chk"><input type="checkbox" data-pick="${s.id}" ${picked.has(s.id) ? 'checked' : ''}></td>
         <td class="name">${esc(s.name)}${cls ? ` <span class="chip">${esc(cls.name)}</span>` : ''}</td>
         <td class="num"><span class="lvl-mini" title="${s.xp || 0} XP">${s.level || 1}</span></td>
-        <td class="main-only muted">${esc(s.teacher || '')}</td>
+        <td class="adm-off muted">${esc(s.teacher || '')}</td>
         <td class="muted">${fmtWhen(s.last)}</td>
         <td class="num">${s.today || ''}</td>
         <td class="num">${s.week || ''}</td>

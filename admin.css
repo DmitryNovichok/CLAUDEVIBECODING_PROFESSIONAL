@@ -246,3 +246,28 @@ body:not(.is-main) .main-only { display: none !important; }
 .adm-away-day details { margin-top: 6px; }
 .adm-away-day summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
 .adm-away-day .adm-table { margin-top: 6px; }
+
+/* колонка «Учитель» больше не нужна: каждый учитель видит только своих учеников */
+.adm-off { display: none !important; }
+.adm-solve { padding: 7px 14px; font-size: 13px; }
+
+/* статистика сайта */
+.st-chart { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px; align-items: end; height: 190px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 12px 8px; }
+.st-col { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; min-width: 0; }
+.st-bars { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
+.st-bars i { width: 30%; max-width: 12px; min-height: 2px; border-radius: 3px 3px 0 0; }
+.st-col span { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.b-solved { background: var(--good); }
+.b-active { background: var(--accent); }
+.b-vis { background: var(--review); }
+i.lg { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin: 0 3px 0 10px; vertical-align: -1px; }
+.st-nums { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; }
+.st-num { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; font-size: 12.5px; }
+.st-num b { text-align: right; }
+.st-num i { position: relative; height: 10px; border-radius: 5px; background: var(--border); overflow: hidden; }
+.st-num s, .st-num u { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; text-decoration: none; }
+.st-num s { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.st-num u { background: var(--good); }
+.st-num small { color: var(--muted); white-space: nowrap; }
+@media (max-width: 700px) { .st-col span { font-size: 9px; transform: rotate(-45deg); } }
