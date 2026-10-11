@@ -43,6 +43,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import clusters                                   # noqa: E402  тип задания и сложность (clusters.py рядом с сервером)
+
 HERE = Path(__file__).resolve().parent            # папка trainer
 BIBLIO = HERE.parent                              # где обычно лежат банки: Biblio/trainer + Biblio/*_bank
 BANKS_ROOT = None                                 # папка с банками, заданная вручную (--banks), хранится в базе
@@ -538,6 +541,7 @@ class Bank:
         self.etag = ""
         self._snips = {}
         self.missing_dirs = []     # папки банков, на которые ссылаются картинки, но которых нет рядом
+        self.titles = {}           # id банка → название («Банк ЕГЭ», «КомпЕГЭ», …)
 
     def pid(self, real):
         """Открытый код задания для страницы ученика."""
@@ -747,6 +751,8 @@ class Bank:
             self.broken = []
             self.authored = 0
             pub_tasks = []
+            clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
+            self.titles = {b.get("id"): b.get("title") for b in data.get("banks", [])}
             for t in data.get("tasks", []):
                 self.tasks[t["id"]] = t
                 # без ответа, решения и всего, что ведёт к ответу: ссылки на источник, видеоразбора, настоящего id
@@ -772,7 +778,7 @@ class Bank:
                     if t.get("sol"):
                         p["hasSol"] = True
                 pub_tasks.append(p)
-            pub = dict(data, tasks=pub_tasks, srv=True)
+            pub = dict(data, tasks=pub_tasks, srv=True, clusters=clusters.catalog())
             raw = ("window.EGE_BANK = " + json.dumps(pub, ensure_ascii=False, separators=(",", ":")) + ";\n").encode("utf-8")
             self.public_raw = raw
             self.public_gz = gzip.compress(raw, 6)
@@ -2606,6 +2612,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         for m in members]
                 out.append({"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
                             "tasks": [{"id": i, "n": (APP.bank.tasks.get(i) or {}).get("n"),
+                                       "c": (APP.bank.tasks.get(i) or {}).get("c"), "r": (APP.bank.tasks.get(i) or {}).get("r"),
+                                       "cname": dict(clusters.labels((APP.bank.tasks.get(i) or {}).get("n"))).get((APP.bank.tasks.get(i) or {}).get("c"), ""),
                                        "snip": APP.bank.snippet(i), "missing": i not in APP.bank.tasks} for i in real],
                             "progress": prog})
             return self.send_json({"assignments": out})
@@ -2664,6 +2672,99 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     and (self.T["authored"] or not is_authored(t.get("src"), t.get("html")))]
             pick = secrets.SystemRandom().sample(pool, min(k, len(pool)))
             return self.send_json({"tasks": [{"id": i, "n": n, "snip": APP.bank.snippet(i)} for i in pick]})
+
+        if path == "/api/admin/bank/catalog":
+            # справочник для конструктора подборки: типы заданий по номерам, банки, годы
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            years = sorted({t.get("y") for t in APP.bank.tasks.values() if t.get("y")})
+            banks = {}
+            for t in APP.bank.tasks.values():
+                if not t.get("group"):
+                    banks[t.get("bank")] = banks.get(t.get("bank"), 0) + 1
+            classes = [dict(r) for r in db.q("SELECT id, name FROM classes WHERE COALESCE(teacher_id, ?) = ? ORDER BY name",
+                                             (main_teacher()["id"], self.T["id"]))]
+            return self.send_json({"clusters": clusters.catalog(), "ranks": clusters.RANK_NAMES, "years": years,
+                                   "banks": [{"id": b, "title": APP.bank.titles.get(b, b), "count": c} for b, c in sorted(banks.items())],
+                                   "classes": classes})
+
+        if path == "/api/admin/bank/search":
+            # конструктор подборки: широкий фильтр по банку (номер, тип, сложность, банк, год, решаемость, текст)
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            lst = lambda k: [x for x in str(qs.get(k) or "").split(",") if x]
+            nums = {to_int(x) for x in lst("n")}
+            cls_keys, ranks, banks = set(lst("c")), {to_int(x) for x in lst("r")}, set(lst("bank"))
+            y0, y1 = to_int(qs.get("y0")), to_int(qs.get("y1"))
+            fmt, rate, q = qs.get("fmt") or "actual", qs.get("rate") or "", (qs.get("q") or "").strip().lower().replace("ё", "е")
+            skip_class = to_int(qs.get("notsolved"))
+            rates = task_rates(db)
+            solved_by_class = set()
+            if skip_class and self.sees_class(skip_class):
+                ids = [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=?", (skip_class,))]
+                if ids:
+                    solved_by_class = {r["t"] for r in db.q(
+                        f"SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts WHERE score > 0 AND student_id IN ({','.join('?' * len(ids))})", ids)}
+            out, facet_c, facet_r = [], {}, {}
+            for tid, t in APP.bank.tasks.items():
+                if t.get("group"):
+                    continue                     # части 19–21 — только игрой целиком
+                n = t.get("n")
+                if nums and n not in nums:
+                    continue
+                ok_c = not cls_keys or f"{n}:{t.get('c')}" in cls_keys
+                ok_r = not ranks or t.get("r") in ranks
+                if not ok_c and not ok_r:
+                    continue
+                if banks and t.get("bank") not in banks:
+                    continue
+                if (y0 and (t.get("y") or 0) < y0) or (y1 and (t.get("y") or 9999) > y1):
+                    continue
+                if fmt == "actual" and t.get("fmt") == "old" or fmt == "old" and t.get("fmt") != "old":
+                    continue
+                if not self.T["authored"] and is_authored(t.get("src"), t.get("html")):
+                    continue
+                tries, ok = rates.get(tid, (0, 0))
+                share = ok / tries if tries else None
+                if rate == "none" and tries:
+                    continue
+                if rate in ("lo", "mid", "hi"):
+                    if share is None or tries < RATE_MIN:
+                        continue
+                    if rate == "lo" and share >= 0.4 or rate == "mid" and not 0.4 <= share < 0.75 or rate == "hi" and share < 0.75:
+                        continue
+                if tid in solved_by_class:
+                    continue
+                if q and q not in clusters.plain(t.get("html")) and q not in tid.lower():
+                    continue
+                # счётчики у кнопок фильтра: сколько найдётся, если включить эту кнопку (без учёта своего же фильтра)
+                if ok_r:
+                    k = f"{n}:{t.get('c')}"
+                    facet_c[k] = facet_c.get(k, 0) + 1
+                if ok_c:
+                    facet_r[t.get("r")] = facet_r.get(t.get("r"), 0) + 1
+                if ok_c and ok_r:
+                    out.append((t, tries, share))
+            sort = qs.get("sort") or "rank"
+            keyf = {"rank": lambda x: (x[0].get("n"), x[0].get("r") or 3, -(x[2] if x[2] is not None else 0.5)),
+                    "hard": lambda x: (x[0].get("n"), -(x[0].get("r") or 3), x[2] if x[2] is not None else 0.5),
+                    "rate": lambda x: (x[2] if x[2] is not None else 2, x[0].get("n")),
+                    "new": lambda x: (-(x[0].get("y") or 0), x[0].get("n"))}.get(sort)
+            if keyf:
+                out.sort(key=keyf)
+            else:
+                secrets.SystemRandom().shuffle(out)
+            page, per = max(0, to_int(qs.get("page")) or 0), 40
+            names = {n: dict(v) for n, v in ((n, clusters.labels(n)) for n in range(1, 28))}
+            row = lambda t, tries, share: {
+                "id": t["id"], "n": t.get("n"), "c": t.get("c"), "cname": names.get(t.get("n"), {}).get(t.get("c"), ""),
+                "r": t.get("r"), "bank": APP.bank.titles.get(t.get("bank"), t.get("bank")), "y": t.get("y"),
+                "src": t.get("src"), "tries": tries, "rate": round(share, 2) if share is not None and tries >= RATE_MIN else None,
+                "snip": APP.bank.snippet(t["id"]), "old": t.get("fmt") == "old"}
+            rows = [row(*x) for x in out[page * per:(page + 1) * per]]
+            pool = [row(*x) for x in out[:300]] if qs.get("pool") else None   # для «добавить N случайных из найденных»
+            return self.send_json({"total": len(out), "page": page, "per": per, "tasks": rows, "pool": pool,
+                                   "facets": {"c": facet_c, "r": facet_r}})
 
         if path == "/api/admin/info":
             n_tasks = len(APP.bank.tasks) if APP.bank.ensure() else 0
@@ -3177,6 +3278,21 @@ def duel_settle(db, d):
             db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[lose], now, -stake, f"duel:{d['id']}"))
     db.x("UPDATE duels SET status='finished', a_solved=?, b_solved=?, winner=?, stake=?, finished=? WHERE id=?",
          (sa, sb, d[win] if win else None, stake, now, d["id"]))
+
+
+RATE_MIN = 3                            # с какого числа ответов показываем долю верных
+_RATES = {"ts": 0, "data": {}}
+
+
+def task_rates(db):
+    """Задание → (сколько ответов, сколько верных с первой попытки) у всех учеников. Пересчёт раз в 10 минут."""
+    if time.time() - _RATES["ts"] > 600:
+        data = {}
+        for r in db.q("""SELECT COALESCE(grp, task_id) AS t, COUNT(*) AS n, SUM(score = 1) AS ok FROM attempts
+                         WHERE gave_up = 0 OR gave_up IS NULL GROUP BY COALESCE(grp, task_id)"""):
+            data[r["t"]] = (r["n"], r["ok"] or 0)
+        _RATES.update(ts=time.time(), data=data)
+    return _RATES["data"]
 
 
 def assignment_done(db, sid, task_ids, since):

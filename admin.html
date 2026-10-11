@@ -36,6 +36,7 @@
     <nav class="adm-tabs" id="tabs">
       <button type="button" data-tab="students" class="on">Ученики</button>
       <button type="button" data-tab="classes">Классы</button>
+      <button type="button" data-tab="build">Создать подборку</button>
       <button type="button" data-tab="teachers" class="main-only">Учителя</button>
       <button type="button" data-tab="site" class="main-only">Статистика сайта</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
@@ -96,6 +97,22 @@
     </section>
 
     <!-- Учителя (только у главного) -->
+    <section class="adm-view" id="view-build" hidden>
+      <div class="bld">
+        <div class="bld-main">
+          <div class="adm-toolbar"><h2 class="adm-h">Создать подборку</h2>
+            <button type="button" class="btn ghost" id="bldReset">Сбросить фильтры</button></div>
+          <p class="adm-hint" style="margin:0 0 10px">Задания разбиты по типам внутри номера и по сложности от 1 (очень лёгкое) до 5 (очень сложное).
+            «Решают» — доля верных ответов с первой попытки у всех учеников тренажёра.</p>
+          <div class="adm-box bld-filters" id="bldFilters"><p class="adm-hint">Загружаю…</p></div>
+          <div class="bld-bar" id="bldBar"></div>
+          <div class="bld-list" id="bldList"></div>
+          <div class="bld-pages" id="bldPages"></div>
+        </div>
+        <aside class="adm-box bld-draft" id="bldDraft"></aside>
+      </div>
+    </section>
+
     <section class="adm-view" id="view-site" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Статистика сайта</h2>
         <button type="button" class="btn ghost" id="siteReload">Обновить</button></div>

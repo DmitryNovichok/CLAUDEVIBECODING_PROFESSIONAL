@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from urllib.parse import quote
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -830,6 +831,38 @@ class ServerTest(unittest.TestCase):
         self.assertGreaterEqual(d["visitors_today"], 1)
         self.assertEqual(len(d["series"]), 14)
         self.assertGreaterEqual(d["series"][-1]["solved"], 1)
+
+    def test_clusters_classify(self):
+        import clusters
+        T = [{"n": 5, "html": "<p>Строится двоичная запись числа N. Какое наименьшее число…</p>", "lv": "Простая"},
+             {"n": 5, "html": "<p>Строится троичная запись числа N…</p>", "d": 3},
+             {"n": 17, "html": "<p>Определите количество пар, затем максимальную из сумм…</p>"},
+             {"n": 1, "html": "<p>Определите длину кратчайшего пути из пункта А в пункт Г.</p>"},
+             {"n": 8, "html": "<p>Все слова записаны в алфавитном порядке. Под каким номером в списке…</p>"},
+             {"n": 7, "html": "<p>Ничего похожего</p>"}]
+        clusters.annotate(T)
+        self.assertEqual([t["c"] for t in T], ["bin", "ter", "pairs", "path", "list", "misc"])
+        self.assertEqual((T[0]["r"], T[1]["r"]), (2, 4))                 # «Простая» → 2, d=3 → 4
+        self.assertTrue(all(1 <= t["r"] <= 5 for t in T))
+        self.assertIn(["bin", "Двоичная запись"], clusters.catalog()[5])
+
+    def test_bank_search_for_builder(self):
+        st, d = self.admin("GET", "/api/admin/bank/catalog")
+        self.assertEqual(st, 200, d)
+        self.assertIn("5", {str(k) for k in d["clusters"]})
+        st, d = self.admin("GET", "/api/admin/bank/search?n=5,6&sort=rank")
+        self.assertEqual(st, 200, d)
+        self.assertEqual(sorted(t["id"] for t in d["tasks"]), ["b:5", "b:6"])
+        self.assertTrue(all(t["c"] and t["r"] for t in d["tasks"]))
+        key = f"5:{d['tasks'][[t['n'] for t in d['tasks']].index(5)]['c']}"
+        st, d = self.admin("GET", f"/api/admin/bank/search?c={key}")
+        self.assertEqual([t["id"] for t in d["tasks"]], ["b:5"])
+        st, d = self.admin("GET", "/api/admin/bank/search?q=" + quote("двадцать"))
+        self.assertEqual([t["id"] for t in d["tasks"]], ["b:27"])
+        st, d = self.admin("GET", "/api/admin/bank/search?n=19")
+        self.assertEqual([t["id"] for t in d["tasks"]], ["b:g"])         # игра целиком, без частей
+        st, d = self.admin("GET", "/api/admin/bank/search?r=9")
+        self.assertEqual(d["total"], 0)
 
     def test_levels(self):
         self.assertEqual(server.level_of(0)[:2], (1, "Новичок"))

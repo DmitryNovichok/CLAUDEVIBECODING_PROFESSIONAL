@@ -538,7 +538,17 @@
   const inScope = t => (ui.scope === 'fav' ? favSet().has(t.id)
     : ui.scope === 'asg' ? !!asgOf(ui.asg) && asgOf(ui.asg).tasks.includes(t.id)
     : visible(t) && (ui.scope === 'all' || t.n === ui.scope));
-  const topicKey = t => t.n + '|' + (t.topic || '');
+  // «Тема» для подбора и повторения — тип задания внутри номера (кластер c считает сервер по тексту условия),
+  // у банков без кластеров — тема из банка
+  const topicKey = t => t.n + '|' + (t.c || t.topic || '');
+  const CLUSTERS = (BANK && BANK.clusters) || {};
+  /** Название типа задания: «Двоичная запись» и т.п. */
+  function clusterName(t) {
+    const list = CLUSTERS[t.n] || [];
+    const hit = list.find(x => x[0] === t.c);
+    return hit ? hit[1] : (t.topic || '');
+  }
+  const RANK_WORD = ['', 'очень лёгкое', 'лёгкое', 'среднее', 'сложное', 'очень сложное'];
 
   function countByNum() {
     const c = new Array(28).fill(0);
@@ -565,6 +575,14 @@
     if (!s || !s.a) return 1;
     return s.m < 0.45 ? 1 : s.m < 0.78 ? 2 : 3;
   }
+  /** Сложность 1–5, которую сейчас стоит давать в этом типе задания: по успехам в типе, а если их мало — в номере.
+   *  Начинаем с лёгких; решаешь уверенно — сложность растёт, ошибаешься — опускается. */
+  function targetRank(n, key) {
+    const k = key && P.topics[key];
+    const s = k && k.a >= 2 ? k : statsFor(n);
+    if (!s || !s.a) return 2;
+    return s.m < 0.4 ? 2 : s.m < 0.65 ? 3 : s.m < 0.85 ? 4 : 5;
+  }
 
   function numberWeight(n, list, recentSet) {
     const s = statsFor(n);
@@ -588,6 +606,8 @@
     if (!cands.length) return null;
     const now = Date.now();
     const target = targetDifficulty(n);
+    const rankOf = new Map();                          // целевая сложность — своя для каждого типа задания
+    const want = t => { const k = topicKey(t); if (!rankOf.has(k)) rankOf.set(k, targetRank(n, k)); return rankOf.get(k); };
     let best = null, bestScore = -Infinity;
     for (const t of cands) {
       const s = P.tasks[t.id];
@@ -597,7 +617,8 @@
         sc += Math.min((now - (s.last || 0)) / DAY / 7, 1) * 0.8; // давно не видели
         if (s.ls === 1) sc -= 0.6;                       // уже решено верно
       }
-      sc += t.d ? 1 - 0.45 * Math.abs(t.d - target) : 0.7; // сложность под уровень
+      sc += t.r ? 1.1 - 0.4 * Math.abs(t.r - want(t))     // сложность 1–5 под уровень в этом типе
+        : t.d ? 1 - 0.45 * Math.abs(t.d - target) : 0.7;
       sc += t.y ? Math.min(Math.max(t.y - CFG.firstKegeYear, 0), 5) * 0.1 : 0.25; // свежие — чаще
       if (isOutdated(t)) sc -= 0.8;                     // старый формат — только если выбрано «все»
       if (sc > bestScore) { bestScore = sc; best = t; }
@@ -837,7 +858,7 @@
   const FILE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 12v6M9 15l3 3 3-3"/></svg>';
 
   function reasonHtml(t, why) {
-    const topic = t.topic ? ` (тема «${esc(t.topic)}»)` : '';
+    const topic = clusterName(t) ? ` (тип «${esc(clusterName(t))}»)` : '';
     switch (why.type) {
       case 'review':
         return why.r.stage === 0
@@ -929,8 +950,10 @@
   function renderTask() {
     const t = cur.task;
     const meta = [];
-    if (t.topic) meta.push(esc(t.topic));
+    const cl = clusterName(t);
+    if (cl) meta.push(esc(cl));
     if (t.lv) meta.push(esc(t.lv));
+    else if (t.r) meta.push(`<span title="Сложность ${t.r} из 5">${RANK_WORD[t.r]}</span>`);
     if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
     else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
     if (t.y && !(t.src || '').includes(String(t.y))) {
@@ -5125,6 +5148,11 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.25.0', '11.10.2026', ['Задания внутри номера разбиты по типам и сложности (от 1 до 5): тип и сложность видны над условием',
+      'Тренажёр подбирает задания под тебя точнее: следит за успехами в каждом типе задания, начинает с лёгких и повышает сложность, когда решаешь уверенно',
+      'После ошибки на повторение приходит задание того же типа, а не просто того же номера',
+      'В варианте ЕГЭ задание, решённое верно, снова попадётся не раньше чем через 3 варианта',
+      'В окне Python: Ctrl+/ закомментировать или раскомментировать строку или выделение']],
     ['1.24.0', '11.10.2026', ['Доска для решения: кнопка «Доска» рядом с «Python» открывает лист в клетку справа от задачи — ручка, прямая, текст, ластик, отмена. У каждого задания своя доска',
       'Верхняя панель больше не наезжает на рейтинг, когда открыто окно Python',
       'Синяя кнопка «Все задания» слева теперь показывает и скрывает банк номеров — отдельная кнопка со стрелками больше не нужна',
