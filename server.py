@@ -844,6 +844,8 @@ class DB:
                 result TEXT, result_place INTEGER, result_league INTEGER, result_week TEXT);
             CREATE TABLE IF NOT EXISTS daily_results(
                 day TEXT NOT NULL, student_id INTEGER NOT NULL, task_id TEXT, ms INTEGER, ts REAL, PRIMARY KEY(day, student_id));
+            CREATE TABLE IF NOT EXISTS daily_starts(
+                day TEXT NOT NULL, student_id INTEGER NOT NULL, ts REAL, PRIMARY KEY(day, student_id));
             CREATE TABLE IF NOT EXISTS duels(
                 id INTEGER PRIMARY KEY, a INTEGER NOT NULL, b INTEGER NOT NULL, tasks TEXT NOT NULL, created REAL,
                 status TEXT NOT NULL DEFAULT 'pending', accepted REAL, a_start REAL, b_start REAL, a_done REAL, b_done REAL,
@@ -1252,6 +1254,20 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         (s["id"], time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps(answers, ensure_ascii=False),
                          t.get("ans", ""), score, int(gave_up), int(abandoned), spent, reason, rk, part,
                          t.get("group"), int(revealed), exam, self.client_ip(), away or None, away_sec, flags))
+
+    def daily_result(self, s, t, st):
+        """Задание дня решено с первой попытки: в рейтинг — только первый заход за день,
+        время — от первого открытия (зашёл, вышел и вернулся — часы не сбрасываются)."""
+        now = datetime.now()
+        day = now.strftime("%Y-%m-%d")
+        since = datetime(now.year, now.month, now.day).timestamp()
+        if APP.db.q("SELECT 1 FROM attempts WHERE student_id=? AND task_id=? AND ts>=? LIMIT 1",
+                    (s["id"], t["id"], since), one=True):
+            return                           # сегодня уже была попытка — это не первый заход
+        start = APP.db.q("SELECT ts FROM daily_starts WHERE day=? AND student_id=?", (day, s["id"]), one=True)
+        t0 = min(st["ts"], start["ts"]) if start else st["ts"]
+        APP.db.x("INSERT OR IGNORE INTO daily_results(day, student_id, task_id, ms, ts) VALUES(?,?,?,?,?)",
+                 (day, s["id"], t["id"], int((time.time() - t0) * 1000), time.time()))
 
     def reveal_block(self, s, t, st):
         """None — ответ можно показать; иначе {"why": "think"|"limit", "wait": секунд}."""
@@ -1703,9 +1719,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         "ORDER BY ms, ts", (day, *ids)) if ids else []
             crown = daily_crown(db, ids)
             mine = next((r["ms"] for r in rows if r["student_id"] == s["id"]), None)
+            started = db.q("SELECT ts FROM daily_starts WHERE day=? AND student_id=?", (day, s["id"]), one=True)
             t = APP.bank.tasks[tid]
             return self.send_json({"task": APP.bank.pid(tid), "n": t.get("n"), "day": day, "count": len(rows),
-                                   "mine": mine, "crown": names.get(crown),
+                                   "mine": mine, "crown": names.get(crown), "started": started["ts"] if started else None,
                                    "top": [{"place": i + 1, "name": names[r["student_id"]], "ms": r["ms"],
                                             "me": r["student_id"] == s["id"]} for i, r in enumerate(rows[:10])],
                                    "my_place": next((i + 1 for i, r in enumerate(rows) if r["student_id"] == s["id"]), None)})
@@ -1844,6 +1861,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         Открыл заново, не закончив после неверной попытки, — засчитываем «ушёл после ошибки»,
         иначе перезагрузкой страницы можно было бы получать новые попытки без конца."""
         ids = [p["id"] for p in t["parts"]] if t.get("parts") else [t["id"]]
+        if t["id"] == daily_task_id():
+            # задание дня: заходить можно один раз в день — запоминаем первый вход, от него считается время
+            APP.db.x("INSERT OR IGNORE INTO daily_starts(day, student_id, ts) VALUES(?,?,?)",
+                     (datetime.now().strftime("%Y-%m-%d"), s["id"], time.time()))
         for tid in ids:
             st = OPENED.get(s["id"], tid, create=False)
             if st and st["final"] is None and st["tries"]:
@@ -1897,9 +1918,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if credit == 1.0:
                 score = 1.0 if len(st["tries"]) == 1 else 0.5
                 if score == 1.0 and t["id"] == daily_task_id():
-                    APP.db.x("INSERT OR IGNORE INTO daily_results(day, student_id, task_id, ms, ts) VALUES(?,?,?,?,?)",
-                             (datetime.now().strftime("%Y-%m-%d"), s["id"], t["id"],
-                              int((time.time() - st["ts"]) * 1000), time.time()))
+                    self.daily_result(s, t, st)
                 self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
                                  revealed=1, spent=spent, away=st["away"], st=st)
                 st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"]}, t)
@@ -2246,7 +2265,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             sid = to_int(data.get("id"))
             if not self.sees_student(sid):
                 return self.err(404, "ученик не найден")
-            for table in ("attempts", "reveal_log", "exams", "activity", "solutions"):
+            for table in ("attempts", "reveal_log", "exams", "activity", "solutions", "daily_starts", "daily_results"):
                 db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
             db.x("DELETE FROM students WHERE id=?", (sid,))
             return self.send_json({"ok": True})

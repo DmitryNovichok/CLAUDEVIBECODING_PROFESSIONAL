@@ -4659,7 +4659,7 @@
     if (!card) return;
     card.hidden = !(DAILY && DAILY.task && byId.get(DAILY.task));
     if (card.hidden) return;
-    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
+    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
     card.classList.toggle('done', !!DAILY.my_place);
   }
   function dailyHtml() {
@@ -4668,7 +4668,9 @@
     return `<p class="fm-note">Одно задание для всех на сегодня, №${DAILY.n}. Место — по времени решения <b>с первой попытки</b>
         (время считает сервер с момента открытия задания). Самый быстрый завтра весь день носит 👑.${DAILY.crown ? ` Сегодня корона у <b>${esc(DAILY.crown)}</b>.` : ''}</p>
       ${DAILY.my_place ? `<p class="lb-mine">Ты решил за <b>${fmtMs(DAILY.mine)}</b> — ${DAILY.my_place}-е место из ${DAILY.count}.</p>`
-        : '<p><button type="button" class="btn primary" id="dailyGo">Решать задание дня</button></p>'}
+        : dailyNow() ? '<p class="lb-mine">Вы сейчас решаете задание дня — время идёт. <button type="button" class="btn ghost" id="dailyBack">Вернуться к заданию</button></p>'
+        : DAILY.started ? `<p class="daily-used">🔒 Вы уже заходили выполнять задание дня сегодня в ${new Date(DAILY.started * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Войти второй раз нельзя — новое задание появится завтра.</p>`
+        : '<p><button type="button" class="btn primary" id="dailyGo">Решать задание дня</button></p><p class="fm-note">Войти в задание можно <b>один раз</b>: время пойдёт сразу, а выйти и вернуться уже не получится.</p>'}
       ${rows ? `<table class="lb">${rows}</table>` : '<p class="fm-muted lb-empty">Пока никто не решил — стань первым!</p>'}`;
   }
   async function openDaily() {
@@ -4677,12 +4679,18 @@
     $('#forecastBody').innerHTML = `<h2 class="fm-title">👑 Задание дня</h2>${dailyHtml()}`;
     $('#forecastModal').hidden = false;
   }
+  /** Ученик сейчас на открытом задании дня. */
+  const dailyNow = () => !!(DAILY && cur && !cur.done && cur.task && cur.task.id === DAILY.task);
   function goDaily() {
     const t = DAILY && byId.get(DAILY.task);
     if (!t) return;
     closeForecast();
+    if (dailyNow()) return;
+    if (DAILY.started && !DAILY.my_place) { toast('Вы уже заходили выполнять задание дня сегодня — войти второй раз нельзя. Новое задание будет завтра.', 5000); return; }
     if (!leaveExam()) return;
     show({ task: t, why: { type: 'daily' } });
+    DAILY.started = DAILY.started || Date.now() / 1000;
+    renderDailyCard();
   }
 
   // ------------------------------------------------------------ дуэли
@@ -4761,6 +4769,7 @@
   $('#forecastBody').addEventListener('click', e => {
     const t = e.target;
     if (t.closest('#dailyGo')) return goDaily();
+    if (t.closest('#dailyBack')) return closeForecast();
     const acc = t.closest('[data-duel-acc]'), dec = t.closest('[data-duel-dec]'), go = t.closest('[data-duel-go]'), nw = t.closest('[data-duel-new]');
     if (acc) return duelAction('duel/respond', { id: +acc.dataset.duelAcc, accept: true }, 'Вызов принят — нажми «Начать», когда будешь готов');
     if (dec) return duelAction('duel/respond', { id: +dec.dataset.duelDec, accept: false });
@@ -4804,7 +4813,7 @@
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Привет! Вот что нового</h2>${res}
       ${note ? `<div class="sum-note${passed ? ' hot' : ''}">${note}</div>` : ''}
       ${inv.length ? `<div class="sum-note hot">⚔ ${inv.map(x => esc(x.opponent)).join(', ')} ${inv.length > 1 ? 'вызывают' : 'вызывает'} тебя на дуэль! <button type="button" class="btn ghost" id="sumDuels">Ответить</button></div>` : ''}
-      ${DAILY && DAILY.task && !DAILY.my_place ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
+      ${DAILY && DAILY.task && !DAILY.my_place && !DAILY.started ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
       ${boardsHtml(d, 'league')}
       <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
     $('#forecastModal').hidden = false;
@@ -5073,7 +5082,8 @@
     ['1.24.0', '11.10.2026', ['Доска для решения: кнопка «Доска» рядом с «Python» открывает лист в клетку справа от задачи — ручка, прямая, текст, ластик, отмена. У каждого задания своя доска',
       'Верхняя панель больше не наезжает на рейтинг, когда открыто окно Python',
       'Синяя кнопка «Все задания» слева теперь показывает и скрывает банк номеров — отдельная кнопка со стрелками больше не нужна',
-      'На доске можно менять размер текста: кнопки A− и A+']],
+      'На доске можно менять размер текста: кнопки A− и A+',
+      'В задание дня можно зайти только один раз в день: время идёт с первого входа, повторно войти нельзя']],
     ['1.23.0', '10.10.2026', ['За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
     ['1.22.3', '10.10.2026', ['Исправлены формулы в «Банке ЕГЭ»: снова видны степени и индексы (около 1100 заданий, в том числе №14)', 'Верхняя панель больше не наезжает на окно Python']],
     ['1.22.2', '10.10.2026', ['Сервер выдерживает больше учеников одновременно: рейтинг собирается один раз на всех, соединения в начале урока не теряются']],

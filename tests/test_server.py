@@ -538,6 +538,24 @@ class ServerTest(unittest.TestCase):
         self.assertIn("👑", next(r for r in board["day"]["top"] if r["me"])["badges"])
         self.assertEqual(board["league"]["name"], "Бронзовая лига")
 
+    def test_daily_once_per_day(self):
+        # зашёл в задание дня — сервер это помнит; вторая попытка в рейтинг не идёт, время — от первого входа
+        tok = self.login("Однодневов Олег")
+        d = self.req("GET", "/api/daily", token=tok)[1]
+        self.assertIsNone(d["started"])
+        real = server.APP.bank.real(d["task"])
+        ans = next(t for t in BANK["tasks"] if t["id"] == real)["ans"]
+        self.req("POST", "/api/open", {"task": d["task"]}, tok)
+        started = self.req("GET", "/api/daily", token=tok)[1]["started"]
+        self.assertIsNotNone(started)
+        self.check(tok, d["task"], answer="неверно-1")
+        self.check(tok, d["task"], answer="неверно-2")                     # попытки кончились
+        self.req("POST", "/api/open", {"task": d["task"]}, tok)            # «зашёл второй раз»
+        self.assertEqual(self.req("GET", "/api/daily", token=tok)[1]["started"], started)   # время первого входа
+        self.check(tok, d["task"], answer=ans)
+        d = self.req("GET", "/api/daily", token=tok)[1]
+        self.assertIsNone(d["my_place"])                                   # в рейтинг не попал
+
     def test_duel_full_cycle(self):
         ta, tb = self.login("Дуэлев Аркадий"), self.login("Дуэлев Борис")
         sb = self.req("GET", "/api/me", token=tb)[1]["sid"]
