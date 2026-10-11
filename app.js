@@ -2283,6 +2283,14 @@
           ${sl.note ? `<div class="sl-nuance ${sl.kc || ''} ${sl.nk ? 'nk-' + sl.nk : ''}">${sl.nk === 'warn' ? '<b class="nk">⚠ Осторожно!</b> ' : sl.nk === 'secret' ? '<b class="nk">💡 Секрет.</b> ' : ''}${safeHtml(sl.note)}</div>` : ''}</div>
         ${codeBox(sl.code, 0, sl.ans)}</div></div>`;
     }
+    if (sl.t === 'solve') {
+      // задача без программы: условие → «Показать решение» (шаги) → «Показать ответ»
+      const ans = sl.ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(sl.ans)}</b></span></details>` : '';
+      return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-split${sl.stack ? ' stack' : ''}">
+        <div class="sl-left"><div class="sl-cond"><div class="sl-cond-h">${esc(sl.ch || 'Задание')}</div>${safeHtml(sl.cond)}</div>
+          ${sl.note ? `<div class="sl-nuance ${sl.kc || ''} ${sl.nk ? 'nk-' + sl.nk : ''}">${sl.nk === 'warn' ? '<b class="nk">⚠ Осторожно!</b> ' : sl.nk === 'secret' ? '<b class="nk">💡 Секрет.</b> ' : ''}${safeHtml(sl.note)}</div>` : ''}</div>
+        <div class="sl-solcol"><details class="sl-sol"${sl.open ? ' open' : ''}><summary>Показать решение</summary><div class="sl-sol-body">${safeHtml(sl.sol)}</div></details>${ans}</div></div></div>`;
+    }
     if (sl.t === 'codes') {
       return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-blocks n${sl.blocks.length}">${sl.blocks.map((b, k) =>
         `<div class="sl-block"><p>${safeHtml(b.cond)}</p>${codeBox(b.code, k, b.ans)}</div>`).join('')}</div></div>`;
@@ -4609,6 +4617,7 @@
       <p class="fm-note">Опыт даётся за первое решение задания (№1–10 — 10 XP, сложные номера — до 22 XP), повторное — 2 XP,
         вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.
         За достижения — от 5 до 300 XP: чем труднее получить, тем больше.</p>
+      <p><button type="button" class="btn small" data-prof="me">🏅 Мой профиль: награды и значки у ника</button></p>
       <h3 class="fm-sub">Достижения · ${got} из ${(g.ach || []).length}</h3>
       <div class="ach-grid">${ach}</div>
       <p class="fm-note">Рейтинг — кнопка с кубком в верхней панели.</p>`;
@@ -4621,7 +4630,11 @@
   const LEAGUE_NAMES = ['Бронзовая', 'Серебряная', 'Золотая', 'Алмазная'];
   const LEAGUE_TO = ['бронзовую', 'серебряную', 'золотую', 'алмазную'];      // «поднимутся в … лигу»
   const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `+${v} XP`;
-  const badgesHtml = r => (r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(esc).join(' ')}</span>` : '';
+  /** Значок у ника: строка (старый формат) или {i, t, n} — у повторяемых наград маленькое число, сколько раз получена. */
+  const badgeHtml = b => typeof b === 'string' ? esc(b)
+    : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
+  const badgesHtml = r => (r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '';
+  const nameHtml = r => r.sid ? `<button type="button" class="lb-name" data-prof="${r.sid}" title="Открыть профиль">${esc(r.name)}</button>` : esc(r.name);
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
   const daysLeft = endSec => Math.max(0, Math.ceil((endSec * 1000 - Date.now()) / 864e5));
 
@@ -4629,7 +4642,7 @@
     const row = r => {
       const zone = r.value > 0 && r.place <= L.up ? 'up' : L.down && r.place > L.total - L.down ? 'down' : '';
       return `<tr class="${r.me ? 'me' : ''} ${zone ? 'z-' + zone : ''}"><td class="lb-place">${placeHtml(r.place)}</td>
-        <td>${esc(r.name)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td>
+        <td>${nameHtml(r)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td>
         <td class="num">${zone === 'up' ? '<span class="z-mark up" title="Поднимется в лигу выше">▲</span>' : zone === 'down' ? '<span class="z-mark down" title="Опустится в лигу ниже">▼</span>' : ''} +${r.value} XP</td></tr>`;
     };
     const mineOut = L.me && L.me.place > L.top.length;              // я ниже 20-го места — покажу свою строку отдельно
@@ -4638,7 +4651,7 @@
         <div class="fm-muted">Итоги в понедельник — ${left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'сегодня ночью'}.
         ${L.up ? `Первые ${L.up} поднимутся в ${LEAGUE_TO[L.idx + 1]} лигу.` : 'Это высшая лига — удержись в ней!'}
         ${L.down ? ` Последние ${L.down} опустятся.` : ''}</div></div></div>
-      ${L.top.length ? `<table class="lb">${L.top.map(row).join('')}${mineOut ? `<tr class="lb-gap"><td colspan="4">…</td></tr>${row({ place: L.me.place, name: 'Ты', me: true, level: '', badges: [], value: L.me.value })}` : ''}</table>`
+      ${L.top.length ? `<table class="lb">${L.top.map(row).join('')}${mineOut ? `<tr class="lb-gap"><td colspan="4">…</td></tr>${row({ place: L.me.place, name: 'Ты', me: true, level: '', badges: [], value: L.me.value, sid: student && student.sid })}` : ''}</table>`
         : '<p class="fm-muted lb-empty">В лиге пока никого — реши задание, и ты в игре.</p>'}
       ${L.total > L.top.length ? `<p class="fm-muted lb-mine">Показаны первые ${L.top.length} из ${L.total}.</p>` : ''}`;
   }
@@ -4661,7 +4674,8 @@
         <span>${L.icon}</span>${esc(LEAGUE_NAMES[L.idx])}<small>${L.total}${own && L.idx === own.idx ? ' · твоя' : ''}</small></button>`).join('')}</div>` : '';
     if (!all.length || (own && idx === own.idx)) return sw + (own ? leagueHtml(own) : '');
     const L = Object.assign({}, all[idx], { ends: own ? own.ends : 0, me: null });
-    const note = own ? (idx > own.idx ? `Ты в лиге «${esc(LEAGUE_NAMES[own.idx])}». Попасть сюда — войти в первые ${own.up || 10} своей лиги по итогам недели.`
+    const note = own ? (idx === own.idx + 1 ? `Ты в лиге «${esc(LEAGUE_NAMES[own.idx])}». Попасть сюда — войти в первые ${own.up} своей лиги по итогам недели.`
+      : idx > own.idx ? `Ты в лиге «${esc(LEAGUE_NAMES[own.idx])}». Сюда ведут лиги по очереди: каждую неделю — на одну ступень выше.`
       : `Ты выше — в лиге «${esc(LEAGUE_NAMES[own.idx])}».`) : '';
     return sw + leagueHtml(L) + (note ? `<p class="fm-muted lb-mine">${note}</p>` : '');
   }
@@ -4675,7 +4689,7 @@
         : key === 'fire' ? 'Пока ни у кого не горит огонёк. Реши 3 задания за день, чтобы зажечь его.' : 'Пока пусто.'}</p>`;
     }
     const rows = b.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td>
-      <td>${esc(r.name)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td><td class="num">${lbValue(key, r.value)}</td></tr>`).join('');
+      <td>${nameHtml(r)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td><td class="num">${lbValue(key, r.value)}</td></tr>`).join('');
     const mine = b.me && b.me.place > 10
       ? `<p class="lb-mine">Твоё место: <b>${b.me.place}</b> из ${b.total} · ${lbValue(key, b.me.value)}</p>`
       : (!b.me ? `<p class="lb-mine fm-muted">${key === 'fire' ? 'Зажги огонёк — и попадёшь в рейтинг' : 'Реши задание — и попадёшь в рейтинг'}</p>` : '');
@@ -4687,7 +4701,8 @@
     return `<div class="lb-wrap" data-lb='${esc(JSON.stringify(d))}'>
       <div class="lb-tabs" role="tablist">${tabs.map(([k, t]) => `<button type="button" data-lbtab="${k}" class="${k === key ? 'on' : ''}">${t}</button>`).join('')}</div>
       <div class="lb-body">${boardHtml(d, key)}</div>
-      <p class="fm-muted lb-legend">Значки: 🔥 — огонёк 7+ дней, 👑 — быстрее всех решил вчерашнее задание дня, 💎 — алмазная лига.</p></div>`;
+      <p class="fm-muted lb-legend">Нажми на имя — откроется профиль с наградами. Значки у ника (до трёх) каждый выбирает сам в своём профиле;
+        число у значка — сколько раз награда получена: 👑 — быстрее всех решил задание дня, 🏆 — 1-е место в лиге за неделю, 🚀 — повышение, ⚔️ — победа в дуэли.</p></div>`;
   }
   document.addEventListener('click', e => {
     const tab = e.target.closest('[data-lbtab]');
@@ -4705,6 +4720,75 @@
     let d = {};
     try { d = JSON.parse(wrap.dataset.lb); } catch (err) { return; }
     $('.lb-body', wrap).innerHTML = boardHtml(d, 'league', +b.dataset.lgview);
+  });
+
+  // ------------------------------------------------------------ профиль: награды, достижения, значки у ника
+  let PROF = null, profPick = null, profBack = null;
+  async function openProfile(sid, back) {
+    profBack = back || null;
+    $('#forecastBody').innerHTML = '<h2 class="fm-title">Профиль</h2><p class="fm-muted">Загружаю…</p>';
+    $('#forecastModal').hidden = false;
+    try { PROF = await api('profile' + (sid && sid !== 'me' ? '?sid=' + encodeURIComponent(sid) : '')); } catch (e) {
+      $('#forecastBody').innerHTML = `<h2 class="fm-title">Профиль</h2><p class="fm-muted">${esc(e.message || 'Нет связи с сервером.')}</p>`;
+      return;
+    }
+    profPick = null;
+    renderProfile();
+  }
+  function profItem(a, kind) {
+    const has = kind === 'ach' || a.n > 0 || kind === 'extra';
+    const on = profPick && profPick.includes(a.k);
+    const count = a.n && kind !== 'extra' ? `<span class="pf-n">×${a.n}</span>` : a.n ? `<span class="pf-n">${a.n} ${plural(a.n, 'день', 'дня', 'дней')}</span>` : '';
+    const tag = profPick && has ? 'button type="button"' : 'div';
+    return `<${tag} class="ach pf-item${has ? '' : ' locked'}${on ? ' on' : ''}"${profPick && has ? ` data-pick="${esc(a.k)}" aria-pressed="${on}"` : ''} title="${esc(a.d)}">
+      <span class="ach-icon">${esc(a.i)}</span><span><b>${esc(a.t)}</b><small>${esc(a.d)}</small></span>${count}${on ? '<span class="pf-check">✓</span>' : ''}</${tag.split(' ')[0]}>`;
+  }
+  function renderProfile() {
+    const P = PROF;
+    if (!P) return;
+    const back = profBack === 'rating' ? '<button type="button" class="btn small ghost" id="profBack">← к рейтингу</button>' : '';
+    const pick = profPick;
+    const nick = (pick ? pick.map(k => [...P.awards, ...P.extra, ...P.ach].find(a => a.k === k)).filter(Boolean)
+      .map(a => ({ i: a.i, t: a.t, n: a.k === 'fire' || a.n > 1 ? a.n : 0 })) : P.badges);
+    const tools = !P.me ? '' : pick
+      ? `<div class="pf-tools"><span class="fm-muted">Выбрано ${pick.length} из ${P.max} — нажимай на полученные награды и достижения.</span>
+          <button type="button" class="btn small" id="profSave">Сохранить</button>
+          <button type="button" class="btn small ghost" id="profAuto">Автоматически</button>
+          <button type="button" class="btn small ghost" id="profCancel">Отмена</button></div>`
+      : `<div class="pf-tools"><button type="button" class="btn small" id="profEdit">Выбрать значки у ника</button>
+          <span class="fm-muted">${P.chosen ? 'Выбраны тобой.' : 'Сейчас — автоматически: огонёк 7+, корона дня, алмазная лига.'}</span></div>`;
+    $('#forecastBody').innerHTML = `${back}
+      <div class="gm-head"><span class="gm-level">${P.level}</span>
+        <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(P.name)}${P.me ? ' <span class="chip good">это ты</span>' : ''}</h2>
+          <span class="fm-muted">${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp} XP</span>
+          <div class="pf-nick">У ника: ${nick.length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>` : '<span class="fm-muted">пока ничего</span>'}</div></div></div>
+      ${tools}
+      <h3 class="fm-sub">Награды — можно получать много раз</h3>
+      <div class="ach-grid">${P.awards.map(a => profItem(a, 'award')).join('')}${P.extra.map(a => profItem(a, 'extra')).join('')}</div>
+      <h3 class="fm-sub">Достижения · ${P.ach.length} из ${P.ach_total} — даются один раз</h3>
+      ${P.ach.length ? `<div class="ach-grid">${P.ach.map(a => profItem(a, 'ach')).join('')}</div>` : '<p class="fm-muted">Пока ни одного.</p>'}`;
+  }
+  async function saveBadges(keys) {
+    try { await api('profile/badges', { keys }); } catch (e) { toast(e.message || 'Не получилось сохранить'); return; }
+    await openProfile('me', profBack);
+    loadRating();
+  }
+  document.addEventListener('click', e => {
+    const pr = e.target.closest('[data-prof]');
+    if (pr) { openProfile(pr.dataset.prof, pr.closest('.lb-wrap') ? 'rating' : null); return; }
+    if (!PROF || !e.target.closest('#forecastBody')) return;
+    const t = e.target.closest('#profBack, #profEdit, #profSave, #profAuto, #profCancel, [data-pick]');
+    if (!t) return;
+    if (t.id === 'profBack') return openRating();
+    if (t.id === 'profEdit') { profPick = (PROF.chosen || PROF.badges.map(b => b.k)).slice(0, PROF.max); return renderProfile(); }
+    if (t.id === 'profCancel') { profPick = null; return renderProfile(); }
+    if (t.id === 'profSave') return saveBadges(profPick);
+    if (t.id === 'profAuto') return saveBadges(null);
+    const k = t.dataset.pick;
+    if (profPick.includes(k)) profPick = profPick.filter(x => x !== k);
+    else if (profPick.length < PROF.max) profPick.push(k);
+    else toast(`Не больше ${PROF.max} значков — сначала сними один`);
+    renderProfile();
   });
 
   // кнопка в верхней панели: лига и место в ней; по клику — все рейтинги
@@ -5199,6 +5283,10 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.27.0', '12.10.2026', ['Профиль: нажми на имя в рейтинге — увидишь награды и достижения ученика',
+      'Сам выбираешь до трёх значков у своего ника — награды или достижения (кнопка «Мой профиль» в окне опыта)',
+      'Повторяемые награды со счётчиком: 👑 корона дня, 🏆 победа в лиге, 🚀 повышение, ⚔️ победа в дуэли — у значка маленькое число, сколько раз получена. Достижения даются один раз',
+      'Лиги: из бронзовой в серебряную выходят первые 10, из серебряной в золотую — первые 5, из золотой в алмазную — первые 3']],
     ['1.26.0', '12.10.2026', ['В рейтинге можно посмотреть все лиги — бронзовую, серебряную, золотую и алмазную: кто в них и сколько опыта у лидеров']],
     ['1.25.1', '11.10.2026', ['В подборках «Пропустить» ведёт к следующему заданию по порядку — раньше два задания сменяли друг друга по кругу']],
     ['1.25.0', '11.10.2026', ['Задания внутри номера разбиты по типам и сложности (от 1 до 5): тип и сложность видны над условием',

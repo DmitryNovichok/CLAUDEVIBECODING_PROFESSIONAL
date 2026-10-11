@@ -860,6 +860,8 @@ class DB:
                 id INTEGER PRIMARY KEY, a INTEGER NOT NULL, b INTEGER NOT NULL, tasks TEXT NOT NULL, created REAL,
                 status TEXT NOT NULL DEFAULT 'pending', accepted REAL, a_start REAL, b_start REAL, a_done REAL, b_done REAL,
                 a_solved INTEGER, b_solved INTEGER, winner INTEGER, stake INTEGER, finished REAL);
+            CREATE TABLE IF NOT EXISTS awards(
+                student_id INTEGER NOT NULL, kind TEXT NOT NULL, week TEXT NOT NULL, info INTEGER, PRIMARY KEY(student_id, kind, week));
             CREATE TABLE IF NOT EXISTS xp_adjust(
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT);
             CREATE INDEX IF NOT EXISTS xp_adjust_student ON xp_adjust(student_id);
@@ -888,9 +890,16 @@ class DB:
                     ("classes", "battle", "INTEGER DEFAULT 0"),    # участвует ли класс в битве классов (решает учитель)
                     ("students", "course", "INTEGER DEFAULT 0"),   # открыт ли курс (ввёл пароль курса)
                     ("students", "course_ts", "REAL"),
-                    ("students", "is_teacher", "INTEGER DEFAULT 0")):       # учитель решает как ученик — вне рейтингов и списков            # когда ввёл пароль курса   # участвует ли класс в битве классов (решает учитель)
+                    ("students", "is_teacher", "INTEGER DEFAULT 0"),
+                    ("students", "badges", "TEXT")):       # значки у ника, выбранные учеником (JSON, до трёх); NULL — автоматически       # учитель решает как ученик — вне рейтингов и списков            # когда ввёл пароль курса   # участвует ли класс в битве классов (решает учитель)
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            # награды лиг до появления таблицы наград — из итогов последней недели
+            c.execute("""INSERT OR IGNORE INTO awards(student_id, kind, week, info)
+                         SELECT student_id, 'up', result_week, result_league FROM leagues WHERE result='up' AND result_week IS NOT NULL""")
+            c.execute("""INSERT OR IGNORE INTO awards(student_id, kind, week, info)
+                         SELECT student_id, 'league1', result_week, result_league FROM leagues
+                         WHERE result_place=1 AND result IN ('up', 'stay') AND result_week IS NOT NULL""")
             # главный учитель: прежние пароль, код приглашения и настройка авторских заданий переходят к нему
             if not c.execute("SELECT 1 FROM teachers WHERE is_main=1").fetchone():
                 get = lambda k: (c.execute("SELECT value FROM settings WHERE key=?", (k,)).fetchone() or [None])[0]
@@ -1676,6 +1685,52 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                 "tasks": [APP.bank.pid(i) for i in real], "done": [APP.bank.pid(i) for i in real if i in done]})
             return self.send_json({"assignments": out})
 
+        if path in ("/api/profile", "/api/profile/badges"):
+            # профиль ученика: награды и достижения. Смотреть можно своих и учеников того же учителя
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            mates = {m["id"]: m for m in teacher_students(db, teacher_of(s)["id"])}
+            ids = list(set(mates) | {s["id"]})
+            if path == "/api/profile/badges":
+                if method != "POST":
+                    return self.err(405, "нужен POST")
+                keys = data.get("keys")
+                if keys is not None:
+                    if not isinstance(keys, list):
+                        return self.err(400, "неверный список")
+                    g = game_summary(db, s["id"])
+                    opts = badge_options(db, s["id"], g, league_row(db, s["id"])["league"], crown_counts(db, ids), g["ach"])
+                    keys = list(dict.fromkeys(str(k) for k in keys))
+                    if len(keys) > BADGES_MAX:
+                        return self.err(400, f"не больше {BADGES_MAX} значков")
+                    if any(k not in opts for k in keys):
+                        return self.err(400, "такой награды у тебя нет")
+                db.x("UPDATE students SET badges=? WHERE id=?", (None if keys is None else json.dumps(keys), s["id"]))
+                with _GS_LOCK:
+                    _LB_PEOPLE.pop(teacher_of(s)["id"], None)
+                return self.send_json({"ok": True, "badges": keys})
+            sid = to_int(qs.get("sid")) or s["id"]
+            m = s if sid == s["id"] else mates.get(sid)
+            if not m:
+                return self.err(404, "Профиль не найден — смотреть можно только учеников своего учителя")
+            g = game_summary(db, sid)
+            lg = league_row(db, sid)["league"]
+            crowns = crown_counts(db, ids)
+            opts = badge_options(db, sid, g, lg, crowns, g["ach"])
+            cnt = award_counts(db, sid, crowns)
+            awards = [{"k": k, "i": i, "t": t, "d": d, "n": cnt.get(k, 0)} for k, i, t, d in AWARDS]
+            ach = [{"k": "a:" + a["id"], "i": a["icon"], "t": a["title"], "d": a["desc"]} for a in g["ach"] if a["got"]]
+            chosen = chosen_badges(m)
+            return self.send_json({
+                "sid": sid, "me": sid == s["id"], "name": short_name(m["name"]) if sid != s["id"] else m["name"],
+                "level": g["level"], "title": g["title"], "xp": g["xp"], "fire": g["fire"],
+                "league": {"idx": lg, "name": LEAGUES[lg][0], "icon": LEAGUES[lg][1]},
+                "awards": awards, "ach": ach, "ach_total": len(ACHIEVEMENTS),
+                "extra": [dict(opts[k], k=k) for k in ("fire", "diamond") if k in opts],
+                "badges": nick_badges(db, m, game_summary(db, sid, brief=True), lg, daily_crown(db, ids), crowns),
+                "chosen": chosen, "max": BADGES_MAX})
+
         if path == "/api/leaderboard":
             # рейтинги среди учеников того же учителя: лига недели, ТОП-10 за день/неделю/месяц, огонёк, классы
             s = self.student(data)
@@ -1702,16 +1757,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     else:
                         mates = teacher_students(db, tid)
                         crown = daily_crown(db, [m["id"] for m in mates])
-                        base = [lb_person(db, m, crown) for m in mates]
+                        crowns = crown_counts(db, [m["id"] for m in mates])
+                        base = [lb_person(db, m, crown, crowns) for m in mates]
                         with _GS_LOCK:
                             _LB_PEOPLE[tid] = (time.time(), base)
                 finally:
                     _LB_BUILD.release()
-            mine = lb_person(db, s, daily_crown(db, [p["sid"] for p in base] + [s["id"]]))
+            ids = [p["sid"] for p in base if p["sid"] != s["id"]] + [s["id"]]
+            mine = lb_person(db, s, daily_crown(db, ids), crown_counts(db, ids))
             spectator = bool(s["is_teacher"])          # учитель смотрит рейтинг, но сам в нём не участвует
             my_row = dict(mine, me=True)
             people = [dict(p, me=False) for p in base if p["sid"] != s["id"]] + ([] if spectator else [my_row])
-            pub = lambda p, key, place: {"place": place, "name": p["name"], "me": p["me"], "level": p["level"],
+            pub = lambda p, key, place: {"place": place, "sid": p["sid"], "name": p["name"], "me": p["me"], "level": p["level"],
                                          "badges": p["badges"], "value": p[key]}
             boards = {}
             for key in ("day", "week", "month", "fire"):
@@ -1731,8 +1788,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "idx": me["league"], "name": LEAGUES[me["league"]][0], "icon": LEAGUES[me["league"]][1],
                 "top": [pub(p, "wk", i + 1) for i, p in enumerate(members[:LEAGUE_SHOW])],
                 "me": next(({"place": i + 1, "value": p["wk"]} for i, p in enumerate(members) if p["me"]), None),
-                "total": n, "up": LEAGUE_UP if me["league"] < len(LEAGUES) - 1 else 0,
-                "down": LEAGUE_DOWN if me["league"] > 0 and n >= LEAGUE_MIN_DEMOTE else 0,
+                "total": n, "up": LEAGUE_UP[me["league"]],
+                "down": LEAGUE_DOWN if me["league"] > 0 and n >= league_min_demote(me["league"]) else 0,
                 "ends": week_start() + 7 * 86400, "result": result, "week": week_key()}
             # все лиги — посмотреть, кто в других и сколько опыта у лидеров (своя строка «me» — только в своей)
             others = []
@@ -1740,8 +1797,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 mem = sorted((p for p in people if p["league"] == i), key=lambda p: (-p["wk"], p["name"]))
                 others.append({"idx": i, "name": lname, "icon": licon, "total": len(mem),
                                "top": [pub(p, "wk", k + 1) for k, p in enumerate(mem[:LEAGUE_SHOW])],
-                               "up": LEAGUE_UP if i < len(LEAGUES) - 1 else 0,
-                               "down": LEAGUE_DOWN if i > 0 and len(mem) >= LEAGUE_MIN_DEMOTE else 0})
+                               "up": LEAGUE_UP[i],
+                               "down": LEAGUE_DOWN if i > 0 and len(mem) >= league_min_demote(i) else 0})
             boards["leagues"] = others
             # битва классов: опыт класса с понедельника и цель по решённым заданиям
             wk0 = week_start()
@@ -3014,15 +3071,92 @@ _LB_BUILD = threading.Lock()            # собирает один запрос
 LB_TTL = 15
 
 
-def lb_person(db, m, crown):
+def lb_person(db, m, crown, crowns=None):
     """Строка рейтинга: опыт за день/неделю/месяц, огонёк, лига, значки."""
     g = game_summary(db, m["id"], brief=True)
     lg = league_row(db, m["id"])["league"]
-    badges = ([f"🔥{g['fire']}"] if g["fire"] >= 7 else []) + (["👑"] if m["id"] == crown else []) \
-        + (["💎"] if lg == len(LEAGUES) - 1 else [])
-    return {"sid": m["id"], "name": short_name(m["name"]), "level": g["level"], "badges": badges, "league": lg,
+    return {"sid": m["id"], "name": short_name(m["name"]), "level": g["level"],
+            "badges": nick_badges(db, m, g, lg, crown, crowns or {}), "league": lg,
             "class_id": m["class_id"], "crown": crown if m["id"] == crown else None,
             "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"], "wk": g["wk"]}
+
+
+# ---------------------------------------------------------------- награды профиля
+# повторяемые награды — со счётчиком; достижения (ACHIEVEMENTS) даются один раз
+AWARDS = [("crown", "👑", "Корона дня", "Быстрее всех решил задание дня"),
+          ("league1", "🏆", "Победитель лиги", "1-е место в своей лиге по итогам недели"),
+          ("up", "🚀", "Повышение", "Перешёл в лигу выше"),
+          ("duel", "⚔️", "Победа в дуэли", "Выиграл дуэль")]
+BADGES_MAX = 3
+
+
+def crown_counts(db, ids):
+    """Сколько раз у каждого была 👑: дни до сегодняшнего, когда он быстрее всех (из этих учеников) решил задание дня."""
+    if not ids:
+        return {}
+    best = {}
+    today = datetime.now().date().isoformat()
+    for r in db.q(f"SELECT day, student_id, ms, ts FROM daily_results WHERE day<? AND student_id IN ({','.join('?' * len(ids))})",
+                  (today, *ids)):
+        k = (r["ms"] if r["ms"] is not None else 1e18, r["ts"] or 0)
+        if r["day"] not in best or k < best[r["day"]][0]:
+            best[r["day"]] = (k, r["student_id"])
+    out = {}
+    for _, sid in best.values():
+        out[sid] = out.get(sid, 0) + 1
+    return out
+
+
+def award_counts(db, sid, crowns):
+    n = {"crown": crowns.get(sid, 0)}
+    for r in db.q("SELECT kind, COUNT(*) AS c FROM awards WHERE student_id=? GROUP BY kind", (sid,)):
+        n[r["kind"]] = r["c"]
+    n["duel"] = db.q("SELECT COUNT(*) AS c FROM duels WHERE status='finished' AND winner=?", (sid,), one=True)["c"]
+    return n
+
+
+def badge_options(db, sid, g, lg, crowns, ach=None):
+    """Всё, что можно поставить у ника: ключ → {i, t, d, n}. n — сколько раз получена (у повторяемых)."""
+    cnt = award_counts(db, sid, crowns)
+    out = {}
+    for k, i, t, d in AWARDS:
+        if cnt.get(k):
+            out[k] = {"i": i, "t": t, "d": d, "n": cnt[k]}
+    if g["fire"] >= 1:
+        out["fire"] = {"i": "🔥", "t": "Огонёк", "d": "Дней подряд с решёнными заданиями", "n": g["fire"]}
+    if lg == len(LEAGUES) - 1:
+        out["diamond"] = {"i": "💎", "t": "Алмазная лига", "d": "Сейчас в высшей лиге"}
+    for a in (ach or []):
+        if a["got"]:
+            out["a:" + a["id"]] = {"i": a["icon"], "t": a["title"], "d": a["desc"]}
+    return out
+
+
+def chosen_badges(m):
+    try:
+        v = json.loads(m["badges"]) if m["badges"] else None
+    except (ValueError, TypeError, IndexError, KeyError):
+        v = None
+    return [str(x) for x in v][:BADGES_MAX] if isinstance(v, list) else None
+
+
+def badge_pub(key, o):
+    """Значок у ника: число показываем у огонька и у повторяемых наград, полученных больше одного раза."""
+    n = o.get("n") or 0
+    return {"k": key, "i": o["i"], "t": o["t"], "n": n if key == "fire" or n > 1 else 0}
+
+
+def nick_badges(db, m, g, lg, crown, crowns):
+    chosen = chosen_badges(m)
+    if chosen is None:                 # не выбирал сам — как раньше: огонёк 7+, корона сегодня, алмазная лига
+        opts = badge_options(db, m["id"], g, lg, crowns)
+        keys = ([k for k in ("fire",) if g["fire"] >= 7] + (["crown"] if m["id"] == crown and "crown" in opts else [])
+                + (["diamond"] if "diamond" in opts else []))
+    else:
+        need_ach = any(k.startswith("a:") for k in chosen)
+        opts = badge_options(db, m["id"], g, lg, crowns, game_summary(db, m["id"])["ach"] if need_ach else None)
+        keys = [k for k in chosen if k in opts]
+    return [badge_pub(k, opts[k]) for k in keys]
 
 
 def game_summary(db, sid, brief=False, windows=None):
@@ -3241,9 +3375,15 @@ FIRE_NEED = 3                          # заданий за день, чтоб�
 
 # ================================================================ соревнования
 LEAGUES = [("Бронзовая лига", "🥉"), ("Серебряная лига", "🥈"), ("Золотая лига", "🥇"), ("Алмазная лига", "💎")]
-LEAGUE_UP = 10             # первые 10 по опыту за неделю — в лигу выше
+LEAGUE_UP = [10, 5, 3, 0]  # сколько первых по опыту за неделю поднимаются: из бронзы 10, из серебра 5, из золота 3
 LEAGUE_DOWN = 3            # последние трое — в лигу ниже
-LEAGUE_MIN_DEMOTE = LEAGUE_UP + LEAGUE_DOWN   # опускаем, только если в лиге столько человек: иначе зоны пересекались бы
+
+
+def league_min_demote(lg):
+    """Опускаем, только если в лиге столько человек: иначе зоны подъёма и спуска пересекались бы."""
+    return max(LEAGUE_UP[lg], LEAGUE_DOWN) + LEAGUE_DOWN
+
+
 LEAGUE_SHOW = 20           # мест в таблице лиги
 DAILY_NUMS = set(range(1, 19)) | {22, 23, 24, 25}
 DUEL_TASKS = 5
@@ -3263,7 +3403,7 @@ def short_name(name):
 def teacher_students(db, tid):
     """Ученики учителя — без учительских аккаунтов: учитель решает тренажёр, но в рейтингах, лигах и дуэлях не участвует."""
     main_id = main_teacher()["id"]
-    return [r for r in db.q("SELECT id, name, teacher_id, class_id FROM students WHERE COALESCE(is_teacher, 0) = 0")
+    return [r for r in db.q("SELECT id, name, teacher_id, class_id, badges FROM students WHERE COALESCE(is_teacher, 0) = 0")
             if (r["teacher_id"] or main_id) == tid]
 
 
@@ -3276,7 +3416,7 @@ def league_row(db, sid):
 
 
 def league_rollover(db):
-    """В понедельник: первые 10 каждой лиги поднимаются, последние трое опускаются. Лениво, один раз за неделю."""
+    """В понедельник: первые LEAGUE_UP[лига] поднимаются, последние трое опускаются. Лениво, один раз за неделю."""
     cur = week_key()
     with _COMP_LOCK:
         prev = db.setting("league_week")
@@ -3302,12 +3442,16 @@ def league_rollover(db):
             n = len(members)
             for place, (xpw, sid) in enumerate(members, 1):
                 new, res = lg, ("stay" if xpw > 0 else None)
-                if place <= LEAGUE_UP and xpw > 0 and lg < len(LEAGUES) - 1:
+                if place <= LEAGUE_UP[lg] and xpw > 0:
                     new, res = lg + 1, "up"
-                elif n >= LEAGUE_MIN_DEMOTE and place > n - LEAGUE_DOWN and lg > 0:
+                elif n >= league_min_demote(lg) and place > n - LEAGUE_DOWN and lg > 0:
                     new, res = lg - 1, "down"
                 db.x("""UPDATE leagues SET league=?, week=?, result=?, result_place=?, result_league=?, result_week=?
                         WHERE student_id=?""", (new, cur, res, place, lg, prev, sid))
+                if place == 1 and xpw > 0:
+                    db.x("INSERT OR IGNORE INTO awards(student_id, kind, week, info) VALUES(?,'league1',?,?)", (sid, prev, lg))
+                if res == "up":
+                    db.x("INSERT OR IGNORE INTO awards(student_id, kind, week, info) VALUES(?,'up',?,?)", (sid, prev, lg))
 
 
 def daily_task_id(day=None):

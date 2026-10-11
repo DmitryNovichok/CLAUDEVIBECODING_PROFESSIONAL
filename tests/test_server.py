@@ -536,14 +536,18 @@ class ServerTest(unittest.TestCase):
         db.setting("league_week", server.week_key(prev))
         server.league_rollover(db)
         got = {sid: db.q("SELECT league, result, result_place FROM leagues WHERE student_id=?", (sid,), one=True) for sid in sids}
-        self.assertEqual([got[x]["league"] for x in sids], [0, 0, 0, 1, 1, 1] + [2] * 10)   # трое вниз, десятка вверх
+        self.assertEqual([got[x]["league"] for x in sids], [0, 0, 0] + [1] * 8 + [2] * 5)   # трое вниз, из серебра — пятеро вверх
+        aw = {(r["student_id"], r["kind"]) for r in db.q("SELECT student_id, kind FROM awards")}
+        self.assertIn((sids[15], "league1"), aw)                          # победитель лиги и повышение — в награды профиля
+        self.assertEqual({k for x, k in aw if x in sids}, {"league1", "up"})
+        self.assertEqual(sum(1 for x, k in aw if x in sids and k == "up"), 5)
         self.assertEqual(got[sids[15]]["result"], "up")
         self.assertEqual(got[sids[15]]["result_place"], 1)
         self.assertEqual(got[sids[0]]["result"], "down")
         server.league_rollover(db)                                        # повторно в ту же неделю — ничего не меняется
         self.assertEqual(db.q("SELECT league FROM leagues WHERE student_id=?", (sids[15],), one=True)["league"], 2)
         for sid in sids:
-            for t in ("attempts", "leagues"):
+            for t in ("attempts", "leagues", "awards"):
                 db.x(f"DELETE FROM {t} WHERE student_id=?", (sid,))
             db.x("DELETE FROM students WHERE id=?", (sid,))
 
@@ -565,11 +569,38 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("INSERT INTO daily_results(day, student_id, task_id, ms, ts) VALUES(?,?,?,?,?)", (y, me, real, 5000, 0))
         self.assertEqual(self.req("GET", "/api/daily", token=tok)[1]["crown"], "Дневной Д.")
         board = self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]
-        self.assertIn("👑", next(r for r in board["day"]["top"] if r["me"])["badges"])
+        self.assertIn("👑", [b["i"] for b in next(r for r in board["day"]["top"] if r["me"])["badges"]])
         self.assertEqual(board["league"]["name"], "Бронзовая лига")
         lgs = board.get("leagues") or self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]["leagues"]
         self.assertEqual([x["name"] for x in lgs], ["Бронзовая лига", "Серебряная лига", "Золотая лига", "Алмазная лига"])
         self.assertTrue(any(r["me"] for r in lgs[0]["top"]))                # своя лига — со своей строкой
+        # профиль: корона посчитана, значки у ника выбираются (до трёх и только полученные)
+        st, pr = self.req("GET", "/api/profile", token=tok)
+        self.assertEqual(st, 200, pr)
+        self.assertTrue(pr["me"])
+        self.assertEqual(next(a for a in pr["awards"] if a["k"] == "crown")["n"], 1)
+        self.assertTrue(pr["ach"])                                          # первое задание решено — «Первый шаг»
+        first = pr["ach"][0]["k"]
+        self.assertEqual(self.req("POST", "/api/profile/badges", {"keys": ["duel"]}, tok)[0], 400)      # дуэлей не выигрывал
+        self.assertEqual(self.req("POST", "/api/profile/badges", {"keys": ["crown", first, "x", "y"]}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/profile/badges", {"keys": [first, "crown"]}, tok)[0], 200)
+        board = self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]
+        mine = next(r for r in board["day"]["top"] if r["me"])
+        self.assertEqual([b["k"] for b in mine["badges"]], [first, "crown"])
+        self.assertEqual(mine["sid"], me)
+        # повторная корона — у значка число
+        y2 = (datetime.date.today() - datetime.timedelta(days=2)).isoformat()
+        server.APP.db.x("INSERT INTO daily_results(day, student_id, task_id, ms, ts) VALUES(?,?,?,?,?)", (y2, me, real, 1, 0))
+        pr = self.req("GET", "/api/profile", token=tok)[1]
+        self.assertEqual(next(b for b in pr["badges"] if b["k"] == "crown")["n"], 2)
+        # чужой профиль — только ученики того же учителя
+        other = self.login("Соседов Сеня")
+        st, pr2 = self.req("GET", f"/api/profile?sid={me}", token=other)
+        self.assertEqual(st, 200, pr2)
+        self.assertFalse(pr2["me"])
+        self.assertEqual(pr2["name"], "Дневной Д.")
+        self.assertEqual(self.req("GET", "/api/profile?sid=999999", token=other)[0], 404)
+        self.assertEqual(self.req("POST", "/api/profile/badges", {"keys": None}, tok)[0], 200)     # сброс — значки автоматически
 
     def test_daily_once_per_day(self):
         # зашёл в задание дня — сервер это помнит; вторая попытка в рейтинг не идёт, время — от первого входа
