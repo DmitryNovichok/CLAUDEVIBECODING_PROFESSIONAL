@@ -314,13 +314,14 @@
 
   // Свёрнутое меню на компьютере: остаётся узкая полоска со значком, задание получает всю ширину
   const SIDE_MIN_KEY = 'egeTrainer.sideMin';
+  // Сворачивает и разворачивает банк номеров синяя кнопка «Все задания» в полоске слева
   function setSideMin(on) {
     document.body.classList.toggle('side-min', on);
-    const b = $('#sideMinBtn');
-    if (!b) return;
-    b.setAttribute('aria-expanded', String(!on));
-    b.title = on ? 'Развернуть меню' : 'Свернуть меню — больше места для задания';
-    b.setAttribute('aria-label', on ? 'Развернуть меню' : 'Свернуть меню');
+    const b = $('#allCard');
+    if (b) {
+      b.setAttribute('aria-expanded', String(!on));
+      b.title = on ? 'Показать банк заданий' : 'Скрыть банк заданий — больше места для задания';
+    }
     try { localStorage.setItem(SIDE_MIN_KEY, on ? '1' : '0'); } catch (e) { /* нет доступа */ }
   }
   try { if (localStorage.getItem(SIDE_MIN_KEY) === '1') setSideMin(true); } catch (e) { /* нет доступа */ }
@@ -3240,7 +3241,12 @@
     const b = e.target.closest('.num-card');
     if (b && !b.disabled) setScope(+b.dataset.n);
   });
-  $('#allCard').addEventListener('click', () => setScope('all'));
+  $('#allCard').addEventListener('click', () => {
+    const here = !examShown && !courseShown && ui.scope === 'all';
+    if (isNarrow()) { setScope('all'); return; }               // на телефоне банк открывается кнопкой «Номера»
+    if (!here) { setSideMin(false); setScope('all'); if (courseShown) { leaveCourse(); next(); renderSidebar(); } return; }
+    setSideMin(!document.body.classList.contains('side-min'));
+  });
   $('#favCard').addEventListener('click', () => setScope('fav'));
   $('#examCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openExamIntro(); });
   $('#period').addEventListener('change', e => setPeriod(e.target.value));
@@ -3642,13 +3648,14 @@
 
   function bdSize() {
     const cv = $('#bdCanvas'), sh = $('#bdSheet');
-    const w = sh.clientWidth;
+    // целые пиксели и на 1px меньше листа: иначе дробная ширина даёт полосы прокрутки, они сужают лист — и так по кругу
+    const w = Math.max(50, sh.clientWidth - 1);
     let maxY = 0;
     for (const st of BD.strokes) {
       if (st.k === 'text') maxY = Math.max(maxY, st.y + 30);
       else for (let i = 1; i < st.p.length; i += 2) if (st.p[i] > maxY) maxY = st.p[i];
     }
-    const h = Math.max(sh.clientHeight, maxY + 320);          // лист растёт вниз, пока решаешь
+    const h = Math.max(sh.clientHeight - 1, maxY + 320);      // лист растёт вниз, пока решаешь
     const dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
@@ -3879,7 +3886,14 @@
     BD.task = null;
     $$('#bdDock [data-bd-size]').forEach(b => b.classList.toggle('on', +b.dataset.bdSize === BD.size));
     bdSync();
-    if (!BD.ro && window.ResizeObserver) { BD.ro = new ResizeObserver(() => bdRedraw()); BD.ro.observe($('#bdSheet')); }
+    if (!BD.ro && window.ResizeObserver) {
+      let last = '';
+      BD.ro = new ResizeObserver(([en]) => {                // перерисовка только при настоящей смене размера
+        const k = Math.round(en.contentRect.width) + 'x' + Math.round(en.contentRect.height);
+        if (k !== last) { last = k; requestAnimationFrame(bdRedraw); }
+      });
+      BD.ro.observe($('#bdSheet'));
+    }
   }
   /** Доска следует за открытым заданием: у каждого своя. */
   function bdSync() {
@@ -5020,7 +5034,8 @@
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
     ['1.24.0', '11.10.2026', ['Доска для решения: кнопка «Доска» рядом с «Python» открывает лист в клетку справа от задачи — ручка, прямая, текст, ластик, отмена. У каждого задания своя доска',
-      'Верхняя панель больше не наезжает на рейтинг, когда открыто окно Python']],
+      'Верхняя панель больше не наезжает на рейтинг, когда открыто окно Python',
+      'Синяя кнопка «Все задания» слева теперь показывает и скрывает банк номеров — отдельная кнопка со стрелками больше не нужна']],
     ['1.23.0', '10.10.2026', ['За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
     ['1.22.3', '10.10.2026', ['Исправлены формулы в «Банке ЕГЭ»: снова видны степени и индексы (около 1100 заданий, в том числе №14)', 'Верхняя панель больше не наезжает на окно Python']],
     ['1.22.2', '10.10.2026', ['Сервер выдерживает больше учеников одновременно: рейтинг собирается один раз на всех, соединения в начале урока не теряются']],
