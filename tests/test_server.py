@@ -472,6 +472,35 @@ class ServerTest(unittest.TestCase):
         self.admin("POST", "/api/admin/course", {"off": True})
         self.assertFalse(self.admin("GET", "/api/admin/info")[1]["course_set"])
 
+    def test_course_sets_and_progress(self):
+        # подборки курса собирает сервер; главный учитель видит прогресс: слайды и решённые задания подборок
+        self.admin("POST", "/api/admin/course", {"password": "лиса2026"})
+        tok = self.login("Прогрессов Пётр")
+        self.assertEqual(self.req("GET", "/api/course/sets", token=tok)[0], 403)                 # курс не открыт
+        self.req("POST", "/api/course/unlock", {"password": "лиса2026"}, tok)
+        st, d = self.req("GET", "/api/course/sets", token=tok)
+        self.assertEqual(st, 200, d)
+        p5 = server.APP.bank.pid("b:5")
+        self.assertIn(p5, [i for v in d["sets"]["5"].values() for i in v])                     # задание №5 попало в подборки урока
+        (server.HERE / "course").mkdir(exist_ok=True)
+        (server.HERE / "course" / "5.json").write_text((Path(__file__).resolve().parent.parent / "course" / "5.json").read_text(encoding="utf-8"), encoding="utf-8")
+        self.assertEqual(self.req("POST", "/api/course/seen", {"n": 5, "slide": 7, "total": 34}, tok)[0], 200)
+        self.req("POST", "/api/course/seen", {"n": 5, "slide": 3, "total": 34}, tok)              # назад — максимум не уменьшается
+        self.assertEqual(self.req("POST", "/api/course/seen", {"n": 5, "slide": 99, "total": 34}, tok)[0], 400)
+        self.req("POST", "/api/open", {"task": p5}, tok)
+        self.check(tok, p5, answer="12")
+        st, d = self.admin("GET", "/api/admin/course/progress")
+        self.assertEqual(st, 200, d)
+        me = next(s for s in d["students"] if s["name"] == "Прогрессов Пётр")
+        self.assertEqual(me["lessons"]["5"]["seen"], 7)
+        self.assertGreaterEqual(sum(v["done"] for v in me["lessons"]["5"]["sets"].values()), 1)   # в маленьком банке контрольная повторяет задания
+        self.assertGreater(me["pct"], 0)
+        sid = me["id"]
+        st, d = self.admin("GET", f"/api/admin/course/progress?id={sid}")
+        tasks = [t for v in d["students"][0]["lessons"]["5"]["sets"].values() for t in v["tasks"]]
+        self.assertEqual({t["st"] for t in tasks if t["id"] == "b:5"}, {"ok"})
+        self.admin("POST", "/api/admin/course", {"off": True})
+
     def test_funny_achievements(self):
         db = server.APP.db
         sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Шутов Шура','шутов шура','tkfun',0,0)")

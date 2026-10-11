@@ -850,6 +850,8 @@ class DB:
                 result TEXT, result_place INTEGER, result_league INTEGER, result_week TEXT);
             CREATE TABLE IF NOT EXISTS daily_results(
                 day TEXT NOT NULL, student_id INTEGER NOT NULL, task_id TEXT, ms INTEGER, ts REAL, PRIMARY KEY(day, student_id));
+            CREATE TABLE IF NOT EXISTS course_seen(
+                student_id INTEGER NOT NULL, n INTEGER NOT NULL, slide INTEGER, total INTEGER, ts REAL, PRIMARY KEY(student_id, n));
             CREATE TABLE IF NOT EXISTS visits(
                 day TEXT NOT NULL, vid TEXT NOT NULL, ts REAL, PRIMARY KEY(day, vid));
             CREATE TABLE IF NOT EXISTS daily_starts(
@@ -1485,6 +1487,32 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json(json.loads(f.read_text(encoding="utf-8")))
             except ValueError:
                 return self.err(500, "презентация повреждена")
+
+        if path == "/api/course/sets":
+            # состав подборок курса (по 20 заданий) — собирает сервер по кластерам, одинаково для ученика и учителя
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not course_open(s):
+                return self.err(403, "курс закрыт")
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            sets = course_sets_all(bool(teacher_of(s)["authored"]))
+            pid = APP.bank.pid
+            return self.send_json({"sets": {n: {k: [pid(i) for i in ids] for k, ids in v.items()} for n, v in sets.items()}})
+
+        if path == "/api/course/seen" and method == "POST":
+            # докуда ученик долистал презентацию урока — учитель видит в прогрессе курса
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            n, sl, tot = to_int(data.get("n")), to_int(data.get("slide")), to_int(data.get("total"))
+            if not (n and 1 <= n <= 27 and sl and 0 < sl <= (tot or 0) <= 200):
+                return self.err(400, "неверные данные")
+            db.x("""INSERT INTO course_seen(student_id, n, slide, total, ts) VALUES(?,?,?,?,?)
+                    ON CONFLICT(student_id, n) DO UPDATE SET slide=MAX(slide, excluded.slide), total=excluded.total, ts=excluded.ts""",
+                 (s["id"], n, sl, tot, time.time()))
+            return self.send_json({"ok": True})
 
         if path == "/api/course/unlock" and method == "POST":
             # курс — по паролю от учителя; попыток немного, чтобы пароль не подбирали
@@ -2326,6 +2354,65 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             rows = db.q("""SELECT s.name, s.course_ts, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id
                            WHERE s.course=1 ORDER BY s.course_ts DESC, s.name""")
             return self.send_json({"students": [{"name": r["name"], "class": r["cls"], "ts": r["course_ts"]} for r in rows]})
+
+        if path == "/api/admin/course/progress":
+            # прогресс курса (главный учитель): кто открыл курс, сколько слайдов просмотрел, сколько решил в каждой подборке
+            if not self.T["is_main"]:
+                return self.err(403, "Прогресс курса видит главный учитель")
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            sets = course_sets_all(True)
+            lessons = []
+            for n in range(1, 28):
+                f = HERE / "course" / f"{n}.json"
+                if f.is_file():
+                    try:
+                        slides = len(json.loads(f.read_text(encoding="utf-8")).get("slides", []))
+                    except ValueError:
+                        slides = 0
+                    lessons.append({"n": n, "slides": slides, "sets": {k: len(v) for k, v in sets.get(n, {}).items()}})
+            names = {t["id"]: t["name"] for t in db.q("SELECT id, name FROM teachers")}
+            main_id = main_teacher()["id"]
+            rows = db.q("""SELECT s.id, s.name, s.course_ts, s.last_seen, s.teacher_id, c.name AS cls FROM students s
+                           LEFT JOIN classes c ON c.id = s.class_id WHERE s.course = 1 AND COALESCE(s.is_teacher, 0) = 0
+                           ORDER BY s.name""")
+            sid = qs.get("id")
+            out = []
+            for r in rows:
+                if sid and str(r["id"]) != str(sid):
+                    continue
+                seen = {x["n"]: (x["slide"], x["total"]) for x in db.q("SELECT n, slide, total FROM course_seen WHERE student_id=?", (r["id"],))}
+                st = {}
+                for a in db.q("""SELECT COALESCE(grp, task_id) AS t, MAX(score > 0) AS ok, MAX(ts) AS ts FROM attempts
+                                 WHERE student_id=? AND exam IS NULL GROUP BY COALESCE(grp, task_id)""", (r["id"],)):
+                    st[a["t"]] = (a["ok"], a["ts"])
+                ls, done_all, tot_all, last = {}, 0, 0, None
+                for L in lessons:
+                    per = {}
+                    for k, ids in sets.get(L["n"], {}).items():
+                        ok = [i for i in ids if st.get(i, (0,))[0]]
+                        bad = [i for i in ids if i in st and not st[i][0]]
+                        per[k] = {"done": len(ok), "bad": len(bad), "total": len(ids)}
+                        if sid:
+                            per[k]["tasks"] = [{"id": i, "snip": APP.bank.snippet(i), "c": (APP.bank.tasks.get(i) or {}).get("c"),
+                                                "r": (APP.bank.tasks.get(i) or {}).get("r"),
+                                                "st": "ok" if i in ok else "bad" if i in bad else ""} for i in ids]
+                        done_all += len(ok)
+                        tot_all += len(ids)
+                        for i in ids:
+                            if i in st and (last is None or st[i][1] > last):
+                                last = st[i][1]
+                    sl = seen.get(L["n"])
+                    ls[L["n"]] = {"sets": per, "seen": sl[0] if sl else 0, "slides": L["slides"]}
+                slides_seen = sum(v["seen"] for v in ls.values())
+                slides_all = sum(v["slides"] for v in ls.values()) or 1
+                out.append({"id": r["id"], "name": r["name"], "class": r["cls"], "teacher": names.get(r["teacher_id"] or main_id, ""),
+                            "opened": r["course_ts"], "last_seen": r["last_seen"], "last_task": last, "lessons": ls,
+                            "done": done_all, "total": tot_all,
+                            # итог: 30% — презентации, 70% — решённые задания подборок
+                            "pct": round(100 * (0.3 * min(1, slides_seen / slides_all) + 0.7 * (done_all / tot_all if tot_all else 0)))})
+            return self.send_json({"lessons": lessons, "students": out,
+                                   "set_names": {"warm": "Разминка", "base": "Базовый", "exam": "Как на ЕГЭ", "hard": "Сложные", "test": "Контрольная"}})
 
         if path == "/api/admin/course" and method == "POST":
             # пароль курса: задать или сменить; revoke — закрыть курс всем, кто уже вошёл
@@ -3278,6 +3365,21 @@ def duel_settle(db, d):
             db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[lose], now, -stake, f"duel:{d['id']}"))
     db.x("UPDATE duels SET status='finished', a_solved=?, b_solved=?, winner=?, stake=?, finished=? WHERE id=?",
          (sa, sb, d[win] if win else None, stake, now, d["id"]))
+
+
+_CSETS = {}
+
+
+def course_sets_all(authored_ok):
+    """Подборки курса для всех номеров: {n: {warm|base|exam|hard|test: [id]}} — пересчёт при смене банка."""
+    key = (APP.bank.etag, bool(authored_ok))
+    if key not in _CSETS:
+        tasks = [t for t in APP.bank.tasks.values()
+                 if authored_ok or not is_authored(t.get("src"), t.get("html"))]
+        for k in [k for k in _CSETS if k[0] != APP.bank.etag]:
+            del _CSETS[k]                # банк пересобрали — старые подборки не нужны
+        _CSETS[key] = {n: clusters.course_sets(tasks, n) for n in range(1, 28) if n not in (20, 21)}
+    return _CSETS[key]
 
 
 RATE_MIN = 3                            # с какого числа ответов показываем долю верных

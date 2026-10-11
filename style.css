@@ -1706,3 +1706,13 @@ body:has(.bd-dock:not([hidden])) .topbar .dots { display: none; }
 .bd-fs .bd-size:disabled { opacity: .35; cursor: default; }
 .bd-fs b { min-width: 22px; text-align: center; font: 800 13px var(--font); color: var(--text); }
 .daily-used { padding: 12px 14px; border: 2px solid var(--border); border-radius: 12px; background: var(--bg); font-weight: 600; line-height: 1.5; }
+
+/* курс: плашки «Секрет» и «Осторожно!», ответ «Отлично!» — как в презентации */
+.sl-nuance.nk-secret { border: 2px solid #84d8ff; background: #ddf4ff; color: #1453a3; border-radius: 14px; }
+.sl-nuance.nk-warn { border: 2px solid #ffc800; background: #fff4d6; color: #7a4b00; border-radius: 14px; }
+.sl-nuance .nk { font-weight: 900; }
+.sl-nuance code { color: inherit; }
+.sl-ansbox .sl-ok { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; padding: 8px 14px; border-radius: 14px;
+  background: #d7ffb8; color: #2b7000; font-weight: 800; border: 2px solid #89e219; }
+.sl-ansbox .sl-ok i { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #58cc02; color: #fff; font-style: normal; font-size: 14px; }
+.sl-ansbox .sl-ok b { margin-left: 0; color: #2b7000; }

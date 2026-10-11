@@ -38,6 +38,7 @@
       <button type="button" data-tab="classes">Классы</button>
       <button type="button" data-tab="build">Создать подборку</button>
       <button type="button" data-tab="teachers" class="main-only">Учителя</button>
+      <button type="button" data-tab="course" class="main-only">Курс</button>
       <button type="button" data-tab="site" class="main-only">Статистика сайта</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
       <button type="button" data-tab="settings">Настройки</button>
@@ -111,6 +112,16 @@
         </div>
         <aside class="adm-box bld-draft" id="bldDraft"></aside>
       </div>
+    </section>
+
+    <section class="adm-view" id="view-course" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Прогресс курса</h2>
+        <input class="inp" id="cpFind" placeholder="Поиск по ФИО" style="max-width:240px">
+        <button type="button" class="btn ghost" id="cpReload">Обновить</button></div>
+      <p class="adm-hint" style="margin:0 0 12px">Ученики, которые открыли курс паролем. Прогресс урока: <b>30%</b> — презентация (докуда долистал),
+        <b>70%</b> — решённые задания пяти подборок. Нажмите на ученика — увидите каждое задание: <span class="cp-sq ok"></span> решено,
+        <span class="cp-sq bad"></span> с ошибкой, <span class="cp-sq"></span> не начато.</p>
+      <div id="cpBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
     <section class="adm-view" id="view-site" hidden>
