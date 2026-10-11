@@ -1716,3 +1716,57 @@ body:has(.bd-dock:not([hidden])) .topbar .dots { display: none; }
   background: #d7ffb8; color: #2b7000; font-weight: 800; border: 2px solid #89e219; }
 .sl-ansbox .sl-ok i { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #58cc02; color: #fff; font-style: normal; font-size: 14px; }
 .sl-ansbox .sl-ok b { margin-left: 0; color: #2b7000; }
+
+/* курс №1: схема дорог (граф) и таблица смежности */
+.sl-graph { display: block; max-width: 100%; height: auto; flex: none; }
+.sl-graph line { stroke: var(--text); stroke-width: 2.5; stroke-linecap: round; opacity: .75; }
+.sl-graph line.hl { stroke: #ff9600; stroke-width: 4; opacity: 1; }
+.sl-graph circle { fill: var(--card); stroke: #1cb0f6; stroke-width: 3; }
+.sl-graph text { fill: var(--text); font: 900 14px var(--font); text-anchor: middle; }
+.sl-pair { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+table.sl-adj { border-collapse: collapse; width: auto; font-variant-numeric: tabular-nums; }
+table.sl-adj th, table.sl-adj td { min-width: 34px; height: 30px; padding: 2px 6px; text-align: center; border: 1px solid var(--border); font-size: 14px; }
+table.sl-adj th { background: var(--bg); font-weight: 800; color: var(--muted); font-size: 12.5px; }
+table.sl-adj td.x { background: repeating-linear-gradient(45deg, transparent 0 4px, var(--border) 4px 5px); }
+table.sl-adj.sm th, table.sl-adj.sm td { min-width: 26px; height: 24px; font-size: 12.5px; padding: 1px 4px; }
+table.sl-adj.xs th, table.sl-adj.xs td { min-width: 20px; height: 20px; font-size: 11px; padding: 0 3px; }
+.sl-cond .sl-graph { margin: 0 auto 8px; }
+.sl-cond table.sl-adj { margin: 0 auto 8px; }
+.sl-degs { font-size: 13.5px; line-height: 1.7; margin: 0 0 8px; }
+.sl-degs sub { font-weight: 900; color: #1cb0f6; font-size: 11px; }
+.sl-practice .sl-card { align-items: center; }
+.sl-practice .sl-graph { margin: 4px auto; }
+.sl-practice table.sl-adj { margin: 4px auto; }
+/* слайд с длинной программой: колонка кода шире */
+.sl-split.wide { grid-template-columns: minmax(0, .85fr) minmax(0, 1.3fr); }
+.sl-split.wide .sl-code { font-size: 12.5px; line-height: 1.5; }
+.sl-blocks .sl-code { font-size: 12.5px; }
+
+/* курс №3: таблицы базы данных и схема связей */
+table.sl-db { font-size: 13px; }
+table.sl-db caption { caption-side: top; text-align: left; font: 900 14px var(--font); padding: 0 0 6px; color: var(--text); }
+table.sl-db th, table.sl-db td { padding: 4px 8px; white-space: nowrap; }
+table.sl-moves { font-size: 12px; }
+table.sl-moves th, table.sl-moves td { padding: 2px 7px; }
+table.sl-db tr.hl td { background: #d7ffb8; color: #2b7000; font-weight: 700; }
+table.sl-db .add { background: #ddf4ff; color: #1453a3; }
+table.sl-db tr.hl td.add { background: #c8f0a0; }
+.sl-erd { display: grid; grid-template-columns: 1fr auto 1.25fr auto 1fr; gap: 10px; align-items: center; margin-bottom: 14px; }
+.sl-ent { border: 2px solid var(--border); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; font-size: 13px; background: var(--card); }
+.sl-ent b { background: var(--bg); padding: 6px 10px; font: 900 14px var(--font); }
+.sl-ent span { padding: 3px 10px; border-top: 1px solid var(--border); }
+.sl-ent .pk { font-weight: 800; color: #1453a3; }
+.sl-ent .fk { font-weight: 800; color: #d9822b; }
+.sl-ent.main { border-color: #1cb0f6; }
+.sl-link { font: 800 12px var(--font); color: var(--muted); white-space: nowrap; }
+.sl-excel li { font-size: 13.5px; }
+/* слайд «задание сверху, программа под ним во всю ширину» — для длинного кода */
+.sl-split.stack { grid-template-columns: minmax(0, 1fr); }
+.sl-split.stack .sl-left { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+.sl-split.stack .sl-cond { flex: 2 1 380px; display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+.sl-split.stack .sl-cond > .sl-cond-h { flex-basis: 100%; }
+.sl-split.stack .sl-cond > p, .sl-split.stack .sl-cond > ol { flex: 1 1 260px; margin: 0; }
+.sl-split.stack .sl-cond .sl-graph, .sl-split.stack .sl-cond table.sl-adj { margin: 0; }
+.sl-split.stack .sl-nuance { flex: 1 1 220px; }
+.sl-split.stack .sl-code { font-size: 12.5px; line-height: 1.5; max-height: 460px; }
+table.sl-moves { display: block; max-width: 100%; overflow-x: auto; }
