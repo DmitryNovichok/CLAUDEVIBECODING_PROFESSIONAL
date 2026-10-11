@@ -955,6 +955,7 @@
         <span class="head-chips">${chip}</span>
         <span class="task-tools">
           ${PY_BTN}
+          ${BD_BTN}
           ${MARK_BTN}
           <button type="button" class="icon-btn fav-btn${fav ? ' on' : ''}" id="favBtn" aria-pressed="${fav}" title="${fav ? 'Убрать из избранного' : 'В избранное'}">${fav ? '★' : '☆'}</button>
           <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
@@ -991,6 +992,7 @@
     if (first && window.matchMedia('(min-width: 861px)').matches && !pyOpen()) first.focus({ preventScroll: true });
     window.scrollTo({ top: 0 });
     pySync();
+    bdSync();
   }
 
   /**
@@ -3086,7 +3088,7 @@
       <div class="task-head">
         <span class="num-badge">${numLabel(t.n)}</span>
         <div class="task-meta">Вариант ЕГЭ · ${EX.cur + 1} из ${EX.items.length}</div>
-        <span class="task-tools">${PY_BTN}${MARK_BTN}</span>
+        <span class="task-tools">${PY_BTN}${BD_BTN}${MARK_BTN}</span>
       </div>
       <article class="cond" id="cond">${safeHtml(t.html)}</article>
       ${filesHtml(t)}
@@ -3108,6 +3110,7 @@
     window.scrollTo({ top: 0 });
     renderTopbar();
     pySync();
+    bdSync();
   }
 
   function localExamResult(list) {
@@ -3270,6 +3273,7 @@
   trainerEl.addEventListener('click', e => {
     const id = e.target.closest('[id]') && e.target.closest('[id]').id;
     if (id === 'pyBtn') { togglePy(); return; }
+    if (id === 'bdBtn') { toggleBoard(); return; }
     if (examShown && EX) {
       const nb = e.target.closest('.ex-nav-btn');
       if (nb) { exGo(+nb.dataset.i); return; }
@@ -3600,6 +3604,300 @@
 
 
 
+
+  // ------------------------------------------------------------ доска для решения
+  // Панель справа от задания (вместо окна Python): ручка, прямая, текст, ластик. Штрихи хранятся в пикселях листа,
+  // у каждого задания своя доска (в браузере ученика, последние BD_KEEP). Цвет «ink» — цвет текста темы.
+  const BD_BTN = '<button type="button" class="icon-btn bd-btn" id="bdBtn" title="Доска — решать от руки рядом с задачей">'
+    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21l4-4 4 4"/><path d="M7 13l3-3 2 2 4-4"/></svg><span>Доска</span></button>';
+  const BD_KEEP = 40, BD_INDEX = 'egeTrainer.boards', bdKey = id => 'egeTrainer.board.' + id;
+  const BD_BGS = ['grid', 'lines', 'plain'];
+  const BD = { task: null, strokes: [], undo: [], redo: [], tool: 'pen', color: 'ink', size: 2, bg: 'grid', drawing: null, text: null, ro: null, saveT: 0 };
+  const bdOpen = () => !$('#bdDock').hidden;
+  try { const v = readJSON('egeTrainer.boardPrefs'); if (v) Object.assign(BD, { bg: BD_BGS.includes(v.bg) ? v.bg : 'grid', size: v.size === 5 ? 5 : 2 }); } catch (e) {}
+
+  function bdLoad(id) {
+    const d = readJSON(bdKey(id));
+    BD.strokes = d && Array.isArray(d.s) ? d.s : [];
+    BD.undo = [];
+    BD.redo = [];
+  }
+  function bdSave() {
+    clearTimeout(BD.saveT);
+    BD.saveT = 0;
+    if (!BD.task) return;
+    const id = BD.task.id;
+    let idx = (readJSON(BD_INDEX) || []).filter(x => x !== id);
+    if (BD.strokes.length) {
+      idx.push(id);
+      while (idx.length > BD_KEEP) { const old = idx.shift(); try { storage && storage.removeItem(bdKey(old)); } catch (e) {} }
+      writeJSON(bdKey(id), { s: BD.strokes, t: Date.now() });
+    } else {
+      try { storage && storage.removeItem(bdKey(id)); } catch (e) {}
+    }
+    writeJSON(BD_INDEX, idx);
+  }
+  const bdSaveSoon = () => { clearTimeout(BD.saveT); BD.saveT = setTimeout(bdSave, 400); };
+  const bdInk = c => (c === 'ink' ? getComputedStyle(document.body).getPropertyValue('--text').trim() || '#888' : c);
+
+  function bdSize() {
+    const cv = $('#bdCanvas'), sh = $('#bdSheet');
+    const w = sh.clientWidth;
+    let maxY = 0;
+    for (const st of BD.strokes) {
+      if (st.k === 'text') maxY = Math.max(maxY, st.y + 30);
+      else for (let i = 1; i < st.p.length; i += 2) if (st.p[i] > maxY) maxY = st.p[i];
+    }
+    const h = Math.max(sh.clientHeight, maxY + 320);          // лист растёт вниз, пока решаешь
+    const dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+      cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    }
+    return dpr;
+  }
+  function bdDrawStroke(g, st) {
+    g.strokeStyle = g.fillStyle = bdInk(st.c);
+    if (st.k === 'text') {
+      g.font = `${st.w > 3 ? 22 : 17}px ${getComputedStyle(document.body).fontFamily}`;
+      g.textBaseline = 'top';
+      String(st.t).split('\n').forEach((ln, i) => g.fillText(ln, st.x, st.y + i * (st.w > 3 ? 27 : 21)));
+      return;
+    }
+    const p = st.p;
+    g.lineWidth = st.w;
+    g.beginPath();
+    g.moveTo(p[0], p[1]);
+    if (p.length === 2) { g.lineTo(p[0] + 0.1, p[1]); }
+    else if (st.k === 'line' || p.length === 4) { g.lineTo(p[p.length - 2], p[p.length - 1]); }
+    else {
+      for (let i = 2; i < p.length - 2; i += 2) {        // сглаживание: кривые через середины отрезков
+        const mx = (p[i] + p[i + 2]) / 2, my = (p[i + 1] + p[i + 3]) / 2;
+        g.quadraticCurveTo(p[i], p[i + 1], mx, my);
+      }
+      g.lineTo(p[p.length - 2], p[p.length - 1]);
+    }
+    g.stroke();
+  }
+  function bdRedraw() {
+    if (!bdOpen()) return;
+    const cv = $('#bdCanvas'), dpr = bdSize(), g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const st of BD.strokes) bdDrawStroke(g, st);
+    if (BD.drawing && BD.drawing.p) bdDrawStroke(g, BD.drawing);
+    cv.dataset.bg = BD.bg;
+    cv.dataset.tool = BD.tool;
+    $('#bdUndo').disabled = !BD.undo.length;
+    $('#bdRedo').disabled = !BD.redo.length;
+  }
+  function bdPos(e) {
+    const r = $('#bdCanvas').getBoundingClientRect();
+    return [Math.round((e.clientX - r.left) * 10) / 10, Math.round((e.clientY - r.top) * 10) / 10];
+  }
+  function bdEraseAt(x, y) {
+    const R = 10;
+    const hit = st => {
+      if (st.k === 'text') {
+        const lines = String(st.t).split('\n'), lh = st.w > 3 ? 27 : 21;
+        const w = Math.max(...lines.map(l => l.length)) * (st.w > 3 ? 12 : 9.5);
+        return x >= st.x - R && x <= st.x + w + R && y >= st.y - R && y <= st.y + lines.length * lh + R;
+      }
+      const p = st.p;
+      for (let i = 0; i < p.length; i += 2) {
+        const ax = p[i], ay = p[i + 1], bx = p[i + 2] != null ? p[i + 2] : ax, by = p[i + 3] != null ? p[i + 3] : ay;
+        const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+        const t = L ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L)) : 0;
+        const ex = ax + t * dx - x, ey = ay + t * dy - y;
+        if (ex * ex + ey * ey <= (R + st.w / 2) ** 2) return true;
+      }
+      return false;
+    };
+    const keep = BD.strokes.filter(st => !hit(st));
+    if (keep.length !== BD.strokes.length) {
+      bdDo({ del: BD.strokes.filter(st => !keep.includes(st)) });
+      BD.strokes = keep;
+      bdRedraw();
+      bdSaveSoon();
+    }
+  }
+  function bdTextCommit() {
+    const ta = BD.text;
+    if (!ta) return;
+    BD.text = null;
+    const t = ta.value.replace(/\s+$/, '');
+    if (t) { const st = { k: 'text', c: BD.color, w: BD.size, x: +ta.dataset.x, y: +ta.dataset.y, t: t.slice(0, 2000) }; BD.strokes.push(st); bdDo({ add: [st] }); bdSaveSoon(); }
+    ta.remove();
+    bdRedraw();
+  }
+  function bdTextAt(x, y) {
+    bdTextCommit();
+    const ta = document.createElement('textarea');
+    ta.className = 'bd-text';
+    ta.dataset.x = x; ta.dataset.y = y;
+    ta.style.left = x + 'px'; ta.style.top = y + 'px';
+    ta.style.color = bdInk(BD.color);
+    ta.style.fontSize = (BD.size > 3 ? 22 : 17) + 'px';
+    ta.rows = 1;
+    ta.placeholder = 'текст…';
+    ta.addEventListener('blur', bdTextCommit);
+    ta.addEventListener('keydown', e => {
+      if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); ta.blur(); }
+      e.stopPropagation();
+    });
+    ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
+    $('#bdSheet').appendChild(ta);
+    BD.text = ta;
+    ta.focus({ preventScroll: true });
+  }
+  $('#bdCanvas').addEventListener('pointerdown', e => {
+    if (e.button > 0) return;
+    e.preventDefault();
+    const [x, y] = bdPos(e);
+    if (BD.tool === 'text') { bdTextAt(x, y); return; }
+    bdTextCommit();
+    $('#bdCanvas').setPointerCapture(e.pointerId);
+    if (BD.tool === 'eraser') { BD.drawing = { erasing: true }; bdEraseAt(x, y); return; }
+    BD.drawing = { k: BD.tool === 'line' ? 'line' : 'pen', c: BD.color, w: BD.size, p: [x, y] };
+    bdRedraw();
+  });
+  $('#bdCanvas').addEventListener('pointermove', e => {
+    const d = BD.drawing;
+    if (!d) return;
+    const [x, y] = bdPos(e);
+    if (d.erasing) { bdEraseAt(x, y); return; }
+    if (d.k === 'line') { d.p = [d.p[0], d.p[1], x, y]; }
+    else {
+      const lx = d.p[d.p.length - 2], ly = d.p[d.p.length - 1];
+      if ((x - lx) ** 2 + (y - ly) ** 2 < 2.5) return;
+      d.p.push(x, y);
+    }
+    bdRedraw();
+  });
+  const bdUp = () => {
+    const d = BD.drawing;
+    BD.drawing = null;
+    if (!d || d.erasing) return;
+    if (d.p.length > 200000) return;
+    BD.strokes.push(d);
+    bdDo({ add: [d] });
+    bdRedraw();
+    bdSaveSoon();
+  };
+  $('#bdCanvas').addEventListener('pointerup', bdUp);
+  $('#bdCanvas').addEventListener('pointercancel', bdUp);
+
+  // история: {add: [штрихи]} — нарисовал, {del: [штрихи]} — стёр ластиком или очистил
+  function bdDo(act) {
+    BD.undo.push(act);
+    if (BD.undo.length > 200) BD.undo.shift();
+    BD.redo = [];
+  }
+  function bdApply(act, back) {
+    const add = back ? act.del : act.add, del = back ? act.add : act.del;
+    if (del) BD.strokes = BD.strokes.filter(st => !del.includes(st));
+    if (add) BD.strokes.push(...add);
+    bdRedraw(); bdSaveSoon();
+  }
+  function bdUndo() {
+    bdTextCommit();
+    const act = BD.undo.pop();
+    if (!act) return;
+    BD.redo.push(act);
+    bdApply(act, true);
+  }
+  function bdRedoAct() {
+    const act = BD.redo.pop();
+    if (!act) return;
+    BD.undo.push(act);
+    bdApply(act, false);
+  }
+  function bdSetTool(t) {
+    bdTextCommit();
+    BD.tool = t;
+    $$('#bdDock [data-bd-tool]').forEach(b => { const on = b.dataset.bdTool === t; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+    $('#bdCanvas').dataset.tool = t;
+  }
+  $('#bdDock').addEventListener('click', e => {
+    const tl = e.target.closest('[data-bd-tool]');
+    if (tl) { bdSetTool(tl.dataset.bdTool); return; }
+    const c = e.target.closest('[data-bd-color]');
+    if (c) {
+      BD.color = c.dataset.bdColor;
+      $$('#bdDock [data-bd-color]').forEach(b => b.classList.toggle('on', b === c));
+      if (BD.tool === 'eraser') bdSetTool('pen');
+      return;
+    }
+    const sz = e.target.closest('[data-bd-size]');
+    if (sz) {
+      BD.size = +sz.dataset.bdSize;
+      $$('#bdDock [data-bd-size]').forEach(b => b.classList.toggle('on', b === sz));
+      writeJSON('egeTrainer.boardPrefs', { bg: BD.bg, size: BD.size });
+      return;
+    }
+    const id = e.target.closest('button') && e.target.closest('button').id;
+    if (id === 'bdUndo') bdUndo();
+    else if (id === 'bdRedo') bdRedoAct();
+    else if (id === 'bdClose') toggleBoard(false);
+    else if (id === 'bdToPy') { toggleBoard(false); togglePy(true); }
+    else if (id === 'bdWide') {
+      const on = document.body.classList.toggle('bd-wide');
+      $('#bdWide').setAttribute('aria-pressed', String(on));
+      setTimeout(bdRedraw, 30);
+    } else if (id === 'bdBg') {
+      BD.bg = BD_BGS[(BD_BGS.indexOf(BD.bg) + 1) % BD_BGS.length];
+      writeJSON('egeTrainer.boardPrefs', { bg: BD.bg, size: BD.size });
+      bdRedraw();
+    } else if (id === 'bdClear') {
+      if (!BD.strokes.length || !confirm('Очистить доску этого задания? Вернуть можно кнопкой ↶')) return;
+      bdDo({ del: BD.strokes });
+      BD.strokes = [];
+      bdRedraw(); bdSave();
+    }
+  });
+  document.addEventListener('keydown', e => {
+    if (!bdOpen() || e.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (!$('#forecastModal').hidden) return;
+    const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я') && !e.shiftKey) { e.preventDefault(); bdUndo(); return; }
+    if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н' || ((k === 'z' || k === 'я') && e.shiftKey))) { e.preventDefault(); bdRedoAct(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tool = { p: 'pen', з: 'pen', l: 'line', д: 'line', t: 'text', е: 'text', e: 'eraser', у: 'eraser' }[k];
+    if (tool) bdSetTool(tool);
+  });
+
+  function toggleBoard(force) {
+    const open = force != null ? force : !bdOpen();
+    if (open && pyOpen()) togglePy(false);             // справа одна панель: или Python, или доска
+    if (!open) { bdTextCommit(); bdSave(); }
+    $('#bdDock').hidden = !open;
+    document.body.classList.toggle('bd-open', open);
+    $$('#bdBtn').forEach(b => b.classList.toggle('on', open));
+    if (!open) return;
+    if (isNarrow()) setSideOpen(false);
+    BD.task = null;
+    $$('#bdDock [data-bd-size]').forEach(b => b.classList.toggle('on', +b.dataset.bdSize === BD.size));
+    bdSync();
+    if (!BD.ro && window.ResizeObserver) { BD.ro = new ResizeObserver(() => bdRedraw()); BD.ro.observe($('#bdSheet')); }
+  }
+  /** Доска следует за открытым заданием: у каждого своя. */
+  function bdSync() {
+    if (!bdOpen()) return;
+    $$('#bdBtn').forEach(b => b.classList.add('on'));
+    const t = pyTaskNow();
+    const id = t ? t.id : 'free';
+    if (BD.task && BD.task.id === id) { bdRedraw(); return; }
+    bdTextCommit();
+    if (BD.task) bdSave();
+    BD.task = t ? { id: t.id, n: t.n } : { id: 'free' };
+    bdLoad(id);
+    $('#bdTask').textContent = t ? `задание ${numLabel(t.n)}` : 'черновик';
+    $('#bdSheet').scrollTop = 0;
+    bdRedraw();
+  }
+  window.addEventListener('beforeunload', () => { if (BD.saveT) bdSave(); });
+
   // ------------------------------------------------------------ Python в браузере
   // Настоящий CPython (Pyodide) в отдельном потоке: math, itertools, functools, ipaddress, re, string, collections…
   // Файлы задания лежат рядом с кодом — open('17.txt') работает. Черепашка для №6 рисует на холсте.
@@ -3791,6 +4089,7 @@
   }
   function togglePy(force) {
     const open = force != null ? force : !pyOpen();
+    if (open && bdOpen()) toggleBoard(false);
     $('#pyDock').hidden = !open;
     document.body.classList.toggle('py-open', open);
     $$('#pyBtn').forEach(b => b.classList.toggle('on', open));
@@ -4062,6 +4361,7 @@
   $('#pyRun').addEventListener('click', pyRun);
   $('#pyStop').addEventListener('click', pyStop);
   $('#pyClose').addEventListener('click', () => togglePy(false));
+  $('#pyToBd').addEventListener('click', () => toggleBoard(true));
   $('#pyCode').addEventListener('keydown', editKey);
   $('#pyCode').addEventListener('input', () => {
     updateGutter();
@@ -4719,6 +5019,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.24.0', '11.10.2026', ['Доска для решения: кнопка «Доска» рядом с «Python» открывает лист в клетку справа от задачи — ручка, прямая, текст, ластик, отмена. У каждого задания своя доска',
+      'Верхняя панель больше не наезжает на рейтинг, когда открыто окно Python']],
     ['1.23.0', '10.10.2026', ['За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
     ['1.22.3', '10.10.2026', ['Исправлены формулы в «Банке ЕГЭ»: снова видны степени и индексы (около 1100 заданий, в том числе №14)', 'Верхняя панель больше не наезжает на окно Python']],
     ['1.22.2', '10.10.2026', ['Сервер выдерживает больше учеников одновременно: рейтинг собирается один раз на всех, соединения в начале урока не теряются']],
