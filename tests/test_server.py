@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from urllib.parse import quote
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -538,6 +539,24 @@ class ServerTest(unittest.TestCase):
         self.assertIn("👑", next(r for r in board["day"]["top"] if r["me"])["badges"])
         self.assertEqual(board["league"]["name"], "Бронзовая лига")
 
+    def test_daily_once_per_day(self):
+        # зашёл в задание дня — сервер это помнит; вторая попытка в рейтинг не идёт, время — от первого входа
+        tok = self.login("Однодневов Олег")
+        d = self.req("GET", "/api/daily", token=tok)[1]
+        self.assertIsNone(d["started"])
+        real = server.APP.bank.real(d["task"])
+        ans = next(t for t in BANK["tasks"] if t["id"] == real)["ans"]
+        self.req("POST", "/api/open", {"task": d["task"]}, tok)
+        started = self.req("GET", "/api/daily", token=tok)[1]["started"]
+        self.assertIsNotNone(started)
+        self.check(tok, d["task"], answer="неверно-1")
+        self.check(tok, d["task"], answer="неверно-2")                     # попытки кончились
+        self.req("POST", "/api/open", {"task": d["task"]}, tok)            # «зашёл второй раз»
+        self.assertEqual(self.req("GET", "/api/daily", token=tok)[1]["started"], started)   # время первого входа
+        self.check(tok, d["task"], answer=ans)
+        d = self.req("GET", "/api/daily", token=tok)[1]
+        self.assertIsNone(d["my_place"])                                   # в рейтинг не попал
+
     def test_duel_full_cycle(self):
         ta, tb = self.login("Дуэлев Аркадий"), self.login("Дуэлев Борис")
         sb = self.req("GET", "/api/me", token=tb)[1]["sid"]
@@ -739,8 +758,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.teacher_req(cookie, "GET", "/api/admin/teachers")[0], 403)
         st, d = self.admin("GET", "/api/admin/students?class_id=all")
         ids = {x["id"]: x["teacher"] for x in d["students"]}
-        self.assertEqual(ids[her], "Мария Ивановна")                         # главный видит всех
+        self.assertNotIn(her, ids)                                           # главный тоже видит только своих…
         self.assertIn(mine, ids)
+        self.assertEqual(self.admin("GET", f"/api/admin/student?id={her}")[0], 404)
+        st, d = self.admin("GET", "/api/admin/site-stats")                   # …а по всему сайту — только цифры
+        self.assertEqual(st, 200, d)
+        self.assertEqual(next(t for t in d["by_teacher"] if t["name"] == "Мария Ивановна")["students"], 1)
+        self.assertEqual(self.teacher_req(cookie, "GET", "/api/admin/site-stats")[0], 403)
         # свои классы: чужой класс учитель не видит
         st, d, _ = self.teacher_req(cookie, "POST", "/api/admin/class/save", {"name": "9В"})
         her_class = d["id"]
@@ -763,10 +787,82 @@ class ServerTest(unittest.TestCase):
         self.admin("POST", "/api/admin/teacher/delete", {"id": tid})
         self.assertEqual(self.teacher_req(cookie, "GET", "/api/admin/me")[0], 401)
         st, d = self.admin("GET", "/api/admin/students?class_id=all")
-        self.assertEqual({x["id"]: x["teacher"] for x in d["students"]}[her], "Главный учитель")
+        self.assertEqual({x["id"]: x["teacher"] for x in d["students"]}[her], "Главный учитель")   # теперь её ученик — свой
         self.assertEqual(self.admin("POST", "/api/admin/teacher/delete", {"id": server.main_teacher()["id"]})[0], 400)
         for c in (her_class, main_class):
             self.admin("POST", "/api/admin/class/delete", {"id": c})
+
+    def test_teacher_solves_as_student(self):
+        # учитель решает тренажёр своим аккаунтом: без кода и пароля, в рейтингах и списках учеников его нет
+        st, d = self.admin("POST", "/api/admin/as-student", {})
+        self.assertEqual(st, 200, d)
+        tok, tsid = d["token"], d["sid"]
+        self.assertEqual(self.admin("POST", "/api/admin/as-student", {})[1]["sid"], tsid)   # тот же аккаунт
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertTrue(me["teacher"])
+        self.assertTrue(me["course"])                                        # курс учителю открыт без пароля
+        pid = server.APP.bank.pid("b:5")
+        self.req("POST", "/api/open", {"task": pid}, tok)
+        self.assertEqual(self.check(tok, pid, answer="12")[0], 200)
+        lb = self.req("GET", "/api/leaderboard", token=tok)[1]
+        self.assertTrue(lb["spectator"])
+        self.assertIsNone(lb["boards"]["week"]["me"])
+        stud = self.login("Рейтингов Роман")
+        lb = self.req("GET", "/api/leaderboard", token=stud)[1]
+        self.assertNotIn(me["name"], [r["name"] for r in lb["boards"]["week"]["top"]])
+        self.assertNotIn(tsid, [m["sid"] for m in self.req("GET", "/api/duels", token=stud)[1]["mates"]])
+        self.assertEqual(self.req("GET", "/api/duels", token=tok)[1]["mates"], [])
+        st, d = self.admin("GET", "/api/admin/students?class_id=all")
+        self.assertNotIn(tsid, [x["id"] for x in d["students"]])
+        self.assertEqual(self.admin("GET", f"/api/admin/student?id={tsid}")[0], 404)
+        # по имени войти в учительский аккаунт нельзя
+        self.assertNotEqual(self.req("POST", "/api/login", {"mode": "login", "name": me["name"], "password": ""})[0], 200)
+
+    def test_site_stats_counts(self):
+        self.req("GET", "/")
+        tok = self.login("Статистиков Сергей")
+        pid = server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": pid}, tok)
+        self.check(tok, pid, answer="7")
+        st, d = self.admin("GET", "/api/admin/site-stats")
+        self.assertGreaterEqual(d["users"], 1)
+        self.assertGreaterEqual(d["solved"], 1)
+        self.assertGreaterEqual(d["online"], 1)
+        self.assertGreaterEqual(d["visitors_today"], 1)
+        self.assertEqual(len(d["series"]), 14)
+        self.assertGreaterEqual(d["series"][-1]["solved"], 1)
+
+    def test_clusters_classify(self):
+        import clusters
+        T = [{"n": 5, "html": "<p>Строится двоичная запись числа N. Какое наименьшее число…</p>", "lv": "Простая"},
+             {"n": 5, "html": "<p>Строится троичная запись числа N…</p>", "d": 3},
+             {"n": 17, "html": "<p>Определите количество пар, затем максимальную из сумм…</p>"},
+             {"n": 1, "html": "<p>Определите длину кратчайшего пути из пункта А в пункт Г.</p>"},
+             {"n": 8, "html": "<p>Все слова записаны в алфавитном порядке. Под каким номером в списке…</p>"},
+             {"n": 7, "html": "<p>Ничего похожего</p>"}]
+        clusters.annotate(T)
+        self.assertEqual([t["c"] for t in T], ["bin", "ter", "pairs", "path", "list", "misc"])
+        self.assertEqual((T[0]["r"], T[1]["r"]), (2, 4))                 # «Простая» → 2, d=3 → 4
+        self.assertTrue(all(1 <= t["r"] <= 5 for t in T))
+        self.assertIn(["bin", "Двоичная запись"], clusters.catalog()[5])
+
+    def test_bank_search_for_builder(self):
+        st, d = self.admin("GET", "/api/admin/bank/catalog")
+        self.assertEqual(st, 200, d)
+        self.assertIn("5", {str(k) for k in d["clusters"]})
+        st, d = self.admin("GET", "/api/admin/bank/search?n=5,6&sort=rank")
+        self.assertEqual(st, 200, d)
+        self.assertEqual(sorted(t["id"] for t in d["tasks"]), ["b:5", "b:6"])
+        self.assertTrue(all(t["c"] and t["r"] for t in d["tasks"]))
+        key = f"5:{d['tasks'][[t['n'] for t in d['tasks']].index(5)]['c']}"
+        st, d = self.admin("GET", f"/api/admin/bank/search?c={key}")
+        self.assertEqual([t["id"] for t in d["tasks"]], ["b:5"])
+        st, d = self.admin("GET", "/api/admin/bank/search?q=" + quote("двадцать"))
+        self.assertEqual([t["id"] for t in d["tasks"]], ["b:27"])
+        st, d = self.admin("GET", "/api/admin/bank/search?n=19")
+        self.assertEqual([t["id"] for t in d["tasks"]], ["b:g"])         # игра целиком, без частей
+        st, d = self.admin("GET", "/api/admin/bank/search?r=9")
+        self.assertEqual(d["total"], 0)
 
     def test_levels(self):
         self.assertEqual(server.level_of(0)[:2], (1, "Новичок"))

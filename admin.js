@@ -182,6 +182,280 @@
     showLogin();
   });
 
+  // ------------------------------------------------------------ учитель решает как ученик
+  // Сервер выдаёт учительский аккаунт ученика (без кода и пароля) и ставит его cookie — тренажёр открывается уже с входом
+  $('#asStudentBtn').addEventListener('click', async () => {
+    const w = window.open('', '_blank');
+    try {
+      const d = await api('as-student', {});
+      try { localStorage.setItem('egeTrainer.student.v1', JSON.stringify({ sid: d.sid, name: d.name, token: d.token, at: Date.now() })); } catch (e) { /* нет доступа */ }
+      if (w) w.location.href = './'; else location.href = './';
+    } catch (err) { if (w) w.close(); if (err.status !== 401) toast(err.message); }
+  });
+
+  // ------------------------------------------------------------ статистика всего сайта (главный учитель)
+  async function loadSite() {
+    let d;
+    try { d = await api('site-stats'); } catch (err) { if (err.status !== 401) $('#siteBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    const n = v => Number(v || 0).toLocaleString('ru-RU');
+    const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+    const maxS = Math.max(1, ...d.series.map(x => Math.max(x.solved, x.visitors, x.active)));
+    const bars = d.series.map(x => {
+      const [y, m, dd] = x.day.split('-');
+      return `<div class="st-col" title="${dd}.${m}: решено ${x.solved}, занимались ${x.active}, посетителей ${x.visitors}">
+        <div class="st-bars"><i class="b-solved" style="height:${x.solved / maxS * 100}%"></i><i class="b-active" style="height:${x.active / maxS * 100}%"></i><i class="b-vis" style="height:${x.visitors / maxS * 100}%"></i></div>
+        <span>${dd}.${m}</span></div>`;
+    }).join('');
+    const maxN = Math.max(1, ...d.nums.map(x => x.answers));
+    const nums = d.nums.map(x => `<div class="st-num" title="№${x.n}: ответов ${x.answers}, верных ${x.solved}">
+        <b>${x.n}</b><i><s style="width:${x.answers / maxN * 100}%"></s><u style="width:${x.solved / maxN * 100}%"></u></i>
+        <small>${n(x.answers)} · ${x.answers ? Math.round(x.solved / x.answers * 100) : 0}%</small></div>`).join('');
+    $('#siteBody').innerHTML = `
+      <div class="adm-cards">
+        ${card('Онлайн сейчас', n(d.online), 'за последние 5 минут', d.online ? 'var(--good)' : '')}
+        ${card('Пользователей', n(d.users), `+${n(d.new_today)} сегодня · +${n(d.new_week)} за неделю`)}
+        ${card('Посетителей сегодня', n(d.visitors_today), `за 7 дней — ${n(d.visitors_week)} разных`)}
+        ${card('Занимались', n(d.active_today), `сегодня · за неделю ${n(d.active_week)} · за месяц ${n(d.active_month)}`)}
+        ${card('Решено заданий', n(d.solved), `за всё время · из ${n(d.answers)} ответов`)}
+        ${card('Решено сегодня', n(d.solved_today), `за неделю — ${n(d.solved_week)}`)}
+        ${card('С первой попытки', d.answers ? Math.round(d.first / d.answers * 100) + '%' : '—', `разных заданий решали: ${n(d.tasks)} из ${n(d.bank)}`)}
+        ${card('Время на задания', n(d.hours) + ' ч', 'всего у всех учеников')}
+        ${card('Варианты ЕГЭ', n(d.exams), d.exam_avg != null ? `средний балл ${d.exam_avg}` : 'ещё не решали')}
+        ${card('Учителей', n(d.teachers), `курс открыт у ${n(d.course)} учеников · дуэлей ${n(d.duels)}`)}
+      </div>
+      <h3 class="adm-h3">По дням <span class="adm-hint"><i class="lg b-solved"></i> решено <i class="lg b-active"></i> занимались <i class="lg b-vis"></i> посетители</span></h3>
+      <div class="st-chart">${bars}</div>
+      <h3 class="adm-h3">По номерам ЕГЭ <span class="adm-hint">ответов за всё время · доля верных</span></h3>
+      <div class="st-nums">${nums || '<p class="adm-empty">Ещё нет ответов.</p>'}</div>
+      <h3 class="adm-h3">По учителям</h3>
+      <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Учитель</th><th class="num">Учеников</th><th class="num">Занимались за неделю</th><th class="num">Решено за неделю</th></tr></thead>
+        <tbody>${d.by_teacher.map(t => `<tr><td class="name">${esc(t.name)}${t.is_main ? ' <span class="muted">· главный</span>' : ''}</td><td class="num">${n(t.students)}</td><td class="num">${n(t.active_week)}</td><td class="num">${n(t.solved_week)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  $('#siteReload').addEventListener('click', loadSite);
+
+
+  // ------------------------------------------------------------ конструктор подборки
+  // Слева — широкий фильтр по банку (номер, тип задания, сложность, банк, годы, решаемость, текст), справа — черновик.
+  // Черновик живёт в браузере, пока его не отправят классу.
+  const BLD_KEY = 'egeAdmin.bldDraft';
+  const RANK_SHORT = ['', 'очень лёгкое', 'лёгкое', 'среднее', 'сложное', 'очень сложное'];
+  const BLD = { cat: null, page: 0, res: null, timer: 0, asg: [],
+    f: { n: [], c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: '', q: '', sort: 'rank' },
+    d: { class_id: '', id: null, title: '', due: '', tasks: [] } };
+  try { const v = JSON.parse(localStorage.getItem(BLD_KEY)); if (v && Array.isArray(v.tasks)) BLD.d = Object.assign(BLD.d, v); } catch (e) { /* пусто */ }
+  const bldSave = () => { try { localStorage.setItem(BLD_KEY, JSON.stringify(BLD.d)); } catch (e) { /* нет доступа */ } };
+  const rankDots = r => r ? `<span class="rk rk${r}" title="Сложность ${r} из 5 — ${RANK_SHORT[r]}">${'●'.repeat(r)}${'○'.repeat(5 - r)}</span>` : '';
+  const rateHtml = x => x.rate == null ? `<span class="muted" title="Ответов у учеников: ${x.tries || 0}">решают: мало данных</span>`
+    : `<span class="bld-rate ${x.rate < 0.4 ? 'lo' : x.rate < 0.75 ? 'mid' : 'hi'}" title="${x.tries} ответов">решают ${Math.round(x.rate * 100)}%</span>`;
+
+  async function openBuilder() {
+    if (!BLD.cat) {
+      try { BLD.cat = await api('bank/catalog'); } catch (err) { if (err.status !== 401) $('#bldFilters').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    }
+    renderBldFilters();
+    renderBldDraft();
+    if (BLD.d.class_id) loadBldAsg();
+    bldSearch();
+  }
+  function chip(group, val, label, on, count) {
+    return `<button type="button" class="bld-chip${on ? ' on' : ''}" data-f="${group}" data-v="${esc(String(val))}">${label}${count != null ? ` <small>${count}</small>` : ''}</button>`;
+  }
+  function renderBldFilters() {
+    const C = BLD.cat, f = BLD.f, fc = (BLD.res && BLD.res.facets) || { c: {}, r: {} };
+    const nums = [];
+    for (let n = 1; n <= 27; n++) if (n !== 20 && n !== 21) nums.push(chip('n', n, n === 19 ? '19–21' : n, f.n.includes(String(n))));
+    const types = f.n.length ? f.n.map(n => `<div class="bld-types"><b>№${n === '19' ? '19–21' : n}</b>${(C.clusters[n] || []).map(([k, lbl]) => {
+      const key = `${n}:${k}`;
+      return chip('c', key, esc(lbl), f.c.includes(key), fc.c[key] || 0);
+    }).join('')}</div>`).join('') : '<span class="adm-hint">Выберите номер — появятся типы заданий внутри него.</span>';
+    const sel = (id, opts, val) => `<select class="adm-select" id="${id}">${opts.map(([v, t]) => `<option value="${esc(String(v))}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+    const years = [['', 'любой']].concat(C.years.map(y => [y, y]));
+    $('#bldFilters').innerHTML = `
+      <div class="bld-row"><span class="bld-lbl">Номер</span><div class="bld-chips">${nums.join('')}</div></div>
+      <div class="bld-row"><span class="bld-lbl">Тип</span><div class="bld-chips col">${types}</div></div>
+      <div class="bld-row"><span class="bld-lbl">Сложность</span><div class="bld-chips">${[1, 2, 3, 4, 5].map(r => chip('r', r, `${rankDots(r)} ${RANK_SHORT[r]}`, f.r.includes(String(r)), fc.r[r] || 0)).join('')}</div></div>
+      <div class="bld-row"><span class="bld-lbl">Банк</span><div class="bld-chips">${C.banks.map(b => chip('bank', b.id, esc(b.title), f.bank.includes(b.id), b.count)).join('')}</div></div>
+      <div class="bld-row bld-sel">
+        <label>Годы ${sel('bldY0', years, f.y0)} — ${sel('bldY1', years, f.y1)}</label>
+        <label>Формат ${sel('bldFmt', [['actual', 'актуальный'], ['old', 'только старый'], ['all', 'любой']], f.fmt)}</label>
+        <label>Решают ${sel('bldRate', [['', 'любые'], ['lo', 'трудные: < 40%'], ['mid', 'средние: 40–75%'], ['hi', 'простые: ≥ 75%'], ['none', 'ещё никто не решал']], f.rate)}</label>
+        <label>Класс ещё не решал ${sel('bldNot', [['', '—']].concat(C.classes.map(c => [c.id, c.name])), f.notsolved)}</label>
+        <input class="inp" id="bldQ" placeholder="Текст условия, например «Черепаха» или «маска»" value="${esc(f.q)}">
+      </div>`;
+  }
+  async function bldSearch(keepPage, pool) {
+    const f = BLD.f;
+    if (!keepPage) BLD.page = 0;
+    const p = new URLSearchParams({ n: f.n.join(','), c: f.c.join(','), r: f.r.join(','), bank: f.bank.join(','), y0: f.y0, y1: f.y1,
+      fmt: f.fmt, rate: f.rate, notsolved: f.notsolved, q: f.q, sort: f.sort, page: BLD.page });
+    if (pool) p.set('pool', '1');
+    let d;
+    try { d = await api('bank/search?' + p.toString()); } catch (err) { if (err.status !== 401) toast(err.message); return null; }
+    if (pool) return d.pool || [];
+    BLD.res = d;
+    renderBldFilters();
+    renderBldList();
+    return d;
+  }
+  function renderBldList() {
+    const d = BLD.res, inDraft = new Set(BLD.d.tasks.map(t => t.id));
+    $('#bldBar').innerHTML = `<b>Найдено: ${d.total}</b>
+      <label class="adm-hint">порядок <select class="adm-select" id="bldSort">${[['rank', 'по номеру и сложности ↑'], ['hard', 'по номеру, сначала сложные'], ['rate', 'сначала трудные для учеников'], ['new', 'сначала новые'], ['random', 'случайно']]
+        .map(([v, t]) => `<option value="${v}"${BLD.f.sort === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+      <span class="bld-bar-act"><input class="inp" type="number" id="bldK" min="1" max="50" value="5"> <button type="button" class="btn" id="bldRand"${d.total ? '' : ' disabled'}>+ случайных из найденных</button>
+      <button type="button" class="btn ghost" id="bldAddPage"${d.tasks.length ? '' : ' disabled'}>+ все на странице</button></span>`;
+    $('#bldList').innerHTML = d.tasks.length ? d.tasks.map(x => `<div class="bld-item${inDraft.has(x.id) ? ' in' : ''}">
+        <span class="num-badge sm">${x.n === 19 ? '19–21' : x.n}</span>
+        <div class="bld-item-main"><div class="bld-meta"><b>${esc(x.cname)}</b> ${rankDots(x.r)} ${rateHtml(x)}
+          <span class="muted">${esc(x.bank || '')}${x.y ? ' · ' + x.y : ''}${x.old ? ' · старый формат' : ''}</span></div>
+          <div class="bld-snip">${esc(x.snip)}</div></div>
+        <span class="bld-item-act"><button type="button" class="link-btn" data-task="${esc(x.id)}">открыть</button>
+          <button type="button" class="btn ${inDraft.has(x.id) ? 'ghost' : 'primary'} bld-add" data-add="${esc(x.id)}">${inDraft.has(x.id) ? '✓ в подборке' : '+ добавить'}</button></span>
+      </div>`).join('') : '<p class="adm-empty">Ничего не найдено — ослабьте фильтры.</p>';
+    const pages = Math.ceil(d.total / d.per);
+    $('#bldPages').innerHTML = pages > 1 ? `<button type="button" class="btn ghost" data-page="${d.page - 1}"${d.page ? '' : ' disabled'}>← назад</button>
+      <span class="adm-hint">страница ${d.page + 1} из ${pages}</span>
+      <button type="button" class="btn ghost" data-page="${d.page + 1}"${d.page + 1 < pages ? '' : ' disabled'}>дальше →</button>` : '';
+  }
+  const slim = x => ({ id: x.id, n: x.n, c: x.c, cname: x.cname, r: x.r, snip: x.snip, rate: x.rate });
+  function bldAdd(list) {
+    const have = new Set(BLD.d.tasks.map(t => t.id));
+    let k = 0;
+    for (const x of list) {
+      if (have.has(x.id) || BLD.d.tasks.length >= 100) continue;
+      BLD.d.tasks.push(slim(x)); have.add(x.id); k++;
+    }
+    bldSave(); renderBldDraft(); if (BLD.res) renderBldList();
+    return k;
+  }
+  async function loadBldAsg() {
+    BLD.asg = [];
+    if (!BLD.d.class_id) return;
+    try { BLD.asg = (await api('assignments?class_id=' + BLD.d.class_id)).assignments || []; } catch (e) { BLD.asg = []; }
+    renderBldDraft();
+  }
+  function renderBldDraft() {
+    const D = BLD.d, C = BLD.cat;
+    if (!C) return;
+    const byN = {}, byR = [0, 0, 0, 0, 0, 0];
+    D.tasks.forEach(t => { byN[t.n] = (byN[t.n] || 0) + 1; if (t.r) byR[t.r]++; });
+    const total = D.tasks.length;
+    $('#bldDraft').innerHTML = `<h3 class="adm-h3" style="margin:0">${D.id ? 'Изменить подборку' : 'Новая подборка'}</h3>
+      <label class="bld-f">Класс <select class="adm-select" id="bdClass"><option value="">— выберите —</option>${C.classes.map(c => `<option value="${c.id}"${String(c.id) === String(D.class_id) ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      ${D.class_id && BLD.asg.length ? `<label class="bld-f">Изменить готовую <select class="adm-select" id="bdLoad"><option value="">— новая подборка —</option>${BLD.asg.map(a => `<option value="${a.id}"${a.id === D.id ? ' selected' : ''}>${esc(a.title)} (${a.tasks.length})</option>`).join('')}</select></label>` : ''}
+      <input class="inp" id="bdTitle" maxlength="80" placeholder="Название, например «№5: двоичная запись»" value="${esc(D.title)}">
+      <label class="bld-f">Срок <input class="inp" type="date" id="bdDue" value="${esc(D.due || '')}"></label>
+      <div class="bld-sum"><b>${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
+        ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${n}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
+      ${total ? `<div class="bld-rbar" title="Распределение по сложности">${byR.map((c, r) => r && c ? `<i class="rk${r}" style="flex:${c}" title="${RANK_SHORT[r]}: ${c}"></i>` : '').join('')}</div>` : ''}
+      <ol class="bld-dlist">${D.tasks.map((t, i) => `<li><span class="num-badge sm">${t.n === 19 ? '19–21' : t.n}</span>
+        <button type="button" class="task-link" data-task="${esc(t.id)}" title="${esc(t.snip || '')}">${esc(t.cname || '')} ${rankDots(t.r)}<small>${esc((t.snip || '').slice(0, 70))}…</small></button>
+        <span class="bld-dtools"><button type="button" class="link-btn" data-mv="${i}:-1" title="Выше">↑</button><button type="button" class="link-btn" data-mv="${i}:1" title="Ниже">↓</button>
+        <button type="button" class="link-btn danger" data-del="${i}" title="Убрать">×</button></span></li>`).join('')}</ol>
+      ${total ? '' : '<p class="adm-hint">Добавляйте задания слева: по одному, все со страницы или случайные из найденного.</p>'}
+      ${total > 1 ? `<div class="bld-tools"><button type="button" class="link-btn" data-sortd="rank">по сложности ↑</button>
+        <button type="button" class="link-btn" data-sortd="num">по номерам</button><button type="button" class="link-btn" data-sortd="shuffle">перемешать</button>
+        <button type="button" class="link-btn danger" data-sortd="clear">очистить</button></div>` : ''}
+      <button type="button" class="btn primary bld-send" id="bdSend"${total && D.class_id ? '' : ' disabled'}>${D.id ? 'Сохранить изменения' : 'Отправить классу'}</button>
+      ${D.class_id ? '' : '<p class="adm-hint">Выберите класс, которому отправить подборку.</p>'}`;
+  }
+  $('#bldFilters').addEventListener('click', e => {
+    const b = e.target.closest('[data-f]');
+    if (!b) return;
+    const arr = BLD.f[b.dataset.f], v = b.dataset.v, i = arr.indexOf(v);
+    if (i >= 0) arr.splice(i, 1); else arr.push(v);
+    if (b.dataset.f === 'n') BLD.f.c = BLD.f.c.filter(k => BLD.f.n.includes(k.split(':')[0]));   // типы — только выбранных номеров
+    bldSearch();
+  });
+  $('#bldFilters').addEventListener('change', e => {
+    const m = { bldY0: 'y0', bldY1: 'y1', bldFmt: 'fmt', bldRate: 'rate', bldNot: 'notsolved' }[e.target.id];
+    if (m) { BLD.f[m] = e.target.value; bldSearch(); }
+  });
+  $('#bldFilters').addEventListener('input', e => {
+    if (e.target.id !== 'bldQ') return;
+    BLD.f.q = e.target.value;
+    clearTimeout(BLD.timer);
+    BLD.timer = setTimeout(() => { bldSearch().then(() => { const q = $('#bldQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }); }, 400);
+  });
+  $('#bldReset').addEventListener('click', () => {
+    BLD.f = { n: [], c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: '', q: '', sort: BLD.f.sort };
+    bldSearch();
+  });
+  $('#bldBar').addEventListener('change', e => { if (e.target.id === 'bldSort') { BLD.f.sort = e.target.value; bldSearch(); } });
+  $('#bldBar').addEventListener('click', async e => {
+    if (e.target.closest('#bldAddPage')) { toast(`Добавлено: ${bldAdd(BLD.res.tasks)}`); return; }
+    if (e.target.closest('#bldRand')) {
+      const k = Math.max(1, Math.min(50, +$('#bldK').value || 5));
+      const pool = await bldSearch(true, true);
+      if (!pool) return;
+      const have = new Set(BLD.d.tasks.map(t => t.id));
+      const free = pool.filter(x => !have.has(x.id));
+      for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
+      const n = bldAdd(free.slice(0, k));
+      toast(n ? `Добавлено случайных: ${n}` : 'Все найденные задания уже в подборке');
+    }
+  });
+  $('#bldList').addEventListener('click', e => {
+    const b = e.target.closest('[data-add]');
+    if (!b) return;
+    const id = b.dataset.add;
+    const i = BLD.d.tasks.findIndex(t => t.id === id);
+    if (i >= 0) { BLD.d.tasks.splice(i, 1); bldSave(); renderBldDraft(); renderBldList(); return; }
+    bldAdd([BLD.res.tasks.find(x => x.id === id)]);
+  });
+  $('#bldPages').addEventListener('click', e => {
+    const b = e.target.closest('[data-page]');
+    if (b && !b.disabled) { BLD.page = +b.dataset.page; bldSearch(true); window.scrollTo({ top: 0 }); }
+  });
+  $('#bldDraft').addEventListener('input', e => {
+    if (e.target.id === 'bdTitle') { BLD.d.title = e.target.value; bldSave(); }
+    if (e.target.id === 'bdDue') { BLD.d.due = e.target.value; bldSave(); }
+  });
+  $('#bldDraft').addEventListener('change', e => {
+    if (e.target.id === 'bdClass') { BLD.d.class_id = e.target.value; BLD.d.id = null; bldSave(); renderBldDraft(); loadBldAsg(); }
+    if (e.target.id === 'bdLoad') {
+      const a = BLD.asg.find(x => String(x.id) === e.target.value);
+      if (!a) { Object.assign(BLD.d, { id: null, title: '', due: '', tasks: [] }); }
+      else {
+        Object.assign(BLD.d, { id: a.id, title: a.title, due: a.due ? new Date(a.due * 1000).toISOString().slice(0, 10) : '',
+          tasks: a.tasks.filter(t => !t.missing).map(t => ({ id: t.id, n: t.n, c: t.c, cname: t.cname || '', r: t.r, snip: t.snip })) });
+      }
+      bldSave(); renderBldDraft(); if (BLD.res) renderBldList();
+    }
+  });
+  $('#bldDraft').addEventListener('click', async e => {
+    const D = BLD.d;
+    const mv = e.target.closest('[data-mv]');
+    if (mv) {
+      const [i, dir] = mv.dataset.mv.split(':').map(Number), j = i + dir;
+      if (j >= 0 && j < D.tasks.length) { [D.tasks[i], D.tasks[j]] = [D.tasks[j], D.tasks[i]]; bldSave(); renderBldDraft(); }
+      return;
+    }
+    const del = e.target.closest('[data-del]');
+    if (del) { D.tasks.splice(+del.dataset.del, 1); bldSave(); renderBldDraft(); if (BLD.res) renderBldList(); return; }
+    const so = e.target.closest('[data-sortd]');
+    if (so) {
+      const k = so.dataset.sortd;
+      if (k === 'rank') D.tasks.sort((a, b) => (a.r || 3) - (b.r || 3) || a.n - b.n);
+      if (k === 'num') D.tasks.sort((a, b) => a.n - b.n || (a.r || 3) - (b.r || 3));
+      if (k === 'shuffle') for (let i = D.tasks.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [D.tasks[i], D.tasks[j]] = [D.tasks[j], D.tasks[i]]; }
+      if (k === 'clear' && confirm('Убрать все задания из черновика?')) D.tasks = [];
+      bldSave(); renderBldDraft(); if (BLD.res) renderBldList();
+      return;
+    }
+    if (e.target.closest('#bdSend')) {
+      if (!D.title.trim()) { toast('Введите название подборки'); $('#bdTitle').focus(); return; }
+      try {
+        await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title,
+          due: D.due ? new Date(D.due + 'T23:59:00').getTime() / 1000 : null, tasks: D.tasks.map(t => t.id) });
+        const cls = (BLD.cat.classes.find(c => String(c.id) === String(D.class_id)) || {}).name || '';
+        toast(D.id ? 'Подборка сохранена' : `Подборка отправлена классу ${cls}`);
+        BLD.d = { class_id: D.class_id, id: null, title: '', due: '', tasks: [] };
+        bldSave(); renderBldDraft(); loadBldAsg(); if (BLD.res) renderBldList();
+      } catch (err) { if (err.status !== 401) toast(err.message); }
+    }
+  });
+
   // ------------------------------------------------------------ вкладки
   let tab = 'students';
   let backTab = 'students';            // куда вернуться из карточки ученика
@@ -189,7 +463,9 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    if (t === 'site') loadSite();
+    if (t === 'build') openBuilder();
     if (t === 'teachers') loadTeachers();
     if (t === 'students') loadStudents();
     if (t === 'classes') loadClasses();
@@ -243,7 +519,7 @@
         <td class="chk"><input type="checkbox" data-pick="${s.id}" ${picked.has(s.id) ? 'checked' : ''}></td>
         <td class="name">${esc(s.name)}${cls ? ` <span class="chip">${esc(cls.name)}</span>` : ''}</td>
         <td class="num"><span class="lvl-mini" title="${s.xp || 0} XP">${s.level || 1}</span></td>
-        <td class="main-only muted">${esc(s.teacher || '')}</td>
+        <td class="adm-off muted">${esc(s.teacher || '')}</td>
         <td class="muted">${fmtWhen(s.last)}</td>
         <td class="num">${s.today || ''}</td>
         <td class="num">${s.week || ''}</td>

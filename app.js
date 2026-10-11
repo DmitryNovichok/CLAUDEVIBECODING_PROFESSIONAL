@@ -538,7 +538,17 @@
   const inScope = t => (ui.scope === 'fav' ? favSet().has(t.id)
     : ui.scope === 'asg' ? !!asgOf(ui.asg) && asgOf(ui.asg).tasks.includes(t.id)
     : visible(t) && (ui.scope === 'all' || t.n === ui.scope));
-  const topicKey = t => t.n + '|' + (t.topic || '');
+  // «Тема» для подбора и повторения — тип задания внутри номера (кластер c считает сервер по тексту условия),
+  // у банков без кластеров — тема из банка
+  const topicKey = t => t.n + '|' + (t.c || t.topic || '');
+  const CLUSTERS = (BANK && BANK.clusters) || {};
+  /** Название типа задания: «Двоичная запись» и т.п. */
+  function clusterName(t) {
+    const list = CLUSTERS[t.n] || [];
+    const hit = list.find(x => x[0] === t.c);
+    return hit ? hit[1] : (t.topic || '');
+  }
+  const RANK_WORD = ['', 'очень лёгкое', 'лёгкое', 'среднее', 'сложное', 'очень сложное'];
 
   function countByNum() {
     const c = new Array(28).fill(0);
@@ -565,6 +575,14 @@
     if (!s || !s.a) return 1;
     return s.m < 0.45 ? 1 : s.m < 0.78 ? 2 : 3;
   }
+  /** Сложность 1–5, которую сейчас стоит давать в этом типе задания: по успехам в типе, а если их мало — в номере.
+   *  Начинаем с лёгких; решаешь уверенно — сложность растёт, ошибаешься — опускается. */
+  function targetRank(n, key) {
+    const k = key && P.topics[key];
+    const s = k && k.a >= 2 ? k : statsFor(n);
+    if (!s || !s.a) return 2;
+    return s.m < 0.4 ? 2 : s.m < 0.65 ? 3 : s.m < 0.85 ? 4 : 5;
+  }
 
   function numberWeight(n, list, recentSet) {
     const s = statsFor(n);
@@ -588,6 +606,8 @@
     if (!cands.length) return null;
     const now = Date.now();
     const target = targetDifficulty(n);
+    const rankOf = new Map();                          // целевая сложность — своя для каждого типа задания
+    const want = t => { const k = topicKey(t); if (!rankOf.has(k)) rankOf.set(k, targetRank(n, k)); return rankOf.get(k); };
     let best = null, bestScore = -Infinity;
     for (const t of cands) {
       const s = P.tasks[t.id];
@@ -597,7 +617,8 @@
         sc += Math.min((now - (s.last || 0)) / DAY / 7, 1) * 0.8; // давно не видели
         if (s.ls === 1) sc -= 0.6;                       // уже решено верно
       }
-      sc += t.d ? 1 - 0.45 * Math.abs(t.d - target) : 0.7; // сложность под уровень
+      sc += t.r ? 1.1 - 0.4 * Math.abs(t.r - want(t))     // сложность 1–5 под уровень в этом типе
+        : t.d ? 1 - 0.45 * Math.abs(t.d - target) : 0.7;
       sc += t.y ? Math.min(Math.max(t.y - CFG.firstKegeYear, 0), 5) * 0.1 : 0.25; // свежие — чаще
       if (isOutdated(t)) sc -= 0.8;                     // старый формат — только если выбрано «все»
       if (sc > bestScore) { bestScore = sc; best = t; }
@@ -837,7 +858,7 @@
   const FILE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 12v6M9 15l3 3 3-3"/></svg>';
 
   function reasonHtml(t, why) {
-    const topic = t.topic ? ` (тема «${esc(t.topic)}»)` : '';
+    const topic = clusterName(t) ? ` (тип «${esc(clusterName(t))}»)` : '';
     switch (why.type) {
       case 'review':
         return why.r.stage === 0
@@ -929,8 +950,10 @@
   function renderTask() {
     const t = cur.task;
     const meta = [];
-    if (t.topic) meta.push(esc(t.topic));
+    const cl = clusterName(t);
+    if (cl) meta.push(esc(cl));
     if (t.lv) meta.push(esc(t.lv));
+    else if (t.r) meta.push(`<span title="Сложность ${t.r} из 5">${RANK_WORD[t.r]}</span>`);
     if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
     else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
     if (t.y && !(t.src || '').includes(String(t.y))) {
@@ -2114,6 +2137,7 @@
     return a;
   }
   let courseShown = false;
+  let TEACHER = false;
   // Окна курса (план → урок → подборка → задание) пишутся в историю браузера: кнопка «Назад» ведёт по ним
   let navSilent = false;
   function navPush(st) {
@@ -2928,14 +2952,32 @@
   let exTimer = null;
 
   /** По заданию на каждый номер: актуального формата, по возможности новое для ученика и свежее. */
+  /** Задания, решённые верно в последних VARIANT_GAP вариантах: снова попадут в вариант не раньше, чем через столько вариантов.
+   *  Ответы одного варианта записаны в журнал с общим временем окончания — по нему и различаем варианты. */
+  const VARIANT_GAP = 3;
+  function recentExamSolved() {
+    const ends = [...new Set(P.log.filter(e => e.x).map(e => e.t))].sort((a, b) => b - a).slice(0, VARIANT_GAP);
+    const from = ends.length ? ends[ends.length - 1] : Infinity;
+    const out = new Set();
+    for (const e of P.log) {
+      if (!e.x || e.t < from || !(e.s > 0)) continue;
+      out.add(e.id);
+      const g = partToGroup.get(e.id);
+      if (g) out.add(g);
+    }
+    return out;
+  }
   function pickVariant() {
     const items = [];
+    const skip = recentExamSolved();
     for (let n = 1; n <= 27; n++) {
       if (HAS_GROUPS && (n === 20 || n === 21)) continue;
       const fits = t => t.n === n && (n !== 19 || !HAS_GROUPS || t.parts) && authorOk(t);
       let cands = TASKS.filter(t => fits(t) && !isOutdated(t));
       if (!cands.length) cands = TASKS.filter(fits);
       if (!cands.length) continue;
+      const fresh = cands.filter(t => !skip.has(t.id));
+      if (fresh.length) cands = fresh;              // верно решённые в прошлых 3 вариантах — пропускаем
       const score = t => {
         let s = Math.random();
         if (!P.tasks[t.id]) s += 1.5;
@@ -3502,6 +3544,8 @@
     if (me.rules) Object.assign(RULES, me.rules);
     if (me.game) GAME = me.game;
     COURSE_OK = !!me.course;
+    TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
+    document.body.classList.toggle('teacher-mode', TEACHER);
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);
@@ -3530,6 +3574,8 @@
     w.hidden = !(SERVER && student);
     if (!student) return;
     $('#whoName').textContent = student.name;
+    const lbl = $('#who .who-label');
+    if (lbl) lbl.textContent = TEACHER ? 'Учитель · решает как ученик' : 'Ученик';
     const ini = student.name.trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
     if ($('#avaTxt')) $('#avaTxt').textContent = ini || '?';
   }
@@ -4239,6 +4285,28 @@
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); pyRun(); return; }
     if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); setPyFont(pyFont() + 1); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); setPyFont(pyFont() - 1); return; }
+    // Ctrl+/ — закомментировать строку или выделенные строки (повторно — снять), как в PyCharm.
+    // По физической клавише: в русской раскладке на ней точка
+    if ((e.ctrlKey || e.metaKey) && (e.code === 'Slash' || e.key === '/')) {
+      e.preventDefault();
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      let le = v.indexOf('\n', b > a && v[b - 1] === '\n' ? b - 1 : b);
+      if (le < 0) le = v.length;
+      const lines = v.slice(ls, le).split('\n');
+      const code = lines.filter(l => l.trim());
+      const off = code.length && code.every(l => /^\s*#/.test(l));
+      const ind = Math.min(...code.map(l => l.match(/^ */)[0].length), Infinity);
+      const out = lines.map(l => {
+        if (!l.trim()) return l;
+        return off ? l.replace(/^(\s*)# ?/, '$1') : l.slice(0, ind) + '# ' + l.slice(ind);
+      }).join('\n');
+      const d = out.length - (le - ls);
+      if (a === b) {                              // без выделения — курсор остаётся на своём месте в строке
+        const k = off ? Math.max(ls, a + d) : a + d;
+        put(out, ls, le, k);
+      } else put(out, ls, le, ls, ls + out.length);
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       const ls = v.lastIndexOf('\n', a - 1) + 1;
@@ -4611,7 +4679,8 @@
     await loadRating();
     if (!LB) { $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Нет связи с сервером.</p>'; return; }
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг</h2>
-      <p class="fm-note">Ученики твоего учителя. Лига — опыт с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
+      ${LB.spectator ? '<p class="daily-used">🎓 Вы учитель: рейтинг ваших учеников виден, но вы сами в нём не участвуете — ни в лиге, ни в ТОП-10, ни в дуэлях.</p>' : ''}
+      <p class="fm-note">${LB.spectator ? 'Ваши ученики' : 'Ученики твоего учителя'}. Лига — опыт с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
   }
 
   // «Тебя обогнали!»: сравниваем лигу с тем, что видели в прошлый раз
@@ -4659,7 +4728,7 @@
     if (!card) return;
     card.hidden = !(DAILY && DAILY.task && byId.get(DAILY.task));
     if (card.hidden) return;
-    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
+    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
     card.classList.toggle('done', !!DAILY.my_place);
   }
   function dailyHtml() {
@@ -4668,7 +4737,9 @@
     return `<p class="fm-note">Одно задание для всех на сегодня, №${DAILY.n}. Место — по времени решения <b>с первой попытки</b>
         (время считает сервер с момента открытия задания). Самый быстрый завтра весь день носит 👑.${DAILY.crown ? ` Сегодня корона у <b>${esc(DAILY.crown)}</b>.` : ''}</p>
       ${DAILY.my_place ? `<p class="lb-mine">Ты решил за <b>${fmtMs(DAILY.mine)}</b> — ${DAILY.my_place}-е место из ${DAILY.count}.</p>`
-        : '<p><button type="button" class="btn primary" id="dailyGo">Решать задание дня</button></p>'}
+        : dailyNow() ? '<p class="lb-mine">Вы сейчас решаете задание дня — время идёт. <button type="button" class="btn ghost" id="dailyBack">Вернуться к заданию</button></p>'
+        : DAILY.started ? `<p class="daily-used">🔒 Вы уже заходили выполнять задание дня сегодня в ${new Date(DAILY.started * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Войти второй раз нельзя — новое задание появится завтра.</p>`
+        : '<p><button type="button" class="btn primary" id="dailyGo">Решать задание дня</button></p><p class="fm-note">Войти в задание можно <b>один раз</b>: время пойдёт сразу, а выйти и вернуться уже не получится.</p>'}
       ${rows ? `<table class="lb">${rows}</table>` : '<p class="fm-muted lb-empty">Пока никто не решил — стань первым!</p>'}`;
   }
   async function openDaily() {
@@ -4677,12 +4748,18 @@
     $('#forecastBody').innerHTML = `<h2 class="fm-title">👑 Задание дня</h2>${dailyHtml()}`;
     $('#forecastModal').hidden = false;
   }
+  /** Ученик сейчас на открытом задании дня. */
+  const dailyNow = () => !!(DAILY && cur && !cur.done && cur.task && cur.task.id === DAILY.task);
   function goDaily() {
     const t = DAILY && byId.get(DAILY.task);
     if (!t) return;
     closeForecast();
+    if (dailyNow()) return;
+    if (DAILY.started && !DAILY.my_place) { toast('Вы уже заходили выполнять задание дня сегодня — войти второй раз нельзя. Новое задание будет завтра.', 5000); return; }
     if (!leaveExam()) return;
     show({ task: t, why: { type: 'daily' } });
+    DAILY.started = DAILY.started || Date.now() / 1000;
+    renderDailyCard();
   }
 
   // ------------------------------------------------------------ дуэли
@@ -4761,6 +4838,7 @@
   $('#forecastBody').addEventListener('click', e => {
     const t = e.target;
     if (t.closest('#dailyGo')) return goDaily();
+    if (t.closest('#dailyBack')) return closeForecast();
     const acc = t.closest('[data-duel-acc]'), dec = t.closest('[data-duel-dec]'), go = t.closest('[data-duel-go]'), nw = t.closest('[data-duel-new]');
     if (acc) return duelAction('duel/respond', { id: +acc.dataset.duelAcc, accept: true }, 'Вызов принят — нажми «Начать», когда будешь готов');
     if (dec) return duelAction('duel/respond', { id: +dec.dataset.duelDec, accept: false });
@@ -4804,7 +4882,7 @@
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Привет! Вот что нового</h2>${res}
       ${note ? `<div class="sum-note${passed ? ' hot' : ''}">${note}</div>` : ''}
       ${inv.length ? `<div class="sum-note hot">⚔ ${inv.map(x => esc(x.opponent)).join(', ')} ${inv.length > 1 ? 'вызывают' : 'вызывает'} тебя на дуэль! <button type="button" class="btn ghost" id="sumDuels">Ответить</button></div>` : ''}
-      ${DAILY && DAILY.task && !DAILY.my_place ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
+      ${DAILY && DAILY.task && !DAILY.my_place && !DAILY.started ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
       ${boardsHtml(d, 'league')}
       <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
     $('#forecastModal').hidden = false;
@@ -5070,10 +5148,16 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.25.0', '11.10.2026', ['Задания внутри номера разбиты по типам и сложности (от 1 до 5): тип и сложность видны над условием',
+      'Тренажёр подбирает задания под тебя точнее: следит за успехами в каждом типе задания, начинает с лёгких и повышает сложность, когда решаешь уверенно',
+      'После ошибки на повторение приходит задание того же типа, а не просто того же номера',
+      'В варианте ЕГЭ задание, решённое верно, снова попадётся не раньше чем через 3 варианта',
+      'В окне Python: Ctrl+/ закомментировать или раскомментировать строку или выделение']],
     ['1.24.0', '11.10.2026', ['Доска для решения: кнопка «Доска» рядом с «Python» открывает лист в клетку справа от задачи — ручка, прямая, текст, ластик, отмена. У каждого задания своя доска',
       'Верхняя панель больше не наезжает на рейтинг, когда открыто окно Python',
       'Синяя кнопка «Все задания» слева теперь показывает и скрывает банк номеров — отдельная кнопка со стрелками больше не нужна',
-      'На доске можно менять размер текста: кнопки A− и A+']],
+      'На доске можно менять размер текста: кнопки A− и A+',
+      'В задание дня можно зайти только один раз в день: время идёт с первого входа, повторно войти нельзя']],
     ['1.23.0', '10.10.2026', ['За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
     ['1.22.3', '10.10.2026', ['Исправлены формулы в «Банке ЕГЭ»: снова видны степени и индексы (около 1100 заданий, в том числе №14)', 'Верхняя панель больше не наезжает на окно Python']],
     ['1.22.2', '10.10.2026', ['Сервер выдерживает больше учеников одновременно: рейтинг собирается один раз на всех, соединения в начале урока не теряются']],
