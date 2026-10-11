@@ -3642,13 +3642,14 @@
 
   function bdSize() {
     const cv = $('#bdCanvas'), sh = $('#bdSheet');
-    const w = sh.clientWidth;
+    // целые пиксели и на 1px меньше листа: иначе дробная ширина даёт полосы прокрутки, они сужают лист — и так по кругу
+    const w = Math.max(50, sh.clientWidth - 1);
     let maxY = 0;
     for (const st of BD.strokes) {
       if (st.k === 'text') maxY = Math.max(maxY, st.y + 30);
       else for (let i = 1; i < st.p.length; i += 2) if (st.p[i] > maxY) maxY = st.p[i];
     }
-    const h = Math.max(sh.clientHeight, maxY + 320);          // лист растёт вниз, пока решаешь
+    const h = Math.max(sh.clientHeight - 1, maxY + 320);      // лист растёт вниз, пока решаешь
     const dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
@@ -3879,7 +3880,14 @@
     BD.task = null;
     $$('#bdDock [data-bd-size]').forEach(b => b.classList.toggle('on', +b.dataset.bdSize === BD.size));
     bdSync();
-    if (!BD.ro && window.ResizeObserver) { BD.ro = new ResizeObserver(() => bdRedraw()); BD.ro.observe($('#bdSheet')); }
+    if (!BD.ro && window.ResizeObserver) {
+      let last = '';
+      BD.ro = new ResizeObserver(([en]) => {                // перерисовка только при настоящей смене размера
+        const k = Math.round(en.contentRect.width) + 'x' + Math.round(en.contentRect.height);
+        if (k !== last) { last = k; requestAnimationFrame(bdRedraw); }
+      });
+      BD.ro.observe($('#bdSheet'));
+    }
   }
   /** Доска следует за открытым заданием: у каждого своя. */
   function bdSync() {

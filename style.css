@@ -1680,7 +1680,7 @@ body.bd-wide .bd-dock { flex-basis: min(52vw, 980px); }
 .bd-color::before { content: ""; width: 18px; height: 18px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px var(--panel); }
 .bd-color.on::before { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--c); }
 .bd-size i { width: var(--s); height: var(--s); border-radius: 50%; background: currentColor; }
-.bd-sheet { position: relative; flex: 1; min-height: 200px; overflow: auto; border: 2px solid var(--border-strong); border-radius: 12px; background: var(--card); }
+.bd-sheet { position: relative; flex: 1; min-height: 200px; overflow: hidden auto; scrollbar-gutter: stable; border: 2px solid var(--border-strong); border-radius: 12px; background: var(--card); }
 .bd-sheet canvas { display: block; touch-action: none; cursor: crosshair; }
 .bd-sheet canvas[data-tool="text"] { cursor: text; }
 .bd-sheet canvas[data-tool="eraser"] { cursor: cell; }
