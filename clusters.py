@@ -166,3 +166,129 @@ def catalog():
     for n in range(1, 28):
         out.setdefault(n, [list(OTHER)])
     return out
+
+
+# ---------------------------------------------------------------- курс: подборки урока по кластерам
+# №5, двоичная запись: разновидности — в порядке слайдов презентации урока
+SUB5 = [
+    ("first_bits", "Замена первых / последних разрядов",
+     r"перв\w* (две|два|три|разряд|цифр|бит)\w*.{0,60}замен|замен\w*.{0,60}перв\w* (две|два|три|разряд|цифр|бит)"
+     r"|(левых|правых|старш\w*|младш\w*) (разряд|бит)\w*.{0,30}(замен|инверт)|замен\w*.{0,30}(левых|правых) разряд"),
+    ("parity_bit", "Бит чётности",
+     r"сумм\w* цифр\w* (в )?(двоичной|этой) записи.{0,30}(четн|нечетн)|бит\w* четност"
+     r"|остат\w* от делени\w* (количества|числа|суммы|полученной суммы) (единиц|цифр)?\w*.{0,40}на 2|делени\w* (полученной )?суммы на 2"
+     r"|сумм\w* (ее )?цифр\w*.{0,40}на 2|четн\w* (числ\w* )?единиц|количеств\w* единиц\w*.{0,20}(четн|нечетн)"),
+    ("div3", "Делимость N и перевод остатка",
+     r"(делится|кратн\w*) (нацело )?(на )?(3|4|5|6|7|трем|тр[её]м)|остат\w* от делени\w* (числа )?n на [3-9]"),
+    ("last_bits", "Правило по последним битам", r"последн\w* (две|два|три|цифр|разряд|бит)|(две|два|три) последн|(два|две) младш"),
+    ("count01", "Столько нулей / единиц, сколько в записи",
+     r"столько (же )?(нулей|единиц)|количеств\w* (нулей|единиц)|сколько (в ней )?(нулей|единиц)"),
+    ("parity_n", "Дописывание по чётности N",
+     r"если (исходное )?(число )?n (является )?(четн|нечетн)|если (число )?n ?(—|-|–)? ?(четн|нечетн)|если число (четн|нечетн)"
+     r"|n\s*[–—-]?\s*(четн|нечетн)|кратн\w* (2|двум)"),
+    ("bits8", "Разрядность и ведущие нули", r"(8|восьми)\s*-?\s*(битн|разрядн)|ведущ\w* нул|незначащ"),
+    ("remove", "Удаление цифр", r"удаля|убира|вычеркива|отбрасыва"),
+    ("length", "Длина записи", r"количеств\w* разрядов|в центр|в середин|длин\w* (двоичной )?записи"),
+]
+_SUB5 = [(k, re.compile(rx)) for k, _, rx in SUB5]
+EXAM_SRC = re.compile(r"Демоверсия|Апробация|Резерв|Основная|ЕГКР|Пересдача|Досрочн|Статград")
+SET_SIZE = 20
+
+
+def sub5(t):
+    """Разновидность двоичного задания №5 (как на слайдах урока) или 'other'."""
+    x = plain(t.get("html"))
+    return next((k for k, rx in _SUB5 if rx.search(x)), "other")
+
+
+def _h(s):
+    """Постоянный «случайный» порядок: состав подборок не меняется от запуска к запуску."""
+    h = 0
+    for ch in str(s):
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    return h
+
+
+def course_sets(tasks, n):
+    """Подборки урока №n по 20 заданий: {warm, base, exam, hard, test: [id, …]}. tasks — задания банка (с c и r)."""
+    pool = sorted((t for t in tasks if t.get("n") == n and not t.get("group") and t.get("fmt") != "old"),
+                  key=lambda t: _h(t["id"]))
+    used = set()
+
+    def take(lst, k):
+        out = []
+        for t in lst:
+            if len(out) >= k:
+                break
+            if t["id"] not in used:
+                used.add(t["id"])
+                out.append(t)
+        return out
+
+    def fill(k, *lists):
+        out = []
+        for lst in lists:
+            out += take(lst, k - len(out))
+        return out
+
+    def rr(groups, k, key=None):
+        """По кругу из групп (разновидностей): по одному из каждой, пока не наберётся k.
+        Только выбирает — занятыми задания помечает fill()."""
+        lists = [sorted([t for t in g if t["id"] not in used], key=key) if key else [t for t in g if t["id"] not in used]
+                 for g in groups]
+        out, mine, i = [], set(), 0
+        while len(out) < k and any(lists):
+            lst = lists[i % len(lists)]
+            while lst and lst[0]["id"] in mine:
+                lst.pop(0)
+            if lst:
+                t = lst.pop(0)
+                mine.add(t["id"])
+                out.append(t)
+            i += 1
+        return out
+
+    by_c = lambda *cs: [t for t in pool if t.get("c") in cs]
+    rank = lambda t: (t.get("r") or 3, len(t.get("html") or ""))
+    real = lambda t: bool(EXAM_SRC.search(t.get("src") or "")) or t.get("bank") == "openfipi_bank"
+    easy_first = lambda lst: sorted(lst, key=rank)
+    sets = {}
+    if n == 5:
+        bin_ = by_c("bin")
+        subs = [[t for t in bin_ if sub5(t) == k] for k, _, _ in SUB5] + [[t for t in bin_ if sub5(t) == "other"]]
+        # 1. Разминка: самые простые из всех банков — лёгкие (1–2) и короткие, двоичная/десятичная/троичная вперемешку
+        lite = [t for t in pool if (t.get("r") or 3) <= 2]
+        lite_subs = [easy_first([t for t in g if (t.get("r") or 3) <= 2]) for g in subs]
+        sets["warm"] = fill(SET_SIZE, rr(lite_subs, 12) + rr([easy_first([t for t in lite if t.get("c") == c]) for c in ("dec", "ter")], 8),
+                            easy_first(lite), easy_first(pool))
+        # 2. Базовый уровень: двоичная запись — все разновидности со слайдов по кругу, средняя сложность
+        mid = lambda t: (abs((t.get("r") or 3) - 2.5), len(t.get("html") or ""))
+        sets["base"] = fill(SET_SIZE, rr(subs, SET_SIZE, key=mid), bin_)
+        # 3. Как на ЕГЭ: 10 двоичных + 10 троичных, сложность экзамена (3), сначала задания реальных экзаменов
+        exam_key = lambda t: (not real(t), abs((t.get("r") or 3) - 3))
+        sets["exam"] = fill(SET_SIZE // 2, rr(subs, SET_SIZE // 2, key=exam_key)) + fill(SET_SIZE // 2, sorted(by_c("ter"), key=exam_key))
+        sets["exam"] += fill(SET_SIZE - len(sets["exam"]), sorted(bin_, key=exam_key))
+        # 4. Сложные: другие системы счисления и десятичные цифры, затем самое трудное (4–5) из двоичной и троичной
+        hard_key = lambda t: (-(t.get("r") or 3), -len(t.get("html") or ""))
+        sets["hard"] = fill(SET_SIZE, rr([sorted(by_c("other"), key=hard_key), sorted(by_c("dec"), key=hard_key)], 14),
+                            sorted([t for t in pool if (t.get("r") or 3) >= 4], key=hard_key), sorted(pool, key=hard_key))
+        # 5. Контрольная: все виды — 6 двоичных разных разновидностей, 5 троичных, 4 других систем, 5 десятичных
+        exam_r = lambda t: (abs((t.get("r") or 3) - 3), _h(t["id"]))
+        sets["test"] = (fill(6, rr(subs, 6, key=exam_r)) + fill(5, sorted(by_c("ter"), key=exam_r)) + fill(4, sorted(by_c("other"), key=exam_r))
+                        + fill(5, sorted(by_c("dec"), key=exam_r)))
+    else:
+        groups = [[t for t in pool if t.get("c") == c] for c, _ in labels(n) if c != OTHER[0]]   # «другие формулировки» — только добором
+        groups = [g for g in groups if g] or [pool]
+        sets["warm"] = fill(SET_SIZE, rr([easy_first([t for t in g if (t.get("r") or 3) <= 2]) for g in groups], SET_SIZE), easy_first(pool))
+        sets["base"] = fill(SET_SIZE, rr([sorted(g, key=lambda t: abs((t.get("r") or 3) - 2.5)) for g in groups], SET_SIZE), pool)
+        sets["exam"] = fill(SET_SIZE, [t for t in pool if real(t)], rr([sorted(g, key=lambda t: abs((t.get("r") or 3) - 3)) for g in groups], SET_SIZE))
+        sets["hard"] = fill(SET_SIZE, sorted([t for t in pool if (t.get("r") or 3) >= 4], key=lambda t: -(t.get("r") or 3)), pool)
+        sets["test"] = fill(SET_SIZE, rr(groups, SET_SIZE))
+    sets["test"] += fill(SET_SIZE - len(sets["test"]), pool)
+    if len(sets["test"]) < SET_SIZE:                 # заданий в номере мало: контрольная повторяет задания других подборок
+        have = {t["id"] for t in sets["test"]}
+        extra = [t for t in sorted(pool, key=lambda t: (abs((t.get("r") or 3) - 3), _h(t["id"]))) if t["id"] not in have]
+        sets["test"] += extra[:SET_SIZE - len(sets["test"])]
+    for k in ("warm", "base"):                       # внутри подборки — от лёгкого к трудному
+        sets[k] = easy_first(sets[k])
+    return {k: [t["id"] for t in v] for k, v in sets.items()}

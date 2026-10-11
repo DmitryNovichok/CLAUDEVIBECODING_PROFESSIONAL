@@ -456,6 +456,82 @@
     }
   });
 
+
+  // ------------------------------------------------------------ прогресс курса (главный учитель)
+  const CP = { d: null, open: null, detail: {} };
+  const CP_SETS = ['warm', 'base', 'exam', 'hard', 'test'];
+  const pctColor = p => p >= 75 ? 'var(--good)' : p >= 40 ? 'var(--mid)' : p > 0 ? 'var(--weak)' : 'var(--muted)';
+  async function loadCourseProgress() {
+    try { CP.d = await api('course/progress'); } catch (err) { if (err.status !== 401) $('#cpBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    CP.detail = {};
+    renderCourseProgress();
+  }
+  function cpBar(done, total, bad) {
+    const w = total ? done / total * 100 : 0, wb = total ? (bad || 0) / total * 100 : 0;
+    return `<span class="cp-bar" title="решено ${done} из ${total}${bad ? `, с ошибкой ${bad}` : ''}"><i style="width:${w}%"></i><u style="left:${w}%;width:${wb}%"></u></span>`;
+  }
+  function renderCourseProgress() {
+    const d = CP.d, q = ($('#cpFind').value || '').trim().toLowerCase();
+    if (!d.lessons.length) { $('#cpBody').innerHTML = '<p class="adm-empty">В курсе пока нет уроков с презентацией (папка course/).</p>'; return; }
+    const S = d.students.filter(s => !q || s.name.toLowerCase().includes(q));
+    const week = Date.now() / 1000 - 7 * 86400;
+    const avg = d.students.length ? Math.round(d.students.reduce((a, s) => a + s.pct, 0) / d.students.length) : 0;
+    const finished = d.students.filter(s => d.lessons.every(L => { const t = s.lessons[L.n].sets.test; return t && t.total && t.done === t.total; })).length;
+    const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+    const heads = d.lessons.map(L => `<th class="cp-l">№${L.n}: презентация</th>${CP_SETS.map(k => `<th class="num">${esc(d.set_names[k])}</th>`).join('')}`).join('');
+    const rows = S.map(s => {
+      const cells = d.lessons.map(L => {
+        const x = s.lessons[L.n];
+        return `<td class="cp-l">${cpBar(x.seen, x.slides)} <small>${x.seen}/${x.slides}</small></td>` + CP_SETS.map(k => {
+          const v = x.sets[k] || { done: 0, bad: 0, total: 0 };
+          return `<td class="num"><b style="color:${pctColor(v.total ? v.done / v.total * 100 : 0)}">${v.done}</b><small>/${v.total}</small>${v.bad ? `<em class="cp-bad" title="с ошибкой">${v.bad}</em>` : ''}</td>`;
+        }).join('');
+      }).join('');
+      const last = Math.max(s.last_task || 0, 0);
+      return `<tr class="cp-row${CP.open === s.id ? ' on' : ''}" data-cp="${s.id}"><td class="name">${esc(s.name)}<small>${esc(s.class || 'без класса')} · ${esc(s.teacher)}</small></td>
+        <td class="muted">${s.opened ? fmtDate(s.opened) : ''}</td>${cells}
+        <td class="num"><b class="cp-pct" style="color:${pctColor(s.pct)}">${s.pct}%</b></td>
+        <td class="muted">${last ? fmtWhen(last) : '—'}</td></tr>
+        ${CP.open === s.id ? `<tr class="cp-detail"><td colspan="${4 + d.lessons.length * 6}">${cpDetailHtml(s.id)}</td></tr>` : ''}`;
+    }).join('');
+    $('#cpBody').innerHTML = `<div class="adm-cards">
+        ${card('В курсе', d.students.length, 'учеников открыли курс паролем')}
+        ${card('Средний прогресс', avg + '%', 'презентации + подборки', pctColor(avg))}
+        ${card('Прошли контрольную', finished, 'решили все 20 заданий контрольной')}
+        ${card('Занимались за неделю', d.students.filter(s => (s.last_task || 0) >= week).length, 'решали задания из подборок курса')}
+      </div>
+      <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th><th>Открыл курс</th>${heads}<th class="num">Итог</th><th>Последнее решение</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="${4 + d.lessons.length * 6}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Курс пока никто не открыл — сообщите ученикам пароль курса (вкладка «Настройки»).'}</td></tr>`}</tbody></table></div>`;
+  }
+  function cpDetailHtml(sid) {
+    const x = CP.detail[sid];
+    if (!x) return '<p class="adm-hint">Загружаю…</p>';
+    return CP.d.lessons.map(L => {
+      const l = x.lessons[L.n];
+      return `<div class="cp-lesson"><b>Урок №${L.n}</b> <span class="adm-hint">презентация: ${l.seen} из ${l.slides} слайдов</span>
+        <div class="cp-sets">${CP_SETS.map(k => {
+          const v = l.sets[k];
+          if (!v) return '';
+          return `<div class="cp-set"><div class="cp-set-h"><b>${esc(CP.d.set_names[k])}</b> <span>${v.done}/${v.total}${v.bad ? ` · <em class="cp-bad">${v.bad} с ошибкой</em>` : ''}</span></div>
+            <div class="cp-sqs">${(v.tasks || []).map((t, i) => `<button type="button" class="cp-sq ${t.st}" data-task="${esc(t.id)}" title="${i + 1}. ${esc(t.snip)}">${i + 1}</button>`).join('')}</div></div>`;
+        }).join('')}</div></div>`;
+    }).join('');
+  }
+  $('#cpBody').addEventListener('click', async e => {
+    if (e.target.closest('[data-task]')) return;            // клик по квадратику открывает задание
+    const r = e.target.closest('[data-cp]');
+    if (!r) return;
+    const id = +r.dataset.cp;
+    CP.open = CP.open === id ? null : id;
+    renderCourseProgress();
+    if (CP.open && !CP.detail[id]) {
+      try { CP.detail[id] = (await api('course/progress?id=' + id)).students[0]; } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      if (CP.open === id) renderCourseProgress();
+    }
+  });
+  $('#cpFind').addEventListener('input', () => { if (CP.d) renderCourseProgress(); });
+  $('#cpReload').addEventListener('click', loadCourseProgress);
+
   // ------------------------------------------------------------ вкладки
   let tab = 'students';
   let backTab = 'students';            // куда вернуться из карточки ученика
@@ -463,7 +539,8 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    if (t === 'course') loadCourseProgress();
     if (t === 'site') loadSite();
     if (t === 'build') openBuilder();
     if (t === 'teachers') loadTeachers();

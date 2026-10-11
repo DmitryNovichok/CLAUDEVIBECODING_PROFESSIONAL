@@ -632,7 +632,12 @@
     if (!list.length) return null;
     if (ui.scope === 'asg') {               // подборка учителя: по порядку, сначала нерешённые
       const a = asgOf(ui.asg);
-      const left = asgLeft(a).filter(id => id !== excludeId).map(id => byId.get(id)).filter(Boolean);
+      // следующее нерешённое ПОСЛЕ текущего по порядку подборки (по кругу): иначе «Пропустить»
+      // возвращало бы первое нерешённое, и два задания сменяли бы друг друга без конца
+      const leftSet = new Set(asgLeft(a));
+      const at = excludeId ? a.tasks.indexOf(excludeId) : -1;
+      const order = at >= 0 ? a.tasks.slice(at + 1).concat(a.tasks.slice(0, at)) : a.tasks;
+      const left = order.filter(id => id !== excludeId && leftSet.has(id)).map(id => byId.get(id)).filter(Boolean);
       if (left.length) return { task: left[0], why: { type: 'asg', a } };
       const rest = list.filter(t => t.id !== excludeId);
       return { task: rest.length ? rest[Math.floor(Math.random() * rest.length)] : list[0], why: { type: 'asg', a } };
@@ -2092,7 +2097,17 @@
     sysCache.set(t.id, v);
     return v;
   }
+  // Состав подборок курса собирает сервер (по кластерам заданий) — тот же, что видит учитель в прогрессе курса.
+  // Без связи с сервером подборки собираются здесь, по старым правилам.
+  let COURSE_SRV = {};
+  async function loadCourseSets() {
+    if (!SERVER || !COURSE_OK) return;
+    try { COURSE_SRV = (await api('course/sets')).sets || {}; } catch (e) { return; }
+    ASG = ASG.filter(a => !a.course);                // подборки курса пересоберутся из нового состава
+  }
   function courseSetTasks(n) {
+    const srv = COURSE_SRV[n];
+    if (srv) return Object.fromEntries(Object.entries(srv).map(([k, ids]) => [k, ids.filter(id => byId.has(id))]));
     // все задания номера (без фильтра «Актуальные»: подборки курса собраны заранее), порядок постоянный
     const pool = TASKS.filter(t => t.n === n && !t.parts).sort((a, b) => idHash(a.id) - idHash(b.id));
     const used = new Set();
@@ -2198,6 +2213,7 @@
       try {
         await api('course/unlock', { password: $('#coursePw').value });
         COURSE_OK = true;
+        await loadCourseSets();
         $('#courseCard')?.classList.remove('locked');
         toast('Курс открыт 🎓', 2500);
         openCourse();
@@ -2250,7 +2266,7 @@
   function slideHtml(sl, i) {
     const kick = sl.k ? `<div class="sl-k ${sl.kc || ''}">${esc(sl.k)}</div>` : '';
     const runBtn = (k, ans) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button>
-        ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><b>${esc(ans)}</b></details>` : ''}</div>`;
+        ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(ans)}</b></span></details>` : ''}</div>`;
     const codeBox = (code, k, ans) => `<div class="sl-codecol"><pre class="sl-code">${highlightPy(code)}</pre>${runBtn(k, ans)}</div>`;
     if (sl.t === 'title') {
       return `<div class="sl sl-title"><div class="sl-title-main"><div class="crs-kicker">${esc(sl.k || 'Egeshka · курс ЕГЭ')}</div><h3>${esc(sl.h)}</h3><p>${esc(sl.sub || '')}</p>
@@ -2263,8 +2279,8 @@
     }
     if (sl.t === 'code' && sl.cond != null) {
       return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-split">
-        <div class="sl-left"><div class="sl-cond"><div class="sl-cond-h">Условие</div>${safeHtml(sl.cond)}</div>
-          ${sl.note ? `<div class="sl-nuance ${sl.kc || ''}">${safeHtml(sl.note)}</div>` : ''}</div>
+        <div class="sl-left"><div class="sl-cond"><div class="sl-cond-h">${esc(sl.ch || 'Условие')}</div>${safeHtml(sl.cond)}</div>
+          ${sl.note ? `<div class="sl-nuance ${sl.kc || ''} ${sl.nk ? 'nk-' + sl.nk : ''}">${sl.nk === 'warn' ? '<b class="nk">⚠ Осторожно!</b> ' : sl.nk === 'secret' ? '<b class="nk">💡 Секрет.</b> ' : ''}${safeHtml(sl.note)}</div>` : ''}</div>
         ${codeBox(sl.code, 0, sl.ans)}</div></div>`;
     }
     if (sl.t === 'codes') {
@@ -2282,6 +2298,7 @@
     box.querySelector('.crs-stage').innerHTML = slideHtml(sl[deckI], deckI);
     if (MARK.on || MARK.strokes.has(`deck:${DECK.n}:${deckI}`)) markAttach();   // рисунок этого слайда
     box.querySelector('.crs-count').textContent = `${deckI + 1} / ${sl.length}`;
+    deckSeen(deckI + 1, sl.length);
     box.querySelector('[data-deck="-1"]').disabled = deckI === 0;
     box.querySelector('[data-deck="1"]').disabled = deckI === sl.length - 1;
     box.querySelectorAll('.crs-thumb').forEach((t, k) => t.classList.toggle('on', k === deckI));
@@ -2290,6 +2307,19 @@
     fitSlide();
   }
   function deckGo(d) { deckI += d; renderDeck(); }
+  // докуда долистал презентацию — учитель видит в прогрессе курса (отправляем только новый максимум)
+  let seenT = 0;
+  function deckSeen(k, total) {
+    if (!SERVER || !student || !DECK) return;
+    const key = `egeTrainer.seen.${student.sid}.${DECK.n}`;
+    let max = 0;
+    try { max = +localStorage.getItem(key) || 0; } catch (e) { /* нет доступа */ }
+    if (k <= max) return;
+    try { localStorage.setItem(key, k); } catch (e) { /* нет доступа */ }
+    const n = DECK.n;
+    clearTimeout(seenT);
+    seenT = setTimeout(() => api('course/seen', { n, slide: k, total }).catch(() => {}), 800);
+  }
   // масштаб слайда: на весь экран — подгоняем под экран; кнопки − / + меняют размер вручную
   let DECK_SCALE = 1;
   try { DECK_SCALE = +localStorage.getItem('egeTrainer.deckScale') || 1; } catch (e) { /* нет доступа */ }
@@ -2386,7 +2416,7 @@
     const snip = t => String(t.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ')
       .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
       .replace(/^\([^)]{0,40}\)\s*/, '')
-      .replace(/^(На вход алгоритма подаётся|Алгоритм получает на вход|Автомат получает на вход|На вход программе подаётся)[\s\S]{0,200}?(следующим образом|по следующим правилам|по следующему алгоритму|следующему алгоритму)[.:]?\s*/i, '')
+      .replace(/^(На вход алгоритма пода[её]тся|Алгоритм получает на вход|Автомат (получает на вход|обрабатывает)|На вход программ[еы] пода[её]тся)[\s\S]{0,200}?(следующим образом|по следующим правилам|по следующему алгоритму|следующему алгоритму|по следующему правилу)[.:]?\s*/i, '')
       .replace(/^1[.)]\s*Строится [^.]*?(запись|число)[^.]*\.\s*/i, '')
       .replace(/^2[.)]\s*Далее эта запись обрабатывается по следующему правилу:?\s*/i, '')
       .slice(0, 170);
@@ -5148,6 +5178,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.25.1', '11.10.2026', ['В подборках «Пропустить» ведёт к следующему заданию по порядку — раньше два задания сменяли друг друга по кругу']],
     ['1.25.0', '11.10.2026', ['Задания внутри номера разбиты по типам и сложности (от 1 до 5): тип и сложность видны над условием',
       'Тренажёр подбирает задания под тебя точнее: следит за успехами в каждом типе задания, начинает с лёгких и повышает сложность, когда решаешь уверенно',
       'После ошибки на повторение приходит задание того же типа, а не просто того же номера',
@@ -5254,6 +5285,7 @@
           mustSetPw = me.has_password === false;      // вошёл раньше, когда пароля ещё не было
           await loadHistory();
           await loadAssignments();
+          await loadCourseSets();
           ok = true;
         } catch (e) {
           if (e.status === 401) {
