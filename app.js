@@ -4619,6 +4619,7 @@
   const LB_TABS = [['league', 'Лига'], ['day', 'День'], ['week', 'Неделя'], ['month', 'Месяц'], ['fire', 'Огонёк'], ['classes', 'Классы']];
   const LEAGUE_ICONS = ['🥉', '🥈', '🥇', '💎'];
   const LEAGUE_NAMES = ['Бронзовая', 'Серебряная', 'Золотая', 'Алмазная'];
+  const LEAGUE_TO = ['бронзовую', 'серебряную', 'золотую', 'алмазную'];      // «поднимутся в … лигу»
   const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `+${v} XP`;
   const badgesHtml = r => (r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(esc).join(' ')}</span>` : '';
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
@@ -4635,7 +4636,7 @@
     const left = daysLeft(L.ends);
     return `<div class="lg-head"><span class="lg-icon">${L.icon}</span><div><b>${esc(L.name)}</b>
         <div class="fm-muted">Итоги в понедельник — ${left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'сегодня ночью'}.
-        ${L.up ? `Первые ${L.up} поднимутся в ${LEAGUE_NAMES[L.idx + 1].toLowerCase()} лигу.` : 'Это высшая лига — удержись в ней!'}
+        ${L.up ? `Первые ${L.up} поднимутся в ${LEAGUE_TO[L.idx + 1]} лигу.` : 'Это высшая лига — удержись в ней!'}
         ${L.down ? ` Последние ${L.down} опустятся.` : ''}</div></div></div>
       ${L.top.length ? `<table class="lb">${L.top.map(row).join('')}${mineOut ? `<tr class="lb-gap"><td colspan="4">…</td></tr>${row({ place: L.me.place, name: 'Ты', me: true, level: '', badges: [], value: L.me.value })}` : ''}</table>`
         : '<p class="fm-muted lb-empty">В лиге пока никого — реши задание, и ты в игре.</p>'}
@@ -4652,9 +4653,21 @@
         <span class="num">+${c.xp} XP</span></div>`;
     }).join('') + '<p class="fm-muted lb-mine">Опыт всех учеников класса с понедельника. Цель и награду задаёт учитель.</p>';
   }
-  function boardHtml(d, key) {
+  /** Переключатель лиг: своя — по умолчанию, остальные можно посмотреть (без своей строки). */
+  function leaguesHtml(B, view) {
+    const own = B.league, all = B.leagues || [];
+    const idx = view == null ? (own ? own.idx : 0) : view;
+    const sw = all.length ? `<div class="lg-switch" role="tablist">${all.map(L => `<button type="button" data-lgview="${L.idx}" class="${L.idx === idx ? 'on' : ''}">
+        <span>${L.icon}</span>${esc(LEAGUE_NAMES[L.idx])}<small>${L.total}${own && L.idx === own.idx ? ' · твоя' : ''}</small></button>`).join('')}</div>` : '';
+    if (!all.length || (own && idx === own.idx)) return sw + (own ? leagueHtml(own) : '');
+    const L = Object.assign({}, all[idx], { ends: own ? own.ends : 0, me: null });
+    const note = own ? (idx > own.idx ? `Ты в лиге «${esc(LEAGUE_NAMES[own.idx])}». Попасть сюда — войти в первые ${own.up || 10} своей лиги по итогам недели.`
+      : `Ты выше — в лиге «${esc(LEAGUE_NAMES[own.idx])}».`) : '';
+    return sw + leagueHtml(L) + (note ? `<p class="fm-muted lb-mine">${note}</p>` : '');
+  }
+  function boardHtml(d, key, view) {
     const B = d.boards || {};
-    if (key === 'league') return B.league ? leagueHtml(B.league) : '';
+    if (key === 'league') return B.league || B.leagues ? leaguesHtml(B, view) : '';
     if (key === 'classes') return B.classes ? classesHtml(B.classes) : '';
     const b = B[key] || { top: [] };
     if (!b.top.length) {
@@ -4684,6 +4697,14 @@
     try { d = JSON.parse(wrap.dataset.lb); } catch (err) { return; }
     $$('[data-lbtab]', wrap).forEach(b => b.classList.toggle('on', b === tab));
     $('.lb-body', wrap).innerHTML = boardHtml(d, tab.dataset.lbtab);
+  });
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-lgview]');
+    if (!b) return;
+    const wrap = b.closest('.lb-wrap');
+    let d = {};
+    try { d = JSON.parse(wrap.dataset.lb); } catch (err) { return; }
+    $('.lb-body', wrap).innerHTML = boardHtml(d, 'league', +b.dataset.lgview);
   });
 
   // кнопка в верхней панели: лига и место в ней; по клику — все рейтинги
@@ -5178,6 +5199,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.26.0', '12.10.2026', ['В рейтинге можно посмотреть все лиги — бронзовую, серебряную, золотую и алмазную: кто в них и сколько опыта у лидеров']],
     ['1.25.1', '11.10.2026', ['В подборках «Пропустить» ведёт к следующему заданию по порядку — раньше два задания сменяли друг друга по кругу']],
     ['1.25.0', '11.10.2026', ['Задания внутри номера разбиты по типам и сложности (от 1 до 5): тип и сложность видны над условием',
       'Тренажёр подбирает задания под тебя точнее: следит за успехами в каждом типе задания, начинает с лёгких и повышает сложность, когда решаешь уверенно',

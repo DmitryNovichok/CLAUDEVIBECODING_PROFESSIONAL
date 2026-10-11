@@ -567,6 +567,9 @@ class ServerTest(unittest.TestCase):
         board = self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]
         self.assertIn("👑", next(r for r in board["day"]["top"] if r["me"])["badges"])
         self.assertEqual(board["league"]["name"], "Бронзовая лига")
+        lgs = board.get("leagues") or self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]["leagues"]
+        self.assertEqual([x["name"] for x in lgs], ["Бронзовая лига", "Серебряная лига", "Золотая лига", "Алмазная лига"])
+        self.assertTrue(any(r["me"] for r in lgs[0]["top"]))                # своя лига — со своей строкой
 
     def test_daily_once_per_day(self):
         # зашёл в задание дня — сервер это помнит; вторая попытка в рейтинг не идёт, время — от первого входа
