@@ -3243,7 +3243,9 @@
   });
   $('#allCard').addEventListener('click', () => {
     const here = !examShown && !courseShown && ui.scope === 'all';
-    if (isNarrow()) { setScope('all'); return; }               // на телефоне банк открывается кнопкой «Номера»
+    if (isNarrow()) { if (!examShown) setScope('all'); return; }   // на телефоне банк открывается кнопкой «Номера»
+    // в варианте ЕГЭ кнопка только прячет и показывает банк — вариант не закрываем
+    if (examShown) { setSideMin(!document.body.classList.contains('side-min')); return; }
     if (!here) { setSideMin(false); setScope('all'); if (courseShown) { leaveCourse(); next(); renderSidebar(); } return; }
     setSideMin(!document.body.classList.contains('side-min'));
   });
@@ -3618,9 +3620,14 @@
     + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21l4-4 4 4"/><path d="M7 13l3-3 2 2 4-4"/></svg><span>Доска</span></button>';
   const BD_KEEP = 40, BD_INDEX = 'egeTrainer.boards', bdKey = id => 'egeTrainer.board.' + id;
   const BD_BGS = ['grid', 'lines', 'plain'];
-  const BD = { task: null, strokes: [], undo: [], redo: [], tool: 'pen', color: 'ink', size: 2, bg: 'grid', drawing: null, text: null, ro: null, saveT: 0 };
+  const BD_FS = [16, 20, 26, 34, 44, 60];
+  const BD = { task: null, strokes: [], undo: [], redo: [], tool: 'pen', color: 'ink', size: 2, fs: 20, bg: 'grid', drawing: null, text: null, ro: null, saveT: 0 };
   const bdOpen = () => !$('#bdDock').hidden;
-  try { const v = readJSON('egeTrainer.boardPrefs'); if (v) Object.assign(BD, { bg: BD_BGS.includes(v.bg) ? v.bg : 'grid', size: v.size === 5 ? 5 : 2 }); } catch (e) {}
+  try { const v = readJSON('egeTrainer.boardPrefs'); if (v) Object.assign(BD, { bg: BD_BGS.includes(v.bg) ? v.bg : 'grid', size: v.size === 5 ? 5 : 2, fs: BD_FS.includes(v.fs) ? v.fs : 20 }); } catch (e) {}
+  const bdPrefs = () => writeJSON('egeTrainer.boardPrefs', { bg: BD.bg, size: BD.size, fs: BD.fs });
+  // размер текста: у старых надписей его нет — тогда по толщине, как раньше
+  const bdFs = st => st.fs || (st.w > 3 ? 22 : 17);
+  const bdFont = fs => `${fs}px ${getComputedStyle(document.body).fontFamily}`;
 
   function bdLoad(id) {
     const d = readJSON(bdKey(id));
@@ -3652,7 +3659,7 @@
     const w = Math.max(50, sh.clientWidth - 1);
     let maxY = 0;
     for (const st of BD.strokes) {
-      if (st.k === 'text') maxY = Math.max(maxY, st.y + 30);
+      if (st.k === 'text') maxY = Math.max(maxY, st.y + String(st.t).split('\n').length * bdFs(st) * 1.24 + 10);
       else for (let i = 1; i < st.p.length; i += 2) if (st.p[i] > maxY) maxY = st.p[i];
     }
     const h = Math.max(sh.clientHeight - 1, maxY + 320);      // лист растёт вниз, пока решаешь
@@ -3666,9 +3673,10 @@
   function bdDrawStroke(g, st) {
     g.strokeStyle = g.fillStyle = bdInk(st.c);
     if (st.k === 'text') {
-      g.font = `${st.w > 3 ? 22 : 17}px ${getComputedStyle(document.body).fontFamily}`;
+      const fs = bdFs(st);
+      g.font = bdFont(fs);
       g.textBaseline = 'top';
-      String(st.t).split('\n').forEach((ln, i) => g.fillText(ln, st.x, st.y + i * (st.w > 3 ? 27 : 21)));
+      String(st.t).split('\n').forEach((ln, i) => g.fillText(ln, st.x, st.y + i * fs * 1.24));
       return;
     }
     const p = st.p;
@@ -3707,8 +3715,10 @@
     const R = 10;
     const hit = st => {
       if (st.k === 'text') {
-        const lines = String(st.t).split('\n'), lh = st.w > 3 ? 27 : 21;
-        const w = Math.max(...lines.map(l => l.length)) * (st.w > 3 ? 12 : 9.5);
+        const fs = bdFs(st), lines = String(st.t).split('\n'), lh = fs * 1.24;
+        const g = $('#bdCanvas').getContext('2d');
+        g.font = bdFont(fs);
+        const w = Math.max(...lines.map(l => g.measureText(l).width));
         return x >= st.x - R && x <= st.x + w + R && y >= st.y - R && y <= st.y + lines.length * lh + R;
       }
       const p = st.p;
@@ -3734,7 +3744,7 @@
     if (!ta) return;
     BD.text = null;
     const t = ta.value.replace(/\s+$/, '');
-    if (t) { const st = { k: 'text', c: BD.color, w: BD.size, x: +ta.dataset.x, y: +ta.dataset.y, t: t.slice(0, 2000) }; BD.strokes.push(st); bdDo({ add: [st] }); bdSaveSoon(); }
+    if (t) { const st = { k: 'text', c: BD.color, w: BD.size, fs: +ta.dataset.fs || BD.fs, x: +ta.dataset.x, y: +ta.dataset.y, t: t.slice(0, 2000) }; BD.strokes.push(st); bdDo({ add: [st] }); bdSaveSoon(); }
     ta.remove();
     bdRedraw();
   }
@@ -3745,7 +3755,8 @@
     ta.dataset.x = x; ta.dataset.y = y;
     ta.style.left = x + 'px'; ta.style.top = y + 'px';
     ta.style.color = bdInk(BD.color);
-    ta.style.fontSize = (BD.size > 3 ? 22 : 17) + 'px';
+    ta.dataset.fs = BD.fs;
+    ta.style.fontSize = BD.fs + 'px';
     ta.rows = 1;
     ta.placeholder = 'текст…';
     ta.addEventListener('blur', bdTextCommit);
@@ -3820,6 +3831,27 @@
     BD.undo.push(act);
     bdApply(act, false);
   }
+  /** Размер текста: шаг вверх/вниз. Меняет и надпись, которую сейчас печатают. */
+  function bdSetFs(dir) {
+    const i = BD_FS.indexOf(BD.fs);
+    BD.fs = BD_FS[Math.max(0, Math.min(BD_FS.length - 1, (i < 0 ? 1 : i) + dir))];
+    bdPrefs();
+    bdFsLabel();
+    if (BD.text) {
+      BD.text.dataset.fs = BD.fs;
+      BD.text.style.fontSize = BD.fs + 'px';
+      BD.text.dispatchEvent(new Event('input'));
+      BD.text.focus();
+    } else if (BD.tool !== 'text') bdSetTool('text');
+  }
+  function bdFsLabel() {
+    const l = $('#bdFsVal');
+    if (l) l.textContent = BD.fs;
+    const i = BD_FS.indexOf(BD.fs);
+    const dn = $('#bdDock [data-bd-fs="-1"]'), up = $('#bdDock [data-bd-fs="1"]');
+    if (dn) dn.disabled = i <= 0;
+    if (up) up.disabled = i >= BD_FS.length - 1;
+  }
   function bdSetTool(t) {
     bdTextCommit();
     BD.tool = t;
@@ -3836,11 +3868,13 @@
       if (BD.tool === 'eraser') bdSetTool('pen');
       return;
     }
+    const fz = e.target.closest('[data-bd-fs]');
+    if (fz) { bdSetFs(+fz.dataset.bdFs); return; }
     const sz = e.target.closest('[data-bd-size]');
     if (sz) {
       BD.size = +sz.dataset.bdSize;
       $$('#bdDock [data-bd-size]').forEach(b => b.classList.toggle('on', b === sz));
-      writeJSON('egeTrainer.boardPrefs', { bg: BD.bg, size: BD.size });
+      bdPrefs();
       return;
     }
     const id = e.target.closest('button') && e.target.closest('button').id;
@@ -3854,7 +3888,7 @@
       setTimeout(bdRedraw, 30);
     } else if (id === 'bdBg') {
       BD.bg = BD_BGS[(BD_BGS.indexOf(BD.bg) + 1) % BD_BGS.length];
-      writeJSON('egeTrainer.boardPrefs', { bg: BD.bg, size: BD.size });
+      bdPrefs();
       bdRedraw();
     } else if (id === 'bdClear') {
       if (!BD.strokes.length || !confirm('Очистить доску этого задания? Вернуть можно кнопкой ↶')) return;
@@ -3874,6 +3908,8 @@
     if (tool) bdSetTool(tool);
   });
 
+  // кнопки размера текста не забирают фокус у надписи, которую печатают, — она растёт прямо на глазах
+  $('#bdDock').addEventListener('mousedown', e => { if (e.target.closest('[data-bd-fs]') && BD.text) e.preventDefault(); });
   function toggleBoard(force) {
     const open = force != null ? force : !bdOpen();
     if (open && pyOpen()) togglePy(false);             // справа одна панель: или Python, или доска
@@ -3885,6 +3921,7 @@
     if (isNarrow()) setSideOpen(false);
     BD.task = null;
     $$('#bdDock [data-bd-size]').forEach(b => b.classList.toggle('on', +b.dataset.bdSize === BD.size));
+    bdFsLabel();
     bdSync();
     if (!BD.ro && window.ResizeObserver) {
       let last = '';
@@ -5035,7 +5072,8 @@
   const CHANGELOG = [
     ['1.24.0', '11.10.2026', ['Доска для решения: кнопка «Доска» рядом с «Python» открывает лист в клетку справа от задачи — ручка, прямая, текст, ластик, отмена. У каждого задания своя доска',
       'Верхняя панель больше не наезжает на рейтинг, когда открыто окно Python',
-      'Синяя кнопка «Все задания» слева теперь показывает и скрывает банк номеров — отдельная кнопка со стрелками больше не нужна']],
+      'Синяя кнопка «Все задания» слева теперь показывает и скрывает банк номеров — отдельная кнопка со стрелками больше не нужна',
+      'На доске можно менять размер текста: кнопки A− и A+']],
     ['1.23.0', '10.10.2026', ['За достижения теперь дают опыт: от 5 XP за лёгкие до 300 XP за самые трудные']],
     ['1.22.3', '10.10.2026', ['Исправлены формулы в «Банке ЕГЭ»: снова видны степени и индексы (около 1100 заданий, в том числе №14)', 'Верхняя панель больше не наезжает на окно Python']],
     ['1.22.2', '10.10.2026', ['Сервер выдерживает больше учеников одновременно: рейтинг собирается один раз на всех, соединения в начале урока не теряются']],

@@ -1702,3 +1702,6 @@ body:has(.bd-dock:not([hidden])) .topbar .dots { display: none; }
   .bd-tools { gap: 6px 8px; }
 }
 @media (max-width: 860px) { .bd-btn span { display: none; } }
+.bd-fs .bd-size { width: 32px; font: 800 13px var(--font); color: var(--muted); }
+.bd-fs .bd-size:disabled { opacity: .35; cursor: default; }
+.bd-fs b { min-width: 22px; text-align: center; font: 800 13px var(--font); color: var(--text); }
