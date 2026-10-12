@@ -908,6 +908,8 @@ class DB:
             c.execute("UPDATE assignments SET strict=1 WHERE COALESCE(strict, 0) = 0")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
+            # «перерешал уже решённое — без опыта и огонька» — тоже только с момента обновления
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('repeat_rule_since', ?)", (str(time.time()),))
             # награды лиг до появления таблицы наград — из итогов последней недели
             c.execute("""INSERT OR IGNORE INTO awards(student_id, kind, week, info)
                          SELECT student_id, 'up', result_week, result_league FROM leagues WHERE result='up' AND result_week IS NOT NULL""")
@@ -1363,7 +1365,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return {"think": THINK_SEC_DEFAULT, "think_hard": THINK_SEC_HARD, "reveal_per_hour": REVEAL_PER_HOUR,
                 "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
                 "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored,
-                "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()}
+                "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file(),
+                "repeat_since": int(rule_since(APP.db, "repeat_rule_since") * 1000)}
 
     def me_payload(self, s):
         def load(v, default):
@@ -3189,6 +3192,16 @@ def fast_xp_since(db):
     return _FAST_SINCE[0]
 
 
+_RULE_SINCE = {}
+
+
+def rule_since(db, key):
+    """С какого момента действует правило (раньше решённое не пересчитываем)."""
+    if key not in _RULE_SINCE:
+        _RULE_SINCE[key] = to_float(db.setting(key)) or 0
+    return _RULE_SINCE[key]
+
+
 def task_xp(n):
     """Опыт за задание, решённое впервые: чем сложнее номер, тем больше."""
     n = n or 0
@@ -3354,7 +3367,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     """Опыт, уровень и достижения. windows — {имя: (с, до)}: опыт за произвольные промежутки (лиги, прошлая неделя)."""
     windows = windows or {}
     sums = {k: 0 for k in windows}
-    rows = db.q("""SELECT task_id, grp, n, score, ts, exam, spent_ms, gave_up FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
+    rows = db.q("""SELECT task_id, grp, n, score, ts, exam, spent_ms, gave_up, reason FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
     exams = db.q("""SELECT started, finished, primary_score, test_score FROM exams
                     WHERE student_id=? AND finished IS NOT NULL ORDER BY finished""", (sid,))
     now = time.time()
@@ -3376,6 +3389,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     wk0 = week_start(now)
     xp_wk = 0
     fast_since = fast_xp_since(db)
+    repeat_since = rule_since(db, "repeat_rule_since")
 
     def gain(v, ts):
         nonlocal xp, week, xp_day, xp_month, xp_wk
@@ -3393,6 +3407,10 @@ def _game_summary(db, sid, brief=False, windows=None):
             xp_day += v
 
     for r in rows:
+        # уже решённое задание решают снова (из истории, кнопкой «←»): ни опыта, ни огонька, ни серий, ни достижений —
+        # иначе их можно «фармить», перерешивая знакомые задания. Контрольная учителя и вариант ЕГЭ — не в счёт
+        if not r["exam"] and r["task_id"] in solved and r["reason"] != "asg" and r["ts"] >= repeat_since:
+            continue
         fd = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
         fire_days[fd] = fire_days.get(fd, 0) + 1
         if r["exam"]:
