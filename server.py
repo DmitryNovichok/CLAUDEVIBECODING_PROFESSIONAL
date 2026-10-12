@@ -83,6 +83,9 @@ SUS_BACK_SEC = 60                   # …и ответил верно не по�
 ACTIVITY_PER_HOUR = 300
 MAX_SOLUTION = 50_000                 # символов в решении (код или текст)
 ATTEMPTS_PER_TASK = 2               # попыток на задание; считает сервер, а не страница
+CHECKS_PER_TASK_DAY = 6             # ответов на одно задание за сутки (2 попытки × 3 захода): подбор ответа перебором не пройдёт
+CHECKS_PER_10MIN = 60               # проверок ответа за 10 минут у ученика — против скриптов
+REVEAL_PER_DAY = 40                 # показов ответа за сутки на ученика (кроме лимита в час)
 OPEN_TTL = 6 * 3600                 # сколько помнить открытое задание
 # Вариант ЕГЭ
 EXAM_LIMIT_SEC = (3 * 60 + 55) * 60
@@ -276,6 +279,38 @@ class Opened:
 
 
 OPENED = Opened()
+
+
+class CheckLimit:
+    """Сколько ответов ученик отправил на проверку: за 10 минут всего и за сутки на одно задание."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.recent = {}                 # sid → [ts, …] за последние 10 минут
+        self.per_task = {}               # (sid, task, день) → сколько ответов
+
+    def hit(self, sid, tid):
+        """Учесть ещё один ответ. None — можно; иначе текст отказа."""
+        now = time.time()
+        day = datetime.now().strftime("%Y-%m-%d")
+        with self.lock:
+            r = [x for x in self.recent.get(sid, []) if now - x < 600]
+            if len(r) >= CHECKS_PER_10MIN:
+                self.recent[sid] = r
+                return "Слишком много ответов подряд — передохни пару минут и решай дальше"
+            k = (sid, tid, day)
+            if self.per_task.get(k, 0) >= CHECKS_PER_TASK_DAY:
+                return "На это задание сегодня ответов уже достаточно — вернись к нему завтра"
+            r.append(now)
+            self.recent[sid] = r
+            self.per_task[k] = self.per_task.get(k, 0) + 1
+            if len(self.per_task) > 200000:      # чистим вчерашнее
+                for kk in [kk for kk in self.per_task if kk[2] != day]:
+                    del self.per_task[kk]
+            return None
+
+
+CHECKS = CheckLimit()
 
 
 # ================================================================ где лежат банки с картинками
@@ -963,6 +998,7 @@ class DB:
                     ("asg_runs", "xp", "INTEGER"),
                     ("assignments", "kind", "TEXT"),
                     ("students", "dev", "INTEGER DEFAULT 0"),
+                    ("exams", "tasks", "TEXT"),                       # задания варианта, выданные сервером
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
                     ("tour_matches", "kind", "TEXT"),                 # group, po, final, third
@@ -1079,6 +1115,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")      # чужой сайт не встроит тренажёр в рамку (кликджекинг)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -1401,6 +1438,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         wait = math.ceil(st["ts"] + think_sec(t.get("n")) - now)
         if wait > 0:
             return {"why": "think", "wait": wait}
+        day = APP.db.q("SELECT COUNT(*) AS c, MIN(ts) AS t0 FROM reveal_log WHERE student_id=? AND granted=1 AND ts>?",
+                       (s["id"], now - 86400), one=True)
+        if day["c"] >= REVEAL_PER_DAY:
+            return {"why": "limit", "wait": max(60, math.ceil(day["t0"] + 86400 - now)), "per_hour": REVEAL_PER_HOUR}
         for col, val, lim in (("student_id", s["id"], REVEAL_PER_HOUR), ("ip", self.client_ip(), REVEAL_PER_HOUR_IP)):
             rows = APP.db.q(f"SELECT ts FROM reveal_log WHERE {col}=? AND granted=1 AND ts>? ORDER BY ts",
                             (val, now - 3600))
@@ -2270,6 +2311,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             ans = str(data.get("answer") or "")[:400]
             if not tokens(ans):
                 return self.err(400, "Пустой ответ")
+            stop = CHECKS.hit(s["id"], t["id"])
+            if stop:
+                return self.err(429, stop)
             cells = data.get("cells")
             cells = [str(c)[:100] for c in cells[:40]] if isinstance(cells, list) else None
             st["tries"].append(ans)
@@ -2330,10 +2374,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.err(429, f"Не больше {EXAM_PER_DAY} вариантов в сутки. Пока можно тренироваться по номерам.")
         if db.q("SELECT COUNT(*) c FROM exams WHERE ip=? AND started>?", (ip, now - 86400), one=True)["c"] >= EXAM_PER_DAY_IP:
             return self.err(429, "С этого адреса сегодня начато слишком много вариантов. Попробуйте завтра.")
+        if not APP.bank.ensure():
+            return self.err(503, "банк заданий не собран")
+        tasks = exam_pick(db, s)
+        if not tasks:
+            return self.err(503, "В банке нет заданий для варианта")
         eid = secrets.token_urlsafe(9)
-        db.x("INSERT INTO exams(id,student_id,ip,started) VALUES(?,?,?,?)", (eid, s["id"], ip, now))
+        db.x("INSERT INTO exams(id,student_id,ip,started,tasks) VALUES(?,?,?,?,?)", (eid, s["id"], ip, now, json.dumps(tasks)))
         return self.send_json({"exam_id": eid, "started": now, "limit": EXAM_LIMIT_SEC,
-                               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS})
+                               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS,
+                               "items": [{"id": APP.bank.pid(i), "n": n_key(APP.bank.tasks[i].get("n"))} for i in tasks]})
 
     def api_strict(self, s, path, method, data, qs):
         """Контрольная от учителя: ответ сдаётся один раз и не проверяется до конца, результат — после сдачи."""
@@ -2431,6 +2481,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         spent = now - e["started"]
         show = spent >= EXAM_MIN_SEC_FOR_ANSWERS
         items = data.get("answers") if isinstance(data.get("answers"), list) else []
+        issued = set(json.loads(e["tasks"])) if e["tasks"] else None    # задания, выданные сервером при старте
         results, primary, seen, nums = [], 0, set(), set()
         for it in items[:40]:
             if not isinstance(it, dict):
@@ -2439,6 +2490,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             t = APP.bank.tasks.get(tid)
             if not t or t.get("parts") or tid in seen or t.get("n") in nums:
                 continue                      # по одному заданию на номер, как на экзамене
+            if issued is not None and (t.get("group") or tid) not in issued:
+                continue                      # чужое задание в вариант не подставить — ни балла, ни ответа
+            if issued is None and strict_locked(db, s, t.get("group") or tid):
+                continue                      # вариант старого образца: задания идущей самостоятельной — без ответа
             seen.add(tid)
             n = t.get("n") or 0
             nums.add(n)
@@ -4588,6 +4643,41 @@ def asg_review_locked(db, a):
     if members and all(m in done for m in members):
         return None
     return "Правильные ответы и решения откроются, когда самостоятельная закончится для всех: учитель её завершит, пройдёт срок или сдаст весь класс."
+
+
+def exam_pick(db, s):
+    """Вариант ЕГЭ выбирает сервер: по заданию на номер (19–21 — одной игрой) из общего банка.
+    Сначала нерешённые; верно решённые в последних 3 вариантах — пропускаем; задания идущей самостоятельной — никогда."""
+    authored = bool(teacher_of(s)["authored"])
+    solved = {r["t"] for r in db.q("""SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts
+                                      WHERE student_id=? AND score>0""", (s["id"],))}
+    last = [r["id"] for r in db.q("""SELECT id FROM exams WHERE student_id=? AND finished IS NOT NULL
+                                    ORDER BY finished DESC LIMIT 3""", (s["id"],))]
+    recent = set()
+    if last:
+        recent = {r["t"] for r in db.q(f"""SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts WHERE score>0
+                                          AND exam IN ({','.join('?' * len(last))})""", last)}
+    locked = set()
+    if s["class_id"]:
+        for a in db.q("SELECT id, tasks FROM assignments WHERE class_id=? AND strict=1 AND closed IS NULL", (s["class_id"],)):
+            run = db.q("SELECT finished FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], s["id"]), one=True)
+            if not run or not run["finished"]:
+                locked |= set(json.loads(a["tasks"] or "[]"))
+    rnd = secrets.SystemRandom()
+    groups = any(t.get("parts") for t in APP.bank.tasks.values())
+    out = []
+    for n in range(1, 28):
+        if groups and n in (20, 21):
+            continue
+        cands = [i for i in bank_pool({n}, authored_ok=authored)
+                 if i not in locked and (n != 19 or not groups or APP.bank.tasks[i].get("parts"))]
+        if not cands:
+            continue
+        for pref in ([i for i in cands if i not in solved], [i for i in cands if i not in recent], cands):
+            if pref:
+                out.append(rnd.choice(pref))
+                break
+    return out
 
 
 def strict_locked(db, s, real_id):

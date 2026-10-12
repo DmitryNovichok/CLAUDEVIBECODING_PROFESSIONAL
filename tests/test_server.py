@@ -84,6 +84,8 @@ class ServerTest(unittest.TestCase):
         server.THINK_SEC_HARD = 0
         server.OPENED.m.clear()
         server.THROTTLE.fails.clear()
+        server.CHECKS.recent.clear()
+        server.CHECKS.per_task.clear()
         server.APP.db.x("DELETE FROM reveal_log")
         server.APP.db.x("DELETE FROM exams")
 
@@ -1484,6 +1486,36 @@ class ServerTest(unittest.TestCase):
             self.req("POST", "/api/exam/start", {}, tok)
         st, d = self.req("POST", "/api/exam/start", {}, tok)
         self.assertEqual(st, 429)
+
+    def test_exam_cannot_leak_foreign_or_strict_answers(self):
+        tok = self.login("Взломов Вадим")
+        me = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "9Взл"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [me]})
+        self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Сам", "kind": "self", "tasks": ["b:5"]})
+        st, e = self.req("POST", "/api/exam/start", {}, tok)
+        issued = {server.APP.bank.real(x["id"]) for x in e["items"]}
+        self.assertNotIn("b:5", issued)                        # задание идущей самостоятельной в вариант не попадёт
+        self.assertIn("b:6", issued)
+        server.APP.db.x("UPDATE exams SET started=? WHERE id=?", (time.time() - 3600, e["exam_id"]))   # «сидел» час
+        st, r = self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [
+            {"task": server.APP.bank.pid("b:5"), "answer": "1"}, {"task": server.APP.bank.pid("b:6"), "answer": "1"}]}, tok)
+        self.assertTrue(r["shown"])
+        got = {server.APP.bank.real(x["task"]): x.get("answer") for x in r["results"]}
+        self.assertNotIn("b:5", got)                           # подставленное задание — ни балла, ни ответа
+        self.assertEqual(got["b:6"], "7")
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
+    def test_check_bruteforce_limited(self):
+        tok = self.login("Переборов Пётр")
+        pid = server.APP.bank.pid("b:6")
+        codes = []
+        for guess in range(1, 12):
+            if guess % 2:
+                self.req("POST", "/api/open", {"task": pid}, tok)
+            codes.append(self.check(tok, pid, answer=str(100 + guess))[0])
+        self.assertEqual(codes[:server.CHECKS_PER_TASK_DAY], [200] * server.CHECKS_PER_TASK_DAY)
+        self.assertEqual(set(codes[server.CHECKS_PER_TASK_DAY:]), {429})   # перебором ответ не подобрать
 
     # ------------------------------------------------------------ прочее
     def test_csv_cell(self):
