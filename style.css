@@ -1891,3 +1891,50 @@ body.asg-wide .course.asg-page { max-width: none; }
   .asg-page .ap-btns { flex-direction: row; min-width: 0; }
   .ap-dates { flex-wrap: wrap; }
 }
+
+/* ---------- турниры: наборы, сетка на выбывание, пьедестал */
+.tour-page .tl-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.tour-page .tl-card { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.tour-page .tl-card .ap-btns { flex-direction: row; min-width: 0; margin-top: auto; }
+.tl-seats { display: flex; flex-wrap: wrap; gap: 6px; }
+.tl-seat { padding: 4px 10px; border: 2px dashed var(--border); border-radius: 999px; font-size: 12.5px; color: var(--muted); }
+.tl-seat.on { border-style: solid; color: var(--text); font-weight: 700; background: var(--bg); }
+.tl-seat.me { border-color: var(--accent); }
+.tm-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; margin-bottom: 14px;
+  padding: 16px 20px; border: 2px solid var(--border); border-radius: 16px; background: var(--card); }
+.tm-card.live { border-color: var(--accent); }
+.tm-card b { font-size: 18px; }
+.tm-card > b { display: block; font-size: 16px; }
+.tm-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.tb { display: flex; gap: 28px; overflow-x: auto; padding: 4px 2px 10px; }
+.tb-col { flex: 1 0 230px; display: flex; flex-direction: column; }
+.tb-h { margin-bottom: 8px; font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.tb-list { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 14px; }
+.tb-m { position: relative; border: 2px solid var(--border); border-radius: 12px; background: var(--card); overflow: hidden; }
+.tb-m.mine { border-color: var(--accent); }
+.tb-m.live::after { content: ''; position: absolute; bottom: 9px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.tb-p { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 14px; }
+.tb-p + .tb-p { border-top: 1px solid var(--border); }
+.tb-p small { color: var(--muted); font-size: 11.5px; }
+.tb-p.empty { color: var(--muted); font-style: italic; }
+.tb-p.me .tb-name { font-weight: 800; }
+.tb-p.won { background: var(--good-soft); }
+.tb-p.won .tb-name { font-weight: 800; }
+.tb-p.lost { opacity: .55; }
+.tb-seed { flex: 0 0 18px; font-size: 11px; font-weight: 800; color: var(--muted); text-align: center; }
+.tb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-sc { min-width: 18px; text-align: right; }
+.tb-note { padding: 4px 10px; font-size: 11.5px; color: var(--muted); background: var(--bg); }
+.tp { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
+.tp-i { padding: 6px 12px; border-radius: 999px; background: var(--bg); border: 2px solid var(--border); font-weight: 700; font-size: 14px; }
+.tp-i.p1 { border-color: #ffc800; }
+.tp-i.me { box-shadow: 0 0 0 2px var(--accent) inset; }
+.tp-i small { color: var(--muted); font-weight: 600; }
+.td-list { display: flex; flex-direction: column; gap: 8px; }
+.td-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 14px; border: 2px solid var(--border); border-radius: 12px; }
+.td-row .tp { margin: 0; }
+@media (max-width: 640px) {
+  .tb { flex-direction: column; gap: 16px; }
+  .tb-col { flex-basis: auto; }
+  .tour-page .tl-grid { grid-template-columns: 1fr; }
+}

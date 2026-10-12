@@ -869,6 +869,19 @@ class DB:
                 a_solved INTEGER, b_solved INTEGER, winner INTEGER, stake INTEGER, finished REAL);
             CREATE TABLE IF NOT EXISTS awards(
                 student_id INTEGER NOT NULL, kind TEXT NOT NULL, week TEXT NOT NULL, info INTEGER, PRIMARY KEY(student_id, kind, week));
+            CREATE TABLE IF NOT EXISTS tournaments(
+                id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, size INTEGER NOT NULL, title TEXT, status TEXT NOT NULL,
+                created REAL, started REAL, finished REAL, round INTEGER DEFAULT 0, round_ends REAL);
+            CREATE INDEX IF NOT EXISTS tour_teacher ON tournaments(teacher_id, status);
+            CREATE TABLE IF NOT EXISTS tour_players(
+                tour_id INTEGER NOT NULL, student_id INTEGER NOT NULL, seed INTEGER, joined REAL, place INTEGER, xp INTEGER,
+                PRIMARY KEY(tour_id, student_id));
+            CREATE TABLE IF NOT EXISTS tour_matches(
+                id INTEGER PRIMARY KEY, tour_id INTEGER NOT NULL, round INTEGER NOT NULL, slot INTEGER NOT NULL,
+                a INTEGER, b INTEGER, tasks TEXT, a_start REAL, b_start REAL, a_done REAL, b_done REAL,
+                a_solved INTEGER, b_solved INTEGER, a_sec REAL, b_sec REAL, winner INTEGER, tech INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'play', ends REAL);
+            CREATE INDEX IF NOT EXISTS tour_match_t ON tour_matches(tour_id, round);
             CREATE TABLE IF NOT EXISTS xp_adjust(
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT);
             CREATE INDEX IF NOT EXISTS xp_adjust_student ON xp_adjust(student_id);
@@ -1909,6 +1922,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET dev=1 WHERE id=?", (s["id"],))
             return self.send_json({"ok": True})
 
+        if path.startswith("/api/tour"):
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not s["dev"]:
+                return self.send_json({"dev_locked": True, "error": "Турниры в разработке — вход по коду"}, code=403)
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            return self.api_tour(s, path, method, data, qs)
+
         if path.startswith("/api/duel"):
             s = self.student(data)
             if not s:
@@ -1963,6 +1986,68 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.err(404, "нет такого метода")
 
     # ---------- задание: открыть, проверить, показать ответ
+    def api_tour(self, s, path, method, data, qs):
+        """Турниры: наборы на 4 и 8 игроков; набрались — турнир начинается сам; сетка на выбывание,
+        матч — одинаковые задания обоим, раунд — сутки; призы опытом и наградой «Победитель турнира»."""
+        db = APP.db
+        tid = teacher_of(s)["id"]
+        if s["is_teacher"]:
+            return self.err(403, "Учитель в турнирах не участвует")
+        tour_lobbies(db, tid)
+        for t in db.q("SELECT * FROM tournaments WHERE teacher_id=? AND status IN ('reg','run')", (tid,)):
+            tour_tick(db, t)
+        mine_active = db.q("""SELECT t.* FROM tournaments t JOIN tour_players p ON p.tour_id=t.id
+                              WHERE p.student_id=? AND t.status IN ('reg','run')""", (s["id"],))
+        if path == "/api/tour":
+            lobbies = []
+            for t in db.q("SELECT * FROM tournaments WHERE teacher_id=? AND status='reg' ORDER BY size", (tid,)):
+                players = tour_people(db, t["id"])
+                lobbies.append({"id": t["id"], "title": t["title"], "size": t["size"], "players": players,
+                                "me_in": any(p["sid"] == s["id"] for p in players)})
+            mine = None
+            run = [t for t in mine_active if t["status"] == "run"]
+            last = run[0] if run else db.q("""SELECT t.* FROM tournaments t JOIN tour_players p ON p.tour_id=t.id
+                                               WHERE p.student_id=? AND t.status='done' AND t.finished>?
+                                               ORDER BY t.finished DESC LIMIT 1""", (s["id"], time.time() - 3 * 86400), one=True)
+            if last:
+                mine = tour_view(db, last, s["id"])
+            done = [tour_view(db, t, s["id"], brief=True) for t in
+                    db.q("SELECT * FROM tournaments WHERE teacher_id=? AND status='done' ORDER BY finished DESC LIMIT 6", (tid,))]
+            wins = db.q("SELECT COUNT(*) AS c FROM awards WHERE student_id=? AND kind='tour1'", (s["id"],), one=True)["c"]
+            return self.send_json({"lobbies": lobbies, "mine": mine, "done": done, "wins": wins, "prizes": TOUR_PRIZES,
+                                   "tasks": DUEL_TASKS, "hours": TOUR_HOURS, "busy": bool(mine_active)})
+        if method != "POST":
+            return self.err(405, "нужен POST")
+        if path in ("/api/tour/join", "/api/tour/leave"):
+            t = db.q("SELECT * FROM tournaments WHERE id=? AND teacher_id=?", (to_int(data.get("id")), tid), one=True)
+            if not t or t["status"] != "reg":
+                return self.err(409, "Набор в этот турнир уже закрыт")
+            if path == "/api/tour/leave":
+                db.x("DELETE FROM tour_players WHERE tour_id=? AND student_id=?", (t["id"], s["id"]))
+                return self.send_json({"ok": True})
+            if mine_active:
+                return self.err(409, "Ты уже записан в турнир — сначала доиграй его или выйди из набора")
+            db.x("INSERT OR IGNORE INTO tour_players(tour_id, student_id, joined) VALUES(?,?,?)", (t["id"], s["id"], time.time()))
+            tour_tick(db, db.q("SELECT * FROM tournaments WHERE id=?", (t["id"],), one=True))     # набрались — старт
+            st = db.q("SELECT status FROM tournaments WHERE id=?", (t["id"],), one=True)["status"]
+            return self.send_json({"ok": True, "started": st == "run"})
+        m = db.q("SELECT * FROM tour_matches WHERE id=? AND (a=? OR b=?)", (to_int(data.get("match")), s["id"], s["id"]), one=True)
+        if not m:
+            return self.err(404, "Матч не найден")
+        side = "a" if m["a"] == s["id"] else "b"
+        if path == "/api/tour/start":
+            if m["status"] != "play" or (m["ends"] and time.time() > m["ends"]):
+                return self.err(409, "Время на этот матч вышло")
+            if not m[side + "_start"]:
+                db.x(f"UPDATE tour_matches SET {side}_start=? WHERE id=?", (time.time(), m["id"]))
+            return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in json.loads(m["tasks"])], "ends": m["ends"]})
+        if path == "/api/tour/finish":
+            if m["status"] == "play" and m[side + "_start"] and not m[side + "_done"]:
+                db.x(f"UPDATE tour_matches SET {side}_done=? WHERE id=?", (time.time(), m["id"]))
+                tour_tick(db, db.q("SELECT * FROM tournaments WHERE id=?", (m["tour_id"],), one=True))
+            return self.send_json({"ok": True})
+        return self.err(404, "нет такого метода")
+
     def api_duels(self, s, path, method, data):
         db = APP.db
         tid = teacher_of(s)["id"]
@@ -2009,13 +2094,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(429, f"Не больше {DUEL_MAX_OPEN} дуэлей одновременно — закончи начатые")
             if not APP.bank.ensure():
                 return self.err(503, "банк заданий не собран")
-            pool = {}
-            for i, t in APP.bank.tasks.items():
-                if (t.get("n") in DUEL_NUMS and not t.get("parts") and not t.get("group") and t.get("ans")
-                        and (t.get("y") or 2026) >= 2024 and not is_authored(t.get("src"), t.get("html"))):
-                    pool.setdefault(t["n"], []).append(i)
-            nums = random.sample(sorted(pool), min(DUEL_TASKS, len(pool)))
-            tasks = [random.choice(pool[n]) for n in sorted(nums)]
+            tasks = duel_tasks()
             if not tasks:
                 return self.err(503, "нет подходящих заданий")
             did = db.x("INSERT INTO duels(a, b, tasks, created, status) VALUES(?,?,?,?, 'pending')",
@@ -3408,7 +3487,8 @@ def lb_person(db, m, crown, crowns=None):
 AWARDS = [("crown", "👑", "Корона дня", "Быстрее всех решил задание дня"),
           ("league1", "🏆", "Победитель лиги", "1-е место в своей лиге по итогам недели"),
           ("up", "🚀", "Повышение", "Перешёл в лигу выше"),
-          ("duel", "⚔️", "Победа в дуэли", "Выиграл дуэль")]
+          ("duel", "⚔️", "Победа в дуэли", "Выиграл дуэль"),
+          ("tour1", "🎖", "Победитель турнира", "1-е место в турнире")]
 BADGES_MAX = 3
 
 
@@ -3682,8 +3762,10 @@ def _game_summary(db, sid, brief=False, windows=None):
     for aid, ts in got.items():
         gain(ACH_XP.get(aid, 0), ts, "достижение «" + next((t for a, _, t, _, _ in ACHIEVEMENTS if a == aid), aid) + "»")
     # поправки опыта: выигрыш и проигрыш в дуэлях
-    for a in db.q("SELECT ts, delta FROM xp_adjust WHERE student_id=?", (sid,)):
-        gain(a["delta"], a["ts"], "дуэль — победа" if a["delta"] > 0 else "дуэль — поражение")
+    for a in db.q("SELECT ts, delta, reason FROM xp_adjust WHERE student_id=?", (sid,)):
+        why = (f"турнир — {(a['reason'] or '').split(':')[-1]}-е место" if (a["reason"] or "").startswith("tour:")
+               else "дуэль — победа" if a["delta"] > 0 else "дуэль — поражение")
+        gain(a["delta"], a["ts"], why)
     xp = max(0, xp)
     # огонёк: дни подряд, в каждый из которых решено не меньше FIRE_NEED заданий (сегодняшний ещё может идти)
     fire, d = 0, datetime.now().date()
@@ -3859,6 +3941,145 @@ def tournament_table(db, s, mates):
         r["place"] = i
     played = {op for pair in seen if s["id"] in pair for op in pair if op != s["id"]}
     return {"table": table, "played": sorted(played), "ends": week_start() + 7 * 86400}
+
+
+def duel_tasks():
+    """Задания для дуэли или матча турнира: по одному на разные номера, актуального формата, без авторских."""
+    pool = {}
+    for i, t in APP.bank.tasks.items():
+        if (t.get("n") in DUEL_NUMS and not t.get("parts") and not t.get("group") and t.get("ans")
+                and (t.get("y") or 2026) >= 2024 and not is_authored(t.get("src"), t.get("html"))):
+            pool.setdefault(t["n"], []).append(i)
+    nums = random.sample(sorted(pool), min(DUEL_TASKS, len(pool)))
+    return [random.choice(pool[n]) for n in sorted(nums)]
+
+
+TOUR_SIZES = {4: "Быстрый турнир", 8: "Большой турнир"}
+TOUR_HOURS = 24                          # на каждый раунд
+TOUR_PRIZES = {1: 100, 2: 60, 3: 30}     # опыт за места (3 — оба проигравших в полуфинале)
+ROUND_NAMES = {1: "Финал", 2: "Полуфинал", 4: "Четвертьфинал", 8: "1/8 финала"}
+SEED_SLOTS = {4: [(1, 4), (2, 3)], 8: [(1, 8), (4, 5), (3, 6), (2, 7)]}
+
+
+def tour_lobbies(db, tid):
+    """У учителя всегда открыт набор на каждый размер турнира."""
+    for size, name in TOUR_SIZES.items():
+        if not db.q("SELECT 1 FROM tournaments WHERE teacher_id=? AND size=? AND status='reg'", (tid, size), one=True):
+            n = db.q("SELECT COUNT(*) AS c FROM tournaments WHERE teacher_id=? AND size=?", (tid, size), one=True)["c"] + 1
+            db.x("INSERT INTO tournaments(teacher_id, size, title, status, created) VALUES(?,?,?,'reg',?)",
+                 (tid, size, f"{name} №{n}", time.time()))
+
+
+def tour_people(db, tour_id):
+    out = []
+    for r in db.q("""SELECT p.student_id, p.seed, p.place, p.xp, s.name FROM tour_players p JOIN students s ON s.id=p.student_id
+                     WHERE p.tour_id=? ORDER BY COALESCE(p.seed, 99), p.joined""", (tour_id,)):
+        out.append({"sid": r["student_id"], "name": short_name(r["name"]), "seed": r["seed"], "place": r["place"], "xp": r["xp"],
+                    "level": game_summary(db, r["student_id"], brief=True)["level"]})
+    return out
+
+
+def tour_match_new(db, tour_id, rnd, slot, a, b, ends):
+    db.x("INSERT INTO tour_matches(tour_id, round, slot, a, b, tasks, status, ends) VALUES(?,?,?,?,?,?, 'play', ?)",
+         (tour_id, rnd, slot, a, b, json.dumps(duel_tasks()), ends))
+
+
+def tour_settle(db, m, seeds, now):
+    """Итог матча: больше решено — победа, поровну — быстрее; не сыграл — техническое поражение."""
+    tasks = json.loads(m["tasks"])
+    res, tech = {}, 0
+    for side in ("a", "b"):
+        st, dn = m[side + "_start"], min(m[side + "_done"] or now, m["ends"] or now)    # после срока не считается
+        res[side] = (duel_solved(db, m[side], tasks, st, dn) if st else -1, (dn - st) if st else float("inf"))
+    (sa, ta), (sb, tb) = res["a"], res["b"]
+    if sa < 0 or sb < 0:
+        tech = 1
+    if sa != sb:
+        win = "a" if sa > sb else "b"
+    elif ta != tb:
+        win = "a" if ta < tb else "b"
+    else:                                       # оба не сыграли или идеально поровну — проходит сеянный выше
+        win = "a" if seeds.get(m["a"], 99) <= seeds.get(m["b"], 99) else "b"
+    db.x("""UPDATE tour_matches SET status='done', a_solved=?, b_solved=?, a_sec=?, b_sec=?, winner=?, tech=? WHERE id=?""",
+         (max(sa, 0), max(sb, 0), None if ta == float("inf") else ta, None if tb == float("inf") else tb, m[win], tech, m["id"]))
+
+
+def tour_tick(db, t):
+    """Ход турнира (лениво, при каждом запросе): старт при полном наборе, итоги матчей, следующий раунд, призы."""
+    now = time.time()
+    if t["status"] == "reg":
+        ids = [r["student_id"] for r in db.q("SELECT student_id FROM tour_players WHERE tour_id=? ORDER BY joined", (t["id"],))]
+        if len(ids) < t["size"]:
+            return
+        if not db.xn("UPDATE tournaments SET status='run', started=?, round=1, round_ends=? WHERE id=? AND status='reg'",
+                     (now, now + TOUR_HOURS * 3600, t["id"])):
+            return                               # стартовал параллельный запрос
+        # посев по уровню и опыту: сильные встречаются как можно позже
+        ranked = sorted(ids, key=lambda i: (-game_summary(db, i, brief=True)["xp"], i))
+        for seed, sid in enumerate(ranked, 1):
+            db.x("UPDATE tour_players SET seed=? WHERE tour_id=? AND student_id=?", (seed, t["id"], sid))
+        for slot, (x, y) in enumerate(SEED_SLOTS[t["size"]]):
+            tour_match_new(db, t["id"], 1, slot, ranked[x - 1], ranked[y - 1], now + TOUR_HOURS * 3600)
+        return
+    if t["status"] != "run":
+        return
+    seeds = {r["student_id"]: r["seed"] for r in db.q("SELECT student_id, seed FROM tour_players WHERE tour_id=?", (t["id"],))}
+    cur = db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], t["round"]))
+    for m in cur:
+        if m["status"] == "play" and ((m["a_done"] and m["b_done"]) or now > (m["ends"] or now)):
+            tour_settle(db, m, seeds, now)
+    cur = db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], t["round"]))
+    if any(m["status"] != "done" for m in cur):
+        return
+    winners = [m["winner"] for m in cur]
+    if len(winners) == 1:                        # финал сыгран — места и призы
+        if not db.xn("UPDATE tournaments SET status='done', finished=? WHERE id=? AND status='run'", (now, t["id"])):
+            return
+        final = cur[0]
+        places = {final["winner"]: 1, final["a"] if final["winner"] == final["b"] else final["b"]: 2}
+        rounds = db.q("SELECT * FROM tour_matches WHERE tour_id=? ORDER BY round", (t["id"],))
+        total = max(m["round"] for m in rounds)
+        for m in rounds:
+            loser = m["a"] if m["winner"] == m["b"] else m["b"]
+            places.setdefault(loser, 2 ** (total - m["round"]) + 1)          # полуфинал → 3, четвертьфинал → 5
+        for sid, pl in places.items():
+            xp = TOUR_PRIZES.get(pl, 0)
+            db.x("UPDATE tour_players SET place=?, xp=? WHERE tour_id=? AND student_id=?", (pl, xp, t["id"], sid))
+            if xp:
+                db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (sid, now, xp, f"tour:{t['id']}:{pl}"))
+        db.x("INSERT OR IGNORE INTO awards(student_id, kind, week, info) VALUES(?,'tour1',?,?)", (final["winner"], str(t["id"]), t["size"]))
+        return
+    nxt = t["round"] + 1
+    if not db.xn("UPDATE tournaments SET round=?, round_ends=? WHERE id=? AND round=?", (nxt, now + TOUR_HOURS * 3600, t["id"], t["round"])):
+        return
+    for k in range(len(winners) // 2):
+        tour_match_new(db, t["id"], nxt, k, winners[2 * k], winners[2 * k + 1], now + TOUR_HOURS * 3600)
+
+
+def tour_view(db, t, me, brief=False):
+    """Турнир для страницы: участники, сетка по раундам, места."""
+    people = {p["sid"]: p for p in tour_people(db, t["id"])}
+    total = {4: 2, 8: 3}.get(t["size"], 3)
+    out = {"id": t["id"], "title": t["title"], "size": t["size"], "status": t["status"], "round": t["round"],
+           "round_ends": t["round_ends"], "started": t["started"], "finished": t["finished"],
+           "podium": sorted([p for p in people.values() if p["place"]], key=lambda p: p["place"])[:4]}
+    if brief:
+        return out
+    rounds = []
+    for r in range(1, total + 1):
+        ms = []
+        for m in db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], r)):
+            side = "a" if m["a"] == me else "b" if m["b"] == me else None
+            ms.append({"id": m["id"], "slot": m["slot"], "status": m["status"], "ends": m["ends"], "tech": bool(m["tech"]),
+                       "a": people.get(m["a"]), "b": people.get(m["b"]), "a_solved": m["a_solved"], "b_solved": m["b_solved"],
+                       "winner": m["winner"], "mine": side, "started": bool(side and m[side + "_start"]),
+                       "done": bool(side and m[side + "_done"]),
+                       "tasks": [APP.bank.pid(x) for x in json.loads(m["tasks"])] if side and m[side + "_start"] else None,
+                       "since": m[side + "_start"] if side else None})
+        n_matches = t["size"] // 2 ** r
+        rounds.append({"round": r, "name": ROUND_NAMES.get(n_matches, f"Раунд {r}"), "matches": ms, "slots": n_matches})
+    out.update(rounds=rounds, players=sorted(people.values(), key=lambda p: p["seed"] or 99))
+    return out
 
 
 def duel_solved(db, sid, tasks, t0, t1):

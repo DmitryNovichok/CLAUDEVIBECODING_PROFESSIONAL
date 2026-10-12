@@ -899,7 +899,7 @@
         if (!a) return { chip: '<span class="chip accent">Задание учителя</span>', line: '' };
         if (a.duel) {
           const done = a.tasks.length - asgLeft(a).length;
-          return { chip: '<span class="chip accent">⚔ Дуэль</span>',
+          return { chip: '<span class="chip accent">🏆 Турнир</span>',
             line: `${esc(a.title)}: задание ${Math.min(done + 1, a.tasks.length)} из ${a.tasks.length}. Решай точно — важны и число верных, и время.` };
         }
         if (a.strict) {
@@ -2224,6 +2224,7 @@
       if (examShown) return;
       if (st.v === 'course') openCourse();
       else if (st.v === 'asgpage') openAsgPage();
+      else if (st.v === 'tourpage') tourOpen();
       else if (st.v === 'lesson') openLesson(st.n);
       else if (st.v === 'set' && courseSet(st.id)) { abandonCurrent(); openCourseSet(st.id); }
       else if (st.v === 'task' && courseSet(st.set) && byId.get(st.id)) openSetTask(courseSet(st.set), byId.get(st.id));
@@ -2724,7 +2725,7 @@
     } else if (ui.scope === 'asg' && asgOf(ui.asg)) {
       const a = asgOf(ui.asg);
       const left = asgLeft(a).length;
-      h = `<span class="scope-title">${a.duel ? '⚔ Дуэль' : a.course ? '🎓 Курс' : 'От учителя'}</span>
+      h = `<span class="scope-title">${a.duel ? '🏆 Турнир' : a.course ? '🎓 Курс' : 'От учителя'}</span>
         <span class="scope-stats">«${esc(a.title)}» · решено ${a.tasks.length - left} из ${a.tasks.length}</span>
         ${a.due ? `<span class="chip ${a.due * 1000 < Date.now() && left ? 'weak' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}`;
     } else if (ui.scope === 'fav') {
@@ -2827,9 +2828,10 @@
 
     renderPeriod();
     $('#sideToggleLabel').textContent = examShown ? 'Вариант ЕГЭ' : ui.scope === 'all' ? 'Все задания' : ui.scope === 'fav' ? 'Избранное'
-      : ui.scope === 'asg' ? (asgOf(ui.asg) && asgOf(ui.asg).duel ? 'Дуэль' : asgOf(ui.asg) && asgOf(ui.asg).course ? 'Курс' : 'От учителя') : `№ ${numLabel(ui.scope)}`;
+      : ui.scope === 'asg' ? (asgOf(ui.asg) && asgOf(ui.asg).duel ? 'Турнир' : asgOf(ui.asg) && asgOf(ui.asg).course ? 'Курс' : 'От учителя') : `№ ${numLabel(ui.scope)}`;
     const asgOn = inTrainer && ui.scope === 'asg' && !(asgOf(ui.asg) || {}).course;
-    $('#courseCard')?.classList.toggle('on', (courseShown && pageKind !== 'asg') || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
+    $('#duelCard')?.classList.toggle('on', (courseShown && pageKind === 'tour') || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).tour));
+    $('#courseCard')?.classList.toggle('on', (courseShown && !pageKind) || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
     $('#asgCard').classList.toggle('on', asgOn || (courseShown && pageKind === 'asg'));
     renderAsgCard();
     renderLevel();
@@ -5014,121 +5016,204 @@
     renderDailyCard();
   }
 
-  // ------------------------------------------------------------ дуэли
-  let DUELS = { duels: [], mates: [] };
+  // ------------------------------------------------------------ турниры
+  /* Наборы на 4 и 8 игроков: набрались — турнир начинается сам. Сетка на выбывание, матч — одинаковые задания обоим,
+     на раунд сутки; больше решил — проходишь дальше, поровну — кто быстрее. Пока — по коду доступа. */
+  let TOUR = null, TOUR_LOCKED = false;
   async function loadDuels() {
-    try { DUELS = await api('duels'); } catch (e) {
-      if (e.status === 403) { DUELS = { duels: [], mates: [], locked: true }; renderDuelCard(); }   // турнир в разработке — по коду
+    if (!SERVER || !student || TEACHER) return;
+    try { TOUR = await api('tour'); TOUR_LOCKED = false; } catch (e) {
+      if (e.status === 403) { TOUR = null; TOUR_LOCKED = true; renderDuelCard(); renderTourPage(); }
       return;
     }
-    // идущие дуэли, которые я начал, решаются как подборка: 5 заданий по порядку
+    // мой начатый матч решается как подборка: задания по порядку
     ASG = ASG.filter(a => !a.duel);
-    for (const d of DUELS.duels) {
-      if (d.status === 'active' && d.tasks && !d.done) {
-        ASG.push({ id: 'duel-' + d.id, duel: d.id, title: `Дуэль с ${d.opponent}`, tasks: d.tasks, done: [], created: d.since });
-      }
+    const m = tourMyMatch();
+    if (m && m.tasks && !m.done) {
+      const op = m.mine === 'a' ? m.b : m.a;
+      ASG.push({ id: 'tm-' + m.id, duel: 'tm' + m.id, tour: m.id, title: `${m.rname}: матч с ${op ? op.name : '?'}`, tasks: m.tasks, done: [], created: m.since });
     }
     renderDuelCard();
     renderAsgCard();
+    renderTourPage();
+  }
+  /** Мой текущий (не сыгранный до конца) матч в идущем турнире. */
+  function tourMyMatch() {
+    const T = TOUR && TOUR.mine;
+    if (!T || T.status !== 'run') return null;
+    for (const r of T.rounds) for (const m of r.matches) if (m.mine && m.status === 'play') return { ...m, rname: r.name };
+    return null;
   }
   function renderDuelCard() {
     const card = $('#duelCard');
     if (!card) return;
     card.hidden = !SERVER || !student || TEACHER;
-    const inv = DUELS.duels.filter(d => d.status === 'pending' && !d.mine).length;
-    const act = DUELS.duels.filter(d => d.status === 'active').length;
-    $('#duelSub').textContent = DUELS.locked ? 'в разработке' : inv ? `вызов: ${inv}!` : act ? `матч идёт: ${act}` : 'таблица недели';
-    card.classList.toggle('alert', !!inv);
+    const m = tourMyMatch();
+    const lob = TOUR && TOUR.lobbies.find(l => l.me_in);
+    const alert = !!(m && !m.done);
+    $('#duelSub').textContent = TOUR_LOCKED || !TOUR ? 'в разработке' : alert ? 'твой матч!' : m ? 'ждём соперника'
+      : lob ? `набор ${lob.players.length}/${lob.size}` : 'наборы открыты';
+    card.classList.toggle('alert', alert);
   }
-  function duelRow(d) {
-    const ends = Math.max(0, Math.round((d.ends * 1000 - Date.now()) / 3600e3));
-    let st, btn = '';
-    if (d.status === 'pending') {
-      st = d.mine ? `ждём ответа · ещё ${ends} ч` : 'вызывает тебя на дуэль!';
-      if (!d.mine) btn = `<button type="button" class="btn primary" data-duel-acc="${d.id}">Принять</button><button type="button" class="btn ghost" data-duel-dec="${d.id}">Отказаться</button>`;
-    } else if (d.status === 'active') {
-      st = d.done ? (d.op_done ? 'подводим итоги…' : 'ты закончил — ждём соперника') : `идёт · осталось ${ends} ч`;
-      if (!d.done) btn = `<button type="button" class="btn primary" data-duel-go="${d.id}">${d.started ? 'Продолжить' : 'Начать'}</button>`;
-    } else if (d.status === 'finished') {
-      st = d.result === 'win' ? `победа ${d.my_solved}:${d.op_solved}${d.stake ? ` · +${d.stake} XP` : ''}`
-        : d.result === 'lose' ? `поражение ${d.my_solved}:${d.op_solved}${d.stake ? ` · −${d.stake} XP` : ''}` : `ничья ${d.my_solved}:${d.op_solved}`;
-    } else st = d.status === 'declined' ? 'отказался' : 'вызов истёк';
-    return `<div class="duel-row ${d.status} ${d.result || ''}"><div><b>${esc(d.opponent)}</b><div class="fm-muted">${st}</div></div><span class="duel-btns">${btn}</span></div>`;
-  }
-  /** Турнир (в разработке): вход по коду, таблица недели «каждый с каждым», матч — дуэль на одинаковых заданиях. */
-  async function openDuels(fresh = true) {
+  const tourLeft = sec => {
+    const ms = sec * 1000 - Date.now();
+    if (ms <= 0) return 'время вышло';
+    const h = Math.floor(ms / 3600e3), mi = Math.floor(ms % 3600e3 / 60e3);
+    return h ? `${h} ч ${pad2(mi)} мин` : `${mi} мин`;
+  };
+  const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+  function tourOpen() {
+    if (!leaveExam()) return;
     if (isNarrow()) setSideOpen(false);
-    if (fresh) await loadDuels();                       // соперники и вызовы могли появиться после входа
-    if (DUELS.locked) {
-      $('#forecastBody').innerHTML = `<h2 class="fm-title">🏆 Турнир <span class="chip">в разработке</span></h2>
-        <p class="fm-note">Здесь будет турнир с турнирной таблицей: каждую неделю — матчи с одноклассниками, победа — 3 очка, ничья — 1.
-          Раздел ещё дорабатывается — войти можно по коду доступа.</p>
-        <form id="devForm" class="login-form" style="max-width:360px"><input class="inp" id="devCode" inputmode="numeric" autocomplete="off" placeholder="Код доступа">
-          <button type="submit" class="btn primary">Войти</button></form>`;
-      $('#forecastModal').hidden = false;
-      $('#devForm').addEventListener('submit', async e => {
-        e.preventDefault();
-        try { await api('dev/unlock', { code: $('#devCode').value }); } catch (err) { toast(err.message || 'Неверный код', 3000); return; }
-        toast('Доступ к турниру открыт', 2500);
-        openDuels();
-      });
+    abandonCurrent();
+    courseShown = true;
+    pageKind = 'tour';
+    cur = null;
+    navPush({ v: 'tourpage' });
+    renderTourPage();
+    renderSidebar();
+    window.scrollTo(0, 0);
+    loadDuels();                                        // наборы и сетка могли измениться
+  }
+  function tourPlayer(p, m, side) {
+    if (!p) return `<div class="tb-p empty"><span class="tb-seed"></span><span class="tb-name">ждём победителя</span></div>`;
+    const me = student && p.sid === student.sid;
+    const won = m && m.status === 'done' && m.winner === p.sid, lost = m && m.status === 'done' && m.winner !== p.sid;
+    const sc = m && m.status === 'done' ? `<b class="tb-sc">${m[side + '_solved']}</b>` : '';
+    return `<div class="tb-p${me ? ' me' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}"><span class="tb-seed">${p.seed || ''}</span>
+      <span class="tb-name">${esc(p.name)}${me ? ' (ты)' : ''}</span><small>ур. ${p.level}</small>${sc}</div>`;
+  }
+  function tourBracket(T) {
+    return `<div class="tb">${T.rounds.map(r => {
+      const boxes = [];
+      for (let k = 0; k < r.slots; k++) {
+        const m = r.matches.find(x => x.slot === k);
+        const note = !m ? '' : m.status === 'done' ? (m.tech ? 'тех. победа' : 'сыгран') : `идёт · ${tourLeft(m.ends)}`;
+        boxes.push(`<div class="tb-m${m && m.mine ? ' mine' : ''}${m && m.status === 'play' ? ' live' : ''}">
+          ${tourPlayer(m && m.a, m, 'a')}${tourPlayer(m && m.b, m, 'b')}${note ? `<div class="tb-note">${note}</div>` : ''}</div>`);
+      }
+      return `<div class="tb-col"><div class="tb-h">${r.name}</div><div class="tb-list">${boxes.join('')}</div></div>`;
+    }).join('')}</div>`;
+  }
+  function tourPodium(T) {
+    return `<div class="tp">${(T.podium || []).map(p => `<span class="tp-i p${p.place}${student && p.sid === student.sid ? ' me' : ''}">${MEDAL[p.place] || ''} ${esc(p.name)}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</span>`).join('')}</div>`;
+  }
+  function tourMatchCard() {
+    const m = tourMyMatch(), T = TOUR.mine;
+    if (!m) {
+      const mine = T.players.find(p => student && p.sid === student.sid);
+      const out = T.rounds.some(r => r.matches.some(x => x.mine && x.status === 'done' && x.winner !== student.sid));
+      return `<div class="tm-card ${out ? '' : 'wait'}"><b>${out ? 'Ты выбыл из турнира' : 'Твой матч сыгран — ждём остальные матчи раунда'}</b>
+        <span class="fm-muted">${out ? 'Досмотри турнир: призы получат финалисты и полуфиналисты. В следующий турнир можно записаться, когда этот закончится.'
+          : `Следующий раунд начнётся, когда сыграют все или через ${tourLeft(T.round_ends)}.`}${mine ? '' : ''}</span></div>`;
+    }
+    const op = m.mine === 'a' ? m.b : m.a;
+    const btn = m.done ? '<span class="fm-muted">ты закончил — ждём соперника</span>'
+      : `<button type="button" class="btn primary" data-tour-go="${m.id}">${m.started ? 'Продолжить матч' : 'Играть матч'}</button>
+         ${m.started ? `<button type="button" class="btn ghost" data-tour-fin="${m.id}">Закончить</button>` : ''}`;
+    return `<div class="tm-card live"><div><span class="ap-kind">${m.rname} · твой матч</span>
+        <b>ты против ${esc(op ? op.name : '?')}</b> <small class="fm-muted">${op ? `ур. ${op.level}` : ''}</small>
+        <div class="fm-muted">${TOUR.tasks} одинаковых заданий · осталось ${tourLeft(m.ends)}${m.started ? '' : ' · время пойдёт с нажатия «Играть»'}</div></div>
+      <div class="tm-btns">${btn}</div></div>`;
+  }
+  function renderTourPage() {
+    if (!courseShown || pageKind !== 'tour') return;
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Турниры</span>';
+    document.body.classList.add('asg-wide');
+    if (TOUR_LOCKED || !TOUR) {
+      trainerEl.innerHTML = `<div class="course"><div class="crs-lock">
+        <div class="crs-lock-ic">🏆</div><h2>Турниры — в разработке</h2>
+        <p>Набор на турнир, сетка на выбывание, призы опытом. Раздел дорабатывается — войти можно по коду доступа.</p>
+        ${TOUR_LOCKED ? `<form class="login-form crs-lock-form" id="devForm" autocomplete="off">
+          <input class="inp" id="devCode" inputmode="numeric" autocomplete="off" placeholder="Код доступа" required>
+          <button class="btn primary" type="submit">Войти</button></form>` : '<p class="fm-muted">Загружаем…</p>'}
+      </div></div>`;
       return;
     }
-    const T = DUELS.tournament || { table: [], played: [] };
-    const list = DUELS.duels.map(duelRow).join('');
-    const busy = new Set(DUELS.duels.filter(d => d.status === 'pending' || d.status === 'active').map(d => d.opponent));
-    const played = new Set(T.played || []);
-    const mates = (DUELS.mates || []).map(m => `<div class="duel-row"><div><b>${esc(m.name)}</b> <span class="fm-muted">ур. ${m.level}</span></div>
-      <span class="duel-btns">${played.has(m.sid) ? '<span class="fm-muted">матч недели сыгран</span>' : busy.has(m.name) ? '<span class="fm-muted">матч идёт</span>' : `<button type="button" class="btn ghost" data-duel-new="${m.sid}">Вызвать на матч</button>`}</span></div>`).join('');
-    const left = T.ends ? Math.max(0, Math.ceil((T.ends * 1000 - Date.now()) / 864e5)) : 0;
-    const table = T.table.length ? `<div class="fm-table-wrap"><table class="fm-table tour-table"><thead><tr><th>#</th><th>Участник</th>
-      <th class="num" title="Игры">И</th><th class="num" title="Победы">В</th><th class="num" title="Ничьи">Н</th><th class="num" title="Поражения">П</th>
-      <th class="num" title="Решено задач в матчах">Задачи</th><th class="num">Очки</th></tr></thead><tbody>${T.table.map(r => `<tr class="${r.me ? 'me' : ''}">
-      <td>${placeHtml(r.place)}</td><td>${esc(r.me ? r.name + ' (ты)' : r.name)}</td><td class="num">${r.games}</td><td class="num">${r.w}</td><td class="num">${r.d}</td>
-      <td class="num">${r.l}</td><td class="num">${r.solved}</td><td class="num"><b>${r.pts}</b></td></tr>`).join('')}</tbody></table></div>` : '';
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">🏆 Турнир недели <span class="chip">в разработке</span></h2>
-      <p class="fm-note">Каждый с каждым: матч — ${DUELS.tasks || 5} одинаковых заданий тебе и сопернику, побеждает решивший больше, при равенстве — быстрее.
-        Победа — <b>3 очка</b>, ничья — <b>1</b>. С каждым соперником — один матч за неделю. Итоги — в понедельник${left ? `, через ${left} ${plural(left, 'день', 'дня', 'дней')}` : ''}.</p>
-      <h3 class="fm-sub">Турнирная таблица</h3>${table}
-      ${list ? `<h3 class="fm-sub">Мои матчи</h3>${list}` : ''}
-      <h3 class="fm-sub">Соперники</h3>${mates || '<p class="fm-muted">Пока не с кем: в турнире участвуют ученики твоего учителя, открывшие его по коду.</p>'}`;
-    $('#forecastModal').hidden = false;
+    const D = TOUR, T = D.mine;
+    const prizes = Object.entries(D.prizes).map(([pl, xp]) => `${MEDAL[pl]} ${xp} XP`).join(' · ');
+    const lobby = l => {
+      const n = l.players.length;
+      const btn = l.me_in ? `<button type="button" class="btn" data-tour-leave="${l.id}">Выйти из набора</button>`
+        : D.busy ? '<span class="fm-muted">ты уже в другом турнире</span>'
+          : `<button type="button" class="btn primary" data-tour-join="${l.id}">Записаться</button>`;
+      return `<div class="ap-card tl-card${l.me_in ? ' going' : ''}">
+        <div class="ap-top"><span class="ap-ico">${l.size === 4 ? '⚡' : '🏆'}</span><div><span class="ap-kind">${l.size} игроков · ${l.size === 4 ? '2 раунда' : '3 раунда'}</span>
+          <b>${esc(l.title)}</b><small>набрано ${n} из ${l.size}${n < l.size ? ` — ещё ${l.size - n} и старт!` : ''}</small></div></div>
+        <i class="xp-bar"><b style="width:${pct(n / l.size)}%"></b></i>
+        <div class="tl-seats">${Array.from({ length: l.size }, (_, i) => l.players[i]
+          ? `<span class="tl-seat on${student && l.players[i].sid === student.sid ? ' me' : ''}" title="ур. ${l.players[i].level}">${esc(l.players[i].name)}</span>`
+          : '<span class="tl-seat">свободно</span>').join('')}</div>
+        <div class="ap-btns">${btn}</div></div>`;
+    };
+    trainerEl.innerHTML = `<div class="course asg-page tour-page">
+      <div class="crs-hero"><div><div class="crs-kicker">Турниры <span class="chip">в разработке</span></div><h2>Сетка на выбывание</h2>
+        <p>Запишись в набор — как только наберётся нужное число игроков, турнир <b>начнётся сам</b>. Сильные по опыту разводятся по сетке, чтобы встретиться как можно позже.
+          Матч — <b>${D.tasks} одинаковых заданий</b> тебе и сопернику: больше решил — проходишь дальше, поровну — кто быстрее. На раунд — <b>${D.hours} ч</b>, не сыграл — техническое поражение.</p>
+        <p>Призы: ${prizes} (оба полуфиналиста) и награда <b>🎖 Победитель турнира</b> в профиль.</p></div>
+        <div class="crs-prog"><b>${D.wins}</b><span>${plural(D.wins, 'победа', 'победы', 'побед')} в турнирах</span></div></div>
+      ${T ? `<h3 class="ap-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">идёт · ${T.rounds[T.round - 1].name.toLowerCase()}</span>` : '<span class="chip good">завершён</span>'}</h3>
+        ${T.status === 'run' ? tourMatchCard() : tourPodium(T)}
+        ${tourBracket(T)}` : ''}
+      <h3 class="ap-h">Наборы</h3><div class="ap-grid tl-grid">${D.lobbies.map(lobby).join('')}</div>
+      ${D.done.length ? `<h3 class="ap-h">Завершённые турниры</h3><div class="td-list">${D.done.map(t => `<div class="td-row"><b>${esc(t.title)}</b>
+        <small class="fm-muted">${t.finished ? apDay(t.finished) : ''}</small>${tourPodium(t)}</div>`).join('')}</div>` : ''}
+    </div>`;
   }
-  async function duelAction(path, body, msg) {
-    try { await api(path, body); if (msg) toast(msg, 2500); } catch (e) { toast(e.message || 'Не получилось', 3000); }
+  async function tourAction(path, body, msg) {
+    let d;
+    try { d = await api(path, body); } catch (e) { toast(e.message || 'Не получилось', 3000); return; }
+    if (d && d.started) toast('Набор заполнен — турнир начался! Сыграй свой матч.', 4000);
+    else if (msg) toast(msg, 2500);
     await loadDuels();
-    openDuels(false);
   }
-  async function startDuel(id) {
-    try { await api('duel/start', { id }); } catch (e) { toast(e.message, 3000); return; }
+  async function startTourMatch(id) {
+    try { await api('tour/start', { match: id }); } catch (e) { toast(e.message, 3000); return; }
     await loadDuels();
-    closeForecast();
-    setScope('asg', 'duel-' + id);
+    leaveCourse();
+    setScope('asg', 'tm-' + id);
   }
-  /** Решил последнее задание дуэли — сообщаем серверу, он подведёт итог, когда закончит и соперник. */
+  async function finishTourMatch(id) {
+    try { await api('tour/finish', { match: id }); } catch (e) { return false; }
+    return true;
+  }
+  /** Решил последнее задание матча — сообщаем серверу, итог — когда закончит и соперник. */
   async function checkDuelDone() {
     const a = ui.scope === 'asg' && asgOf(ui.asg);
-    if (!a || !a.duel || asgLeft(a).length) return;
-    try { await api('duel/finish', { id: a.duel }); } catch (e) { return; }
-    toast('Дуэль: ты решил все задания! Итог — когда закончит соперник.', 4000);
-    await loadDuels();
+    if (!a || !a.tour || asgLeft(a).length) return;
+    if (!await finishTourMatch(a.tour)) return;
+    toast('Матч сыгран! Итог — когда закончит соперник.', 4000);
     ui.scope = 'all';
-    renderSidebar();
+    await loadDuels();
+    tourOpen();
   }
+  trainerEl.addEventListener('click', async e => {
+    if (pageKind !== 'tour' || !courseShown) return;
+    const t = e.target;
+    const j = t.closest('[data-tour-join]'), l = t.closest('[data-tour-leave]'), go = t.closest('[data-tour-go]'), fin = t.closest('[data-tour-fin]');
+    if (j) return tourAction('tour/join', { id: +j.dataset.tourJoin }, 'Ты в наборе! Турнир начнётся, когда наберутся все игроки.');
+    if (l) return tourAction('tour/leave', { id: +l.dataset.tourLeave }, 'Ты вышел из набора');
+    if (go) return startTourMatch(+go.dataset.tourGo);
+    if (fin && confirm('Закончить матч? Засчитаются задания, решённые до этого момента.')) {
+      if (await finishTourMatch(+fin.dataset.tourFin)) { toast('Матч закончен — ждём соперника', 3000); await loadDuels(); }
+    }
+  });
+  trainerEl.addEventListener('submit', async e => {
+    if (e.target.id !== 'devForm') return;
+    e.preventDefault();
+    try { await api('dev/unlock', { code: $('#devCode').value }); } catch (err) { toast(err.message || 'Неверный код', 3000); return; }
+    toast('Доступ к турнирам открыт', 2500);
+    await loadDuels();
+  });
   $('#forecastBody').addEventListener('click', e => {
     const t = e.target;
     if (t.closest('#dailyGo')) return goDaily();
     if (t.closest('#dailyBack')) return closeForecast();
-    const acc = t.closest('[data-duel-acc]'), dec = t.closest('[data-duel-dec]'), go = t.closest('[data-duel-go]'), nw = t.closest('[data-duel-new]');
-    if (acc) return duelAction('duel/respond', { id: +acc.dataset.duelAcc, accept: true }, 'Вызов принят — нажми «Начать», когда будешь готов');
-    if (dec) return duelAction('duel/respond', { id: +dec.dataset.duelDec, accept: false });
-    if (go) return startDuel(+go.dataset.duelGo);
-    if (nw) return duelAction('duel/create', { sid: +nw.dataset.duelNew }, 'Вызов отправлен!');
-    if (t.closest('#sumDuels')) return openDuels();
+    if (t.closest('#sumDuels')) { closeForecast(); return tourOpen(); }
   });
   $('#dailyCard').addEventListener('click', openDaily);
   $('#courseCard')?.addEventListener('click', openCourse);
-  $('#duelCard').addEventListener('click', () => openDuels());
+  $('#duelCard').addEventListener('click', () => tourOpen());
 
   /** При входе (не в первый раз) — раз в день сводка: итоги недели, кто обогнал, задание дня, вызовы, лига. */
   async function showDailyRating() {
@@ -5158,10 +5243,11 @@
     const res = !showRes ? '' : R.result === 'up' ? `<div class="sum-res up">🎉 Неделя завершена: ${R.place}-е место — ты поднялся в <b>${esc(L.name.toLowerCase())}</b>!</div>`
       : R.result === 'down' ? `<div class="sum-res down">Неделя завершена: ${R.place}-е место — ты опустился в ${esc(L.name.toLowerCase())}. Новая неделя — новый шанс!</div>`
         : `<div class="sum-res">Неделя завершена: ${R.place}-е место, ты остаёшься в ${esc(L.name.toLowerCase())}.</div>`;
-    const inv = DUELS.duels.filter(x => x.status === 'pending' && !x.mine);
+    const tm = tourMyMatch();
+    const inv = tm && !tm.done ? [tm] : [];
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Привет! Вот что нового</h2>${res}
       ${note ? `<div class="sum-note${passed ? ' hot' : ''}">${note}</div>` : ''}
-      ${inv.length ? `<div class="sum-note hot">⚔ ${inv.map(x => esc(x.opponent)).join(', ')} ${inv.length > 1 ? 'вызывают' : 'вызывает'} тебя на дуэль! <button type="button" class="btn ghost" id="sumDuels">Ответить</button></div>` : ''}
+      ${inv.length ? `<div class="sum-note hot">🏆 Турнир: ${esc(tm.rname.toLowerCase())} ждёт тебя — осталось ${tourLeft(tm.ends)}. <button type="button" class="btn ghost" id="sumDuels">К матчу</button></div>` : ''}
       ${DAILY && DAILY.task && !DAILY.my_place && !DAILY.started ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
       ${boardsHtml(d, 'league')}
       <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
@@ -5878,6 +5964,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.42.0', '12.10.2026', ['Турниры: наборы на 4 и 8 игроков — как только набралось нужное число, турнир начинается сам',
+      'Сетка на выбывание (четвертьфинал, полуфинал, финал): матч — 5 одинаковых заданий тебе и сопернику, больше решил — проходишь дальше, поровну — кто быстрее; на раунд сутки',
+      'Призы: 100, 60 и 30 XP и награда «🎖 Победитель турнира» в профиль. Раздел пока в разработке — вход по коду']],
     ['1.41.0', '12.10.2026', ['Дуэли превращаются в «Турнир недели» с турнирной таблицей: каждый с каждым, победа — 3 очка, ничья — 1. Раздел в разработке — вход по коду',
       'У каждого уровня теперь своё звание: Новичок, Стажёр, Ученик, Юный кодер, Кодер… Легенда, Сверхразум, Титан, Абсолют']],
     ['1.40.0', '12.10.2026', ['Страница «Задания от учителя» шире: каждая работа — отдельная строка с датами — когда выдана, до какого числа сдать и сколько дней осталось, когда сдана']],
