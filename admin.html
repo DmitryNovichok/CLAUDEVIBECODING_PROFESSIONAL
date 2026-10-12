@@ -27,6 +27,7 @@
       <button class="btn primary" type="submit">Войти</button>
     </div>
     <div class="login-err" id="admLoginErr" role="alert"></div>
+    <p class="login-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика персональных данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></p>
   </form>
 </section>
 
@@ -299,6 +300,22 @@
   <div class="modal-panel adm-task-panel" role="dialog" aria-modal="true" aria-label="Задание">
     <button type="button" class="fm-close" aria-label="Закрыть">×</button>
     <div id="taskBody"></div>
+  </div>
+</div>
+
+<div class="modal login-modal" id="admConsentModal" hidden>
+  <div class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="admConsentTitle">
+    <h2 class="fm-title" id="admConsentTitle">Документы сервиса</h2>
+    <p class="fm-note">Чтобы работать в панели учителя, ознакомьтесь с документами и подтвердите согласие на обработку ваших данных: ФИО, логина и действий в панели.</p>
+    <form id="admConsentForm" class="login-form login-stack">
+      <label class="login-check"><input type="checkbox" id="acTerms" required>
+        <span>Принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">Политику обработки персональных данных</a></span></label>
+      <label class="login-check"><input type="checkbox" id="acConsent" required>
+        <span>Даю <a href="consent.html" target="_blank" rel="noopener">согласие на обработку персональных данных</a></span></label>
+      <button class="btn primary btn-block" type="submit" id="acOk" disabled>Принять и продолжить</button>
+      <button class="btn ghost btn-block" type="button" id="acOut">Не согласен — выйти</button>
+    </form>
+    <div class="login-err" id="acErr" role="alert"></div>
   </div>
 </div>
 
