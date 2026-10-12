@@ -5945,6 +5945,7 @@
     if (!P.log.length && !tourSeen()) setTimeout(openTour, 400);      // новичку — коротко о том, как всё устроено
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
+      loadSupport();
       if (P.log.length || tourSeen()) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
     }
@@ -5976,9 +5977,55 @@
   }
   $('#tourBtn').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openTour(); });
 
+  // ------------------------------------------------------------ техподдержка: обращение уходит главному учителю, ответ — здесь
+  let SUPPORT = { items: [], kinds: {}, unread: 0 };
+  const SP_STATUS = { new: ['chip', 'ждёт ответа'], answered: ['chip good', 'есть ответ'], closed: ['chip', 'закрыто'] };
+  async function loadSupport() {
+    const b = $('#supportBtn');
+    if (!SERVER || !student) { if (b) b.hidden = true; return; }
+    try { SUPPORT = await api('support'); } catch (e) { return; }
+    b.hidden = false;
+    $('#supportDot').hidden = !SUPPORT.unread;
+  }
+  async function openSupport() {
+    if (isNarrow()) setSideOpen(false);
+    await loadSupport();
+    const t = cur && cur.task && !courseShown ? cur.task : null;
+    const kinds = Object.entries(SUPPORT.kinds || {}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
+    const list = SUPPORT.items.map(x => {
+      const st = SP_STATUS[x.status] || SP_STATUS.new;
+      return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
+        <span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span><span>${apTime(x.ts)}</span>${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
+        <div class="sp-text">${esc(x.text)}</div>
+        ${x.answer ? `<div class="sp-ans"><b>Ответ · ${apTime(x.answered)}</b>${esc(x.answer)}</div>` : ''}</div>`;
+    }).join('');
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">🛟 Техподдержка</h2>
+      <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Обращение получит учитель, ответ появится здесь.</p>
+      <form class="sp-form" id="spForm">
+        <select class="inp" id="spKind">${kinds}</select>
+        <textarea class="inp" id="spText" maxlength="2000" placeholder="Опиши, что случилось: что делал, что ожидал и что получилось" required></textarea>
+        <div class="sp-row">${t ? `<label class="sp-att"><input type="checkbox" id="spTask" checked> приложить задание №${numLabel(t.n)} (${esc(t.id)})</label>` : '<span></span>'}
+          <button type="submit" class="btn primary">Отправить</button></div>
+      </form>
+      ${list ? `<h3 class="fm-sub">Мои обращения</h3><div class="sp-list">${list}</div>` : ''}`;
+    $('#forecastModal').hidden = false;
+    if (t) $('#spKind').value = 'task';
+    $('#spForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const body = { kind: $('#spKind').value, text: $('#spText').value, page: pageKind || (courseShown ? 'course' : ui.scope) };
+      if (t && $('#spTask') && $('#spTask').checked) body.task = t.id;
+      try { await api('support', body); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); return; }
+      toast('Обращение отправлено — ответ появится в «Техподдержке»', 3500);
+      openSupport();
+    });
+    if (SUPPORT.unread) { try { await api('support/seen', {}); } catch (e) { /* не страшно */ } SUPPORT.unread = 0; $('#supportDot').hidden = true; }
+  }
+  $('#supportBtn').addEventListener('click', openSupport);
+
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.44.0', '12.10.2026', ['Техподдержка: кнопка «🛟 Техподдержка» в меню слева — напиши об ошибке в задании, проблеме с сайтом или задай вопрос. К обращению можно приложить текущее задание, ответ учителя появится там же']],
     ['1.43.0', '12.10.2026', ['Турниры как в футболе: жеребьёвка по корзинам, групповой этап (победа — 3 очка, ничья — 1, счёт — решённые задания), затем плей-офф и матч за 3-е место',
       'Три вида турниров: на 4, 8 и 12 игроков — каждого вида по одному в сутки',
       'Турниры открыты для всех — код больше не нужен']],

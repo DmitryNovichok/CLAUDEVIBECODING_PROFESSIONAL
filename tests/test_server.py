@@ -1000,6 +1000,26 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([p["place"] for p in T["podium"]], [1, 2, 3, 4])
         self.assertEqual(T["podium"][0]["xp"], 150)
 
+    def test_support_ticket_flow(self):
+        tok = self.login("Поддержкин Павел")
+        self.assertEqual(self.req("POST", "/api/support", {"text": "ой"}, tok)[0], 400)            # слишком коротко
+        st, d = self.req("POST", "/api/support", {"kind": "task", "text": "В задании неверный ответ", "task": "kp:1"}, tok)
+        self.assertEqual(st, 200, d)
+        st, d = self.admin("GET", "/api/admin/site-stats")
+        x = next(r for r in d["support"] if r["text"] == "В задании неверный ответ")
+        self.assertEqual((x["status"], x["kind"], x["task"], x["name"]), ("new", "task", "kp:1", "Поддержкин Павел"))
+        self.admin("POST", "/api/admin/support/answer", {"id": x["id"], "answer": "Исправили, спасибо!"})
+        d = self.req("GET", "/api/support", token=tok)[1]
+        self.assertEqual((d["unread"], d["items"][0]["answer"], d["items"][0]["status"]), (1, "Исправили, спасибо!", "answered"))
+        self.req("POST", "/api/support/seen", {}, tok)
+        self.assertEqual(self.req("GET", "/api/support", token=tok)[1]["unread"], 0)
+        self.admin("POST", "/api/admin/support/answer", {"id": x["id"], "close": True})
+        self.assertEqual(self.req("GET", "/api/support", token=tok)[1]["items"][0]["status"], "closed")
+        for i in range(4):
+            self.req("POST", "/api/support", {"text": f"ещё обращение {i}"}, tok)
+        self.assertEqual(self.req("POST", "/api/support", {"text": "шестое за час"}, tok)[0], 429)
+        self.assertEqual(self.req("GET", "/api/support")[0], 401)
+
     def test_class_battle_goal(self):
         tok = self.login("Классный Карл")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]

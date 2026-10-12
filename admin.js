@@ -229,8 +229,38 @@
       <div class="st-nums">${nums || '<p class="adm-empty">Ещё нет ответов.</p>'}</div>
       <h3 class="adm-h3">По учителям</h3>
       <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Учитель</th><th class="num">Учеников</th><th class="num">Занимались за неделю</th><th class="num">Решено за неделю</th></tr></thead>
-        <tbody>${d.by_teacher.map(t => `<tr><td class="name">${esc(t.name)}${t.is_main ? ' <span class="muted">· главный</span>' : ''}</td><td class="num">${n(t.students)}</td><td class="num">${n(t.active_week)}</td><td class="num">${n(t.solved_week)}</td></tr>`).join('')}</tbody></table></div>`;
+        <tbody>${d.by_teacher.map(t => `<tr><td class="name">${esc(t.name)}${t.is_main ? ' <span class="muted">· главный</span>' : ''}</td><td class="num">${n(t.students)}</td><td class="num">${n(t.active_week)}</td><td class="num">${n(t.solved_week)}</td></tr>`).join('')}</tbody></table></div>
+      ${supportHtml(d)}`;
   }
+  /** Обращения в техподдержку от учеников: новые сверху, ответ виден ученику на сайте. */
+  const SP_ST = { new: ['new', 'новое'], answered: ['ans', 'отвечено'], closed: ['closed', 'закрыто'] };
+  function supportHtml(d) {
+    const list = d.support || [];
+    const fresh = list.filter(x => x.status === 'new').length;
+    const dt = ts => { const x = new Date(ts * 1000); return `${pad(x.getDate())}.${pad(x.getMonth() + 1)} ${fmtTime(ts)}`; };
+    const items = list.map(x => `<div class="sp-a ${SP_ST[x.status] ? SP_ST[x.status][0] : ''}" data-sp="${x.id}">
+      <div class="sp-a-head"><span class="sp-st">${(SP_ST[x.status] || SP_ST.new)[1]}</span><b>${esc(x.name)}</b>
+        <span class="muted">${esc(x.teacher ? 'учитель: ' + x.teacher : '')}</span><span class="muted">${esc((d.support_kinds || {})[x.kind] || '')}</span>
+        <span class="muted">${dt(x.ts)}</span>${x.task ? `<span class="muted">задание <code>${esc(x.task)}</code></span>` : ''}${x.page ? `<span class="muted">раздел: ${esc(x.page)}</span>` : ''}</div>
+      <div class="sp-a-text">${esc(x.text)}</div>
+      ${x.answer ? `<div class="sp-a-ans"><b>Ваш ответ · ${dt(x.answered)}</b>${esc(x.answer)}</div>` : ''}
+      ${x.status === 'closed' ? '' : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке»)"></textarea>
+        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-close>Закрыть</button></div></div>`}
+    </div>`).join('');
+    return `<h3 class="adm-h3">Обращения в техподдержку ${fresh ? `<span class="sp-badge">${fresh} ${fresh === 1 ? 'новое' : 'новых'}</span>` : ''}
+        <span class="adm-hint">от учеников: кнопка «🛟 Техподдержка» на сайте</span></h3>
+      <div class="sp-admin">${items || '<p class="adm-empty">Обращений пока нет.</p>'}</div>`;
+  }
+  $('#siteBody').addEventListener('click', async e => {
+    const send = e.target.closest('[data-sp-send]'), close = e.target.closest('[data-sp-close]');
+    if (!send && !close) return;
+    const box = e.target.closest('[data-sp]');
+    const answer = box.querySelector('textarea').value.trim();
+    if (send && !answer) { toast('Напишите ответ'); return; }
+    try { await api('support/answer', { id: +box.dataset.sp, answer, close: !!close }); } catch (err) { toast(err.message); return; }
+    toast(close ? 'Обращение закрыто' : 'Ответ отправлен');
+    loadSite();
+  });
   $('#siteReload').addEventListener('click', loadSite);
 
 

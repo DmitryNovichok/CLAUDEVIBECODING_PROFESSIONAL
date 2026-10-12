@@ -1968,3 +1968,23 @@ body.asg-wide .course.asg-page { max-width: none; }
 .tg-legend { margin-top: 8px; font-size: 13px; }
 .tb-lbl { padding: 4px 10px; font-size: 11px; font-weight: 800; color: var(--muted); background: var(--bg); }
 @media (max-width: 640px) { .tg-grid { grid-template-columns: 1fr; } }
+
+/* ---------- техподдержка */
+.support-btn { position: relative; margin: auto 0 10px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  padding: 10px 12px; border: 2px solid var(--border); border-bottom-width: 4px; border-radius: 14px; background: var(--card);
+  color: var(--text); font: 800 15px var(--font); cursor: pointer; }
+.support-btn:hover { border-color: var(--accent); }
+.support-btn .dot { position: absolute; top: 6px; right: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--weak); }
+.support-btn:not([hidden]) + .side-actions { margin-top: 0; }
+.sp-form { display: flex; flex-direction: column; gap: 10px; }
+.sp-form textarea { min-height: 120px; resize: vertical; font: inherit; }
+.sp-form select { font: inherit; font-weight: 700; }
+.sp-form .sp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; }
+.sp-att { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.sp-list { display: flex; flex-direction: column; gap: 10px; }
+.sp-item { padding: 12px 14px; border: 2px solid var(--border); border-radius: 14px; }
+.sp-item.unread { border-color: var(--accent); }
+.sp-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; color: var(--muted); }
+.sp-text { margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
+.sp-ans { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); white-space: pre-wrap; word-break: break-word; }
+.sp-ans b { display: block; font-size: 12px; color: var(--accent-text); margin-bottom: 2px; }
