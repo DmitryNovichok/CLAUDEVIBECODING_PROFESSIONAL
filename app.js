@@ -699,7 +699,7 @@
     P.step++;
     const repeat = !!P.tasks[t.id];
     // уже решённое задание решают снова: в огонёк, цель дня и серию не идёт (так же считает сервер)
-    const again = !!(P.tasks[t.id] && P.tasks[t.id].c > 0) && !o.exam && RULES.repeat_since != null && now >= RULES.repeat_since;
+    const again = !!(P.tasks[t.id] && P.tasks[t.id].c > 0) && !o.exam && !o.asg && RULES.repeat_since != null && now >= RULES.repeat_since;
     const s = P.tasks[t.id] || (P.tasks[t.id] = { a: 0, c: 0 });
     s.a++;
     if (score === 1) s.c++;
@@ -711,6 +711,7 @@
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
     if (again) e.ra = 1;
+    if (o.asg) e.k = 1;                 // ответ из контрольной учителя
     if (o.exam) e.x = 1;
     if (o.blank) e.b = 1;               // в варианте оставил без ответа: в цель дня не идёт
     P.log.push(e);
@@ -793,13 +794,13 @@
       pend = null;
     };
     for (const row of rows) {
-      const [id, n, score, ts, , rk, part, grp, exam, blank] = row;
+      const [id, n, score, ts, reason, rk, part, grp, exam, blank] = row;
       const day = dayKey(ts);
       if (lastDay && day !== lastDay) { endGroup(); snapshotForecast(lastDay, ts - 1); }
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -2980,12 +2981,55 @@
   }
 
   function histResult(e) {
+    if (e.k) return e.s === 1 ? ['good', 'верно · контрольная'] : e.p === 0.5 ? ['mid', 'половина · контрольная'] : ['weak', 'ошибка · контрольная'];
     if (e.s === 1) return ['good', e.x ? 'верно · вариант' : 'верно'];
     if (e.s === 0.5) return ['mid', 'со 2-й попытки'];
     if (e.b) return ['', 'без ответа · вариант'];
     if (e.p === 0.5) return ['mid', 'верна половина'];
     return ['weak', e.x ? 'ошибка · вариант' : 'ошибка'];
   }
+
+  /** Сданные контрольные — сверху истории, с разбором: правильные ответы, решения и свой код. */
+  function wkHistHtml() {
+    const done = ASG.filter(a => a.strict && a.result);
+    if (!done.length) return '';
+    return `<h3 class="fm-sub">Контрольные</h3><div class="hist-list wk-hist">${done.map(a => `<div class="hist-row">
+      <span class="hist-when">${a.finished ? fmtDay(a.finished * 1000) : ''}</span><span class="num-badge sm">📝</span>
+      <span class="hist-snip"><b>${esc(a.title)}</b> · оценка <b>${a.result.grade}</b> (${a.result.pct}%) · верно ${a.result.ok} из ${a.result.total}</span>
+      <span></span><button type="button" class="btn hist-open" data-review="${a.id}">Разбор</button></div>`).join('')}</div>
+      <h3 class="fm-sub">Все ответы</h3>`;
+  }
+  async function openReview(id, from) {
+    let d;
+    try { d = await api('asg/review?id=' + id); } catch (e) { netError(e); return; }
+    const back = `<button type="button" class="btn ghost" data-review-back="${from || ''}">← Назад</button>`;
+    if (d.locked) {
+      $('#forecastBody').innerHTML = `${back}<h2 class="fm-title">Разбор: «${esc(d.title)}»</h2><p class="fm-note">${esc(d.locked)}</p>`;
+      $('#forecastModal').hidden = false;
+      return;
+    }
+    const mark = c => (c === 1 ? '<span class="chip good">верно</span>' : c === 0.5 ? '<span class="chip">половина</span>' : c === 0 ? '<span class="chip weak">неверно</span>' : '<span class="chip">нет ответа</span>');
+    const rows = d.items.map((x, i) => `<div class="rv-item">
+      <div class="rv-head"><span class="num-badge sm">${numLabel(x.n)}</span><b>Задание ${i + 1}</b> ${mark(x.credit)}
+        ${byId.get(x.top) ? `<button type="button" class="link-btn" data-open="${esc(x.top)}">открыть задание</button>` : ''}</div>
+      <div class="rv-ans"><span>Твой ответ: <b>${x.mine ? esc(x.mine) : '—'}</b></span><span>Правильный: ${answerView(x.answer)}</span></div>
+      ${x.sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(x.sol)}</div></details>` : ''}
+      ${x.tsol ? `<details class="solution"><summary>Решение учителя</summary><pre class="tsol">${esc(x.tsol)}</pre></details>` : ''}
+      ${x.code ? `<details class="solution"><summary>Твоё решение (код)</summary><pre class="tsol">${esc(x.code)}</pre></details>` : '<div class="fm-muted">Решение (код) не прикреплено.</div>'}
+      <div class="rv-links">${taskLinks({ link: x.link, video: x.video })}</div></div>`).join('');
+    const r = d.result || {};
+    $('#forecastBody').innerHTML = `${back}<h2 class="fm-title">Разбор: «${esc(d.title)}»</h2>
+      ${r.grade ? `<p class="fm-note">Оценка <b>${r.grade}</b> · ${r.pct}% · верно ${r.ok}${r.half ? `, наполовину ${r.half}` : ''}, неверно ${r.bad}${r.blank ? `, без ответа ${r.blank}` : ''}.</p>` : ''}
+      <div class="rv-list">${rows}</div>`;
+    $$('#forecastBody .solution .cond').forEach(decorateCondition);
+    $('#forecastModal').hidden = false;
+  }
+  document.addEventListener('click', e => {
+    const rv = e.target.closest('[data-review]');
+    if (rv) { openReview(+rv.dataset.review, rv.closest('.wk-hist') ? 'hist' : ''); return; }
+    const bk = e.target.closest('[data-review-back]');
+    if (bk) { if (bk.dataset.reviewBack === 'hist') openHistory(); else closeForecast(); }
+  });
 
   function openHistory() {
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
@@ -3005,12 +3049,13 @@
     }).join('');
     $('#forecastBody').innerHTML = `
       <h2 class="fm-title">История заданий</h2>
-      <p class="fm-note">«Открыть» — решить задание ещё раз. Повторное решение засчитывается, но в прогноз балла идёт с меньшим весом: ответ мог запомниться.</p>
+      <p class="fm-note">«Открыть» — решить задание ещё раз. Уже решённое перерешивается только для тренировки: без опыта, огонька, серии и достижений. «Разбор» у контрольной — правильные ответы и решения.</p>
       <div class="hist-filters">
         ${[['all', 'Все'], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
           `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
         <span class="fm-muted">${list.length} ${plural(list.length, 'ответ', 'ответа', 'ответов')}</span>
       </div>
+      ${wkHistHtml()}
       <div class="hist-list">${rows || '<p class="fm-note">Здесь пока пусто.</p>'}</div>
       ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}`;
     $('#forecastModal').hidden = false;
@@ -5491,6 +5536,7 @@
   }
   function wkClosed(a) {
     clearInterval(wkPoll);
+    if (SERVER) loadHistory().then(() => { renderSidebar(); renderTopbar(); }).catch(() => {});
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     wkFsOn = false;
     if (a.result && a.result.forced) toast('Учитель завершил контрольную — оценка поставлена по сданным ответам.', 5000);
@@ -5543,10 +5589,11 @@
           <div>Результат: <b>${res.pct}%</b> (${String(res.correct).replace('.', ',')} из ${res.total})</div>
           ${res.forced ? '<div>Контрольную завершил учитель.</div>' : ''}
         </div></div>
-      <p class="fm-note">Правильные ответы не показываем — разберите ошибки с учителем. Задания контрольной теперь можно решать в тренировке.</p>
+      <p class="fm-note">Разбор с правильными ответами и решениями — кнопкой ниже и в «Истории заданий»: он откроется, когда контрольная закончится для всех. Задания контрольной теперь можно решать в тренировке.</p>
       <div class="fm-table-wrap"><table class="fm-table ex-table"><thead><tr><th>#</th><th>Номер</th><th>Твой ответ</th><th>Итог</th></tr></thead>
         <tbody>${rows}</tbody></table></div>
-      <div class="actions"><button type="button" class="btn primary" id="wkBack">Продолжить тренировку →</button></div></div>`;
+      <div class="actions"><button type="button" class="btn primary" id="wkBack">Продолжить тренировку →</button>
+        <button type="button" class="btn" data-review="${a.id}">Разбор с решениями</button></div></div>`;
     $('#wkBack').addEventListener('click', () => setScope('all'));
     window.scrollTo({ top: 0 });
     renderTopbar();
@@ -5669,6 +5716,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.34.0', '12.10.2026', ['Сданная контрольная — в «Истории заданий»: ответы с пометкой «контрольная» и кнопка «Разбор» с правильными ответами, решениями и твоим кодом',
+      'Разбор открывается, когда контрольная закончилась для всех: учитель её завершил, прошёл срок или сдал весь класс']],
     ['1.33.1', '12.10.2026', ['Опыт пересчитан: за каждое задание засчитывается только первое решение — повторы из истории больше не дают ни опыта, ни огонька, ни достижений, и раньше тоже',
       'Достижение «Дежавю» (решить одно задание трижды) убрано']],
     ['1.33.0', '12.10.2026', ['Уже решённое задание можно перерешать из истории для тренировки, но опыта, огонька, серии и достижений за повтор нет']],

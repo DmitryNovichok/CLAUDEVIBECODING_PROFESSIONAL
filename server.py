@@ -2146,6 +2146,25 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         now = time.time()
         if path == "/api/asg/state":
             return self.send_json(asg_run_public(db, a, s["id"], real))
+        if path == "/api/asg/review":
+            # разбор сданной контрольной: правильные ответы и решения — когда контрольная закончилась для всех
+            if not run or not run["finished"]:
+                return self.err(409, "Разбор откроется после того, как ты сдашь контрольную")
+            why = asg_review_locked(db, a)
+            if why:
+                return self.send_json({"locked": why, "title": a["title"]})
+            res = json.loads(run["result"] or "{}")
+            answers = json.loads(run["answers"] or "{}")
+            items = []
+            for k in asg_items(real):
+                t = APP.bank.tasks.get(k) or {}
+                top = t.get("group") or k
+                code = db.q("SELECT code FROM solutions WHERE student_id=? AND task_id=?", (s["id"], top), one=True)
+                it = self.with_answer_s(s, {"task": APP.bank.pid(k), "top": APP.bank.pid(top), "n": t.get("n"),
+                                            "mine": (answers.get(k) or {}).get("a") or "", "credit": res.get(k),
+                                            "code": code["code"] if code else ""}, t)
+                items.append(it)
+            return self.send_json({"title": a["title"], "items": items, "result": asg_run_public(db, a, s["id"], real).get("result")})
         if method != "POST":
             return self.err(405, "нужен POST")
         if path == "/api/asg/start":
@@ -3848,6 +3867,17 @@ def asg_run_public(db, a, sid, real):
                          "items": [{"task": APP.bank.pid(k), "n": (APP.bank.tasks.get(k) or {}).get("n"), "credit": res.get(k)}
                                    for k in items]}
     return out
+
+
+def asg_review_locked(db, a):
+    """Почему разбор (правильные ответы) пока закрыт; None — открыт: учитель завершил, прошёл срок или сдал весь класс."""
+    if a["closed"] or (a["due"] and time.time() > a["due"]):
+        return None
+    members = [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=? AND COALESCE(is_teacher, 0) = 0", (a["class_id"],))]
+    done = {r["student_id"] for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NOT NULL", (a["id"],))}
+    if members and all(m in done for m in members):
+        return None
+    return "Правильные ответы и решения откроются, когда контрольная закончится для всех: учитель её завершит, пройдёт срок или сдаст весь класс."
 
 
 def strict_locked(db, s, real_id):
