@@ -904,6 +904,8 @@ class DB:
                     ("assignments", "grading", "TEXT")):              # пороги оценки в процентах {"5": 85, "4": 65, "3": 45}       # значки у ника, выбранные учеником (JSON, до трёх); NULL — автоматически       # учитель решает как ученик — вне рейтингов и списков            # когда ввёл пароль курса   # участвует ли класс в битве классов (решает учитель)
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
+            c.execute("UPDATE assignments SET strict=1 WHERE COALESCE(strict, 0) = 0")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
             # награды лиг до появления таблицы наград — из итогов последней недели
@@ -2892,7 +2894,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tasks = tasks[:100]
             due = to_float(data.get("due")) or None
             aid = to_int(data.get("id"))
-            strict = 1 if data.get("strict") else 0
+            strict = 1                         # любая подборка учителя — контрольная
             g = data.get("grading") if isinstance(data.get("grading"), dict) else {}
             grading = json.dumps({k: max(0, min(100, to_int(g.get(k, v)))) for k, v in ASG_GRADES.items()})
             if aid:
