@@ -904,6 +904,8 @@ class DB:
                     ("assignments", "grading", "TEXT")):              # пороги оценки в процентах {"5": 85, "4": 65, "3": 45}       # значки у ника, выбранные учеником (JSON, до трёх); NULL — автоматически       # учитель решает как ученик — вне рейтингов и списков            # когда ввёл пароль курса   # участвует ли класс в битве классов (решает учитель)
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
             # награды лиг до появления таблицы наград — из итогов последней недели
             c.execute("""INSERT OR IGNORE INTO awards(student_id, kind, week, info)
                          SELECT student_id, 'up', result_week, result_league FROM leagues WHERE result='up' AND result_week IS NOT NULL""")
@@ -2037,6 +2039,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         st["rk"] = str(data.get("rk") or "")[:200] or None
         spent = data.get("spent_ms")
         spent = int(spent) if isinstance(spent, (int, float)) and 0 <= spent < 864e5 else None
+        srv = (time.time() - st["ts"]) * 1000          # сколько прошло с открытия задания по часам сервера
+        if srv >= 1000:
+            spent = int(min(spent, srv)) if spent is not None else int(srv)
         away = to_int(data.get("away"))
         st["away"] = min(max(away or 0, st.get("away") or 0), 999)
         st["away_sec"] = min(max(to_float(data.get("away_sec")), st.get("away_sec") or 0, 0), 86400)
@@ -2072,7 +2077,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     self.daily_result(s, t, st)
                 self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
                                  revealed=1, spent=spent, away=st["away"], st=st)
-                st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"]}, t)
+                st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"],
+                                                     "fast": spent is not None and spent < FAST_XP_MS}, t)
                 return self.send_json(dict(st["final"], game=game_summary(APP.db, s["id"])))
             if len(st["tries"]) < ATTEMPTS_PER_TASK:
                 return self.send_json({"correct": False, "final": False, "attempts_left": ATTEMPTS_PER_TASK - len(st["tries"]),
@@ -3163,6 +3169,18 @@ ACH_XP = {
 EXAM_MIN_SEC_FOR_XP = 20 * 60          # вариант, сданный быстрее, опыта не даёт (иначе его «фармят»)
 
 
+FAST_XP_MS = 60000          # верный ответ быстрее минуты с открытия задания…
+FAST_XP_PENALTY = -1        # …даёт −1 XP вместо опыта
+_FAST_SINCE = []
+
+
+def fast_xp_since(db):
+    """С какого момента действует правило «быстрее минуты — минус опыт» (раньше решённое не пересчитываем)."""
+    if not _FAST_SINCE:
+        _FAST_SINCE.append(to_float(db.setting("fast_xp_since")) or 0)
+    return _FAST_SINCE[0]
+
+
 def task_xp(n):
     """Опыт за задание, решённое впервые: чем сложнее номер, тем больше."""
     n = n or 0
@@ -3349,6 +3367,7 @@ def _game_summary(db, sid, brief=False, windows=None):
 
     wk0 = week_start(now)
     xp_wk = 0
+    fast_since = fast_xp_since(db)
 
     def gain(v, ts):
         nonlocal xp, week, xp_day, xp_month, xp_wk
@@ -3417,8 +3436,13 @@ def _game_summary(db, sid, brief=False, windows=None):
                 cnt["pi"] = 1
             if (lt.tm_mon, lt.tm_mday) in ((12, 31), (1, 1)):
                 cnt["newyear"] = 1
-            first_time = tid not in solved
-            gain(round(task_xp(r["n"]) * (1 if r["score"] == 1 else 0.5)) if first_time else 2, ts)
+            # решено быстрее минуты — похоже на подсмотренный ответ: вместо опыта −1 XP, задание не считается решённым
+            fast = r["spent_ms"] is not None and r["spent_ms"] < FAST_XP_MS and ts >= fast_since
+            first_time = tid not in solved and not fast
+            if fast:
+                gain(FAST_XP_PENALTY, ts)
+            else:
+                gain(round(task_xp(r["n"]) * (1 if r["score"] == 1 else 0.5)) if tid not in solved else 2, ts)
             if first_time:
                 cnt["solved"] += 1
                 solved.add(tid)
@@ -3428,8 +3452,8 @@ def _game_summary(db, sid, brief=False, windows=None):
                     cnt["hard"] += 1
             if r["n"]:
                 nums.add(r["n"])
-            per_day[day] = per_day.get(day, 0) + 1
-            if per_day[day] == 5:
+            per_day[day] = per_day.get(day, 0) + (0 if fast else 1)
+            if per_day[day] == 5 and not fast:
                 gain(15, ts)                   # бонус за день: 5 решённых
             if lt.tm_hour >= 23:
                 cnt["night"] = 1
@@ -3496,6 +3520,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     while fire_days.get(d.isoformat(), 0) >= FIRE_NEED:
         fire += 1
         d -= timedelta(days=1)
+    xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
     lvl, title, cur_xp, need = level_of(xp)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}

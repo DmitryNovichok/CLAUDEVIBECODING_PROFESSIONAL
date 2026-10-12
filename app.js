@@ -1699,11 +1699,12 @@
       ? '<div class="fb-note">Одно из двух чисел с первой попытки было верным — на экзамене это 1 балл из 2.</div>' : '';
 
     const streak = currentStreak();
+    const fastNote = res.fast ? '<div class="fb-note fb-fast">⏱ Решено быстрее чем за минуту — это похоже на подсмотренный ответ, поэтому <b>−1 XP</b> вместо опыта. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>' : '';
     if (score === 1) {
       setFeedback('ok', 'Верно!',
-        `<div class="fb-note">${note || (streak >= 3 ? `Серия: ${streak} ${plural(streak, 'задание', 'задания', 'заданий')} подряд без ошибок.` : '')}</div>${extra}`);
+        `<div class="fb-note">${note || (streak >= 3 ? `Серия: ${streak} ${plural(streak, 'задание', 'задания', 'заданий')} подряд без ошибок.` : '')}</div>${fastNote}${extra}`);
     } else if (score === 0.5) {
-      setFeedback('ok', 'Верно со второй попытки', `<div class="fb-note">${note}</div>${half}${extra}`);
+      setFeedback('ok', 'Верно со второй попытки', `<div class="fb-note">${note}</div>${fastNote}${half}${extra}`);
     } else {
       const ans = res.hidden ? hiddenHtml(res.hidden) : `<div>${gaveUp ? '' : 'Правильный ответ: '}${answerView(res.answer)}</div>`;
       setFeedback('bad', res.hidden ? (gaveUp ? 'Ответ пока скрыт' : 'Неверно') : gaveUp ? 'Правильный ответ' : 'Неверно',
@@ -4606,7 +4607,8 @@
     if (viewPrefs().focus || !viewPrefs().anim) return;
     const b = document.createElement('div');
     b.className = 'xp-pop';
-    b.textContent = `+${v} XP`;
+    b.textContent = v < 0 ? `−${-v} XP` : `+${v} XP`;
+    if (v < 0) b.classList.add('minus');
     document.body.appendChild(b);
     setTimeout(() => b.remove(), 1500);
   }
@@ -4631,7 +4633,7 @@
     GAME = g;
     renderLevel();
     if (!old) return;
-    if (g.xp > old.xp) xpPop(g.xp - old.xp);
+    if (g.xp !== old.xp) xpPop(g.xp - old.xp);
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
     (g.ach || []).filter(a => a.got && !had.has(a.id))
@@ -4652,7 +4654,8 @@
           <span class="fm-muted">${g.cur} / ${g.need} XP до ${g.level + 1}-го уровня · всего ${g.xp} XP · за неделю +${g.week}</span></div></div>
       <p class="fm-note">Опыт даётся за первое решение задания (№1–10 — 10 XP, сложные номера — до 22 XP), повторное — 2 XP,
         вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.
-        За достижения — от 5 до 300 XP: чем труднее получить, тем больше.</p>
+        За достижения — от 5 до 300 XP: чем труднее получить, тем больше.
+        <b>Верный ответ быстрее чем за минуту</b> с открытия задания — <b>−1 XP</b>: так быстро задания обычно не решают, а подсматривают.</p>
       <p><button type="button" class="btn small" data-prof="me">🏅 Мой профиль: награды и значки у ника</button></p>
       <h3 class="fm-sub">Достижения · ${got} из ${(g.ach || []).length}</h3>
       <div class="ach-grid">${ach}</div>
@@ -5326,7 +5329,7 @@
     return `<nav class="ex-nav wk-nav" id="wkNav" aria-label="Задания контрольной">${a.tasks.map((id, i) => {
       const t = byId.get(id);
       return `<button type="button" class="ex-nav-btn${id === now ? ' on' : ''}${done.has(id) ? ' done' : ''}" data-wk-go="${esc(id)}"
-        title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${done.has(id) ? ' — ответ сдан' : ''}">${i + 1}</button>`;
+        title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${done.has(id) ? ' — ответ сдан' : ' — ответа ещё нет'}"><b>${i + 1}</b><small>${done.has(id) ? '✓ сдано' : t ? '№' + numLabel(t.n) : ''}</small></button>`;
     }).join('')}</nav>`;
   }
   function wkBar() {
@@ -5612,6 +5615,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.30.0', '12.10.2026', ['Верный ответ быстрее чем за минуту с открытия задания — −1 XP вместо опыта, и задание не засчитывается решённым',
+      'Номера заданий контрольной стали нагляднее: сданные — зелёные с ✓, под номером — номер задания ЕГЭ']],
     ['1.29.0', '12.10.2026', ['Контрольная: у каждого ученика свой случайный порядок заданий',
       'Сверху — номера всех заданий контрольной, как в варианте: можно перейти к любому, сданные отмечены']],
     ['1.28.0', '12.10.2026', ['Контрольные от учителя: на каждое задание одна попытка, ответ сдаётся без проверки — сколько верно и оценку узнаешь после завершения',

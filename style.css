@@ -1814,3 +1814,14 @@ button.pf-item:hover { border-color: var(--accent); }
 .wk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .wk-bar > span { flex: 1; min-width: 200px; }
 .wk-note { color: var(--review); font-weight: 700; }
+/* номера заданий контрольной: сданные — зелёные, текущее — с рамкой, под номером — № ЕГЭ */
+.wk-nav { gap: 6px; }
+.wk-nav .ex-nav-btn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 54px; height: auto; padding: 5px 6px; line-height: 1.1; }
+.wk-nav .ex-nav-btn b { font-size: 15px; }
+.wk-nav .ex-nav-btn small { font-size: 10.5px; font-weight: 700; opacity: .75; white-space: nowrap; }
+.wk-nav .ex-nav-btn.done { background: var(--good); border-color: var(--good); color: var(--on-good, #fff); }
+.wk-nav .ex-nav-btn.done small { opacity: 1; }
+.wk-nav .ex-nav-btn.on { background: var(--card); color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.wk-nav .ex-nav-btn.on.done { background: var(--good); color: var(--on-good, #fff); border-color: var(--accent); }
+.xp-pop.minus { color: var(--weak); }
+.fb-fast { margin-top: 6px; color: var(--weak); }
