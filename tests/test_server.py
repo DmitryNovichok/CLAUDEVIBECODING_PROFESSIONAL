@@ -893,6 +893,69 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(T["table"][0]["name"], "Дуэлев А.")
         self.assertEqual(self.req("POST", "/api/duel/create", {"sid": sb}, ta)[0], 409)
 
+    def test_tournament_lobby_bracket_prizes(self):
+        toks = [self.login(f"Турниров {n}") for n in ("Антон", "Борис", "Виктор", "Глеб", "Денис")]
+        sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
+        self.assertEqual(self.req("GET", "/api/tour", token=toks[0])[0], 403)          # в разработке — по коду
+        for t in toks:
+            self.req("POST", "/api/dev/unlock", {"code": "20011608"}, t)
+        d = self.req("GET", "/api/tour", token=toks[0])[1]
+        lob = {l["size"]: l for l in d["lobbies"]}
+        self.assertEqual(sorted(lob), [4, 8])
+        quick, big = lob[4]["id"], lob[8]["id"]
+        # у Антона больше всех опыта — он первый сеяный
+        server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
+                        (sids[0], time.time() - 100, "tr:old", 5, "[]", "1", 1.0))
+        self.assertEqual(self.req("POST", "/api/tour/join", {"id": quick}, toks[0])[1]["started"], False)
+        self.assertEqual(self.req("POST", "/api/tour/join", {"id": big}, toks[0])[0], 409)   # один турнир за раз
+        self.req("POST", "/api/tour/leave", {"id": quick}, toks[0])
+        self.assertEqual(self.req("POST", "/api/tour/join", {"id": big}, toks[0])[0], 200)    # вышел — можно в другой
+        self.req("POST", "/api/tour/leave", {"id": big}, toks[0])
+        for t in toks[:3]:
+            self.req("POST", "/api/tour/join", {"id": quick}, t)
+        st, d = self.req("POST", "/api/tour/join", {"id": quick}, toks[3])
+        self.assertEqual((st, d["started"]), (200, True))                               # набрались — турнир пошёл
+        self.assertEqual(self.req("POST", "/api/tour/join", {"id": quick}, toks[4])[0], 409)
+        d = self.req("GET", "/api/tour", token=toks[0])[1]
+        self.assertTrue(d["busy"])
+        self.assertNotEqual({l["size"]: l["id"] for l in d["lobbies"]}[4], quick)       # открылся новый набор
+        T = d["mine"]
+        self.assertEqual((T["status"], T["rounds"][0]["name"], len(T["rounds"][0]["matches"])), ("run", "Полуфинал", 2))
+        m1 = next(m for m in T["rounds"][0]["matches"] if m["mine"])
+        self.assertEqual((m1["a"]["sid"], m1["b"]["sid"]), (sids[0], sids[3]))          # 1-й сеяный против 4-го
+
+        def play(tok, mid, solve):
+            tasks = self.req("POST", "/api/tour/start", {"match": mid}, tok)[1]["tasks"]
+            for pid in tasks[:solve]:
+                real = server.APP.bank.real(pid)
+                self.req("POST", "/api/open", {"task": pid}, tok)
+                self.check(tok, pid, answer=next(t for t in BANK["tasks"] if t["id"] == real)["ans"])
+            self.req("POST", "/api/tour/finish", {"match": mid}, tok)
+
+        play(toks[0], m1["id"], 2)
+        play(toks[3], m1["id"], 1)
+        m2 = next(m for m in T["rounds"][0]["matches"] if not m["mine"])
+        play(toks[1], m2["id"], 1)                                                      # Виктор не пришёл — тех. поражение
+        server.APP.db.x("UPDATE tour_matches SET ends=? WHERE id=?", (time.time() - 1, m2["id"]))
+        T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
+        r1 = {m["id"]: m for m in T["rounds"][0]["matches"]}
+        self.assertEqual((r1[m1["id"]]["winner"], r1[m2["id"]]["winner"], r1[m2["id"]]["tech"]), (sids[0], sids[1], True))
+        final = T["rounds"][1]
+        self.assertEqual((final["name"], T["round"]), ("Финал", 2))
+        fm = final["matches"][0]
+        self.assertEqual({fm["a"]["sid"], fm["b"]["sid"]}, {sids[0], sids[1]})
+        play(toks[1], fm["id"], 2)
+        play(toks[0], fm["id"], 0)
+        xp0 = self.req("GET", "/api/me", token=toks[1])[1]["game"]["xp"]
+        d = self.req("GET", "/api/tour", token=toks[1])[1]
+        T = d["mine"]
+        self.assertEqual((T["status"], d["busy"], d["wins"]), ("done", False, 1))
+        self.assertEqual([(p["sid"], p["place"], p["xp"]) for p in T["podium"][:2]], [(sids[1], 1, 100), (sids[0], 2, 60)])
+        self.assertEqual(sorted(p["place"] for p in T["podium"]), [1, 2, 3, 3])
+        self.assertGreaterEqual(xp0, 100)
+        self.assertTrue(server.APP.db.q("SELECT 1 FROM awards WHERE student_id=? AND kind='tour1'", (sids[1],), one=True))
+        self.assertEqual(self.req("POST", "/api/tour/join", {"id": big}, toks[1])[0], 200)    # доиграл — можно в новый
+
     def test_class_battle_goal(self):
         tok = self.login("Классный Карл")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
