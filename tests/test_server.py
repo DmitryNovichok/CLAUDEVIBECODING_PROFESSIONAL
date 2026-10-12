@@ -860,6 +860,11 @@ class ServerTest(unittest.TestCase):
         sb = self.req("GET", "/api/me", token=tb)[1]["sid"]
         server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
                         (sb, time.time() - 100, "du:old", 5, "[]", "1", 1.0))   # у Бориса есть опыт — будет что забрать
+        st, d = self.req("GET", "/api/duels", token=ta)
+        self.assertEqual((st, d.get("dev_locked")), (403, True))           # турнир в разработке — по коду
+        self.assertEqual(self.req("POST", "/api/dev/unlock", {"code": "1111"}, ta)[0], 403)
+        for t in (ta, tb):
+            self.assertEqual(self.req("POST", "/api/dev/unlock", {"code": "20011608"}, t)[0], 200)
         mates = self.req("GET", "/api/duels", token=ta)[1]["mates"]
         self.assertIn("Дуэлев Б.", [m["name"] for m in mates])
         st, d = self.req("POST", "/api/duel/create", {"sid": sb}, ta)
@@ -881,6 +886,12 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((res["status"], res["result"], res["my_solved"], res["op_solved"]), ("finished", "win", len(tasks), 0))
         self.assertEqual(res["stake"], 15)                                # у Бориса 10 + 5 за «Первый шаг» — ровно ставка
         self.assertEqual(self.req("GET", "/api/me", token=tb)[1]["game"]["xp"], 0)
+        # турнирная таблица недели: победа — 3 очка; второй матч той же пары за неделю — нельзя
+        T = self.req("GET", "/api/duels", token=ta)[1]["tournament"]
+        top = {r["name"]: r for r in T["table"]}
+        self.assertEqual((top["Дуэлев А."]["pts"], top["Дуэлев А."]["w"], top["Дуэлев Б."]["pts"], top["Дуэлев Б."]["l"]), (3, 1, 0, 1))
+        self.assertEqual(T["table"][0]["name"], "Дуэлев А.")
+        self.assertEqual(self.req("POST", "/api/duel/create", {"sid": sb}, ta)[0], 409)
 
     def test_class_battle_goal(self):
         tok = self.login("Классный Карл")
@@ -1108,6 +1119,8 @@ class ServerTest(unittest.TestCase):
         stud = self.login("Рейтингов Роман")
         lb = self.req("GET", "/api/leaderboard", token=stud)[1]
         self.assertNotIn(me["name"], [r["name"] for r in lb["boards"]["week"]["top"]])
+        for t in (stud, tok):
+            self.req("POST", "/api/dev/unlock", {"code": "20011608"}, t)
         self.assertNotIn(tsid, [m["sid"] for m in self.req("GET", "/api/duels", token=stud)[1]["mates"]])
         self.assertEqual(self.req("GET", "/api/duels", token=tok)[1]["mates"], [])
         st, d = self.admin("GET", "/api/admin/students?class_id=all")
