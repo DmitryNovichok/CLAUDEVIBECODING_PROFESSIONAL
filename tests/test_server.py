@@ -477,7 +477,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((r["result"]["ok"], r["result"]["half"], r["result"]["bad"], r["result"]["pct"], r["result"]["grade"]),
                          (2, 1, 1, 63, 4))                                    # 2.5 из 4 = 63% → «4» (порог 60)
         self.assertEqual(self.req("POST", "/api/asg/finish", {"id": aid}, tok)[1]["result"]["grade"], 4)   # повторно — то же
-        n = server.APP.db.q("SELECT COUNT(*) AS c FROM attempts WHERE student_id=? AND reason='asg'", (me,), one=True)["c"]
+        n = server.APP.db.q("SELECT COUNT(*) AS c FROM attempts WHERE student_id=? AND reason='work'", (me,), one=True)["c"]
         self.assertEqual(n, 4)                                               # в журнал — один раз
         self.assertEqual(self.check(tok, pid5, answer="12")[0], 200)          # после сдачи — обычная тренировка
         st, rv = self.req("GET", f"/api/asg/review?id={aid}", token=tok)
@@ -529,6 +529,20 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
                         (sid, server.fast_xp_since(server.APP.db) - 100, "b:27", 27, "[]", "1", 1.0, 5000))
         self.assertGreaterEqual(server.game_summary(server.APP.db, sid)["xp"], 46)   # +22 за №27 (и достижения), без −1
+
+    def test_reason_from_browser_gives_no_repeat_xp(self):
+        # лазейка из журнала: одно и то же задание по кругу с «почему выдано: asg» — каждый раз опыт
+        tok = self.login("Кругов Костя")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        pid5 = server.APP.bank.pid("b:5")
+        xp = []
+        for reason in ("new", "asg", "asg", "work", "asg"):
+            self.req("POST", "/api/open", {"task": pid5}, tok)
+            server.OPENED.get(sid, "b:5")["ts"] -= 120
+            st, r = self.check(tok, pid5, answer="12", reason=reason)
+            xp.append(r["game"]["xp"])
+        self.assertEqual(len(set(xp)), 1, xp)                                # опыт — только за первое решение
+        self.assertNotIn("work", {r["reason"] for r in server.APP.db.q("SELECT reason FROM attempts WHERE student_id=?", (sid,))})
 
     def test_task_xp_scale(self):
         # №1–10 — 10 XP, №11–27 — по номеру; +5 за каждую ступень сложности выше первой
