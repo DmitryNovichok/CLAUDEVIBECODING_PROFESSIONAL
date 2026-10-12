@@ -456,9 +456,11 @@ class ServerTest(unittest.TestCase):
         ev = self.admin("GET", "/api/admin/feed?since=0")[1]["events"]                 # учителю — уведомления в ленте
         self.assertEqual(sorted(e["kind"] for e in ev if e["student_id"] == me), ["away", "fs", "fs", "start"])
         # учитель видит онлайн: сколько сдано и сколько верно
+        self.assertEqual(self.req("POST", "/api/solution", {"task": pid5, "code": "print(12)"}, tok)[0], 200)   # решение прикреплено
         st, live = self.admin("GET", f"/api/admin/asg/live?id={aid}")
         self.assertEqual(st, 200, live)
         row = next(x for x in live["rows"] if x["id"] == me)
+        self.assertEqual((row["sol"], row["tasks"]), (1, 3))
         self.assertEqual((row["status"], row["answered"], row["ok"], row["half"], row["bad"], row["away"], row["fs"]), ("work", 4, 2, 1, 1, 1, 2))
         self.assertEqual(next(x for x in live["rows"] if x["id"] == me2)["status"], "none")
         st, r = self.req("POST", "/api/asg/finish", {"id": aid}, tok)

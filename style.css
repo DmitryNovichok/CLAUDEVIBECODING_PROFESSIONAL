@@ -1825,3 +1825,14 @@ button.pf-item:hover { border-color: var(--accent); }
 .wk-nav .ex-nav-btn.on.done { background: var(--good); color: var(--on-good, #fff); border-color: var(--accent); }
 .xp-pop.minus { color: var(--weak); }
 .fb-fast { margin-top: 6px; color: var(--weak); }
+/* контрольная: всплывающая сводка вместо полосы над заданием */
+.wk-pop { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 70; max-width: min(620px, calc(100vw - 32px));
+  padding: 10px 16px; border-radius: 14px; background: var(--card); color: var(--text); border: 2px solid var(--accent);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .18); font-size: 14px; transition: opacity .3s, transform .3s; }
+.wk-pop.warn { border-color: var(--weak); background: color-mix(in srgb, var(--weak) 8%, var(--card)); }
+.wk-pop.out { opacity: 0; transform: translate(-50%, -8px); }
+.wk-pop-msg { margin-top: 4px; color: var(--muted); }
+.wk-pop.warn .wk-pop-msg { color: var(--weak); }
+.wk-nav { align-items: center; }
+.wk-nav-tools { margin-left: auto; display: inline-flex; gap: 8px; }
+.wk-sol-warn { color: var(--weak); }

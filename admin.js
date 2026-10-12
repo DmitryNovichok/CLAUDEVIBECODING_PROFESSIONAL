@@ -854,15 +854,16 @@
       <td class="num">${r.status === 'none' ? '' : r.pct + '%'}</td>
       <td class="num cs-grade">${r.grade ? `<b class="g${r.grade}">${r.grade}</b>` : ''}</td>
       <td class="num">${r.away ? `<b style="color:var(--review)">${r.away}</b>` : ''}</td>
-      <td class="num">${r.fs ? `<b style="color:var(--weak)">${r.fs}</b>` : ''}</td></tr>`).join('');
+      <td class="num">${r.fs ? `<b style="color:var(--weak)">${r.fs}</b>` : ''}</td>
+      <td class="num" title="Заданий с прикреплённым решением (кодом)">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td></tr>`).join('');
     const work = d.rows.filter(r => r.status === 'work').length, done = d.rows.filter(r => r.status === 'done').length;
     box.innerHTML = `<div class="adm-live-bar"><span class="adm-hint">Пишут: <b>${work}</b> · сдали: <b>${done}</b> из ${d.rows.length} · обновляется каждые 5 секунд.
         Верно/неверно видите только вы — ученик узнает результат после сдачи.</span>
       ${d.closed ? `<button type="button" class="btn ghost" data-reopen="${d.id}">Открыть снова</button>`
         : `<button type="button" class="btn danger" data-close="${d.id}">Завершить для всех</button>`}</div>
       <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Ученик</th><th>Статус</th><th class="num">Сдано</th><th class="num">Верно</th>
-        <th class="num">Неверно</th><th class="num">%</th><th class="num">Оценка</th><th class="num" title="Уходы со вкладки">Уходы</th><th class="num" title="Выходы из полного экрана">Выходы из полн. экрана</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="9" class="adm-hint">В классе нет учеников.</td></tr>'}</tbody></table></div>`;
+        <th class="num">Неверно</th><th class="num">%</th><th class="num">Оценка</th><th class="num" title="Уходы со вкладки">Уходы</th><th class="num" title="Выходы из полного экрана">Выходы из полн. экрана</th><th class="num" title="Заданий с прикреплённым решением">Решения</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="10" class="adm-hint">В классе нет учеников.</td></tr>'}</tbody></table></div>`;
   }
   $('#classBody').addEventListener('click', async e => {
     const lv = e.target.closest('[data-live]');

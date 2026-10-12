@@ -5326,18 +5326,28 @@
     if (a.result || a.closed) { abandonCurrent(); cur = null; wkDoneScreen(); return; }
     next();
     wkWatch();
+    wkPop('Одна попытка на задание. <b>Прикрепляй решение</b> к каждому: Python → «Прикрепить решение».');
   }
   function wkFullscreen() {
     if (!canFs() || document.fullscreenElement) return;
     document.documentElement.requestFullscreen().then(() => { wkFsOn = true; wkBar(); }).catch(() => {});
   }
-  function wkBarHtml(a) {
-    const off = canFs() && !document.fullscreenElement;
+  /** Над заданием — только номера заданий и две кнопки; сводка — во всплывающем окне, которое пропадает само. */
+  function wkBarHtml(a) { return wkNavHtml(a); }
+  let wkPopT = null;
+  function wkPop(msg, warn) {
+    const a = wkLive();
+    if (!a) return;
+    let el = $('#wkPop');
+    if (!el) { el = document.createElement('div'); el.id = 'wkPop'; el.className = 'wk-pop'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
     const n = (a.away || 0) + (a.fsExits || 0);
-    return `<div class="ex-strict wk-bar${n ? ' warn' : ''}${off ? ' off' : ''}" id="wkBar">
-      <span>📝 <b>Контрольная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}${a.away ? ` · уходов со страницы: <b>${a.away}</b>` : ''}${a.fsExits ? ` · выходов из полного экрана: <b>${a.fsExits}</b>` : ''}</span>
-      ${off ? '<button type="button" class="btn primary" id="wkFsBtn">⤢ Полный экран</button>' : ''}
-      <button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></div>${wkNavHtml(a)}`;
+    el.classList.toggle('warn', !!warn || !!n);
+    el.innerHTML = `<div>📝 <b>Контрольная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}${a.away ? ` · уходов со страницы: <b>${a.away}</b>` : ''}${a.fsExits ? ` · выходов из полного экрана: <b>${a.fsExits}</b>` : ''}</div>
+      ${msg ? `<div class="wk-pop-msg">${msg}</div>` : ''}`;
+    el.classList.remove('out');
+    el.hidden = false;
+    clearTimeout(wkPopT);
+    wkPopT = setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.hidden = true; }, 350); }, 5000);
   }
   /** Номера заданий сверху, как в варианте: можно перейти к любому, сданные отмечены. */
   function wkNavHtml(a) {
@@ -5346,14 +5356,13 @@
       const t = byId.get(id);
       return `<button type="button" class="ex-nav-btn${id === now ? ' on' : ''}${done.has(id) ? ' done' : ''}" data-wk-go="${esc(id)}"
         title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${done.has(id) ? ' — ответ сдан' : ' — ответа ещё нет'}"><b>${i + 1}</b><small>${done.has(id) ? '✓ сдано' : t ? '№' + numLabel(t.n) : ''}</small></button>`;
-    }).join('')}</nav>`;
+    }).join('')}<span class="wk-nav-tools">${canFs() && !document.fullscreenElement ? '<button type="button" class="btn primary" id="wkFsBtn" title="Вернуться в полный экран">⤢ Полный экран</button>' : ''}
+      <button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></span></nav>`;
   }
   function wkBar() {
-    const a = wkLive(), el = $('#wkBar');
-    if (!a) { if (el) el.remove(); const nav = $('#wkNav'); if (nav) nav.remove(); return; }
-    const nav = $('#wkNav');
-    if (nav) nav.remove();
-    if (el) el.outerHTML = wkBarHtml(a);
+    const a = wkLive(), nav = $('#wkNav');
+    if (!a) { if (nav) nav.remove(); const pop = $('#wkPop'); if (pop) pop.hidden = true; return; }
+    if (nav) nav.outerHTML = wkBarHtml(a);
     else if (trainerEl && cur) trainerEl.insertAdjacentHTML('afterbegin', wkBarHtml(a));
   }
   function wkDecorate() {
@@ -5396,15 +5405,17 @@
     if (sk) sk.addEventListener('click', next);
   }
   /** Подтверждение внутри страницы: окно confirm() браузера выкидывает из полного экрана. */
-  function wkAsk(title, text, ok) {
+  function wkAsk(title, text, ok, extra) {
     return new Promise(res => {
       $('#forecastBody').innerHTML = `<h2 class="fm-title">${title}</h2><p class="fm-note">${text}</p>
-        <div class="actions"><button type="button" class="btn primary" id="wkYes">${ok}</button>
+        <div class="actions">${extra ? `<button type="button" class="btn primary" id="wkExtra">${extra}</button>` : ''}
+        <button type="button" class="btn ${extra ? '' : 'primary'}" id="wkYes">${ok}</button>
         <button type="button" class="btn ghost" id="wkNo">Отмена</button></div>`;
       $('#forecastModal').hidden = false;
       const done = v => { closeForecast(); res(v); };
       $('#wkYes').addEventListener('click', () => done(true));
       $('#wkNo').addEventListener('click', () => done(false));
+      if (extra) $('#wkExtra').addEventListener('click', () => done('extra'));
       setTimeout(() => $('#wkYes') && $('#wkYes').focus(), 0);
     });
   }
@@ -5425,8 +5436,14 @@
     }
     const blank = items.filter(x => !x.answer).length;
     const c = cur;
-    if (!await wkAsk(cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
-      `Изменить ${cur.group ? 'их' : 'его'} будет нельзя.${blank ? ` Без ответа вопросов: ${blank}.` : ''}`, 'Сдать')) return;
+    let hasSol = false;                      // прикреплено ли решение к заданию — напомним, если нет
+    try { hasSol = !!(await api('solution?task=' + encodeURIComponent(cur.task.id))).code; } catch (e) { hasSol = true; }
+    const ans = await wkAsk(cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
+      `Изменить ${cur.group ? 'их' : 'его'} будет нельзя.${blank ? ` Без ответа вопросов: ${blank}.` : ''}`
+      + (hasSol ? '' : '<br><br><b class="wk-sol-warn">⚠ Решение не прикреплено.</b> Учитель хочет видеть, как ты решал: открой Python, вставь или напиши код и нажми «Прикрепить решение».'),
+      hasSol ? 'Сдать' : 'Сдать без решения', hasSol ? null : '📎 Прикрепить решение');
+    if (ans === 'extra') { togglePy(true); toast('Вставь код в окно Python и нажми «Прикрепить решение», затем сдай ответ.', 5000); return; }
+    if (!ans) return;
     if (cur !== c || cur.done) return;
     setBusy(true);
     let r = null;
@@ -5447,6 +5464,7 @@
     setFeedback('sent', 'Ответ сдан', '<div class="fb-note">Верно или нет — узнаешь, когда завершишь контрольную.</div>');
     renderActions();
     wkBar();
+    wkPop('Ответ сдан.');
     renderAsgCard();
   }
   async function wkRefresh(a) {
@@ -5544,7 +5562,7 @@
     a.fsExits = (a.fsExits || 0) + 1;
     api('asg/away', { id: a.id, kind: 'fs' }).catch(() => {});
     wkBar();
-    toast('Выход из полного экрана записан — учитель это видит. Вернитесь в полный экран кнопкой над заданием.', 5000);
+    wkPop('Выход из полного экрана записан — учитель это видит. Вернись кнопкой «⤢ Полный экран» над заданием.', true);
   });
   window.addEventListener('beforeunload', e => {
     if (!wkLive()) return;
@@ -5641,6 +5659,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.32.0', '12.10.2026', ['Контрольная: сводка (сколько сдано, уходы, выходы из полного экрана) теперь всплывает и сама пропадает, а не висит над заданием',
+      'Если сдаёшь ответ без прикреплённого решения, сайт напомнит и предложит прикрепить код — учитель видит, у кого решения есть']],
     ['1.31.1', '12.10.2026', ['Контрольная: кнопка «←» больше не выбрасывает из контрольной — между заданиями переходи по номерам сверху']],
     ['1.31.0', '12.10.2026', ['Все подборки от учителя — контрольные: одна попытка на задание, результат и оценка после сдачи, полный экран']],
     ['1.30.1', '12.10.2026', ['Подборка, которую учитель сделал контрольной, больше не открывается в старом виде: сначала экран «Начать контрольную»']],
