@@ -5300,6 +5300,31 @@
     ASG = ASG.concat(duels);
     renderAsgCard();
     if (wkLive()) wkWatch();
+    asgNotices();
+  }
+  /** Напоминания: срок работы — сегодня или завтра; новая личная подборка (работа над ошибками, слабые места). */
+  function asgNotices() {
+    const key = `egeTrainer.asgNote.${student ? student.sid : ''}`, today = dayKey(Date.now());
+    const seen = readJSON(key) || {};
+    const say = [];
+    for (const a of ASG) {
+      if (a.duel || a.course || a.closed) continue;
+      const left = a.strict ? (a.finished ? 0 : a.tasks.length - (a.done || []).length) : asgLeft(a).length;
+      if (a.personal && !seen['new' + a.id]) {
+        seen['new' + a.id] = today;
+        say.push(a.personal === 'fix' ? `🔧 Работа над ошибками: ${a.tasks.length} ${plural(a.tasks.length, 'похожее задание', 'похожих задания', 'похожих заданий')} на твои ошибки`
+          : `🎯 Учитель выдал подборку по твоим слабым местам: ${a.title.replace('Слабые места: ', '')}`);
+        continue;
+      }
+      if (!a.due || !left) continue;
+      const ms = a.due * 1000 - Date.now();
+      if (ms <= 0 || ms > 36 * 3600e3 || seen['due' + a.id] === today) continue;
+      seen['due' + a.id] = today;
+      const when = new Date(a.due * 1000).toDateString() === new Date().toDateString() ? 'сегодня' : 'завтра';
+      say.push(`⏰ Срок «${a.title}» — ${when}: осталось ${left} ${plural(left, 'задание', 'задания', 'заданий')}. После срока работа закроется.`);
+    }
+    writeJSON(key, seen);
+    say.slice(0, 3).forEach((t, i) => setTimeout(() => toast(t, 6000), 1200 + i * 6200));
   }
   function renderAsgCard() {
     const card = $('#asgCard');
@@ -5313,7 +5338,8 @@
     $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
   }
   const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
-  const kindOf = a => KINDS[a.kind] || KINDS.self;
+  const PERSONAL = { fix: ['🔧', 'Работа над ошибками'], weak: ['🎯', 'Слабые места'] };
+  const kindOf = a => PERSONAL[a.personal] || KINDS[a.kind] || KINDS.self;
   /** Страница «Задания от учителя» в основной области (как «Курс»): карточки текущих и пройденных подборок. */
   function openAsgPage() {
     if (!leaveExam()) return;
@@ -5339,12 +5365,13 @@
       const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
       const late = a.due && a.due * 1000 < Date.now() && !r;
       const state = r ? `оценка <b>${r.grade}</b> · ${r.pct}% · верно ${r.ok} из ${r.total}${r.xp ? ` · +${r.xp} XP` : ''}`
-        : a.closed ? 'завершена учителем' : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
+        : a.closed ? (a.due && a.closed >= a.due ? 'срок прошёл — <b class="ap-late">не сдана</b>' : 'завершена учителем')
+          : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
       const btns = r ? `<button type="button" class="btn" data-asg="${a.id}">Результат</button><button type="button" class="btn" data-review="${a.id}">Разбор</button>`
         : a.closed ? '' : `<button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить' : 'Начать'}</button>`;
       return `<div class="ap-card${r || a.closed ? ' done' : ''}${a.started && !r ? ' going' : ''}${late ? ' late' : ''}">
         <div class="ap-main">
-          <div class="ap-top"><span class="ap-ico">${r ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
+          <div class="ap-top"><span class="ap-ico">${r ? '✓' : a.closed ? '⌛' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
             <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}</small></div></div>
           <div class="ap-state">${state}</div>
           ${r ? '' : `<i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i>`}</div>
@@ -5382,15 +5409,18 @@
     const sc = a.score || {}, total = a.tasks.length, solved = (a.done || []).length;
     const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
     const late = a.due && a.due * 1000 < Date.now() && !sc.final;
-    const grade = sc.grade ? `${sc.final ? 'оценка' : 'оценка сейчас'} <b>${sc.grade}</b> · ${sc.pct}%` : 'ещё не начата';
+    const grade = sc.grade ? `${sc.final ? 'оценка' : 'оценка сейчас'} <b>${sc.grade}</b> · ${sc.pct}%`
+      : a.closed ? 'срок прошёл — <b class="ap-late">не сделана</b>' : 'ещё не начата';
     return `<div class="ap-card${sc.final ? ' done' : ''}${sc.tried && !sc.final ? ' going' : ''}${late ? ' late' : ''}">
       <div class="ap-main">
-        <div class="ap-top"><span class="ap-ico">${sc.final ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
+        <div class="ap-top"><span class="ap-ico">${sc.final && sc.tried ? '✓' : a.closed ? '⌛' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
           <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}</small></div></div>
         <div class="ap-state">${grade}${sc.tried ? ` · сделано ${sc.tried} из ${sc.total}: верно ${sc.ok}${sc.half ? `, со 2-й попытки ${sc.half}` : ''}${sc.bad ? `, неверно ${sc.bad}` : ''}` : ''}</div>
-        <i class="xp-bar"><b style="width:${pct((sc.tried || 0) / (sc.total || total))}%"></b></i></div>
+        <i class="xp-bar"><b style="width:${pct((sc.tried || 0) / (sc.total || total))}%"></b></i>
+        ${a.personal === 'fix' ? '<p class="ap-note">Похожие задания того же типа на те, где ты ошибся в самостоятельной. Разберись — и закрепи.</p>' : ''}
+        ${a.personal === 'weak' ? '<p class="ap-note">Подборка только для тебя — по номерам, где у тебя пока меньше всего верных ответов.</p>' : ''}</div>
       ${apDates(a, null, sc.final)}
-      <div class="ap-btns"><button type="button" class="btn ${sc.final ? '' : 'primary'}" data-asg="${a.id}">${sc.final ? 'Повторить' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
+      <div class="ap-btns"><button type="button" class="btn ${sc.final || a.closed ? '' : 'primary'}" data-asg="${a.id}">${sc.final || a.closed ? 'Потренироваться' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
   }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
@@ -6034,6 +6064,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.46.0', '12.10.2026', ['🔧 Работа над ошибками: после самостоятельной сразу появляется твоя личная подборка — похожие задания того же типа на те, где ты ошибся',
+      '🎯 Учитель может выдать каждому подборку по его слабым номерам — у каждого своя',
+      'Сроки: за день до срока придёт напоминание, после срока работа закрывается (начатая самостоятельная сдаётся сама)']],
     ['1.45.1', '12.10.2026', ['Вариант ЕГЭ собирает сервер: ответы показываются только к выданным заданиям, задания идущей самостоятельной в вариант не попадают',
       'Защита от подбора ответов: не больше 6 ответов на одно задание в сутки и 60 проверок за 10 минут; «Показать ответ» — не больше 40 раз в сутки']],
     ['1.45.0', '12.10.2026', ['Единый банк заданий: задание дня, турниры, подборки курса и подборки учителя собираются из того же банка, что и тренажёр, — только актуальные задания с ответом',

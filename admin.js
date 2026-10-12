@@ -808,7 +808,7 @@
       const [s, a] = await Promise.all([api('students?class_id=' + id), api('assignments?class_id=' + id)]);
       const cl = classes.find(c => c.id === id) || {};
       curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0, battle: !!cl.battle,
-        students: s.students, assignments: a.assignments };
+        students: s.students, assignments: a.assignments, batches: a.batches || [] };
     } catch (e) { if (e.status !== 401) toast(e.message); return; }
     renderClass();
     setCsPreset('today');
@@ -851,6 +851,7 @@
         <span class="adm-actions"><button type="button" class="btn ghost" id="classRename">Переименовать</button>
         <button type="button" class="btn ghost danger" id="classDelete">Удалить класс</button></span></div>
       <nav class="cls-tabs" id="clsTabs">${CLS_PANES.map(([k, l]) => `<button type="button" data-pane="${k}" class="${clsPane === k ? 'on' : ''}">${l}</button>`).join('')}</nav>
+      <div class="cls-pane" data-pane="digest"${clsPane === 'digest' ? '' : ' hidden'}><div id="clsDigest"><p class="adm-hint">Собираю сводку…</p></div></div>
       <div class="cls-pane" data-pane="members"${clsPane === 'members' ? '' : ' hidden'}>
       ${studs.length ? `<div class="adm-table-wrap"><table class="adm-table" id="classTable"><thead><tr>
         <th>Ученик</th><th class="num">Ур.</th><th>Был(а)</th><th class="num">За 7 дней</th><th class="num">Верно с 1-й</th>
@@ -900,19 +901,57 @@
         <button type="button" class="btn primary" id="asgNew">Новая подборка</button></span></div>
       <div id="asgEditor"></div>
       ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}
+      ${c.batches.length ? `<h3 class="adm-h3">Личные подборки</h3>
+        <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке. Результаты — в журнале.</p>
+        ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : '🎯'} ${esc(b.title)}</b>
+          <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
+          <span class="adm-actions"><button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div></div>`).join('')}` : ''}
       </div>`;
     if (clsPane === 'journal' || clsPane === 'nums') loadGradebook();
+    if (clsPane === 'digest') loadDigest();
   }
   // ---------- вкладки класса: ученики, журнал оценок, номера ЕГЭ, статистика за период, подборки, битва
-  const CLS_PANES = [['members', 'Ученики'], ['journal', 'Журнал'], ['nums', 'По номерам'], ['period', 'За период'], ['asg', 'Подборки'], ['battle', 'Битва классов']];
-  let clsPane = (() => { try { return localStorage.getItem('egeAdmin.clsPane') || 'journal'; } catch (e) { return 'journal'; } })();
-  if (!CLS_PANES.some(p => p[0] === clsPane)) clsPane = 'journal';
+  const CLS_PANES = [['digest', 'Сводка недели'], ['members', 'Ученики'], ['journal', 'Журнал'], ['nums', 'По номерам'], ['period', 'За период'], ['asg', 'Подборки'], ['battle', 'Битва классов']];
+  let clsPane = (() => { try { return localStorage.getItem('egeAdmin.clsPane') || 'digest'; } catch (e) { return 'digest'; } })();
+  if (!CLS_PANES.some(p => p[0] === clsPane)) clsPane = 'digest';
   function showClsPane(k) {
     clsPane = k;
     try { localStorage.setItem('egeAdmin.clsPane', k); } catch (e) { /* не страшно */ }
     $$('#clsTabs [data-pane]').forEach(b => b.classList.toggle('on', b.dataset.pane === k));
     $$('#classBody .cls-pane').forEach(p => { p.hidden = p.dataset.pane !== k; });
     if (k === 'journal' || k === 'nums') loadGradebook();
+    if (k === 'digest') loadDigest();
+  }
+  // ---------- сводка недели: кто не занимался, кто просел, кто не сдал, кто молодец
+  async function loadDigest() {
+    const id = curClass && curClass.id;
+    let d;
+    try { d = await api('class/digest?class_id=' + id); } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    const box = $('#clsDigest');
+    if (!box || !curClass || curClass.id !== id) return;
+    const who = (sid, name) => `<button type="button" class="task-link" data-open-st="${sid}">${esc(name)}</button>`;
+    const nl = n => n === 19 ? '19–21' : n;
+    const sec = (ico, title, cls, body, empty) => `<div class="dg-card ${cls}"><h4>${ico} ${title}</h4>${body || `<p class="adm-hint">${empty}</p>`}</div>`;
+    const drop = {};
+    d.dropped.forEach(x => (drop[x.id] = drop[x.id] || { name: x.name, list: [] }).list.push(x));
+    box.innerHTML = `<p class="adm-hint">${fmtDate(d.from)} — ${fmtDate(d.to)} · занимались <b>${d.active}</b> из ${d.total}. Сравнение — с предыдущими 30 днями.</p>
+      <div class="dg-grid">
+        ${sec('😴', 'Не занимались за неделю', d.inactive.length ? 'warn' : 'ok', d.inactive.length ? `<ul>${d.inactive.map(x => `<li>${who(x.id, x.name)} <span class="muted">${x.last ? 'последний раз ' + fmtWhen(x.last) : 'ни разу'}</span></li>`).join('')}</ul>` : '', 'Все занимались — отлично!')}
+        ${sec('📉', 'Просели по номерам', Object.keys(drop).length ? 'warn' : 'ok', Object.keys(drop).length ? `<ul>${Object.entries(drop).map(([sid, v]) => `<li>${who(sid, v.name)}: ${v.list.map(x => `<b>№${nl(x.n)}</b> <span class="muted">${x.was}% → </span><b class="dg-bad">${x.now}%</b>`).join(', ')}</li>`).join('')}</ul>` : '', 'Ни у кого заметного спада нет.')}
+        ${sec('⌛', 'Не сдали в срок', d.overdue.length ? 'warn' : 'ok', d.overdue.length ? `<ul>${d.overdue.map(x => `<li>${who(x.id, x.name)} — «${esc(x.title)}» <span class="muted">до ${fmtDate(x.due)}: ${esc(x.state)}</span></li>`).join('')}</ul>` : '', 'Все работы с прошедшим сроком сданы.')}
+        ${sec('🏆', 'Молодцы недели', 'ok', d.top.length ? `<ol>${d.top.map(x => `<li>${who(x.id, x.name)} — решено <b>${x.solved}</b> из ${x.answers}</li>`).join('')}</ol>` : '', 'Пока никто не решал.')}
+      </div>
+      <div class="dg-actions"><button type="button" class="btn primary" data-weak>🎯 Выдать каждому подборку по его слабым местам</button>
+        <span class="adm-hint">По 3 задания на 3 самых слабых номера у каждого ученика — у всех своя подборка, срок неделя.</span></div>`;
+  }
+  async function giveWeakSets() {
+    if (!confirm('Выдать каждому ученику класса личную подборку: по 3 задания на его 3 самых слабых номера, срок — неделя?')) return;
+    let r;
+    try { r = await api('class/weak', { class_id: curClass.id, per: 3, nums: 3, days: 7 }); } catch (e) { toast(e.message); return; }
+    toast(`Выдано подборок: ${r.made}${r.skipped.length ? ` · мало данных у: ${r.skipped.join(', ')}` : ''}`);
+    gradebook = null;
+    if (clsPane === 'journal') loadGradebook();
+    refreshClassAsg();
   }
   let gradebook = null;
   async function loadGradebook() {
@@ -923,7 +962,22 @@
     renderNumsHeat();
   }
   const KIND_ICO = { self: '📝', practice: '🛠', home: '🏠' };
+  /** Прогноз балла: сейчас, изменение за месяц и мини-график по дням. */
+  function fcCell(f) {
+    if (!f || f.now == null) return '<td class="jr-c none" title="прогноза пока нет — мало решённых заданий">—</td>';
+    const d = f.then == null ? null : f.now - f.then;
+    const sr = (f.series || []).slice(-30);
+    let spark = '';
+    if (sr.length > 1) {
+      const lo = Math.min(...sr), hi = Math.max(...sr), w = 56, h = 18;
+      const pts = sr.map((v, i) => `${(i / (sr.length - 1) * w).toFixed(1)},${(h - (hi === lo ? h / 2 : (v - lo) / (hi - lo) * h)).toFixed(1)}`).join(' ');
+      spark = `<svg class="jr-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`;
+    }
+    return `<td class="jr-c jr-fc" title="${f.then == null ? 'прогноз сейчас' : `месяц назад: ${f.then}, сейчас: ${f.now}`}"><b>${f.now}</b>
+      ${d ? `<small class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲ +' : '▼ '}${d}</small>` : ''}${spark}</td>`;
+  }
   function journalCell(c, a) {
+    if (!c && a.personal) return '<td class="jr-c none" title="этому ученику не выдавалась">—</td>';
     if (!c || c.st === 'none') return '<td class="jr-c none" title="не начинал">·</td>';
     if (c.st === 'miss') return '<td class="jr-c miss" title="срок прошёл — не сделал">н/с</td>';
     if (c.st === 'work') return `<td class="jr-c work" title="${a.kind === 'self' ? 'пишет' : `решает: сделано ${c.tried || 0} из ${a.total}, сейчас ${c.pct || 0}%`}">${c.grade ? `<b class="g${c.grade} soft">${c.grade}</b>` : '…'}</td>`;
@@ -941,6 +995,7 @@
       const miss = A.filter(a => (st.cells[a.id] || {}).st === 'miss').length;
       const m = avg(gs);
       return `<tr><td class="name"><button type="button" class="task-link" data-open-st="${st.id}">${esc(st.name)}</button></td>
+        ${fcCell(st.fc)}
         ${A.map(a => journalCell(st.cells[a.id], a)).join('')}
         <td class="num jr-avg">${m == null ? '<span class="muted">—</span>' : `<b>${m.toFixed(1).replace('.', ',')}</b>`}${miss ? ` <span class="jr-miss" title="не сдано в срок">н/с ${miss}</span>` : ''}</td></tr>`;
     }).join('');
@@ -952,10 +1007,12 @@
     }).join('');
     box.innerHTML = `<p class="adm-hint">Оценки за все подборки класса. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
         Нажмите на название подборки, чтобы открыть её результаты, на имя — карточку ученика.</p>
-      <div class="adm-table-wrap jr-wrap"><table class="adm-table jr-table"><thead><tr><th>Ученик</th>
-        ${A.map(a => `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
+      <div class="dg-actions"><button type="button" class="btn" data-weak>🎯 Каждому — по 3 задания на его 3 слабых номера</button>
+        <span class="adm-hint">У каждого ученика своя подборка; появится в журнале отдельной колонкой.</span></div>
+      <div class="adm-table-wrap jr-wrap"><table class="adm-table jr-table"><thead><tr><th>Ученик</th><th class="jr-h" title="Прогноз балла ЕГЭ: сейчас и изменение за месяц">Прогноз<small>за 30 дней</small></th>
+        ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
         <th class="num">Средняя</th></tr></thead><tbody>${rows}</tbody>
-        <tfoot><tr><td class="muted">По классу</td>${foot}<td></td></tr></tfoot></table></div>`;
+        <tfoot><tr><td class="muted">По классу</td><td></td>${foot}<td></td></tr></tfoot></table></div>`;
   }
   function renderNumsHeat() {
     const box = $('#clsNums');
@@ -1201,6 +1258,14 @@
       const id = +ja.dataset.jrAsg;
       if (liveId !== id) { const b = $(`[data-live="${id}"]`); if (b) b.click(); }
       setTimeout(() => { const box = $(`[data-live-box="${id}"]`); if (box) box.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+      return;
+    }
+    if (t.closest('[data-weak]')) { giveWeakSets(); return; }
+    const bd = t.closest('[data-batch-del]');
+    if (bd) {
+      if (!confirm('Удалить эти личные подборки у всех учеников? Решённое останется в журнале.')) return;
+      try { await api('batch/delete', { class_id: curClass.id, batch: bd.dataset.batchDel }); } catch (err) { toast(err.message); return; }
+      openClass(curClass.id);
       return;
     }
     const hn = t.closest('[data-hm-n]');

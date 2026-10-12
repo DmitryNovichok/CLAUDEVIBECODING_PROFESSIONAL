@@ -405,3 +405,17 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 .hm-c.few { color: var(--muted); font-weight: 400; }
 .hm-c.none { color: var(--muted); font-weight: 400; }
 .hm-weak { margin: 0 0 10px; }
+
+/* сводка недели, прогноз в журнале, личные подборки */
+.dg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin: 10px 0 14px; }
+.dg-card { padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.dg-card.warn { border-color: color-mix(in srgb, var(--weak) 45%, var(--border)); }
+.dg-card h4 { margin: 0 0 8px; font-size: 15px; }
+.dg-card ul, .dg-card ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.dg-bad { color: var(--weak); }
+.dg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 6px 0 12px; }
+.jr-fc { white-space: nowrap; }
+.jr-fc small { display: block; font-size: 11px; font-weight: 700; }
+.jr-fc small.up { color: var(--good); } .jr-fc small.down { color: var(--weak); }
+.jr-spark { display: block; margin: 2px auto 0; color: var(--muted); }
+.jr-personal span { font-weight: 600; }

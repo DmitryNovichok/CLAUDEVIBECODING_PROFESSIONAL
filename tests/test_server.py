@@ -459,6 +459,69 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.admin("GET", "/api/admin/class/journal?class_id=999999")[0], 404)
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
 
+    def test_fix_weak_due_digest(self):
+        T = server.APP.bank.tasks
+        extra = {"b:27x": dict(T["b:27"], id="b:27x", ans="1 2"), "b:5x": dict(T["b:5"], id="b:5x", ans="3"),
+                 "b:6x": dict(T["b:6"], id="b:6x", ans="4")}
+        T.update(extra)
+        try:
+            tok = self.login("Ошибкин Олег")
+            me = self.req("GET", "/api/me", token=tok)[1]["sid"]
+            cid = self.admin("POST", "/api/admin/class/save", {"name": "10Р"})[1]["id"]
+            self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [me]})
+            aid = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "СР-1", "kind": "self",
+                                                                    "tasks": ["b:5", "b:27"]})[1]["id"]
+            self.req("POST", "/api/asg/start", {"id": aid}, tok)
+            self.req("POST", "/api/asg/answer", {"id": aid, "task": server.APP.bank.pid("b:5"), "answer": "12"}, tok)
+            self.req("POST", "/api/asg/answer", {"id": aid, "task": server.APP.bank.pid("b:27"), "answer": "1 1"}, tok)
+            self.req("POST", "/api/asg/finish", {"id": aid}, tok)
+            # работа над ошибками: ошибка в №27 — похожее задание №27 (того же типа), а №5 решён верно — его нет
+            mine = self.req("GET", "/api/assignments", token=tok)[1]["assignments"]
+            fix = next(x for x in mine if x.get("personal") == "fix")
+            self.assertEqual(fix["kind"], "practice")
+            self.assertEqual([server.APP.bank.real(i) for i in fix["tasks"]], ["b:27x"])
+            self.assertTrue(fix["title"].startswith("Работа над ошибками"))
+            # журнал: личная серия — одна колонка; прогноз
+            server.APP.db.x("UPDATE students SET forecast=70, fc=? WHERE id=?",
+                            (json.dumps([{"d": (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y-%m-%d"), "s": 55},
+                                         {"d": datetime.datetime.now().strftime("%Y-%m-%d"), "s": 70}]), me))
+            j = self.admin("GET", f"/api/admin/class/journal?class_id={cid}")[1]
+            self.assertEqual([c["title"] for c in j["assignments"]], ["СР-1", "Работа над ошибками: СР-1"])
+            row = j["students"][0]
+            self.assertEqual((row["fc"]["now"], row["fc"]["then"]), (70, 55))
+            self.assertEqual(row["cells"][f"b:fix:{aid}"]["st"], "none")
+            # слабые места: по 1 заданию на 2 номера — свои у ученика
+            for i in range(3):
+                server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
+                                (me, time.time() - 100 + i, "b:6", 6, "[]", "7", 0.0))
+            r = self.admin("POST", "/api/admin/class/weak", {"class_id": cid, "per": 1, "nums": 2})[1]
+            self.assertEqual(r["made"], 1)
+            weak = next(x for x in self.req("GET", "/api/assignments", token=tok)[1]["assignments"] if x.get("personal") == "weak")
+            self.assertIn("№6", weak["title"])
+            # срок: самостоятельная с прошедшим сроком закрывается, начатая — сдаётся сама; в журнале н/с
+            aid2 = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "СР-2", "kind": "self",
+                                                                     "tasks": ["b:6"], "due": time.time() + 3600})[1]["id"]
+            self.req("POST", "/api/asg/start", {"id": aid2}, tok)
+            server.APP.db.x("UPDATE assignments SET due=? WHERE id=?", (time.time() - 60, aid2))
+            a2 = next(x for x in self.req("GET", "/api/assignments", token=tok)[1]["assignments"] if x["id"] == aid2)
+            self.assertTrue(a2["closed"] and a2["finished"])
+            self.assertEqual(self.req("POST", "/api/asg/start", {"id": aid2}, tok)[0], 200)      # уже сдана — просто состояние
+            aid3 = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "ДЗ", "kind": "home",
+                                                                     "tasks": ["b:6x"], "due": time.time() - 60})[1]["id"]
+            j = self.admin("GET", f"/api/admin/class/journal?class_id={cid}")[1]
+            self.assertEqual(j["students"][0]["cells"][str(aid3)]["st"], "miss")
+            d = self.admin("GET", f"/api/admin/class/digest?class_id={cid}")[1]
+            self.assertIn("ДЗ", [x["title"] for x in d["overdue"]])
+            self.assertEqual((d["total"], d["active"]), (1, 1))
+            b = self.admin("GET", f"/api/admin/assignments?class_id={cid}")[1]["batches"]
+            self.assertEqual(sorted(x["batch"].split(":")[0] for x in b), ["fix", "fix", "weak"])   # и СР-2, сданная по сроку
+            self.admin("POST", "/api/admin/batch/delete", {"class_id": cid, "batch": next(x["batch"] for x in b if x["batch"].startswith("weak"))})
+            self.assertEqual(len(self.admin("GET", f"/api/admin/assignments?class_id={cid}")[1]["batches"]), 2)
+            self.admin("POST", "/api/admin/class/delete", {"id": cid})
+        finally:
+            for k in extra:
+                T.pop(k, None)
+
     def test_strict_assignment(self):
         # контрольная: ответ один раз, проверка — после сдачи, учитель видит онлайн и может завершить для всех
         tok = self.login("Контрольнов Костя")
