@@ -2068,6 +2068,36 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(401, "нужно войти")
             return self.api_exam_start(s)
 
+        if path in ("/api/exams", "/api/exam/view"):
+            # история вариантов ученика: список и разбор одного (свой ответ, баллы, правильный — если его показывали)
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if path == "/api/exams":
+                out = []
+                for e in db.q("""SELECT id, started, finished, primary_score, test_score, items, result FROM exams
+                                 WHERE student_id=? AND finished IS NOT NULL ORDER BY finished DESC LIMIT 100""", (s["id"],)):
+                    r = json.loads(e["result"] or "{}")
+                    res = r.get("results") or []
+                    out.append({"id": e["id"], "started": e["started"], "finished": e["finished"], "primary": e["primary_score"] or 0,
+                                "test": e["test_score"] or 0, "spent": r.get("spent"), "shown": bool(r.get("shown")),
+                                "items": len(res), "full": sum(1 for x in res if x.get("points") == x.get("max") and x.get("max")),
+                                "blank": sum(1 for x in res if x.get("blank"))})
+                return self.send_json({"exams": out})
+            e = db.q("SELECT * FROM exams WHERE id=? AND student_id=? AND finished IS NOT NULL", (str(qs.get("id") or ""), s["id"]), one=True)
+            if not e:
+                return self.err(404, "Вариант не найден")
+            r = json.loads(e["result"] or "{}")
+            mine = {}
+            for a in db.q("SELECT task_id, answers FROM attempts WHERE student_id=? AND exam=?", (s["id"], e["id"])):
+                try:
+                    mine[APP.bank.pid(a["task_id"])] = (json.loads(a["answers"] or "[]") or [""])[0]
+                except ValueError:
+                    pass
+            for x in r.get("results") or []:
+                x["mine"] = mine.get(x.get("task"), "")
+            return self.send_json(dict(r, id=e["id"], started=e["started"], finished=e["finished"]))
+
         if path == "/api/exam/finish" and method == "POST":
             s = self.student(data)
             if not s:

@@ -2232,6 +2232,8 @@
       if (st.v === 'course') openCourse();
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'tourpage') tourOpen();
+      else if (st.v === 'exams') openExamsPage();
+      else if (st.v === 'exam' && st.id) openExamReview(st.id);
       else if (st.v === 'lesson') openLesson(st.n);
       else if (st.v === 'set' && courseSet(st.id)) { abandonCurrent(); openCourseSet(st.id); }
       else if (st.v === 'task' && courseSet(st.set) && byId.get(st.id)) openSetTask(courseSet(st.set), byId.get(st.id));
@@ -2804,7 +2806,7 @@
     $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
     $('#favCount').textContent = prefs.fav.length;
     $('#histCount').textContent = P.log.filter(e => !e.b).length;
-    $('#examCard').classList.toggle('on', examShown);
+    $('#examCard').classList.toggle('on', examShown || (courseShown && pageKind === 'exams'));
     $('#examSub').textContent = EX ? `идёт · ${fmtClock((EX.deadline - Date.now()) / 1000)}` : '3 ч 55 мин';
 
     const now = Date.now();
@@ -3163,6 +3165,7 @@
     }
     if (!items.length) { toast('В банке нет заданий для варианта'); return; }
     abandonCurrent();
+    leaveCourse();                         // со страницы «Мои варианты» — прямо в вариант
     cur = null;
     EX = { id, started: Date.now(), deadline: Date.now() + limit * 1000, items, ans: {}, cur: 0 };
     saveExam();
@@ -3401,9 +3404,11 @@
           <thead><tr><th>№</th><th>Ваш ответ</th><th>Правильный</th><th>Баллы</th></tr></thead>
           <tbody>${rows}</tbody>
         </table></div>
-        <div class="actions"><button type="button" class="btn primary" id="exBack">Продолжить тренировку →</button></div>
+        <div class="actions"><button type="button" class="btn primary" id="exBack">Продолжить тренировку →</button>
+          ${SERVER ? '<button type="button" class="btn" id="exAll">Все мои варианты</button>' : ''}</div>
       </div>`;
     $('#exBack').addEventListener('click', () => next());
+    if ($('#exAll')) $('#exAll').addEventListener('click', () => { EXAMS = null; openExamsPage(); });
     window.scrollTo({ top: 0 });
     renderSidebar();
     renderTopbar();
@@ -3423,7 +3428,103 @@
     setSideMin(!document.body.classList.contains('side-min'));
   });
   $('#favCard').addEventListener('click', () => setScope('fav'));
-  $('#examCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openExamIntro(); });
+  $('#examCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); if (EX || !SERVER) openExamIntro(); else openExamsPage(); });
+
+  // ------------------------------------------------------------ мои варианты: история, как страница подборок
+  let EXAMS = null;
+  function openExamsPage() {
+    if (!leaveExam()) return;
+    abandonCurrent();
+    courseShown = true;
+    pageKind = 'exams';
+    cur = null;
+    navPush({ v: 'exams' });
+    renderExamsPage();
+    renderSidebar();
+    window.scrollTo(0, 0);
+    api('exams').then(d => { EXAMS = d.exams || []; renderExamsPage(); }).catch(() => {});
+  }
+  function examSpark(list) {
+    const v = list.slice(0, 20).reverse().map(x => x.test);
+    if (v.length < 2) return '';
+    const w = 220, h = 54, lo = Math.min(...v, 40) - 4, hi = Math.max(...v, 60) + 4;
+    const x = i => (i / (v.length - 1) * (w - 8) + 4).toFixed(1), y = t => (h - 4 - (t - lo) / (hi - lo) * (h - 8)).toFixed(1);
+    return `<svg class="exh-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-label="Тестовый балл по вариантам">
+      <line x1="0" x2="${w}" y1="${y(EGE.minScore)}" y2="${y(EGE.minScore)}" class="exh-min"/>
+      <polyline points="${v.map((t, i) => `${x(i)},${y(t)}`).join(' ')}" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+      ${v.map((t, i) => `<circle cx="${x(i)}" cy="${y(t)}" r="3"><title>${t}</title></circle>`).join('')}</svg>`;
+  }
+  function renderExamsPage() {
+    if (!courseShown || pageKind !== 'exams') return;
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Мои варианты</span>';
+    document.body.classList.add('asg-wide');
+    const L = EXAMS || [];
+    const best = L.length ? Math.max(...L.map(x => x.test)) : null;
+    const bestId = L.length > 1 && best > 0 ? (L.find(x => x.test === best) || {}).id : null;   // самый свежий из лучших
+    const card = x => {
+      const band = bandOf(x.test);
+      return `<div class="ap-card exh-card">
+        <div class="ap-main">
+          <div class="ap-top"><span class="ap-ico exh-score band-${band}">${x.test}</span><div><span class="ap-kind">Вариант ЕГЭ</span>
+            <b>${apTime(x.finished).replace(/<[^>]+>/g, '')}</b><small>${x.items} заданий · время ${fmtClock(x.spent || 0)}</small></div></div>
+          <div class="ap-state">тестовый балл <b>${x.test}</b> · первичный ${x.primary} из 29 · полностью верно <b>${x.full}</b> из ${x.items}${x.blank ? ` · без ответа ${x.blank}` : ''}
+            ${x.id === bestId ? ' · <span class="chip good">лучший</span>' : ''}</div>
+          <i class="xp-bar"><b style="width:${pct(x.primary / 29)}%"></b></i></div>
+        <div class="ap-dates"><div><span>Начат</span><b>${apTime(x.started)}</b></div><div><span>Сдан</span><b>${apTime(x.finished)}</b></div></div>
+        <div class="ap-btns"><button type="button" class="btn primary" data-exam-view="${x.id}">Разбор</button></div></div>`;
+    };
+    trainerEl.innerHTML = `<div class="course asg-page">
+      <div class="crs-hero"><div><div class="crs-kicker">Вариант ЕГЭ</div><h2>Мои варианты</h2>
+        <p>27 заданий, 3 ч 55 мин, проверка — в конце, как на экзамене. Здесь все сданные варианты: к любому можно вернуться,
+          посмотреть свои ответы и правильные (если над вариантом сидел 20+ минут) и перерешать ошибки.</p>
+        <div class="exh-go">${EX ? '<button type="button" class="btn primary" id="exhResume">Продолжить начатый вариант</button>'
+          : '<button type="button" class="btn primary" id="exhNew">Начать новый вариант</button>'}</div></div>
+        <div class="crs-prog">${L.length ? `<b>${L[0].test}</b><span>последний балл${best != null ? ` · лучший ${best}` : ''}</span>${examSpark(L)}` : '<b>0</b><span>вариантов пока нет</span>'}</div></div>
+      ${EXAMS == null ? '<p class="fm-note">Загружаю…</p>' : L.length ? `<h3 class="ap-h">Сданные варианты · ${L.length}</h3><div class="ap-grid">${L.map(card).join('')}</div>`
+        : '<p class="fm-note">Вы ещё не решали вариант. Начните — результат и разбор появятся здесь.</p>'}
+    </div>`;
+  }
+  async function openExamReview(id) {
+    let r;
+    try { r = await api('exam/view?id=' + encodeURIComponent(id)); } catch (e) { netError(e); return; }
+    if (!courseShown || pageKind !== 'exams') { courseShown = true; pageKind = 'exams'; }
+    navPush({ v: 'exam', id });
+    const full = r.results.filter(x => x.points === x.max).length;
+    const rows = r.results.map(x => {
+      const cls = x.points === x.max ? 'lv-good' : x.points ? 'lv-mid' : 'lv-weak';
+      return `<tr class="${cls}"><td class="fm-n"><b>${x.n}</b></td>
+        <td class="ans">${x.mine ? esc(x.mine) : '<span class="fm-muted">нет ответа</span>'}</td>
+        <td class="ans">${x.answer != null ? esc(x.answer).replace(/\n/g, '<br>') : '<span class="fm-muted">скрыт</span>'}</td>
+        <td><span class="ex-pts">${x.points} / ${x.max}</span></td>
+        <td><button type="button" class="btn ghost exh-open" data-open="${esc(x.task)}">${x.points === x.max ? 'Открыть' : 'Перерешать'}</button></td></tr>`;
+    }).join('');
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Мои варианты</span>';
+    trainerEl.innerHTML = `<div class="ex-result">
+        <button type="button" class="btn ghost" id="exhBack">← Все варианты</button>
+        <h2 class="fm-title">Вариант от ${apTime(r.finished).replace(/<[^>]+>/g, '')}</h2>
+        <div class="fm-head">
+          <div class="fm-score band-${bandOf(r.test)}"><span class="fm-big">${r.test}</span>
+            <span class="fm-sub">тестовых баллов<br>${r.primary} первичных из 29</span></div>
+          <div class="fm-facts"><div>Время: <b>${fmtClock(r.spent || 0)}</b> из 3:55:00</div>
+            <div>Полностью верно: <b>${full}</b> из ${r.results.length}</div>
+            <div class="fm-chips">${r.test >= EGE.minScore ? `<span class="chip good">порог ${EGE.minScore} пройден</span>` : `<span class="chip weak">ниже порога ${EGE.minScore}</span>`}</div></div>
+        </div>
+        ${r.shown ? '' : `<p class="fm-note">Правильные ответы скрыты: над вариантом работали меньше ${Math.round((r.min_for_answers || RULES.exam_min_for_answers) / 60)} минут.</p>`}
+        <div class="fm-table-wrap"><table class="fm-table ex-table">
+          <thead><tr><th>№</th><th>Ваш ответ</th><th>Правильный</th><th>Баллы</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      </div>`;
+    window.scrollTo({ top: 0 });
+  }
+  trainerEl.addEventListener('click', e => {
+    if (pageKind !== 'exams' || !courseShown) return;
+    const t = e.target;
+    const v = t.closest('[data-exam-view]');
+    if (v) return openExamReview(v.dataset.examView);
+    if (t.closest('#exhBack')) return openExamsPage();
+    if (t.closest('#exhNew') || t.closest('#exhResume')) return openExamIntro();
+    const o = t.closest('.exh-open');
+    if (o) { leaveCourse(); openPast(o.dataset.open); }
+  });
   $('#period').addEventListener('change', e => setPeriod(e.target.value));
   $('#banks').addEventListener('click', e => {
     const b = e.target.closest('button[data-bank]');
@@ -6035,6 +6136,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.47.0', '12.10.2026', ['«Мои варианты» — история вариантов ЕГЭ на отдельной странице, как подборки: балл, время, график по вариантам, разбор каждого с твоими и правильными ответами и кнопкой «Перерешать»']],
     ['1.46.1', '12.10.2026', ['Убраны напоминания об уходе со страницы и выходе из полного экрана, а в варианте — плашка строгого режима: ничего не отвлекает от заданий']],
     ['1.46.0', '12.10.2026', ['🔧 Работа над ошибками: после самостоятельной сразу появляется твоя личная подборка — похожие задания того же типа на те, где ты ошибся',
       '🎯 Учитель может выдать каждому подборку по его слабым номерам — у каждого своя',

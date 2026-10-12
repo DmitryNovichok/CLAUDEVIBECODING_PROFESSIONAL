@@ -1550,6 +1550,20 @@ class ServerTest(unittest.TestCase):
         st, d = self.req("POST", "/api/exam/start", {}, tok)
         self.assertEqual(st, 429)
 
+    def test_exam_history(self):
+        tok = self.login("Вариантов Виктор")
+        st, e = self.req("POST", "/api/exam/start", {}, tok)
+        self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [
+            {"task": server.APP.bank.pid("b:5"), "answer": "12"}, {"task": server.APP.bank.pid("b:6"), "answer": "1"}]}, tok)
+        lst = self.req("GET", "/api/exams", token=tok)[1]["exams"]
+        self.assertEqual((len(lst), lst[0]["id"], lst[0]["primary"], lst[0]["full"]), (1, e["exam_id"], 1, 1))
+        v = self.req("GET", f"/api/exam/view?id={e['exam_id']}", token=tok)[1]
+        mine = {server.APP.bank.real(x["task"]): x["mine"] for x in v["results"]}
+        self.assertEqual((mine["b:5"], mine["b:6"]), ("12", "1"))
+        self.assertTrue(all("answer" not in x for x in v["results"]))         # меньше 20 минут — правильные скрыты
+        other = self.login("Чужаков Чен")
+        self.assertEqual(self.req("GET", f"/api/exam/view?id={e['exam_id']}", token=other)[0], 404)   # чужой вариант не открыть
+
     def test_exam_cannot_leak_foreign_or_strict_answers(self):
         tok = self.login("Взломов Вадим")
         me = self.req("GET", "/api/me", token=tok)[1]["sid"]
