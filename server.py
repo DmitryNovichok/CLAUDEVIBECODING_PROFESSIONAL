@@ -917,11 +917,17 @@ class DB:
                     ("assignments", "grading", "TEXT"),              # пороги оценки в процентах {"5": 85, "4": 65, "3": 45}
                     ("asg_runs", "xp", "INTEGER"),
                     ("assignments", "kind", "TEXT"),
-                    ("students", "dev", "INTEGER DEFAULT 0")):        # открыл разделы «в разработке» (турнир) по коду                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
+                    ("students", "dev", "INTEGER DEFAULT 0"),
+                    ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
+                    ("tour_players", "grp", "TEXT"),
+                    ("tour_matches", "kind", "TEXT"),                 # group, po, final, third
+                    ("tour_matches", "grp", "TEXT")):        # открыл разделы «в разработке» (турнир) по коду                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
             # тип работы: прежние подборки — самостоятельные; «строгий» режим (проверка после сдачи) — только у них
+            # турниры прежнего формата (без групп) закрываются, наборы — пересоздаются в новом
+            c.execute("UPDATE tournaments SET status='void' WHERE COALESCE(fmt, 0) < 2 AND status IN ('reg', 'run')")
             c.execute("UPDATE assignments SET kind='self' WHERE kind IS NULL")
             c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
@@ -1926,8 +1932,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            if not s["dev"]:
-                return self.send_json({"dev_locked": True, "error": "Турниры в разработке — вход по коду"}, code=403)
             if not APP.bank.ensure():
                 return self.err(503, "банк заданий не собран")
             return self.api_tour(s, path, method, data, qs)
@@ -2000,10 +2004,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                               WHERE p.student_id=? AND t.status IN ('reg','run')""", (s["id"],))
         if path == "/api/tour":
             lobbies = []
-            for t in db.q("SELECT * FROM tournaments WHERE teacher_id=? AND status='reg' ORDER BY size", (tid,)):
-                players = tour_people(db, t["id"])
-                lobbies.append({"id": t["id"], "title": t["title"], "size": t["size"], "players": players,
-                                "me_in": any(p["sid"] == s["id"] for p in players)})
+            for size, name in TOUR_SIZES.items():
+                t = db.q("SELECT * FROM tournaments WHERE teacher_id=? AND size=? AND status='reg'", (tid, size), one=True)
+                item = {"size": size, "name": name, "groups": TOUR_GROUPS[size], "qual": TOUR_QUAL[size],
+                        "prizes": TOUR_PRIZES[size]}
+                if t:
+                    players = tour_people(db, t["id"])
+                    item.update(id=t["id"], title=t["title"], players=players, me_in=any(p["sid"] == s["id"] for p in players))
+                else:                            # сегодня такой турнир уже стартовал — следующий набор завтра
+                    item.update(id=None, players=[], me_in=False, next_at=day_start() + 86400)
+                lobbies.append(item)
             mine = None
             run = [t for t in mine_active if t["status"] == "run"]
             last = run[0] if run else db.q("""SELECT t.* FROM tournaments t JOIN tour_players p ON p.tour_id=t.id
@@ -2014,8 +2024,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             done = [tour_view(db, t, s["id"], brief=True) for t in
                     db.q("SELECT * FROM tournaments WHERE teacher_id=? AND status='done' ORDER BY finished DESC LIMIT 6", (tid,))]
             wins = db.q("SELECT COUNT(*) AS c FROM awards WHERE student_id=? AND kind='tour1'", (s["id"],), one=True)["c"]
-            return self.send_json({"lobbies": lobbies, "mine": mine, "done": done, "wins": wins, "prizes": TOUR_PRIZES,
-                                   "tasks": DUEL_TASKS, "hours": TOUR_HOURS, "busy": bool(mine_active)})
+            return self.send_json({"lobbies": lobbies, "mine": mine, "done": done, "wins": wins, "tasks": DUEL_TASKS,
+                                   "group_hours": TOUR_GROUP_HOURS, "po_hours": TOUR_PO_HOURS, "busy": bool(mine_active)})
         if method != "POST":
             return self.err(405, "нужен POST")
         if path in ("/api/tour/join", "/api/tour/leave"):
@@ -2039,6 +2049,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if m["status"] != "play" or (m["ends"] and time.time() > m["ends"]):
                 return self.err(409, "Время на этот матч вышло")
             if not m[side + "_start"]:
+                busy = db.q("""SELECT 1 FROM tour_matches WHERE id!=? AND status='play' AND
+                               ((a=? AND a_start IS NOT NULL AND a_done IS NULL) OR (b=? AND b_start IS NOT NULL AND b_done IS NULL))""",
+                            (m["id"], s["id"], s["id"]), one=True)
+                if busy:
+                    return self.err(409, "Сначала закончи начатый матч")
                 db.x(f"UPDATE tour_matches SET {side}_start=? WHERE id=?", (time.time(), m["id"]))
             return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in json.loads(m["tasks"])], "ends": m["ends"]})
         if path == "/api/tour/finish":
@@ -3954,72 +3969,180 @@ def duel_tasks():
     return [random.choice(pool[n]) for n in sorted(nums)]
 
 
-TOUR_SIZES = {4: "Быстрый турнир", 8: "Большой турнир"}
-TOUR_HOURS = 24                          # на каждый раунд
-TOUR_PRIZES = {1: 100, 2: 60, 3: 30}     # опыт за места (3 — оба проигравших в полуфинале)
-ROUND_NAMES = {1: "Финал", 2: "Полуфинал", 4: "Четвертьфинал", 8: "1/8 финала"}
-SEED_SLOTS = {4: [(1, 4), (2, 3)], 8: [(1, 8), (4, 5), (3, 6), (2, 7)]}
+# Турнир «как в футболе»: жеребьёвка по корзинам → групповой этап (каждый с каждым, победа 3 очка, ничья 1) →
+# плей-офф на выбывание с матчем за 3-е место. «Счёт» матча — сколько заданий решил каждый.
+TOUR_SIZES = {4: "Мини-турнир", 8: "Кубок", 12: "Чемпионат"}
+TOUR_GROUPS = {4: 1, 8: 2, 12: 3}          # группы по 4
+TOUR_QUAL = {4: 2, 8: 4, 12: 8}            # сколько выходит в плей-офф (у 12 — по двое из группы и две лучшие третьи)
+TOUR_GROUP_HOURS = 24                      # на весь групповой этап
+TOUR_PO_HOURS = 12                         # на каждый раунд плей-офф
+TOUR_PRIZES = {4: {1: 60, 2: 35, 3: 20}, 8: {1: 100, 2: 60, 3: 30}, 12: {1: 150, 2: 90, 3: 50}}
+ROUND_NAMES = {1: "Финал", 2: "Полуфинал", 4: "Четвертьфинал"}
+GROUP_NAMES = "ABCD"
+TOUR_FMT = 2                               # формат с группами (прежние турниры на выбывание закрываются)
+
+
+def day_start(ts=None):
+    d = datetime.fromtimestamp(ts if ts is not None else time.time()).date()
+    return time.mktime(d.timetuple())
 
 
 def tour_lobbies(db, tid):
-    """У учителя всегда открыт набор на каждый размер турнира."""
+    """Набор на каждый размер открыт, пока сегодня турнир этого размера ещё не стартовал: один в сутки."""
+    today = day_start()
     for size, name in TOUR_SIZES.items():
-        if not db.q("SELECT 1 FROM tournaments WHERE teacher_id=? AND size=? AND status='reg'", (tid, size), one=True):
-            n = db.q("SELECT COUNT(*) AS c FROM tournaments WHERE teacher_id=? AND size=?", (tid, size), one=True)["c"] + 1
-            db.x("INSERT INTO tournaments(teacher_id, size, title, status, created) VALUES(?,?,?,'reg',?)",
-                 (tid, size, f"{name} №{n}", time.time()))
+        if db.q("SELECT 1 FROM tournaments WHERE teacher_id=? AND size=? AND status='reg'", (tid, size), one=True):
+            continue
+        if db.q("SELECT 1 FROM tournaments WHERE teacher_id=? AND size=? AND started>=? AND status!='void'", (tid, size, today), one=True):
+            continue
+        n = db.q("SELECT COUNT(*) AS c FROM tournaments WHERE teacher_id=? AND size=? AND status!='void'", (tid, size), one=True)["c"] + 1
+        db.x("INSERT INTO tournaments(teacher_id, size, title, status, created, fmt) VALUES(?,?,?,'reg',?,?)",
+             (tid, size, f"{name} №{n}", time.time(), TOUR_FMT))
 
 
 def tour_people(db, tour_id):
     out = []
-    for r in db.q("""SELECT p.student_id, p.seed, p.place, p.xp, s.name FROM tour_players p JOIN students s ON s.id=p.student_id
+    for r in db.q("""SELECT p.student_id, p.seed, p.place, p.xp, p.grp, s.name FROM tour_players p JOIN students s ON s.id=p.student_id
                      WHERE p.tour_id=? ORDER BY COALESCE(p.seed, 99), p.joined""", (tour_id,)):
         out.append({"sid": r["student_id"], "name": short_name(r["name"]), "seed": r["seed"], "place": r["place"], "xp": r["xp"],
-                    "level": game_summary(db, r["student_id"], brief=True)["level"]})
+                    "grp": r["grp"], "level": game_summary(db, r["student_id"], brief=True)["level"]})
     return out
 
 
-def tour_match_new(db, tour_id, rnd, slot, a, b, ends):
-    db.x("INSERT INTO tour_matches(tour_id, round, slot, a, b, tasks, status, ends) VALUES(?,?,?,?,?,?, 'play', ?)",
-         (tour_id, rnd, slot, a, b, json.dumps(duel_tasks()), ends))
+def tour_match_new(db, tour_id, rnd, slot, a, b, ends, kind="po", grp=None):
+    db.x("""INSERT INTO tour_matches(tour_id, round, slot, a, b, tasks, status, ends, kind, grp)
+            VALUES(?,?,?,?,?,?, 'play', ?, ?, ?)""", (tour_id, rnd, slot, a, b, json.dumps(duel_tasks()), ends, kind, grp))
 
 
 def tour_settle(db, m, seeds, now):
-    """Итог матча: больше решено — победа, поровну — быстрее; не сыграл — техническое поражение."""
+    """Итог матча. Больше решил — победа. Поровну: в группе ничья, в плей-офф проходит быстрейший («пенальти»).
+    Не сыграл — техническое поражение; в группе, если не сыграли оба, поражение обоим."""
     tasks = json.loads(m["tasks"])
-    res, tech = {}, 0
+    res = {}
     for side in ("a", "b"):
         st, dn = m[side + "_start"], min(m[side + "_done"] or now, m["ends"] or now)    # после срока не считается
-        res[side] = (duel_solved(db, m[side], tasks, st, dn) if st else -1, (dn - st) if st else float("inf"))
+        res[side] = (duel_solved(db, m[side], tasks, st, dn) if st else -1, (dn - st) if st else None)
     (sa, ta), (sb, tb) = res["a"], res["b"]
-    if sa < 0 or sb < 0:
-        tech = 1
-    if sa != sb:
+    tech = int(sa < 0 or sb < 0)
+    group = m["kind"] == "group"
+    if sa < 0 and sb < 0:
+        win = None if group else ("a" if seeds.get(m["a"], 99) <= seeds.get(m["b"], 99) else "b")
+    elif sa != sb:
         win = "a" if sa > sb else "b"
+    elif group:
+        win = None                                                   # ничья
     elif ta != tb:
         win = "a" if ta < tb else "b"
-    else:                                       # оба не сыграли или идеально поровну — проходит сеянный выше
+    else:
         win = "a" if seeds.get(m["a"], 99) <= seeds.get(m["b"], 99) else "b"
     db.x("""UPDATE tour_matches SET status='done', a_solved=?, b_solved=?, a_sec=?, b_sec=?, winner=?, tech=? WHERE id=?""",
-         (max(sa, 0), max(sb, 0), None if ta == float("inf") else ta, None if tb == float("inf") else tb, m[win], tech, m["id"]))
+         (max(sa, 0), max(sb, 0), ta, tb, m[win] if win else None, tech, m["id"]))
+
+
+def tour_tables(db, t, people=None):
+    """Таблицы групп: И, В, Н, П, решено-пропущено (как голы), очки. Сортировка как в футболе."""
+    people = people or {p["sid"]: p for p in tour_people(db, t["id"])}
+    rows = {sid: {"sid": sid, "g": 0, "w": 0, "d": 0, "l": 0, "sf": 0, "sa": 0, "pts": 0, "sec": 0.0} for sid in people}
+    for m in db.q("SELECT * FROM tour_matches WHERE tour_id=? AND kind='group' AND status='done'", (t["id"],)):
+        for me, op in (("a", "b"), ("b", "a")):
+            r = rows.get(m[me])
+            if not r:
+                continue
+            r["g"] += 1
+            r["sf"] += m[me + "_solved"] or 0
+            r["sa"] += m[op + "_solved"] or 0
+            r["sec"] += m[me + "_sec"] or 0
+            if m["winner"] == m[me]:
+                r["w"] += 1; r["pts"] += 3
+            elif m["winner"] is None and not m["tech"]:
+                r["d"] += 1; r["pts"] += 1
+            else:
+                r["l"] += 1
+    key = lambda r: (-r["pts"], -(r["sf"] - r["sa"]), -r["sf"], r["sec"], people[r["sid"]]["seed"] or 99)
+    groups = {}
+    for sid, p in people.items():
+        groups.setdefault(p["grp"], []).append(rows[sid])
+    out = []
+    for g in sorted(k for k in groups if k):
+        tab = sorted(groups[g], key=key)
+        for i, r in enumerate(tab, 1):
+            r["place"] = i
+        out.append({"name": g, "rows": tab})
+    return out, key
+
+
+def tour_pairs(qual, by_grp):
+    """Пары плей-офф: сильнейший — со слабейшим из другой группы; первый и второй сеяные — в разных половинах сетки."""
+    left, pairs = list(qual), []
+    while left:
+        a = left.pop(0)
+        cand = [x for x in reversed(left) if by_grp[x] != by_grp[a]] or list(reversed(left))
+        b = cand[0]
+        left.remove(b)
+        pairs.append((a, b))
+    if len(pairs) == 4:
+        pairs = [pairs[0], pairs[3], pairs[2], pairs[1]]
+    return pairs
+
+
+def tour_finish(db, t, now):
+    if not db.xn("UPDATE tournaments SET status='done', finished=? WHERE id=? AND status='run'", (now, t["id"])):
+        return
+    ms = db.q("SELECT * FROM tour_matches WHERE tour_id=? AND kind!='group'", (t["id"],))
+    places = {}
+    for m in ms:
+        lo = m["a"] if m["winner"] == m["b"] else m["b"]
+        if m["kind"] == "final":
+            places[m["winner"]], places[lo] = 1, 2
+        elif m["kind"] == "third":
+            places[m["winner"]], places[lo] = 3, 4
+    for m in ms:                                     # проигравшие в четвертьфинале — 5-е
+        if m["kind"] == "po":
+            lo = m["a"] if m["winner"] == m["b"] else m["b"]
+            places.setdefault(lo, 5)
+    rest = TOUR_QUAL[t["size"]] + 1                  # не вышли из группы
+    for r in db.q("SELECT student_id FROM tour_players WHERE tour_id=?", (t["id"],)):
+        places.setdefault(r["student_id"], rest)
+    prizes = TOUR_PRIZES.get(t["size"], {})
+    for sid, pl in places.items():
+        xp = prizes.get(pl, 0)
+        db.x("UPDATE tour_players SET place=?, xp=? WHERE tour_id=? AND student_id=?", (pl, xp, t["id"], sid))
+        if xp:
+            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (sid, now, xp, f"tour:{t['id']}:{pl}"))
+    champ = next((s for s, p in places.items() if p == 1), None)
+    if champ:
+        db.x("INSERT OR IGNORE INTO awards(student_id, kind, week, info) VALUES(?,'tour1',?,?)", (champ, str(t["id"]), t["size"]))
 
 
 def tour_tick(db, t):
-    """Ход турнира (лениво, при каждом запросе): старт при полном наборе, итоги матчей, следующий раунд, призы."""
+    """Ход турнира (лениво, при каждом запросе): старт при полном наборе, итоги матчей, следующая стадия, призы."""
     now = time.time()
     if t["status"] == "reg":
         ids = [r["student_id"] for r in db.q("SELECT student_id FROM tour_players WHERE tour_id=? ORDER BY joined", (t["id"],))]
         if len(ids) < t["size"]:
             return
+        ends = now + TOUR_GROUP_HOURS * 3600
         if not db.xn("UPDATE tournaments SET status='run', started=?, round=1, round_ends=? WHERE id=? AND status='reg'",
-                     (now, now + TOUR_HOURS * 3600, t["id"])):
+                     (now, ends, t["id"])):
             return                               # стартовал параллельный запрос
-        # посев по уровню и опыту: сильные встречаются как можно позже
+        # жеребьёвка: корзины по опыту, в каждую группу — по одному из каждой корзины
         ranked = sorted(ids, key=lambda i: (-game_summary(db, i, brief=True)["xp"], i))
+        ng = TOUR_GROUPS[t["size"]]
+        groups = {GROUP_NAMES[g]: [] for g in range(ng)}
+        for pot in range(0, len(ranked), ng):
+            letters = list(groups)
+            random.shuffle(letters)
+            for sid, g in zip(ranked[pot:pot + ng], letters):
+                groups[g].append(sid)
         for seed, sid in enumerate(ranked, 1):
-            db.x("UPDATE tour_players SET seed=? WHERE tour_id=? AND student_id=?", (seed, t["id"], sid))
-        for slot, (x, y) in enumerate(SEED_SLOTS[t["size"]]):
-            tour_match_new(db, t["id"], 1, slot, ranked[x - 1], ranked[y - 1], now + TOUR_HOURS * 3600)
+            g = next(k for k, v in groups.items() if sid in v)
+            db.x("UPDATE tour_players SET seed=?, grp=? WHERE tour_id=? AND student_id=?", (seed, g, t["id"], sid))
+        slot = 0
+        for g, members in groups.items():
+            for i in range(len(members)):
+                for j in range(i + 1, len(members)):
+                    tour_match_new(db, t["id"], 1, slot, members[i], members[j], ends, "group", g)
+                    slot += 1
         return
     if t["status"] != "run":
         return
@@ -4031,54 +4154,71 @@ def tour_tick(db, t):
     cur = db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], t["round"]))
     if any(m["status"] != "done" for m in cur):
         return
-    winners = [m["winner"] for m in cur]
-    if len(winners) == 1:                        # финал сыгран — места и призы
-        if not db.xn("UPDATE tournaments SET status='done', finished=? WHERE id=? AND status='run'", (now, t["id"])):
-            return
-        final = cur[0]
-        places = {final["winner"]: 1, final["a"] if final["winner"] == final["b"] else final["b"]: 2}
-        rounds = db.q("SELECT * FROM tour_matches WHERE tour_id=? ORDER BY round", (t["id"],))
-        total = max(m["round"] for m in rounds)
-        for m in rounds:
-            loser = m["a"] if m["winner"] == m["b"] else m["b"]
-            places.setdefault(loser, 2 ** (total - m["round"]) + 1)          # полуфинал → 3, четвертьфинал → 5
-        for sid, pl in places.items():
-            xp = TOUR_PRIZES.get(pl, 0)
-            db.x("UPDATE tour_players SET place=?, xp=? WHERE tour_id=? AND student_id=?", (pl, xp, t["id"], sid))
-            if xp:
-                db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (sid, now, xp, f"tour:{t['id']}:{pl}"))
-        db.x("INSERT OR IGNORE INTO awards(student_id, kind, week, info) VALUES(?,'tour1',?,?)", (final["winner"], str(t["id"]), t["size"]))
+    if any(m["kind"] == "final" for m in cur):
+        return tour_finish(db, t, now)
+    nxt, ends = t["round"] + 1, now + TOUR_PO_HOURS * 3600
+    if not db.xn("UPDATE tournaments SET round=?, round_ends=? WHERE id=? AND round=?", (nxt, ends, t["id"], t["round"])):
         return
-    nxt = t["round"] + 1
-    if not db.xn("UPDATE tournaments SET round=?, round_ends=? WHERE id=? AND round=?", (nxt, now + TOUR_HOURS * 3600, t["id"], t["round"])):
+    if t["round"] == 1:                          # группы сыграны — кто вышел в плей-офф
+        tables, key = tour_tables(db, t)
+        by_grp = {r["sid"]: g["name"] for g in tables for r in g["rows"]}
+        need = TOUR_QUAL[t["size"]]
+        qual = [r for g in tables for r in g["rows"] if r["place"] <= 2]
+        thirds = sorted([r for g in tables for r in g["rows"] if r["place"] == 3], key=key)
+        qual += thirds[:max(0, need - len(qual))]
+        qual = [r["sid"] for r in sorted(qual[:need], key=lambda r: (r["place"], key(r)))]
+        if need == 2:                            # мини-турнир: финал 1-го и 2-го, за 3-е место — 3-й и 4-й
+            rest = [r["sid"] for r in tables[0]["rows"][2:4]]
+            tour_match_new(db, t["id"], nxt, 0, qual[0], qual[1], ends, "final")
+            tour_match_new(db, t["id"], nxt, 1, rest[0], rest[1], ends, "third")
+            return
+        for k, (a, b) in enumerate(tour_pairs(qual, by_grp)):
+            tour_match_new(db, t["id"], nxt, k, a, b, ends, "po")
+        return
+    winners = [m["winner"] for m in cur if m["kind"] == "po"]
+    losers = [m["a"] if m["winner"] == m["b"] else m["b"] for m in cur if m["kind"] == "po"]
+    if len(winners) == 2:                        # после полуфиналов — финал и матч за 3-е место
+        tour_match_new(db, t["id"], nxt, 0, winners[0], winners[1], ends, "final")
+        tour_match_new(db, t["id"], nxt, 1, losers[0], losers[1], ends, "third")
         return
     for k in range(len(winners) // 2):
-        tour_match_new(db, t["id"], nxt, k, winners[2 * k], winners[2 * k + 1], now + TOUR_HOURS * 3600)
+        tour_match_new(db, t["id"], nxt, k, winners[2 * k], winners[2 * k + 1], ends, "po")
+
+
+def tour_match_view(m, people, me):
+    side = "a" if m["a"] == me else "b" if m["b"] == me else None
+    return {"id": m["id"], "slot": m["slot"], "kind": m["kind"], "grp": m["grp"], "status": m["status"], "ends": m["ends"],
+            "tech": bool(m["tech"]), "a": people.get(m["a"]), "b": people.get(m["b"]), "a_solved": m["a_solved"],
+            "b_solved": m["b_solved"], "winner": m["winner"], "mine": side, "started": bool(side and m[side + "_start"]),
+            "done": bool(side and m[side + "_done"]),
+            "tasks": [APP.bank.pid(x) for x in json.loads(m["tasks"])] if side and m[side + "_start"] else None,
+            "since": m[side + "_start"] if side else None}
 
 
 def tour_view(db, t, me, brief=False):
-    """Турнир для страницы: участники, сетка по раундам, места."""
+    """Турнир для страницы: группы с таблицами, сетка плей-офф, места."""
     people = {p["sid"]: p for p in tour_people(db, t["id"])}
-    total = {4: 2, 8: 3}.get(t["size"], 3)
     out = {"id": t["id"], "title": t["title"], "size": t["size"], "status": t["status"], "round": t["round"],
            "round_ends": t["round_ends"], "started": t["started"], "finished": t["finished"],
-           "podium": sorted([p for p in people.values() if p["place"]], key=lambda p: p["place"])[:4]}
+           "podium": sorted([p for p in people.values() if p["place"] and p["place"] <= 4], key=lambda p: p["place"])}
     if brief:
         return out
-    rounds = []
-    for r in range(1, total + 1):
-        ms = []
-        for m in db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], r)):
-            side = "a" if m["a"] == me else "b" if m["b"] == me else None
-            ms.append({"id": m["id"], "slot": m["slot"], "status": m["status"], "ends": m["ends"], "tech": bool(m["tech"]),
-                       "a": people.get(m["a"]), "b": people.get(m["b"]), "a_solved": m["a_solved"], "b_solved": m["b_solved"],
-                       "winner": m["winner"], "mine": side, "started": bool(side and m[side + "_start"]),
-                       "done": bool(side and m[side + "_done"]),
-                       "tasks": [APP.bank.pid(x) for x in json.loads(m["tasks"])] if side and m[side + "_start"] else None,
-                       "since": m[side + "_start"] if side else None})
-        n_matches = t["size"] // 2 ** r
-        rounds.append({"round": r, "name": ROUND_NAMES.get(n_matches, f"Раунд {r}"), "matches": ms, "slots": n_matches})
-    out.update(rounds=rounds, players=sorted(people.values(), key=lambda p: p["seed"] or 99))
+    ms = db.q("SELECT * FROM tour_matches WHERE tour_id=? ORDER BY round, slot", (t["id"],))
+    tables, _ = tour_tables(db, t, people)
+    for g in tables:
+        for r in g["rows"]:
+            r.update(name=people[r["sid"]]["name"], level=people[r["sid"]]["level"], me=r["sid"] == me)
+        g["matches"] = [tour_match_view(m, people, me) for m in ms if m["kind"] == "group" and m["grp"] == g["name"]]
+    # сетка плей-офф заранее: пустые места — «ждём»
+    rounds, n, r = [], TOUR_QUAL[t["size"]] // 2, 2
+    while n >= 1:
+        kinds = ("final",) if n == 1 else ("po",)
+        rounds.append({"round": r, "name": ROUND_NAMES.get(n, f"Раунд {r}"), "slots": n,
+                       "matches": [tour_match_view(m, people, me) for m in ms if m["round"] == r and m["kind"] in kinds]})
+        n, r = n // 2, r + 1
+    third = next((tour_match_view(m, people, me) for m in ms if m["kind"] == "third"), None)
+    out.update(groups=tables, playoff=rounds, third=third, qual=TOUR_QUAL[t["size"]], players=sorted(people.values(), key=lambda p: p["seed"] or 99),
+               stage="Групповой этап" if t["round"] == 1 else next((x["name"] for x in rounds if x["round"] == t["round"]), ""))
     return out
 
 
