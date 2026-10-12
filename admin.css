@@ -358,3 +358,4 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 .adm-events li { padding: 5px 2px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
 .adm-events li.warn { color: var(--weak); }
 .adm-events li.warn .task-link { color: inherit; font-weight: 700; }
+.cheat-chip { margin-left: 6px; font-size: 11px; padding: 1px 6px; }

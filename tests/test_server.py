@@ -544,6 +544,31 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(len(set(xp)), 1, xp)                                # опыт — только за первое решение
         self.assertNotIn("work", {r["reason"] for r in server.APP.db.q("SELECT reason FROM attempts WHERE student_id=?", (sid,))})
 
+    def test_exploit_window_cuts_all_xp(self):
+        # пользовался лазейкой (5+ повторов с «подборка») — срезается весь опыт с первого повтора до исправления
+        db = server.APP.db
+        sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Багов Борис','багов борис','tkbug',0,0)")
+        t0 = time.time() - 3 * 3600
+        add = lambda ts, tid, n, reason: db.x(
+            "INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms,reason) VALUES(?,?,?,?,?,?,?,?,?)",
+            (sid, ts, tid, n, "[]", "x", 1.0, 120000, reason))
+        add(t0, "b:5", 5, "new")                                            # честно, до лазейки
+        for k in range(6):
+            add(t0 + 600 + k * 60, "b:5", 5, "asg")                         # по кругу — лазейка
+        add(t0 + 1200, "b:6", 6, "new")                                     # пока пользовался — тоже срезается
+        fixed = t0 + 3600
+        old = db.setting("asg_exploit_fixed")
+        db.setting("asg_exploit_fixed", str(fixed))
+        add(fixed + 60, "b:27", 27, "new")                                  # после исправления — снова считается
+        g = server.game_summary(db, sid)
+        x5 = server.task_xp(5, server.APP.bank.tasks["b:5"].get("r"))
+        x27 = server.task_xp(27, server.APP.bank.tasks["b:27"].get("r"))
+        self.assertEqual(g["cheat"][0], t0 + 600)
+        self.assertEqual(g["xp"], x5 + 5 + x27 + server.ACH_XP["lucky"])     # №5 и «Первый шаг» до; №27 и «Новичкам везёт» после; №6 срезан
+        db.setting("asg_exploit_fixed", old)
+        db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
+        db.x("DELETE FROM students WHERE id=?", (sid,))
+
     def test_task_xp_scale(self):
         # №1–10 — 10 XP, №11–27 — по номеру; +5 за каждую ступень сложности выше первой
         self.assertEqual([server.task_xp(n) for n in (1, 7, 10, 11, 17, 27)], [10, 10, 10, 11, 17, 27])

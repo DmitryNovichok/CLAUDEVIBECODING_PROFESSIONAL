@@ -596,7 +596,7 @@
       return `<tr class="click${susp.length ? ' susp-row' : ''}" data-id="${s.id}">
         <td class="chk"><input type="checkbox" data-pick="${s.id}" ${picked.has(s.id) ? 'checked' : ''}></td>
         <td class="name">${esc(s.name)}${cls ? ` <span class="chip">${esc(cls.name)}</span>` : ''}</td>
-        <td class="num"><span class="lvl-mini" title="${s.xp || 0} XP">${s.level || 1}</span></td>
+        <td class="num"><span class="lvl-mini" title="${s.xp || 0} XP">${s.level || 1}</span>${s.cheat ? `<span class="chip weak cheat-chip" title="Перерешивал подборку по кругу ради опыта (лазейка, закрыта). Опыт, набранный с ${fmtWhen(s.cheat[0])} по ${fmtWhen(s.cheat[1])}, срезан.">накрутка</span>` : ''}</td>
         <td class="adm-off muted">${esc(s.teacher || '')}</td>
         <td class="muted">${fmtWhen(s.last)}</td>
         <td class="num">${s.today || ''}</td>
@@ -756,7 +756,7 @@
       const acc = s.total ? s.ok1 / s.total : null;
       return `<tr class="click" data-id="${s.id}">
         <td class="name">${esc(s.name)}</td>
-        <td class="num"><span class="lvl-mini" title="${s.xp || 0} XP">${s.level || 1}</span></td>
+        <td class="num"><span class="lvl-mini" title="${s.xp || 0} XP">${s.level || 1}</span>${s.cheat ? `<span class="chip weak cheat-chip" title="Перерешивал подборку по кругу ради опыта (лазейка, закрыта). Опыт, набранный с ${fmtWhen(s.cheat[0])} по ${fmtWhen(s.cheat[1])}, срезан.">накрутка</span>` : ''}</td>
         <td class="muted">${fmtWhen(s.last_attempt || s.last_seen)}</td>
         <td class="num">${s.week || ''}</td>
         <td class="num">${acc == null ? '<span class="muted">—</span>' : pct(acc) + '%'}</td>

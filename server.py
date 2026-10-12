@@ -911,6 +911,8 @@ class DB:
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
             c.execute("DELETE FROM settings WHERE key='repeat_rule_since'")
+            # лазейка «подборка по кругу» закрыта этой версией: опыт нарушителей срезается до этого момента
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('asg_exploit_fixed', ?)", (str(time.time()),))
             # награды лиг до появления таблицы наград — из итогов последней недели
             c.execute("""INSERT OR IGNORE INTO awards(student_id, kind, week, info)
                          SELECT student_id, 'up', result_week, result_league FROM leagues WHERE result='up' AND result_week IS NOT NULL""")
@@ -2308,6 +2310,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 d = dict(r)
                 g = game_summary(db, r["id"], brief=True)
                 d["level"], d["xp"] = g["level"], g["xp"]
+                d["cheat"] = g.get("cheat")                # пользовался лазейкой — опыт за этот период срезан
                 d["teacher_id"] = r["teacher_id"] or main_id
                 d["teacher"] = names.get(d["teacher_id"], "")
                 out.append(d)
@@ -3224,6 +3227,18 @@ def fast_xp_since(db):
 WORK_REASON = "work"        # ответ, записанный сервером при сдаче контрольной
 
 
+EXPLOIT_MIN = 5            # столько повторов уже решённого с «почему выдано: подборка» — это лазейка, а не случайность
+
+
+def exploit_window(db, rows, skips):
+    """Пользовался лазейкой «перерешивать подборку по кругу за опыт» (закрыта в 1.37.1): с первого такого повтора
+    и до исправления весь опыт срезается. Возвращает (с, до) или None."""
+    hits = [r["ts"] for r, sk in zip(rows, skips) if sk and r["reason"] == "asg" and (r["score"] or 0) > 0]
+    if len(hits) < EXPLOIT_MIN:
+        return None
+    return (hits[0], to_float(db.setting("asg_exploit_fixed")) or time.time())
+
+
 def reward_skips(rows, fast_since):
     """Какие ответы журнала не дают ни опыта, ни огонька, ни серий, ни достижений (по всей истории):
     задание уже решено раньше или ученик уже видел правильный ответ (после ошибок, «Показать ответ»,
@@ -3449,6 +3464,8 @@ def _game_summary(db, sid, brief=False, windows=None):
 
     def gain(v, ts):
         nonlocal xp, week, xp_day, xp_month, xp_wk
+        if v > 0 and cheat and cheat[0] <= ts < cheat[1]:
+            return                                 # опыт, набранный пока пользовался лазейкой, — срезан целиком
         xp += v
         if ts >= wk0:
             xp_wk += v
@@ -3463,6 +3480,7 @@ def _game_summary(db, sid, brief=False, windows=None):
             xp_day += v
 
     skips = reward_skips(rows, fast_since)
+    cheat = exploit_window(db, rows, skips)
     for r, skip in zip(rows, skips):
         # уже решённое или с подсмотренным ответом — ни опыта, ни огонька, ни серий, ни достижений (см. reward_skips)
         if skip:
@@ -3606,6 +3624,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
     lvl, title, cur_xp, need = level_of(xp)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
+           "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}
     if brief:
         return out
