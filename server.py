@@ -1718,7 +1718,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         done = assignment_done(db, s["id"], real, a["created"])
                         item["done"] = [APP.bank.pid(i) for i in real if i in done]
                     out.append(item)
-            return self.send_json({"assignments": out})
+            return self.send_json({"assignments": out, "in_class": bool(s["class_id"])})
 
         if path.startswith("/api/asg/"):
             s = self.student(data)
@@ -2201,12 +2201,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "Такого задания в контрольной нет")
             if t.get("parts"):
                 return self.err(400, "вопросы 19–21 сдаются по отдельности")
-            if tid in answers:
-                return self.err(409, "Ответ на это задание уже сдан — изменить его нельзя")
             ans = str(data.get("answer") or "")[:400]
             cells = data.get("cells")
             cells = [str(c)[:100] for c in cells[:40]] if isinstance(cells, list) else None
-            answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None}
+            if tid in answers:
+                # сданный ответ можно один раз изменить — по кнопке «Изменить ответ»
+                if answers[tid].get("ch"):
+                    return self.err(409, "Ответ уже изменён один раз — больше изменить нельзя")
+                if not data.get("change"):
+                    return self.err(409, "Ответ на это задание уже сдан")
+                old = answers[tid]
+                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": old.get("ms"), "ch": 1, "prev": old.get("a")}
+            else:
+                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None}
             db.x("UPDATE asg_runs SET answers=?, last=? WHERE asg_id=? AND student_id=?",
                  (json.dumps(answers, ensure_ascii=False), now, aid, s["id"]))
             return self.send_json(asg_run_public(db, a, s["id"], real))
@@ -3895,6 +3902,7 @@ def asg_run_public(db, a, sid, real):
     out["done"] = done
     out["answered"] = [APP.bank.pid(k) for k in items if k in sub]
     out["mine"] = {APP.bank.pid(k): v.get("a") or "" for k, v in answers.items()}
+    out["changed"] = [APP.bank.pid(k) for k, v in answers.items() if v.get("ch")]
     if run and run["finished"]:
         res = json.loads(run["result"] or "{}")
         out["result"] = {"correct": run["correct"], "total": run["total"], "pct": run["pct"], "grade": run["grade"],

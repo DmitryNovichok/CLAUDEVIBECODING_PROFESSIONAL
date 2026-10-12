@@ -1844,3 +1844,5 @@ button.pf-item:hover { border-color: var(--accent); }
 .wk-hist .hist-snip { white-space: normal; }
 .rv-links a { margin-right: 16px; }
 .xp-tag { color: var(--accent); font-weight: 800; }
+.asg-row.done h3 { color: var(--muted); }
+.asg-btns { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

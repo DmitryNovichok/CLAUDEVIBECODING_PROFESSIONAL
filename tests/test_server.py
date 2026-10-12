@@ -450,7 +450,11 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200, r)
         self.assertNotIn("result", r)                                        # верно или нет — до сдачи не говорим
         self.assertNotIn("correct", json.dumps(r))
-        self.assertEqual(self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "13"}, tok)[0], 409)  # одна попытка
+        self.assertEqual(self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "13"}, tok)[0], 409)  # без «изменить» — нельзя
+        st, r = self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "13", "change": True}, tok)
+        self.assertEqual((st, r["changed"], r["mine"][pid5]), (200, [pid5], "13"))                          # один раз — можно
+        self.assertEqual(self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "12", "change": True}, tok)[0], 409)  # второй — нет
+        server.APP.db.x("UPDATE asg_runs SET answers=json_set(answers, '$.\"b:5\".a', '12') WHERE asg_id=? AND student_id=?", (aid, me))  # вернём верный для проверок ниже
         self.req("POST", "/api/asg/answer", {"id": aid, "task": pid27, "answer": "10 99"}, tok)      # половина №27
         self.req("POST", "/api/asg/answer", {"id": aid, "task": p19, "answer": "5"}, tok)
         st, r = self.req("POST", "/api/asg/answer", {"id": aid, "task": p20, "answer": "4"}, tok)
