@@ -911,6 +911,8 @@ class DB:
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
             c.execute("DELETE FROM settings WHERE key='repeat_rule_since'")
+            # лазейка «подборка по кругу» закрыта этой версией: опыт нарушителей срезается до этого момента
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('asg_exploit_fixed', ?)", (str(time.time()),))
             # награды лиг до появления таблицы наград — из итогов последней недели
             c.execute("""INSERT OR IGNORE INTO awards(student_id, kind, week, info)
                          SELECT student_id, 'up', result_week, result_league FROM leagues WHERE result='up' AND result_week IS NOT NULL""")
@@ -2043,6 +2045,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if st["final"] is not None:          # повтор того же запроса (например, после обрыва связи)
             return self.send_json(st["final"])
         st["reason"] = str(data.get("reason") or "")[:20]
+        if st["reason"] == WORK_REASON:            # эту метку ставит только сервер при сдаче контрольной
+            st["reason"] = "asg"
         st["rk"] = str(data.get("rk") or "")[:200] or None
         spent = data.get("spent_ms")
         spent = int(spent) if isinstance(spent, (int, float)) and 0 <= spent < 864e5 else None
@@ -2306,6 +2310,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 d = dict(r)
                 g = game_summary(db, r["id"], brief=True)
                 d["level"], d["xp"] = g["level"], g["xp"]
+                d["cheat"] = g.get("cheat")                # пользовался лазейкой — опыт за этот период срезан
                 d["teacher_id"] = r["teacher_id"] or main_id
                 d["teacher"] = names.get(d["teacher_id"], "")
                 out.append(d)
@@ -3131,7 +3136,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
 REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное", "history": "повтор из истории",
            "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
-           "weak": "слабое место", "repeat": "повтор решённого", "": ""}
+           "weak": "слабое место", "repeat": "повтор решённого", "asg": "подборка учителя", "work": "контрольная", "": ""}
 
 
 def teacher_solution(t, teacher_id=None):
@@ -3219,6 +3224,21 @@ def fast_xp_since(db):
     return _FAST_SINCE[0]
 
 
+WORK_REASON = "work"        # ответ, записанный сервером при сдаче контрольной
+
+
+EXPLOIT_MIN = 5            # столько повторов уже решённого с «почему выдано: подборка» — это лазейка, а не случайность
+
+
+def exploit_window(db, rows, skips):
+    """Пользовался лазейкой «перерешивать подборку по кругу за опыт» (закрыта в 1.37.1): с первого такого повтора
+    и до исправления весь опыт срезается. Возвращает (с, до) или None."""
+    hits = [r["ts"] for r, sk in zip(rows, skips) if sk and r["reason"] == "asg" and (r["score"] or 0) > 0]
+    if len(hits) < EXPLOIT_MIN:
+        return None
+    return (hits[0], to_float(db.setting("asg_exploit_fixed")) or time.time())
+
+
 def reward_skips(rows, fast_since):
     """Какие ответы журнала не дают ни опыта, ни огонька, ни серий, ни достижений (по всей истории):
     задание уже решено раньше или ученик уже видел правильный ответ (после ошибок, «Показать ответ»,
@@ -3232,13 +3252,15 @@ def reward_skips(rows, fast_since):
             if sc < 1 and r["revealed"]:
                 shown.add(tid)
             continue
-        skip = (tid in solved or tid in shown) and r["reason"] != "asg"
+        # исключение — только ответы сданной контрольной (метку ставит сервер). «Почему выдано» из браузера
+        # (например «asg») не в счёт: его можно подставить и перерешивать одно и то же за опыт
+        skip = (tid in solved or tid in shown) and r["reason"] != WORK_REASON
         out.append(skip)
         if skip:
             continue
         if sc > 0 and not (r["spent_ms"] is not None and r["spent_ms"] < FAST_XP_MS and r["ts"] >= fast_since):
             solved.add(tid)
-        if sc < 1 and (r["revealed"] or r["reason"] == "asg"):
+        if sc < 1 and (r["revealed"] or r["reason"] in (WORK_REASON, "asg")):
             shown.add(tid)
     return out
 
@@ -3442,6 +3464,8 @@ def _game_summary(db, sid, brief=False, windows=None):
 
     def gain(v, ts):
         nonlocal xp, week, xp_day, xp_month, xp_wk
+        if v > 0 and cheat and cheat[0] <= ts < cheat[1]:
+            return                                 # опыт, набранный пока пользовался лазейкой, — срезан целиком
         xp += v
         if ts >= wk0:
             xp_wk += v
@@ -3456,6 +3480,7 @@ def _game_summary(db, sid, brief=False, windows=None):
             xp_day += v
 
     skips = reward_skips(rows, fast_since)
+    cheat = exploit_window(db, rows, skips)
     for r, skip in zip(rows, skips):
         # уже решённое или с подсмотренным ответом — ни опыта, ни огонька, ни серий, ни достижений (см. reward_skips)
         if skip:
@@ -3517,7 +3542,8 @@ def _game_summary(db, sid, brief=False, windows=None):
             if fast:
                 gain(FAST_XP_PENALTY, ts)
             else:
-                gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts)
+                if tid not in solved:              # опыт — только за первое решение задания, откуда бы ни пришёл ответ
+                    gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts)
             if first_time:
                 cnt["solved"] += 1
                 solved.add(tid)
@@ -3598,6 +3624,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
     lvl, title, cur_xp, need = level_of(xp)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
+           "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}
     if brief:
         return out
@@ -3879,7 +3906,7 @@ def asg_finish_run(handler, db, a, s, real, forced=0):
             continue
         t = APP.bank.tasks.get(k)
         x = answers[k]
-        handler.log_attempt(s, t, [x.get("a") or ""], 1.0 if credit == 1 else 0.0, reason="asg", part=credit,
+        handler.log_attempt(s, t, [x.get("a") or ""], 1.0 if credit == 1 else 0.0, reason=WORK_REASON, part=credit,
                             spent=x.get("ms"))
     db.x("UPDATE asg_runs SET xp=? WHERE asg_id=? AND student_id=?", (game_summary(db, s["id"])["xp"] - xp0, a["id"], s["id"]))
 
