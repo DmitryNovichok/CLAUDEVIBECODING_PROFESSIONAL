@@ -363,6 +363,47 @@ NO_AUTHOR_SRC = {"", "компегэ", "яндекс учебник"}
 TEXT_AUTHOR_RE = re.compile(r"^[(\[]([^()\[\]]{2,60})[)\]]")
 
 
+# ---------------------------------------------------------------- общий банк
+# Одно правило «задание банка» для всего сайта: тренажёр (app.js: isOutdated), задание дня, турниры, подбор и поиск
+# учителя, подборки курса. Менять — вместе с CFG.firstKegeYear и CFG.formatSince в app.js.
+FIRST_KEGE_YEAR = 2021                                  # первый компьютерный ЕГЭ — более ранние задания другого формата
+FORMAT_SINCE = {6: 2023, 22: 2023, 13: 2024, 27: 2025}  # с какого года номер на ЕГЭ в нынешнем виде
+
+
+def task_outdated(t):
+    """Задание старого формата ЕГЭ: помечено при сборке (fmt) или по году экзамена."""
+    if t.get("fmt") == "cur":
+        return False
+    if t.get("fmt") == "old":
+        return True
+    y = t.get("y")
+    return bool(y) and y < max(FIRST_KEGE_YEAR, FORMAT_SINCE.get(t.get("n"), 0))
+
+
+def bank_ok(t, authored_ok=True, single=False):
+    """Задание общего банка: целиком (вопросы 19–21 — только всей игрой), с ответом, актуального формата.
+    single — нужен один ответ (без игры 19–21); authored_ok=False — без авторских задач."""
+    if not t or t.get("group") or not t.get("n"):
+        return False
+    if t.get("parts"):
+        if single:
+            return False
+    elif not t.get("ans"):
+        return False
+    if task_outdated(t):
+        return False
+    return authored_ok or not is_authored(t.get("src"), t.get("html"))
+
+
+def n_key(n):
+    """Номер для сводок: 19–21 — одна игра (как в тренажёре)."""
+    return 19 if n in (20, 21) else n
+
+
+def bank_pool(nums=None, **kw):
+    """Id заданий общего банка (по номерам nums, если заданы)."""
+    return [i for i, t in APP.bank.tasks.items() if (nums is None or t.get("n") in nums) and bank_ok(t, **kw)]
+
 def is_authored(src, html_text=None):
     """Авторское задание: автор в источнике («КомпЕГЭ · Джобс 14.05.2022») или в начале условия
     («(Д. Бахтиев) В файле приведён…» — так подписаны задания КомпЕГЭ без источника)."""
@@ -3085,6 +3126,45 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             "progress": prog})
             return self.send_json({"assignments": out})
 
+        if path == "/api/admin/class/journal":
+            # журнал класса: оценки по всем подборкам и точность по номерам ЕГЭ у каждого ученика
+            cid = to_int(qs.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            APP.bank.ensure()
+            members = db.q("SELECT id, name FROM students WHERE class_id=? AND COALESCE(is_teacher, 0) = 0 ORDER BY name", (cid,))
+            asgs = db.q("SELECT * FROM assignments WHERE class_id=? ORDER BY created", (cid,))
+            cols, cells = [], {m["id"]: {} for m in members}
+            for a in asgs:
+                real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+                cols.append({"id": a["id"], "title": a["title"], "kind": a["kind"] or "self", "created": a["created"],
+                             "due": a["due"], "closed": a["closed"], "total": len(asg_items(real))})
+                runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (a["id"],))} if a["strict"] else {}
+                for m in members:
+                    if a["strict"]:
+                        r = runs.get(m["id"])
+                        cell = ({"st": "done", "grade": r["grade"], "pct": r["pct"]} if r and r["finished"]
+                                else {"st": "work"} if r else {"st": "none"})
+                    else:
+                        sc = practice_score(db, a, m["id"], real)
+                        cell = ({"st": "done" if sc["final"] else "work", "grade": sc["grade"], "pct": sc["pct"], "tried": sc["tried"]}
+                                if sc["tried"] else {"st": "none"})
+                    if cell["st"] == "none" and (a["closed"] or (a["due"] and time.time() > a["due"])):
+                        cell = {"st": "miss"}                # срок прошёл, а работа не сделана
+                    cells[m["id"]][a["id"]] = cell
+            ids = [m["id"] for m in members]
+            nums = {}
+            if ids:
+                # точность по номерам — первая попытка в тренажёре и подборках, без вариантов ЕГЭ
+                for r in db.q(f"""SELECT student_id, n, COUNT(*) AS a, SUM(score = 1) AS ok FROM attempts
+                                  WHERE student_id IN ({','.join('?' * len(ids))}) AND n IS NOT NULL AND exam IS NULL
+                                  AND COALESCE(gave_up, 0) = 0 GROUP BY student_id, n""", ids):
+                    cur = nums.setdefault(r["student_id"], {}).setdefault(n_key(r["n"]), [0, 0])
+                    cur[0] += r["a"]
+                    cur[1] += r["ok"] or 0
+            return self.send_json({"assignments": cols, "students": [{"id": m["id"], "name": m["name"], "cells": cells[m["id"]],
+                                                                      "nums": nums.get(m["id"], {})} for m in members]})
+
         if path == "/api/admin/assignment/save" and method == "POST":
             cid = to_int(data.get("class_id"))
             if not self.sees_class(cid):
@@ -3096,6 +3176,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tasks = []
             for i in data.get("tasks") or []:
                 i = str(i)
+                i = (APP.bank.tasks.get(i) or {}).get("group") or i      # вопрос 19–21 — в подборку идёт вся игра
                 if i in APP.bank.tasks and i not in tasks:
                     tasks.append(i)
             if not tasks:
@@ -3205,9 +3286,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             n = to_int(qs.get("n"))
             k = min(max(to_int(qs.get("count")) or 1, 1), 30)
             skip = set(str(qs.get("skip") or "").split(","))
-            pool = [tid for tid, t in APP.bank.tasks.items()
-                    if t.get("n") == n and not t.get("group") and tid not in skip and t.get("fmt") != "old"
-                    and (self.T["authored"] or not is_authored(t.get("src"), t.get("html")))]
+            pool = [tid for tid in bank_pool({n}, authored_ok=bool(self.T["authored"])) if tid not in skip]
             pick = secrets.SystemRandom().sample(pool, min(k, len(pool)))
             return self.send_json({"tasks": [{"id": i, "n": n, "snip": APP.bank.snippet(i)} for i in pick]})
 
@@ -3258,7 +3337,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     continue
                 if (y0 and (t.get("y") or 0) < y0) or (y1 and (t.get("y") or 9999) > y1):
                     continue
-                if fmt == "actual" and t.get("fmt") == "old" or fmt == "old" and t.get("fmt") != "old":
+                if fmt == "actual" and task_outdated(t) or fmt == "old" and not task_outdated(t):
                     continue
                 if not self.T["authored"] and is_authored(t.get("src"), t.get("html")):
                     continue
@@ -3298,9 +3377,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "id": t["id"], "n": t.get("n"), "c": t.get("c"), "cname": names.get(t.get("n"), {}).get(t.get("c"), ""),
                 "r": t.get("r"), "bank": APP.bank.titles.get(t.get("bank"), t.get("bank")), "y": t.get("y"),
                 "src": t.get("src"), "tries": tries, "rate": round(share, 2) if share is not None and tries >= RATE_MIN else None,
-                "snip": APP.bank.snippet(t["id"]), "old": t.get("fmt") == "old"}
+                "snip": APP.bank.snippet(t["id"]), "old": task_outdated(t)}
             rows = [row(*x) for x in out[page * per:(page + 1) * per]]
-            pool = [row(*x) for x in out[:300]] if qs.get("pool") else None   # для «добавить N случайных из найденных»
+            pool = None
+            if qs.get("pool"):
+                # для «случайных из найденных» и «по N на номер»: случайные из ВСЕХ найденных, до 60 на каждый номер
+                by_n = {}
+                for x in out:
+                    by_n.setdefault(x[0].get("n"), []).append(x)
+                rnd = secrets.SystemRandom()
+                pool = [row(*x) for lst in by_n.values() for x in rnd.sample(lst, min(60, len(lst)))]
             return self.send_json({"total": len(out), "page": page, "per": per, "tasks": rows, "pool": pool,
                                    "facets": {"c": facet_c, "r": facet_r}})
 
@@ -3955,10 +4041,17 @@ def daily_task_id(day=None):
     hit = _DAILY_CACHE.get(day)
     if hit and hit[1] == APP.bank.mtime:
         return hit[0]
-    cands = sorted(i for i, t in APP.bank.tasks.items()
-                   if t.get("n") in DAILY_NUMS and not t.get("parts") and not t.get("group") and t.get("ans")
-                   and (t.get("y") or 2026) >= 2024 and not is_authored(t.get("src"), t.get("html")))
-    tid = cands[int(hashlib.sha256(("daily:" + day).encode()).hexdigest(), 16) % len(cands)] if cands else None
+    # выбранное на день запоминаем: смена правил отбора или пересборка банка не подменят задание посреди дня
+    row = APP.db.q("SELECT value FROM settings WHERE key=?", ("daily:" + day,), one=True)
+    tid = row["value"] if row and row["value"] in APP.bank.tasks else None
+    if not tid:
+        cands = sorted(bank_pool(DAILY_NUMS, single=True, authored_ok=False))
+        if APP.db.q("SELECT 1 FROM daily_starts WHERE day=? LIMIT 1", (day,), one=True):
+            # день начался до единого банка — задание выбирали из заданий с 2024 года, оставляем его
+            cands = [i for i in cands if (APP.bank.tasks[i].get("y") or 2026) >= 2024]
+        tid = cands[int(hashlib.sha256(("daily:" + day).encode()).hexdigest(), 16) % len(cands)] if cands else None
+        if tid:
+            APP.db.x("INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)", ("daily:" + day, tid))
     _DAILY_CACHE[day] = (tid, APP.bank.mtime)
     return tid
 
@@ -4011,10 +4104,8 @@ def tournament_table(db, s, mates):
 def duel_tasks():
     """Задания для дуэли или матча турнира: по одному на разные номера, актуального формата, без авторских."""
     pool = {}
-    for i, t in APP.bank.tasks.items():
-        if (t.get("n") in DUEL_NUMS and not t.get("parts") and not t.get("group") and t.get("ans")
-                and (t.get("y") or 2026) >= 2024 and not is_authored(t.get("src"), t.get("html"))):
-            pool.setdefault(t["n"], []).append(i)
+    for i in bank_pool(set(DUEL_NUMS), single=True, authored_ok=False):
+        pool.setdefault(APP.bank.tasks[i]["n"], []).append(i)
     nums = random.sample(sorted(pool), min(DUEL_TASKS, len(pool)))
     return [random.choice(pool[n]) for n in sorted(nums)]
 
@@ -4326,8 +4417,7 @@ def course_sets_all(authored_ok):
     """Подборки курса для всех номеров: {n: {warm|base|exam|hard|test: [id]}} — пересчёт при смене банка."""
     key = (APP.bank.etag, bool(authored_ok))
     if key not in _CSETS:
-        tasks = [t for t in APP.bank.tasks.values()
-                 if authored_ok or not is_authored(t.get("src"), t.get("html"))]
+        tasks = [t for t in APP.bank.tasks.values() if bank_ok(t, authored_ok=authored_ok)]
         for k in [k for k in _CSETS if k[0] != APP.bank.etag]:
             del _CSETS[k]                # банк пересобрали — старые подборки не нужны
         _CSETS[key] = {n: clusters.course_sets(tasks, n) for n in range(1, 28) if n not in (20, 21)}

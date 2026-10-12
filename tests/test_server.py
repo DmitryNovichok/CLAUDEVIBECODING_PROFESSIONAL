@@ -447,6 +447,14 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((row["status"], row["grade"], row["pct"]), ("done", 3, 50))
         st, d = self.admin("GET", f"/api/admin/assignments?class_id={cid}")
         self.assertEqual(d["assignments"][0]["kind"], "practice")
+        # журнал класса: оценка за подборку и точность по номерам
+        st, j = self.admin("GET", f"/api/admin/class/journal?class_id={cid}")
+        self.assertEqual(st, 200)
+        self.assertEqual([a["title"] for a in j["assignments"]], ["Практика"])
+        me_row = next(x for x in j["students"] if x["id"] == me)
+        self.assertEqual((me_row["cells"][str(aid)]["st"], me_row["cells"][str(aid)]["grade"]), ("done", 3))
+        self.assertEqual(me_row["nums"]["5"], [1, 1])
+        self.assertEqual(self.admin("GET", "/api/admin/class/journal?class_id=999999")[0], 404)
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
 
     def test_strict_assignment(self):
@@ -1019,6 +1027,20 @@ class ServerTest(unittest.TestCase):
             self.req("POST", "/api/support", {"text": f"ещё обращение {i}"}, tok)
         self.assertEqual(self.req("POST", "/api/support", {"text": "шестое за час"}, tok)[0], 429)
         self.assertEqual(self.req("GET", "/api/support")[0], 401)
+
+    def test_common_bank_rule(self):
+        ok = lambda **t: server.bank_ok(dict({"n": 5, "ans": "1"}, **t))
+        self.assertTrue(ok(y=2022))
+        self.assertFalse(ok(y=2019))                         # до первого компьютерного ЕГЭ
+        self.assertFalse(ok(n=13, y=2023))                   # №13 в нынешнем виде — с 2024 года
+        self.assertTrue(ok(n=13, y=2023, fmt="cur"))         # помечено при сборке как актуальное
+        self.assertFalse(ok(fmt="old"))
+        self.assertFalse(ok(ans=""))                         # без ответа — не в банке
+        self.assertFalse(ok(group="g1"))                     # вопрос 19–21 — только всей игрой
+        self.assertTrue(ok(n=19, ans="", parts=[{"id": "p"}]))
+        self.assertFalse(server.bank_ok({"n": 19, "parts": [{"id": "p"}]}, single=True))
+        for i in server.bank_pool():
+            self.assertFalse(server.task_outdated(server.APP.bank.tasks[i]))
 
     def test_class_battle_goal(self):
         tok = self.login("Классный Карл")
