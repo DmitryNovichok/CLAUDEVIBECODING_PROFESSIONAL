@@ -1000,6 +1000,7 @@ class DB:
                     ("students", "dev", "INTEGER DEFAULT 0"),
                     ("exams", "tasks", "TEXT"),                       # задания варианта, выданные сервером
                     ("assignments", "student_id", "INTEGER"),         # личная подборка ученика; NULL — всему классу
+                    ("students", "role", "TEXT"),                     # admin — золотая плашка 👑 admin рядом с именем
                     ("assignments", "batch", "TEXT"),                 # серия личных подборок: fix:<id> — работа над ошибками, weak:<ts>
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
@@ -1011,6 +1012,11 @@ class DB:
             # тип работы: прежние подборки — самостоятельные; «строгий» режим (проверка после сдачи) — только у них
             # турниры прежнего формата (без групп) закрываются, наборы — пересоздаются в новом
             c.execute("UPDATE tournaments SET status='void' WHERE COALESCE(fmt, 0) < 2 AND status IN ('reg', 'run')")
+            # плашка admin владельцу сайта (Malevin D.) — один раз; дальше выдаёт и снимает главный учитель в карточке ученика
+            if not c.execute("SELECT 1 FROM settings WHERE key='admin_badge_seeded'").fetchone():
+                c.execute("""UPDATE students SET role='admin' WHERE COALESCE(is_teacher, 0) = 0
+                             AND (name_key LIKE 'malevin d%' OR name_key LIKE 'малевин д%')""")
+                c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('admin_badge_seeded', '1')")
             c.execute("UPDATE assignments SET kind='self' WHERE kind IS NULL")
             c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
@@ -1499,7 +1505,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s),
-                "teacher": bool(s["is_teacher"])}
+                "teacher": bool(s["is_teacher"]),
+                "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
     def is_admin(self):
         """Вошёл ли учитель; запоминает его в self.T (сессии без учителя — от прежних версий — главного)."""
@@ -1998,7 +2005,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             t = APP.bank.tasks[tid]
             return self.send_json({"task": APP.bank.pid(tid), "n": t.get("n"), "day": day, "count": len(rows),
                                    "mine": mine, "crown": names.get(crown), "started": started["ts"] if started else None,
-                                   "top": [{"place": i + 1, "name": names[r["student_id"]], "ms": r["ms"],
+                                   "top": [{"place": i + 1, "sid": r["student_id"], "name": names[r["student_id"]], "ms": r["ms"],
                                             "me": r["student_id"] == s["id"]} for i, r in enumerate(rows[:10])],
                                    "my_place": next((i + 1 for i, r in enumerate(rows) if r["student_id"] == s["id"]), None)})
 
@@ -2644,6 +2651,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
                                                      (s["last_ip"], sid))]
             student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
+            student["role"] = (db.q("SELECT role FROM students WHERE id=?", (sid,), one=True) or {"role": None})["role"]
             student["has_password"] = bool(db.q("SELECT pw FROM students WHERE id=?", (sid,), one=True)["pw"])
             coded = {r["task_id"] for r in db.q("SELECT task_id FROM solutions WHERE student_id=?", (sid,))}
             for d in out:
@@ -2806,6 +2814,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "ученик не найден")
             # пароль стирается, вход на всех устройствах сбрасывается; ученик задаст новый с кодом приглашения
             db.x("UPDATE students SET pw=NULL, token=? WHERE id=?", (secrets.token_urlsafe(24), sid))
+            return self.send_json({"ok": True})
+
+        if path == "/api/admin/student/role" and method == "POST":
+            # плашка 👑 admin рядом с именем ученика — выдаёт и снимает только главный учитель
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
+            db.x("UPDATE students SET role=? WHERE id=?", ("admin" if data.get("admin") else None, sid))
             return self.send_json({"ok": True})
 
         if path == "/api/admin/student/delete" and method == "POST":

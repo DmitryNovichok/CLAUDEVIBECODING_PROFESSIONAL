@@ -2007,3 +2007,10 @@ body.asg-wide .course.asg-page { max-width: none; }
 .hist-page .hist-filters { margin: 18px 0 10px; }
 .hist-day { margin: 14px 0 2px; font: 800 13px var(--font); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .hist-page .hist-more { margin-top: 12px; }
+
+/* ---------- плашка администратора: золото с короной */
+.adm-tag { display: inline-flex; align-items: center; gap: 3px; margin-left: 7px; padding: 1px 8px 1px 6px; vertical-align: 2px;
+  border-radius: 999px; font: 900 10.5px/1.5 var(--font); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+  color: #5b3a00; background: linear-gradient(135deg, #ffe27a, #ffb800 55%, #ffd34d);
+  box-shadow: 0 2px 0 #c98a00, inset 0 1px 0 rgba(255, 255, 255, .6); }
+.fm-title .adm-tag { font-size: 12px; vertical-align: 4px; }

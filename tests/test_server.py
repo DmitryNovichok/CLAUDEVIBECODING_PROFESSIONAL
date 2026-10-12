@@ -1550,6 +1550,16 @@ class ServerTest(unittest.TestCase):
         st, d = self.req("POST", "/api/exam/start", {}, tok)
         self.assertEqual(st, 429)
 
+    def test_admin_badge(self):
+        tok = self.login("Malevin Dmitry")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        self.assertNotIn(sid, self.req("GET", "/api/me", token=tok)[1]["admins"])     # новым — только через панель
+        self.assertEqual(self.admin("POST", "/api/admin/student/role", {"id": sid, "admin": True})[0], 200)
+        self.assertIn(sid, self.req("GET", "/api/me", token=tok)[1]["admins"])
+        self.assertEqual(self.admin("GET", f"/api/admin/student?id={sid}")[1]["student"]["role"], "admin")
+        self.admin("POST", "/api/admin/student/role", {"id": sid, "admin": False})
+        self.assertNotIn(sid, self.req("GET", "/api/me", token=tok)[1]["admins"])
+
     def test_exam_history(self):
         tok = self.login("Вариантов Виктор")
         st, e = self.req("POST", "/api/exam/start", {}, tok)

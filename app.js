@@ -94,6 +94,8 @@
   };
   const fmtWait = sec => (sec >= 90 ? `${Math.ceil(sec / 60)} мин` : fmtClock(sec));
 
+  let ADMINS = new Set();                    // аккаунты с плашкой 👑 admin (выдаёт главный учитель)
+  const admTag = sid => (sid && ADMINS.has(+sid) ? '<span class="adm-tag" title="Администратор Egeshka">👑 admin</span>' : '');
   function toast(msg, ms = 2600) {
     let box = document.getElementById('toasts');
     if (!box) {
@@ -3816,6 +3818,7 @@
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     writeStudent(student);
     if (me.rules) Object.assign(RULES, me.rules);
+    ADMINS = new Set(me.admins || []);
     if (me.game) GAME = me.game;
     COURSE_OK = !!me.course;
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
@@ -4905,7 +4908,7 @@
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
   const badgesHtml = r => (r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '';
-  const nameHtml = r => r.sid ? `<button type="button" class="lb-name" data-prof="${r.sid}" title="Открыть профиль">${esc(r.name)}</button>` : esc(r.name);
+  const nameHtml = r => (r.sid ? `<button type="button" class="lb-name" data-prof="${r.sid}" title="Открыть профиль">${esc(r.name)}</button>` : esc(r.name)) + admTag(r.sid);
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
   const daysLeft = endSec => Math.max(0, Math.ceil((endSec * 1000 - Date.now()) / 864e5));
 
@@ -5030,7 +5033,7 @@
           <span class="fm-muted">${P.chosen ? 'Выбраны тобой.' : 'Сейчас — автоматически: огонёк 7+, корона дня, алмазная лига.'}</span></div>`;
     $('#forecastBody').innerHTML = `${back}
       <div class="gm-head"><span class="gm-level">${P.level}</span>
-        <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(P.name)}${P.me ? ' <span class="chip good">это ты</span>' : ''}</h2>
+        <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(P.name)}${admTag(P.sid)}${P.me ? ' <span class="chip good">это ты</span>' : ''}</h2>
           <span class="fm-muted">${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp} XP</span>
           <div class="pf-nick">У ника: ${nick.length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>` : '<span class="fm-muted">пока ничего</span>'}</div></div></div>
       ${tools}
@@ -5139,7 +5142,7 @@
   }
   function dailyHtml() {
     if (!DAILY || !DAILY.task) return '';
-    const rows = DAILY.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td><td>${esc(r.name)}</td><td class="num">${fmtMs(r.ms)}</td></tr>`).join('');
+    const rows = DAILY.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td><td>${esc(r.name)}${admTag(r.sid)}</td><td class="num">${fmtMs(r.ms)}</td></tr>`).join('');
     return `<p class="fm-note">Одно задание для всех на сегодня, №${DAILY.n}. Место — по времени решения <b>с первой попытки</b>
         (время считает сервер с момента открытия задания). Самый быстрый завтра весь день носит 👑.${DAILY.crown ? ` Сегодня корона у <b>${esc(DAILY.crown)}</b>.` : ''}</p>
       ${DAILY.my_place ? `<p class="lb-mine">Ты решил за <b>${fmtMs(DAILY.mine)}</b> — ${DAILY.my_place}-е место из ${DAILY.count}.</p>`
@@ -5241,7 +5244,7 @@
     const won = done && m.winner === p.sid, lost = done && m.winner && m.winner !== p.sid;
     const sc = done ? `<b class="tb-sc">${m[side + '_solved']}</b>` : '';
     return `<div class="tb-p${isMe(p) ? ' me' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}"><span class="tb-seed">${p.grp || ''}</span>
-      <span class="tb-name">${esc(p.name)}${isMe(p) ? ' (ты)' : ''}</span><small>ур. ${p.level}</small>${sc}</div>`;
+      <span class="tb-name">${esc(p.name)}${isMe(p) ? ' (ты)' : ''}${admTag(p.sid)}</span><small>ур. ${p.level}</small>${sc}</div>`;
   }
   function tourBox(m, label) {
     const note = !m ? '' : m.status === 'done' ? (m.tech ? 'тех. результат' : 'сыгран') : `идёт · ${tourLeft(m.ends)}`;
@@ -5263,7 +5266,7 @@
       <table class="tg-t"><thead><tr><th></th><th>Участник</th><th title="Игры">И</th><th title="Победы">В</th><th title="Ничьи">Н</th><th title="Поражения">П</th>
         <th title="Решено — пропущено (как голы)">Задачи</th><th>О</th></tr></thead><tbody>
       ${g.rows.map(r => `<tr class="${r.me ? 'me' : ''}${r.place <= 2 ? ' q' : n === 3 && r.place === 3 ? ' q3' : ''}"><td>${r.place}</td>
-        <td>${esc(r.name)}${r.me ? ' (ты)' : ''}</td><td>${r.g}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.sf}–${r.sa}</td><td><b>${r.pts}</b></td></tr>`).join('')}
+        <td>${esc(r.name)}${r.me ? ' (ты)' : ''}${admTag(r.sid)}</td><td>${r.g}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.sf}–${r.sa}</td><td><b>${r.pts}</b></td></tr>`).join('')}
       </tbody></table>
       <div class="tg-ms">${g.matches.map(m => `<div class="tg-m${m.mine ? ' mine' : ''}"><span>${esc(m.a.name)}</span>
         <b>${m.status === 'done' ? `${m.a_solved} : ${m.b_solved}` : '– : –'}</b><span>${esc(m.b.name)}</span></div>`).join('')}</div></div>`).join('')}</div>
@@ -5332,7 +5335,7 @@
     </div>`;
   }
   function tourPodium(T) {
-    return `<div class="tpod">${(T.podium || []).map(p => `<span class="tpod-i p${p.place}${isMe(p) ? ' me' : ''}">${MEDAL[p.place] || `${p.place}.`} ${esc(p.name)}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</span>`).join('')}</div>`;
+    return `<div class="tpod">${(T.podium || []).map(p => `<span class="tpod-i p${p.place}${isMe(p) ? ' me' : ''}">${MEDAL[p.place] || `${p.place}.`} ${esc(p.name)}${admTag(p.sid)}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</span>`).join('')}</div>`;
   }
   async function tourAction(path, body, msg) {
     let d;
@@ -6178,6 +6181,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.47.2', '12.10.2026', ['Золотая плашка 👑 admin у администратора сайта — в рейтинге, профиле, турнирах и задании дня']],
     ['1.47.1', '12.10.2026', ['История заданий открывается страницей, как подборки и варианты, — с разбивкой по дням']],
     ['1.47.0', '12.10.2026', ['«Мои варианты» — история вариантов ЕГЭ на отдельной странице, как подборки: балл, время, график по вариантам, разбор каждого с твоими и правильными ответами и кнопкой «Перерешать»']],
     ['1.46.1', '12.10.2026', ['Убраны напоминания об уходе со страницы и выходе из полного экрана, а в варианте — плашка строгого режима: ничего не отвлекает от заданий']],

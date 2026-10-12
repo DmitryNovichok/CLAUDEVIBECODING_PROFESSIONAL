@@ -1412,7 +1412,8 @@
 
   function renderStudent() {
     const s = st.student, A = st.attempts;
-    $('#stName').textContent = s.name;
+    $('#stName').innerHTML = esc(s.name) + (s.role === 'admin' ? ' <span class="adm-tag">👑 admin</span>' : '');
+    $('#stRole').textContent = s.role === 'admin' ? 'Снять плашку admin' : '👑 Плашка admin';
     const periodDays = +$('#stPeriod').value;
     let from = 0;
     if (periodDays) { const d = new Date(); d.setHours(0, 0, 0, 0); from = d.getTime() / 1000 - (periodDays - 1) * 86400; }
@@ -1644,6 +1645,12 @@
       toast(r.merged_into ? 'Журналы объединены' : 'Переименовано');
       openStudent(r.merged_into || s.id);
     } catch (e) { if (e.status !== 401) toast(e.message); }
+  });
+  $('#stRole').addEventListener('click', async () => {
+    const s = st.student, on = s.role !== 'admin';
+    if (!confirm(on ? `Выдать «${s.name}» золотую плашку «👑 admin» рядом с именем на сайте?` : `Снять плашку «👑 admin» у «${s.name}»?`)) return;
+    try { await api('student/role', { id: s.id, admin: on }); toast(on ? 'Плашка выдана' : 'Плашка снята'); openStudent(s.id); }
+    catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#stPwReset').addEventListener('click', async () => {
     const s = st.student;
