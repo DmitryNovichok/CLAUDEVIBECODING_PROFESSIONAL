@@ -1576,16 +1576,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             APP.bank.ensure()
-            rows = db.q("""SELECT task_id, n, score, ts, reason, rk, part, grp, exam, answers FROM attempts
+            rows = db.q("""SELECT task_id, n, score, ts, reason, rk, part, grp, exam, answers, revealed, spent_ms FROM attempts
                            WHERE student_id=? ORDER BY ts, id""", (s["id"],))
+            skips = reward_skips(rows, fast_xp_since(db))
             tasks, pid = APP.bank.tasks, APP.bank.pid
-            # [id, n, score, ts, reason, rk, part, grp, exam, пустой ответ в варианте]; id — открытые коды
+            # [id, n, score, ts, reason, rk, part, grp, exam, пустой ответ в варианте, не засчитан]; id — открытые коды
             h = []
-            for r in rows:
+            for r, skip in zip(rows, skips):
                 grp = r["grp"] or (tasks.get(r["task_id"]) or {}).get("group") or ""
                 h.append([pid(r["task_id"]), r["n"], r["score"], int(r["ts"] * 1000), r["reason"] or "",
                           r["rk"] or "", r["part"], pid(grp) if grp else "", 1 if r["exam"] else 0,
-                          1 if r["exam"] and r["answers"] in (None, "", "[]") else 0])
+                          1 if r["exam"] and r["answers"] in (None, "", "[]") else 0, 1 if skip else 0])
             return self.send_json({"h": h})
 
         if path == "/api/logout" and method == "POST":
@@ -2083,7 +2084,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
                                  revealed=1, spent=spent, away=st["away"], st=st)
                 st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"],
-                                                     "fast": spent is not None and spent < FAST_XP_MS}, t)
+                                                     "fast": spent is not None and spent < FAST_XP_MS,
+                                                     "nocount": last_attempt_skipped(APP.db, s["id"])}, t)
                 return self.send_json(dict(st["final"], game=game_summary(APP.db, s["id"])))
             if len(st["tries"]) < ATTEMPTS_PER_TASK:
                 return self.send_json({"correct": False, "final": False, "attempts_left": ATTEMPTS_PER_TASK - len(st["tries"]),
@@ -3168,7 +3170,6 @@ ACHIEVEMENTS = [
     # смешные и пасхальные
     ("exam67", "67!", "SIX SEVEN на экзамене", "Набрать за вариант ровно 67 баллов", 1),
     ("turtle", "🐢", "Повелитель черепах", "Решить 15 заданий №6 с Черепахой", 15),
-    ("flash", "⚡", "Флэш", "Верно с первой попытки решить задание быстрее 20 секунд", 1),
     ("bug", "BUG", "Это не баг, это фича", "Ошибиться 5 раз подряд — и всё равно решить следующее", 1),
     ("phoenix", "🔥", "Феникс", "Вернуться к занятиям после перерыва в неделю и больше", 1),
     ("cinderella", "00:00", "Золушка", "Решить задание ровно в полночь — с 00:00 до 00:05", 1),
@@ -3208,6 +3209,37 @@ def fast_xp_since(db):
     if not _FAST_SINCE:
         _FAST_SINCE.append(to_float(db.setting("fast_xp_since")) or 0)
     return _FAST_SINCE[0]
+
+
+def reward_skips(rows, fast_since):
+    """Какие ответы журнала не дают ни опыта, ни огонька, ни серий, ни достижений (по всей истории):
+    задание уже решено раньше или ученик уже видел правильный ответ (после ошибок, «Показать ответ»,
+    в варианте ЕГЭ, в разборе контрольной). Иначе опыт «фармят»: ошибиться дважды, увидеть ответ,
+    открыть задание из истории и ввести его. Контрольная и вариант ЕГЭ считаются по своим правилам."""
+    solved, shown, out = set(), set(), []
+    for r in rows:
+        tid, sc = r["task_id"], r["score"] or 0
+        if r["exam"]:
+            out.append(False)
+            if sc < 1 and r["revealed"]:
+                shown.add(tid)
+            continue
+        skip = (tid in solved or tid in shown) and r["reason"] != "asg"
+        out.append(skip)
+        if skip:
+            continue
+        if sc > 0 and not (r["spent_ms"] is not None and r["spent_ms"] < FAST_XP_MS and r["ts"] >= fast_since):
+            solved.add(tid)
+        if sc < 1 and (r["revealed"] or r["reason"] == "asg"):
+            shown.add(tid)
+    return out
+
+
+def last_attempt_skipped(db, sid):
+    """Последний ответ ученика не засчитан (задание уже решено или ответ был показан)."""
+    rows = db.q("""SELECT task_id, score, ts, exam, reason, revealed, spent_ms FROM attempts WHERE student_id=?
+                   ORDER BY ts, id""", (sid,))
+    return bool(rows) and reward_skips(rows, fast_xp_since(db))[-1]
 
 
 def task_xp(n):
@@ -3375,7 +3407,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     """Опыт, уровень и достижения. windows — {имя: (с, до)}: опыт за произвольные промежутки (лиги, прошлая неделя)."""
     windows = windows or {}
     sums = {k: 0 for k in windows}
-    rows = db.q("""SELECT task_id, grp, n, score, ts, exam, spent_ms, gave_up, reason FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
+    rows = db.q("""SELECT task_id, grp, n, score, ts, exam, spent_ms, gave_up, reason, revealed FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
     exams = db.q("""SELECT started, finished, primary_score, test_score FROM exams
                     WHERE student_id=? AND finished IS NOT NULL ORDER BY finished""", (sid,))
     now = time.time()
@@ -3413,10 +3445,10 @@ def _game_summary(db, sid, brief=False, windows=None):
         if ts >= day0:
             xp_day += v
 
-    for r in rows:
-        # уже решённое задание решают снова (из истории, кнопкой «←»): ни опыта, ни огонька, ни серий, ни достижений —
-        # иначе их можно «фармить», перерешивая знакомые задания. Контрольная учителя и вариант ЕГЭ — не в счёт
-        if not r["exam"] and r["task_id"] in solved and r["reason"] != "asg":
+    skips = reward_skips(rows, fast_since)
+    for r, skip in zip(rows, skips):
+        # уже решённое или с подсмотренным ответом — ни опыта, ни огонька, ни серий, ни достижений (см. reward_skips)
+        if skip:
             continue
         fd = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
         fire_days[fd] = fire_days.get(fd, 0) + 1
@@ -3505,7 +3537,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                          ("s1000", cnt["solved"]), ("row10", cnt["best_row"]), ("row25", cnt["best_row"]),
                          ("hard10", cnt["hard"]), ("all27", len(nums)), ("fix20", cnt["fix"]),
                          ("day50", per_day.get(day, 0)), ("night", cnt["night"]), ("early", cnt["early"]),
-                         ("turtle", cnt["turtle"]), ("flash", cnt["flash"]),
+                         ("turtle", cnt["turtle"]),
                          ("bug", cnt["bug"]), ("phoenix", cnt["phoenix"]), ("cinderella", cnt["cinderella"]),
                          ("weekend", per_day.get(day, 0) if lt.tm_wday >= 5 else 0), ("fri13", cnt["fri13"]),
                          ("pi", cnt["pi"]), ("newyear", cnt["newyear"]), ("stubborn", cnt["stubborn"]),
@@ -3516,7 +3548,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                 got[aid] = ts
     ex_best = 0
     for e in exams:
-        if (e["finished"] - e["started"]) >= EXAM_MIN_SEC_FOR_XP:
+        if (e["finished"] - e["started"]) >= EXAM_MIN_SEC_FOR_XP and (e["primary_score"] or 0) > 0:
             gain(30 + 3 * (e["primary_score"] or 0), e["finished"])
         got.setdefault("exam1", e["finished"])
         ex_best = max(ex_best, e["test_score"] or 0)
