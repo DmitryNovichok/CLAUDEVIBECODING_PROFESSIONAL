@@ -983,7 +983,7 @@
     trainerEl.innerHTML = `
       <div class="task-head">
         ${inCourseSet() ? '<button type="button" class="btn ghost crs-up" id="crsUpBtn" title="Вернуться к списку заданий подборки">← К подборке</button>' : ''}
-        ${backStack.length ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
+        ${backStack.length && !wkLive() ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
         <span class="num-badge">${numLabel(t.n)}</span>
         <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
         <span class="head-chips">${chip}</span>
@@ -1733,6 +1733,12 @@
     leaveCourse();
     // контрольная ещё не начата (или уже сдана): задания в обычном виде не показываем — только старт или результат
     if (wkScope() && !wkLive() && !examShown) { cur = null; wkGate(wkScope()); return; }
+    // идёт контрольная: её задание открывается только в её режиме, откуда бы ни пришли (←, поиск, история)
+    const wl = wkLive();
+    if (wl && pick && (pick.why || {}).type !== 'asg') {
+      if (!wl.tasks.includes(pick.task.id)) pick = pickNext();
+      if (pick) pick = Object.assign({}, pick, { why: { type: 'asg', a: wl } });
+    }
     if (!pick && wkScope()) { cur = null; wkDoneScreen(); return; }
     if (!pick) {
       cur = null;
@@ -5635,6 +5641,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.31.1', '12.10.2026', ['Контрольная: кнопка «←» больше не выбрасывает из контрольной — между заданиями переходи по номерам сверху']],
     ['1.31.0', '12.10.2026', ['Все подборки от учителя — контрольные: одна попытка на задание, результат и оценка после сдачи, полный экран']],
     ['1.30.1', '12.10.2026', ['Подборка, которую учитель сделал контрольной, больше не открывается в старом виде: сначала экран «Начать контрольную»']],
     ['1.30.0', '12.10.2026', ['Верный ответ быстрее чем за минуту с открытия задания — −1 XP вместо опыта, и задание не засчитывается решённым',
