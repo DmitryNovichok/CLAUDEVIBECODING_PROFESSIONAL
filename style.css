@@ -1846,3 +1846,19 @@ button.pf-item:hover { border-color: var(--accent); }
 .xp-tag { color: var(--accent); font-weight: 800; }
 .asg-row.done h3 { color: var(--muted); }
 .asg-btns { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* страница «Задания от учителя» */
+.asg-page .ap-h { margin: 22px 0 10px; font: 900 18px var(--font); }
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.ap-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--border); border-radius: 16px; background: var(--card); }
+.ap-card.going { border-color: var(--accent); }
+.ap-card.done { background: color-mix(in srgb, var(--card) 70%, var(--bg)); }
+.ap-top { display: flex; gap: 10px; align-items: flex-start; }
+.ap-top b { display: block; font-size: 16px; }
+.ap-top small { color: var(--muted); font-size: 12.5px; }
+.ap-ico { flex: 0 0 auto; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--good-soft); font-size: 18px; }
+.ap-card.done .ap-ico { color: var(--good); font-weight: 900; }
+.ap-state { font-size: 14px; color: var(--muted); }
+.ap-state b { color: var(--text); }
+.ap-late { color: var(--weak); font-weight: 700; }
+.ap-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
