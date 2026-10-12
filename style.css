@@ -1836,3 +1836,10 @@ button.pf-item:hover { border-color: var(--accent); }
 .wk-nav { align-items: center; }
 .wk-nav-tools { margin-left: auto; display: inline-flex; gap: 8px; }
 .wk-sol-warn { color: var(--weak); }
+/* разбор контрольной в истории */
+.rv-list { display: flex; flex-direction: column; gap: 12px; }
+.rv-item { padding: 12px 14px; border: 2px solid var(--border); border-radius: 12px; background: var(--card); }
+.rv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.rv-ans { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+.wk-hist .hist-snip { white-space: normal; }
+.rv-links a { margin-right: 16px; }

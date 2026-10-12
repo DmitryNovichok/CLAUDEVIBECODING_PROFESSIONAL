@@ -476,11 +476,20 @@ class ServerTest(unittest.TestCase):
         n = server.APP.db.q("SELECT COUNT(*) AS c FROM attempts WHERE student_id=? AND reason='asg'", (me,), one=True)["c"]
         self.assertEqual(n, 4)                                               # в журнал — один раз
         self.assertEqual(self.check(tok, pid5, answer="12")[0], 200)          # после сдачи — обычная тренировка
+        st, rv = self.req("GET", f"/api/asg/review?id={aid}", token=tok)
+        self.assertTrue(rv["locked"])                                       # одноклассница ещё не сдавала — ответов не видно
+        self.assertNotIn("items", rv)
+        self.assertEqual(self.req("GET", f"/api/asg/review?id={aid}", token=tok2)[0], 409)     # не сдала — разбора нет
         # вторая ученица начала, учитель завершает для всех — оценка ставится по сданному
         self.req("POST", "/api/asg/start", {"id": aid}, tok2)
         self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "12"}, tok2)
         st, c = self.admin("POST", "/api/admin/asg/close", {"id": aid})
         self.assertEqual((st, c["finished"]), (200, 1))
+        st, rv = self.req("GET", f"/api/asg/review?id={aid}", token=tok)    # завершена для всех — разбор открыт
+        self.assertEqual(st, 200, rv)
+        it5 = next(x for x in rv["items"] if x["task"] == pid5)
+        self.assertEqual((it5["mine"], it5["answer"], it5["credit"], it5["code"]), ("12", "12", 1.0, "print(12)"))
+        self.assertIn("решение", it5["sol"])
         st, r = self.req("POST", "/api/asg/answer", {"id": aid, "task": pid27, "answer": "10 20"}, tok2)
         self.assertTrue(r["closed"])
         self.assertEqual((r["result"]["ok"], r["result"]["blank"], r["result"]["grade"], r["result"]["forced"]), (1, 3, 2, True))
