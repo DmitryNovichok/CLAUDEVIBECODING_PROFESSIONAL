@@ -1022,7 +1022,7 @@ class DB:
                 c.execute("""UPDATE students SET role='admin' WHERE COALESCE(is_teacher, 0) = 0
                              AND (name_key LIKE 'malevin d%' OR name_key LIKE 'малевин д%')""")
                 c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('admin_badge_seeded', '1')")
-            c.execute("DELETE FROM settings WHERE key='metrika_id'")     # Яндекс Метрика убрана с сайта
+            c.execute("DELETE FROM settings WHERE key='metrika_id'")     # старая настройка стороннего счётчика больше не нужна
             c.execute("UPDATE assignments SET kind='self' WHERE kind IS NULL")
             c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
