@@ -1433,7 +1433,11 @@
   }
   async function verify(extra) {
     setBusy(true);
-    try { return await callCheck(cur.task, extra); } catch (e) { netError(e); return null; } finally { setBusy(false); }
+    try { return await callCheck(cur.task, extra); } catch (e) {
+      // учитель сделал подборку контрольной, пока страница была открыта: подтянем подборки и покажем старт
+      if (e.status === 403 && SERVER) { toast(e.message, 4500); loadAssignments().then(() => { if (wkScope()) show(null); }).catch(() => {}); return null; }
+      netError(e); return null;
+    } finally { setBusy(false); }
   }
 
   // ---- ответ скрыт: рано (нужно подумать) или исчерпан лимит показов в час
@@ -1727,6 +1731,8 @@
 
   function show(pick) {
     leaveCourse();
+    // контрольная ещё не начата (или уже сдана): задания в обычном виде не показываем — только старт или результат
+    if (wkScope() && !wkLive() && !examShown) { cur = null; wkGate(wkScope()); return; }
     if (!pick && wkScope()) { cur = null; wkDoneScreen(); return; }
     if (!pick) {
       cur = null;
@@ -5245,7 +5251,11 @@
   document.addEventListener('keyup', e => { if (e.key === 'PrintScreen') shotAttempt(); }, true);
 
   $('#lvlCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openGame(); });
-  $('#asgCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openAssignments(); });
+  $('#asgCard').addEventListener('click', () => {
+    if (isNarrow()) setSideOpen(false);
+    openAssignments();
+    loadAssignments().then(() => { if (!$('#forecastModal').hidden && $('#forecastBody .asg-row')) openAssignments(); }).catch(() => {});
+  });
   $('#forecastBody').addEventListener('click', e => {
     const b = e.target.closest('[data-asg]');
     if (!b) return;
@@ -5465,12 +5475,20 @@
     } catch (e) { netError(e); return; }
     wkClosed(a);
   }
+  function wkGate(a) {
+    if (a.result || a.closed) { wkDoneScreen(); return; }
+    trainerEl.innerHTML = `<div class="empty"><h2>📝 Контрольная «${esc(a.title)}»</h2>
+      <p>${a.tasks.length} ${plural(a.tasks.length, 'задание', 'задания', 'заданий')} · одна попытка на каждое · результат и оценка — после сдачи. Пишется в полном экране.</p>
+      <div class="actions" style="justify-content:center"><button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить контрольную' : 'Начать контрольную'}</button></div></div>`;
+    renderTopbar();
+  }
   function wkDoneScreen() {
     const a = wkScope();
     if (!a) return;
     const res = a.result;
     if (!res) {                                     // всё сдано, но ещё не завершена
-      if (!wkLive()) { trainerEl.innerHTML = `<div class="empty"><h2>Контрольная завершена</h2><p>Учитель завершил контрольную «${esc(a.title)}» до того, как ты её начал.</p></div>`; renderTopbar(); return; }
+      if (a.closed) { trainerEl.innerHTML = `<div class="empty"><h2>Контрольная завершена</h2><p>Учитель завершил контрольную «${esc(a.title)}» до того, как ты её начал.</p></div>`; renderTopbar(); return; }
+      if (!wkLive()) { wkGate(a); return; }
       trainerEl.innerHTML = `${wkBarHtml(a)}<div class="empty"><h2>Все ответы сданы</h2>
         <p>Можно завершить контрольную «${esc(a.title)}» и узнать результат.</p>
         <div class="actions" style="justify-content:center"><button type="button" class="btn primary" id="wkFinishBtn">Завершить и узнать результат</button></div></div>`;
@@ -5506,6 +5524,8 @@
       if (a && t && !(cur && cur.task.id === t.id)) { abandonCurrent(); show({ task: t, why: { type: 'asg', a } }); }
       return;
     }
+    const st = e.target.closest('#trainer [data-asg]');
+    if (st) { const a = asgOf(+st.dataset.asg); if (a && a.strict) wkOpen(a); return; }
     if (e.target.closest('#wkFinishBtn, #wkFinishTop')) wkFinish();
     else if (e.target.closest('#wkFsBtn')) wkFullscreen();
   });
@@ -5615,6 +5635,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.30.1', '12.10.2026', ['Подборка, которую учитель сделал контрольной, больше не открывается в старом виде: сначала экран «Начать контрольную»']],
     ['1.30.0', '12.10.2026', ['Верный ответ быстрее чем за минуту с открытия задания — −1 XP вместо опыта, и задание не засчитывается решённым',
       'Номера заданий контрольной стали нагляднее: сданные — зелёные с ✓, под номером — номер задания ЕГЭ']],
     ['1.29.0', '12.10.2026', ['Контрольная: у каждого ученика свой случайный порядок заданий',
