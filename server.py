@@ -3244,16 +3244,24 @@ def fast_xp_since(db):
 WORK_REASON = "work"        # ответ, записанный сервером при сдаче контрольной
 
 
-EXPLOIT_MIN = 5            # столько повторов уже решённого с «почему выдано: подборка» — это лазейка, а не случайность
+EXPLOIT_MIN = 10           # столько быстрых повторов уже решённого из подборки подряд — лазейка, а не повторение
+EXPLOIT_FAST_MS = 30000    # «быстрый» повтор — меньше 30 секунд на задание
+EXPLOIT_SPAN = 30 * 60     # и все они — в пределах получаса
 
 
 def exploit_window(db, rows, skips):
-    """Пользовался лазейкой «перерешивать подборку по кругу за опыт» (закрыта в 1.37.1): с первого такого повтора
-    и до исправления весь опыт срезается. Возвращает (с, до) или None."""
-    hits = [r["ts"] for r, sk in zip(rows, skips) if sk and r["reason"] == "asg" and (r["score"] or 0) > 0]
-    if len(hits) < EXPLOIT_MIN:
-        return None
-    return (hits[0], to_float(db.setting("asg_exploit_fixed")) or time.time())
+    """Перерешивал подборку по кругу ради опыта (лазейка закрыта в 1.37.1): с начала такой серии и до исправления
+    весь опыт срезается. Серия — EXPLOIT_MIN повторов уже решённого с «почему выдано: подборка», каждый быстрее
+    30 секунд, в пределах получаса. Обычное повторение (подборки курса, «Повторить») под это не попадает.
+    Возвращает (с, до) или None."""
+    fixed = to_float(db.setting("asg_exploit_fixed")) or time.time()
+    hits = [r["ts"] for r, sk in zip(rows, skips)
+            if sk and r["reason"] == "asg" and (r["score"] or 0) > 0 and r["ts"] < fixed
+            and r["spent_ms"] is not None and r["spent_ms"] < EXPLOIT_FAST_MS]
+    for i in range(len(hits) - EXPLOIT_MIN + 1):
+        if hits[i + EXPLOIT_MIN - 1] - hits[i] <= EXPLOIT_SPAN:
+            return (hits[i], fixed)
+    return None
 
 
 def reward_skips(rows, fast_since):
@@ -3479,10 +3487,16 @@ def _game_summary(db, sid, brief=False, windows=None):
     xp_wk = 0
     fast_since = fast_xp_since(db)
 
-    def gain(v, ts):
+    xplog = []                                     # последние изменения опыта с причиной — показываем ученику
+
+    def gain(v, ts, why=None):
         nonlocal xp, week, xp_day, xp_month, xp_wk
         if v > 0 and cheat and cheat[0] <= ts < cheat[1]:
+            if why:
+                xplog.append((ts, 0, why + " — срезано: накрутка"))
             return                                 # опыт, набранный пока пользовался лазейкой, — срезан целиком
+        if why:
+            xplog.append((ts, v, why))
         xp += v
         if ts >= wk0:
             xp_wk += v
@@ -3501,6 +3515,8 @@ def _game_summary(db, sid, brief=False, windows=None):
     for r, skip in zip(rows, skips):
         # уже решённое или с подсмотренным ответом — ни опыта, ни огонька, ни серий, ни достижений (см. reward_skips)
         if skip:
+            if (r["score"] or 0) > 0 and not brief:
+                xplog.append((r["ts"], 0, f"№{r['n']} — уже решено или ответ был показан"))
             continue
         fd = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
         fire_days[fd] = fire_days.get(fd, 0) + 1
@@ -3557,10 +3573,11 @@ def _game_summary(db, sid, brief=False, windows=None):
             fast = r["spent_ms"] is not None and r["spent_ms"] < FAST_XP_MS and ts >= fast_since
             first_time = tid not in solved and not fast
             if fast:
-                gain(FAST_XP_PENALTY, ts)
+                gain(FAST_XP_PENALTY, ts, f"№{r['n']} — решено быстрее минуты")
             else:
                 if tid not in solved:              # опыт — только за первое решение задания, откуда бы ни пришёл ответ
-                    gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts)
+                    gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
+                         f"№{r['n']} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"))
             if first_time:
                 cnt["solved"] += 1
                 solved.add(tid)
@@ -3572,7 +3589,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                 nums.add(r["n"])
             per_day[day] = per_day.get(day, 0) + (0 if fast else 1)
             if per_day[day] == 5 and not fast:
-                gain(15, ts)                   # бонус за день: 5 решённых
+                gain(15, ts, "5 заданий за день")  # бонус за день: 5 решённых
             if lt.tm_hour >= 23:
                 cnt["night"] = 1
             if lt.tm_hour < 7:
@@ -3602,7 +3619,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     ex_best = 0
     for e in exams:
         if (e["finished"] - e["started"]) >= EXAM_MIN_SEC_FOR_XP and (e["primary_score"] or 0) > 0:
-            gain(30 + 3 * (e["primary_score"] or 0), e["finished"])
+            gain(30 + 3 * (e["primary_score"] or 0), e["finished"], "вариант ЕГЭ")
         got.setdefault("exam1", e["finished"])
         ex_best = max(ex_best, e["test_score"] or 0)
         if (e["test_score"] or 0) >= 80:
@@ -3626,10 +3643,10 @@ def _game_summary(db, sid, brief=False, windows=None):
                 got[aid] = time.mktime(cur.timetuple()) + 43200
     # опыт за достижения — в момент получения
     for aid, ts in got.items():
-        gain(ACH_XP.get(aid, 0), ts)
+        gain(ACH_XP.get(aid, 0), ts, "достижение «" + next((t for a, _, t, _, _ in ACHIEVEMENTS if a == aid), aid) + "»")
     # поправки опыта: выигрыш и проигрыш в дуэлях
     for a in db.q("SELECT ts, delta FROM xp_adjust WHERE student_id=?", (sid,)):
-        gain(a["delta"], a["ts"])
+        gain(a["delta"], a["ts"], "дуэль — победа" if a["delta"] > 0 else "дуэль — поражение")
     xp = max(0, xp)
     # огонёк: дни подряд, в каждый из которых решено не меньше FIRE_NEED заданий (сегодняшний ещё может идти)
     fire, d = 0, datetime.now().date()
@@ -3645,6 +3662,7 @@ def _game_summary(db, sid, brief=False, windows=None):
            "level": lvl, "title": title, "cur": cur_xp, "need": need}
     if brief:
         return out
+    out["xplog"] = [{"ts": t, "v": v, "why": w} for t, v, w in sorted(xplog, key=lambda x: -x[0])[:40]]
     prog = {"first": cnt["solved"], "s10": cnt["solved"], "s100": cnt["solved"], "s500": cnt["solved"],
             "s1000": cnt["solved"], "row10": cnt["best_row"], "row25": cnt["best_row"], "hard10": cnt["hard"],
             "all27": len(nums), "fix20": cnt["fix"], "day50": max(per_day.values(), default=0),

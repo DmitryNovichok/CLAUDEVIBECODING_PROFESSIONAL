@@ -1863,3 +1863,8 @@ button.pf-item:hover { border-color: var(--accent); }
 .ap-late { color: var(--weak); font-weight: 700; }
 .ap-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .ap-kind { display: block; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); }
+.xp-log { margin: 6px 0 14px; }
+.xp-log summary { cursor: pointer; font-weight: 800; }
+.xp-log table { margin-top: 8px; }
+.xp-plus { color: var(--good); font-weight: 800; }
+.xp-minus { color: var(--weak); font-weight: 800; }
