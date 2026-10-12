@@ -1666,6 +1666,21 @@ class ServerTest(unittest.TestCase):
             r = c.getresponse()
             self.assertEqual(r.status, 200, page)
             r.read(); c.close()
+        # учитель тоже принимает документы
+        db = server.APP.db
+        db.x("UPDATE teachers SET consent_ver=NULL")
+        self.assertTrue(self.admin("GET", "/api/admin/me")[1]["consent_needed"])
+        self.assertEqual(self.admin("POST", "/api/admin/consent", {})[0], 400)
+        self.assertEqual(self.admin("POST", "/api/admin/consent", {"accept": True})[0], 200)
+        self.assertFalse(self.admin("GET", "/api/admin/me")[1]["consent_needed"])
+        # удаление ученика стирает все его данные
+        self.req("POST", "/api/support", {"text": "удалите меня", "kind": "other"}, tok)
+        db.x("INSERT INTO awards(student_id, kind, week, info) VALUES(?, 'x', 'w', 1)", (sid,))
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?, 1, 5, 'x')", (sid,))
+        self.assertEqual(self.admin("POST", "/api/admin/student/delete", {"id": sid})[0], 200)
+        for table in ("students", "support", "awards", "xp_adjust", "attempts", "leagues", "assignments"):
+            col = "id" if table == "students" else "student_id"
+            self.assertIsNone(db.q(f"SELECT 1 FROM {table} WHERE {col}=?", (sid,), one=True), table)
 
     def test_csv_cell(self):
         self.assertEqual(server.csv_cell("=HYPERLINK(1)"), "'=HYPERLINK(1)")

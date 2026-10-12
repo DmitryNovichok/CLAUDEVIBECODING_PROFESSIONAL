@@ -58,7 +58,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js",
               "terms.html", "privacy.html", "consent.html", "legal.css"}
 # редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
-LEGAL_VERSION = "2026-10-03"
+LEGAL_VERSION = "2026-10-13"
 SITE_DIRS = ("vendor/", "media/")
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
@@ -1006,6 +1006,9 @@ class DB:
                     ("students", "consent_ver", "TEXT"),              # какую редакцию документов принял
                     ("students", "consent_ts", "REAL"),               # когда принял
                     ("students", "consent_ip", "TEXT"),               # с какого адреса
+                    ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
+                    ("teachers", "consent_ts", "REAL"),
+                    ("teachers", "consent_ip", "TEXT"),
                     ("assignments", "batch", "TEXT"),                 # серия личных подборок: fix:<id> — работа над ошибками, weak:<ts>
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
@@ -2880,8 +2883,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             sid = to_int(data.get("id"))
             if not self.sees_student(sid):
                 return self.err(404, "ученик не найден")
-            for table in ("attempts", "reveal_log", "exams", "activity", "solutions", "daily_starts", "daily_results"):
+            # удаление учётной записи стирает все данные ученика (152-ФЗ); в чужих турнирах и дуэлях
+            # остаются только счёт и номер без имени — соперникам не ломаем таблицы
+            for table in ("attempts", "reveal_log", "exams", "activity", "solutions", "daily_starts", "daily_results",
+                          "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust"):
                 db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
+            for aid in [r["id"] for r in db.q("SELECT id FROM assignments WHERE student_id=?", (sid,))]:
+                db.x("DELETE FROM asg_runs WHERE asg_id=?", (aid,))
+                db.x("DELETE FROM asg_events WHERE asg_id=?", (aid,))
+            db.x("DELETE FROM assignments WHERE student_id=?", (sid,))
+            db.x("DELETE FROM duels WHERE (a=? OR b=?) AND status IN ('pending','active')", (sid, sid))
             db.x("DELETE FROM students WHERE id=?", (sid,))
             return self.send_json({"ok": True})
 
@@ -2985,7 +2996,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "set": bool(db.setting("course_pw")), "students": n})
 
         if path == "/api/admin/me":
-            return self.send_json({k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")})
+            out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")}
+            row = db.q("SELECT consent_ver FROM teachers WHERE id=?", (self.T["id"],), one=True)
+            out["consent_needed"] = not row or row["consent_ver"] != LEGAL_VERSION
+            return self.send_json(out)
+
+        if path == "/api/admin/consent" and method == "POST":
+            if not data.get("accept"):
+                return self.err(400, "Отметьте обе галочки")
+            db.x("UPDATE teachers SET consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?",
+                 (LEGAL_VERSION, time.time(), self.client_ip(), self.T["id"]))
+            return self.send_json({"ok": True, "version": LEGAL_VERSION})
 
         if path == "/api/admin/as-student" and method == "POST":
             # учитель решает тренажёр как ученик: свой аккаунт без кода и пароля, в рейтингах и списках его нет

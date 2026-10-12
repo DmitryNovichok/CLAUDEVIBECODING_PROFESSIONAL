@@ -148,6 +148,32 @@
     document.body.classList.toggle('is-main', !!ME.is_main);
     $('#admWho').textContent = ME.name + (ME.is_main ? ' · главный' : '');
     if (ME.is_main) { try { teachers = (await api('teachers')).teachers; } catch (e) { teachers = []; } }
+    await askConsent();
+  }
+  // новая редакция документов: учитель тоже подтверждает согласие, иначе панель не открывается
+  function askConsent() {
+    if (!ME.consent_needed) return Promise.resolve();
+    return new Promise(resolve => {
+      const m = $('#admConsentModal'), ok = $('#acOk'), err = $('#acErr');
+      const upd = () => { ok.disabled = !($('#acTerms').checked && $('#acConsent').checked); };
+      $('#acTerms').onchange = upd;
+      $('#acConsent').onchange = upd;
+      upd();
+      m.hidden = false;
+      $('#admConsentForm').onsubmit = async e => {
+        e.preventDefault();
+        ok.disabled = true;
+        err.textContent = '';
+        try { await api('consent', { accept: true }); } catch (x) { err.textContent = x.message || 'Нет связи с сервером'; upd(); return; }
+        ME.consent_needed = false;
+        m.hidden = true;
+        resolve();
+      };
+      $('#acOut').onclick = async () => {
+        try { await api('logout', {}); } catch (x) { /* всё равно выходим */ }
+        location.reload();
+      };
+    });
   }
   function showApp() {
     $('#loginView').hidden = true;
