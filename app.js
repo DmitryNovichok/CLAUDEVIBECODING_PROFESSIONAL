@@ -2804,7 +2804,11 @@
     const avg = present ? sum / present : 0;
     const all = $('#allCard');
     const inTrainer = !examShown && !courseShown;
-    all.className = 'rail-btn' + (inTrainer && ui.scope === 'all' ? ' on' : '');
+    all.className = 'rail-btn' + (inTrainer && ui.scope !== 'fav' && ui.scope !== 'asg' ? ' on' : '');
+    if ($('#allNums')) {                       // index.html прошлой версии мог остаться в кэше — тогда кнопки нет
+      $('#allNums').classList.toggle('on', ui.scope === 'all');
+      $('#allNumsCount').textContent = countByNum().reduce((x, y) => x + y, 0);
+    }
     $('#allBar').style.width = tried ? pct(avg) + '%' : '0';
     $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
     $('#favCount').textContent = prefs.fav.length;
@@ -3463,13 +3467,25 @@
     const b = e.target.closest('.num-card');
     if (b && !b.disabled) setScope(+b.dataset.n);
   });
+  // Синие кубики — банк заданий: сворачивают и разворачивают панель номеров. Выбранный номер НЕ сбрасывают
+  // (раньше кнопка заодно включала «Все задания», и «Пропустить» начинал выдавать любые номера).
   $('#allCard').addEventListener('click', () => {
-    const here = !examShown && !courseShown && ui.scope === 'all';
-    if (isNarrow()) { if (!examShown) setScope('all'); return; }   // на телефоне банк открывается кнопкой «Номера»
-    // в варианте ЕГЭ кнопка только прячет и показывает банк — вариант не закрываем
-    if (examShown) { setSideMin(!document.body.classList.contains('side-min')); return; }
-    if (!here) { setSideMin(false); setScope('all'); if (courseShown) { leaveCourse(); next(); renderSidebar(); } return; }
+    if (courseShown && !examShown) {                 // со страницы (курс, подборки, история…) — к заданиям того же номера
+      leaveCourse();
+      if (isNarrow()) setSideOpen(false); else setSideMin(false);
+      next();
+      renderSidebar();
+      return;
+    }
+    if (isNarrow()) { setSideOpen(!$('.sidebar').classList.contains('open')); return; }   // на телефоне — открыть список номеров
     setSideMin(!document.body.classList.contains('side-min'));
+  });
+  // «Все номера» — задания всех номеров: тренажёр сам подбирает, что подтянуть
+  $('#allNums')?.addEventListener('click', () => {
+    if (courseShown && !examShown) leaveCourse();
+    setScope('all');
+    if (cur == null) next();
+    renderSidebar();
   });
   $('#favCard').addEventListener('click', () => setScope('fav'));
   $('#examCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); if (EX || !SERVER) openExamIntro(); else openExamsPage(); });
@@ -6181,6 +6197,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.47.3', '12.10.2026', ['Синие кубики теперь только сворачивают и разворачивают банк номеров — выбранный номер не сбрасывается. «Все номера» — отдельной кнопкой над сеткой']],
     ['1.47.2', '12.10.2026', ['Золотая плашка 👑 admin у администратора сайта — в рейтинге, профиле, турнирах и задании дня']],
     ['1.47.1', '12.10.2026', ['История заданий открывается страницей, как подборки и варианты, — с разбивкой по дням']],
     ['1.47.0', '12.10.2026', ['«Мои варианты» — история вариантов ЕГЭ на отдельной странице, как подборки: балл, время, график по вариантам, разбор каждого с твоими и правильными ответами и кнопкой «Перерешать»']],
