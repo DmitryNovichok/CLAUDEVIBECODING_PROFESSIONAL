@@ -55,7 +55,10 @@ BANK_JS = HERE / "data" / "bank.js"
 EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк Egeshka (tools/gen_egeshka.py) — подмешивается к bank.js
 
 # что можно отдавать из папки trainer
-SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js"}
+SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js",
+              "terms.html", "privacy.html", "consent.html", "legal.css"}
+# редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
+LEGAL_VERSION = "2026-10-03"
 SITE_DIRS = ("vendor/", "media/")
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
@@ -1000,6 +1003,9 @@ class DB:
                     ("exams", "tasks", "TEXT"),                       # задания варианта, выданные сервером
                     ("assignments", "student_id", "INTEGER"),         # личная подборка ученика; NULL — всему классу
                     ("students", "role", "TEXT"),                     # admin — золотая плашка 👑 admin рядом с именем
+                    ("students", "consent_ver", "TEXT"),              # какую редакцию документов принял
+                    ("students", "consent_ts", "REAL"),               # когда принял
+                    ("students", "consent_ip", "TEXT"),               # с какого адреса
                     ("assignments", "batch", "TEXT"),                 # серия личных подборок: fix:<id> — работа над ошибками, weak:<ts>
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
@@ -1497,6 +1503,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s),
                 "teacher": bool(s["is_teacher"]),
+                "consent_needed": not s["is_teacher"] and s["consent_ver"] != LEGAL_VERSION,
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
     def is_admin(self):
@@ -1575,6 +1582,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 pw = str(data.get("new_password") or data.get("password") or "")
                 if len(pw) < 6:
                     return self.err(400, "Пароль — не короче 6 символов")
+                if not data.get("consent"):
+                    return self.err(400, "Чтобы зарегистрироваться, примите соглашение и дайте согласие на обработку персональных данных")
                 if not s:
                     if not reg_allowed(ip):
                         return self.err(429, "С этого адреса за час зарегистрировалось слишком много учеников. Попробуйте позже.")
@@ -1586,8 +1595,21 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("UPDATE students SET pw=?, teacher_id=COALESCE(teacher_id, ?) WHERE id=?", (hash_pw(pw), teacher["id"], s["id"]))
                     print(f"[ученик] задал пароль: {s['name']}", flush=True)
                 s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
+                db.x("UPDATE students SET consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?", (LEGAL_VERSION, now, ip, s["id"]))
+                s = db.q("SELECT * FROM students WHERE id=?", (s["id"],), one=True)
             db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
             return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(s["token"])})
+
+        if path == "/api/consent" and method == "POST":
+            # уже зарегистрированный ученик принимает (новую редакцию) документов
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not data.get("accept"):
+                return self.err(400, "Отметьте обе галочки")
+            db.x("UPDATE students SET consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?",
+                 (LEGAL_VERSION, time.time(), self.client_ip(), s["id"]))
+            return self.send_json({"ok": True, "version": LEGAL_VERSION})
 
         if path == "/api/password" and method == "POST":
             s = self.student(data)
@@ -2644,7 +2666,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
                                                      (s["last_ip"], sid))]
             student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
-            student["role"] = (db.q("SELECT role FROM students WHERE id=?", (sid,), one=True) or {"role": None})["role"]
+            extra_row = db.q("SELECT role, consent_ver, consent_ts, consent_ip FROM students WHERE id=?", (sid,), one=True)
+            student.update({k: extra_row[k] for k in ("role", "consent_ver", "consent_ts", "consent_ip")} if extra_row else {})
+            student["consent_ok"] = bool(extra_row and extra_row["consent_ver"] == LEGAL_VERSION)
             student["has_password"] = bool(db.q("SELECT pw FROM students WHERE id=?", (sid,), one=True)["pw"])
             coded = {r["task_id"] for r in db.q("SELECT task_id FROM solutions WHERE student_id=?", (sid,))}
             for d in out:

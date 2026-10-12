@@ -2023,3 +2023,12 @@ body.asg-wide .course.asg-page { max-width: none; }
 .all-nums:hover { border-color: var(--accent); }
 .all-nums.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
 .all-nums.on span { color: var(--accent-text); }
+
+/* ---------- документы: галочки при регистрации, окно согласия, ссылки */
+.login-check { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; line-height: 1.45; color: var(--text); cursor: pointer; text-align: left; }
+.login-check input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); }
+.login-check a, .login-docs a, .side-docs a { color: var(--link); }
+.login-docs { margin: 12px 0 0; font-size: 12.5px; color: var(--muted); text-align: center; }
+.side-docs { margin: 4px 4px 0; font-size: 12px; color: var(--muted); }
+.side-docs a { color: var(--muted); }
+#consentModal .fm-note { font-size: 14px; }
