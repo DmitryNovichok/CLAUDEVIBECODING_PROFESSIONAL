@@ -347,3 +347,14 @@ i.lg { display: inline-block; width: 10px; height: 10px; border-radius: 3px; mar
 span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 .cp-sq.ok { background: var(--good); border-color: var(--good); color: #fff; }
 .cp-sq.bad { background: var(--weak); border-color: var(--weak); color: #fff; }
+
+/* ---------- контрольная: онлайн и уведомления */
+.adm-asg.strict { border-left: 4px solid var(--accent); }
+.adm-live:empty { display: none; }
+.adm-live-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; margin: 6px 0 8px; }
+.adm-live tr.live-work td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: middle; }
+.adm-events { list-style: none; margin: 6px 0 0; padding: 0; max-height: 260px; overflow: auto; }
+.adm-events li { padding: 5px 2px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+.adm-events li.warn { color: var(--weak); }
+.adm-events li.warn .task-link { color: inherit; font-weight: 700; }

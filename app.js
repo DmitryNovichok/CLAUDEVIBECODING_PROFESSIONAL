@@ -639,6 +639,7 @@
       const order = at >= 0 ? a.tasks.slice(at + 1).concat(a.tasks.slice(0, at)) : a.tasks;
       const left = order.filter(id => id !== excludeId && leftSet.has(id)).map(id => byId.get(id)).filter(Boolean);
       if (left.length) return { task: left[0], why: { type: 'asg', a } };
+      if (a.strict) return null;            // контрольная: всё сдано — экран «Завершить»
       const rest = list.filter(t => t.id !== excludeId);
       return { task: rest.length ? rest[Math.floor(Math.random() * rest.length)] : list[0], why: { type: 'asg', a } };
     }
@@ -895,6 +896,10 @@
           return { chip: '<span class="chip accent">⚔ Дуэль</span>',
             line: `${esc(a.title)}: задание ${Math.min(done + 1, a.tasks.length)} из ${a.tasks.length}. Решай точно — важны и число верных, и время.` };
         }
+        if (a.strict) {
+          return { chip: '<span class="chip accent">📝 Контрольная</span>',
+            line: `«${esc(a.title)}»: сдано <b>${(a.done || []).length}</b> из ${a.tasks.length}. Ответ сдаётся <b>один раз</b>, верно или нет — узнаешь после завершения.` };
+        }
         const done = a.tasks.length - asgLeft(a).length;
         return { chip: `<span class="chip accent">${a.course ? '🎓 Курс' : 'Задание учителя'}</span>`,
           line: `Подборка «${esc(a.title)}»: решено <b>${done}</b> из ${a.tasks.length}${a.due ? ` · срок — до ${fmtDay(a.due * 1000)}` : ''}.` };
@@ -1016,6 +1021,7 @@
       lab.innerHTML = `<b>Ответ на задание ${t.n}</b>` + (cur.shape.type === 'single' ? '' : ' — ' + esc(answerLabel(cur.shape).replace(/^Ответ — /, '')));
     }
     renderActions();
+    wkDecorate();
     bindInputs();
     const first = $('#answerInputs input');
     if (first && window.matchMedia('(min-width: 861px)').matches && !pyOpen()) first.focus({ preventScroll: true });
@@ -1250,6 +1256,7 @@
     const a = $('#actions');
     if (!a) return;
     clearInterval(thinkTimer);
+    if (wkTask()) { wkActions(a); return; }
     if (cur.done) {
       a.innerHTML = `<button class="btn primary" id="nextBtn" type="button">Следующее задание →<kbd>Enter</kbd></button>`
         + (inCourseSet() && cur.score === 0 && !cur.group ? '<button class="btn" id="retryBtn" type="button" title="Решить это задание ещё раз">↻ Решить заново</button>' : '')
@@ -1476,6 +1483,7 @@
 
   async function check() {
     if (!cur || cur.done || busy) return;
+    if (wkTask()) return wkSubmit();
     if (cur.group) return checkGroup();
     const got = readAnswer();
     if (!got.length) {
@@ -1718,6 +1726,7 @@
 
   function show(pick) {
     leaveCourse();
+    if (!pick && wkScope()) { cur = null; wkDoneScreen(); return; }
     if (!pick) {
       cur = null;
       trainerEl.innerHTML = `<div class="empty"><h2>Нет заданий</h2><p>В выбранном разделе нет заданий${ui.bank !== 'all' ? ' этого банка' : ''}${ui.period !== 'all' ? ' за выбранный период' : ''}. Попробуйте другой период в панели слева.</p></div>`;
@@ -5057,6 +5066,7 @@
   /** Нерешённые задания подборки: по данным сервера и по ответам, данным уже на этой странице. */
   function asgLeft(a) {
     if (!a) return [];
+    if (a.strict) { const d = new Set(a.done || []); return a.finished || a.closed ? [] : a.tasks.filter(id => !d.has(id)); }
     const done = new Set(a.done);
     const since = (a.created || 0) * 1000;
     for (const e of P.log) {
@@ -5070,6 +5080,7 @@
     try { ASG = (await api('assignments')).assignments || []; } catch (e) { if (e.status === 401) throw e; ASG = []; }
     ASG = ASG.concat(duels);
     renderAsgCard();
+    if (wkLive()) wkWatch();
   }
   function renderAsgCard() {
     const card = $('#asgCard');
@@ -5084,6 +5095,7 @@
   }
   function openAssignments() {
     const rows = ASG.filter(a => !a.duel).map(a => {
+      if (a.strict) return wkRowHtml(a);
       const left = asgLeft(a).length, total = a.tasks.length;
       const late = a.due && a.due * 1000 < Date.now() && left;
       return `<div class="asg-row">
@@ -5121,7 +5133,8 @@
     const sec = (Date.now() - awayFrom) / 1000;
     awayFrom = 0;
     const id = openTaskId();
-    if (!SERVER || !student || !id || sec < 2) return;
+    if (!SERVER || !student || sec < 2) return;
+    if (!id) { wkCameBack(sec); return; }
     if (cur && !cur.done && !examShown) {
       cur.away = (cur.away || 0) + 1;
       cur.awaySec = (cur.awaySec || 0) + sec;
@@ -5129,6 +5142,7 @@
     }
     awayQ.push({ kind: 'away', dur: Math.round(sec), task: id, exam: examShown ? 1 : 0 });
     flushAway();
+    if (wkCameBack(sec)) return;
     if (examShown && EX) {
       EX.away = (EX.away || 0) + 1;
       saveExam();
@@ -5233,8 +5247,296 @@
     const b = e.target.closest('[data-asg]');
     if (!b) return;
     $('#forecastModal').hidden = true;
+    const a = asgOf(+b.dataset.asg);
+    if (a && a.strict) { wkOpen(a); return; }
     setScope('asg', +b.dataset.asg);
   });
+
+  // ------------------------------------------------------------ контрольная от учителя
+  // Ответ на задание сдаётся один раз и не проверяется до конца; итог и оценка — после «Завершить».
+  // Пишется в полном экране; уход со вкладки и выход из полного экрана сразу уходят учителю.
+  let wkPoll = null, wkFsOn = false;
+  const wkScope = () => { const a = ui.scope === 'asg' && asgOf(ui.asg); return a && a.strict ? a : null; };
+  const wkLive = () => { const a = wkScope(); return a && a.started && !a.finished && !a.closed && !examShown && !courseShown ? a : null; };
+  const wkTask = () => (cur && cur.why && cur.why.type === 'asg' ? wkLive() : null);
+  const gradeWord = g => ({ 5: 'отлично', 4: 'хорошо', 3: 'удовлетворительно', 2: 'неудовлетворительно' })[g] || '';
+  function wkApply(a, r) {
+    if (!r) return;
+    ['started', 'finished', 'closed', 'done', 'answered', 'mine', 'result', 'items', 'grading'].forEach(k => { if (k in r) a[k] = r[k]; });
+  }
+  function wkRowHtml(a) {
+    const n = (a.done || []).length, total = a.tasks.length;
+    const res = a.result;
+    const state = res ? `сдана · оценка <b>${res.grade}</b> (${res.pct}%)` : a.closed ? 'завершена учителем' : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
+    const btn = res ? 'Результат' : a.closed ? '' : a.started ? 'Продолжить' : 'Начать';
+    return `<div class="asg-row">
+      <div><h3>📝 ${esc(a.title)}</h3><div class="asg-meta">Контрольная · ${total} ${plural(total, 'задание', 'задания', 'заданий')} · ${state}${a.due ? ` · срок до ${fmtDay(a.due * 1000)}` : ''}</div></div>
+      ${btn ? `<button type="button" class="btn ${res ? '' : 'primary'}" data-asg="${a.id}">${btn}</button>` : '<span></span>'}
+      <i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i></div>`;
+  }
+  function wkOpen(a) {
+    if (a.result || a.closed) { wkEnter(a); return; }
+    if (a.started) { wkFullscreen(); wkEnter(a); return; }
+    const g = a.grading || { 5: 85, 4: 65, 3: 45 };
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">📝 Контрольная «${esc(a.title)}»</h2>
+      <ul class="ex-rules">
+        <li><b>${a.tasks.length} ${plural(a.tasks.length, 'задание', 'задания', 'заданий')}</b>. На каждое — <b>одна попытка</b>: сданный ответ изменить нельзя.</li>
+        <li>Верно или нет, не показываем до конца. Когда сдашь всё или нажмёшь «Завершить», увидишь, сколько верных и неверных, и оценку.</li>
+        <li>Оценка: «5» от ${g[5]}%, «4» от ${g[4]}%, «3» от ${g[3]}%. Учитель может завершить контрольную для всех — тогда оценка ставится по уже сданным ответам.</li>
+        <li><b>Полный экран.</b> Контрольная открывается на весь экран. Выход из полного экрана и переход на другие вкладки и программы сразу видит учитель.</li>
+      </ul>
+      <div class="actions"><button type="button" class="btn primary" id="wkStart">Начать контрольную</button>
+        <button type="button" class="btn ghost" id="wkCancel">Отмена</button></div>`;
+    $('#forecastModal').hidden = false;
+    $('#wkCancel').addEventListener('click', closeForecast);
+    $('#wkStart').addEventListener('click', async e => {
+      e.target.disabled = true;
+      wkFullscreen();                         // полный экран — только по нажатию пользователя
+      try { wkApply(a, await api('asg/start', { id: a.id })); } catch (err) { e.target.disabled = false; netError(err); return; }
+      closeForecast();
+      wkEnter(a);
+    });
+  }
+  function wkEnter(a) {
+    if (!leaveExam()) return;
+    if (isNarrow()) setSideOpen(false);
+    ui.scope = 'asg';
+    ui.asg = a.id;
+    save();
+    renderSidebar();
+    if (a.result || a.closed) { abandonCurrent(); cur = null; wkDoneScreen(); return; }
+    next();
+    wkWatch();
+  }
+  function wkFullscreen() {
+    if (!canFs() || document.fullscreenElement) return;
+    document.documentElement.requestFullscreen().then(() => { wkFsOn = true; wkBar(); }).catch(() => {});
+  }
+  function wkBarHtml(a) {
+    const off = canFs() && !document.fullscreenElement;
+    const n = (a.away || 0) + (a.fsExits || 0);
+    return `<div class="ex-strict wk-bar${n ? ' warn' : ''}${off ? ' off' : ''}" id="wkBar">
+      <span>📝 <b>Контрольная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}${a.away ? ` · уходов со страницы: <b>${a.away}</b>` : ''}${a.fsExits ? ` · выходов из полного экрана: <b>${a.fsExits}</b>` : ''}</span>
+      ${off ? '<button type="button" class="btn primary" id="wkFsBtn">⤢ Полный экран</button>' : ''}
+      <button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></div>${wkNavHtml(a)}`;
+  }
+  /** Номера заданий сверху, как в варианте: можно перейти к любому, сданные отмечены. */
+  function wkNavHtml(a) {
+    const done = new Set(a.done || []), now = cur && !examShown ? cur.task.id : null;
+    return `<nav class="ex-nav wk-nav" id="wkNav" aria-label="Задания контрольной">${a.tasks.map((id, i) => {
+      const t = byId.get(id);
+      return `<button type="button" class="ex-nav-btn${id === now ? ' on' : ''}${done.has(id) ? ' done' : ''}" data-wk-go="${esc(id)}"
+        title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${done.has(id) ? ' — ответ сдан' : ''}">${i + 1}</button>`;
+    }).join('')}</nav>`;
+  }
+  function wkBar() {
+    const a = wkLive(), el = $('#wkBar');
+    if (!a) { if (el) el.remove(); const nav = $('#wkNav'); if (nav) nav.remove(); return; }
+    const nav = $('#wkNav');
+    if (nav) nav.remove();
+    if (el) el.outerHTML = wkBarHtml(a);
+    else if (trainerEl && cur) trainerEl.insertAdjacentHTML('afterbegin', wkBarHtml(a));
+  }
+  function wkDecorate() {
+    if (!wkTask()) return;
+    wkBar();
+    const lab = $('#trainer .answer-label');
+    if (lab) lab.insertAdjacentHTML('beforeend', ' <b class="wk-note">Одна попытка — проверка после завершения контрольной.</b>');
+    if (cur.group) $$('#trainer .gpart-fb').forEach(x => { x.textContent = ''; });
+    const a = wkTask();
+    if ((a.done || []).includes(cur.task.id)) {
+      const fill = (box, shape, v) => {
+        if (!box || v == null) return;
+        if (shape.type === 'single') { const i = box.querySelector('.inp-single'); if (i) i.value = v; return; }
+        const tk = tokens(v);
+        $$('.cell', box).forEach((c, k) => { c.value = tk[k] || ''; });
+      };
+      if (cur.group) cur.parts.forEach((x, i) => fill(partBox(i), x.shape, (a.mine || {})[x.p.id]));
+      else fill($('#answerInputs'), cur.shape, (a.mine || {})[cur.task.id]);
+      cur.done = true;
+      $$('#trainer .answer input').forEach(i => { i.disabled = true; });
+      setFeedback('sent', 'Ответ уже сдан', '<div class="fb-note">Изменить его нельзя. Верно или нет — узнаешь, когда завершишь контрольную.</div>');
+      renderActions();
+    }
+  }
+  function wkActions(box) {
+    const a = wkTask();
+    const left = asgLeft(a).filter(id => id !== cur.task.id).length;
+    if (cur.done) {
+      box.innerHTML = (left ? '<button class="btn primary" id="nextBtn" type="button">Следующее задание →<kbd>Enter</kbd></button>' : '')
+        + `<button class="btn ${left ? 'ghost' : 'primary'}" id="wkFinishBtn" type="button">Завершить контрольную${left ? '' : ' и узнать результат'}</button>`;
+      const nb = $('#nextBtn');
+      if (nb) { nb.addEventListener('click', next); setTimeout(() => nb.focus({ preventScroll: true }), 0); }
+      return;
+    }
+    box.innerHTML = `<button class="btn primary" id="checkBtn" type="button">Сдать ответ<kbd>Enter</kbd></button>
+      ${left ? '<button class="btn ghost" id="skipBtn" type="button" title="Вернёшься к нему позже">Пропустить →</button>' : ''}
+      <button class="btn ghost" id="wkFinishBtn" type="button">Завершить контрольную</button>`;
+    $('#checkBtn').addEventListener('click', check);
+    const sk = $('#skipBtn');
+    if (sk) sk.addEventListener('click', next);
+  }
+  /** Подтверждение внутри страницы: окно confirm() браузера выкидывает из полного экрана. */
+  function wkAsk(title, text, ok) {
+    return new Promise(res => {
+      $('#forecastBody').innerHTML = `<h2 class="fm-title">${title}</h2><p class="fm-note">${text}</p>
+        <div class="actions"><button type="button" class="btn primary" id="wkYes">${ok}</button>
+        <button type="button" class="btn ghost" id="wkNo">Отмена</button></div>`;
+      $('#forecastModal').hidden = false;
+      const done = v => { closeForecast(); res(v); };
+      $('#wkYes').addEventListener('click', () => done(true));
+      $('#wkNo').addEventListener('click', () => done(false));
+      setTimeout(() => $('#wkYes') && $('#wkYes').focus(), 0);
+    });
+  }
+  async function wkSubmit() {
+    const a = wkTask();
+    const items = [];
+    if (cur.group) {
+      cur.parts.forEach((x, i) => {
+        const box = partBox(i);
+        const got = readAnswerIn(box, x.shape);
+        items.push({ task: x.p.id, answer: got.join(' '), cells: cellsIn(box, x.shape) });
+      });
+      if (!items.some(x => x.answer)) { const inp = $('#trainer .gpart input'); if (inp) { inp.focus(); inp.classList.add('bad'); } return; }
+    } else {
+      const got = readAnswer();
+      if (!got.length) { const i = $('#answerInputs input'); if (i) { i.focus(); i.classList.add('bad'); } return; }
+      items.push({ task: cur.task.id, answer: got.join(' '), cells: cellsIn($('#answerInputs'), cur.shape) });
+    }
+    const blank = items.filter(x => !x.answer).length;
+    const c = cur;
+    if (!await wkAsk(cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
+      `Изменить ${cur.group ? 'их' : 'его'} будет нельзя.${blank ? ` Без ответа вопросов: ${blank}.` : ''}`, 'Сдать')) return;
+    if (cur !== c || cur.done) return;
+    setBusy(true);
+    let r = null;
+    try {
+      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started }, x));
+    } catch (e) {
+      setBusy(false);
+      if (e.status === 409) { await wkRefresh(a); if (!wkLive()) return; toast(e.message, 4000); next(); return; }
+      netError(e);
+      return;
+    }
+    setBusy(false);
+    wkApply(a, r);
+    if (r && r.closed_now) { wkClosed(a); return; }
+    cur.done = true;
+    ui.currentId = null;
+    $$('#trainer .answer input').forEach(i => { i.disabled = true; i.classList.remove('bad'); });
+    setFeedback('sent', 'Ответ сдан', '<div class="fb-note">Верно или нет — узнаешь, когда завершишь контрольную.</div>');
+    renderActions();
+    wkBar();
+    renderAsgCard();
+  }
+  async function wkRefresh(a) {
+    try { wkApply(a, await api('asg/state?id=' + a.id)); } catch (e) { /* попробуем позже */ }
+    if (a.result && !a.finishedShown) wkClosed(a);
+  }
+  function wkWatch() {
+    clearInterval(wkPoll);
+    wkPoll = setInterval(() => {
+      const a = wkLive();
+      if (!a) { if (!wkScope()) clearInterval(wkPoll); return; }
+      wkRefresh(a);
+    }, 10000);
+  }
+  function wkClosed(a) {
+    clearInterval(wkPoll);
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    wkFsOn = false;
+    if (a.result && a.result.forced) toast('Учитель завершил контрольную — оценка поставлена по сданным ответам.', 5000);
+    if (wkScope() === a) { abandonCurrent(); cur = null; wkDoneScreen(); }
+    renderAsgCard();
+  }
+  async function wkFinish() {
+    const a = wkLive();
+    if (!a) return;
+    const left = asgLeft(a).length;
+    if (!await wkAsk('Завершить контрольную?', left ? `Не сдано заданий: <b>${left}</b> — они засчитаются как неверные.` : 'Все ответы сданы — увидишь результат и оценку.', 'Завершить')) return;
+    try {
+      const r = await api('asg/finish', { id: a.id });
+      wkApply(a, r);
+      if (r.game) setTimeout(() => onGame(r.game), 800);
+    } catch (e) { netError(e); return; }
+    wkClosed(a);
+  }
+  function wkDoneScreen() {
+    const a = wkScope();
+    if (!a) return;
+    const res = a.result;
+    if (!res) {                                     // всё сдано, но ещё не завершена
+      if (!wkLive()) { trainerEl.innerHTML = `<div class="empty"><h2>Контрольная завершена</h2><p>Учитель завершил контрольную «${esc(a.title)}» до того, как ты её начал.</p></div>`; renderTopbar(); return; }
+      trainerEl.innerHTML = `${wkBarHtml(a)}<div class="empty"><h2>Все ответы сданы</h2>
+        <p>Можно завершить контрольную «${esc(a.title)}» и узнать результат.</p>
+        <div class="actions" style="justify-content:center"><button type="button" class="btn primary" id="wkFinishBtn">Завершить и узнать результат</button></div></div>`;
+      renderTopbar();
+      return;
+    }
+    a.finishedShown = true;
+    const mark = c => (c === 1 ? '<span class="chip good">верно</span>' : c === 0.5 ? '<span class="chip">половина</span>' : c === 0 ? '<span class="chip weak">неверно</span>' : '<span class="chip">нет ответа</span>');
+    const rows = res.items.map((x, i) => `<tr><td class="fm-n">${i + 1}</td><td><b>№${x.n || '?'}</b></td>
+      <td class="ans">${a.mine && a.mine[x.task] ? esc(a.mine[x.task]) : '<span class="fm-muted">—</span>'}</td><td>${mark(x.credit)}</td></tr>`).join('');
+    trainerEl.innerHTML = `<div class="ex-result">
+      <h2 class="fm-title">📝 Контрольная «${esc(a.title)}»</h2>
+      <div class="fm-head">
+        <div class="fm-score band-${res.grade >= 5 ? 'top' : res.grade >= 4 ? 'good' : res.grade >= 3 ? 'mid' : 'low'}">
+          <span class="fm-big">${res.grade}</span><span class="fm-sub">оценка<br>${gradeWord(res.grade)}</span></div>
+        <div class="fm-facts">
+          <div>Верно: <b>${res.ok}</b>${res.half ? ` · наполовину: <b>${res.half}</b>` : ''} · неверно: <b>${res.bad}</b>${res.blank ? ` · без ответа: <b>${res.blank}</b>` : ''}</div>
+          <div>Результат: <b>${res.pct}%</b> (${String(res.correct).replace('.', ',')} из ${res.total})</div>
+          ${res.forced ? '<div>Контрольную завершил учитель.</div>' : ''}
+        </div></div>
+      <p class="fm-note">Правильные ответы не показываем — разберите ошибки с учителем. Задания контрольной теперь можно решать в тренировке.</p>
+      <div class="fm-table-wrap"><table class="fm-table ex-table"><thead><tr><th>#</th><th>Номер</th><th>Твой ответ</th><th>Итог</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <div class="actions"><button type="button" class="btn primary" id="wkBack">Продолжить тренировку →</button></div></div>`;
+    $('#wkBack').addEventListener('click', () => setScope('all'));
+    window.scrollTo({ top: 0 });
+    renderTopbar();
+  }
+  document.addEventListener('click', e => {
+    const go = e.target.closest('[data-wk-go]');
+    if (go) {
+      const a = wkLive(), t = byId.get(go.dataset.wkGo);
+      if (a && t && !(cur && cur.task.id === t.id)) { abandonCurrent(); show({ task: t, why: { type: 'asg', a } }); }
+      return;
+    }
+    if (e.target.closest('#wkFinishBtn, #wkFinishTop')) wkFinish();
+    else if (e.target.closest('#wkFsBtn')) wkFullscreen();
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const a = wkLive();
+    if (!a) return;
+    if (document.fullscreenElement) { wkFsOn = true; wkBar(); return; }
+    if (!wkFsOn) { wkBar(); return; }
+    wkFsOn = false;
+    a.fsExits = (a.fsExits || 0) + 1;
+    api('asg/away', { id: a.id, kind: 'fs' }).catch(() => {});
+    wkBar();
+    toast('Выход из полного экрана записан — учитель это видит. Вернитесь в полный экран кнопкой над заданием.', 5000);
+  });
+  window.addEventListener('beforeunload', e => {
+    if (!wkLive()) return;
+    e.preventDefault();
+    e.returnValue = 'Идёт контрольная — не покидайте вкладку.';
+  });
+  /** Вернулся на вкладку во время контрольной: учителю — уход, ученику — напоминание. */
+  function wkCameBack(sec) {
+    const a = wkLive();
+    if (!a) return false;
+    a.away = (a.away || 0) + 1;
+    api('asg/away', { id: a.id, kind: 'away', dur: Math.round(sec) }).catch(() => {});
+    wkBar();
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">⚠ Не покидайте вкладку</h2>
+      <p class="fm-note">Идёт контрольная «${esc(a.title)}». Уход со страницы на ${Math.round(sec)} с записан, учитель это видит${a.away > 1 ? ` (уже ${a.away} ${plural(a.away, 'раз', 'раза', 'раз')})` : ''}.
+      Решайте задания здесь, не переключаясь на другие вкладки и программы.</p>
+      <div class="actions"><button type="button" class="btn primary" id="wkBackOk">Понятно, продолжить</button></div>`;
+    $('#forecastModal').hidden = false;
+    $('#wkBackOk').addEventListener('click', () => { closeForecast(); wkFullscreen(); });
+    return true;
+  }
 
   // ------------------------------------------------------------ старт
   function start() {
@@ -5310,6 +5612,11 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.29.0', '12.10.2026', ['Контрольная: у каждого ученика свой случайный порядок заданий',
+      'Сверху — номера всех заданий контрольной, как в варианте: можно перейти к любому, сданные отмечены']],
+    ['1.28.0', '12.10.2026', ['Контрольные от учителя: на каждое задание одна попытка, ответ сдаётся без проверки — сколько верно и оценку узнаешь после завершения',
+      'Контрольная пишется в полном экране; уход со вкладки и выход из полного экрана сразу видит учитель — сайт напомнит не покидать вкладку',
+      'Учитель может завершить контрольную для всех — тогда оценка ставится по уже сданным ответам']],
     ['1.27.1', '12.10.2026', ['Доска: крупный текст у правого края больше не сдвигает лист вбок (из-за этого справа оставались «следы» линий) — длинный текст переносится по ширине доски']],
     ['1.27.0', '12.10.2026', ['Профиль: нажми на имя в рейтинге — увидишь награды и достижения ученика',
       'Сам выбираешь до трёх значков у своего ника — награды или достижения (кнопка «Мой профиль» в окне опыта)',

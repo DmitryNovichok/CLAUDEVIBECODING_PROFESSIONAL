@@ -1807,3 +1807,10 @@ button.pf-item:hover { border-color: var(--accent); }
 .pf-n { position: absolute; top: 6px; right: 8px; font-weight: 800; font-size: 12px; white-space: nowrap; color: var(--accent); }
 .pf-check { position: absolute; bottom: 4px; right: 8px; color: var(--accent); font-weight: 900; }
 #profBack { margin-bottom: 8px; }
+
+/* ---------- контрольная от учителя */
+.feedback.sent { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.feedback.sent .fb-title { color: var(--accent); }
+.wk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wk-bar > span { flex: 1; min-width: 200px; }
+.wk-note { color: var(--review); font-weight: 700; }
