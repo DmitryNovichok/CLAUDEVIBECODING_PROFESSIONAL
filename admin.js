@@ -244,14 +244,27 @@
         <span class="muted">${dt(x.ts)}</span>${x.task ? `<span class="muted">задание <code>${esc(x.task)}</code></span>` : ''}${x.page ? `<span class="muted">раздел: ${esc(x.page)}</span>` : ''}</div>
       <div class="sp-a-text">${esc(x.text)}</div>
       ${x.answer ? `<div class="sp-a-ans"><b>Ваш ответ · ${dt(x.answered)}</b>${esc(x.answer)}</div>` : ''}
-      ${x.status === 'closed' ? '' : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке»)"></textarea>
-        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-close>Закрыть</button></div></div>`}
+      ${x.status === 'closed' ? '<div class="sp-a-btns"><button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div>'
+        : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке»)"></textarea>
+        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-close>Закрыть</button>
+          <button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div></div>`}
     </div>`).join('');
+    const closed = list.filter(x => x.status === 'closed').length;
     return `<h3 class="adm-h3">Обращения в техподдержку ${fresh ? `<span class="sp-badge">${fresh} ${fresh === 1 ? 'новое' : 'новых'}</span>` : ''}
-        <span class="adm-hint">от учеников: кнопка «🛟 Техподдержка» на сайте</span></h3>
+        <span class="adm-hint">от учеников: кнопка «🛟 Техподдержка» на сайте</span>
+        ${closed ? `<button type="button" class="btn ghost danger sp-clear" data-sp-clear>Удалить закрытые (${closed})</button>` : ''}</h3>
       <div class="sp-admin">${items || '<p class="adm-empty">Обращений пока нет.</p>'}</div>`;
   }
   $('#siteBody').addEventListener('click', async e => {
+    const del = e.target.closest('[data-sp-del]'), clear = e.target.closest('[data-sp-clear]');
+    if (del || clear) {
+      const box = del && e.target.closest('[data-sp]');
+      if (!confirm(clear ? 'Удалить все закрытые обращения? Это нельзя отменить.' : 'Удалить это обращение? Ученик его тоже больше не увидит.')) return;
+      try { const r = await api('support/delete', clear ? { closed: true } : { id: +box.dataset.sp }); toast(clear ? `Удалено: ${r.deleted}` : 'Обращение удалено'); }
+      catch (err) { toast(err.message); return; }
+      loadSite();
+      return;
+    }
     const send = e.target.closest('[data-sp-send]'), close = e.target.closest('[data-sp-close]');
     if (!send && !close) return;
     const box = e.target.closest('[data-sp]');

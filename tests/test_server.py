@@ -1092,6 +1092,13 @@ class ServerTest(unittest.TestCase):
             self.req("POST", "/api/support", {"text": f"ещё обращение {i}"}, tok)
         self.assertEqual(self.req("POST", "/api/support", {"text": "шестое за час"}, tok)[0], 429)
         self.assertEqual(self.req("GET", "/api/support")[0], 401)
+        # удаляет только главный учитель — обращение стирается из базы, ученик его тоже больше не видит
+        mine = self.req("GET", "/api/support", token=tok)[1]["items"]
+        self.assertEqual(self.req("POST", "/api/support/delete", {"id": mine[0]["id"]}, tok)[0], 404)   # ученику — нельзя
+        self.admin("POST", "/api/admin/support/delete", {"id": mine[0]["id"]})
+        self.assertEqual(len(self.req("GET", "/api/support", token=tok)[1]["items"]), len(mine) - 1)
+        self.assertIsNone(server.APP.db.q("SELECT 1 FROM support WHERE id=?", (mine[0]["id"],), one=True))
+        self.assertEqual(self.admin("POST", "/api/admin/support/delete", {"closed": True})[1]["deleted"], 1)   # закрытое ранее
 
     def test_common_bank_rule(self):
         ok = lambda **t: server.bank_ok(dict({"n": 5, "ans": "1"}, **t))

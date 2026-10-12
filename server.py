@@ -2032,6 +2032,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if path == "/api/support/seen" and method == "POST":
                 db.x("UPDATE support SET seen=1 WHERE student_id=? AND answer IS NOT NULL", (s["id"],))
                 return self.send_json({"ok": True})
+            if path != "/api/support":
+                return self.err(404, "нет такого метода")
             if method == "POST":
                 text = str(data.get("text") or "").strip()[:SUPPORT_MAX]
                 kind = str(data.get("kind") or "")
@@ -3064,6 +3066,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     SELECT p.*, s.name, COALESCE(t.name, '') AS teacher FROM support p JOIN students s ON s.id = p.student_id
                     LEFT JOIN teachers t ON t.id = COALESCE(s.teacher_id, ?)
                     ORDER BY (p.status = 'new') DESC, p.id DESC LIMIT 200""", (main_id,))]})
+
+        if path == "/api/admin/support/delete" and method == "POST":
+            # удалить обращение (или все закрытые разом) — только главный учитель
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            if data.get("closed"):
+                n = db.xn("DELETE FROM support WHERE status='closed'")
+            else:
+                n = db.xn("DELETE FROM support WHERE id=?", (to_int(data.get("id")),))
+            return self.send_json({"ok": True, "deleted": n})
 
         if path == "/api/admin/support/answer" and method == "POST":
             if not self.T["is_main"]:
