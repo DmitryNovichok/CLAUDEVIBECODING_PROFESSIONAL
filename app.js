@@ -626,7 +626,14 @@
     return best;
   }
 
+  /** Следующее задание; в выбранном номере — только задания этого номера, что бы ни подсказал подбор. */
   function pickNext(excludeId) {
+    const r = pickNextRaw(excludeId);
+    if (!r || ui.scope === 'asg' || ui.scope === 'all' || inScope(r.task)) return r;
+    const list = pool().filter(t => t.id !== excludeId);
+    return list.length ? { task: chooseTask(list, ui.scope) || list[0], why: { type: 'new' } } : r;
+  }
+  function pickNextRaw(excludeId) {
     const now = Date.now();
     const list = pool();
     if (!list.length) return null;
@@ -2877,13 +2884,13 @@
       return;
     }
     if (isNarrow()) setSideOpen(false);
-    const wasExam = examShown;
+    const wasExam = examShown, wasPage = courseShown;       // открыта страница (курс, турниры, подборки) — уходим с неё к заданиям
     if (!leaveExam()) return;
-    if (ui.scope === s && !wasExam) return;
+    if (ui.scope === s && !wasExam && !wasPage) return;
     ui.scope = s;
     save();
     renderSidebar();
-    if (!wasExam && cur && !cur.done && inScope(cur.task)) { renderTopbar(); return; }
+    if (!wasExam && !wasPage && cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg') { renderTopbar(); return; }
     next();
   }
 
@@ -6025,6 +6032,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.44.1', '12.10.2026', ['Исправлено: после страниц «Курс», «Турниры» или «Задания от учителя» нажатие на номер не открывало его задания',
+      'В выбранном номере теперь гарантированно выпадают только задания этого номера']],
     ['1.44.0', '12.10.2026', ['Техподдержка: кнопка «🛟 Техподдержка» в меню слева — напиши об ошибке в задании, проблеме с сайтом или задай вопрос. К обращению можно приложить текущее задание, ответ учителя появится там же']],
     ['1.43.0', '12.10.2026', ['Турниры как в футболе: жеребьёвка по корзинам, групповой этап (победа — 3 очка, ничья — 1, счёт — решённые задания), затем плей-офф и матч за 3-е место',
       'Три вида турниров: на 4, 8 и 12 игроков — каждого вида по одному в сутки',
