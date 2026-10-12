@@ -996,6 +996,9 @@
       const m = avg(gs);
       return `<tr><td class="name"><button type="button" class="task-link" data-open-st="${st.id}">${esc(st.name)}</button></td>
         ${fcCell(st.fc)}
+        ${st.exam ? `<td class="jr-c" title="последний ${fmtWhen(st.exam.last_ts)} · лучший ${st.exam.best} · всего ${st.exam.count}, за 30 дней ${st.exam.month}">
+          <button type="button" class="jr-asg" data-exam="${esc(st.exam.last_id)}"><b>${st.exam.last}</b></button><small>лучший ${st.exam.best} · ×${st.exam.count}</small></td>`
+          : '<td class="jr-c none" title="вариантов не решал">—</td>'}
         ${A.map(a => journalCell(st.cells[a.id], a)).join('')}
         <td class="num jr-avg">${m == null ? '<span class="muted">—</span>' : `<b>${m.toFixed(1).replace('.', ',')}</b>`}${miss ? ` <span class="jr-miss" title="не сдано в срок">н/с ${miss}</span>` : ''}</td></tr>`;
     }).join('');
@@ -1009,10 +1012,10 @@
         Нажмите на название подборки, чтобы открыть её результаты, на имя — карточку ученика.</p>
       <div class="dg-actions"><button type="button" class="btn" data-weak>🎯 Каждому — по 3 задания на его 3 слабых номера</button>
         <span class="adm-hint">У каждого ученика своя подборка; появится в журнале отдельной колонкой.</span></div>
-      <div class="adm-table-wrap jr-wrap"><table class="adm-table jr-table"><thead><tr><th>Ученик</th><th class="jr-h" title="Прогноз балла ЕГЭ: сейчас и изменение за месяц">Прогноз<small>за 30 дней</small></th>
+      <div class="adm-table-wrap jr-wrap"><table class="adm-table jr-table"><thead><tr><th>Ученик</th><th class="jr-h" title="Прогноз балла ЕГЭ: сейчас и изменение за месяц">Прогноз<small>за 30 дней</small></th><th class="jr-h" title="Варианты ЕГЭ, которые ученик решил сам">Вариант ЕГЭ<small>последний</small></th>
         ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
         <th class="num">Средняя</th></tr></thead><tbody>${rows}</tbody>
-        <tfoot><tr><td class="muted">По классу</td><td></td>${foot}<td></td></tr></tfoot></table></div>`;
+        <tfoot><tr><td class="muted">По классу</td><td></td><td></td>${foot}<td></td></tr></tfoot></table></div>`;
   }
   function renderNumsHeat() {
     const box = $('#clsNums');
@@ -1468,6 +1471,13 @@
             : '<br>строгий режим: без нарушений')
         : 'ещё не решал'),
     ].join('');
+    $('#stExams').innerHTML = exams.length ? `<h3 class="adm-h3">Варианты ЕГЭ · ${exams.length}</h3>
+      <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Сдан</th><th class="num">Тестовый</th><th class="num">Первичный</th>
+        <th class="num">Верно целиком</th><th class="num">Без ответа</th><th class="num">Время</th><th class="num" title="Уходы со страницы / выходы из полного экрана во время варианта">Уходы</th><th></th></tr></thead>
+      <tbody>${exams.map(x => `<tr><td>${fmtWhen(x.finished)}</td><td class="num"><b class="exs b${x.test_score >= 80 ? 'g' : x.test_score >= 60 ? 'a' : x.test_score >= 40 ? 'm' : 'w'}">${x.test_score}</b></td>
+        <td class="num">${x.primary_score} / 29</td><td class="num">${x.full} из ${x.total}</td><td class="num">${x.blank || ''}</td>
+        <td class="num">${fmtMinutes((x.finished - x.started) * 1000)}</td><td class="num">${x.away || x.fs ? `<span style="color:var(--weak)">${x.away}/${x.fs}</span>` : ''}</td>
+        <td class="num"><button type="button" class="btn ghost" data-exam="${esc(x.id)}">Разбор</button></td></tr>`).join('')}</tbody></table></div>` : '';
     const ipLine = $('#stIp');
     if (ipLine) {
       ipLine.hidden = false;
@@ -1678,6 +1688,7 @@
   const EV_TEXT = {
     start: () => 'начал(а) самостоятельную', away: e => `ушёл(ла) со вкладки${e.info ? ` на ${e.info} с` : ''}`,
     fs: () => 'вышел(ла) из полного экрана', finish: e => `сдал(а) самостоятельную${gradeOf(e)}`, forced: e => `работа завершена учителем${gradeOf(e)}`,
+    exam: e => { try { const g = JSON.parse(e.info || '{}'); return `решил(а) вариант ЕГЭ · ${g.test} тест. баллов (${g.primary} перв.)`; } catch (err) { return 'решил(а) вариант ЕГЭ'; } },
   };
   function gradeOf(e) { try { const g = JSON.parse(e.info || '{}'); return g.grade ? ` · оценка ${g.grade} (${g.pct}%)` : ''; } catch (err) { return ''; } }
   const evWarn = k => k === 'fs' || k === 'away';
@@ -1688,8 +1699,8 @@
     evSince = Math.max(evSince, ...fresh.map(e => e.ts));
     feedEv = fresh.concat(feedEv).slice(0, 100);
     if (!first) {
-      fresh.filter(e => evWarn(e.kind) || e.kind === 'finish').slice(0, 3)
-        .forEach(e => toast(`${evWarn(e.kind) ? '⚠ ' : '📝 '}${e.name}: ${EV_TEXT[e.kind](e)} — «${e.title}»`));
+      fresh.filter(e => evWarn(e.kind) || e.kind === 'finish' || e.kind === 'exam').slice(0, 3)
+        .forEach(e => toast(`${evWarn(e.kind) ? '⚠ ' : e.kind === 'exam' ? '🎯 ' : '📝 '}${e.name}: ${EV_TEXT[e.kind](e)}${e.kind === 'exam' ? '' : ` — «${e.title}»`}`));
       if (tab !== 'feed') $('#feedDot').hidden = false;
     }
     renderFeedEvents();
@@ -1698,9 +1709,9 @@
     const box = $('#feedEvents');
     if (!box) return;
     box.hidden = !feedEv.length;
-    box.innerHTML = `<h3 class="adm-h3">Самостоятельные · уведомления</h3><ul class="adm-events">${feedEv.slice(0, 30).map(e => `<li class="${evWarn(e.kind) ? 'warn' : ''}">
+    box.innerHTML = `<h3 class="adm-h3">Работы и варианты · уведомления</h3><ul class="adm-events">${feedEv.slice(0, 30).map(e => `<li class="${evWarn(e.kind) ? 'warn' : ''}">
       <span class="muted">${fmtWhen(e.ts)}</span> <button type="button" class="task-link" data-student="${e.student_id}">${esc(e.name)}</button>
-      ${esc(EV_TEXT[e.kind] ? EV_TEXT[e.kind](e) : e.kind)} <span class="muted">· «${esc(e.title)}»</span></li>`).join('')}</ul>`;
+      ${esc(EV_TEXT[e.kind] ? EV_TEXT[e.kind](e) : e.kind)} ${e.kind === 'exam' ? `<button type="button" class="link-btn" data-exam="${esc(e.exam)}">разбор</button>` : `<span class="muted">· «${esc(e.title)}»</span>`}</li>`).join('')}</ul>`;
   }
   async function pollFeed() {
     try {
@@ -1752,6 +1763,22 @@
   });
 
   // ------------------------------------------------------------ решение ученика
+  document.addEventListener('click', async e => {
+    const x = e.target.closest('[data-exam]');
+    if (!x) return;
+    let r;
+    try { r = await api('exam?id=' + encodeURIComponent(x.dataset.exam)); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+    const full = r.rows.filter(q => q.points === q.max).length;
+    $('#taskBody').innerHTML = `<div class="adm-task-meta">Вариант ЕГЭ · ${esc(r.student)} · ${fmtWhen(r.finished)} · ${fmtMinutes((r.finished - r.started) * 1000)}</div>
+      <h3 style="margin:6px 0 4px">${r.test} тестовых баллов · ${r.primary} первичных из 29 · верно целиком ${full} из ${r.rows.length}</h3>
+      ${r.shown ? '' : '<p class="adm-hint">Ученик решал меньше 20 минут — правильные ответы ему не показывались (вам видны).</p>'}
+      <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>№</th><th>Задание</th><th>Ответ ученика</th><th>Правильный</th><th class="num">Баллы</th></tr></thead>
+      <tbody>${r.rows.map(q => `<tr class="${q.points === q.max ? 'ex-ok' : q.points ? 'ex-half' : 'ex-bad'}"><td class="num"><b>${q.n}</b></td>
+        <td><button type="button" class="task-link" data-task="${esc(q.task)}">открыть</button> <span class="task-snip">${esc((q.snip || '').slice(0, 70))}</span></td>
+        <td class="ans">${q.blank ? '<span class="muted">нет ответа</span>' : esc(q.mine)}</td><td class="ans">${esc(q.answer).replace(/\n/g, '<br>')}</td>
+        <td class="num">${q.points} / ${q.max}</td></tr>`).join('')}</tbody></table></div>`;
+    $('#taskModal').hidden = false;
+  });
   document.addEventListener('click', async e => {
     const b = e.target.closest('[data-code]');
     if (!b || !st) return;
