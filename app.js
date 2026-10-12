@@ -639,7 +639,7 @@
       const order = at >= 0 ? a.tasks.slice(at + 1).concat(a.tasks.slice(0, at)) : a.tasks;
       const left = order.filter(id => id !== excludeId && leftSet.has(id)).map(id => byId.get(id)).filter(Boolean);
       if (left.length) return { task: left[0], why: { type: 'asg', a } };
-      if (a.strict) return null;            // контрольная: всё сдано — экран «Завершить»
+      if (a.strict) return null;            // самостоятельная: всё сдано — экран «Завершить»
       const rest = list.filter(t => t.id !== excludeId);
       return { task: rest.length ? rest[Math.floor(Math.random() * rest.length)] : list[0], why: { type: 'asg', a } };
     }
@@ -713,7 +713,7 @@
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
     if (again) e.ra = 1;
-    if (o.asg) e.k = 1;                 // ответ из контрольной учителя
+    if (o.asg) e.k = 1;                 // ответ из самостоятельной учителя
     if (o.exam) e.x = 1;
     if (o.blank) e.b = 1;               // в варианте оставил без ответа: в цель дня не идёт
     P.log.push(e);
@@ -903,10 +903,15 @@
             line: `${esc(a.title)}: задание ${Math.min(done + 1, a.tasks.length)} из ${a.tasks.length}. Решай точно — важны и число верных, и время.` };
         }
         if (a.strict) {
-          return { chip: '<span class="chip accent">📝 Контрольная</span>',
+          return { chip: `<span class="chip accent">📝 Самостоятельная</span>`,
             line: `«${esc(a.title)}»: сдано <b>${(a.done || []).length}</b> из ${a.tasks.length}. Сданный ответ можно <b>один раз</b> изменить, верно или нет — узнаешь после завершения.` };
         }
         const done = a.tasks.length - asgLeft(a).length;
+        if (!a.course && a.kind) {
+          const sc = a.score || {};
+          return { chip: `<span class="chip accent">${kindOf(a)[0]} ${kindOf(a)[1]}</span>`,
+            line: `«${esc(a.title)}»: решено <b>${done}</b> из ${a.tasks.length}${sc.grade ? ` · оценка сейчас <b>${sc.grade}</b> (${sc.pct}%)` : ''}. Оценка ставится сама: верно с 1-й попытки — полный балл, со 2-й — половина.${a.due ? ` Срок — до ${fmtDay(a.due * 1000)}.` : ''}` };
+        }
         return { chip: `<span class="chip accent">${a.course ? '🎓 Курс' : 'Задание учителя'}</span>`,
           line: `Подборка «${esc(a.title)}»: решено <b>${done}</b> из ${a.tasks.length}${a.due ? ` · срок — до ${fmtDay(a.due * 1000)}` : ''}.` };
       }
@@ -1446,7 +1451,7 @@
   async function verify(extra) {
     setBusy(true);
     try { return await callCheck(cur.task, extra); } catch (e) {
-      // учитель сделал подборку контрольной, пока страница была открыта: подтянем подборки и покажем старт
+      // учитель сделал подборку самостоятельной, пока страница была открыта: подтянем подборки и покажем старт
       if (e.status === 403 && SERVER) { toast(e.message, 4500); loadAssignments().then(() => { if (wkScope()) show(null); }).catch(() => {}); return null; }
       netError(e); return null;
     } finally { setBusy(false); }
@@ -1744,9 +1749,9 @@
 
   function show(pick) {
     leaveCourse();
-    // контрольная ещё не начата (или уже сдана): задания в обычном виде не показываем — только старт или результат
+    // самостоятельная ещё не начата (или уже сдана): задания в обычном виде не показываем — только старт или результат
     if (wkScope() && !wkLive() && !examShown) { cur = null; wkGate(wkScope()); return; }
-    // идёт контрольная: её задание открывается только в её режиме, откуда бы ни пришли (←, поиск, история)
+    // идёт самостоятельная: её задание открывается только в её режиме, откуда бы ни пришли (←, поиск, история)
     const wl = wkLive();
     if (wl && pick && (pick.why || {}).type !== 'asg') {
       if (!wl.tasks.includes(pick.task.id)) pick = pickNext();
@@ -2991,7 +2996,7 @@
   }
 
   function histResult(e) {
-    if (e.k) return e.s === 1 ? ['good', 'верно · контрольная'] : e.p === 0.5 ? ['mid', 'половина · контрольная'] : ['weak', 'ошибка · контрольная'];
+    if (e.k) return e.s === 1 ? ['good', 'верно · самостоятельная'] : e.p === 0.5 ? ['mid', 'половина · самостоятельная'] : ['weak', 'ошибка · самостоятельная'];
     if (e.s === 1) return ['good', e.x ? 'верно · вариант' : 'верно'];
     if (e.s === 0.5) return ['mid', 'со 2-й попытки'];
     if (e.b) return ['', 'без ответа · вариант'];
@@ -3033,7 +3038,7 @@
 
   function openHistory() {
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-    const list = P.log.slice().reverse().filter(e => !e.k && (histFilter === 'all'      // контрольные — в окне подборок
+    const list = P.log.slice().reverse().filter(e => !e.k && (histFilter === 'all'      // самостоятельные — в окне подборок
       || (histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime())));
     const when = ts => { const d = new Date(ts); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
     const rows = list.slice(0, histLimit).map(e => {
@@ -3049,7 +3054,7 @@
     }).join('');
     $('#forecastBody').innerHTML = `
       <h2 class="fm-title">История заданий</h2>
-      <p class="fm-note">«Открыть» — решить задание ещё раз. Уже решённое перерешивается только для тренировки: без опыта, огонька, серии и достижений. Сданные контрольные — в окне «Задания от учителя».</p>
+      <p class="fm-note">«Открыть» — решить задание ещё раз. Уже решённое перерешивается только для тренировки: без опыта, огонька, серии и достижений. Сданные самостоятельные — в окне «Задания от учителя».</p>
       <div class="hist-filters">
         ${[['all', 'Все'], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
           `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
@@ -5162,6 +5167,8 @@
     card.classList.toggle('alert', !!left);
     $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
   }
+  const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
+  const kindOf = a => KINDS[a.kind] || KINDS.self;
   /** Страница «Задания от учителя» в основной области (как «Курс»): карточки текущих и пройденных подборок. */
   function openAsgPage() {
     if (!leaveExam()) return;
@@ -5178,10 +5185,11 @@
   function renderAsgPage() {
     if (!courseShown || pageKind !== 'asg') return;
     const list = ASG.filter(a => !a.duel && !a.course);
-    const isDone = a => a.strict && (a.result || a.closed);
+    const isDone = a => (a.strict ? !!(a.result || a.closed) : !!(a.score && a.score.final));
     const active = list.filter(a => !isDone(a)), done = list.filter(isDone);
     const left = active.reduce((n, a) => n + asgLeft(a).length, 0);
     const card = a => {
+      if (!a.strict) return practiceCard(a);
       const n = (a.done || []).length, total = a.tasks.length, r = a.result;
       const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
       const late = a.due && a.due * 1000 < Date.now() && !r;
@@ -5190,7 +5198,7 @@
       const btns = r ? `<button type="button" class="btn" data-asg="${a.id}">Результат</button><button type="button" class="btn" data-review="${a.id}">Разбор</button>`
         : a.closed ? '' : `<button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить' : 'Начать'}</button>`;
       return `<div class="ap-card${r || a.closed ? ' done' : ''}${a.started && !r ? ' going' : ''}">
-        <div class="ap-top"><span class="ap-ico">${r ? '✓' : '📝'}</span><div><b>${esc(a.title)}</b>
+        <div class="ap-top"><span class="ap-ico">${r ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
           <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}${a.due ? ` · <span class="${late ? 'ap-late' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}</small></div></div>
         <div class="ap-state">${state}</div>
         ${r ? '' : `<i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i>`}
@@ -5199,12 +5207,25 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Задания от учителя</span>';
     trainerEl.innerHTML = `<div class="course asg-page">
       <div class="crs-hero"><div><div class="crs-kicker">Задания от учителя</div><h2>Подборки твоего класса</h2>
-        <p>Новые подборки появляются здесь сами. Каждая пишется как контрольная: проверка — после сдачи, ответ можно изменить один раз.</p></div>
+        <p>Новые подборки появляются здесь сами. <b>Самостоятельная</b> — проверка после сдачи, ответ можно изменить один раз. <b>Практическая</b> и <b>домашняя</b> — верно или нет видно сразу, оценка ставится сама по попыткам.</p></div>
         <div class="crs-prog"><b>${active.length}</b><span>${active.length ? `${plural(active.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'новых подборок нет'}</span></div></div>
       <h3 class="ap-h">Сейчас</h3>
       ${active.length ? `<div class="ap-grid">${active.map(card).join('')}</div>` : '<p class="fm-note">Новых подборок нет — когда учитель выдаст, они появятся здесь.</p>'}
       ${done.length ? `<h3 class="ap-h">Пройденные</h3><div class="ap-grid">${done.map(card).join('')}</div>` : ''}
     </div>`;
+  }
+  /** Карточка практической или домашней: решено, текущая оценка (ставится сама по попыткам). */
+  function practiceCard(a) {
+    const sc = a.score || {}, total = a.tasks.length, solved = (a.done || []).length;
+    const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
+    const late = a.due && a.due * 1000 < Date.now() && !sc.final;
+    const grade = sc.grade ? `${sc.final ? 'оценка' : 'оценка сейчас'} <b>${sc.grade}</b> · ${sc.pct}%` : 'ещё не начата';
+    return `<div class="ap-card${sc.final ? ' done' : ''}${sc.tried && !sc.final ? ' going' : ''}">
+      <div class="ap-top"><span class="ap-ico">${sc.final ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
+        <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}${a.due ? ` · <span class="${late ? 'ap-late' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}</small></div></div>
+      <div class="ap-state">${grade}${sc.tried ? ` · сделано ${sc.tried} из ${sc.total}: верно ${sc.ok}${sc.half ? `, со 2-й попытки ${sc.half}` : ''}${sc.bad ? `, неверно ${sc.bad}` : ''}` : ''}</div>
+      <i class="xp-bar"><b style="width:${pct((sc.tried || 0) / (sc.total || total))}%"></b></i>
+      <div class="ap-btns"><button type="button" class="btn ${sc.final ? '' : 'primary'}" data-asg="${a.id}">${sc.final ? 'Повторить' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
   }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
@@ -5237,6 +5258,8 @@
   function asgAfterAnswer() {
     if (ui.scope !== 'asg') return;
     const a = asgOf(ui.asg);
+    // практическая и домашняя: оценка считается на сервере — подтянем свежую
+    if (a && !a.strict && !a.course && !a.duel && SERVER) loadAssignments().then(() => renderTopbar()).catch(() => {});
     if (a && !asgLeft(a).length && !asgCelebrated.has(a.id)) {
       asgCelebrated.add(a.id);
       toast(`Подборка «${a.title}» решена полностью!`, 4000);
@@ -5380,7 +5403,7 @@
     setScope('asg', +b.dataset.asg);
   });
 
-  // ------------------------------------------------------------ контрольная от учителя
+  // ------------------------------------------------------------ самостоятельная от учителя
   // Ответ на задание сдаётся один раз и не проверяется до конца; итог и оценка — после «Завершить».
   // Пишется в полном экране; уход со вкладки и выход из полного экрана сразу уходят учителю.
   let wkPoll = null, wkFsOn = false;
@@ -5398,7 +5421,7 @@
     const state = res ? `сдана · оценка <b>${res.grade}</b> (${res.pct}%)` : a.closed ? 'завершена учителем' : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
     const btn = res ? 'Результат' : a.closed ? '' : a.started ? 'Продолжить' : 'Начать';
     return `<div class="asg-row">
-      <div><h3>📝 ${esc(a.title)}</h3><div class="asg-meta">Контрольная · ${total} ${plural(total, 'задание', 'задания', 'заданий')} · ${state}${a.due ? ` · срок до ${fmtDay(a.due * 1000)}` : ''}</div></div>
+      <div><h3>📝 ${esc(a.title)}</h3><div class="asg-meta">Самостоятельная · ${total} ${plural(total, 'задание', 'задания', 'заданий')} · ${state}${a.due ? ` · срок до ${fmtDay(a.due * 1000)}` : ''}</div></div>
       ${btn ? `<button type="button" class="btn ${res ? '' : 'primary'}" data-asg="${a.id}">${btn}</button>` : '<span></span>'}
       <i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i></div>`;
   }
@@ -5406,14 +5429,14 @@
     if (a.result || a.closed) { wkEnter(a); return; }
     if (a.started) { wkFullscreen(); wkEnter(a); return; }
     const g = a.grading || { 5: 85, 4: 65, 3: 45 };
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">📝 Контрольная «${esc(a.title)}»</h2>
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">📝 Самостоятельная «${esc(a.title)}»</h2>
       <ul class="ex-rules">
         <li><b>${a.tasks.length} ${plural(a.tasks.length, 'задание', 'задания', 'заданий')}</b>. Сданный ответ на каждое можно <b>изменить один раз</b>, потом — уже нельзя.</li>
         <li>Верно или нет, не показываем до конца. Когда сдашь всё или нажмёшь «Завершить», увидишь, сколько верных и неверных, и оценку.</li>
-        <li>Оценка: «5» от ${g[5]}%, «4» от ${g[4]}%, «3» от ${g[3]}%. Учитель может завершить контрольную для всех — тогда оценка ставится по уже сданным ответам.</li>
-        <li><b>Полный экран.</b> Контрольная открывается на весь экран. Выход из полного экрана и переход на другие вкладки и программы сразу видит учитель.</li>
+        <li>Оценка: «5» от ${g[5]}%, «4» от ${g[4]}%, «3» от ${g[3]}%. Учитель может завершить самостоятельную для всех — тогда оценка ставится по уже сданным ответам.</li>
+        <li><b>Полный экран.</b> Самостоятельная открывается на весь экран. Выход из полного экрана и переход на другие вкладки и программы сразу видит учитель.</li>
       </ul>
-      <div class="actions"><button type="button" class="btn primary" id="wkStart">Начать контрольную</button>
+      <div class="actions"><button type="button" class="btn primary" id="wkStart">Начать самостоятельную</button>
         <button type="button" class="btn ghost" id="wkCancel">Отмена</button></div>`;
     $('#forecastModal').hidden = false;
     $('#wkCancel').addEventListener('click', closeForecast);
@@ -5452,7 +5475,7 @@
     if (!el) { el = document.createElement('div'); el.id = 'wkPop'; el.className = 'wk-pop'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
     const n = (a.away || 0) + (a.fsExits || 0);
     el.classList.toggle('warn', !!warn || !!n);
-    el.innerHTML = `<div>📝 <b>Контрольная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}${a.away ? ` · уходов со страницы: <b>${a.away}</b>` : ''}${a.fsExits ? ` · выходов из полного экрана: <b>${a.fsExits}</b>` : ''}</div>
+    el.innerHTML = `<div>📝 <b>Самостоятельная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}${a.away ? ` · уходов со страницы: <b>${a.away}</b>` : ''}${a.fsExits ? ` · выходов из полного экрана: <b>${a.fsExits}</b>` : ''}</div>
       ${msg ? `<div class="wk-pop-msg">${msg}</div>` : ''}`;
     el.classList.remove('out');
     el.hidden = false;
@@ -5462,7 +5485,7 @@
   /** Номера заданий сверху, как в варианте: можно перейти к любому, сданные отмечены. */
   function wkNavHtml(a) {
     const done = new Set(a.done || []), now = cur && !examShown ? cur.task.id : null;
-    return `<nav class="ex-nav wk-nav" id="wkNav" aria-label="Задания контрольной">${a.tasks.map((id, i) => {
+    return `<nav class="ex-nav wk-nav" id="wkNav" aria-label="Задания самостоятельной">${a.tasks.map((id, i) => {
       const t = byId.get(id);
       return `<button type="button" class="ex-nav-btn${id === now ? ' on' : ''}${done.has(id) ? ' done' : ''}" data-wk-go="${esc(id)}"
         title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${done.has(id) ? ' — ответ сдан' : ' — ответа ещё нет'}"><b>${i + 1}</b><small>${done.has(id) ? '✓ сдано' : t ? '№' + numLabel(t.n) : ''}</small></button>`;
@@ -5479,7 +5502,7 @@
     if (!wkTask()) return;
     wkBar();
     const lab = $('#trainer .answer-label');
-    if (lab) lab.insertAdjacentHTML('beforeend', ' <b class="wk-note">Проверка — после завершения контрольной; сданный ответ можно изменить один раз.</b>');
+    if (lab) lab.insertAdjacentHTML('beforeend', ' <b class="wk-note">Проверка — после завершения самостоятельной; сданный ответ можно изменить один раз.</b>');
     if (cur.group) $$('#trainer .gpart-fb').forEach(x => { x.textContent = ''; });
     const a = wkTask();
     if ((a.done || []).includes(cur.task.id)) {
@@ -5503,8 +5526,8 @@
   function wkSentFeedback(a) {
     const can = wkCanChange(a);
     setFeedback('sent', 'Ответ сдан', `<div class="fb-note">${can
-      ? 'Его можно <b>один раз</b> изменить. Верно или нет — узнаешь, когда завершишь контрольную.'
-      : 'Ответ уже изменён — больше изменить нельзя. Верно или нет — узнаешь, когда завершишь контрольную.'}</div>
+      ? 'Его можно <b>один раз</b> изменить. Верно или нет — узнаешь, когда завершишь самостоятельную.'
+      : 'Ответ уже изменён — больше изменить нельзя. Верно или нет — узнаешь, когда завершишь самостоятельную.'}</div>
       ${can ? '<button type="button" class="btn" id="wkChangeBtn">✎ Изменить ответ</button>' : ''}`);
   }
   function wkActions(box) {
@@ -5512,14 +5535,14 @@
     const left = asgLeft(a).filter(id => id !== cur.task.id).length;
     if (cur.done) {
       box.innerHTML = (left ? '<button class="btn primary" id="nextBtn" type="button">Следующее задание →<kbd>Enter</kbd></button>' : '')
-        + `<button class="btn ${left ? 'ghost' : 'primary'}" id="wkFinishBtn" type="button">Завершить контрольную${left ? '' : ' и узнать результат'}</button>`;
+        + `<button class="btn ${left ? 'ghost' : 'primary'}" id="wkFinishBtn" type="button">Завершить самостоятельную${left ? '' : ' и узнать результат'}</button>`;
       const nb = $('#nextBtn');
       if (nb) { nb.addEventListener('click', next); setTimeout(() => nb.focus({ preventScroll: true }), 0); }
       return;
     }
     box.innerHTML = `<button class="btn primary" id="checkBtn" type="button">${cur.changing ? 'Сдать новый ответ' : 'Сдать ответ'}<kbd>Enter</kbd></button>
       ${left ? '<button class="btn ghost" id="skipBtn" type="button" title="Вернёшься к нему позже">Пропустить →</button>' : ''}
-      <button class="btn ghost" id="wkFinishBtn" type="button">Завершить контрольную</button>`;
+      <button class="btn ghost" id="wkFinishBtn" type="button">Завершить самостоятельную</button>`;
     $('#checkBtn').addEventListener('click', check);
     const sk = $('#skipBtn');
     if (sk) sk.addEventListener('click', next);
@@ -5610,7 +5633,7 @@
     if (SERVER) loadHistory().then(() => { renderSidebar(); renderTopbar(); }).catch(() => {});
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     wkFsOn = false;
-    if (a.result && a.result.forced) toast('Учитель завершил контрольную — оценка поставлена по сданным ответам.', 5000);
+    if (a.result && a.result.forced) toast('Учитель завершил самостоятельную — оценка поставлена по сданным ответам.', 5000);
     if (wkScope() === a) { abandonCurrent(); cur = null; wkDoneScreen(); }
     renderAsgCard();
   }
@@ -5618,7 +5641,7 @@
     const a = wkLive();
     if (!a) return;
     const left = asgLeft(a).length;
-    if (!await wkAsk('Завершить контрольную?', left ? `Не сдано заданий: <b>${left}</b> — они засчитаются как неверные.` : 'Все ответы сданы — увидишь результат и оценку.', 'Завершить')) return;
+    if (!await wkAsk('Завершить самостоятельную?', left ? `Не сдано заданий: <b>${left}</b> — они засчитаются как неверные.` : 'Все ответы сданы — увидишь результат и оценку.', 'Завершить')) return;
     try {
       const r = await api('asg/finish', { id: a.id });
       wkApply(a, r);
@@ -5628,9 +5651,9 @@
   }
   function wkGate(a) {
     if (a.result || a.closed) { wkDoneScreen(); return; }
-    trainerEl.innerHTML = `<div class="empty"><h2>📝 Контрольная «${esc(a.title)}»</h2>
+    trainerEl.innerHTML = `<div class="empty"><h2>📝 Самостоятельная «${esc(a.title)}»</h2>
       <p>${a.tasks.length} ${plural(a.tasks.length, 'задание', 'задания', 'заданий')} · одна попытка на каждое · результат и оценка — после сдачи. Пишется в полном экране.</p>
-      <div class="actions" style="justify-content:center"><button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить контрольную' : 'Начать контрольную'}</button></div></div>`;
+      <div class="actions" style="justify-content:center"><button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить самостоятельную' : 'Начать самостоятельную'}</button></div></div>`;
     renderTopbar();
   }
   function wkDoneScreen() {
@@ -5638,10 +5661,10 @@
     if (!a) return;
     const res = a.result;
     if (!res) {                                     // всё сдано, но ещё не завершена
-      if (a.closed) { trainerEl.innerHTML = `<div class="empty"><h2>Контрольная завершена</h2><p>Учитель завершил контрольную «${esc(a.title)}» до того, как ты её начал.</p></div>`; renderTopbar(); return; }
+      if (a.closed) { trainerEl.innerHTML = `<div class="empty"><h2>Самостоятельная завершена</h2><p>Учитель завершил самостоятельную «${esc(a.title)}» до того, как ты её начал.</p></div>`; renderTopbar(); return; }
       if (!wkLive()) { wkGate(a); return; }
       trainerEl.innerHTML = `${wkBarHtml(a)}<div class="empty"><h2>Все ответы сданы</h2>
-        <p>Можно завершить контрольную «${esc(a.title)}» и узнать результат.</p>
+        <p>Можно завершить самостоятельную «${esc(a.title)}» и узнать результат.</p>
         <div class="actions" style="justify-content:center"><button type="button" class="btn primary" id="wkFinishBtn">Завершить и узнать результат</button></div></div>`;
       renderTopbar();
       return;
@@ -5651,7 +5674,7 @@
     const rows = res.items.map((x, i) => `<tr><td class="fm-n">${i + 1}</td><td><b>№${x.n || '?'}</b></td>
       <td class="ans">${a.mine && a.mine[x.task] ? esc(a.mine[x.task]) : '<span class="fm-muted">—</span>'}</td><td>${mark(x.credit)}</td></tr>`).join('');
     trainerEl.innerHTML = `<div class="ex-result">
-      <h2 class="fm-title">📝 Контрольная «${esc(a.title)}»</h2>
+      <h2 class="fm-title">📝 Самостоятельная «${esc(a.title)}»</h2>
       <div class="fm-head">
         <div class="fm-score band-${res.grade >= 5 ? 'top' : res.grade >= 4 ? 'good' : res.grade >= 3 ? 'mid' : 'low'}">
           <span class="fm-big">${res.grade}</span><span class="fm-sub">оценка<br>${gradeWord(res.grade)}</span></div>
@@ -5659,9 +5682,9 @@
           <div>Верно: <b>${res.ok}</b>${res.half ? ` · наполовину: <b>${res.half}</b>` : ''} · неверно: <b>${res.bad}</b>${res.blank ? ` · без ответа: <b>${res.blank}</b>` : ''}</div>
           <div>Результат: <b>${res.pct}%</b> (${String(res.correct).replace('.', ',')} из ${res.total})</div>
           ${res.xp ? `<div>Опыт: <b>+${res.xp} XP</b></div>` : ''}
-          ${res.forced ? '<div>Контрольную завершил учитель.</div>' : ''}
+          ${res.forced ? '<div>Самостоятельную завершил учитель.</div>' : ''}
         </div></div>
-      <p class="fm-note">Разбор с правильными ответами и решениями — кнопкой ниже и в окне «Задания от учителя» (раздел «Пройденные»): он откроется, когда контрольная закончится для всех. Задания контрольной теперь можно решать в тренировке.</p>
+      <p class="fm-note">Разбор с правильными ответами и решениями — кнопкой ниже и в окне «Задания от учителя» (раздел «Пройденные»): он откроется, когда самостоятельная закончится для всех. Задания самостоятельной теперь можно решать в тренировке.</p>
       <div class="fm-table-wrap"><table class="fm-table ex-table"><thead><tr><th>#</th><th>Номер</th><th>Твой ответ</th><th>Итог</th></tr></thead>
         <tbody>${rows}</tbody></table></div>
       <div class="actions"><button type="button" class="btn primary" id="wkBack">Продолжить тренировку →</button>
@@ -5690,7 +5713,7 @@
       return;
     }
     const st = e.target.closest('#trainer [data-asg]');
-    if (st) { const a = asgOf(+st.dataset.asg); if (a && a.strict) wkOpen(a); return; }
+    if (st) { const a = asgOf(+st.dataset.asg); if (a && a.strict) wkOpen(a); else if (a) { leaveCourse(); setScope('asg', a.id); } return; }
     if (e.target.closest('#wkFinishBtn, #wkFinishTop')) wkFinish();
     else if (e.target.closest('#wkFsBtn')) wkFullscreen();
   });
@@ -5708,9 +5731,9 @@
   window.addEventListener('beforeunload', e => {
     if (!wkLive()) return;
     e.preventDefault();
-    e.returnValue = 'Идёт контрольная — не покидайте вкладку.';
+    e.returnValue = 'Идёт самостоятельная — не покидайте вкладку.';
   });
-  /** Вернулся на вкладку во время контрольной: учителю — уход, ученику — напоминание. */
+  /** Вернулся на вкладку во время самостоятельной: учителю — уход, ученику — напоминание. */
   function wkCameBack(sec) {
     const a = wkLive();
     if (!a) return false;
@@ -5718,7 +5741,7 @@
     api('asg/away', { id: a.id, kind: 'away', dur: Math.round(sec) }).catch(() => {});
     wkBar();
     $('#forecastBody').innerHTML = `<h2 class="fm-title">⚠ Не покидайте вкладку</h2>
-      <p class="fm-note">Идёт контрольная «${esc(a.title)}». Уход со страницы на ${Math.round(sec)} с записан, учитель это видит${a.away > 1 ? ` (уже ${a.away} ${plural(a.away, 'раз', 'раза', 'раз')})` : ''}.
+      <p class="fm-note">Идёт самостоятельная «${esc(a.title)}». Уход со страницы на ${Math.round(sec)} с записан, учитель это видит${a.away > 1 ? ` (уже ${a.away} ${plural(a.away, 'раз', 'раза', 'раз')})` : ''}.
       Решайте задания здесь, не переключаясь на другие вкладки и программы.</p>
       <div class="actions"><button type="button" class="btn primary" id="wkBackOk">Понятно, продолжить</button></div>`;
     $('#forecastModal').hidden = false;
@@ -5800,6 +5823,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.39.0', '12.10.2026', ['У работ от учителя появились типы: самостоятельная (бывшая «контрольная»: проверка после сдачи), практическая и домашняя',
+      'В практической и домашней верно или нет видно сразу, две попытки; оценка ставится сама — верно с 1-й попытки полный балл, со 2-й половина, ошибка — 0']],
     ['1.38.0', '12.10.2026', ['«Задания от учителя» — теперь отдельная страница, а не всплывающее окно: карточки подборок «Сейчас» и «Пройденные» с номерами заданий, сроком, оценкой и разбором']],
     ['1.37.2', '12.10.2026', ['Кто перерешивал подборку по кругу ради опыта, лишился всего опыта, набранного с первого такого повтора до закрытия лазейки']],
     ['1.37.1', '12.10.2026', ['Закрыта лазейка: одно и то же задание по кругу из подборки давало опыт каждый раз. Опыт пересчитан — за задание только первое решение']],

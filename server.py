@@ -902,11 +902,14 @@ class DB:
                     ("assignments", "strict", "INTEGER DEFAULT 0"),   # контрольная: одна попытка, результат — после сдачи
                     ("assignments", "closed", "REAL"),                # учитель завершил контрольную для всех
                     ("assignments", "grading", "TEXT"),              # пороги оценки в процентах {"5": 85, "4": 65, "3": 45}
-                    ("asg_runs", "xp", "INTEGER")):                    # сколько опыта принесла контрольная
+                    ("asg_runs", "xp", "INTEGER"),
+                    ("assignments", "kind", "TEXT")):                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
-            c.execute("UPDATE assignments SET strict=1 WHERE COALESCE(strict, 0) = 0")
+            # тип работы: прежние подборки — самостоятельные; «строгий» режим (проверка после сдачи) — только у них
+            c.execute("UPDATE assignments SET kind='self' WHERE kind IS NULL")
+            c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
@@ -1640,7 +1643,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if path == "/api/open":
                 return self.api_open(s, t)
             if path in ("/api/check", "/api/reveal") and strict_locked(db, s, t.get("group") or t["id"]):
-                return self.err(403, "Это задание из контрольной учителя — ответ сдаётся в подборке, один раз")
+                return self.err(403, "Это задание из самостоятельной работы — ответ сдаётся в ней")
             if t.get("parts"):
                 return self.err(400, "вопросы 19–21 проверяются по отдельности")
             if path == "/api/reveal":
@@ -1711,7 +1714,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 for a in db.q("SELECT * FROM assignments WHERE class_id=? ORDER BY created DESC", (s["class_id"],)):
                     real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
                     item = {"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
-                            "tasks": [APP.bank.pid(i) for i in real]}
+                            "kind": a["kind"] or "self", "tasks": [APP.bank.pid(i) for i in real]}
                     if a["strict"]:
                         real = asg_order(real, a["id"], s["id"])      # у каждого ученика свой порядок заданий
                         item["tasks"] = [APP.bank.pid(i) for i in real]
@@ -1719,6 +1722,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     else:
                         done = assignment_done(db, s["id"], real, a["created"])
                         item["done"] = [APP.bank.pid(i) for i in real if i in done]
+                        item["score"] = practice_score(db, a, s["id"], real)      # практическая и домашняя: оценка сама
                     out.append(item)
             return self.send_json({"assignments": out, "in_class": bool(s["class_id"])})
 
@@ -2147,7 +2151,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         aid = to_int(data.get("id") or qs.get("id"))
         a = db.q("SELECT * FROM assignments WHERE id=? AND strict=1", (aid,), one=True)
         if not a or a["class_id"] != s["class_id"]:
-            return self.err(404, "Контрольная не найдена")
+            return self.err(404, "Самостоятельная не найдена")
         real = asg_order([i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks], aid, s["id"])
         run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (aid, s["id"]), one=True)
         now = time.time()
@@ -2156,7 +2160,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/asg/review":
             # разбор сданной контрольной: правильные ответы и решения — когда контрольная закончилась для всех
             if not run or not run["finished"]:
-                return self.err(409, "Разбор откроется после того, как ты сдашь контрольную")
+                return self.err(409, "Разбор откроется после того, как ты сдашь самостоятельную")
             why = asg_review_locked(db, a)
             if why:
                 return self.send_json({"locked": why, "title": a["title"]})
@@ -2177,12 +2181,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/asg/start":
             if not run:
                 if a["closed"]:
-                    return self.err(409, "Учитель уже завершил эту контрольную")
+                    return self.err(409, "Учитель уже завершил эту самостоятельную")
                 db.x("INSERT INTO asg_runs(asg_id, student_id, started, last, answers) VALUES(?,?,?,?,?)", (aid, s["id"], now, now, "{}"))
                 db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind) VALUES(?,?,?,'start')", (aid, s["id"], now))
             return self.send_json(asg_run_public(db, a, s["id"], real))
         if not run:
-            return self.err(409, "Сначала начните контрольную")
+            return self.err(409, "Сначала начните самостоятельную")
         if path == "/api/asg/away":
             # ушёл со вкладки или вышел из полного экрана — учителю в живую сводку и в ленту
             kind = "fs" if data.get("kind") == "fs" else "away"
@@ -2202,7 +2206,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tid = APP.bank.real(data.get("task")) or ""
             t = APP.bank.tasks.get(tid)
             if not t or (tid not in real and t.get("group") not in real):
-                return self.err(404, "Такого задания в контрольной нет")
+                return self.err(404, "Такого задания в самостоятельной нет")
             if t.get("parts"):
                 return self.err(400, "вопросы 19–21 сдаются по отдельности")
             ans = str(data.get("answer") or "")[:400]
@@ -2905,7 +2909,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 prog = [{"id": m["id"], "name": m["name"], "done": len(assignment_done(db, m["id"], real, a["created"]))}
                         for m in members]
                 out.append({"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
-                            "strict": bool(a["strict"]), "closed": a["closed"], "grading": asg_grading(a),
+                            "strict": bool(a["strict"]), "kind": a["kind"] or "self", "closed": a["closed"], "grading": asg_grading(a),
                             "tasks": [{"id": i, "n": (APP.bank.tasks.get(i) or {}).get("n"),
                                        "c": (APP.bank.tasks.get(i) or {}).get("c"), "r": (APP.bank.tasks.get(i) or {}).get("r"),
                                        "cname": dict(clusters.labels((APP.bank.tasks.get(i) or {}).get("n"))).get((APP.bank.tasks.get(i) or {}).get("c"), ""),
@@ -2931,20 +2935,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tasks = tasks[:100]
             due = to_float(data.get("due")) or None
             aid = to_int(data.get("id"))
-            strict = 1                         # любая подборка учителя — контрольная
+            kind = data.get("kind") if data.get("kind") in ASG_KINDS else "self"
+            strict = 1 if kind == "self" else 0      # самостоятельная — проверка после сдачи; практическая и домашняя — сразу
             g = data.get("grading") if isinstance(data.get("grading"), dict) else {}
             grading = json.dumps({k: max(0, min(100, to_int(g.get(k, v)))) for k, v in ASG_GRADES.items()})
             if aid:
-                old = db.q("SELECT strict FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
+                old = db.q("SELECT strict, kind, tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
                 if old and old["strict"] and db.q("SELECT 1 FROM asg_runs WHERE asg_id=? LIMIT 1", (aid,), one=True):
-                    strict = 1                     # контрольную, которую уже начали писать, в тренировку не превращаем
-                    if json.loads(db.q("SELECT tasks FROM assignments WHERE id=?", (aid,), one=True)["tasks"]) != tasks:
-                        return self.err(409, "Контрольную уже начали писать — состав заданий менять нельзя")
-                db.x("UPDATE assignments SET title=?, tasks=?, due=?, strict=?, grading=? WHERE id=? AND class_id=?",
-                     (title, json.dumps(tasks), due, strict, grading, aid, cid))
+                    if kind != "self":
+                        return self.err(409, "Самостоятельную уже начали писать — тип работы менять нельзя")
+                    if json.loads(old["tasks"]) != tasks:
+                        return self.err(409, "Самостоятельную уже начали писать — состав заданий менять нельзя")
+                db.x("UPDATE assignments SET title=?, tasks=?, due=?, strict=?, grading=?, kind=? WHERE id=? AND class_id=?",
+                     (title, json.dumps(tasks), due, strict, grading, kind, aid, cid))
             else:
-                aid = db.x("INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading) VALUES(?,?,?,?,?,?,?)",
-                           (cid, title, json.dumps(tasks), now, due, strict, grading))
+                aid = db.x("INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading,kind) VALUES(?,?,?,?,?,?,?,?)",
+                           (cid, title, json.dumps(tasks), now, due, strict, grading, kind))
             return self.send_json({"ok": True, "id": aid})
 
         if path == "/api/admin/assignment/delete" and method == "POST":
@@ -2979,13 +2985,24 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         n += 1
                 return self.send_json({"ok": True, "finished": n})
             items = asg_items(real)
-            runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (aid,))}
-            rows = []
-            sols = {}                              # сколько решений (кода) прикреплено к заданиям контрольной
+            sols = {}                              # сколько решений (кода) прикреплено к заданиям работы
             if real:
                 for x in db.q(f"""SELECT student_id, COUNT(*) AS c FROM solutions WHERE task_id IN ({','.join('?' * len(real))})
                                   AND ts >= ? GROUP BY student_id""", (*real, a["created"] or 0)):
                     sols[x["student_id"]] = x["c"]
+            if not a["strict"]:
+                rows = []
+                for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? ORDER BY name", (a["class_id"],)):
+                    sc = practice_score(db, a, m["id"], real)
+                    rows.append({"id": m["id"], "name": m["name"], "total": len(items), "answered": sc["tried"],
+                                 "status": "done" if sc["tried"] >= len(items) else "work" if sc["tried"] else "none",
+                                 "ok": sc["ok"], "half": sc["half"], "bad": sc["bad"], "pct": sc["pct"], "grade": sc["grade"],
+                                 "attempts": sc["attempts"], "online": bool(m["last_seen"] and now - m["last_seen"] < 60),
+                                 "sol": sols.get(m["id"], 0), "tasks": len(real)})
+                return self.send_json({"id": aid, "title": a["title"], "strict": False, "kind": a["kind"], "closed": a["closed"],
+                                       "grading": asg_grading(a), "total": len(items), "rows": rows})
+            runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (aid,))}
+            rows = []
             for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? ORDER BY name", (a["class_id"],)):
                 r = runs.get(m["id"])
                 row = {"id": m["id"], "name": m["name"], "status": "none", "answered": 0, "total": len(items),
@@ -3136,7 +3153,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
 REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное", "history": "повтор из истории",
            "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
-           "weak": "слабое место", "repeat": "повтор решённого", "asg": "подборка учителя", "work": "контрольная", "": ""}
+           "weak": "слабое место", "repeat": "повтор решённого", "asg": "подборка учителя", "work": "самостоятельная", "": ""}
 
 
 def teacher_solution(t, teacher_id=None):
@@ -3847,6 +3864,31 @@ def asg_order(real, aid, sid):
     return out
 
 
+ASG_KINDS = {"self": "Самостоятельная", "practice": "Практическая", "home": "Домашняя работа"}
+
+
+def practice_score(db, a, sid, real):
+    """Практическая и домашняя: оценка ставится сама по ответам после выдачи. За задание — первый итог:
+    верно с 1-й попытки — 1, со 2-й — 0.5, неверно или «Показать ответ» — 0; не решал — 0 (пока работа идёт — не в счёт)."""
+    items = asg_items(real)
+    keys = set(items)
+    first, attempts = {}, 0
+    if items:
+        for r in db.q(f"""SELECT task_id, score FROM attempts WHERE student_id=? AND ts>=? AND exam IS NULL
+                          AND task_id IN ({','.join('?' * len(items))}) ORDER BY ts, id""", (sid, a["created"] or 0, *items)):
+            attempts += 1
+            if r["task_id"] in keys and r["task_id"] not in first:
+                first[r["task_id"]] = r["score"] or 0
+    vals = list(first.values())
+    total = sum(vals)
+    pct = int(100 * total / len(items) + 0.5) if items else 0
+    final = bool(a["closed"]) or bool(a["due"] and time.time() > a["due"]) or len(first) >= len(items)
+    return {"tried": len(first), "ok": sum(1 for v in vals if v == 1), "half": sum(1 for v in vals if v == 0.5),
+            "bad": sum(1 for v in vals if v == 0), "pct": pct, "grade": asg_grade(pct, asg_grading(a)) if first else None,
+            "final": final, "attempts": attempts, "total": len(items),
+            "items": {APP.bank.pid(k): first.get(k) for k in items}}
+
+
 def asg_items(real):
     """Что сдаётся в контрольной: задания, а у 19–21 — каждый вопрос отдельно."""
     out = []
@@ -3949,7 +3991,7 @@ def asg_review_locked(db, a):
     done = {r["student_id"] for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NOT NULL", (a["id"],))}
     if members and all(m in done for m in members):
         return None
-    return "Правильные ответы и решения откроются, когда контрольная закончится для всех: учитель её завершит, пройдёт срок или сдаст весь класс."
+    return "Правильные ответы и решения откроются, когда самостоятельная закончится для всех: учитель её завершит, пройдёт срок или сдаст весь класс."
 
 
 def strict_locked(db, s, real_id):
