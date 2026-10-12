@@ -5017,43 +5017,49 @@
   }
 
   // ------------------------------------------------------------ турниры
-  /* Наборы на 4 и 8 игроков: набрались — турнир начинается сам. Сетка на выбывание, матч — одинаковые задания обоим,
-     на раунд сутки; больше решил — проходишь дальше, поровну — кто быстрее. Пока — по коду доступа. */
-  let TOUR = null, TOUR_LOCKED = false;
+  /* Как в футболе: набор на 4, 8 или 12 игроков (каждого вида — один турнир в сутки) → жеребьёвка по корзинам →
+     группы по 4, каждый с каждым (победа 3 очка, ничья 1, «счёт» — решённые задания) → плей-офф и матч за 3-е место. */
+  let TOUR = null;
   async function loadDuels() {
     if (!SERVER || !student || TEACHER) return;
-    try { TOUR = await api('tour'); TOUR_LOCKED = false; } catch (e) {
-      if (e.status === 403) { TOUR = null; TOUR_LOCKED = true; renderDuelCard(); renderTourPage(); }
-      return;
-    }
-    // мой начатый матч решается как подборка: задания по порядку
+    try { TOUR = await api('tour'); } catch (e) { return; }
+    // начатые матчи решаются как подборка: задания по порядку
     ASG = ASG.filter(a => !a.duel);
-    const m = tourMyMatch();
-    if (m && m.tasks && !m.done) {
+    for (const m of tourMyMatches()) {
+      if (m.status !== 'play' || !m.tasks || m.done) continue;
       const op = m.mine === 'a' ? m.b : m.a;
-      ASG.push({ id: 'tm-' + m.id, duel: 'tm' + m.id, tour: m.id, title: `${m.rname}: матч с ${op ? op.name : '?'}`, tasks: m.tasks, done: [], created: m.since });
+      ASG.push({ id: 'tm-' + m.id, duel: 'tm' + m.id, tour: m.id, title: `${m.stage}: матч с ${op ? op.name : '?'}`, tasks: m.tasks, done: [], created: m.since });
     }
     renderDuelCard();
     renderAsgCard();
     renderTourPage();
   }
-  /** Мой текущий (не сыгранный до конца) матч в идущем турнире. */
+  /** Все мои матчи текущего турнира (группа, плей-офф, за 3-е место) с названием стадии. */
+  function tourMyMatches() {
+    const T = TOUR && TOUR.mine;
+    if (!T || !T.groups) return [];
+    const out = [];
+    for (const g of T.groups) for (const m of g.matches) if (m.mine) out.push({ ...m, stage: `Группа ${g.name}` });
+    for (const r of T.playoff) for (const m of r.matches) if (m.mine) out.push({ ...m, stage: r.name });
+    if (T.third && T.third.mine) out.push({ ...T.third, stage: 'Матч за 3-е место' });
+    return out;
+  }
+  /** Матч, который ждёт меня сейчас: начатый, иначе любой несыгранный. */
   function tourMyMatch() {
     const T = TOUR && TOUR.mine;
     if (!T || T.status !== 'run') return null;
-    for (const r of T.rounds) for (const m of r.matches) if (m.mine && m.status === 'play') return { ...m, rname: r.name };
-    return null;
+    const open = tourMyMatches().filter(m => m.status === 'play' && !m.done);
+    return open.find(m => m.started) || open[0] || null;
   }
   function renderDuelCard() {
     const card = $('#duelCard');
     if (!card) return;
     card.hidden = !SERVER || !student || TEACHER;
-    const m = tourMyMatch();
+    const m = tourMyMatch(), T = TOUR && TOUR.mine;
     const lob = TOUR && TOUR.lobbies.find(l => l.me_in);
-    const alert = !!(m && !m.done);
-    $('#duelSub').textContent = TOUR_LOCKED || !TOUR ? 'в разработке' : alert ? 'твой матч!' : m ? 'ждём соперника'
+    $('#duelSub').textContent = !TOUR ? 'наборы открыты' : m ? 'твой матч!' : T && T.status === 'run' ? 'ждём соперников'
       : lob ? `набор ${lob.players.length}/${lob.size}` : 'наборы открыты';
-    card.classList.toggle('alert', alert);
+    card.classList.toggle('alert', !!m);
   }
   const tourLeft = sec => {
     const ms = sec * 1000 - Date.now();
@@ -5062,6 +5068,7 @@
     return h ? `${h} ч ${pad2(mi)} мин` : `${mi} мин`;
   };
   const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+  const TOUR_FMT = { 4: '1 группа → финал и матч за 3-е место', 8: '2 группы → полуфиналы → финал', 12: '3 группы → 1/4 финала → 1/2 → финал' };
   function tourOpen() {
     if (!leaveExam()) return;
     if (isNarrow()) setSideOpen(false);
@@ -5075,90 +5082,105 @@
     window.scrollTo(0, 0);
     loadDuels();                                        // наборы и сетка могли измениться
   }
+  const isMe = p => !!(p && student && p.sid === student.sid);
   function tourPlayer(p, m, side) {
-    if (!p) return `<div class="tb-p empty"><span class="tb-seed"></span><span class="tb-name">ждём победителя</span></div>`;
-    const me = student && p.sid === student.sid;
-    const won = m && m.status === 'done' && m.winner === p.sid, lost = m && m.status === 'done' && m.winner !== p.sid;
-    const sc = m && m.status === 'done' ? `<b class="tb-sc">${m[side + '_solved']}</b>` : '';
-    return `<div class="tb-p${me ? ' me' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}"><span class="tb-seed">${p.seed || ''}</span>
-      <span class="tb-name">${esc(p.name)}${me ? ' (ты)' : ''}</span><small>ур. ${p.level}</small>${sc}</div>`;
+    if (!p) return `<div class="tb-p empty"><span class="tb-seed"></span><span class="tb-name">ждём</span></div>`;
+    const done = m && m.status === 'done';
+    const won = done && m.winner === p.sid, lost = done && m.winner && m.winner !== p.sid;
+    const sc = done ? `<b class="tb-sc">${m[side + '_solved']}</b>` : '';
+    return `<div class="tb-p${isMe(p) ? ' me' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}"><span class="tb-seed">${p.grp || ''}</span>
+      <span class="tb-name">${esc(p.name)}${isMe(p) ? ' (ты)' : ''}</span><small>ур. ${p.level}</small>${sc}</div>`;
+  }
+  function tourBox(m, label) {
+    const note = !m ? '' : m.status === 'done' ? (m.tech ? 'тех. результат' : 'сыгран') : `идёт · ${tourLeft(m.ends)}`;
+    return `<div class="tb-m${m && m.mine ? ' mine' : ''}${m && m.status === 'play' ? ' live' : ''}">${label ? `<div class="tb-lbl">${label}</div>` : ''}
+      ${tourPlayer(m && m.a, m, 'a')}${tourPlayer(m && m.b, m, 'b')}${note ? `<div class="tb-note">${note}</div>` : ''}</div>`;
   }
   function tourBracket(T) {
-    return `<div class="tb">${T.rounds.map(r => {
+    const cols = T.playoff.map(r => {
       const boxes = [];
-      for (let k = 0; k < r.slots; k++) {
-        const m = r.matches.find(x => x.slot === k);
-        const note = !m ? '' : m.status === 'done' ? (m.tech ? 'тех. победа' : 'сыгран') : `идёт · ${tourLeft(m.ends)}`;
-        boxes.push(`<div class="tb-m${m && m.mine ? ' mine' : ''}${m && m.status === 'play' ? ' live' : ''}">
-          ${tourPlayer(m && m.a, m, 'a')}${tourPlayer(m && m.b, m, 'b')}${note ? `<div class="tb-note">${note}</div>` : ''}</div>`);
-      }
+      for (let k = 0; k < r.slots; k++) boxes.push(tourBox(r.matches.find(x => x.slot === k)));
+      if (r.slots === 1) boxes.push(tourBox(T.third, '🥉 Матч за 3-е место'));
       return `<div class="tb-col"><div class="tb-h">${r.name}</div><div class="tb-list">${boxes.join('')}</div></div>`;
-    }).join('')}</div>`;
+    });
+    return `<div class="tb">${cols.join('')}</div>`;
   }
-  function tourPodium(T) {
-    return `<div class="tp">${(T.podium || []).map(p => `<span class="tp-i p${p.place}${student && p.sid === student.sid ? ' me' : ''}">${MEDAL[p.place] || ''} ${esc(p.name)}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</span>`).join('')}</div>`;
+  function tourGroups(T) {
+    const n = T.groups.length;
+    return `<div class="tg-grid">${T.groups.map(g => `<div class="tg"><div class="tg-h">Группа ${g.name}</div>
+      <table class="tg-t"><thead><tr><th></th><th>Участник</th><th title="Игры">И</th><th title="Победы">В</th><th title="Ничьи">Н</th><th title="Поражения">П</th>
+        <th title="Решено — пропущено (как голы)">Задачи</th><th>О</th></tr></thead><tbody>
+      ${g.rows.map(r => `<tr class="${r.me ? 'me' : ''}${r.place <= 2 ? ' q' : n === 3 && r.place === 3 ? ' q3' : ''}"><td>${r.place}</td>
+        <td>${esc(r.name)}${r.me ? ' (ты)' : ''}</td><td>${r.g}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.sf}–${r.sa}</td><td><b>${r.pts}</b></td></tr>`).join('')}
+      </tbody></table>
+      <div class="tg-ms">${g.matches.map(m => `<div class="tg-m${m.mine ? ' mine' : ''}"><span>${esc(m.a.name)}</span>
+        <b>${m.status === 'done' ? `${m.a_solved} : ${m.b_solved}` : '– : –'}</b><span>${esc(m.b.name)}</span></div>`).join('')}</div></div>`).join('')}</div>
+      <p class="fm-muted tg-legend">В плей-офф выходят двое лучших из группы${n === 3 ? ' и две лучшие команды с 3-х мест' : ''}. Порядок: очки → разница задач → решено → время.</p>`;
   }
-  function tourMatchCard() {
-    const m = tourMyMatch(), T = TOUR.mine;
-    if (!m) {
-      const mine = T.players.find(p => student && p.sid === student.sid);
-      const out = T.rounds.some(r => r.matches.some(x => x.mine && x.status === 'done' && x.winner !== student.sid));
-      return `<div class="tm-card ${out ? '' : 'wait'}"><b>${out ? 'Ты выбыл из турнира' : 'Твой матч сыгран — ждём остальные матчи раунда'}</b>
-        <span class="fm-muted">${out ? 'Досмотри турнир: призы получат финалисты и полуфиналисты. В следующий турнир можно записаться, когда этот закончится.'
-          : `Следующий раунд начнётся, когда сыграют все или через ${tourLeft(T.round_ends)}.`}${mine ? '' : ''}</span></div>`;
-    }
-    const op = m.mine === 'a' ? m.b : m.a;
-    const btn = m.done ? '<span class="fm-muted">ты закончил — ждём соперника</span>'
-      : `<button type="button" class="btn primary" data-tour-go="${m.id}">${m.started ? 'Продолжить матч' : 'Играть матч'}</button>
-         ${m.started ? `<button type="button" class="btn ghost" data-tour-fin="${m.id}">Закончить</button>` : ''}`;
-    return `<div class="tm-card live"><div><span class="ap-kind">${m.rname} · твой матч</span>
-        <b>ты против ${esc(op ? op.name : '?')}</b> <small class="fm-muted">${op ? `ур. ${op.level}` : ''}</small>
-        <div class="fm-muted">${TOUR.tasks} одинаковых заданий · осталось ${tourLeft(m.ends)}${m.started ? '' : ' · время пойдёт с нажатия «Играть»'}</div></div>
-      <div class="tm-btns">${btn}</div></div>`;
+  function tourMyList(T) {
+    const ms = tourMyMatches();
+    if (!ms.length) return '';
+    const rows = ms.map(m => {
+      const meA = m.mine === 'a', op = meA ? m.b : m.a;
+      let st, btn = '';
+      if (m.status === 'done') {
+        const my = meA ? m.a_solved : m.b_solved, his = meA ? m.b_solved : m.a_solved;
+        const res = !m.winner ? (m.tech ? 'тех. поражение' : 'ничья') : m.winner === student.sid ? 'победа' : 'поражение';
+        st = `<b class="tm-res ${!m.winner ? (m.tech ? 'l' : 'd') : m.winner === student.sid ? 'w' : 'l'}">${res} ${my}:${his}</b>${m.tech ? ' <small>(кто-то не сыграл)</small>' : ''}`;
+      } else if (m.done) st = 'ты сыграл — ждём соперника';
+      else {
+        st = `осталось ${tourLeft(m.ends)}`;
+        btn = `<button type="button" class="btn primary" data-tour-go="${m.id}">${m.started ? 'Продолжить' : 'Играть'}</button>
+          ${m.started ? `<button type="button" class="btn ghost" data-tour-fin="${m.id}">Закончить</button>` : ''}`;
+      }
+      return `<div class="tm-row${m.status === 'play' && !m.done ? ' live' : ''}"><div><span class="ap-kind">${m.stage}</span>
+        <b>ты — ${esc(op ? op.name : '?')}</b> <small class="fm-muted">${op ? `ур. ${op.level}` : ''}</small><div class="fm-muted">${st}</div></div>
+        <div class="tm-btns">${btn}</div></div>`;
+    }).join('');
+    return `<h3 class="ap-h">Мои матчи</h3><p class="fm-muted">Матч — ${TOUR.tasks} одинаковых заданий тебе и сопернику, время идёт с нажатия «Играть». Матчи играются по одному.</p>
+      <div class="tm-list">${rows}</div>`;
   }
   function renderTourPage() {
     if (!courseShown || pageKind !== 'tour') return;
     $('#scopeInfo').innerHTML = '<span class="scope-title">Турниры</span>';
     document.body.classList.add('asg-wide');
-    if (TOUR_LOCKED || !TOUR) {
-      trainerEl.innerHTML = `<div class="course"><div class="crs-lock">
-        <div class="crs-lock-ic">🏆</div><h2>Турниры — в разработке</h2>
-        <p>Набор на турнир, сетка на выбывание, призы опытом. Раздел дорабатывается — войти можно по коду доступа.</p>
-        ${TOUR_LOCKED ? `<form class="login-form crs-lock-form" id="devForm" autocomplete="off">
-          <input class="inp" id="devCode" inputmode="numeric" autocomplete="off" placeholder="Код доступа" required>
-          <button class="btn primary" type="submit">Войти</button></form>` : '<p class="fm-muted">Загружаем…</p>'}
-      </div></div>`;
-      return;
-    }
+    if (!TOUR) { trainerEl.innerHTML = '<div class="course"><p class="fm-muted">Загружаем турниры…</p></div>'; return; }
     const D = TOUR, T = D.mine;
-    const prizes = Object.entries(D.prizes).map(([pl, xp]) => `${MEDAL[pl]} ${xp} XP`).join(' · ');
     const lobby = l => {
       const n = l.players.length;
-      const btn = l.me_in ? `<button type="button" class="btn" data-tour-leave="${l.id}">Выйти из набора</button>`
-        : D.busy ? '<span class="fm-muted">ты уже в другом турнире</span>'
-          : `<button type="button" class="btn primary" data-tour-join="${l.id}">Записаться</button>`;
-      return `<div class="ap-card tl-card${l.me_in ? ' going' : ''}">
-        <div class="ap-top"><span class="ap-ico">${l.size === 4 ? '⚡' : '🏆'}</span><div><span class="ap-kind">${l.size} игроков · ${l.size === 4 ? '2 раунда' : '3 раунда'}</span>
-          <b>${esc(l.title)}</b><small>набрано ${n} из ${l.size}${n < l.size ? ` — ещё ${l.size - n} и старт!` : ''}</small></div></div>
-        <i class="xp-bar"><b style="width:${pct(n / l.size)}%"></b></i>
+      const prizes = Object.entries(l.prizes).map(([pl, xp]) => `${MEDAL[pl]} ${xp}`).join(' · ');
+      const btn = !l.id ? `<span class="fm-muted">Сегодня уже разыгран — новый набор откроется завтра</span>`
+        : l.me_in ? `<button type="button" class="btn" data-tour-leave="${l.id}">Выйти из набора</button>`
+          : D.busy ? '<span class="fm-muted">ты уже в другом турнире</span>'
+            : `<button type="button" class="btn primary" data-tour-join="${l.id}">Записаться</button>`;
+      return `<div class="ap-card tl-card${l.me_in ? ' going' : ''}${l.id ? '' : ' done'}">
+        <div class="ap-top"><span class="ap-ico">${{ 4: '⚡', 8: '🏆', 12: '🌍' }[l.size]}</span><div><span class="ap-kind">${l.size} игроков · ${TOUR_FMT[l.size]}</span>
+          <b>${esc(l.title || l.name)}</b><small>${l.id ? `набрано ${n} из ${l.size}${n < l.size ? ` — ещё ${l.size - n} и старт!` : ''}` : 'один турнир в сутки'} · призы ${prizes} XP</small></div></div>
+        ${l.id ? `<i class="xp-bar"><b style="width:${pct(n / l.size)}%"></b></i>
         <div class="tl-seats">${Array.from({ length: l.size }, (_, i) => l.players[i]
-          ? `<span class="tl-seat on${student && l.players[i].sid === student.sid ? ' me' : ''}" title="ур. ${l.players[i].level}">${esc(l.players[i].name)}</span>`
-          : '<span class="tl-seat">свободно</span>').join('')}</div>
+          ? `<span class="tl-seat on${isMe(l.players[i]) ? ' me' : ''}" title="ур. ${l.players[i].level}">${esc(l.players[i].name)}</span>`
+          : '<span class="tl-seat">свободно</span>').join('')}</div>` : ''}
         <div class="ap-btns">${btn}</div></div>`;
     };
     trainerEl.innerHTML = `<div class="course asg-page tour-page">
-      <div class="crs-hero"><div><div class="crs-kicker">Турниры <span class="chip">в разработке</span></div><h2>Сетка на выбывание</h2>
-        <p>Запишись в набор — как только наберётся нужное число игроков, турнир <b>начнётся сам</b>. Сильные по опыту разводятся по сетке, чтобы встретиться как можно позже.
-          Матч — <b>${D.tasks} одинаковых заданий</b> тебе и сопернику: больше решил — проходишь дальше, поровну — кто быстрее. На раунд — <b>${D.hours} ч</b>, не сыграл — техническое поражение.</p>
-        <p>Призы: ${prizes} (оба полуфиналиста) и награда <b>🎖 Победитель турнира</b> в профиль.</p></div>
+      <div class="crs-hero"><div><div class="crs-kicker">Турниры</div><h2>Как в футболе</h2>
+        <p>Запишись в набор — как только наберутся все, турнир <b>начнётся сам</b>. Жеребьёвка по корзинам (по опыту) → <b>группы по 4</b>: каждый с каждым,
+          победа — 3 очка, ничья — 1, «счёт» матча — сколько заданий решил каждый. Лучшие выходят в <b>плей-офф</b>: там при равном счёте проходит тот, кто решил быстрее, — как серия пенальти.
+          Финал и матч за 3-е место. На групповой этап — ${D.group_hours} ч, на каждый раунд плей-офф — ${D.po_hours} ч, не сыграл — техническое поражение.</p>
+        <p>Каждого вида — <b>один турнир в сутки</b>. Чемпион получает награду <b>🎖 Победитель турнира</b> в профиль.</p></div>
         <div class="crs-prog"><b>${D.wins}</b><span>${plural(D.wins, 'победа', 'победы', 'побед')} в турнирах</span></div></div>
-      ${T ? `<h3 class="ap-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">идёт · ${T.rounds[T.round - 1].name.toLowerCase()}</span>` : '<span class="chip good">завершён</span>'}</h3>
-        ${T.status === 'run' ? tourMatchCard() : tourPodium(T)}
-        ${tourBracket(T)}` : ''}
+      ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">${esc(T.stage.toLowerCase())} · осталось ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}</h3>
+        ${T.status === 'done' ? tourPodium(T) : ''}
+        ${T.status === 'run' ? tourMyList(T) : ''}
+        <h3 class="ap-h">Групповой этап</h3>${tourGroups(T)}
+        <h3 class="ap-h">Плей-офф</h3>${tourBracket(T)}` : ''}
       <h3 class="ap-h">Наборы</h3><div class="ap-grid tl-grid">${D.lobbies.map(lobby).join('')}</div>
       ${D.done.length ? `<h3 class="ap-h">Завершённые турниры</h3><div class="td-list">${D.done.map(t => `<div class="td-row"><b>${esc(t.title)}</b>
         <small class="fm-muted">${t.finished ? apDay(t.finished) : ''}</small>${tourPodium(t)}</div>`).join('')}</div>` : ''}
     </div>`;
+  }
+  function tourPodium(T) {
+    return `<div class="tpod">${(T.podium || []).map(p => `<span class="tpod-i p${p.place}${isMe(p) ? ' me' : ''}">${MEDAL[p.place] || `${p.place}.`} ${esc(p.name)}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</span>`).join('')}</div>`;
   }
   async function tourAction(path, body, msg) {
     let d;
@@ -5197,13 +5219,6 @@
     if (fin && confirm('Закончить матч? Засчитаются задания, решённые до этого момента.')) {
       if (await finishTourMatch(+fin.dataset.tourFin)) { toast('Матч закончен — ждём соперника', 3000); await loadDuels(); }
     }
-  });
-  trainerEl.addEventListener('submit', async e => {
-    if (e.target.id !== 'devForm') return;
-    e.preventDefault();
-    try { await api('dev/unlock', { code: $('#devCode').value }); } catch (err) { toast(err.message || 'Неверный код', 3000); return; }
-    toast('Доступ к турнирам открыт', 2500);
-    await loadDuels();
   });
   $('#forecastBody').addEventListener('click', e => {
     const t = e.target;
@@ -5247,7 +5262,7 @@
     const inv = tm && !tm.done ? [tm] : [];
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Привет! Вот что нового</h2>${res}
       ${note ? `<div class="sum-note${passed ? ' hot' : ''}">${note}</div>` : ''}
-      ${inv.length ? `<div class="sum-note hot">🏆 Турнир: ${esc(tm.rname.toLowerCase())} ждёт тебя — осталось ${tourLeft(tm.ends)}. <button type="button" class="btn ghost" id="sumDuels">К матчу</button></div>` : ''}
+      ${inv.length ? `<div class="sum-note hot">🏆 Турнир: ${esc(tm.stage.toLowerCase())} — твой матч ждёт тебя — осталось ${tourLeft(tm.ends)}. <button type="button" class="btn ghost" id="sumDuels">К матчу</button></div>` : ''}
       ${DAILY && DAILY.task && !DAILY.my_place && !DAILY.started ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
       ${boardsHtml(d, 'league')}
       <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
@@ -5964,6 +5979,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.43.0', '12.10.2026', ['Турниры как в футболе: жеребьёвка по корзинам, групповой этап (победа — 3 очка, ничья — 1, счёт — решённые задания), затем плей-офф и матч за 3-е место',
+      'Три вида турниров: на 4, 8 и 12 игроков — каждого вида по одному в сутки',
+      'Турниры открыты для всех — код больше не нужен']],
     ['1.42.0', '12.10.2026', ['Турниры: наборы на 4 и 8 игроков — как только набралось нужное число, турнир начинается сам',
       'Сетка на выбывание (четвертьфинал, полуфинал, финал): матч — 5 одинаковых заданий тебе и сопернику, больше решил — проходишь дальше, поровну — кто быстрее; на раунд сутки',
       'Призы: 100, 60 и 30 XP и награда «🎖 Победитель турнира» в профиль. Раздел пока в разработке — вход по коду']],
