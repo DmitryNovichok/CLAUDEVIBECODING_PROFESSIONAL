@@ -1862,3 +1862,4 @@ button.pf-item:hover { border-color: var(--accent); }
 .ap-state b { color: var(--text); }
 .ap-late { color: var(--weak); font-weight: 700; }
 .ap-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.ap-kind { display: block; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); }

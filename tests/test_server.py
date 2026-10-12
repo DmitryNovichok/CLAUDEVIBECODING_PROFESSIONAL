@@ -418,6 +418,37 @@ class ServerTest(unittest.TestCase):
         self.assertIn("fire", d["boards"])
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
 
+    def test_practice_assignment_grades_itself(self):
+        # практическая (и домашняя): верно или нет — сразу, оценка — сама по ответам после выдачи
+        tok = self.login("Практиков Пётр")
+        me = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "11П"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [me]})
+        st, d = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Практика", "kind": "practice",
+                                                                  "grading": {"5": 90, "4": 70, "3": 40}, "tasks": ["b:5", "b:6", "b:27"]})
+        aid = d["id"]
+        a = self.req("GET", "/api/assignments", token=tok)[1]["assignments"][0]
+        self.assertEqual((a["kind"], a.get("strict"), a["score"]["tried"], a["score"]["grade"]), ("practice", None, 0, None))
+        pid5, pid6, pid27 = (server.APP.bank.pid(x) for x in ("b:5", "b:6", "b:27"))
+        self.req("POST", "/api/open", {"task": pid5}, tok)
+        st, r = self.check(tok, pid5, answer="12", reason="asg")
+        self.assertEqual(st, 200)
+        self.assertTrue(r["correct"])                                       # проверка сразу — не как в самостоятельной
+        self.req("POST", "/api/open", {"task": pid6}, tok)
+        self.check(tok, pid6, answer="1", reason="asg")
+        self.check(tok, pid6, answer="7", reason="asg")                     # со второй попытки — половина
+        self.req("POST", "/api/open", {"task": pid27}, tok)
+        self.check(tok, pid27, answer="1 1", reason="asg")
+        self.check(tok, pid27, answer="2 2", reason="asg")                  # не решил — 0
+        sc = self.req("GET", "/api/assignments", token=tok)[1]["assignments"][0]["score"]
+        self.assertEqual((sc["tried"], sc["ok"], sc["half"], sc["bad"], sc["pct"], sc["grade"], sc["final"]), (3, 1, 1, 1, 50, 3, True))
+        st, live = self.admin("GET", f"/api/admin/asg/live?id={aid}")
+        row = next(x for x in live["rows"] if x["id"] == me)
+        self.assertEqual((row["status"], row["grade"], row["pct"]), ("done", 3, 50))
+        st, d = self.admin("GET", f"/api/admin/assignments?class_id={cid}")
+        self.assertEqual(d["assignments"][0]["kind"], "practice")
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
     def test_strict_assignment(self):
         # контрольная: ответ один раз, проверка — после сдачи, учитель видит онлайн и может завершить для всех
         tok = self.login("Контрольнов Костя")

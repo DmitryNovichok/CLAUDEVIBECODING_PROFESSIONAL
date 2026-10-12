@@ -345,7 +345,8 @@
       ${D.class_id && BLD.asg.length ? `<label class="bld-f">Изменить готовую <select class="adm-select" id="bdLoad"><option value="">— новая подборка —</option>${BLD.asg.map(a => `<option value="${a.id}"${a.id === D.id ? ' selected' : ''}>${esc(a.title)} (${a.tasks.length})</option>`).join('')}</select></label>` : ''}
       <input class="inp" id="bdTitle" maxlength="80" placeholder="Название, например «№5: двоичная запись»" value="${esc(D.title)}">
       <label class="bld-f">Срок <input class="inp" type="date" id="bdDue" value="${esc(D.due || '')}"></label>
-      <p class="adm-hint">📝 Подборка пишется как контрольная: одна попытка на задание, результат и оценка — после сдачи, полный экран, онлайн-сводка у вас.</p>
+<label class="adm-hint">Тип работы <select class="adm-select" id="bdKind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(D.kind || 'self') === k ? ' selected' : ''}>${v.name}</option>`).join('')}</select></label>
+      <p class="adm-hint" id="bdKindHint">${KINDS[D.kind || 'self'].hint}</p>
       <div class="bld-sum"><b>${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
         ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${n}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
       ${total ? `<div class="bld-rbar" title="Распределение по сложности">${byR.map((c, r) => r && c ? `<i class="rk${r}" style="flex:${c}" title="${RANK_SHORT[r]}: ${c}"></i>` : '').join('')}</div>` : ''}
@@ -418,7 +419,7 @@
       const a = BLD.asg.find(x => String(x.id) === e.target.value);
       if (!a) { Object.assign(BLD.d, { id: null, title: '', due: '', tasks: [] }); }
       else {
-        Object.assign(BLD.d, { id: a.id, title: a.title, strict: !!a.strict, due: a.due ? new Date(a.due * 1000).toISOString().slice(0, 10) : '',
+        Object.assign(BLD.d, { id: a.id, title: a.title, kind: a.kind || 'self', due: a.due ? new Date(a.due * 1000).toISOString().slice(0, 10) : '',
           tasks: a.tasks.filter(t => !t.missing).map(t => ({ id: t.id, n: t.n, c: t.c, cname: t.cname || '', r: t.r, snip: t.snip })) });
       }
       bldSave(); renderBldDraft(); if (BLD.res) renderBldList();
@@ -447,7 +448,7 @@
     if (e.target.closest('#bdSend')) {
       if (!D.title.trim()) { toast('Введите название подборки'); $('#bdTitle').focus(); return; }
       try {
-        await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, strict: true, grading: grades(),
+        await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, kind: D.kind || 'self', grading: grades(),
           due: D.due ? new Date(D.due + 'T23:59:00').getTime() / 1000 : null, tasks: D.tasks.map(t => t.id) });
         const cls = (BLD.cat.classes.find(c => String(c.id) === String(D.class_id)) || {}).name || '';
         toast(D.id ? 'Подборка сохранена' : `Подборка отправлена классу ${cls}`);
@@ -770,7 +771,7 @@
       const done = a.progress.filter(p => p.done >= total).length;
       const zero = a.progress.filter(p => !p.done).length;
       const late = a.due && a.due * 1000 < Date.now();
-      if (a.strict) return strictAsgHtml(a);
+      return strictAsgHtml(a);
       return `<div class="adm-asg">
         <div class="adm-asg-head"><b>${esc(a.title)}</b>
           <span class="adm-hint">${total} ${plural(total, 'задание', 'задания', 'заданий')} · выдано ${fmtDate(a.created)}${a.due ? ` · срок <span style="${late ? 'color:var(--weak)' : ''}">${fmtDate(a.due)}</span>` : ''}</span>
@@ -826,13 +827,25 @@
       <div id="asgEditor"></div>
       ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}`;
   }
-  // ---------- контрольная: онлайн-сводка, «Завершить для всех»
+  const KINDS = {
+    self: { name: 'Самостоятельная', ico: '📝', hint: 'Ответ сдаётся без проверки (можно один раз изменить), результат и оценка — после сдачи. Полный экран, уходы со вкладки видны вам онлайн.' },
+    practice: { name: 'Практическая', ico: '🛠', hint: 'Ученик сразу видит, верно или нет, — две попытки на задание. Оценка ставится сама: верно с 1-й попытки — полный балл, со 2-й — половина, ошибка — 0.' },
+    home: { name: 'Домашняя работа', ico: '🏠', hint: 'Как практическая: проверка сразу, две попытки, оценка ставится сама по попыткам и ответам.' },
+  };
+  document.addEventListener('change', e => {
+    const k = e.target.closest('#dKind, #bdKind');
+    if (!k) return;
+    const h = $('#' + k.id + 'Hint');
+    if (h) h.textContent = KINDS[k.value].hint;
+    if (k.id === 'bdKind') { BLD.d.kind = k.value; bldSave(); }
+  });
+  // ---------- работа класса: онлайн-сводка, «Завершить для всех»
   let liveTimer = null, liveId = null;
   function strictAsgHtml(a) {
     const total = a.tasks.length;
     return `<div class="adm-asg strict" data-live-box="${a.id}">
-      <div class="adm-asg-head"><b>📝 ${esc(a.title)}</b>
-        <span class="adm-hint">контрольная · ${total} ${plural(total, 'задание', 'задания', 'заданий')} · выдано ${fmtDate(a.created)}${a.closed ? ` · <b style="color:var(--weak)">завершена ${fmtWhen(a.closed)}</b>` : ''}</span>
+      <div class="adm-asg-head"><b>${(KINDS[a.kind] || KINDS.self).ico} ${esc(a.title)}</b>
+        <span class="adm-hint">${(KINDS[a.kind] || KINDS.self).name.toLowerCase()} · ${total} ${plural(total, 'задание', 'задания', 'заданий')} · выдано ${fmtDate(a.created)}${a.closed ? ` · <b style="color:var(--weak)">завершена ${fmtWhen(a.closed)}</b>` : ''}</span>
         <span class="adm-actions"><button type="button" class="btn${liveId === a.id ? ' primary' : ''}" data-live="${a.id}">${liveId === a.id ? 'Скрыть онлайн' : '● Онлайн'}</button>
         <button type="button" class="btn ghost" data-asg-edit="${a.id}">Изменить</button>
         <button type="button" class="btn ghost danger" data-asg-del="${a.id}">Удалить</button></span></div>
@@ -844,7 +857,7 @@
     if (!box) { clearInterval(liveTimer); liveId = null; return; }
     let d;
     try { d = await api('asg/live?id=' + liveId); } catch (e) { if (e.status !== 401) box.innerHTML = `<p class="adm-hint">${esc(e.message)}</p>`; return; }
-    const st = { none: 'не начинал', work: 'пишет', done: 'сдал' };
+    const st = d.strict ? { none: 'не начинал', work: 'пишет', done: 'сдал' } : { none: 'не начинал', work: 'решает', done: 'сделал все' };
     const rows = d.rows.map(r => `<tr class="${r.status === 'work' ? 'live-work' : ''}">
       <td class="name"><button type="button" class="task-link" data-open-st="${r.id}">${esc(r.name)}</button></td>
       <td>${r.status === 'work' && r.online ? '<span class="live-dot" title="на сайте"></span>' : ''}${st[r.status]}${r.forced ? ' <span class="adm-hint">(завершил учитель)</span>' : ''}</td>
@@ -857,8 +870,8 @@
       <td class="num">${r.fs ? `<b style="color:var(--weak)">${r.fs}</b>` : ''}</td>
       <td class="num" title="Заданий с прикреплённым решением (кодом)">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td></tr>`).join('');
     const work = d.rows.filter(r => r.status === 'work').length, done = d.rows.filter(r => r.status === 'done').length;
-    box.innerHTML = `<div class="adm-live-bar"><span class="adm-hint">Пишут: <b>${work}</b> · сдали: <b>${done}</b> из ${d.rows.length} · обновляется каждые 5 секунд.
-        Верно/неверно видите только вы — ученик узнает результат после сдачи.</span>
+    box.innerHTML = `<div class="adm-live-bar"><span class="adm-hint">${d.strict ? 'Пишут' : 'Решают'}: <b>${work}</b> · ${d.strict ? 'сдали' : 'сделали все'}: <b>${done}</b> из ${d.rows.length} · обновляется каждые 5 секунд.
+        ${d.strict ? 'Верно/неверно видите только вы — ученик узнает результат после сдачи.' : 'Оценка ставится сама: верно с 1-й попытки — полный балл, со 2-й — половина.'}</span>
       ${d.closed ? `<button type="button" class="btn ghost" data-reopen="${d.id}">Открыть снова</button>`
         : `<button type="button" class="btn danger" data-close="${d.id}">Завершить для всех</button>`}</div>
       <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Ученик</th><th>Статус</th><th class="num">Сдано</th><th class="num">Верно</th>
@@ -877,8 +890,8 @@
     }
     const cl = e.target.closest('[data-close]');
     if (cl) {
-      if (!confirm('Завершить контрольную для всех? Кто ещё пишет — получит оценку по уже сданным ответам. Начать её больше будет нельзя.')) return;
-      try { const r = await api('asg/close', { id: +cl.dataset.close }); toast(`Контрольная завершена${r.finished ? ` · сдано за учеников: ${r.finished}` : ''}`); }
+      if (!confirm('Завершить работу для всех? Оценка ставится по уже сданным ответам. Начать её больше будет нельзя.')) return;
+      try { const r = await api('asg/close', { id: +cl.dataset.close }); toast(`Работа завершена${r.finished ? ` · сдано за учеников: ${r.finished}` : ''}`); }
       catch (err) { toast(err.message); return; }
       await refreshClassAsg(); liveLoad();
       return;
@@ -895,7 +908,7 @@
   }
   async function refreshClassAsg() {
     try { curClass.assignments = (await api('assignments?class_id=' + curClass.id)).assignments; } catch (e) { return; }
-    curClass.assignments.forEach(a => a.strict && asgCardRedraw(a.id));
+    curClass.assignments.forEach(a => asgCardRedraw(a.id));
   }
 
   // ---------- статистика класса за период: урок, день, неделя — по всем заданиям или по подборке
@@ -1038,8 +1051,8 @@
   // ------------------------------------------------------------ конструктор подборки
   let draft = null;           // { id, title, due, tasks: [{ id, n, snip }] }
   function editAssignment(a) {
-    draft = a ? { id: a.id, title: a.title, due: a.due, strict: !!a.strict, tasks: a.tasks.filter(t => !t.missing).map(t => ({ id: t.id, n: t.n, snip: t.snip })) }
-      : { id: null, title: '', due: null, strict: true, tasks: [] };
+    draft = a ? { id: a.id, title: a.title, due: a.due, kind: a.kind || 'self', tasks: a.tasks.filter(t => !t.missing).map(t => ({ id: t.id, n: t.n, snip: t.snip })) }
+      : { id: null, title: '', due: null, kind: 'self', tasks: [] };
     renderDraft();
     $('#asgEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -1053,7 +1066,8 @@
         <input class="inp" id="dTitle" placeholder="Название, например «Графы: №1 и №15»" maxlength="80" value="${esc(draft.title)}" required>
         <label class="adm-hint">срок <input class="inp" type="date" id="dDue" value="${due}"></label>
       </div>
-      <p class="adm-hint">📝 Подборка пишется как контрольная: одна попытка на задание, результат и оценка — после сдачи, полный экран, онлайн-сводка у вас.</p>
+<label class="adm-hint">Тип работы <select class="adm-select" id="dKind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(draft.kind || 'self') === k ? ' selected' : ''}>${v.name}</option>`).join('')}</select></label>
+      <p class="adm-hint" id="dKindHint">${KINDS[draft.kind || 'self'].hint}</p>
       <div class="adm-draft-row">
         <span class="adm-hint">Добавить случайные:</span>
         <select class="adm-select" id="dNum">${Array.from({ length: 27 }, (_, i) => `<option value="${i + 1}">№${i + 1}</option>`).join('')}</select>
@@ -1079,7 +1093,7 @@
     draft.title = $('#dTitle').value;
     const due = $('#dDue').value;
     try {
-      await api('assignment/save', { id: draft.id, class_id: curClass.id, title: draft.title, strict: true, grading: grades(),
+      await api('assignment/save', { id: draft.id, class_id: curClass.id, title: draft.title, kind: $('#dKind').value, grading: grades(),
         due: due ? new Date(due + 'T23:59:00').getTime() / 1000 : null, tasks: draft.tasks.map(t => t.id) });
       toast(draft.id ? 'Подборка сохранена' : 'Подборка отправлена классу');
       draft = null;
@@ -1089,7 +1103,7 @@
   $('#classBody').addEventListener('click', async e => {
     if (!draft) return;
     const t = e.target;
-    const keep = () => { draft.title = $('#dTitle').value; const d = $('#dDue').value; draft.due = d ? new Date(d + 'T23:59:00').getTime() / 1000 : null; };
+    const keep = () => { draft.kind = $('#dKind').value; draft.title = $('#dTitle').value; const d = $('#dDue').value; draft.due = d ? new Date(d + 'T23:59:00').getTime() / 1000 : null; };
     if (t.closest('#dCancel')) { draft = null; renderDraft(); return; }
     if (t.closest('#dPick')) {
       keep();
@@ -1420,8 +1434,8 @@
   // уведомления контрольных: начал, ушёл со вкладки, вышел из полного экрана, сдал
   let feedEv = [], evSince = 0, evPolled = false;
   const EV_TEXT = {
-    start: () => 'начал(а) контрольную', away: e => `ушёл(ла) со вкладки${e.info ? ` на ${e.info} с` : ''}`,
-    fs: () => 'вышел(ла) из полного экрана', finish: e => `сдал(а) контрольную${gradeOf(e)}`, forced: e => `работа завершена учителем${gradeOf(e)}`,
+    start: () => 'начал(а) самостоятельную', away: e => `ушёл(ла) со вкладки${e.info ? ` на ${e.info} с` : ''}`,
+    fs: () => 'вышел(ла) из полного экрана', finish: e => `сдал(а) самостоятельную${gradeOf(e)}`, forced: e => `работа завершена учителем${gradeOf(e)}`,
   };
   function gradeOf(e) { try { const g = JSON.parse(e.info || '{}'); return g.grade ? ` · оценка ${g.grade} (${g.pct}%)` : ''; } catch (err) { return ''; } }
   const evWarn = k => k === 'fs' || k === 'away';
@@ -1442,7 +1456,7 @@
     const box = $('#feedEvents');
     if (!box) return;
     box.hidden = !feedEv.length;
-    box.innerHTML = `<h3 class="adm-h3">Контрольные · уведомления</h3><ul class="adm-events">${feedEv.slice(0, 30).map(e => `<li class="${evWarn(e.kind) ? 'warn' : ''}">
+    box.innerHTML = `<h3 class="adm-h3">Самостоятельные · уведомления</h3><ul class="adm-events">${feedEv.slice(0, 30).map(e => `<li class="${evWarn(e.kind) ? 'warn' : ''}">
       <span class="muted">${fmtWhen(e.ts)}</span> <button type="button" class="task-link" data-student="${e.student_id}">${esc(e.name)}</button>
       ${esc(EV_TEXT[e.kind] ? EV_TEXT[e.kind](e) : e.kind)} <span class="muted">· «${esc(e.title)}»</span></li>`).join('')}</ul>`;
   }
