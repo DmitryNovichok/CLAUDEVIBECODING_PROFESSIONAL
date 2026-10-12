@@ -416,6 +416,74 @@ class ServerTest(unittest.TestCase):
         self.assertIn("fire", d["boards"])
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
 
+    def test_strict_assignment(self):
+        # контрольная: ответ один раз, проверка — после сдачи, учитель видит онлайн и может завершить для всех
+        tok = self.login("Контрольнов Костя")
+        tok2 = self.login("Контрольнова Катя")
+        me = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        me2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "11К"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [me, me2]})
+        st, d = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Контрольная", "strict": True,
+                                                                  "grading": {"5": 90, "4": 60, "3": 30},
+                                                                  "tasks": ["b:5", "b:27", "b:g"]})
+        self.assertEqual(st, 200, d)
+        aid = d["id"]
+        a = self.req("GET", "/api/assignments", token=tok)[1]["assignments"][0]
+        self.assertTrue(a["strict"])
+        self.assertEqual((a["items"], a["started"], a["done"]), (4, None, []))       # №19–21 — два вопроса отдельно
+        pid5, pid27 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:27")
+        p19, p20 = server.APP.bank.pid("b:g19"), server.APP.bank.pid("b:g20")
+        # в обычной тренировке задание контрольной не проверить
+        self.assertEqual(self.req("POST", "/api/check", {"task": pid5, "answer": "12"}, tok)[0], 403)
+        self.assertEqual(self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "12"}, tok)[0], 409)  # не начата
+        st, r = self.req("POST", "/api/asg/start", {"id": aid}, tok)
+        self.assertEqual(st, 200, r)
+        st, r = self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "12"}, tok)
+        self.assertEqual(st, 200, r)
+        self.assertNotIn("result", r)                                        # верно или нет — до сдачи не говорим
+        self.assertNotIn("correct", json.dumps(r))
+        self.assertEqual(self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "13"}, tok)[0], 409)  # одна попытка
+        self.req("POST", "/api/asg/answer", {"id": aid, "task": pid27, "answer": "10 99"}, tok)      # половина №27
+        self.req("POST", "/api/asg/answer", {"id": aid, "task": p19, "answer": "5"}, tok)
+        st, r = self.req("POST", "/api/asg/answer", {"id": aid, "task": p20, "answer": "4"}, tok)
+        self.assertEqual(sorted(r["done"]), sorted([pid5, pid27, server.APP.bank.pid("b:g")]))
+        self.req("POST", "/api/asg/away", {"id": aid}, tok)
+        self.req("POST", "/api/asg/away", {"id": aid, "kind": "fs"}, tok)
+        self.req("POST", "/api/asg/away", {"id": aid, "kind": "fs"}, tok)
+        ev = self.admin("GET", "/api/admin/feed?since=0")[1]["events"]                 # учителю — уведомления в ленте
+        self.assertEqual(sorted(e["kind"] for e in ev if e["student_id"] == me), ["away", "fs", "fs", "start"])
+        # учитель видит онлайн: сколько сдано и сколько верно
+        st, live = self.admin("GET", f"/api/admin/asg/live?id={aid}")
+        self.assertEqual(st, 200, live)
+        row = next(x for x in live["rows"] if x["id"] == me)
+        self.assertEqual((row["status"], row["answered"], row["ok"], row["half"], row["bad"], row["away"], row["fs"]), ("work", 4, 2, 1, 1, 1, 2))
+        self.assertEqual(next(x for x in live["rows"] if x["id"] == me2)["status"], "none")
+        st, r = self.req("POST", "/api/asg/finish", {"id": aid}, tok)
+        self.assertEqual(st, 200, r)
+        self.assertEqual((r["result"]["ok"], r["result"]["half"], r["result"]["bad"], r["result"]["pct"], r["result"]["grade"]),
+                         (2, 1, 1, 63, 4))                                    # 2.5 из 4 = 63% → «4» (порог 60)
+        self.assertEqual(self.req("POST", "/api/asg/finish", {"id": aid}, tok)[1]["result"]["grade"], 4)   # повторно — то же
+        n = server.APP.db.q("SELECT COUNT(*) AS c FROM attempts WHERE student_id=? AND reason='asg'", (me,), one=True)["c"]
+        self.assertEqual(n, 4)                                               # в журнал — один раз
+        self.assertEqual(self.check(tok, pid5, answer="12")[0], 200)          # после сдачи — обычная тренировка
+        # вторая ученица начала, учитель завершает для всех — оценка ставится по сданному
+        self.req("POST", "/api/asg/start", {"id": aid}, tok2)
+        self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "12"}, tok2)
+        st, c = self.admin("POST", "/api/admin/asg/close", {"id": aid})
+        self.assertEqual((st, c["finished"]), (200, 1))
+        st, r = self.req("POST", "/api/asg/answer", {"id": aid, "task": pid27, "answer": "10 20"}, tok2)
+        self.assertTrue(r["closed"])
+        self.assertEqual((r["result"]["ok"], r["result"]["blank"], r["result"]["grade"], r["result"]["forced"]), (1, 3, 2, True))
+        tok3 = self.login("Опоздалов Олег")
+        me3 = self.req("GET", "/api/me", token=tok3)[1]["sid"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [me3]})
+        self.assertEqual(self.req("POST", "/api/asg/start", {"id": aid}, tok3)[0], 409)          # закрыта — не начать
+        # состав начатой контрольной не меняется
+        st, d = self.admin("POST", "/api/admin/assignment/save", {"id": aid, "class_id": cid, "title": "К", "strict": True, "tasks": ["b:5"]})
+        self.assertEqual(st, 409, d)
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
     def test_fire_streak_on_server(self):
         db = server.APP.db
         sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Огнев Олег','огнев олег','tkfire',0,0)")
