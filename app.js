@@ -2266,6 +2266,7 @@
     if (!courseShown) return;
     courseShown = false;
     pageKind = null;
+    document.body.classList.remove('asg-wide');
     $('#courseCard')?.classList.remove('on');
   }
   function lessonState(n) {
@@ -5203,14 +5204,17 @@
         : a.closed ? 'завершена учителем' : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
       const btns = r ? `<button type="button" class="btn" data-asg="${a.id}">Результат</button><button type="button" class="btn" data-review="${a.id}">Разбор</button>`
         : a.closed ? '' : `<button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить' : 'Начать'}</button>`;
-      return `<div class="ap-card${r || a.closed ? ' done' : ''}${a.started && !r ? ' going' : ''}">
-        <div class="ap-top"><span class="ap-ico">${r ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
-          <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}${a.due ? ` · <span class="${late ? 'ap-late' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}</small></div></div>
-        <div class="ap-state">${state}</div>
-        ${r ? '' : `<i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i>`}
+      return `<div class="ap-card${r || a.closed ? ' done' : ''}${a.started && !r ? ' going' : ''}${late ? ' late' : ''}">
+        <div class="ap-main">
+          <div class="ap-top"><span class="ap-ico">${r ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
+            <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}</small></div></div>
+          <div class="ap-state">${state}</div>
+          ${r ? '' : `<i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i>`}</div>
+        ${apDates(a, a.finished, !!(r || a.closed))}
         <div class="ap-btns">${btns}</div></div>`;
     };
     $('#scopeInfo').innerHTML = '<span class="scope-title">Задания от учителя</span>';
+    document.body.classList.add('asg-wide');
     trainerEl.innerHTML = `<div class="course asg-page">
       <div class="crs-hero"><div><div class="crs-kicker">Задания от учителя</div><h2>Подборки твоего класса</h2>
         <p>Новые подборки появляются здесь сами. <b>Самостоятельная</b> — проверка после сдачи, ответ можно изменить один раз. <b>Практическая</b> и <b>домашняя</b> — верно или нет видно сразу, оценка ставится сама по попыткам.</p></div>
@@ -5220,17 +5224,34 @@
       ${done.length ? `<h3 class="ap-h">Пройденные</h3><div class="ap-grid">${done.map(card).join('')}</div>` : ''}
     </div>`;
   }
+  const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+  const apDay = sec => { const d = new Date(sec * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} <small>${WD[d.getDay()]}</small>`; };
+  const apTime = sec => { const d = new Date(sec * 1000); return `${apDay(sec)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+  /** Даты работы: выдана, сдать до (сколько осталось), сдана. */
+  function apDates(a, doneAt, finished) {
+    const out = [`<div><span>Выдана</span><b>${a.created ? apDay(a.created) : '—'}</b></div>`];
+    if (a.due) {
+      const left = Math.ceil((a.due * 1000 - Date.now()) / 864e5);
+      const note = finished ? '' : left < 0 ? '<em class="late">срок прошёл</em>' : left === 0 ? '<em class="soon">сегодня</em>'
+        : left === 1 ? '<em class="soon">завтра</em>' : `<em>осталось ${left} ${plural(left, 'день', 'дня', 'дней')}</em>`;
+      out.push(`<div><span>Сдать до</span><b>${apDay(a.due)}</b>${note}</div>`);
+    } else out.push('<div><span>Сдать до</span><b>без срока</b></div>');
+    if (doneAt) out.push(`<div><span>Сдана</span><b>${apTime(doneAt)}</b></div>`);
+    return `<div class="ap-dates">${out.join('')}</div>`;
+  }
   /** Карточка практической или домашней: решено, текущая оценка (ставится сама по попыткам). */
   function practiceCard(a) {
     const sc = a.score || {}, total = a.tasks.length, solved = (a.done || []).length;
     const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
     const late = a.due && a.due * 1000 < Date.now() && !sc.final;
     const grade = sc.grade ? `${sc.final ? 'оценка' : 'оценка сейчас'} <b>${sc.grade}</b> · ${sc.pct}%` : 'ещё не начата';
-    return `<div class="ap-card${sc.final ? ' done' : ''}${sc.tried && !sc.final ? ' going' : ''}">
-      <div class="ap-top"><span class="ap-ico">${sc.final ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
-        <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}${a.due ? ` · <span class="${late ? 'ap-late' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}</small></div></div>
-      <div class="ap-state">${grade}${sc.tried ? ` · сделано ${sc.tried} из ${sc.total}: верно ${sc.ok}${sc.half ? `, со 2-й попытки ${sc.half}` : ''}${sc.bad ? `, неверно ${sc.bad}` : ''}` : ''}</div>
-      <i class="xp-bar"><b style="width:${pct((sc.tried || 0) / (sc.total || total))}%"></b></i>
+    return `<div class="ap-card${sc.final ? ' done' : ''}${sc.tried && !sc.final ? ' going' : ''}${late ? ' late' : ''}">
+      <div class="ap-main">
+        <div class="ap-top"><span class="ap-ico">${sc.final ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
+          <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}</small></div></div>
+        <div class="ap-state">${grade}${sc.tried ? ` · сделано ${sc.tried} из ${sc.total}: верно ${sc.ok}${sc.half ? `, со 2-й попытки ${sc.half}` : ''}${sc.bad ? `, неверно ${sc.bad}` : ''}` : ''}</div>
+        <i class="xp-bar"><b style="width:${pct((sc.tried || 0) / (sc.total || total))}%"></b></i></div>
+      ${apDates(a, null, sc.final)}
       <div class="ap-btns"><button type="button" class="btn ${sc.final ? '' : 'primary'}" data-asg="${a.id}">${sc.final ? 'Повторить' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
   }
   function openAssignments() {
@@ -5829,6 +5850,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.40.0', '12.10.2026', ['Страница «Задания от учителя» шире: каждая работа — отдельная строка с датами — когда выдана, до какого числа сдать и сколько дней осталось, когда сдана']],
     ['1.39.1', '12.10.2026', ['В окне опыта — «Откуда опыт»: последние изменения с причиной (задание, бонус, достижение, −1 за слишком быстрый ответ, дуэль)',
       'Исправлено: честное повторение подборок (в том числе подборок курса) ошибочно считалось накруткой и срезало опыт — опыт возвращён']],
     ['1.39.0', '12.10.2026', ['У работ от учителя появились типы: самостоятельная (бывшая «контрольная»: проверка после сдачи), практическая и домашняя',

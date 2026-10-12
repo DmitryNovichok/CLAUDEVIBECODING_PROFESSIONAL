@@ -1868,3 +1868,26 @@ button.pf-item:hover { border-color: var(--accent); }
 .xp-log table { margin-top: 8px; }
 .xp-plus { color: var(--good); font-weight: 800; }
 .xp-minus { color: var(--weak); font-weight: 800; }
+/* страница подборок: широкая, одна работа — одна строка с датами */
+body.asg-wide .trainer { max-width: 1240px; }
+body.asg-wide .course.asg-page { max-width: none; }
+.asg-page .ap-grid { grid-template-columns: 1fr; gap: 12px; }
+.asg-page .ap-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px 28px; padding: 18px 22px; }
+.asg-page .ap-main { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.asg-page .ap-top b { font-size: 18px; }
+.asg-page .ap-ico { width: 44px; height: 44px; font-size: 22px; border-radius: 12px; }
+.asg-page .ap-btns { margin: 0; flex-direction: column; align-items: stretch; min-width: 150px; }
+.asg-page .ap-card.late:not(.done) { border-color: color-mix(in srgb, var(--weak) 55%, var(--border)); }
+.ap-dates { display: flex; gap: 22px; padding: 10px 16px; border-radius: 12px; background: var(--bg); }
+.ap-dates div { display: flex; flex-direction: column; gap: 2px; min-width: 92px; }
+.ap-dates span { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ap-dates b { font-size: 16px; white-space: nowrap; }
+.ap-dates b small { font-weight: 600; color: var(--muted); font-size: 12px; }
+.ap-dates em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--accent); }
+.ap-dates em.soon { color: var(--review); }
+.ap-dates em.late { color: var(--weak); }
+@container main (max-width: 900px) {
+  .asg-page .ap-card { grid-template-columns: 1fr; }
+  .asg-page .ap-btns { flex-direction: row; min-width: 0; }
+  .ap-dates { flex-wrap: wrap; }
+}
