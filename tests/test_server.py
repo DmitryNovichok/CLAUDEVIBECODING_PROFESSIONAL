@@ -580,12 +580,14 @@ class ServerTest(unittest.TestCase):
         db = server.APP.db
         sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Багов Борис','багов борис','tkbug',0,0)")
         t0 = time.time() - 3 * 3600
-        add = lambda ts, tid, n, reason: db.x(
+        add = lambda ts, tid, n, reason, ms=120000: db.x(
             "INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms,reason) VALUES(?,?,?,?,?,?,?,?,?)",
-            (sid, ts, tid, n, "[]", "x", 1.0, 120000, reason))
+            (sid, ts, tid, n, "[]", "x", 1.0, ms, reason))
         add(t0, "b:5", 5, "new")                                            # честно, до лазейки
-        for k in range(6):
-            add(t0 + 600 + k * 60, "b:5", 5, "asg")                         # по кругу — лазейка
+        for k in range(8):
+            add(t0 + 300 + k * 20, "b:5", 5, "asg")                         # честное повторение подборки (по 2 минуты) — не лазейка
+        for k in range(12):
+            add(t0 + 600 + k * 30, "b:5", 5, "asg", 6000)                   # по кругу по 6 секунд — лазейка
         add(t0 + 1200, "b:6", 6, "new")                                     # пока пользовался — тоже срезается
         fixed = t0 + 3600
         old = db.setting("asg_exploit_fixed")
