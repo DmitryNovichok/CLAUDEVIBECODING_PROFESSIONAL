@@ -489,6 +489,30 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 409, d)
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
 
+    def test_fast_solve_costs_xp(self):
+        # верно, но быстрее минуты с открытия задания (по часам сервера) — −1 XP вместо опыта
+        tok = self.login("Быстров Борис")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        pid5, pid6 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": pid5}, tok)
+        server.OPENED.get(sid, "b:5")["ts"] -= 20                            # открыл 20 секунд назад
+        st, r = self.check(tok, pid5, answer="12", spent_ms=999999)            # клиент «сказал» больше — верим серверу
+        self.assertTrue(r["correct"] and r["fast"])
+        self.assertEqual(r["game"]["xp"], 0)                                   # −1, но ниже нуля опыт не уходит
+        self.req("POST", "/api/open", {"task": pid6}, tok)
+        server.OPENED.get(sid, "b:6")["ts"] -= 90                            # полторы минуты — честное решение
+        st, r = self.check(tok, pid6, answer="7")
+        self.assertFalse(r["fast"])
+        self.assertEqual(r["game"]["xp"], 14)                                  # +10
+        self.req("POST", "/api/open", {"task": pid5}, tok)                     # быстрое решение не засчитано решённым:
+        server.OPENED.get(sid, "b:5")["ts"] -= 120                           # честный повтор даёт полный опыт
+        st, r = self.check(tok, pid5, answer="12")
+        self.assertEqual(r["game"]["xp"], 24)
+        # решённое до появления правила задним числом не пересчитывается
+        server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
+                        (sid, server.fast_xp_since(server.APP.db) - 100, "b:27", 27, "[]", "1", 1.0, 5000))
+        self.assertGreaterEqual(server.game_summary(server.APP.db, sid)["xp"], 46)   # +22 за №27 (и достижения), без −1
+
     def test_fire_streak_on_server(self):
         db = server.APP.db
         sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Огнев Олег','огнев олег','tkfire',0,0)")
