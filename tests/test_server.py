@@ -1550,6 +1550,37 @@ class ServerTest(unittest.TestCase):
         st, d = self.req("POST", "/api/exam/start", {}, tok)
         self.assertEqual(st, 429)
 
+    def test_teacher_sees_exams(self):
+        tok = self.login("Вариантова Валерия")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        since = time.time() - 1
+        st, e = self.req("POST", "/api/exam/start", {}, tok)
+        self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [
+            {"task": server.APP.bank.pid("b:5"), "answer": "12"}, {"task": server.APP.bank.pid("b:6"), "answer": "1"}]}, tok)
+        d = self.admin("GET", f"/api/admin/student?id={sid}")[1]
+        x = d["exams"][0]
+        self.assertEqual((x["id"], x["full"], x["primary_score"]), (e["exam_id"], 1, 1))
+        r = self.admin("GET", f"/api/admin/exam?id={e['exam_id']}")[1]
+        row = {q["task"]: q for q in r["rows"]}
+        self.assertEqual((row["b:5"]["mine"], row["b:5"]["answer"], row["b:6"]["mine"], row["b:6"]["answer"]), ("12", "12", "1", "7"))
+        ev = [x for x in self.admin("GET", f"/api/admin/feed?since={since}")[1]["events"] if x["kind"] == "exam"]
+        self.assertEqual(ev[0]["exam"], e["exam_id"])
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "11Вар"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
+        j = self.admin("GET", f"/api/admin/class/journal?class_id={cid}")[1]
+        self.assertEqual((j["students"][0]["exam"]["last_id"], j["students"][0]["exam"]["count"]), (e["exam_id"], 1))
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
+    def test_admin_badge(self):
+        tok = self.login("Malevin Dmitry")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        self.assertNotIn(sid, self.req("GET", "/api/me", token=tok)[1]["admins"])     # новым — только через панель
+        self.assertEqual(self.admin("POST", "/api/admin/student/role", {"id": sid, "admin": True})[0], 200)
+        self.assertIn(sid, self.req("GET", "/api/me", token=tok)[1]["admins"])
+        self.assertEqual(self.admin("GET", f"/api/admin/student?id={sid}")[1]["student"]["role"], "admin")
+        self.admin("POST", "/api/admin/student/role", {"id": sid, "admin": False})
+        self.assertNotIn(sid, self.req("GET", "/api/me", token=tok)[1]["admins"])
+
     def test_exam_history(self):
         tok = self.login("Вариантов Виктор")
         st, e = self.req("POST", "/api/exam/start", {}, tok)
