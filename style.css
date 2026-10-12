@@ -1989,3 +1989,14 @@ body.asg-wide .course.asg-page { max-width: none; }
 .sp-ans { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); white-space: pre-wrap; word-break: break-word; }
 .sp-ans b { display: block; font-size: 12px; color: var(--accent-text); margin-bottom: 2px; }
 .ap-note { margin: 0; font-size: 13px; color: var(--muted); }
+
+/* ---------- мои варианты */
+.exh-score { width: 52px !important; height: 52px !important; font: 900 20px var(--font) !important; color: #fff; border-radius: 14px; }
+.exh-score.band-weak { background: var(--weak); } .exh-score.band-mid { background: #ff9600; }
+.exh-score.band-accent { background: var(--accent); } .exh-score.band-good { background: var(--good); }
+.exh-go { margin-top: 12px; }
+.exh-spark { display: block; margin-top: 8px; color: var(--accent); }
+.exh-spark circle { fill: var(--accent); }
+.exh-min { stroke: var(--weak); stroke-dasharray: 4 4; stroke-width: 1; opacity: .6; }
+.exh-open { padding: 4px 10px; font-size: 12px; }
+#exhBack { margin-bottom: 10px; }
