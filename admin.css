@@ -359,3 +359,20 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 .adm-events li.warn { color: var(--weak); }
 .adm-events li.warn .task-link { color: inherit; font-weight: 700; }
 .cheat-chip { margin-left: 6px; font-size: 11px; padding: 1px 6px; }
+
+/* обращения в техподдержку */
+.sp-admin { display: flex; flex-direction: column; gap: 10px; }
+.sp-a { padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.sp-a.new { border-color: var(--weak); }
+.sp-a.closed { opacity: .65; }
+.sp-a-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 13px; }
+.sp-st { padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--bg); border: 1px solid var(--border); }
+.sp-a.new .sp-st { color: var(--weak); border-color: var(--weak); }
+.sp-a.ans .sp-st { color: var(--good); border-color: var(--good); }
+.sp-a-text { margin-top: 8px; white-space: pre-wrap; word-break: break-word; }
+.sp-a-ans { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--good-soft); white-space: pre-wrap; word-break: break-word; }
+.sp-a-ans b { display: block; font-size: 12px; color: var(--good); }
+.sp-a-form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.sp-a-form textarea { width: 100%; resize: vertical; font: inherit; }
+.sp-a-btns { display: flex; gap: 8px; }
+.sp-badge { margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; color: #fff; background: var(--weak); }

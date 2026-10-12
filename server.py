@@ -882,6 +882,10 @@ class DB:
                 a_solved INTEGER, b_solved INTEGER, a_sec REAL, b_sec REAL, winner INTEGER, tech INTEGER DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'play', ends REAL);
             CREATE INDEX IF NOT EXISTS tour_match_t ON tour_matches(tour_id, round);
+            CREATE TABLE IF NOT EXISTS support(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, kind TEXT, text TEXT NOT NULL,
+                task TEXT, page TEXT, status TEXT NOT NULL DEFAULT 'new', answer TEXT, answered REAL, seen INTEGER DEFAULT 1);
+            CREATE INDEX IF NOT EXISTS support_student ON support(student_id);
             CREATE TABLE IF NOT EXISTS xp_adjust(
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT);
             CREATE INDEX IF NOT EXISTS xp_adjust_student ON xp_adjust(student_id);
@@ -1911,6 +1915,33 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                             "me": r["student_id"] == s["id"]} for i, r in enumerate(rows[:10])],
                                    "my_place": next((i + 1 for i, r in enumerate(rows) if r["student_id"] == s["id"]), None)})
 
+        if path.startswith("/api/support"):
+            # техподдержка: обращение ученика уходит главному учителю (в «Статистику сайта»), ответ виден ученику
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if path == "/api/support/seen" and method == "POST":
+                db.x("UPDATE support SET seen=1 WHERE student_id=? AND answer IS NOT NULL", (s["id"],))
+                return self.send_json({"ok": True})
+            if method == "POST":
+                text = str(data.get("text") or "").strip()[:SUPPORT_MAX]
+                kind = str(data.get("kind") or "")
+                if kind not in SUPPORT_KINDS:
+                    kind = "other"
+                if len(text) < 5:
+                    return self.err(400, "Опиши проблему подробнее — хотя бы пару слов")
+                recent = db.q("SELECT COUNT(*) AS c FROM support WHERE student_id=? AND ts>?", (s["id"], time.time() - 3600), one=True)["c"]
+                if recent >= SUPPORT_PER_HOUR:
+                    return self.err(429, "Слишком много обращений за час — подожди немного")
+                db.x("INSERT INTO support(student_id, ts, kind, text, task, page) VALUES(?,?,?,?,?,?)",
+                     (s["id"], time.time(), kind, text, str(data.get("task") or "")[:60] or None, str(data.get("page") or "")[:120] or None))
+                return self.send_json({"ok": True})
+            rows = db.q("SELECT * FROM support WHERE student_id=? ORDER BY id DESC LIMIT 20", (s["id"],))
+            return self.send_json({"kinds": SUPPORT_KINDS, "unread": sum(1 for r in rows if not r["seen"]),
+                                   "items": [{"id": r["id"], "ts": r["ts"], "kind": r["kind"], "text": r["text"], "task": r["task"],
+                                              "status": r["status"], "answer": r["answer"], "answered": r["answered"],
+                                              "seen": bool(r["seen"])} for r in rows]})
+
         if path == "/api/dev/unlock" and method == "POST":
             # раздел «в разработке» (турнир) — по коду доступа; попыток немного, чтобы код не подбирали
             s = self.student(data)
@@ -2827,7 +2858,26 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "exams": ex["n"] or 0, "exam_avg": round(ex["avg"], 1) if ex["avg"] is not None else None,
                 "duels": one("SELECT COUNT(*) c FROM duels WHERE status = 'finished'")["c"],
                 "bank": len(APP.bank.tasks) if APP.bank.ensure() else 0,
-                "series": series, "nums": nums, "by_teacher": teachers})
+                "series": series, "nums": nums, "by_teacher": teachers, "support_kinds": SUPPORT_KINDS,
+                "support": [dict(r) for r in db.q("""
+                    SELECT p.*, s.name, COALESCE(t.name, '') AS teacher FROM support p JOIN students s ON s.id = p.student_id
+                    LEFT JOIN teachers t ON t.id = COALESCE(s.teacher_id, ?)
+                    ORDER BY (p.status = 'new') DESC, p.id DESC LIMIT 200""", (main_id,))]})
+
+        if path == "/api/admin/support/answer" and method == "POST":
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            sid = to_int(data.get("id"))
+            r = db.q("SELECT * FROM support WHERE id=?", (sid,), one=True)
+            if not r:
+                return self.err(404, "Обращение не найдено")
+            answer = str(data.get("answer") or "").strip()[:SUPPORT_MAX]
+            status = "closed" if data.get("close") else ("answered" if answer else r["status"])
+            if answer:
+                db.x("UPDATE support SET answer=?, answered=?, status=?, seen=0 WHERE id=?", (answer, time.time(), status, sid))
+            else:
+                db.x("UPDATE support SET status=? WHERE id=?", (status, sid))
+            return self.send_json({"ok": True})
 
         if path == "/api/admin/teachers":
             if not self.T["is_main"]:
@@ -3971,6 +4021,11 @@ def duel_tasks():
 
 # Турнир «как в футболе»: жеребьёвка по корзинам → групповой этап (каждый с каждым, победа 3 очка, ничья 1) →
 # плей-офф на выбывание с матчем за 3-е место. «Счёт» матча — сколько заданий решил каждый.
+SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не работает сайт", "xp": "Опыт, рейтинг, турниры", "question": "Вопрос", "other": "Другое"}
+SUPPORT_MAX = 2000
+SUPPORT_PER_HOUR = 5
+
+
 TOUR_SIZES = {4: "Мини-турнир", 8: "Кубок", 12: "Чемпионат"}
 TOUR_GROUPS = {4: 1, 8: 2, 12: 3}          # группы по 4
 TOUR_QUAL = {4: 2, 8: 4, 12: 8}            # сколько выходит в плей-офф (у 12 — по двое из группы и две лучшие третьи)
