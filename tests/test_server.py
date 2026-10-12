@@ -1626,6 +1626,16 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(set(codes[server.CHECKS_PER_TASK_DAY:]), {429})   # перебором ответ не подобрать
 
     # ------------------------------------------------------------ прочее
+    def test_kompege_escaped_newlines(self):
+        # в КомпЕГЭ перенос строки в ответе бывает записан двумя символами «\\n»
+        ans = server.clean_ans("597 432\\n408 352")
+        self.assertEqual(ans, "597 432\n408 352")
+        self.assertEqual(server.shape_of(ans, 27), {"type": "grid", "rows": 2, "cols": 2})
+        self.assertEqual(server.answer_credit(27, ans, "597 432\n408 352", ["597", "432", "408", "352"]), 1.0)
+        self.assertEqual(server.answer_credit(27, "597 432\\n408 352", "597 432 408 352"), 1.0)   # и без очистки
+        self.assertEqual(server.shape_of("1 2\n3 4\n5 6", 25), {"type": "grid", "rows": 10, "cols": 2})
+        self.assertEqual(server.shape_of("100\n200\n300", 25), {"type": "grid", "rows": 10, "cols": 2})   # №25 — всегда 10 × 2
+
     def test_csv_cell(self):
         self.assertEqual(server.csv_cell("=HYPERLINK(1)"), "'=HYPERLINK(1)")
         self.assertEqual(server.csv_cell("-5"), "-5")
