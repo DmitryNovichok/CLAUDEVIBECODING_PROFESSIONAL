@@ -5017,7 +5017,10 @@
   // ------------------------------------------------------------ дуэли
   let DUELS = { duels: [], mates: [] };
   async function loadDuels() {
-    try { DUELS = await api('duels'); } catch (e) { return; }
+    try { DUELS = await api('duels'); } catch (e) {
+      if (e.status === 403) { DUELS = { duels: [], mates: [], locked: true }; renderDuelCard(); }   // турнир в разработке — по коду
+      return;
+    }
     // идущие дуэли, которые я начал, решаются как подборка: 5 заданий по порядку
     ASG = ASG.filter(a => !a.duel);
     for (const d of DUELS.duels) {
@@ -5031,10 +5034,10 @@
   function renderDuelCard() {
     const card = $('#duelCard');
     if (!card) return;
-    card.hidden = !SERVER || !student || !(DUELS.mates || []).length && !DUELS.duels.length;
+    card.hidden = !SERVER || !student || TEACHER;
     const inv = DUELS.duels.filter(d => d.status === 'pending' && !d.mine).length;
     const act = DUELS.duels.filter(d => d.status === 'active').length;
-    $('#duelSub').textContent = inv ? `вызов: ${inv}!` : act ? `идёт: ${act}` : 'вызвать';
+    $('#duelSub').textContent = DUELS.locked ? 'в разработке' : inv ? `вызов: ${inv}!` : act ? `матч идёт: ${act}` : 'таблица недели';
     card.classList.toggle('alert', !!inv);
   }
   function duelRow(d) {
@@ -5052,18 +5055,43 @@
     } else st = d.status === 'declined' ? 'отказался' : 'вызов истёк';
     return `<div class="duel-row ${d.status} ${d.result || ''}"><div><b>${esc(d.opponent)}</b><div class="fm-muted">${st}</div></div><span class="duel-btns">${btn}</span></div>`;
   }
+  /** Турнир (в разработке): вход по коду, таблица недели «каждый с каждым», матч — дуэль на одинаковых заданиях. */
   async function openDuels(fresh = true) {
     if (isNarrow()) setSideOpen(false);
     if (fresh) await loadDuels();                       // соперники и вызовы могли появиться после входа
+    if (DUELS.locked) {
+      $('#forecastBody').innerHTML = `<h2 class="fm-title">🏆 Турнир <span class="chip">в разработке</span></h2>
+        <p class="fm-note">Здесь будет турнир с турнирной таблицей: каждую неделю — матчи с одноклассниками, победа — 3 очка, ничья — 1.
+          Раздел ещё дорабатывается — войти можно по коду доступа.</p>
+        <form id="devForm" class="login-form" style="max-width:360px"><input class="inp" id="devCode" inputmode="numeric" autocomplete="off" placeholder="Код доступа">
+          <button type="submit" class="btn primary">Войти</button></form>`;
+      $('#forecastModal').hidden = false;
+      $('#devForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        try { await api('dev/unlock', { code: $('#devCode').value }); } catch (err) { toast(err.message || 'Неверный код', 3000); return; }
+        toast('Доступ к турниру открыт', 2500);
+        openDuels();
+      });
+      return;
+    }
+    const T = DUELS.tournament || { table: [], played: [] };
     const list = DUELS.duels.map(duelRow).join('');
     const busy = new Set(DUELS.duels.filter(d => d.status === 'pending' || d.status === 'active').map(d => d.opponent));
+    const played = new Set(T.played || []);
     const mates = (DUELS.mates || []).map(m => `<div class="duel-row"><div><b>${esc(m.name)}</b> <span class="fm-muted">ур. ${m.level}</span></div>
-      <span class="duel-btns">${busy.has(m.name) ? '<span class="fm-muted">дуэль идёт</span>' : `<button type="button" class="btn ghost" data-duel-new="${m.sid}">Вызвать</button>`}</span></div>`).join('');
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">⚔ Дуэли</h2>
-      <p class="fm-note">Тебе и сопернику выпадают одни и те же ${DUELS.tasks || 5} заданий. Побеждает тот, кто решит больше, при равенстве — кто быстрее.
-        Победитель забирает у проигравшего ${DUELS.stake || 15} XP. На дуэль — ${DUELS.hours || 24} часа после того, как вызов принят.</p>
-      ${list ? `<h3 class="fm-sub">Мои дуэли</h3>${list}` : ''}
-      <h3 class="fm-sub">Вызвать соперника</h3>${mates || '<p class="fm-muted">Пока не с кем — у твоего учителя других учеников нет.</p>'}`;
+      <span class="duel-btns">${played.has(m.sid) ? '<span class="fm-muted">матч недели сыгран</span>' : busy.has(m.name) ? '<span class="fm-muted">матч идёт</span>' : `<button type="button" class="btn ghost" data-duel-new="${m.sid}">Вызвать на матч</button>`}</span></div>`).join('');
+    const left = T.ends ? Math.max(0, Math.ceil((T.ends * 1000 - Date.now()) / 864e5)) : 0;
+    const table = T.table.length ? `<div class="fm-table-wrap"><table class="fm-table tour-table"><thead><tr><th>#</th><th>Участник</th>
+      <th class="num" title="Игры">И</th><th class="num" title="Победы">В</th><th class="num" title="Ничьи">Н</th><th class="num" title="Поражения">П</th>
+      <th class="num" title="Решено задач в матчах">Задачи</th><th class="num">Очки</th></tr></thead><tbody>${T.table.map(r => `<tr class="${r.me ? 'me' : ''}">
+      <td>${placeHtml(r.place)}</td><td>${esc(r.me ? r.name + ' (ты)' : r.name)}</td><td class="num">${r.games}</td><td class="num">${r.w}</td><td class="num">${r.d}</td>
+      <td class="num">${r.l}</td><td class="num">${r.solved}</td><td class="num"><b>${r.pts}</b></td></tr>`).join('')}</tbody></table></div>` : '';
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">🏆 Турнир недели <span class="chip">в разработке</span></h2>
+      <p class="fm-note">Каждый с каждым: матч — ${DUELS.tasks || 5} одинаковых заданий тебе и сопернику, побеждает решивший больше, при равенстве — быстрее.
+        Победа — <b>3 очка</b>, ничья — <b>1</b>. С каждым соперником — один матч за неделю. Итоги — в понедельник${left ? `, через ${left} ${plural(left, 'день', 'дня', 'дней')}` : ''}.</p>
+      <h3 class="fm-sub">Турнирная таблица</h3>${table}
+      ${list ? `<h3 class="fm-sub">Мои матчи</h3>${list}` : ''}
+      <h3 class="fm-sub">Соперники</h3>${mates || '<p class="fm-muted">Пока не с кем: в турнире участвуют ученики твоего учителя, открывшие его по коду.</p>'}`;
     $('#forecastModal').hidden = false;
   }
   async function duelAction(path, body, msg) {
@@ -5850,6 +5878,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.41.0', '12.10.2026', ['Дуэли превращаются в «Турнир недели» с турнирной таблицей: каждый с каждым, победа — 3 очка, ничья — 1. Раздел в разработке — вход по коду',
+      'У каждого уровня теперь своё звание: Новичок, Стажёр, Ученик, Юный кодер, Кодер… Легенда, Сверхразум, Титан, Абсолют']],
     ['1.40.0', '12.10.2026', ['Страница «Задания от учителя» шире: каждая работа — отдельная строка с датами — когда выдана, до какого числа сдать и сколько дней осталось, когда сдана']],
     ['1.39.1', '12.10.2026', ['В окне опыта — «Откуда опыт»: последние изменения с причиной (задание, бонус, достижение, −1 за слишком быстрый ответ, дуэль)',
       'Исправлено: честное повторение подборок (в том числе подборок курса) ошибочно считалось накруткой и срезало опыт — опыт возвращён']],

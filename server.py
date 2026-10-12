@@ -903,7 +903,8 @@ class DB:
                     ("assignments", "closed", "REAL"),                # учитель завершил контрольную для всех
                     ("assignments", "grading", "TEXT"),              # пороги оценки в процентах {"5": 85, "4": 65, "3": 45}
                     ("asg_runs", "xp", "INTEGER"),
-                    ("assignments", "kind", "TEXT")):                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
+                    ("assignments", "kind", "TEXT"),
+                    ("students", "dev", "INTEGER DEFAULT 0")):        # открыл разделы «в разработке» (турнир) по коду                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
@@ -1891,10 +1892,29 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                             "me": r["student_id"] == s["id"]} for i, r in enumerate(rows[:10])],
                                    "my_place": next((i + 1 for i, r in enumerate(rows) if r["student_id"] == s["id"]), None)})
 
+        if path == "/api/dev/unlock" and method == "POST":
+            # раздел «в разработке» (турнир) — по коду доступа; попыток немного, чтобы код не подбирали
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            now = time.time()
+            with _COURSE_LOCK:
+                tries = [t for t in _DEV_TRIES.get(s["id"], []) if now - t < 3600]
+                if len(tries) >= 10:
+                    return self.err(429, "Слишком много попыток — попробуйте через час")
+                tries.append(now)
+                _DEV_TRIES[s["id"]] = tries
+            if str(data.get("code") or "").strip() != DEV_CODE:
+                return self.err(403, "Неверный код")
+            db.x("UPDATE students SET dev=1 WHERE id=?", (s["id"],))
+            return self.send_json({"ok": True})
+
         if path.startswith("/api/duel"):
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
+            if not s["dev"]:
+                return self.send_json({"dev_locked": True, "error": "Турнир в разработке — вход по коду"}, code=403)
             return self.api_duels(s, path, method, data)
 
         if path == "/api/exam/start" and method == "POST":
@@ -1946,7 +1966,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
     def api_duels(self, s, path, method, data):
         db = APP.db
         tid = teacher_of(s)["id"]
-        mates = {m["id"]: m for m in teacher_students(db, tid) if m["id"] != s["id"]}
+        mates = {m["id"]: m for m in teacher_students(db, tid) if m["id"] != s["id"] and m["dev"]}   # турнир пока — по коду
         if s["is_teacher"]:
             mates = {}                           # учитель в дуэлях не участвует
         if path == "/api/duels":
@@ -1969,6 +1989,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 out.append(item)
             lv = lambda sid: game_summary(db, sid, brief=True)["level"]
             return self.send_json({"duels": out, "stake": DUEL_STAKE, "tasks": DUEL_TASKS, "hours": DUEL_HOURS,
+                                   "tournament": tournament_table(db, s, mates),
                                    "mates": sorted(({"sid": m["id"], "name": short_name(m["name"]), "level": lv(m["id"])}
                                                     for m in mates.values()), key=lambda x: x["name"])})
         if method != "POST":
@@ -1979,7 +2000,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "Соперник не найден — вызвать можно только ученика своего учителя")
             if db.q("""SELECT 1 FROM duels WHERE status IN ('pending','active') AND ((a=? AND b=?) OR (a=? AND b=?))""",
                     (s["id"], op, op, s["id"]), one=True):
-                return self.err(409, "С этим соперником дуэль уже идёт")
+                return self.err(409, "С этим соперником матч уже идёт")
+            if db.q("""SELECT 1 FROM duels WHERE status='finished' AND finished>=? AND ((a=? AND b=?) OR (a=? AND b=?))""",
+                    (week_start(), s["id"], op, op, s["id"]), one=True):
+                return self.err(409, "С этим соперником матч турнира на этой неделе уже сыгран")
             if db.q("SELECT COUNT(*) AS c FROM duels WHERE status IN ('pending','active') AND (a=? OR b=?)",
                     (s["id"], s["id"]), one=True)["c"] >= DUEL_MAX_OPEN:
                 return self.err(429, f"Не больше {DUEL_MAX_OPEN} дуэлей одновременно — закончи начатые")
@@ -3176,7 +3200,20 @@ def authored_on():
 
 # ================================================================ уровни и достижения
 # Опыт считается сервером по журналу попыток: подкрутить его в браузере нельзя.
-LEVEL_TITLES = [(1, "Новичок"), (3, "Ученик"), (5, "Кодер"), (8, "Алгоритмист"), (11, "Хакер"), (15, "Гуру"), (20, "Легенда")]
+# своё звание на каждом уровне; после последнего — «Абсолют II, III…»
+LEVEL_NAMES = ["Новичок", "Стажёр", "Ученик", "Юный кодер", "Кодер", "Отладчик", "Программист", "Алгоритмист",
+               "Повелитель циклов", "Мастер рекурсии", "Хакер", "Знаток графов", "Архитектор", "Олимпиадник", "Гуру",
+               "Магистр алгоритмов", "Профи ЕГЭ", "Профессор", "Гроссмейстер", "Легенда", "Сверхразум", "Титан",
+               "Император кода", "Бессмертный", "Абсолют"]
+LEVEL_TITLES = list(enumerate(LEVEL_NAMES, 1))
+ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+
+
+def level_title(lvl):
+    if lvl <= len(LEVEL_NAMES):
+        return LEVEL_NAMES[max(1, lvl) - 1]
+    k = lvl - len(LEVEL_NAMES) + 1
+    return f"{LEVEL_NAMES[-1]} {ROMAN[k] if k < len(ROMAN) else k}"
 ACHIEVEMENTS = [
     # id, значок, название, описание, цель
     ("first", "1", "Первый шаг", "Решить первое задание", 1),
@@ -3311,7 +3348,7 @@ def level_of(xp):
     while 50 * (lvl + 1) * lvl <= xp:
         lvl += 1
     lo, hi = 50 * lvl * (lvl - 1), 50 * (lvl + 1) * lvl
-    title = [t for l, t in LEVEL_TITLES if lvl >= l][-1]
+    title = level_title(lvl)
     return lvl, title, xp - lo, hi - lo
 
 
@@ -3714,7 +3751,7 @@ def short_name(name):
 def teacher_students(db, tid):
     """Ученики учителя — без учительских аккаунтов: учитель решает тренажёр, но в рейтингах, лигах и дуэлях не участвует."""
     main_id = main_teacher()["id"]
-    return [r for r in db.q("SELECT id, name, teacher_id, class_id, badges FROM students WHERE COALESCE(is_teacher, 0) = 0")
+    return [r for r in db.q("SELECT id, name, teacher_id, class_id, badges, dev FROM students WHERE COALESCE(is_teacher, 0) = 0")
             if (r["teacher_id"] or main_id) == tid]
 
 
@@ -3787,6 +3824,41 @@ def daily_crown(db, ids):
     r = db.q(f"SELECT student_id FROM daily_results WHERE day=? AND student_id IN ({','.join('?' * len(ids))}) "
              "ORDER BY ms, ts LIMIT 1", (y, *ids), one=True)
     return r["student_id"] if r else None
+
+
+DEV_CODE = "20011608"       # код входа в разделы «в разработке» (турнир)
+_DEV_TRIES = {}
+
+
+def tournament_table(db, s, mates):
+    """Турнир недели: каждый с каждым, матч — дуэль. Победа 3 очка, ничья 1, поражение 0; с одной парой — один матч
+    за неделю (первый сыгранный). Таблица: очки, затем решённые задачи."""
+    people = {s["id"]: s["name"], **{k: m["name"] for k, m in mates.items()}}
+    rows = {sid: {"sid": sid, "name": short_name(n), "me": sid == s["id"], "games": 0, "w": 0, "d": 0, "l": 0, "pts": 0,
+                  "solved": 0} for sid, n in people.items()}
+    seen = set()
+    for d in db.q("SELECT * FROM duels WHERE status='finished' AND finished>=? ORDER BY finished", (week_start(),)):
+        pair = tuple(sorted((d["a"], d["b"])))
+        if d["a"] not in rows or d["b"] not in rows or pair in seen:
+            continue
+        seen.add(pair)
+        for me, op in (("a", "b"), ("b", "a")):
+            r = rows[d[me]]
+            r["games"] += 1
+            r["solved"] += d[me + "_solved"] or 0
+            if not d["winner"]:
+                r["d"] += 1
+                r["pts"] += 1
+            elif d["winner"] == d[me]:
+                r["w"] += 1
+                r["pts"] += 3
+            else:
+                r["l"] += 1
+    table = sorted(rows.values(), key=lambda r: (-r["pts"], -r["solved"], r["name"]))
+    for i, r in enumerate(table, 1):
+        r["place"] = i
+    played = {op for pair in seen if s["id"] in pair for op in pair if op != s["id"]}
+    return {"table": table, "played": sorted(played), "ends": week_start() + 7 * 86400}
 
 
 def duel_solved(db, sid, tasks, t0, t1):
