@@ -390,23 +390,20 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200, d)
         st, d = self.req("GET", "/api/assignments", token=tok)
         a = d["assignments"][0]
-        pid5 = server.APP.bank.pid("b:5")
-        self.assertEqual((a["title"], len(a["tasks"]), a["done"]), ("Графы", 2, []))
+        pid5, pid6 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:6")
+        self.assertEqual((a["title"], len(a["tasks"]), a["done"], a["strict"]), ("Графы", 2, [], True))   # любая подборка — контрольная
         self.assertNotIn("b:5", json.dumps(d))                             # настоящие id ученику не уходят
-        self.req("POST", "/api/open", {"task": pid5}, tok)
-        st, r = self.check(tok, pid5, answer="12", away=3)
-        self.assertEqual(r["game"]["xp"], 15)                              # №5: 10 XP за первое решение + 5 за «Первый шаг»
+        self.assertEqual(self.check(tok, pid5, answer="12")[0], 403)       # задание подборки — только через контрольную
+        self.req("POST", "/api/open", {"task": pid6}, tok)
+        st, r = self.check(tok, pid6, answer="7", away=3)
+        self.assertEqual(r["game"]["xp"], 15)                              # №6: 10 XP за первое решение + 5 за «Первый шаг»
         self.assertEqual(r["game"]["ach"][0]["id"], "first")
         self.assertTrue(r["game"]["ach"][0]["got"])
-        st, d = self.req("GET", "/api/assignments", token=tok)
-        self.assertEqual(d["assignments"][0]["done"], [pid5])
-        st, d = self.admin("GET", f"/api/admin/assignments?class_id={cid}")
-        self.assertEqual(d["assignments"][0]["progress"][0]["done"], 1)
         row = server.APP.db.q("SELECT away FROM attempts WHERE student_id=? ORDER BY id DESC", (me["sid"],), one=True)
         self.assertEqual(row["away"], 3)                                   # уходы со вкладки — в журнале
         # повторное решение того же задания — только 2 XP
-        self.req("POST", "/api/open", {"task": pid5}, tok)
-        st, r = self.check(tok, pid5, answer="12")
+        self.req("POST", "/api/open", {"task": pid6}, tok)
+        st, r = self.check(tok, pid6, answer="7")
         self.assertEqual(r["game"]["xp"], 17)
         st, d = self.req("GET", "/api/leaderboard", token=tok)
         me_row = next(r for r in d["boards"]["day"]["top"] if r["me"])          # рейтинг дня: опыт за сегодня

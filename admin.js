@@ -345,7 +345,7 @@
       ${D.class_id && BLD.asg.length ? `<label class="bld-f">Изменить готовую <select class="adm-select" id="bdLoad"><option value="">— новая подборка —</option>${BLD.asg.map(a => `<option value="${a.id}"${a.id === D.id ? ' selected' : ''}>${esc(a.title)} (${a.tasks.length})</option>`).join('')}</select></label>` : ''}
       <input class="inp" id="bdTitle" maxlength="80" placeholder="Название, например «№5: двоичная запись»" value="${esc(D.title)}">
       <label class="bld-f">Срок <input class="inp" type="date" id="bdDue" value="${esc(D.due || '')}"></label>
-      <label class="adm-switch" title="Одна попытка на задание, проверка — после сдачи. Ученик пишет в полном экране; уходы и выходы из полного экрана видны вам онлайн."><input type="checkbox" id="bdStrict"${D.strict !== false ? ' checked' : ''}> 📝 Контрольная: одна попытка, результат и оценка — после сдачи</label>
+      <p class="adm-hint">📝 Подборка пишется как контрольная: одна попытка на задание, результат и оценка — после сдачи, полный экран, онлайн-сводка у вас.</p>
       <div class="bld-sum"><b>${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
         ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${n}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
       ${total ? `<div class="bld-rbar" title="Распределение по сложности">${byR.map((c, r) => r && c ? `<i class="rk${r}" style="flex:${c}" title="${RANK_SHORT[r]}: ${c}"></i>` : '').join('')}</div>` : ''}
@@ -413,7 +413,6 @@
     if (e.target.id === 'bdDue') { BLD.d.due = e.target.value; bldSave(); }
   });
   $('#bldDraft').addEventListener('change', e => {
-    if (e.target.id === 'bdStrict') { BLD.d.strict = e.target.checked; bldSave(); }
     if (e.target.id === 'bdClass') { BLD.d.class_id = e.target.value; BLD.d.id = null; bldSave(); renderBldDraft(); loadBldAsg(); }
     if (e.target.id === 'bdLoad') {
       const a = BLD.asg.find(x => String(x.id) === e.target.value);
@@ -448,7 +447,7 @@
     if (e.target.closest('#bdSend')) {
       if (!D.title.trim()) { toast('Введите название подборки'); $('#bdTitle').focus(); return; }
       try {
-        await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, strict: D.strict !== false, grading: grades(),
+        await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, strict: true, grading: grades(),
           due: D.due ? new Date(D.due + 'T23:59:00').getTime() / 1000 : null, tasks: D.tasks.map(t => t.id) });
         const cls = (BLD.cat.classes.find(c => String(c.id) === String(D.class_id)) || {}).name || '';
         toast(D.id ? 'Подборка сохранена' : `Подборка отправлена классу ${cls}`);
@@ -775,7 +774,7 @@
       return `<div class="adm-asg">
         <div class="adm-asg-head"><b>${esc(a.title)}</b>
           <span class="adm-hint">${total} ${plural(total, 'задание', 'задания', 'заданий')} · выдано ${fmtDate(a.created)}${a.due ? ` · срок <span style="${late ? 'color:var(--weak)' : ''}">${fmtDate(a.due)}</span>` : ''}</span>
-          <span class="adm-actions"><button type="button" class="btn" data-asg-strict="${a.id}" title="Одна попытка, результат и оценка — после сдачи, полный экран, онлайн-сводка">📝 Сделать контрольной</button>
+          <span class="adm-actions">
           <button type="button" class="btn ghost" data-asg-edit="${a.id}">Изменить</button>
           <button type="button" class="btn ghost danger" data-asg-del="${a.id}">Удалить</button></span></div>
         <div class="adm-hint" style="margin:0 0 8px">Обычная подборка: ответ проверяется сразу, две попытки. Сделали всё: <b>${done}</b> из ${a.progress.length}${zero ? ` · не начинали: ${zero}` : ''}</div>
@@ -1026,18 +1025,6 @@
     const openSt = t.closest('[data-open-st]') || (!t.closest('button') && t.closest('#classTable tr[data-id]'));
     if (openSt) { openStudent(+(openSt.dataset.openSt || openSt.dataset.id)); return; }
     if (t.closest('#asgNew')) { editAssignment(null); return; }
-    const mk = t.closest('[data-asg-strict]');
-    if (mk) {
-      const a = c.assignments.find(x => x.id === +mk.dataset.asgStrict);
-      if (!a || !confirm(`Сделать «${a.title}» контрольной? Ученики будут сдавать каждое задание один раз, без проверки, а результат и оценку увидят после сдачи. Решённое раньше в этой подборке не засчитывается.`)) return;
-      try {
-        await api('assignment/save', { id: a.id, class_id: c.id, title: a.title, due: a.due, strict: true, grading: grades(),
-          tasks: a.tasks.filter(x => !x.missing).map(x => x.id) });
-        toast('Подборка стала контрольной');
-        openClass(c.id);
-      } catch (err) { toast(err.message); }
-      return;
-    }
     const ed = t.closest('[data-asg-edit]');
     if (ed) { editAssignment(c.assignments.find(a => a.id === +ed.dataset.asgEdit)); return; }
     const del = t.closest('[data-asg-del]');
@@ -1065,7 +1052,7 @@
         <input class="inp" id="dTitle" placeholder="Название, например «Графы: №1 и №15»" maxlength="80" value="${esc(draft.title)}" required>
         <label class="adm-hint">срок <input class="inp" type="date" id="dDue" value="${due}"></label>
       </div>
-      <label class="adm-switch" title="Одна попытка на задание, проверка — после сдачи. Ученик пишет в полном экране; уходы и выходы из полного экрана видны вам онлайн."><input type="checkbox" id="dStrict"${draft.strict ? ' checked' : ''}> 📝 Контрольная: одна попытка, результат и оценка — после сдачи</label>
+      <p class="adm-hint">📝 Подборка пишется как контрольная: одна попытка на задание, результат и оценка — после сдачи, полный экран, онлайн-сводка у вас.</p>
       <div class="adm-draft-row">
         <span class="adm-hint">Добавить случайные:</span>
         <select class="adm-select" id="dNum">${Array.from({ length: 27 }, (_, i) => `<option value="${i + 1}">№${i + 1}</option>`).join('')}</select>
@@ -1091,7 +1078,7 @@
     draft.title = $('#dTitle').value;
     const due = $('#dDue').value;
     try {
-      await api('assignment/save', { id: draft.id, class_id: curClass.id, title: draft.title, strict: $('#dStrict').checked, grading: grades(),
+      await api('assignment/save', { id: draft.id, class_id: curClass.id, title: draft.title, strict: true, grading: grades(),
         due: due ? new Date(due + 'T23:59:00').getTime() / 1000 : null, tasks: draft.tasks.map(t => t.id) });
       toast(draft.id ? 'Подборка сохранена' : 'Подборка отправлена классу');
       draft = null;
@@ -1101,7 +1088,7 @@
   $('#classBody').addEventListener('click', async e => {
     if (!draft) return;
     const t = e.target;
-    const keep = () => { draft.strict = $('#dStrict').checked; draft.title = $('#dTitle').value; const d = $('#dDue').value; draft.due = d ? new Date(d + 'T23:59:00').getTime() / 1000 : null; };
+    const keep = () => { draft.title = $('#dTitle').value; const d = $('#dDue').value; draft.due = d ? new Date(d + 'T23:59:00').getTime() / 1000 : null; };
     if (t.closest('#dCancel')) { draft = null; renderDraft(); return; }
     if (t.closest('#dPick')) {
       keep();
