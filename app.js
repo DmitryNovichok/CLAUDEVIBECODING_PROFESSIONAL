@@ -626,7 +626,14 @@
     return best;
   }
 
+  /** Следующее задание; в выбранном номере — только задания этого номера, что бы ни подсказал подбор. */
   function pickNext(excludeId) {
+    const r = pickNextRaw(excludeId);
+    if (!r || ui.scope === 'asg' || ui.scope === 'all' || inScope(r.task)) return r;
+    const list = pool().filter(t => t.id !== excludeId);
+    return list.length ? { task: chooseTask(list, ui.scope) || list[0], why: { type: 'new' } } : r;
+  }
+  function pickNextRaw(excludeId) {
     const now = Date.now();
     const list = pool();
     if (!list.length) return null;
@@ -2877,13 +2884,13 @@
       return;
     }
     if (isNarrow()) setSideOpen(false);
-    const wasExam = examShown;
+    const wasExam = examShown, wasPage = courseShown;       // открыта страница (курс, турниры, подборки) — уходим с неё к заданиям
     if (!leaveExam()) return;
-    if (ui.scope === s && !wasExam) return;
+    if (ui.scope === s && !wasExam && !wasPage) return;
     ui.scope = s;
     save();
     renderSidebar();
-    if (!wasExam && cur && !cur.done && inScope(cur.task)) { renderTopbar(); return; }
+    if (!wasExam && !wasPage && cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg') { renderTopbar(); return; }
     next();
   }
 
@@ -3143,16 +3150,18 @@
   }
 
   async function beginExam() {
-    const items = pickVariant();
-    if (!items.length) { toast('В банке нет заданий для варианта'); return; }
+    let items = SERVER ? [] : pickVariant();
     let id = 'local-' + Date.now(), limit = RULES.exam_sec;
     if (SERVER) {
       try {
         const r = await api('exam/start', {});
         id = r.exam_id;
         limit = r.limit || limit;
+        // вариант собирает сервер: проверяются и показываются ответы только выданных заданий
+        items = (r.items || []).filter(x => byId.get(x.id)).map(x => ({ id: x.id, n: byId.get(x.id).n }));
       } catch (e) { netError(e); return; }
     }
+    if (!items.length) { toast('В банке нет заданий для варианта'); return; }
     abandonCurrent();
     cur = null;
     EX = { id, started: Date.now(), deadline: Date.now() + limit * 1000, items, ans: {}, cur: 0 };
@@ -3382,7 +3391,7 @@
           <div class="fm-facts">
             <div>Время: <b>${fmtClock(res.spent)}</b> из 3:55:00</div>
             <div>Полностью верно: <b>${full}</b> из ${res.results.length}</div>
-            ${ex.away || ex.fsExits || ex.paste ? `<div>Строгий режим: уходов ${ex.away || 0}, выходов из полного экрана ${ex.fsExits || 0}${ex.paste ? `, вставок ${ex.paste}` : ''} — видно учителю</div>` : ''}
+
             <div class="fm-chips">${res.test >= EGE.minScore ? `<span class="chip good">порог ${EGE.minScore} пройден</span>` : `<span class="chip weak">ниже порога ${EGE.minScore}</span>`}</div>
           </div>
         </div>
@@ -5291,6 +5300,31 @@
     ASG = ASG.concat(duels);
     renderAsgCard();
     if (wkLive()) wkWatch();
+    asgNotices();
+  }
+  /** Напоминания: срок работы — сегодня или завтра; новая личная подборка (работа над ошибками, слабые места). */
+  function asgNotices() {
+    const key = `egeTrainer.asgNote.${student ? student.sid : ''}`, today = dayKey(Date.now());
+    const seen = readJSON(key) || {};
+    const say = [];
+    for (const a of ASG) {
+      if (a.duel || a.course || a.closed) continue;
+      const left = a.strict ? (a.finished ? 0 : a.tasks.length - (a.done || []).length) : asgLeft(a).length;
+      if (a.personal && !seen['new' + a.id]) {
+        seen['new' + a.id] = today;
+        say.push(a.personal === 'fix' ? `🔧 Работа над ошибками: ${a.tasks.length} ${plural(a.tasks.length, 'похожее задание', 'похожих задания', 'похожих заданий')} на твои ошибки`
+          : `🎯 Учитель выдал подборку по твоим слабым местам: ${a.title.replace('Слабые места: ', '')}`);
+        continue;
+      }
+      if (!a.due || !left) continue;
+      const ms = a.due * 1000 - Date.now();
+      if (ms <= 0 || ms > 36 * 3600e3 || seen['due' + a.id] === today) continue;
+      seen['due' + a.id] = today;
+      const when = new Date(a.due * 1000).toDateString() === new Date().toDateString() ? 'сегодня' : 'завтра';
+      say.push(`⏰ Срок «${a.title}» — ${when}: осталось ${left} ${plural(left, 'задание', 'задания', 'заданий')}. После срока работа закроется.`);
+    }
+    writeJSON(key, seen);
+    say.slice(0, 3).forEach((t, i) => setTimeout(() => toast(t, 6000), 1200 + i * 6200));
   }
   function renderAsgCard() {
     const card = $('#asgCard');
@@ -5304,7 +5338,8 @@
     $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
   }
   const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
-  const kindOf = a => KINDS[a.kind] || KINDS.self;
+  const PERSONAL = { fix: ['🔧', 'Работа над ошибками'], weak: ['🎯', 'Слабые места'] };
+  const kindOf = a => PERSONAL[a.personal] || KINDS[a.kind] || KINDS.self;
   /** Страница «Задания от учителя» в основной области (как «Курс»): карточки текущих и пройденных подборок. */
   function openAsgPage() {
     if (!leaveExam()) return;
@@ -5330,12 +5365,13 @@
       const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
       const late = a.due && a.due * 1000 < Date.now() && !r;
       const state = r ? `оценка <b>${r.grade}</b> · ${r.pct}% · верно ${r.ok} из ${r.total}${r.xp ? ` · +${r.xp} XP` : ''}`
-        : a.closed ? 'завершена учителем' : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
+        : a.closed ? (a.due && a.closed >= a.due ? 'срок прошёл — <b class="ap-late">не сдана</b>' : 'завершена учителем')
+          : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
       const btns = r ? `<button type="button" class="btn" data-asg="${a.id}">Результат</button><button type="button" class="btn" data-review="${a.id}">Разбор</button>`
         : a.closed ? '' : `<button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить' : 'Начать'}</button>`;
       return `<div class="ap-card${r || a.closed ? ' done' : ''}${a.started && !r ? ' going' : ''}${late ? ' late' : ''}">
         <div class="ap-main">
-          <div class="ap-top"><span class="ap-ico">${r ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
+          <div class="ap-top"><span class="ap-ico">${r ? '✓' : a.closed ? '⌛' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
             <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}</small></div></div>
           <div class="ap-state">${state}</div>
           ${r ? '' : `<i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i>`}</div>
@@ -5373,15 +5409,18 @@
     const sc = a.score || {}, total = a.tasks.length, solved = (a.done || []).length;
     const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
     const late = a.due && a.due * 1000 < Date.now() && !sc.final;
-    const grade = sc.grade ? `${sc.final ? 'оценка' : 'оценка сейчас'} <b>${sc.grade}</b> · ${sc.pct}%` : 'ещё не начата';
+    const grade = sc.grade ? `${sc.final ? 'оценка' : 'оценка сейчас'} <b>${sc.grade}</b> · ${sc.pct}%`
+      : a.closed ? 'срок прошёл — <b class="ap-late">не сделана</b>' : 'ещё не начата';
     return `<div class="ap-card${sc.final ? ' done' : ''}${sc.tried && !sc.final ? ' going' : ''}${late ? ' late' : ''}">
       <div class="ap-main">
-        <div class="ap-top"><span class="ap-ico">${sc.final ? '✓' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
+        <div class="ap-top"><span class="ap-ico">${sc.final && sc.tried ? '✓' : a.closed ? '⌛' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span><b>${esc(a.title)}</b>
           <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}</small></div></div>
         <div class="ap-state">${grade}${sc.tried ? ` · сделано ${sc.tried} из ${sc.total}: верно ${sc.ok}${sc.half ? `, со 2-й попытки ${sc.half}` : ''}${sc.bad ? `, неверно ${sc.bad}` : ''}` : ''}</div>
-        <i class="xp-bar"><b style="width:${pct((sc.tried || 0) / (sc.total || total))}%"></b></i></div>
+        <i class="xp-bar"><b style="width:${pct((sc.tried || 0) / (sc.total || total))}%"></b></i>
+        ${a.personal === 'fix' ? '<p class="ap-note">Похожие задания того же типа на те, где ты ошибся в самостоятельной. Разберись — и закрепи.</p>' : ''}
+        ${a.personal === 'weak' ? '<p class="ap-note">Подборка только для тебя — по номерам, где у тебя пока меньше всего верных ответов.</p>' : ''}</div>
       ${apDates(a, null, sc.final)}
-      <div class="ap-btns"><button type="button" class="btn ${sc.final ? '' : 'primary'}" data-asg="${a.id}">${sc.final ? 'Повторить' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
+      <div class="ap-btns"><button type="button" class="btn ${sc.final || a.closed ? '' : 'primary'}" data-asg="${a.id}">${sc.final || a.closed ? 'Потренироваться' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
   }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
@@ -5426,7 +5465,7 @@
   // Уход со страницы дольше пары секунд, пока открыто задание или вариант, и клавиши снимка экрана
   // записываются — учитель видит это в журнале. Страница при этом ничего не прячет.
   const awayQ = [];
-  let awayFrom = 0, awayWarned = false;
+  let awayFrom = 0;
   function openTaskId() {
     if (examShown && EX) { const it = EX.items[EX.cur]; return it ? it.id : null; }
     return cur && !cur.done ? cur.task.id : null;
@@ -5450,14 +5489,8 @@
     if (examShown && EX) {
       EX.away = (EX.away || 0) + 1;
       saveExam();
-      updStrict();
-      toast(`Уход со страницы во время варианта записан (${EX.away}) — учитель увидит это в результатах.`, 4500);
-      return;
     }
-    if (!awayWarned) {
-      awayWarned = true;
-      toast('Переход на другую вкладку или программу записывается — учитель видит это в журнале.', 4500);
-    }
+    // ученику ничего не показываем — уход только записывается для учителя
   }
   function flushAway() {
     if (!awayQ.length || !SERVER || !student) return;
@@ -5503,15 +5536,7 @@
     document.documentElement.requestFullscreen().catch(() => {}).finally(updStrict);
   }
   function strictHtml() {
-    if (!EX) return '';
-    const n = (EX.away || 0) + (EX.fsExits || 0) + (EX.paste || 0);
-    const off = canFs() && !document.fullscreenElement;
-    const parts = [`уходов со страницы: <b>${EX.away || 0}</b>`];
-    if (canFs()) parts.push(`выходов из полного экрана: <b>${EX.fsExits || 0}</b>`);
-    if (EX.paste) parts.push(`вставок ответа: <b>${EX.paste}</b>`);
-    return `<div class="ex-strict${n ? ' warn' : ''}${off ? ' off' : ''}" id="exStrict">
-      <span>🔒 <b>Строгий режим</b> · ${parts.join(' · ')}</span>
-      ${off ? '<button type="button" class="btn primary" id="exFsBtn">⤢ Вернуться в полный экран</button>' : ''}</div>`;
+    return '';                                   // плашку строгого режима ученику не показываем — не отвлекаем
   }
   function updStrict() {
     const el = $('#exStrict');
@@ -5526,8 +5551,6 @@
     saveExam();
     awayQ.push({ kind: 'fs', task: openTaskId() || '', exam: 1 });
     flushAway();
-    updStrict();
-    toast(`Выход из полноэкранного режима записан (${EX.fsExits}). Вернитесь в полный экран кнопкой над заданием.`, 5000);
   });
   function exStrictLeave() {
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
@@ -5629,9 +5652,8 @@
     if (!a) return;
     let el = $('#wkPop');
     if (!el) { el = document.createElement('div'); el.id = 'wkPop'; el.className = 'wk-pop'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
-    const n = (a.away || 0) + (a.fsExits || 0);
-    el.classList.toggle('warn', !!warn || !!n);
-    el.innerHTML = `<div>📝 <b>Самостоятельная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}${a.away ? ` · уходов со страницы: <b>${a.away}</b>` : ''}${a.fsExits ? ` · выходов из полного экрана: <b>${a.fsExits}</b>` : ''}</div>
+    el.classList.toggle('warn', !!warn);
+    el.innerHTML = `<div>📝 <b>Самостоятельная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}</div>
       ${msg ? `<div class="wk-pop-msg">${msg}</div>` : ''}`;
     el.classList.remove('out');
     el.hidden = false;
@@ -5645,8 +5667,7 @@
       const t = byId.get(id);
       return `<button type="button" class="ex-nav-btn${id === now ? ' on' : ''}${done.has(id) ? ' done' : ''}" data-wk-go="${esc(id)}"
         title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${done.has(id) ? ' — ответ сдан' : ' — ответа ещё нет'}"><b>${i + 1}</b><small>${done.has(id) ? '✓ сдано' : t ? '№' + numLabel(t.n) : ''}</small></button>`;
-    }).join('')}<span class="wk-nav-tools">${canFs() && !document.fullscreenElement ? '<button type="button" class="btn primary" id="wkFsBtn" title="Вернуться в полный экран">⤢ Полный экран</button>' : ''}
-      <button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></span></nav>`;
+    }).join('')}<span class="wk-nav-tools"><button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></span></nav>`;
   }
   function wkBar() {
     const a = wkLive(), nav = $('#wkNav');
@@ -5882,12 +5903,6 @@
     a.fsExits = (a.fsExits || 0) + 1;
     api('asg/away', { id: a.id, kind: 'fs' }).catch(() => {});
     wkBar();
-    wkPop('Выход из полного экрана записан — учитель это видит. Вернись кнопкой «⤢ Полный экран» над заданием.', true);
-  });
-  window.addEventListener('beforeunload', e => {
-    if (!wkLive()) return;
-    e.preventDefault();
-    e.returnValue = 'Идёт самостоятельная — не покидайте вкладку.';
   });
   /** Вернулся на вкладку во время самостоятельной: учителю — уход, ученику — напоминание. */
   function wkCameBack(sec) {
@@ -5896,13 +5911,8 @@
     a.away = (a.away || 0) + 1;
     api('asg/away', { id: a.id, kind: 'away', dur: Math.round(sec) }).catch(() => {});
     wkBar();
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">⚠ Не покидайте вкладку</h2>
-      <p class="fm-note">Идёт самостоятельная «${esc(a.title)}». Уход со страницы на ${Math.round(sec)} с записан, учитель это видит${a.away > 1 ? ` (уже ${a.away} ${plural(a.away, 'раз', 'раза', 'раз')})` : ''}.
-      Решайте задания здесь, не переключаясь на другие вкладки и программы.</p>
-      <div class="actions"><button type="button" class="btn primary" id="wkBackOk">Понятно, продолжить</button></div>`;
-    $('#forecastModal').hidden = false;
-    $('#wkBackOk').addEventListener('click', () => { closeForecast(); wkFullscreen(); });
-    return true;
+    return true;                                 // уход записан для учителя; ученика не отвлекаем
+
   }
 
   // ------------------------------------------------------------ старт
@@ -6025,6 +6035,16 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.46.1', '12.10.2026', ['Убраны напоминания об уходе со страницы и выходе из полного экрана, а в варианте — плашка строгого режима: ничего не отвлекает от заданий']],
+    ['1.46.0', '12.10.2026', ['🔧 Работа над ошибками: после самостоятельной сразу появляется твоя личная подборка — похожие задания того же типа на те, где ты ошибся',
+      '🎯 Учитель может выдать каждому подборку по его слабым номерам — у каждого своя',
+      'Сроки: за день до срока придёт напоминание, после срока работа закрывается (начатая самостоятельная сдаётся сама)']],
+    ['1.45.1', '12.10.2026', ['Вариант ЕГЭ собирает сервер: ответы показываются только к выданным заданиям, задания идущей самостоятельной в вариант не попадают',
+      'Защита от подбора ответов: не больше 6 ответов на одно задание в сутки и 60 проверок за 10 минут; «Показать ответ» — не больше 40 раз в сутки']],
+    ['1.45.0', '12.10.2026', ['Единый банк заданий: задание дня, турниры, подборки курса и подборки учителя собираются из того же банка, что и тренажёр, — только актуальные задания с ответом',
+      'Задание дня и матчи турниров теперь берутся из всех актуальных заданий, а не только с 2024 года']],
+    ['1.44.1', '12.10.2026', ['Исправлено: после страниц «Курс», «Турниры» или «Задания от учителя» нажатие на номер не открывало его задания',
+      'В выбранном номере теперь гарантированно выпадают только задания этого номера']],
     ['1.44.0', '12.10.2026', ['Техподдержка: кнопка «🛟 Техподдержка» в меню слева — напиши об ошибке в задании, проблеме с сайтом или задай вопрос. К обращению можно приложить текущее задание, ответ учителя появится там же']],
     ['1.43.0', '12.10.2026', ['Турниры как в футболе: жеребьёвка по корзинам, групповой этап (победа — 3 очка, ничья — 1, счёт — решённые задания), затем плей-офф и матч за 3-е место',
       'Три вида турниров: на 4, 8 и 12 игроков — каждого вида по одному в сутки',

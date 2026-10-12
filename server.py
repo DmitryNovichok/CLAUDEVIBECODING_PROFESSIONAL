@@ -83,6 +83,9 @@ SUS_BACK_SEC = 60                   # …и ответил верно не по�
 ACTIVITY_PER_HOUR = 300
 MAX_SOLUTION = 50_000                 # символов в решении (код или текст)
 ATTEMPTS_PER_TASK = 2               # попыток на задание; считает сервер, а не страница
+CHECKS_PER_TASK_DAY = 6             # ответов на одно задание за сутки (2 попытки × 3 захода): подбор ответа перебором не пройдёт
+CHECKS_PER_10MIN = 60               # проверок ответа за 10 минут у ученика — против скриптов
+REVEAL_PER_DAY = 40                 # показов ответа за сутки на ученика (кроме лимита в час)
 OPEN_TTL = 6 * 3600                 # сколько помнить открытое задание
 # Вариант ЕГЭ
 EXAM_LIMIT_SEC = (3 * 60 + 55) * 60
@@ -278,6 +281,38 @@ class Opened:
 OPENED = Opened()
 
 
+class CheckLimit:
+    """Сколько ответов ученик отправил на проверку: за 10 минут всего и за сутки на одно задание."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.recent = {}                 # sid → [ts, …] за последние 10 минут
+        self.per_task = {}               # (sid, task, день) → сколько ответов
+
+    def hit(self, sid, tid):
+        """Учесть ещё один ответ. None — можно; иначе текст отказа."""
+        now = time.time()
+        day = datetime.now().strftime("%Y-%m-%d")
+        with self.lock:
+            r = [x for x in self.recent.get(sid, []) if now - x < 600]
+            if len(r) >= CHECKS_PER_10MIN:
+                self.recent[sid] = r
+                return "Слишком много ответов подряд — передохни пару минут и решай дальше"
+            k = (sid, tid, day)
+            if self.per_task.get(k, 0) >= CHECKS_PER_TASK_DAY:
+                return "На это задание сегодня ответов уже достаточно — вернись к нему завтра"
+            r.append(now)
+            self.recent[sid] = r
+            self.per_task[k] = self.per_task.get(k, 0) + 1
+            if len(self.per_task) > 200000:      # чистим вчерашнее
+                for kk in [kk for kk in self.per_task if kk[2] != day]:
+                    del self.per_task[kk]
+            return None
+
+
+CHECKS = CheckLimit()
+
+
 # ================================================================ где лежат банки с картинками
 _bank_cache = {}
 
@@ -362,6 +397,47 @@ NO_AUTHOR_SRC = {"", "компегэ", "яндекс учебник"}
 
 TEXT_AUTHOR_RE = re.compile(r"^[(\[]([^()\[\]]{2,60})[)\]]")
 
+
+# ---------------------------------------------------------------- общий банк
+# Одно правило «задание банка» для всего сайта: тренажёр (app.js: isOutdated), задание дня, турниры, подбор и поиск
+# учителя, подборки курса. Менять — вместе с CFG.firstKegeYear и CFG.formatSince в app.js.
+FIRST_KEGE_YEAR = 2021                                  # первый компьютерный ЕГЭ — более ранние задания другого формата
+FORMAT_SINCE = {6: 2023, 22: 2023, 13: 2024, 27: 2025}  # с какого года номер на ЕГЭ в нынешнем виде
+
+
+def task_outdated(t):
+    """Задание старого формата ЕГЭ: помечено при сборке (fmt) или по году экзамена."""
+    if t.get("fmt") == "cur":
+        return False
+    if t.get("fmt") == "old":
+        return True
+    y = t.get("y")
+    return bool(y) and y < max(FIRST_KEGE_YEAR, FORMAT_SINCE.get(t.get("n"), 0))
+
+
+def bank_ok(t, authored_ok=True, single=False):
+    """Задание общего банка: целиком (вопросы 19–21 — только всей игрой), с ответом, актуального формата.
+    single — нужен один ответ (без игры 19–21); authored_ok=False — без авторских задач."""
+    if not t or t.get("group") or not t.get("n"):
+        return False
+    if t.get("parts"):
+        if single:
+            return False
+    elif not t.get("ans"):
+        return False
+    if task_outdated(t):
+        return False
+    return authored_ok or not is_authored(t.get("src"), t.get("html"))
+
+
+def n_key(n):
+    """Номер для сводок: 19–21 — одна игра (как в тренажёре)."""
+    return 19 if n in (20, 21) else n
+
+
+def bank_pool(nums=None, **kw):
+    """Id заданий общего банка (по номерам nums, если заданы)."""
+    return [i for i, t in APP.bank.tasks.items() if (nums is None or t.get("n") in nums) and bank_ok(t, **kw)]
 
 def is_authored(src, html_text=None):
     """Авторское задание: автор в источнике («КомпЕГЭ · Джобс 14.05.2022») или в начале условия
@@ -922,6 +998,9 @@ class DB:
                     ("asg_runs", "xp", "INTEGER"),
                     ("assignments", "kind", "TEXT"),
                     ("students", "dev", "INTEGER DEFAULT 0"),
+                    ("exams", "tasks", "TEXT"),                       # задания варианта, выданные сервером
+                    ("assignments", "student_id", "INTEGER"),         # личная подборка ученика; NULL — всему классу
+                    ("assignments", "batch", "TEXT"),                 # серия личных подборок: fix:<id> — работа над ошибками, weak:<ts>
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
                     ("tour_matches", "kind", "TEXT"),                 # group, po, final, third
@@ -1038,6 +1117,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")      # чужой сайт не встроит тренажёр в рамку (кликджекинг)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -1360,6 +1440,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         wait = math.ceil(st["ts"] + think_sec(t.get("n")) - now)
         if wait > 0:
             return {"why": "think", "wait": wait}
+        day = APP.db.q("SELECT COUNT(*) AS c, MIN(ts) AS t0 FROM reveal_log WHERE student_id=? AND granted=1 AND ts>?",
+                       (s["id"], now - 86400), one=True)
+        if day["c"] >= REVEAL_PER_DAY:
+            return {"why": "limit", "wait": max(60, math.ceil(day["t0"] + 86400 - now)), "per_hour": REVEAL_PER_HOUR}
         for col, val, lim in (("student_id", s["id"], REVEAL_PER_HOUR), ("ip", self.client_ip(), REVEAL_PER_HOUR_IP)):
             rows = APP.db.q(f"SELECT ts FROM reveal_log WHERE {col}=? AND granted=1 AND ts>? ORDER BY ts",
                             (val, now - 3600))
@@ -1735,10 +1819,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             APP.bank.ensure()
             out = []
             if s["class_id"]:
-                for a in db.q("SELECT * FROM assignments WHERE class_id=? ORDER BY created DESC", (s["class_id"],)):
+                asg_expire(self, db, s["class_id"])
+                for a in db.q("""SELECT * FROM assignments WHERE class_id=? AND (student_id IS NULL OR student_id=?)
+                                 ORDER BY created DESC""", (s["class_id"], s["id"])):
                     real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
                     item = {"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
-                            "kind": a["kind"] or "self", "tasks": [APP.bank.pid(i) for i in real]}
+                            "kind": a["kind"] or "self", "tasks": [APP.bank.pid(i) for i in real],
+                            "closed": a["closed"], "personal": a["batch"].split(":")[0] if a["batch"] else None}
                     if a["strict"]:
                         real = asg_order(real, a["id"], s["id"])      # у каждого ученика свой порядок заданий
                         item["tasks"] = [APP.bank.pid(i) for i in real]
@@ -2229,6 +2316,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             ans = str(data.get("answer") or "")[:400]
             if not tokens(ans):
                 return self.err(400, "Пустой ответ")
+            stop = CHECKS.hit(s["id"], t["id"])
+            if stop:
+                return self.err(429, stop)
             cells = data.get("cells")
             cells = [str(c)[:100] for c in cells[:40]] if isinstance(cells, list) else None
             st["tries"].append(ans)
@@ -2289,18 +2379,27 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.err(429, f"Не больше {EXAM_PER_DAY} вариантов в сутки. Пока можно тренироваться по номерам.")
         if db.q("SELECT COUNT(*) c FROM exams WHERE ip=? AND started>?", (ip, now - 86400), one=True)["c"] >= EXAM_PER_DAY_IP:
             return self.err(429, "С этого адреса сегодня начато слишком много вариантов. Попробуйте завтра.")
+        if not APP.bank.ensure():
+            return self.err(503, "банк заданий не собран")
+        tasks = exam_pick(db, s)
+        if not tasks:
+            return self.err(503, "В банке нет заданий для варианта")
         eid = secrets.token_urlsafe(9)
-        db.x("INSERT INTO exams(id,student_id,ip,started) VALUES(?,?,?,?)", (eid, s["id"], ip, now))
+        db.x("INSERT INTO exams(id,student_id,ip,started,tasks) VALUES(?,?,?,?,?)", (eid, s["id"], ip, now, json.dumps(tasks)))
         return self.send_json({"exam_id": eid, "started": now, "limit": EXAM_LIMIT_SEC,
-                               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS})
+                               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS,
+                               "items": [{"id": APP.bank.pid(i), "n": n_key(APP.bank.tasks[i].get("n"))} for i in tasks]})
 
     def api_strict(self, s, path, method, data, qs):
         """Контрольная от учителя: ответ сдаётся один раз и не проверяется до конца, результат — после сдачи."""
         db = APP.db
         aid = to_int(data.get("id") or qs.get("id"))
         a = db.q("SELECT * FROM assignments WHERE id=? AND strict=1", (aid,), one=True)
-        if not a or a["class_id"] != s["class_id"]:
+        if not a or a["class_id"] != s["class_id"] or (a["student_id"] and a["student_id"] != s["id"]):
             return self.err(404, "Самостоятельная не найдена")
+        if a["due"] and not a["closed"] and time.time() > a["due"]:
+            asg_expire(self, db, a["class_id"])           # срок прошёл — работа закрывается, начатая сдаётся сама
+            a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
         real = asg_order([i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks], aid, s["id"])
         run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (aid, s["id"]), one=True)
         now = time.time()
@@ -2330,7 +2429,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/asg/start":
             if not run:
                 if a["closed"]:
-                    return self.err(409, "Учитель уже завершил эту самостоятельную")
+                    return self.err(409, "Срок прошёл — самостоятельная закрыта" if a["due"] and a["closed"] >= a["due"]
+                                    else "Учитель уже завершил эту самостоятельную")
                 db.x("INSERT INTO asg_runs(asg_id, student_id, started, last, answers) VALUES(?,?,?,?,?)", (aid, s["id"], now, now, "{}"))
                 db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind) VALUES(?,?,?,'start')", (aid, s["id"], now))
             return self.send_json(asg_run_public(db, a, s["id"], real))
@@ -2390,6 +2490,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         spent = now - e["started"]
         show = spent >= EXAM_MIN_SEC_FOR_ANSWERS
         items = data.get("answers") if isinstance(data.get("answers"), list) else []
+        issued = set(json.loads(e["tasks"])) if e["tasks"] else None    # задания, выданные сервером при старте
         results, primary, seen, nums = [], 0, set(), set()
         for it in items[:40]:
             if not isinstance(it, dict):
@@ -2398,6 +2499,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             t = APP.bank.tasks.get(tid)
             if not t or t.get("parts") or tid in seen or t.get("n") in nums:
                 continue                      # по одному заданию на номер, как на экзамене
+            if issued is not None and (t.get("group") or tid) not in issued:
+                continue                      # чужое задание в вариант не подставить — ни балла, ни ответа
+            if issued is None and strict_locked(db, s, t.get("group") or tid):
+                continue                      # вариант старого образца: задания идущей самостоятельной — без ответа
             seen.add(tid)
             n = t.get("n") or 0
             nums.add(n)
@@ -3071,8 +3176,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "класс не найден")
             APP.bank.ensure()
             members = db.q("SELECT id, name FROM students WHERE class_id=? ORDER BY name", (cid,))
+            asg_expire(self, db, cid)
             out = []
-            for a in db.q("SELECT * FROM assignments WHERE class_id=? ORDER BY created DESC", (cid,)):
+            batches = {}
+            for a in db.q("SELECT * FROM assignments WHERE class_id=? AND student_id IS NOT NULL ORDER BY created DESC", (cid,)):
+                real = json.loads(a["tasks"] or "[]")
+                b = batches.setdefault(a["batch"] or f"one:{a['id']}", {"batch": a["batch"] or f"one:{a['id']}", "title": batch_title(a),
+                                                                       "kind": a["kind"], "created": a["created"], "due": a["due"],
+                                                                       "students": 0, "done": 0, "tasks": 0})
+                b["students"] += 1
+                b["tasks"] += len(real)
+                b["done"] += len(assignment_done(db, a["student_id"], real, a["created"])) >= len(real) > 0
+            for a in db.q("SELECT * FROM assignments WHERE class_id=? AND student_id IS NULL ORDER BY created DESC", (cid,)):
                 real = json.loads(a["tasks"] or "[]")
                 prog = [{"id": m["id"], "name": m["name"], "done": len(assignment_done(db, m["id"], real, a["created"]))}
                         for m in members]
@@ -3083,7 +3198,81 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                        "cname": dict(clusters.labels((APP.bank.tasks.get(i) or {}).get("n"))).get((APP.bank.tasks.get(i) or {}).get("c"), ""),
                                        "snip": APP.bank.snippet(i), "missing": i not in APP.bank.tasks} for i in real],
                             "progress": prog})
-            return self.send_json({"assignments": out})
+            return self.send_json({"assignments": out, "batches": list(batches.values())})
+
+        if path == "/api/admin/class/journal":
+            # журнал класса: оценки по всем подборкам и точность по номерам ЕГЭ у каждого ученика
+            cid = to_int(qs.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            APP.bank.ensure()
+            members = db.q("""SELECT id, name, forecast, fc FROM students WHERE class_id=? AND COALESCE(is_teacher, 0) = 0
+                              ORDER BY name""", (cid,))
+            asg_expire(self, db, cid)
+            cols, cells = [], {m["id"]: {} for m in members}
+            by_batch = {}
+            for a in db.q("SELECT * FROM assignments WHERE class_id=? ORDER BY created", (cid,)):
+                real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+                if a["student_id"]:
+                    # личные подборки одной серии (работа над ошибками, слабые места) — одна колонка
+                    key = "b:" + (a["batch"] or str(a["id"]))
+                    if key not in by_batch:
+                        by_batch[key] = {"id": key, "title": batch_title(a), "kind": a["kind"] or "practice", "created": a["created"],
+                                         "due": a["due"], "closed": a["closed"], "total": len(asg_items(real)), "personal": True}
+                        cols.append(by_batch[key])
+                    if a["student_id"] in cells:
+                        cells[a["student_id"]][key] = dict(asg_cell(db, a, a["student_id"], real), asg=a["id"], total=len(asg_items(real)))
+                    continue
+                cols.append({"id": a["id"], "title": a["title"], "kind": a["kind"] or "self", "created": a["created"],
+                             "due": a["due"], "closed": a["closed"], "total": len(asg_items(real))})
+                for m in members:
+                    cells[m["id"]][a["id"]] = asg_cell(db, a, m["id"], real)
+            ids = [m["id"] for m in members]
+            nums = {}
+            if ids:
+                # точность по номерам — первая попытка в тренажёре и подборках, без вариантов ЕГЭ
+                for r in db.q(f"""SELECT student_id, n, COUNT(*) AS a, SUM(score = 1) AS ok FROM attempts
+                                  WHERE student_id IN ({','.join('?' * len(ids))}) AND n IS NOT NULL AND exam IS NULL
+                                  AND COALESCE(gave_up, 0) = 0 GROUP BY student_id, n""", ids):
+                    cur = nums.setdefault(r["student_id"], {}).setdefault(n_key(r["n"]), [0, 0])
+                    cur[0] += r["a"]
+                    cur[1] += r["ok"] or 0
+            return self.send_json({"assignments": cols, "students": [{"id": m["id"], "name": m["name"], "cells": cells[m["id"]],
+                                                                      "nums": nums.get(m["id"], {}), "fc": forecast_trend(m)}
+                                                                     for m in members]})
+
+        if path == "/api/admin/class/digest":
+            # сводка недели: кто не занимался, у кого просели номера, кто не сдал работы, кто молодец
+            cid = to_int(qs.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            APP.bank.ensure()
+            asg_expire(self, db, cid)
+            return self.send_json(class_digest(db, cid))
+
+        if path == "/api/admin/class/weak" and method == "POST":
+            # каждому ученику — своя практическая подборка: по N заданий на его K самых слабых номеров
+            cid = to_int(data.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            per = min(max(to_int(data.get("per")) or 3, 1), 10)
+            k = min(max(to_int(data.get("nums")) or 3, 1), 5)
+            days = min(max(to_int(data.get("days")) or 7, 1), 60)
+            made, skipped = weak_sets(db, cid, per, k, days, bool(self.T["authored"]))
+            return self.send_json({"ok": True, "made": made, "skipped": skipped})
+
+        if path == "/api/admin/batch/delete" and method == "POST":
+            cid = to_int(data.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            batch = str(data.get("batch") or "")
+            if batch.startswith("one:"):
+                db.x("DELETE FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (to_int(batch[4:]), cid))
+            else:
+                db.x("DELETE FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid))
+            return self.send_json({"ok": True})
 
         if path == "/api/admin/assignment/save" and method == "POST":
             cid = to_int(data.get("class_id"))
@@ -3096,6 +3285,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tasks = []
             for i in data.get("tasks") or []:
                 i = str(i)
+                i = (APP.bank.tasks.get(i) or {}).get("group") or i      # вопрос 19–21 — в подборку идёт вся игра
                 if i in APP.bank.tasks and i not in tasks:
                     tasks.append(i)
             if not tasks:
@@ -3114,8 +3304,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         return self.err(409, "Самостоятельную уже начали писать — тип работы менять нельзя")
                     if json.loads(old["tasks"]) != tasks:
                         return self.err(409, "Самостоятельную уже начали писать — состав заданий менять нельзя")
+                prev = db.q("SELECT closed, due FROM assignments WHERE id=?", (aid,), one=True)
                 db.x("UPDATE assignments SET title=?, tasks=?, due=?, strict=?, grading=?, kind=? WHERE id=? AND class_id=?",
                      (title, json.dumps(tasks), due, strict, grading, kind, aid, cid))
+                # продлили срок у работы, закрытой по сроку (closed = прежний срок), — она снова открыта;
+                # закрытую учителем вручную не трогаем
+                if prev and prev["closed"] and prev["due"] and prev["closed"] == prev["due"] and (not due or due > now):
+                    db.x("UPDATE assignments SET closed=NULL WHERE id=?", (aid,))
             else:
                 aid = db.x("INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading,kind) VALUES(?,?,?,?,?,?,?,?)",
                            (cid, title, json.dumps(tasks), now, due, strict, grading, kind))
@@ -3141,7 +3336,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if method != "POST":
                     return self.err(405, "нужен POST")
                 if data.get("reopen"):
-                    db.x("UPDATE assignments SET closed=NULL WHERE id=?", (aid,))
+                    # открыть снова: прошедший срок снимаем, иначе работа тут же закроется по сроку
+                    db.x("UPDATE assignments SET closed=NULL, due=CASE WHEN due < ? THEN NULL ELSE due END WHERE id=?", (now, aid))
                     return self.send_json({"ok": True})
                 db.x("UPDATE assignments SET closed=? WHERE id=?", (now, aid))
                 a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
@@ -3160,7 +3356,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     sols[x["student_id"]] = x["c"]
             if not a["strict"]:
                 rows = []
-                for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? ORDER BY name", (a["class_id"],)):
+                for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? AND (? IS NULL OR id=?) ORDER BY name",
+                              (a["class_id"], a["student_id"], a["student_id"])):
                     sc = practice_score(db, a, m["id"], real)
                     rows.append({"id": m["id"], "name": m["name"], "total": len(items), "answered": sc["tried"],
                                  "status": "done" if sc["tried"] >= len(items) else "work" if sc["tried"] else "none",
@@ -3171,7 +3368,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                        "grading": asg_grading(a), "total": len(items), "rows": rows})
             runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (aid,))}
             rows = []
-            for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? ORDER BY name", (a["class_id"],)):
+            for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? AND (? IS NULL OR id=?) ORDER BY name",
+                          (a["class_id"], a["student_id"], a["student_id"])):
                 r = runs.get(m["id"])
                 row = {"id": m["id"], "name": m["name"], "status": "none", "answered": 0, "total": len(items),
                        "sol": sols.get(m["id"], 0), "tasks": len(real)}
@@ -3205,9 +3403,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             n = to_int(qs.get("n"))
             k = min(max(to_int(qs.get("count")) or 1, 1), 30)
             skip = set(str(qs.get("skip") or "").split(","))
-            pool = [tid for tid, t in APP.bank.tasks.items()
-                    if t.get("n") == n and not t.get("group") and tid not in skip and t.get("fmt") != "old"
-                    and (self.T["authored"] or not is_authored(t.get("src"), t.get("html")))]
+            pool = [tid for tid in bank_pool({n}, authored_ok=bool(self.T["authored"])) if tid not in skip]
             pick = secrets.SystemRandom().sample(pool, min(k, len(pool)))
             return self.send_json({"tasks": [{"id": i, "n": n, "snip": APP.bank.snippet(i)} for i in pick]})
 
@@ -3258,7 +3454,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     continue
                 if (y0 and (t.get("y") or 0) < y0) or (y1 and (t.get("y") or 9999) > y1):
                     continue
-                if fmt == "actual" and t.get("fmt") == "old" or fmt == "old" and t.get("fmt") != "old":
+                if fmt == "actual" and task_outdated(t) or fmt == "old" and not task_outdated(t):
                     continue
                 if not self.T["authored"] and is_authored(t.get("src"), t.get("html")):
                     continue
@@ -3298,9 +3494,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "id": t["id"], "n": t.get("n"), "c": t.get("c"), "cname": names.get(t.get("n"), {}).get(t.get("c"), ""),
                 "r": t.get("r"), "bank": APP.bank.titles.get(t.get("bank"), t.get("bank")), "y": t.get("y"),
                 "src": t.get("src"), "tries": tries, "rate": round(share, 2) if share is not None and tries >= RATE_MIN else None,
-                "snip": APP.bank.snippet(t["id"]), "old": t.get("fmt") == "old"}
+                "snip": APP.bank.snippet(t["id"]), "old": task_outdated(t)}
             rows = [row(*x) for x in out[page * per:(page + 1) * per]]
-            pool = [row(*x) for x in out[:300]] if qs.get("pool") else None   # для «добавить N случайных из найденных»
+            pool = None
+            if qs.get("pool"):
+                # для «случайных из найденных» и «по N на номер»: случайные из ВСЕХ найденных, до 60 на каждый номер
+                by_n = {}
+                for x in out:
+                    by_n.setdefault(x[0].get("n"), []).append(x)
+                rnd = secrets.SystemRandom()
+                pool = [row(*x) for lst in by_n.values() for x in rnd.sample(lst, min(60, len(lst)))]
             return self.send_json({"total": len(out), "page": page, "per": per, "tasks": rows, "pool": pool,
                                    "facets": {"c": facet_c, "r": facet_r}})
 
@@ -3955,10 +4158,17 @@ def daily_task_id(day=None):
     hit = _DAILY_CACHE.get(day)
     if hit and hit[1] == APP.bank.mtime:
         return hit[0]
-    cands = sorted(i for i, t in APP.bank.tasks.items()
-                   if t.get("n") in DAILY_NUMS and not t.get("parts") and not t.get("group") and t.get("ans")
-                   and (t.get("y") or 2026) >= 2024 and not is_authored(t.get("src"), t.get("html")))
-    tid = cands[int(hashlib.sha256(("daily:" + day).encode()).hexdigest(), 16) % len(cands)] if cands else None
+    # выбранное на день запоминаем: смена правил отбора или пересборка банка не подменят задание посреди дня
+    row = APP.db.q("SELECT value FROM settings WHERE key=?", ("daily:" + day,), one=True)
+    tid = row["value"] if row and row["value"] in APP.bank.tasks else None
+    if not tid:
+        cands = sorted(bank_pool(DAILY_NUMS, single=True, authored_ok=False))
+        if APP.db.q("SELECT 1 FROM daily_starts WHERE day=? LIMIT 1", (day,), one=True):
+            # день начался до единого банка — задание выбирали из заданий с 2024 года, оставляем его
+            cands = [i for i in cands if (APP.bank.tasks[i].get("y") or 2026) >= 2024]
+        tid = cands[int(hashlib.sha256(("daily:" + day).encode()).hexdigest(), 16) % len(cands)] if cands else None
+        if tid:
+            APP.db.x("INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)", ("daily:" + day, tid))
     _DAILY_CACHE[day] = (tid, APP.bank.mtime)
     return tid
 
@@ -4011,10 +4221,8 @@ def tournament_table(db, s, mates):
 def duel_tasks():
     """Задания для дуэли или матча турнира: по одному на разные номера, актуального формата, без авторских."""
     pool = {}
-    for i, t in APP.bank.tasks.items():
-        if (t.get("n") in DUEL_NUMS and not t.get("parts") and not t.get("group") and t.get("ans")
-                and (t.get("y") or 2026) >= 2024 and not is_authored(t.get("src"), t.get("html"))):
-            pool.setdefault(t["n"], []).append(i)
+    for i in bank_pool(set(DUEL_NUMS), single=True, authored_ok=False):
+        pool.setdefault(APP.bank.tasks[i]["n"], []).append(i)
     nums = random.sample(sorted(pool), min(DUEL_TASKS, len(pool)))
     return [random.choice(pool[n]) for n in sorted(nums)]
 
@@ -4326,8 +4534,7 @@ def course_sets_all(authored_ok):
     """Подборки курса для всех номеров: {n: {warm|base|exam|hard|test: [id]}} — пересчёт при смене банка."""
     key = (APP.bank.etag, bool(authored_ok))
     if key not in _CSETS:
-        tasks = [t for t in APP.bank.tasks.values()
-                 if authored_ok or not is_authored(t.get("src"), t.get("html"))]
+        tasks = [t for t in APP.bank.tasks.values() if bank_ok(t, authored_ok=authored_ok)]
         for k in [k for k in _CSETS if k[0] != APP.bank.etag]:
             del _CSETS[k]                # банк пересобрали — старые подборки не нужны
         _CSETS[key] = {n: clusters.course_sets(tasks, n) for n in range(1, 28) if n not in (20, 21)}
@@ -4457,6 +4664,7 @@ def asg_finish_run(handler, db, a, s, real, forced=0):
         handler.log_attempt(s, t, [x.get("a") or ""], 1.0 if credit == 1 else 0.0, reason=WORK_REASON, part=credit,
                             spent=x.get("ms"))
     db.x("UPDATE asg_runs SET xp=? WHERE asg_id=? AND student_id=?", (game_summary(db, s["id"])["xp"] - xp0, a["id"], s["id"]))
+    make_fix_set(db, a, s, res)                    # ошибки — сразу в личную «работу над ошибками»
 
 
 def asg_run_public(db, a, sid, real):
@@ -4500,11 +4708,236 @@ def asg_review_locked(db, a):
     return "Правильные ответы и решения откроются, когда самостоятельная закончится для всех: учитель её завершит, пройдёт срок или сдаст весь класс."
 
 
+def asg_cell(db, a, sid, real):
+    """Клетка журнала: как ученик сделал работу. st: done | work | none | miss (срок прошёл, не сделал)."""
+    if a["strict"]:
+        r = db.q("SELECT finished, grade, pct FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], sid), one=True)
+        cell = ({"st": "done", "grade": r["grade"], "pct": r["pct"]} if r and r["finished"]
+                else {"st": "work"} if r else {"st": "none"})
+    else:
+        sc = practice_score(db, a, sid, real)
+        cell = ({"st": "done" if sc["final"] else "work", "grade": sc["grade"], "pct": sc["pct"], "tried": sc["tried"]}
+                if sc["tried"] else {"st": "none"})
+    if cell["st"] == "none" and (a["closed"] or (a["due"] and time.time() > a["due"])):
+        cell = {"st": "miss"}
+    return cell
+
+
+def batch_title(a):
+    """Название серии личных подборок для учителя."""
+    b = a["batch"] or ""
+    if b.startswith("fix:"):
+        src = APP.db.q("SELECT title FROM assignments WHERE id=?", (to_int(b[4:]),), one=True)
+        return "Работа над ошибками" + (f": {src['title']}" if src else "")
+    if b.startswith("weak:"):
+        return "Слабые места · " + datetime.fromtimestamp(to_int(b[5:]) or a["created"] or 0).strftime("%d.%m")
+    return a["title"]
+
+
+def asg_expire(handler, db, class_id):
+    """Срок работы прошёл — она закрывается: начатые самостоятельные сдаются по уже данным ответам."""
+    now = time.time()
+    for a in db.q("SELECT * FROM assignments WHERE class_id=? AND closed IS NULL AND due IS NOT NULL AND due < ?", (class_id, now)):
+        if not db.xn("UPDATE assignments SET closed=? WHERE id=? AND closed IS NULL", (a["due"], a["id"])):
+            continue
+        if a["strict"]:
+            a = db.q("SELECT * FROM assignments WHERE id=?", (a["id"],), one=True)
+            real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+            for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NULL", (a["id"],)):
+                st = db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True)
+                if st:
+                    asg_finish_run(handler, db, a, st, real, forced=1)
+
+
+def similar_tasks(db, sid, src_ids, per, exclude, authored_ok):
+    """Похожие задания: тот же номер и тот же тип (кластер), из общего банка, ещё не решённые учеником."""
+    solved = {r["t"] for r in db.q("SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts WHERE student_id=? AND score>0", (sid,))}
+    rnd = secrets.SystemRandom()
+    out, used = [], set(exclude)
+    for k in src_ids:
+        t = APP.bank.tasks.get(k) or {}
+        top = t.get("group") or k
+        tt = APP.bank.tasks.get(top) or t
+        n, c = tt.get("n"), tt.get("c")
+        pool = [i for i in bank_pool({n}, authored_ok=authored_ok) if i not in used]
+        same = [i for i in pool if APP.bank.tasks[i].get("c") == c]
+        for lst in ([i for i in same if i not in solved], same, [i for i in pool if i not in solved], pool):
+            if lst:
+                pick = rnd.sample(lst, min(per, len(lst)))
+                out += pick
+                used |= set(pick)
+                break
+    return out
+
+
+FIX_PER_MISTAKE = 2                    # похожих заданий на каждую ошибку в работе над ошибками
+FIX_DAYS = 4                           # срок работы над ошибками, дней
+
+
+def make_fix_set(db, a, s, res):
+    """После самостоятельной — личная практическая «работа над ошибками»: похожие задания на те, где ошибся."""
+    if a["student_id"] or a["batch"]:
+        return None                    # только после работ всему классу
+    batch = f"fix:{a['id']}"
+    if db.q("SELECT 1 FROM assignments WHERE batch=? AND student_id=?", (batch, s["id"]), one=True):
+        return None
+    wrong, seen = [], set()
+    for k, v in res.items():
+        if v == 1:
+            continue
+        top = (APP.bank.tasks.get(k) or {}).get("group") or k
+        if top not in seen:
+            seen.add(top)
+            wrong.append(top)
+    if not wrong:
+        return None
+    tasks = similar_tasks(db, s["id"], wrong, FIX_PER_MISTAKE, json.loads(a["tasks"] or "[]"),
+                          bool(teacher_of(s)["authored"]))[:20]
+    if not tasks:
+        return None
+    now = time.time()
+    due = datetime.combine((datetime.now() + timedelta(days=FIX_DAYS)).date(), datetime.max.time()).timestamp()
+    db.x("""INSERT INTO assignments(class_id, title, tasks, created, due, strict, kind, student_id, batch)
+            VALUES(?,?,?,?,?,0,'practice',?,?)""",
+         (a["class_id"], f"Работа над ошибками: {a['title']}"[:80], json.dumps(tasks), now, due, s["id"], batch))
+    return len(tasks)
+
+
+def weak_numbers(db, sid, k):
+    """K самых слабых номеров ученика: меньше всего верных с первой попытки (без вариантов), хотя бы 2 ответа."""
+    rows = db.q("""SELECT n, COUNT(*) AS a, SUM(score = 1) AS ok FROM attempts WHERE student_id=? AND n IS NOT NULL
+                   AND exam IS NULL GROUP BY n""", (sid,))
+    agg = {}
+    for r in rows:
+        x = agg.setdefault(n_key(r["n"]), [0, 0])
+        x[0] += r["a"]
+        x[1] += r["ok"] or 0
+    cand = sorted((ok / a, -a, n) for n, (a, ok) in agg.items() if a >= 2)
+    return [n for acc, _, n in cand if acc < 0.85][:k]          # уверенно решаемое (85%+) слабым не считаем
+
+
+def weak_sets(db, cid, per, k, days, authored_ok):
+    """Каждому ученику класса — своя подборка на его слабые номера. Возвращает (сколько выдано, у кого мало данных)."""
+    now = time.time()
+    batch = f"weak:{int(now)}"
+    due = datetime.combine((datetime.now() + timedelta(days=days)).date(), datetime.max.time()).timestamp()
+    made, skipped = 0, []
+    rnd = secrets.SystemRandom()
+    for m in db.q("SELECT id, name FROM students WHERE class_id=? AND COALESCE(is_teacher, 0) = 0", (cid,)):
+        nums = weak_numbers(db, m["id"], k)
+        if not nums:
+            skipped.append(m["name"])
+            continue
+        solved = {r["t"] for r in db.q("SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts WHERE student_id=? AND score>0",
+                                         (m["id"],))}
+        tasks = []
+        for n in nums:
+            pool = bank_pool({n}, authored_ok=authored_ok)
+            fresh = [i for i in pool if i not in solved] or pool
+            tasks += rnd.sample(fresh, min(per, len(fresh)))
+        if not tasks:
+            skipped.append(m["name"])
+            continue
+        title = "Слабые места: " + ", ".join("№" + ("19–21" if n == 19 else str(n)) for n in nums)
+        db.x("""INSERT INTO assignments(class_id, title, tasks, created, due, strict, kind, student_id, batch)
+                VALUES(?,?,?,?,?,0,'practice',?,?)""", (cid, title[:80], json.dumps(tasks), now, due, m["id"], batch))
+        made += 1
+    return made, skipped
+
+
+def forecast_trend(m):
+    """Прогноз балла: сейчас, месяц назад и по дням за 30 дней (для мини-графика в журнале)."""
+    try:
+        hist = json.loads(m["fc"] or "[]")
+    except ValueError:
+        hist = []
+    cut = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    before = [h for h in hist if h.get("d", "") <= cut]
+    month = [h for h in hist if h.get("d", "") > cut]
+    then = before[-1]["s"] if before else (month[0]["s"] if month else None)
+    return {"now": m["forecast"], "then": then, "series": [h["s"] for h in month][-30:]}
+
+
+def class_digest(db, cid):
+    """Сводка недели по классу: 7 дней против предыдущих 30."""
+    now = time.time()
+    w0, p0 = now - 7 * 86400, now - 37 * 86400
+    members = db.q("SELECT id, name, last_seen FROM students WHERE class_id=? AND COALESCE(is_teacher, 0) = 0 ORDER BY name", (cid,))
+    inactive, dropped, top, overdue = [], [], [], []
+    asgs = db.q("SELECT * FROM assignments WHERE class_id=? AND due IS NOT NULL AND due < ? AND due > ?", (cid, now, now - 21 * 86400))
+    for m in members:
+        rows = db.q("""SELECT n, ts, score FROM attempts WHERE student_id=? AND ts>? AND exam IS NULL AND n IS NOT NULL""", (m["id"], p0))
+        week = [r for r in rows if r["ts"] >= w0]
+        if not week:
+            last = db.q("SELECT MAX(ts) AS t FROM attempts WHERE student_id=?", (m["id"],), one=True)["t"]
+            inactive.append({"id": m["id"], "name": m["name"], "last": last})
+        else:
+            top.append({"id": m["id"], "name": m["name"], "solved": sum(1 for r in week if (r["score"] or 0) > 0), "answers": len(week)})
+        by = {}
+        for r in rows:
+            x = by.setdefault(n_key(r["n"]), {"w": [0, 0], "p": [0, 0]})["w" if r["ts"] >= w0 else "p"]
+            x[0] += 1
+            x[1] += r["score"] == 1
+        for n, v in by.items():
+            if v["w"][0] >= 3 and v["p"][0] >= 3:
+                aw, ap = v["w"][1] / v["w"][0], v["p"][1] / v["p"][0]
+                if ap - aw >= 0.25:
+                    dropped.append({"id": m["id"], "name": m["name"], "n": n, "was": round(ap * 100), "now": round(aw * 100)})
+        for a in asgs:
+            if a["student_id"] and a["student_id"] != m["id"]:
+                continue
+            real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+            c = asg_cell(db, a, m["id"], real)
+            if c["st"] in ("miss", "work") or (c["st"] == "done" and not a["strict"] and c.get("tried", 0) < len(asg_items(real))):
+                overdue.append({"id": m["id"], "name": m["name"], "asg": a["id"], "title": a["title"], "due": a["due"],
+                                "state": "не начинал" if c["st"] == "miss" else f"сделано {c.get('tried', 0)} из {len(asg_items(real))}"
+                                if not a["strict"] else "не сдал"})
+    top.sort(key=lambda x: -x["solved"])
+    return {"from": w0, "to": now, "inactive": inactive, "dropped": dropped, "overdue": overdue,
+            "top": top[:3], "active": len(members) - len(inactive), "total": len(members)}
+
+
+def exam_pick(db, s):
+    """Вариант ЕГЭ выбирает сервер: по заданию на номер (19–21 — одной игрой) из общего банка.
+    Сначала нерешённые; верно решённые в последних 3 вариантах — пропускаем; задания идущей самостоятельной — никогда."""
+    authored = bool(teacher_of(s)["authored"])
+    solved = {r["t"] for r in db.q("""SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts
+                                      WHERE student_id=? AND score>0""", (s["id"],))}
+    last = [r["id"] for r in db.q("""SELECT id FROM exams WHERE student_id=? AND finished IS NOT NULL
+                                    ORDER BY finished DESC LIMIT 3""", (s["id"],))]
+    recent = set()
+    if last:
+        recent = {r["t"] for r in db.q(f"""SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts WHERE score>0
+                                          AND exam IN ({','.join('?' * len(last))})""", last)}
+    locked = set()
+    if s["class_id"]:
+        for a in db.q("SELECT id, tasks FROM assignments WHERE class_id=? AND strict=1 AND closed IS NULL", (s["class_id"],)):
+            run = db.q("SELECT finished FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], s["id"]), one=True)
+            if not run or not run["finished"]:
+                locked |= set(json.loads(a["tasks"] or "[]"))
+    rnd = secrets.SystemRandom()
+    groups = any(t.get("parts") for t in APP.bank.tasks.values())
+    out = []
+    for n in range(1, 28):
+        if groups and n in (20, 21):
+            continue
+        cands = [i for i in bank_pool({n}, authored_ok=authored)
+                 if i not in locked and (n != 19 or not groups or APP.bank.tasks[i].get("parts"))]
+        if not cands:
+            continue
+        for pref in ([i for i in cands if i not in solved], [i for i in cands if i not in recent], cands):
+            if pref:
+                out.append(rnd.choice(pref))
+                break
+    return out
+
+
 def strict_locked(db, s, real_id):
     """Задание из незавершённой контрольной класса: проверять его в тренировке нельзя, пока ученик её не сдал."""
     if not s["class_id"]:
         return False
-    for a in db.q("SELECT id, tasks FROM assignments WHERE class_id=? AND strict=1 AND closed IS NULL", (s["class_id"],)):
+    for a in db.q("""SELECT id, tasks FROM assignments WHERE class_id=? AND strict=1 AND closed IS NULL
+                     AND (student_id IS NULL OR student_id=?)""", (s["class_id"], s["id"])):
         if real_id in json.loads(a["tasks"] or "[]"):
             run = db.q("SELECT finished FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], s["id"]), one=True)
             if not run or not run["finished"]:

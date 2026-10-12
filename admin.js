@@ -333,7 +333,9 @@
       <label class="adm-hint">порядок <select class="adm-select" id="bldSort">${[['rank', 'по номеру и сложности ↑'], ['hard', 'по номеру, сначала сложные'], ['rate', 'сначала трудные для учеников'], ['new', 'сначала новые'], ['random', 'случайно']]
         .map(([v, t]) => `<option value="${v}"${BLD.f.sort === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
       <span class="bld-bar-act"><input class="inp" type="number" id="bldK" min="1" max="50" value="5"> <button type="button" class="btn" id="bldRand"${d.total ? '' : ' disabled'}>+ случайных из найденных</button>
-      <button type="button" class="btn ghost" id="bldAddPage"${d.tasks.length ? '' : ' disabled'}>+ все на странице</button></span>`;
+      <button type="button" class="btn" id="bldPerN"${d.total ? '' : ' disabled'} title="Из найденных — столько случайных заданий каждого номера">+ по стольку на каждый номер</button>
+      <button type="button" class="btn ghost" id="bldAddPage"${d.tasks.length ? '' : ' disabled'}>+ все на странице</button>
+      <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 из общего банка (актуальные)">Вариант ЕГЭ</button></span>`;
     $('#bldList').innerHTML = d.tasks.length ? d.tasks.map(x => `<div class="bld-item${inDraft.has(x.id) ? ' in' : ''}">
         <span class="num-badge sm">${x.n === 19 ? '19–21' : x.n}</span>
         <div class="bld-item-main"><div class="bld-meta"><b>${esc(x.cname)}</b> ${rankDots(x.r)} ${rateHtml(x)}
@@ -416,6 +418,30 @@
   $('#bldBar').addEventListener('change', e => { if (e.target.id === 'bldSort') { BLD.f.sort = e.target.value; bldSearch(); } });
   $('#bldBar').addEventListener('click', async e => {
     if (e.target.closest('#bldAddPage')) { toast(`Добавлено: ${bldAdd(BLD.res.tasks)}`); return; }
+    if (e.target.closest('#bldPerN') || e.target.closest('#bldVariant')) {
+      const variant = !!e.target.closest('#bldVariant');
+      const k = variant ? 1 : Math.max(1, Math.min(20, +$('#bldK').value || 1));
+      let pool;
+      if (variant) {                       // вариант — из всего актуального банка, без фильтров
+        const saved = BLD.f;
+        BLD.f = { n: [], c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: saved.notsolved, q: '', sort: 'random' };
+        pool = await bldSearch(true, true);
+        BLD.f = saved;
+      } else pool = await bldSearch(true, true);
+      if (!pool) return;
+      const have = new Set(BLD.d.tasks.map(t => t.id)), byN = {};
+      for (const x of pool) if (!have.has(x.id)) (byN[x.n] = byN[x.n] || []).push(x);
+      const add = [];
+      for (const n of Object.keys(byN).sort((a, b) => a - b)) {
+        const l = byN[n];
+        for (let i = l.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [l[i], l[j]] = [l[j], l[i]]; }
+        add.push(...l.slice(0, k));
+      }
+      const n = bldAdd(add);
+      if (variant && !BLD.d.title) { BLD.d.title = 'Вариант ЕГЭ'; bldSave(); renderBldDraft(); }
+      toast(n ? `Добавлено: ${n}${variant ? ' — по одному на номер' : ` — по ${k} на номер`}` : 'Все подходящие задания уже в подборке');
+      return;
+    }
     if (e.target.closest('#bldRand')) {
       const k = Math.max(1, Math.min(50, +$('#bldK').value || 5));
       const pool = await bldSearch(true, true);
@@ -586,6 +612,13 @@
     const b = e.target.closest('button[data-tab]');
     if (b) go(b.dataset.tab);
   });
+  /** Из класса — в конструктор: черновик для этого класса, по номеру n (если задан). */
+  function openBuilderFor(classId, n) {
+    if (String(BLD.d.class_id) !== String(classId)) { BLD.d.class_id = String(classId); BLD.d.id = null; }
+    if (n) { BLD.f.n = [String(n)]; BLD.f.c = []; BLD.page = 0; }
+    bldSave();
+    go('build');
+  }
 
   // ------------------------------------------------------------ ученики
   let students = [];
@@ -775,7 +808,7 @@
       const [s, a] = await Promise.all([api('students?class_id=' + id), api('assignments?class_id=' + id)]);
       const cl = classes.find(c => c.id === id) || {};
       curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0, battle: !!cl.battle,
-        students: s.students, assignments: a.assignments };
+        students: s.students, assignments: a.assignments, batches: a.batches || [] };
     } catch (e) { if (e.status !== 401) toast(e.message); return; }
     renderClass();
     setCsPreset('today');
@@ -817,10 +850,17 @@
       <div class="adm-toolbar"><h2 class="adm-h">${esc(c.name)} <span class="adm-count">· ${studs.length}</span></h2>
         <span class="adm-actions"><button type="button" class="btn ghost" id="classRename">Переименовать</button>
         <button type="button" class="btn ghost danger" id="classDelete">Удалить класс</button></span></div>
+      <nav class="cls-tabs" id="clsTabs">${CLS_PANES.map(([k, l]) => `<button type="button" data-pane="${k}" class="${clsPane === k ? 'on' : ''}">${l}</button>`).join('')}</nav>
+      <div class="cls-pane" data-pane="digest"${clsPane === 'digest' ? '' : ' hidden'}><div id="clsDigest"><p class="adm-hint">Собираю сводку…</p></div></div>
+      <div class="cls-pane" data-pane="members"${clsPane === 'members' ? '' : ' hidden'}>
       ${studs.length ? `<div class="adm-table-wrap"><table class="adm-table" id="classTable"><thead><tr>
         <th>Ученик</th><th class="num">Ур.</th><th>Был(а)</th><th class="num">За 7 дней</th><th class="num">Верно с 1-й</th>
         <th class="num" title="Уходил со вкладки за 7 дней">Уходил</th><th class="num">Прогноз</th><th></th></tr></thead><tbody>${members}</tbody></table></div>`
         : '<p class="adm-empty">В классе пока нет учеников. Отметьте их галочками на вкладке «Ученики» и нажмите «Перенести в класс».</p>'}
+      </div>
+      <div class="cls-pane" data-pane="journal"${clsPane === 'journal' ? '' : ' hidden'}><div id="clsJournal"><p class="adm-hint">Загружаю журнал…</p></div></div>
+      <div class="cls-pane" data-pane="nums"${clsPane === 'nums' ? '' : ' hidden'}><div id="clsNums"><p class="adm-hint">Загружаю…</p></div></div>
+      <div class="cls-pane" data-pane="period"${clsPane === 'period' ? '' : ' hidden'}>
       <div class="adm-box cls-stats" id="clsStats">
         <h3 class="adm-h3">Статистика класса за период — для оценок</h3>
         <div class="cls-stats-bar">
@@ -840,6 +880,8 @@
           Процент — доля верно решённых среди начатых заданий, а для подборки — решённых из всех заданий подборки.</div>
         <div id="csTable"></div>
       </div>
+      </div>
+      <div class="cls-pane" data-pane="battle"${clsPane === 'battle' ? '' : ' hidden'}>
       <form class="adm-box adm-goal" id="goalForm">
         <h3 class="adm-h3">Битва классов · цель на неделю</h3>
         <label class="adm-switch"><input type="checkbox" id="goalBattle"${c.battle ? ' checked' : ''}> Класс участвует в битве классов</label>
@@ -852,10 +894,152 @@
           <button class="btn primary" type="submit">Сохранить</button>
         </div>
       </form>
-      <div class="adm-toolbar" style="margin-top:28px"><h2 class="adm-h">Подборки заданий</h2>
-        <span class="adm-actions"><button type="button" class="btn primary" id="asgNew">Новая подборка</button></span></div>
+      </div>
+      <div class="cls-pane" data-pane="asg"${clsPane === 'asg' ? '' : ' hidden'}>
+      <div class="adm-toolbar"><h2 class="adm-h">Подборки заданий</h2>
+        <span class="adm-actions"><button type="button" class="btn ghost" id="asgToBuilder" title="Конструктор с фильтром по всему банку">Собрать в конструкторе</button>
+        <button type="button" class="btn primary" id="asgNew">Новая подборка</button></span></div>
       <div id="asgEditor"></div>
-      ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}`;
+      ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}
+      ${c.batches.length ? `<h3 class="adm-h3">Личные подборки</h3>
+        <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке. Результаты — в журнале.</p>
+        ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : '🎯'} ${esc(b.title)}</b>
+          <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
+          <span class="adm-actions"><button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div></div>`).join('')}` : ''}
+      </div>`;
+    if (clsPane === 'journal' || clsPane === 'nums') loadGradebook();
+    if (clsPane === 'digest') loadDigest();
+  }
+  // ---------- вкладки класса: ученики, журнал оценок, номера ЕГЭ, статистика за период, подборки, битва
+  const CLS_PANES = [['digest', 'Сводка недели'], ['members', 'Ученики'], ['journal', 'Журнал'], ['nums', 'По номерам'], ['period', 'За период'], ['asg', 'Подборки'], ['battle', 'Битва классов']];
+  let clsPane = (() => { try { return localStorage.getItem('egeAdmin.clsPane') || 'digest'; } catch (e) { return 'digest'; } })();
+  if (!CLS_PANES.some(p => p[0] === clsPane)) clsPane = 'digest';
+  function showClsPane(k) {
+    clsPane = k;
+    try { localStorage.setItem('egeAdmin.clsPane', k); } catch (e) { /* не страшно */ }
+    $$('#clsTabs [data-pane]').forEach(b => b.classList.toggle('on', b.dataset.pane === k));
+    $$('#classBody .cls-pane').forEach(p => { p.hidden = p.dataset.pane !== k; });
+    if (k === 'journal' || k === 'nums') loadGradebook();
+    if (k === 'digest') loadDigest();
+  }
+  // ---------- сводка недели: кто не занимался, кто просел, кто не сдал, кто молодец
+  async function loadDigest() {
+    const id = curClass && curClass.id;
+    let d;
+    try { d = await api('class/digest?class_id=' + id); } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    const box = $('#clsDigest');
+    if (!box || !curClass || curClass.id !== id) return;
+    const who = (sid, name) => `<button type="button" class="task-link" data-open-st="${sid}">${esc(name)}</button>`;
+    const nl = n => n === 19 ? '19–21' : n;
+    const sec = (ico, title, cls, body, empty) => `<div class="dg-card ${cls}"><h4>${ico} ${title}</h4>${body || `<p class="adm-hint">${empty}</p>`}</div>`;
+    const drop = {};
+    d.dropped.forEach(x => (drop[x.id] = drop[x.id] || { name: x.name, list: [] }).list.push(x));
+    box.innerHTML = `<p class="adm-hint">${fmtDate(d.from)} — ${fmtDate(d.to)} · занимались <b>${d.active}</b> из ${d.total}. Сравнение — с предыдущими 30 днями.</p>
+      <div class="dg-grid">
+        ${sec('😴', 'Не занимались за неделю', d.inactive.length ? 'warn' : 'ok', d.inactive.length ? `<ul>${d.inactive.map(x => `<li>${who(x.id, x.name)} <span class="muted">${x.last ? 'последний раз ' + fmtWhen(x.last) : 'ни разу'}</span></li>`).join('')}</ul>` : '', 'Все занимались — отлично!')}
+        ${sec('📉', 'Просели по номерам', Object.keys(drop).length ? 'warn' : 'ok', Object.keys(drop).length ? `<ul>${Object.entries(drop).map(([sid, v]) => `<li>${who(sid, v.name)}: ${v.list.map(x => `<b>№${nl(x.n)}</b> <span class="muted">${x.was}% → </span><b class="dg-bad">${x.now}%</b>`).join(', ')}</li>`).join('')}</ul>` : '', 'Ни у кого заметного спада нет.')}
+        ${sec('⌛', 'Не сдали в срок', d.overdue.length ? 'warn' : 'ok', d.overdue.length ? `<ul>${d.overdue.map(x => `<li>${who(x.id, x.name)} — «${esc(x.title)}» <span class="muted">до ${fmtDate(x.due)}: ${esc(x.state)}</span></li>`).join('')}</ul>` : '', 'Все работы с прошедшим сроком сданы.')}
+        ${sec('🏆', 'Молодцы недели', 'ok', d.top.length ? `<ol>${d.top.map(x => `<li>${who(x.id, x.name)} — решено <b>${x.solved}</b> из ${x.answers}</li>`).join('')}</ol>` : '', 'Пока никто не решал.')}
+      </div>
+      <div class="dg-actions"><button type="button" class="btn primary" data-weak>🎯 Выдать каждому подборку по его слабым местам</button>
+        <span class="adm-hint">По 3 задания на 3 самых слабых номера у каждого ученика — у всех своя подборка, срок неделя.</span></div>`;
+  }
+  async function giveWeakSets() {
+    if (!confirm('Выдать каждому ученику класса личную подборку: по 3 задания на его 3 самых слабых номера, срок — неделя?')) return;
+    let r;
+    try { r = await api('class/weak', { class_id: curClass.id, per: 3, nums: 3, days: 7 }); } catch (e) { toast(e.message); return; }
+    toast(`Выдано подборок: ${r.made}${r.skipped.length ? ` · мало данных у: ${r.skipped.join(', ')}` : ''}`);
+    gradebook = null;
+    if (clsPane === 'journal') loadGradebook();
+    refreshClassAsg();
+  }
+  let gradebook = null;
+  async function loadGradebook() {
+    const id = curClass && curClass.id;
+    try { gradebook = await api('class/journal?class_id=' + id); } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    if (!curClass || curClass.id !== id) return;
+    renderGradebook();
+    renderNumsHeat();
+  }
+  const KIND_ICO = { self: '📝', practice: '🛠', home: '🏠' };
+  /** Прогноз балла: сейчас, изменение за месяц и мини-график по дням. */
+  function fcCell(f) {
+    if (!f || f.now == null) return '<td class="jr-c none" title="прогноза пока нет — мало решённых заданий">—</td>';
+    const d = f.then == null ? null : f.now - f.then;
+    const sr = (f.series || []).slice(-30);
+    let spark = '';
+    if (sr.length > 1) {
+      const lo = Math.min(...sr), hi = Math.max(...sr), w = 56, h = 18;
+      const pts = sr.map((v, i) => `${(i / (sr.length - 1) * w).toFixed(1)},${(h - (hi === lo ? h / 2 : (v - lo) / (hi - lo) * h)).toFixed(1)}`).join(' ');
+      spark = `<svg class="jr-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`;
+    }
+    return `<td class="jr-c jr-fc" title="${f.then == null ? 'прогноз сейчас' : `месяц назад: ${f.then}, сейчас: ${f.now}`}"><b>${f.now}</b>
+      ${d ? `<small class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲ +' : '▼ '}${d}</small>` : ''}${spark}</td>`;
+  }
+  function journalCell(c, a) {
+    if (!c && a.personal) return '<td class="jr-c none" title="этому ученику не выдавалась">—</td>';
+    if (!c || c.st === 'none') return '<td class="jr-c none" title="не начинал">·</td>';
+    if (c.st === 'miss') return '<td class="jr-c miss" title="срок прошёл — не сделал">н/с</td>';
+    if (c.st === 'work') return `<td class="jr-c work" title="${a.kind === 'self' ? 'пишет' : `решает: сделано ${c.tried || 0} из ${a.total}, сейчас ${c.pct || 0}%`}">${c.grade ? `<b class="g${c.grade} soft">${c.grade}</b>` : '…'}</td>`;
+    return `<td class="jr-c cs-grade" title="${c.pct}%"><b class="g${c.grade}">${c.grade || '—'}</b><small>${c.pct}%</small></td>`;
+  }
+  function renderGradebook() {
+    const box = $('#clsJournal');
+    if (!box || !gradebook) return;
+    const A = gradebook.assignments, S = gradebook.students;
+    if (!S.length) { box.innerHTML = '<p class="adm-empty">В классе нет учеников.</p>'; return; }
+    if (!A.length) { box.innerHTML = '<p class="adm-empty">Подборок пока нет — когда выдадите, здесь появятся оценки за каждую.</p>'; return; }
+    const avg = arr => arr.length ? (arr.reduce((x, y) => x + y, 0) / arr.length) : null;
+    const rows = S.map(st => {
+      const gs = A.map(a => st.cells[a.id]).filter(c => c && c.st === 'done' && c.grade).map(c => c.grade);
+      const miss = A.filter(a => (st.cells[a.id] || {}).st === 'miss').length;
+      const m = avg(gs);
+      return `<tr><td class="name"><button type="button" class="task-link" data-open-st="${st.id}">${esc(st.name)}</button></td>
+        ${fcCell(st.fc)}
+        ${A.map(a => journalCell(st.cells[a.id], a)).join('')}
+        <td class="num jr-avg">${m == null ? '<span class="muted">—</span>' : `<b>${m.toFixed(1).replace('.', ',')}</b>`}${miss ? ` <span class="jr-miss" title="не сдано в срок">н/с ${miss}</span>` : ''}</td></tr>`;
+    }).join('');
+    const foot = A.map(a => {
+      const cs = S.map(st => st.cells[a.id]).filter(Boolean);
+      const done = cs.filter(c => c.st === 'done').length, gs = cs.filter(c => c.st === 'done' && c.grade).map(c => c.grade);
+      const m = avg(gs);
+      return `<td class="num jr-foot" title="сдали ${done} из ${S.length}">${m == null ? '' : `<b>${m.toFixed(1).replace('.', ',')}</b><br>`}<small>${done}/${S.length}</small></td>`;
+    }).join('');
+    box.innerHTML = `<p class="adm-hint">Оценки за все подборки класса. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
+        Нажмите на название подборки, чтобы открыть её результаты, на имя — карточку ученика.</p>
+      <div class="dg-actions"><button type="button" class="btn" data-weak>🎯 Каждому — по 3 задания на его 3 слабых номера</button>
+        <span class="adm-hint">У каждого ученика своя подборка; появится в журнале отдельной колонкой.</span></div>
+      <div class="adm-table-wrap jr-wrap"><table class="adm-table jr-table"><thead><tr><th>Ученик</th><th class="jr-h" title="Прогноз балла ЕГЭ: сейчас и изменение за месяц">Прогноз<small>за 30 дней</small></th>
+        ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
+        <th class="num">Средняя</th></tr></thead><tbody>${rows}</tbody>
+        <tfoot><tr><td class="muted">По классу</td><td></td>${foot}<td></td></tr></tfoot></table></div>`;
+  }
+  function renderNumsHeat() {
+    const box = $('#clsNums');
+    if (!box || !gradebook) return;
+    const S = gradebook.students;
+    if (!S.length) { box.innerHTML = '<p class="adm-empty">В классе нет учеников.</p>'; return; }
+    const NUMS = Array.from({ length: 27 }, (_, i) => i + 1).filter(n => n !== 20 && n !== 21);
+    const label = n => n === 19 ? '19–21' : String(n);
+    const cell = v => {
+      if (!v || !v[0]) return '<td class="hm-c none" title="не решал">·</td>';
+      const p = v[1] / v[0];
+      const cls = v[0] < 3 ? 'few' : p >= 0.75 ? 'good' : p >= 0.4 ? 'mid' : 'weak';
+      return `<td class="hm-c ${cls}" title="верно с 1-й попытки: ${v[1]} из ${v[0]}">${Math.round(p * 100)}</td>`;
+    };
+    const cls = NUMS.map(n => {
+      let a = 0, ok = 0, who = 0;
+      for (const st of S) { const v = st.nums[n]; if (v && v[0]) { a += v[0]; ok += v[1]; who++; } }
+      return { n, a, ok, who };
+    });
+    const weak = cls.filter(x => x.a >= 3 && x.ok / x.a < 0.4).map(x => label(x.n));
+    box.innerHTML = `<p class="adm-hint">Доля верных с первой попытки по каждому номеру ЕГЭ — тренажёр и подборки, без вариантов. Серым — меньше 3 ответов.
+        Нажмите на номер, чтобы собрать по нему подборку.</p>
+      ${weak.length ? `<p class="hm-weak">Слабые места класса: ${weak.map(n => `<b>№${n}</b>`).join(', ')}</p>` : ''}
+      <div class="adm-table-wrap hm-wrap"><table class="adm-table hm-table"><thead><tr><th>Ученик</th>
+        ${NUMS.map(n => `<th class="hm-h"><button type="button" class="jr-asg" data-hm-n="${n}" title="Собрать подборку по №${label(n)}">${label(n)}</button></th>`).join('')}</tr></thead>
+        <tbody>${S.map(st => `<tr><td class="name"><button type="button" class="task-link" data-open-st="${st.id}">${esc(st.name)}</button></td>${NUMS.map(n => cell(st.nums[n])).join('')}</tr>`).join('')}</tbody>
+        <tfoot><tr><td class="muted">Класс</td>${cls.map(x => cell(x.a ? [x.a, x.ok] : null)).join('')}</tr></tfoot></table></div>`;
   }
   const KINDS = {
     self: { name: 'Самостоятельная', ico: '📝', hint: 'Ответ сдаётся без проверки (можно один раз изменить), результат и оценка — после сдачи. Полный экран, уходы со вкладки видны вам онлайн.' },
@@ -1066,6 +1250,27 @@
       catch (err) { toast(err.message); }
       return;
     }
+    const pane = t.closest('#clsTabs [data-pane]');
+    if (pane) { showClsPane(pane.dataset.pane); return; }
+    const ja = t.closest('[data-jr-asg]');
+    if (ja) {
+      showClsPane('asg');
+      const id = +ja.dataset.jrAsg;
+      if (liveId !== id) { const b = $(`[data-live="${id}"]`); if (b) b.click(); }
+      setTimeout(() => { const box = $(`[data-live-box="${id}"]`); if (box) box.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+      return;
+    }
+    if (t.closest('[data-weak]')) { giveWeakSets(); return; }
+    const bd = t.closest('[data-batch-del]');
+    if (bd) {
+      if (!confirm('Удалить эти личные подборки у всех учеников? Решённое останется в журнале.')) return;
+      try { await api('batch/delete', { class_id: curClass.id, batch: bd.dataset.batchDel }); } catch (err) { toast(err.message); return; }
+      openClass(curClass.id);
+      return;
+    }
+    const hn = t.closest('[data-hm-n]');
+    if (hn) { openBuilderFor(curClass.id, +hn.dataset.hmN); return; }
+    if (t.closest('#asgToBuilder')) { openBuilderFor(curClass.id); return; }
     const openSt = t.closest('[data-open-st]') || (!t.closest('button') && t.closest('#classTable tr[data-id]'));
     if (openSt) { openStudent(+(openSt.dataset.openSt || openSt.dataset.id)); return; }
     if (t.closest('#asgNew')) { editAssignment(null); return; }

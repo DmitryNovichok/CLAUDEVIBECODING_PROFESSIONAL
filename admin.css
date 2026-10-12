@@ -376,3 +376,46 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 .sp-a-form textarea { width: 100%; resize: vertical; font: inherit; }
 .sp-a-btns { display: flex; gap: 8px; }
 .sp-badge { margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; color: #fff; background: var(--weak); }
+
+/* вкладки класса, журнал оценок, сводка по номерам */
+.cls-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 16px; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); width: fit-content; max-width: 100%; }
+.cls-tabs button { padding: 7px 14px; border: 0; border-radius: 9px; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.cls-tabs button.on { background: var(--accent-soft, rgba(28, 176, 246, .14)); color: var(--text); }
+.jr-wrap, .hm-wrap { overflow-x: auto; }
+.jr-table th, .jr-table td { text-align: center; }
+.jr-table td.name, .jr-table th:first-child, .hm-table td.name, .hm-table th:first-child { text-align: left; position: sticky; left: 0; background: var(--card); z-index: 1; min-width: 150px; }
+.jr-h { min-width: 92px; vertical-align: bottom; }
+.jr-h small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.jr-asg { border: 0; background: none; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline dotted; text-underline-offset: 3px; }
+.jr-c { white-space: nowrap; }
+.jr-c small { display: block; color: var(--muted); font-size: 11px; }
+.jr-c.none { color: var(--muted); }
+.jr-c.work { color: var(--accent, #1cb0f6); font-weight: 700; }
+.jr-c.miss, .jr-miss { color: var(--weak); font-weight: 700; }
+.jr-miss { font-size: 12px; }
+.cs-grade b.soft, .jr-c b.soft { opacity: .55; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: #fff; }
+.jr-c b.g5 { background: #58cc02; } .jr-c b.g4 { background: #1cb0f6; } .jr-c b.g3 { background: #ff9600; } .jr-c b.g2 { background: #ff4b4b; }
+.jr-foot small { color: var(--muted); }
+.jr-table tfoot td, .hm-table tfoot td { border-top: 2px solid var(--border); font-weight: 600; }
+.hm-table th, .hm-table td { text-align: center; padding: 6px 4px; min-width: 34px; }
+.hm-c { font-size: 12.5px; font-weight: 700; border-radius: 6px; }
+.hm-c.good { background: color-mix(in srgb, #58cc02 30%, transparent); }
+.hm-c.mid { background: color-mix(in srgb, #ff9600 28%, transparent); }
+.hm-c.weak { background: color-mix(in srgb, #ff4b4b 28%, transparent); }
+.hm-c.few { color: var(--muted); font-weight: 400; }
+.hm-c.none { color: var(--muted); font-weight: 400; }
+.hm-weak { margin: 0 0 10px; }
+
+/* сводка недели, прогноз в журнале, личные подборки */
+.dg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin: 10px 0 14px; }
+.dg-card { padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.dg-card.warn { border-color: color-mix(in srgb, var(--weak) 45%, var(--border)); }
+.dg-card h4 { margin: 0 0 8px; font-size: 15px; }
+.dg-card ul, .dg-card ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.dg-bad { color: var(--weak); }
+.dg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 6px 0 12px; }
+.jr-fc { white-space: nowrap; }
+.jr-fc small { display: block; font-size: 11px; font-weight: 700; }
+.jr-fc small.up { color: var(--good); } .jr-fc small.down { color: var(--weak); }
+.jr-spark { display: block; margin: 2px auto 0; color: var(--muted); }
+.jr-personal span { font-weight: 600; }
