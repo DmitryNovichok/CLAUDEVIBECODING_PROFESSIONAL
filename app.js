@@ -904,7 +904,7 @@
         }
         if (a.strict) {
           return { chip: '<span class="chip accent">📝 Контрольная</span>',
-            line: `«${esc(a.title)}»: сдано <b>${(a.done || []).length}</b> из ${a.tasks.length}. Ответ сдаётся <b>один раз</b>, верно или нет — узнаешь после завершения.` };
+            line: `«${esc(a.title)}»: сдано <b>${(a.done || []).length}</b> из ${a.tasks.length}. Сданный ответ можно <b>один раз</b> изменить, верно или нет — узнаешь после завершения.` };
         }
         const done = a.tasks.length - asgLeft(a).length;
         return { chip: `<span class="chip accent">${a.course ? '🎓 Курс' : 'Задание учителя'}</span>`,
@@ -966,6 +966,8 @@
       : '';
   }
 
+  /** Опыт за первое верное решение — как считает сервер: №1–10 по 10, №11–27 по номеру, +5 за ступень сложности. */
+  const xpFor = t => (t.n <= 10 ? 10 : t.n) + 5 * (Math.max(1, Math.min(5, t.r || 1)) - 1);
   function renderTask() {
     const t = cur.task;
     const meta = [];
@@ -975,6 +977,7 @@
     else if (t.r) meta.push(`<span title="Сложность ${t.r} из 5">${RANK_WORD[t.r]}</span>`);
     if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
     else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
+    if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${t.n} XP за №${t.n}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}">+${xpFor(t)} XP</span>`);
     if (t.y && !(t.src || '').includes(String(t.y))) {
       meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
     }
@@ -2992,16 +2995,6 @@
     return ['weak', e.x ? 'ошибка · вариант' : 'ошибка'];
   }
 
-  /** Сданные контрольные — сверху истории, с разбором: правильные ответы, решения и свой код. */
-  function wkHistHtml() {
-    const done = ASG.filter(a => a.strict && a.result);
-    if (!done.length) return '';
-    return `<h3 class="fm-sub">Контрольные</h3><div class="hist-list wk-hist">${done.map(a => `<div class="hist-row">
-      <span class="hist-when">${a.finished ? fmtDay(a.finished * 1000) : ''}</span><span class="num-badge sm">📝</span>
-      <span class="hist-snip"><b>${esc(a.title)}</b> · оценка <b>${a.result.grade}</b> (${a.result.pct}%) · верно ${a.result.ok} из ${a.result.total}</span>
-      <span></span><button type="button" class="btn hist-open" data-review="${a.id}">Разбор</button></div>`).join('')}</div>
-      <h3 class="fm-sub">Все ответы</h3>`;
-  }
   async function openReview(id, from) {
     let d;
     try { d = await api('asg/review?id=' + id); } catch (e) { netError(e); return; }
@@ -3029,15 +3022,15 @@
   }
   document.addEventListener('click', e => {
     const rv = e.target.closest('[data-review]');
-    if (rv) { openReview(+rv.dataset.review, rv.closest('.wk-hist') ? 'hist' : ''); return; }
+    if (rv) { openReview(+rv.dataset.review, rv.dataset.from || ''); return; }
     const bk = e.target.closest('[data-review-back]');
-    if (bk) { if (bk.dataset.reviewBack === 'hist') openHistory(); else closeForecast(); }
+    if (bk) { if (bk.dataset.reviewBack === 'asg') openAssignments(); else closeForecast(); }
   });
 
   function openHistory() {
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-    const list = P.log.slice().reverse().filter(e => histFilter === 'all'
-      || (histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime()));
+    const list = P.log.slice().reverse().filter(e => !e.k && (histFilter === 'all'      // контрольные — в окне подборок
+      || (histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime())));
     const when = ts => { const d = new Date(ts); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
     const rows = list.slice(0, histLimit).map(e => {
       const t = byId.get(partToGroup.get(e.id) || e.id);
@@ -3052,13 +3045,12 @@
     }).join('');
     $('#forecastBody').innerHTML = `
       <h2 class="fm-title">История заданий</h2>
-      <p class="fm-note">«Открыть» — решить задание ещё раз. Уже решённое перерешивается только для тренировки: без опыта, огонька, серии и достижений. «Разбор» у контрольной — правильные ответы и решения.</p>
+      <p class="fm-note">«Открыть» — решить задание ещё раз. Уже решённое перерешивается только для тренировки: без опыта, огонька, серии и достижений. Сданные контрольные — в окне «Задания от учителя».</p>
       <div class="hist-filters">
         ${[['all', 'Все'], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
           `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
         <span class="fm-muted">${list.length} ${plural(list.length, 'ответ', 'ответа', 'ответов')}</span>
       </div>
-      ${wkHistHtml()}
       <div class="hist-list">${rows || '<p class="fm-note">Здесь пока пусто.</p>'}</div>
       ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}`;
     $('#forecastModal').hidden = false;
@@ -4722,7 +4714,7 @@
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(g.title)}</h2>
           <i class="xp-bar"><b style="width:${pct(g.cur / g.need)}%"></b></i>
           <span class="fm-muted">${g.cur} / ${g.need} XP до ${g.level + 1}-го уровня · всего ${g.xp} XP · за неделю +${g.week}</span></div></div>
-      <p class="fm-note">Опыт даётся за первое решение задания (№1–10 — 10 XP, сложные номера — до 22 XP); перерешать уже решённое (из истории) можно для тренировки, но без опыта, огонька, серии и достижений;
+      <p class="fm-note">Опыт даётся за первое верное решение задания: №1–10 — 10 XP, №11–27 — столько, какой номер, и +5 XP за каждую ступень сложности выше первой (до +20); со второй попытки — половина; перерешать уже решённое (из истории) можно для тренировки, но без опыта, огонька, серии и достижений;
         вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.
         За достижения — от 5 до 300 XP: чем труднее получить, тем больше.
         <b>Верный ответ быстрее чем за минуту</b> с открытия задания — <b>−1 XP</b>: так быстро задания обычно не решают, а подсматривают.</p>
@@ -5133,7 +5125,7 @@
   }
 
   // ------------------------------------------------------------ задания от учителя
-  let ASG = [];
+  let ASG = [], ASG_IN_CLASS = false;
   const fmtDay = ms => { const d = new Date(ms); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`; };
   function asgOf(id) { return ASG.find(a => a.id === id) || (COURSE_OK && courseSet(id)) || null; }
   /** Нерешённые задания подборки: по данным сервера и по ответам, данным уже на этой странице. */
@@ -5150,7 +5142,7 @@
   async function loadAssignments() {
     if (!SERVER) return;
     const duels = ASG.filter(a => a.duel || a.course);
-    try { ASG = (await api('assignments')).assignments || []; } catch (e) { if (e.status === 401) throw e; ASG = []; }
+    try { const d = await api('assignments'); ASG = d.assignments || []; ASG_IN_CLASS = !!d.in_class; } catch (e) { if (e.status === 401) throw e; ASG = []; }
     ASG = ASG.concat(duels);
     renderAsgCard();
     if (wkLive()) wkWatch();
@@ -5159,15 +5151,25 @@
     const card = $('#asgCard');
     if (!card) return;
     const own = ASG.filter(a => !a.duel && !a.course);
-    card.hidden = !own.length;
-    if (!own.length) return;
+    card.hidden = !own.length && !ASG_IN_CLASS;           // ученик в классе — значок подборок есть всегда
+    if (card.hidden) return;
     const open = own.filter(a => asgLeft(a).length);
     const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
     card.classList.toggle('alert', !!left);
     $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
   }
   function openAssignments() {
-    const rows = ASG.filter(a => !a.duel).map(a => {
+    const list = ASG.filter(a => !a.duel && !a.course);
+    const isDone = a => a.strict && (a.result || a.closed);
+    const active = list.filter(a => !isDone(a)), done = list.filter(isDone);
+    const doneRows = done.map(a => {
+      const r = a.result;
+      return `<div class="asg-row done">
+        <div><h3>✓ ${esc(a.title)}</h3><div class="asg-meta">${r ? `оценка <b>${r.grade}</b> · ${r.pct}% · верно ${r.ok} из ${r.total}${r.xp ? ` · +${r.xp} XP` : ''}` : 'завершена учителем — не начата'}</div></div>
+        <span class="asg-btns">${r ? `<button type="button" class="btn" data-asg="${a.id}">Результат</button>
+          <button type="button" class="btn" data-review="${a.id}" data-from="asg">Разбор</button>` : ''}</span></div>`;
+    }).join('');
+    const rows = active.map(a => {
       if (a.strict) return wkRowHtml(a);
       const left = asgLeft(a).length, total = a.tasks.length;
       const late = a.due && a.due * 1000 < Date.now() && left;
@@ -5176,9 +5178,11 @@
         <button type="button" class="btn ${left ? 'primary' : ''}" data-asg="${a.id}">${left ? 'Решать' : 'Повторить'}</button>
         <i class="xp-bar"><b style="width:${pct((total - left) / total)}%"></b></i></div>`;
     }).join('');
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">Задания от учителя</h2>
-      <p class="fm-note">Подборки, которые выдал учитель вашему классу. Учитель видит, сколько заданий решено.</p>
-      ${rows || '<p class="fm-note">Пока ничего не задано.</p>'}`;
+    $('#forecastBody').innerHTML = `<h2 class="fm-title" id="asgWin">Задания от учителя</h2>
+      <p class="fm-note">Подборки, которые учитель выдал твоему классу. Новые появляются здесь сами.</p>
+      <h3 class="fm-sub">Сейчас</h3>
+      ${rows || '<p class="fm-note">Новых подборок нет — когда учитель выдаст, они появятся здесь.</p>'}
+      ${doneRows ? `<h3 class="fm-sub">Пройденные</h3>${doneRows}` : ''}`;
     $('#forecastModal').hidden = false;
   }
   let asgCelebrated = new Set();
@@ -5318,7 +5322,7 @@
   $('#asgCard').addEventListener('click', () => {
     if (isNarrow()) setSideOpen(false);
     openAssignments();
-    loadAssignments().then(() => { if (!$('#forecastModal').hidden && $('#forecastBody .asg-row')) openAssignments(); }).catch(() => {});
+    loadAssignments().then(() => { if (!$('#forecastModal').hidden && $('#asgWin')) openAssignments(); }).catch(() => {});
   });
   $('#forecastBody').addEventListener('click', e => {
     const b = e.target.closest('[data-asg]');
@@ -5339,7 +5343,7 @@
   const gradeWord = g => ({ 5: 'отлично', 4: 'хорошо', 3: 'удовлетворительно', 2: 'неудовлетворительно' })[g] || '';
   function wkApply(a, r) {
     if (!r) return;
-    ['started', 'finished', 'closed', 'done', 'answered', 'mine', 'result', 'items', 'grading'].forEach(k => { if (k in r) a[k] = r[k]; });
+    ['started', 'finished', 'closed', 'done', 'answered', 'mine', 'changed', 'result', 'items', 'grading'].forEach(k => { if (k in r) a[k] = r[k]; });
   }
   function wkRowHtml(a) {
     const n = (a.done || []).length, total = a.tasks.length;
@@ -5357,7 +5361,7 @@
     const g = a.grading || { 5: 85, 4: 65, 3: 45 };
     $('#forecastBody').innerHTML = `<h2 class="fm-title">📝 Контрольная «${esc(a.title)}»</h2>
       <ul class="ex-rules">
-        <li><b>${a.tasks.length} ${plural(a.tasks.length, 'задание', 'задания', 'заданий')}</b>. На каждое — <b>одна попытка</b>: сданный ответ изменить нельзя.</li>
+        <li><b>${a.tasks.length} ${plural(a.tasks.length, 'задание', 'задания', 'заданий')}</b>. Сданный ответ на каждое можно <b>изменить один раз</b>, потом — уже нельзя.</li>
         <li>Верно или нет, не показываем до конца. Когда сдашь всё или нажмёшь «Завершить», увидишь, сколько верных и неверных, и оценку.</li>
         <li>Оценка: «5» от ${g[5]}%, «4» от ${g[4]}%, «3» от ${g[3]}%. Учитель может завершить контрольную для всех — тогда оценка ставится по уже сданным ответам.</li>
         <li><b>Полный экран.</b> Контрольная открывается на весь экран. Выход из полного экрана и переход на другие вкладки и программы сразу видит учитель.</li>
@@ -5384,7 +5388,7 @@
     if (a.result || a.closed) { abandonCurrent(); cur = null; wkDoneScreen(); return; }
     next();
     wkWatch();
-    wkPop('Одна попытка на задание. <b>Прикрепляй решение</b> к каждому: Python → «Прикрепить решение».');
+    wkPop('Ответ можно изменить один раз. <b>Прикрепляй решение</b> к каждому: Python → «Прикрепить решение».');
   }
   function wkFullscreen() {
     if (!canFs() || document.fullscreenElement) return;
@@ -5427,7 +5431,7 @@
     if (!wkTask()) return;
     wkBar();
     const lab = $('#trainer .answer-label');
-    if (lab) lab.insertAdjacentHTML('beforeend', ' <b class="wk-note">Одна попытка — проверка после завершения контрольной.</b>');
+    if (lab) lab.insertAdjacentHTML('beforeend', ' <b class="wk-note">Проверка — после завершения контрольной; сданный ответ можно изменить один раз.</b>');
     if (cur.group) $$('#trainer .gpart-fb').forEach(x => { x.textContent = ''; });
     const a = wkTask();
     if ((a.done || []).includes(cur.task.id)) {
@@ -5441,9 +5445,19 @@
       else fill($('#answerInputs'), cur.shape, (a.mine || {})[cur.task.id]);
       cur.done = true;
       $$('#trainer .answer input').forEach(i => { i.disabled = true; });
-      setFeedback('sent', 'Ответ уже сдан', '<div class="fb-note">Изменить его нельзя. Верно или нет — узнаешь, когда завершишь контрольную.</div>');
+      wkSentFeedback(a);
       renderActions();
     }
+  }
+  /** Ключи ответов задания (у 19–21 — вопросы) и можно ли ещё изменить сданный ответ (один раз). */
+  const wkKeys = () => (cur.group ? cur.parts.map(x => x.p.id) : [cur.task.id]);
+  const wkCanChange = a => !wkKeys().some(k => (a.changed || []).includes(k));
+  function wkSentFeedback(a) {
+    const can = wkCanChange(a);
+    setFeedback('sent', 'Ответ сдан', `<div class="fb-note">${can
+      ? 'Его можно <b>один раз</b> изменить. Верно или нет — узнаешь, когда завершишь контрольную.'
+      : 'Ответ уже изменён — больше изменить нельзя. Верно или нет — узнаешь, когда завершишь контрольную.'}</div>
+      ${can ? '<button type="button" class="btn" id="wkChangeBtn">✎ Изменить ответ</button>' : ''}`);
   }
   function wkActions(box) {
     const a = wkTask();
@@ -5455,7 +5469,7 @@
       if (nb) { nb.addEventListener('click', next); setTimeout(() => nb.focus({ preventScroll: true }), 0); }
       return;
     }
-    box.innerHTML = `<button class="btn primary" id="checkBtn" type="button">Сдать ответ<kbd>Enter</kbd></button>
+    box.innerHTML = `<button class="btn primary" id="checkBtn" type="button">${cur.changing ? 'Сдать новый ответ' : 'Сдать ответ'}<kbd>Enter</kbd></button>
       ${left ? '<button class="btn ghost" id="skipBtn" type="button" title="Вернёшься к нему позже">Пропустить →</button>' : ''}
       <button class="btn ghost" id="wkFinishBtn" type="button">Завершить контрольную</button>`;
     $('#checkBtn').addEventListener('click', check);
@@ -5496,8 +5510,10 @@
     const c = cur;
     let hasSol = false;                      // прикреплено ли решение к заданию — напомним, если нет
     try { hasSol = !!(await api('solution?task=' + encodeURIComponent(cur.task.id))).code; } catch (e) { hasSol = true; }
-    const ans = await wkAsk(cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
-      `Изменить ${cur.group ? 'их' : 'его'} будет нельзя.${blank ? ` Без ответа вопросов: ${blank}.` : ''}`
+    const ans = await wkAsk(cur.changing ? (cur.group ? 'Изменить ответы?' : `Изменить ответ на «${esc(items[0].answer)}»?`)
+      : cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
+      (cur.changing ? 'Это единственное изменение — потом поменять будет нельзя.'
+        : `Его можно будет изменить ещё <b>один раз</b>.`) + `${blank ? ` Без ответа вопросов: ${blank}.` : ''}`
       + (hasSol ? '' : '<br><br><b class="wk-sol-warn">⚠ Решение не прикреплено.</b> Учитель хочет видеть, как ты решал: открой Python, вставь или напиши код и нажми «Прикрепить решение».'),
       hasSol ? 'Сдать' : 'Сдать без решения', hasSol ? null : '📎 Прикрепить решение');
     if (ans === 'extra') { togglePy(true); toast('Вставь код в окно Python и нажми «Прикрепить решение», затем сдай ответ.', 5000); return; }
@@ -5506,7 +5522,7 @@
     setBusy(true);
     let r = null;
     try {
-      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started }, x));
+      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing }, x));
     } catch (e) {
       setBusy(false);
       if (e.status === 409) { await wkRefresh(a); if (!wkLive()) return; toast(e.message, 4000); next(); return; }
@@ -5516,10 +5532,12 @@
     setBusy(false);
     wkApply(a, r);
     if (r && r.closed_now) { wkClosed(a); return; }
+    if (r && r.changed) a.changed = r.changed;
     cur.done = true;
+    cur.changing = false;
     ui.currentId = null;
     $$('#trainer .answer input').forEach(i => { i.disabled = true; i.classList.remove('bad'); });
-    setFeedback('sent', 'Ответ сдан', '<div class="fb-note">Верно или нет — узнаешь, когда завершишь контрольную.</div>');
+    wkSentFeedback(a);
     renderActions();
     wkBar();
     wkPop('Ответ сдан.');
@@ -5539,6 +5557,8 @@
   }
   function wkClosed(a) {
     clearInterval(wkPoll);
+    const pop = $('#wkPop');
+    if (pop) pop.hidden = true;
     if (SERVER) loadHistory().then(() => { renderSidebar(); renderTopbar(); }).catch(() => {});
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     wkFsOn = false;
@@ -5590,9 +5610,10 @@
         <div class="fm-facts">
           <div>Верно: <b>${res.ok}</b>${res.half ? ` · наполовину: <b>${res.half}</b>` : ''} · неверно: <b>${res.bad}</b>${res.blank ? ` · без ответа: <b>${res.blank}</b>` : ''}</div>
           <div>Результат: <b>${res.pct}%</b> (${String(res.correct).replace('.', ',')} из ${res.total})</div>
+          ${res.xp ? `<div>Опыт: <b>+${res.xp} XP</b></div>` : ''}
           ${res.forced ? '<div>Контрольную завершил учитель.</div>' : ''}
         </div></div>
-      <p class="fm-note">Разбор с правильными ответами и решениями — кнопкой ниже и в «Истории заданий»: он откроется, когда контрольная закончится для всех. Задания контрольной теперь можно решать в тренировке.</p>
+      <p class="fm-note">Разбор с правильными ответами и решениями — кнопкой ниже и в окне «Задания от учителя» (раздел «Пройденные»): он откроется, когда контрольная закончится для всех. Задания контрольной теперь можно решать в тренировке.</p>
       <div class="fm-table-wrap"><table class="fm-table ex-table"><thead><tr><th>#</th><th>Номер</th><th>Твой ответ</th><th>Итог</th></tr></thead>
         <tbody>${rows}</tbody></table></div>
       <div class="actions"><button type="button" class="btn primary" id="wkBack">Продолжить тренировку →</button>
@@ -5606,6 +5627,18 @@
     if (go) {
       const a = wkLive(), t = byId.get(go.dataset.wkGo);
       if (a && t && !(cur && cur.task.id === t.id)) { abandonCurrent(); show({ task: t, why: { type: 'asg', a } }); }
+      return;
+    }
+    if (e.target.closest('#wkChangeBtn')) {
+      const a = wkTask();
+      if (!a || !cur || !wkCanChange(a)) return;
+      cur.done = false;
+      cur.changing = true;
+      $$('#trainer .answer input').forEach(i => { i.disabled = false; });
+      setFeedback('retry', 'Изменение ответа', '<div class="fb-note">Введи новый ответ и нажми «Сдать новый ответ». Изменить можно только один раз.</div>');
+      renderActions();
+      const f = $('#trainer .answer input');
+      if (f) f.focus();
       return;
     }
     const st = e.target.closest('#trainer [data-asg]');
@@ -5719,6 +5752,10 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.37.0', '12.10.2026', ['Контрольная: сданный ответ можно один раз изменить — кнопкой «Изменить ответ»',
+      'Значок «Задания от учителя» всегда на месте, если ты в классе; новые подборки появляются в нём сами, сданные — в разделе «Пройденные» с результатом и разбором (в истории их больше нет)']],
+    ['1.36.0', '12.10.2026', ['Новая шкала опыта: №1–10 — 10 XP, №11–27 — столько, какой номер задания, и +5 XP за каждую ступень сложности выше первой. Опыт пересчитан',
+      'Над заданием видно, сколько опыта оно даст; на экране результата контрольной — сколько опыта она принесла']],
     ['1.35.0', '12.10.2026', ['Если правильный ответ на задание уже показывали (после ошибок или «Показать ответ»), его решение потом засчитывается для тренировки, но без опыта, огонька, серии и достижений — пересчитано по всей истории',
       'Достижение «Флэш» (решить быстрее 20 секунд) убрано: так быстро задания не решают',
       'Вариант ЕГЭ даёт опыт, только если в нём есть хотя бы один верный ответ']],

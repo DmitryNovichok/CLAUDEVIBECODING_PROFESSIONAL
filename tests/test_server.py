@@ -396,7 +396,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.check(tok, pid5, answer="12")[0], 403)       # задание подборки — только через контрольную
         self.req("POST", "/api/open", {"task": pid6}, tok)
         st, r = self.check(tok, pid6, answer="7", away=3)
-        self.assertEqual(r["game"]["xp"], 15)                              # №6: 10 XP за первое решение + 5 за «Первый шаг»
+        self.assertEqual(r["game"]["xp"], server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + 5)    # №6: опыт за задание + 5 за «Первый шаг»
         self.assertEqual(r["game"]["ach"][0]["id"], "first")
         self.assertTrue(r["game"]["ach"][0]["got"])
         row = server.APP.db.q("SELECT away FROM attempts WHERE student_id=? ORDER BY id DESC", (me["sid"],), one=True)
@@ -406,14 +406,14 @@ class ServerTest(unittest.TestCase):
         for _ in range(3):
             self.req("POST", "/api/open", {"task": pid6}, tok)
             st, r = self.check(tok, pid6, answer="7")
-            self.assertEqual(r["game"]["xp"], 15)
+            self.assertEqual(r["game"]["xp"], server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + 5)
         g1 = server.game_summary(server.APP.db, me["sid"])
         self.assertEqual((g1["fire"], g1["day"]), (g0["fire"], g0["day"]))
         self.assertNotIn("dejavu", [a["id"] for a in g1["ach"]])            # «Дежавю» (решить одно задание трижды) убрано
         st, d = self.req("GET", "/api/leaderboard", token=tok)
         me_row = next(r for r in d["boards"]["day"]["top"] if r["me"])          # рейтинг дня: опыт за сегодня
-        self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", 15))
-        self.assertEqual(d["boards"]["day"]["me"]["value"], 15)
+        self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + 5))
+        self.assertEqual(d["boards"]["day"]["me"]["value"], server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + 5)
         self.assertLessEqual(len(d["boards"]["week"]["top"]), 10)
         self.assertIn("fire", d["boards"])
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
@@ -450,7 +450,11 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200, r)
         self.assertNotIn("result", r)                                        # верно или нет — до сдачи не говорим
         self.assertNotIn("correct", json.dumps(r))
-        self.assertEqual(self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "13"}, tok)[0], 409)  # одна попытка
+        self.assertEqual(self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "13"}, tok)[0], 409)  # без «изменить» — нельзя
+        st, r = self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "13", "change": True}, tok)
+        self.assertEqual((st, r["changed"], r["mine"][pid5]), (200, [pid5], "13"))                          # один раз — можно
+        self.assertEqual(self.req("POST", "/api/asg/answer", {"id": aid, "task": pid5, "answer": "12", "change": True}, tok)[0], 409)  # второй — нет
+        server.APP.db.x("UPDATE asg_runs SET answers=json_set(answers, '$.\"b:5\".a', '12') WHERE asg_id=? AND student_id=?", (aid, me))  # вернём верный для проверок ниже
         self.req("POST", "/api/asg/answer", {"id": aid, "task": pid27, "answer": "10 99"}, tok)      # половина №27
         self.req("POST", "/api/asg/answer", {"id": aid, "task": p19, "answer": "5"}, tok)
         st, r = self.req("POST", "/api/asg/answer", {"id": aid, "task": p20, "answer": "4"}, tok)
@@ -516,15 +520,22 @@ class ServerTest(unittest.TestCase):
         server.OPENED.get(sid, "b:6")["ts"] -= 90                            # полторы минуты — честное решение
         st, r = self.check(tok, pid6, answer="7")
         self.assertFalse(r["fast"])
-        self.assertEqual(r["game"]["xp"], 14)                                  # +10
+        self.assertEqual(r["game"]["xp"], server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + 5 - 1)                  # −1 за быстрое, задание, «Первый шаг»
         self.req("POST", "/api/open", {"task": pid5}, tok)                     # быстрое решение не засчитано решённым:
         server.OPENED.get(sid, "b:5")["ts"] -= 120                           # честный повтор даёт полный опыт
         st, r = self.check(tok, pid5, answer="12")
-        self.assertEqual(r["game"]["xp"], 24)
+        self.assertEqual(r["game"]["xp"], server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + server.task_xp(server.APP.bank.tasks["b:5"]["n"], server.APP.bank.tasks["b:5"].get("r")) + 5 - 1)
         # решённое до появления правила задним числом не пересчитывается
         server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
                         (sid, server.fast_xp_since(server.APP.db) - 100, "b:27", 27, "[]", "1", 1.0, 5000))
         self.assertGreaterEqual(server.game_summary(server.APP.db, sid)["xp"], 46)   # +22 за №27 (и достижения), без −1
+
+    def test_task_xp_scale(self):
+        # №1–10 — 10 XP, №11–27 — по номеру; +5 за каждую ступень сложности выше первой
+        self.assertEqual([server.task_xp(n) for n in (1, 7, 10, 11, 17, 27)], [10, 10, 10, 11, 17, 27])
+        self.assertEqual([server.task_xp(5, r) for r in (1, 2, 3, 4, 5)], [10, 15, 20, 25, 30])
+        self.assertEqual(server.task_xp(27, 5), 47)
+        self.assertEqual(server.task_xp(7, None) * 7, 70)                    # 7 заданий №1–10 → 70 XP
 
     def test_seen_answer_gives_no_xp(self):
         # лазейка: ошибиться дважды → увидеть правильный ответ → открыть задание снова и ввести его
@@ -549,7 +560,7 @@ class ServerTest(unittest.TestCase):
         server.OPENED.get(sid, "b:5")["ts"] -= 120
         st, r = self.check(tok, pid5, answer="12")
         self.assertFalse(r["nocount"])
-        self.assertEqual(r["game"]["xp"], 15)
+        self.assertEqual(r["game"]["xp"], server.task_xp(server.APP.bank.tasks["b:5"]["n"], server.APP.bank.tasks["b:5"].get("r")) + 5)
         self.assertNotIn("flash", [a["id"] for a in r["game"]["ach"]])       # «Флэш» за скорость убран
 
     def test_repeats_do_not_count_retroactively(self):
@@ -564,7 +575,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(g["fire"], 0)                                      # огонёк повторами не горел
         got = {a["id"] for a in g["ach"] if a["got"]}
         self.assertNotIn("days7", got)
-        self.assertEqual(g["xp"], 10 + 5)                                   # №5 один раз + «Первый шаг»
+        self.assertEqual(g["xp"], server.task_xp(server.APP.bank.tasks["b:5"]["n"], server.APP.bank.tasks["b:5"].get("r")) + 5)                               # №5 один раз + «Первый шаг»
         db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
         db.x("DELETE FROM students WHERE id=?", (sid,))
 
