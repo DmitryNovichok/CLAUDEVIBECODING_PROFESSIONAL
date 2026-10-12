@@ -409,7 +409,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(r["game"]["xp"], 15)
         g1 = server.game_summary(server.APP.db, me["sid"])
         self.assertEqual((g1["fire"], g1["day"]), (g0["fire"], g0["day"]))
-        self.assertFalse(next(a for a in g1["ach"] if a["id"] == "dejavu")["got"])    # «Дежавю» перерешиванием не получить
+        self.assertNotIn("dejavu", [a["id"] for a in g1["ach"]])            # «Дежавю» (решить одно задание трижды) убрано
         st, d = self.req("GET", "/api/leaderboard", token=tok)
         me_row = next(r for r in d["boards"]["day"]["top"] if r["me"])          # рейтинг дня: опыт за сегодня
         self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", 15))
@@ -516,6 +516,22 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
                         (sid, server.fast_xp_since(server.APP.db) - 100, "b:27", 27, "[]", "1", 1.0, 5000))
         self.assertGreaterEqual(server.game_summary(server.APP.db, sid)["xp"], 46)   # +22 за №27 (и достижения), без −1
+
+    def test_repeats_do_not_count_retroactively(self):
+        # нафармленное раньше повторами снимается: засчитывается только первое решение задания
+        db = server.APP.db
+        sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Фармов Фёдор','фармов фёдор','tkfarm',0,0)")
+        t0 = time.time() - 30 * 86400
+        for k in range(20):                                                 # одно задание №5 двадцать раз за месяц
+            db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
+                 (sid, t0 + k * 86400, "b:5", 5, "[]", "12", 1.0, 120000))
+        g = server.game_summary(db, sid)
+        self.assertEqual(g["fire"], 0)                                      # огонёк повторами не горел
+        got = {a["id"] for a in g["ach"] if a["got"]}
+        self.assertNotIn("days7", got)
+        self.assertEqual(g["xp"], 10 + 5)                                   # №5 один раз + «Первый шаг»
+        db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
+        db.x("DELETE FROM students WHERE id=?", (sid,))
 
     def test_fire_streak_on_server(self):
         db = server.APP.db

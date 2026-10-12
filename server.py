@@ -908,8 +908,8 @@ class DB:
             c.execute("UPDATE assignments SET strict=1 WHERE COALESCE(strict, 0) = 0")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
-            # «перерешал уже решённое — без опыта и огонька» — тоже только с момента обновления
-            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('repeat_rule_since', ?)", (str(time.time()),))
+            # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
+            c.execute("DELETE FROM settings WHERE key='repeat_rule_since'")
             # награды лиг до появления таблицы наград — из итогов последней недели
             c.execute("""INSERT OR IGNORE INTO awards(student_id, kind, week, info)
                          SELECT student_id, 'up', result_week, result_league FROM leagues WHERE result='up' AND result_week IS NOT NULL""")
@@ -1366,7 +1366,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
                 "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored,
                 "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file(),
-                "repeat_since": int(rule_since(APP.db, "repeat_rule_since") * 1000)}
+                "repeat_since": 0}
 
     def me_payload(self, s):
         def load(v, default):
@@ -3166,7 +3166,6 @@ ACHIEVEMENTS = [
     ("binge", "📺", "Ещё одну серию", "Решить 15 заданий одного номера подряд", 15),
     ("speedrun", "🏎", "Спидран", "Завершить вариант быстрее чем за час и набрать 60+", 1),
     ("lucky", "🍀", "Новичкам везёт", "Самое первое задание №27 — и сразу верно", 1),
-    ("dejavu", "🔁", "Дежавю", "Решить одно и то же задание три раза", 1),
 ]
 # опыт за достижение — по трудности: лёгкие 5–15, средние 20–40, трудные 50–100, редкие 150–300
 ACH_XP = {
@@ -3190,16 +3189,6 @@ def fast_xp_since(db):
     if not _FAST_SINCE:
         _FAST_SINCE.append(to_float(db.setting("fast_xp_since")) or 0)
     return _FAST_SINCE[0]
-
-
-_RULE_SINCE = {}
-
-
-def rule_since(db, key):
-    """С какого момента действует правило (раньше решённое не пересчитываем)."""
-    if key not in _RULE_SINCE:
-        _RULE_SINCE[key] = to_float(db.setting(key)) or 0
-    return _RULE_SINCE[key]
 
 
 def task_xp(n):
@@ -3389,7 +3378,6 @@ def _game_summary(db, sid, brief=False, windows=None):
     wk0 = week_start(now)
     xp_wk = 0
     fast_since = fast_xp_since(db)
-    repeat_since = rule_since(db, "repeat_rule_since")
 
     def gain(v, ts):
         nonlocal xp, week, xp_day, xp_month, xp_wk
@@ -3409,7 +3397,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     for r in rows:
         # уже решённое задание решают снова (из истории, кнопкой «←»): ни опыта, ни огонька, ни серий, ни достижений —
         # иначе их можно «фармить», перерешивая знакомые задания. Контрольная учителя и вариант ЕГЭ — не в счёт
-        if not r["exam"] and r["task_id"] in solved and r["reason"] != "asg" and r["ts"] >= repeat_since:
+        if not r["exam"] and r["task_id"] in solved and r["reason"] != "asg":
             continue
         fd = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
         fire_days[fd] = fire_days.get(fd, 0) + 1
@@ -3468,7 +3456,7 @@ def _game_summary(db, sid, brief=False, windows=None):
             if fast:
                 gain(FAST_XP_PENALTY, ts)
             else:
-                gain(round(task_xp(r["n"]) * (1 if r["score"] == 1 else 0.5)) if tid not in solved else 2, ts)
+                gain(round(task_xp(r["n"]) * (1 if r["score"] == 1 else 0.5)), ts)
             if first_time:
                 cnt["solved"] += 1
                 solved.add(tid)
@@ -3504,7 +3492,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                          ("pi", cnt["pi"]), ("newyear", cnt["newyear"]), ("stubborn", cnt["stubborn"]),
                          ("peek", cnt["peek"]), ("lunch", lunch_of.get(day, 0)), ("snail", cnt["snail"]),
                          ("rainbow", len(nums_of.get(day, ()))), ("perfect", cnt["perfect"]), ("binge", cnt["best_binge"]),
-                         ("lucky", cnt["lucky"]), ("dejavu", cnt["dejavu"])):
+                         ("lucky", cnt["lucky"])):
             if aid not in got and val >= ACH_GOAL[aid]:
                 got[aid] = ts
     ex_best = 0
