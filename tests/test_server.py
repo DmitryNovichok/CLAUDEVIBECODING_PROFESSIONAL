@@ -401,14 +401,19 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(r["game"]["ach"][0]["got"])
         row = server.APP.db.q("SELECT away FROM attempts WHERE student_id=? ORDER BY id DESC", (me["sid"],), one=True)
         self.assertEqual(row["away"], 3)                                   # уходы со вкладки — в журнале
-        # повторное решение того же задания — только 2 XP
-        self.req("POST", "/api/open", {"task": pid6}, tok)
-        st, r = self.check(tok, pid6, answer="7")
-        self.assertEqual(r["game"]["xp"], 17)
+        # уже решённое задание снова (из истории) — ни опыта, ни огонька, ни серии
+        g0 = server.game_summary(server.APP.db, me["sid"])
+        for _ in range(3):
+            self.req("POST", "/api/open", {"task": pid6}, tok)
+            st, r = self.check(tok, pid6, answer="7")
+            self.assertEqual(r["game"]["xp"], 15)
+        g1 = server.game_summary(server.APP.db, me["sid"])
+        self.assertEqual((g1["fire"], g1["day"]), (g0["fire"], g0["day"]))
+        self.assertFalse(next(a for a in g1["ach"] if a["id"] == "dejavu")["got"])    # «Дежавю» перерешиванием не получить
         st, d = self.req("GET", "/api/leaderboard", token=tok)
         me_row = next(r for r in d["boards"]["day"]["top"] if r["me"])          # рейтинг дня: опыт за сегодня
-        self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", 17))
-        self.assertEqual(d["boards"]["day"]["me"]["value"], 17)
+        self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", 15))
+        self.assertEqual(d["boards"]["day"]["me"]["value"], 15)
         self.assertLessEqual(len(d["boards"]["week"]["top"]), 10)
         self.assertIn("fire", d["boards"])
         self.admin("POST", "/api/admin/class/delete", {"id": cid})

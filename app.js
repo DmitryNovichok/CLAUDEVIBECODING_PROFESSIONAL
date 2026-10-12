@@ -698,6 +698,8 @@
   function recordStats(t, score, now, o = {}) {
     P.step++;
     const repeat = !!P.tasks[t.id];
+    // уже решённое задание решают снова: в огонёк, цель дня и серию не идёт (так же считает сервер)
+    const again = !!(P.tasks[t.id] && P.tasks[t.id].c > 0) && !o.exam && RULES.repeat_since && now >= RULES.repeat_since;
     const s = P.tasks[t.id] || (P.tasks[t.id] = { a: 0, c: 0 });
     s.a++;
     if (score === 1) s.c++;
@@ -708,6 +710,7 @@
     const e = { id: t.id, n: t.n, s: score, t: now };
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
+    if (again) e.ra = 1;
     if (o.exam) e.x = 1;
     if (o.blank) e.b = 1;               // в варианте оставил без ответа: в цель дня не идёт
     P.log.push(e);
@@ -904,9 +907,12 @@
         return { chip: `<span class="chip accent">${a.course ? '🎓 Курс' : 'Задание учителя'}</span>`,
           line: `Подборка «${esc(a.title)}»: решено <b>${done}</b> из ${a.tasks.length}${a.due ? ` · срок — до ${fmtDay(a.due * 1000)}` : ''}.` };
       }
-      case 'history':
+      case 'history': {
+        const solved = (P.tasks[t.id] || {}).c > 0 || (t.parts || []).some(p => (P.tasks[p.id] || {}).c > 0);
         return { chip: '<span class="chip">Повтор из истории</span>',
-          line: why.last ? `Вы уже решали это задание ${ago(why.last)}. Попробуйте ещё раз — без подсказок.` : '' };
+          line: (why.last ? `Вы уже решали это задание ${ago(why.last)}. Попробуйте ещё раз — без подсказок.` : '')
+            + (solved ? `${why.last ? '<br>' : ''}<b>Это задание уже решено</b> — повторное решение для тренировки: опыта, огонька, серии и достижений за него нет.` : '') };
+      }
       default:
         return { chip: '', line: '' };
     }
@@ -2594,14 +2600,18 @@
 
   function currentStreak() {
     let k = 0;
-    for (let i = P.log.length - 1; i >= 0 && P.log[i].s === 1; i--) k++;
+    for (let i = P.log.length - 1; i >= 0; i--) {
+      if (P.log[i].ra) continue;                 // перерешанное уже решённое — серию не продлевает и не рвёт
+      if (P.log[i].s !== 1) break;
+      k++;
+    }
     return k;
   }
 
   // ------------------------------------------------------------ цель на день и серия дней
   function dayCounts() {
     const m = new Map();
-    for (const e of P.log) { if (e.b) continue; const k = dayKey(e.t); m.set(k, (m.get(k) || 0) + 1); }
+    for (const e of P.log) { if (e.b || e.ra) continue; const k = dayKey(e.t); m.set(k, (m.get(k) || 0) + 1); }
     return m;
   }
   /** Сколько заданий нужно решить за день, чтобы огонёк продлился. */
@@ -2717,7 +2727,7 @@
     $('#scopeInfo').innerHTML = h;
 
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-    const today = P.log.filter(x => x.t >= dayStart.getTime() && !x.b);
+    const today = P.log.filter(x => x.t >= dayStart.getTime() && !x.b && !x.ra);   // перерешанное уже решённое — не в счёт
     const okToday = today.filter(x => x.s === 1).length;
     const lastDots = P.log.slice(-12).map(x => `<i class="s${String(x.s).replace('.', '')}"></i>`).join('');
     const streak = currentStreak();
@@ -4664,7 +4674,7 @@
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(g.title)}</h2>
           <i class="xp-bar"><b style="width:${pct(g.cur / g.need)}%"></b></i>
           <span class="fm-muted">${g.cur} / ${g.need} XP до ${g.level + 1}-го уровня · всего ${g.xp} XP · за неделю +${g.week}</span></div></div>
-      <p class="fm-note">Опыт даётся за первое решение задания (№1–10 — 10 XP, сложные номера — до 22 XP), повторное — 2 XP,
+      <p class="fm-note">Опыт даётся за первое решение задания (№1–10 — 10 XP, сложные номера — до 22 XP); перерешать уже решённое (из истории) можно для тренировки, но без опыта, огонька, серии и достижений;
         вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.
         За достижения — от 5 до 300 XP: чем труднее получить, тем больше.
         <b>Верный ответ быстрее чем за минуту</b> с открытия задания — <b>−1 XP</b>: так быстро задания обычно не решают, а подсматривают.</p>
@@ -5659,6 +5669,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.33.0', '12.10.2026', ['Уже решённое задание можно перерешать из истории для тренировки, но опыта, огонька, серии и достижений за повтор нет']],
     ['1.32.0', '12.10.2026', ['Контрольная: сводка (сколько сдано, уходы, выходы из полного экрана) теперь всплывает и сама пропадает, а не висит над заданием',
       'Если сдаёшь ответ без прикреплённого решения, сайт напомнит и предложит прикрепить код — учитель видит, у кого решения есть']],
     ['1.31.1', '12.10.2026', ['Контрольная: кнопка «←» больше не выбрасывает из контрольной — между заданиями переходи по номерам сверху']],
