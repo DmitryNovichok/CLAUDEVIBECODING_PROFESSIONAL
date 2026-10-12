@@ -3391,7 +3391,7 @@
           <div class="fm-facts">
             <div>Время: <b>${fmtClock(res.spent)}</b> из 3:55:00</div>
             <div>Полностью верно: <b>${full}</b> из ${res.results.length}</div>
-            ${ex.away || ex.fsExits || ex.paste ? `<div>Строгий режим: уходов ${ex.away || 0}, выходов из полного экрана ${ex.fsExits || 0}${ex.paste ? `, вставок ${ex.paste}` : ''} — видно учителю</div>` : ''}
+
             <div class="fm-chips">${res.test >= EGE.minScore ? `<span class="chip good">порог ${EGE.minScore} пройден</span>` : `<span class="chip weak">ниже порога ${EGE.minScore}</span>`}</div>
           </div>
         </div>
@@ -5465,7 +5465,7 @@
   // Уход со страницы дольше пары секунд, пока открыто задание или вариант, и клавиши снимка экрана
   // записываются — учитель видит это в журнале. Страница при этом ничего не прячет.
   const awayQ = [];
-  let awayFrom = 0, awayWarned = false;
+  let awayFrom = 0;
   function openTaskId() {
     if (examShown && EX) { const it = EX.items[EX.cur]; return it ? it.id : null; }
     return cur && !cur.done ? cur.task.id : null;
@@ -5489,14 +5489,8 @@
     if (examShown && EX) {
       EX.away = (EX.away || 0) + 1;
       saveExam();
-      updStrict();
-      toast(`Уход со страницы во время варианта записан (${EX.away}) — учитель увидит это в результатах.`, 4500);
-      return;
     }
-    if (!awayWarned) {
-      awayWarned = true;
-      toast('Переход на другую вкладку или программу записывается — учитель видит это в журнале.', 4500);
-    }
+    // ученику ничего не показываем — уход только записывается для учителя
   }
   function flushAway() {
     if (!awayQ.length || !SERVER || !student) return;
@@ -5542,15 +5536,7 @@
     document.documentElement.requestFullscreen().catch(() => {}).finally(updStrict);
   }
   function strictHtml() {
-    if (!EX) return '';
-    const n = (EX.away || 0) + (EX.fsExits || 0) + (EX.paste || 0);
-    const off = canFs() && !document.fullscreenElement;
-    const parts = [`уходов со страницы: <b>${EX.away || 0}</b>`];
-    if (canFs()) parts.push(`выходов из полного экрана: <b>${EX.fsExits || 0}</b>`);
-    if (EX.paste) parts.push(`вставок ответа: <b>${EX.paste}</b>`);
-    return `<div class="ex-strict${n ? ' warn' : ''}${off ? ' off' : ''}" id="exStrict">
-      <span>🔒 <b>Строгий режим</b> · ${parts.join(' · ')}</span>
-      ${off ? '<button type="button" class="btn primary" id="exFsBtn">⤢ Вернуться в полный экран</button>' : ''}</div>`;
+    return '';                                   // плашку строгого режима ученику не показываем — не отвлекаем
   }
   function updStrict() {
     const el = $('#exStrict');
@@ -5565,8 +5551,6 @@
     saveExam();
     awayQ.push({ kind: 'fs', task: openTaskId() || '', exam: 1 });
     flushAway();
-    updStrict();
-    toast(`Выход из полноэкранного режима записан (${EX.fsExits}). Вернитесь в полный экран кнопкой над заданием.`, 5000);
   });
   function exStrictLeave() {
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
@@ -5668,9 +5652,8 @@
     if (!a) return;
     let el = $('#wkPop');
     if (!el) { el = document.createElement('div'); el.id = 'wkPop'; el.className = 'wk-pop'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
-    const n = (a.away || 0) + (a.fsExits || 0);
-    el.classList.toggle('warn', !!warn || !!n);
-    el.innerHTML = `<div>📝 <b>Самостоятельная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}${a.away ? ` · уходов со страницы: <b>${a.away}</b>` : ''}${a.fsExits ? ` · выходов из полного экрана: <b>${a.fsExits}</b>` : ''}</div>
+    el.classList.toggle('warn', !!warn);
+    el.innerHTML = `<div>📝 <b>Самостоятельная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}</div>
       ${msg ? `<div class="wk-pop-msg">${msg}</div>` : ''}`;
     el.classList.remove('out');
     el.hidden = false;
@@ -5684,8 +5667,7 @@
       const t = byId.get(id);
       return `<button type="button" class="ex-nav-btn${id === now ? ' on' : ''}${done.has(id) ? ' done' : ''}" data-wk-go="${esc(id)}"
         title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${done.has(id) ? ' — ответ сдан' : ' — ответа ещё нет'}"><b>${i + 1}</b><small>${done.has(id) ? '✓ сдано' : t ? '№' + numLabel(t.n) : ''}</small></button>`;
-    }).join('')}<span class="wk-nav-tools">${canFs() && !document.fullscreenElement ? '<button type="button" class="btn primary" id="wkFsBtn" title="Вернуться в полный экран">⤢ Полный экран</button>' : ''}
-      <button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></span></nav>`;
+    }).join('')}<span class="wk-nav-tools"><button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></span></nav>`;
   }
   function wkBar() {
     const a = wkLive(), nav = $('#wkNav');
@@ -5921,12 +5903,6 @@
     a.fsExits = (a.fsExits || 0) + 1;
     api('asg/away', { id: a.id, kind: 'fs' }).catch(() => {});
     wkBar();
-    wkPop('Выход из полного экрана записан — учитель это видит. Вернись кнопкой «⤢ Полный экран» над заданием.', true);
-  });
-  window.addEventListener('beforeunload', e => {
-    if (!wkLive()) return;
-    e.preventDefault();
-    e.returnValue = 'Идёт самостоятельная — не покидайте вкладку.';
   });
   /** Вернулся на вкладку во время самостоятельной: учителю — уход, ученику — напоминание. */
   function wkCameBack(sec) {
@@ -5935,13 +5911,8 @@
     a.away = (a.away || 0) + 1;
     api('asg/away', { id: a.id, kind: 'away', dur: Math.round(sec) }).catch(() => {});
     wkBar();
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">⚠ Не покидайте вкладку</h2>
-      <p class="fm-note">Идёт самостоятельная «${esc(a.title)}». Уход со страницы на ${Math.round(sec)} с записан, учитель это видит${a.away > 1 ? ` (уже ${a.away} ${plural(a.away, 'раз', 'раза', 'раз')})` : ''}.
-      Решайте задания здесь, не переключаясь на другие вкладки и программы.</p>
-      <div class="actions"><button type="button" class="btn primary" id="wkBackOk">Понятно, продолжить</button></div>`;
-    $('#forecastModal').hidden = false;
-    $('#wkBackOk').addEventListener('click', () => { closeForecast(); wkFullscreen(); });
-    return true;
+    return true;                                 // уход записан для учителя; ученика не отвлекаем
+
   }
 
   // ------------------------------------------------------------ старт
@@ -6064,6 +6035,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.46.1', '12.10.2026', ['Убраны напоминания об уходе со страницы и выходе из полного экрана, а в варианте — плашка строгого режима: ничего не отвлекает от заданий']],
     ['1.46.0', '12.10.2026', ['🔧 Работа над ошибками: после самостоятельной сразу появляется твоя личная подборка — похожие задания того же типа на те, где ты ошибся',
       '🎯 Учитель может выдать каждому подборку по его слабым номерам — у каждого своя',
       'Сроки: за день до срока придёт напоминание, после срока работа закрывается (начатая самостоятельная сдаётся сама)']],
