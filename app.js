@@ -699,7 +699,9 @@
     P.step++;
     const repeat = !!P.tasks[t.id];
     // уже решённое задание решают снова: в огонёк, цель дня и серию не идёт (так же считает сервер)
-    const again = !!(P.tasks[t.id] && P.tasks[t.id].c > 0) && !o.exam && !o.asg && RULES.repeat_since != null && now >= RULES.repeat_since;
+    // уже решённое или с показанным ответом: в огонёк, цель дня и серию не идёт (так же считает сервер)
+    const again = o.skip != null ? o.skip
+      : !!(P.tasks[t.id] && P.tasks[t.id].c > 0) && !o.exam && !o.asg && RULES.repeat_since != null && now >= RULES.repeat_since;
     const s = P.tasks[t.id] || (P.tasks[t.id] = { a: 0, c: 0 });
     s.a++;
     if (score === 1) s.c++;
@@ -794,13 +796,13 @@
       pend = null;
     };
     for (const row of rows) {
-      const [id, n, score, ts, reason, rk, part, grp, exam, blank] = row;
+      const [id, n, score, ts, reason, rk, part, grp, exam, blank, skip] = row;
       const day = dayKey(ts);
       if (lastDay && day !== lastDay) { endGroup(); snapshotForecast(lastDay, ts - 1); }
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg', skip: !!skip };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -1691,7 +1693,7 @@
     cur.score = score;
     const t = cur.task;
     res = res || {};
-    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part });
+    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount });
     ui.currentId = null;
     save();
 
@@ -1710,7 +1712,8 @@
       ? '<div class="fb-note">Одно из двух чисел с первой попытки было верным — на экзамене это 1 балл из 2.</div>' : '';
 
     const streak = currentStreak();
-    const fastNote = res.fast ? '<div class="fb-note fb-fast">⏱ Решено быстрее чем за минуту — это похоже на подсмотренный ответ, поэтому <b>−1 XP</b> вместо опыта. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>' : '';
+    const noCount = res.nocount ? '<div class="fb-note fb-fast">Это задание уже решено или его ответ тебе уже показывали — решение засчитано для тренировки, но <b>без опыта, огонька, серии и достижений</b>.</div>' : '';
+    const fastNote = noCount || !res.fast ? noCount : '<div class="fb-note fb-fast">⏱ Решено быстрее чем за минуту — это похоже на подсмотренный ответ, поэтому <b>−1 XP</b> вместо опыта. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>';
     if (score === 1) {
       setFeedback('ok', 'Верно!',
         `<div class="fb-note">${note || (streak >= 3 ? `Серия: ${streak} ${plural(streak, 'задание', 'задания', 'заданий')} подряд без ошибок.` : '')}</div>${fastNote}${extra}`);
@@ -5716,6 +5719,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.35.0', '12.10.2026', ['Если правильный ответ на задание уже показывали (после ошибок или «Показать ответ»), его решение потом засчитывается для тренировки, но без опыта, огонька, серии и достижений — пересчитано по всей истории',
+      'Достижение «Флэш» (решить быстрее 20 секунд) убрано: так быстро задания не решают',
+      'Вариант ЕГЭ даёт опыт, только если в нём есть хотя бы один верный ответ']],
     ['1.34.0', '12.10.2026', ['Сданная контрольная — в «Истории заданий»: ответы с пометкой «контрольная» и кнопка «Разбор» с правильными ответами, решениями и твоим кодом',
       'Разбор открывается, когда контрольная закончилась для всех: учитель её завершил, прошёл срок или сдал весь класс']],
     ['1.33.1', '12.10.2026', ['Опыт пересчитан: за каждое задание засчитывается только первое решение — повторы из истории больше не дают ни опыта, ни огонька, ни достижений, и раньше тоже',

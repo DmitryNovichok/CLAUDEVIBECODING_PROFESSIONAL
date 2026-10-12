@@ -526,6 +526,32 @@ class ServerTest(unittest.TestCase):
                         (sid, server.fast_xp_since(server.APP.db) - 100, "b:27", 27, "[]", "1", 1.0, 5000))
         self.assertGreaterEqual(server.game_summary(server.APP.db, sid)["xp"], 46)   # +22 за №27 (и достижения), без −1
 
+    def test_seen_answer_gives_no_xp(self):
+        # лазейка: ошибиться дважды → увидеть правильный ответ → открыть задание снова и ввести его
+        tok = self.login("Лазейкин Лёва")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        pid6 = server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": pid6}, tok)
+        server.OPENED.get(sid, "b:6")["ts"] -= 120
+        self.check(tok, pid6, answer="1")
+        st, r = self.check(tok, pid6, answer="2")
+        self.assertEqual(r["answer"], "7")                                   # ответ показан
+        server.OPENED.reset(sid, "b:6")
+        server.OPENED.get(sid, "b:6")["ts"] -= 120                          # открыл снова, «подумал» две минуты
+        st, r = self.check(tok, pid6, answer="7")
+        self.assertTrue(r["correct"] and r["nocount"])
+        self.assertEqual(r["game"]["xp"], 0)                                 # ни опыта, ни «Первого шага»
+        h = self.req("GET", "/api/history", token=tok)[1]["h"]
+        self.assertEqual([x[10] for x in h], [0, 1])                         # сайт тоже знает, что ответ не засчитан
+        # а задание, ответ на которое не показывали, — как обычно
+        pid5 = server.APP.bank.pid("b:5")
+        self.req("POST", "/api/open", {"task": pid5}, tok)
+        server.OPENED.get(sid, "b:5")["ts"] -= 120
+        st, r = self.check(tok, pid5, answer="12")
+        self.assertFalse(r["nocount"])
+        self.assertEqual(r["game"]["xp"], 15)
+        self.assertNotIn("flash", [a["id"] for a in r["game"]["ach"]])       # «Флэш» за скорость убран
+
     def test_repeats_do_not_count_retroactively(self):
         # нафармленное раньше повторами снимается: засчитывается только первое решение задания
         db = server.APP.db
@@ -641,7 +667,7 @@ class ServerTest(unittest.TestCase):
             db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
                  (sid, fri13 + 20 + k, "fun:stub", 8, "[]", "1", sc, 2000000))
         got = {a["id"] for a in server.game_summary(db, sid)["ach"] if a["got"]}
-        self.assertTrue({"bug", "flash", "phoenix", "fri13", "lucky", "stubborn", "snail"} <= got, got)
+        self.assertTrue({"bug", "phoenix", "fri13", "lucky", "stubborn", "snail"} <= got, got)
         self.assertFalse({"pi", "newyear", "cinderella", "perfect", "dejavu", "rainbow"} & got)
         db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
         db.x("DELETE FROM students WHERE id=?", (sid,))
