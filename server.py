@@ -1702,6 +1702,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     item = {"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
                             "tasks": [APP.bank.pid(i) for i in real]}
                     if a["strict"]:
+                        real = asg_order(real, a["id"], s["id"])      # у каждого ученика свой порядок заданий
+                        item["tasks"] = [APP.bank.pid(i) for i in real]
                         item.update(asg_run_public(db, a, s["id"], real))
                     else:
                         done = assignment_done(db, s["id"], real, a["created"])
@@ -2128,7 +2130,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         a = db.q("SELECT * FROM assignments WHERE id=? AND strict=1", (aid,), one=True)
         if not a or a["class_id"] != s["class_id"]:
             return self.err(404, "Контрольная не найдена")
-        real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+        real = asg_order([i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks], aid, s["id"])
         run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (aid, s["id"]), one=True)
         now = time.time()
         if path == "/api/asg/state":
@@ -3709,6 +3711,13 @@ def assignment_done(db, sid, task_ids, since):
 
 
 ASG_GRADES = {"5": 85, "4": 65, "3": 45}
+
+
+def asg_order(real, aid, sid):
+    """Порядок заданий контрольной у ученика: случайный, но один и тот же при каждом входе."""
+    out = list(real)
+    random.Random(f"asg:{aid}:{sid}").shuffle(out)
+    return out
 
 
 def asg_items(real):

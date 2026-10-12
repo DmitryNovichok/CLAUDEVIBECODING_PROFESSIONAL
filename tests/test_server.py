@@ -431,6 +431,11 @@ class ServerTest(unittest.TestCase):
         aid = d["id"]
         a = self.req("GET", "/api/assignments", token=tok)[1]["assignments"][0]
         self.assertTrue(a["strict"])
+        a2 = self.req("GET", "/api/assignments", token=tok2)[1]["assignments"][0]
+        self.assertEqual(sorted(a["tasks"]), sorted(a2["tasks"]))                    # те же задания, порядок у каждого свой
+        self.assertEqual(a["tasks"], self.req("GET", "/api/assignments", token=tok)[1]["assignments"][0]["tasks"])  # и не меняется
+        self.assertEqual([server.asg_order(list("abcdefghij"), aid, me) for _ in range(2)][0], server.asg_order(list("abcdefghij"), aid, me))
+        self.assertNotEqual(server.asg_order(list("abcdefghij"), aid, me), server.asg_order(list("abcdefghij"), aid, me2))
         self.assertEqual((a["items"], a["started"], a["done"]), (4, None, []))       # №19–21 — два вопроса отдельно
         pid5, pid27 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:27")
         p19, p20 = server.APP.bank.pid("b:g19"), server.APP.bank.pid("b:g20")

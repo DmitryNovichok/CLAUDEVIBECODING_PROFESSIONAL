@@ -5318,11 +5318,22 @@
     return `<div class="ex-strict wk-bar${n ? ' warn' : ''}${off ? ' off' : ''}" id="wkBar">
       <span>📝 <b>Контрольная</b> · сдано ${(a.done || []).length} из ${a.tasks.length}${a.away ? ` · уходов со страницы: <b>${a.away}</b>` : ''}${a.fsExits ? ` · выходов из полного экрана: <b>${a.fsExits}</b>` : ''}</span>
       ${off ? '<button type="button" class="btn primary" id="wkFsBtn">⤢ Полный экран</button>' : ''}
-      <button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></div>`;
+      <button type="button" class="btn ghost" id="wkFinishTop">Завершить</button></div>${wkNavHtml(a)}`;
+  }
+  /** Номера заданий сверху, как в варианте: можно перейти к любому, сданные отмечены. */
+  function wkNavHtml(a) {
+    const done = new Set(a.done || []), now = cur && !examShown ? cur.task.id : null;
+    return `<nav class="ex-nav wk-nav" id="wkNav" aria-label="Задания контрольной">${a.tasks.map((id, i) => {
+      const t = byId.get(id);
+      return `<button type="button" class="ex-nav-btn${id === now ? ' on' : ''}${done.has(id) ? ' done' : ''}" data-wk-go="${esc(id)}"
+        title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${done.has(id) ? ' — ответ сдан' : ''}">${i + 1}</button>`;
+    }).join('')}</nav>`;
   }
   function wkBar() {
     const a = wkLive(), el = $('#wkBar');
-    if (!a) { if (el) el.remove(); return; }
+    if (!a) { if (el) el.remove(); const nav = $('#wkNav'); if (nav) nav.remove(); return; }
+    const nav = $('#wkNav');
+    if (nav) nav.remove();
     if (el) el.outerHTML = wkBarHtml(a);
     else if (trainerEl && cur) trainerEl.insertAdjacentHTML('afterbegin', wkBarHtml(a));
   }
@@ -5332,6 +5343,21 @@
     const lab = $('#trainer .answer-label');
     if (lab) lab.insertAdjacentHTML('beforeend', ' <b class="wk-note">Одна попытка — проверка после завершения контрольной.</b>');
     if (cur.group) $$('#trainer .gpart-fb').forEach(x => { x.textContent = ''; });
+    const a = wkTask();
+    if ((a.done || []).includes(cur.task.id)) {
+      const fill = (box, shape, v) => {
+        if (!box || v == null) return;
+        if (shape.type === 'single') { const i = box.querySelector('.inp-single'); if (i) i.value = v; return; }
+        const tk = tokens(v);
+        $$('.cell', box).forEach((c, k) => { c.value = tk[k] || ''; });
+      };
+      if (cur.group) cur.parts.forEach((x, i) => fill(partBox(i), x.shape, (a.mine || {})[x.p.id]));
+      else fill($('#answerInputs'), cur.shape, (a.mine || {})[cur.task.id]);
+      cur.done = true;
+      $$('#trainer .answer input').forEach(i => { i.disabled = true; });
+      setFeedback('sent', 'Ответ уже сдан', '<div class="fb-note">Изменить его нельзя. Верно или нет — узнаешь, когда завершишь контрольную.</div>');
+      renderActions();
+    }
   }
   function wkActions(box) {
     const a = wkTask();
@@ -5471,6 +5497,12 @@
     renderTopbar();
   }
   document.addEventListener('click', e => {
+    const go = e.target.closest('[data-wk-go]');
+    if (go) {
+      const a = wkLive(), t = byId.get(go.dataset.wkGo);
+      if (a && t && !(cur && cur.task.id === t.id)) { abandonCurrent(); show({ task: t, why: { type: 'asg', a } }); }
+      return;
+    }
     if (e.target.closest('#wkFinishBtn, #wkFinishTop')) wkFinish();
     else if (e.target.closest('#wkFsBtn')) wkFullscreen();
   });
@@ -5580,6 +5612,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.29.0', '12.10.2026', ['Контрольная: у каждого ученика свой случайный порядок заданий',
+      'Сверху — номера всех заданий контрольной, как в варианте: можно перейти к любому, сданные отмечены']],
     ['1.28.0', '12.10.2026', ['Контрольные от учителя: на каждое задание одна попытка, ответ сдаётся без проверки — сколько верно и оценку узнаешь после завершения',
       'Контрольная пишется в полном экране; уход со вкладки и выход из полного экрана сразу видит учитель — сайт напомнит не покидать вкладку',
       'Учитель может завершить контрольную для всех — тогда оценка ставится по уже сданным ответам']],
