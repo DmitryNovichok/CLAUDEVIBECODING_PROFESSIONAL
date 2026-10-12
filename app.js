@@ -802,7 +802,7 @@
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg', skip: !!skip };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', skip: !!skip };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -2187,6 +2187,7 @@
     return a;
   }
   let courseShown = false;
+  let pageKind = null;                   // открыта страница вместо задания: null — курс, 'asg' — задания от учителя
   let TEACHER = false;
   // Окна курса (план → урок → подборка → задание) пишутся в историю браузера: кнопка «Назад» ведёт по ним
   let navSilent = false;
@@ -2217,6 +2218,7 @@
     try {
       if (examShown) return;
       if (st.v === 'course') openCourse();
+      else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'lesson') openLesson(st.n);
       else if (st.v === 'set' && courseSet(st.id)) { abandonCurrent(); openCourseSet(st.id); }
       else if (st.v === 'task' && courseSet(st.set) && byId.get(st.id)) openSetTask(courseSet(st.set), byId.get(st.id));
@@ -2258,6 +2260,7 @@
   function leaveCourse() {
     if (!courseShown) return;
     courseShown = false;
+    pageKind = null;
     $('#courseCard')?.classList.remove('on');
   }
   function lessonState(n) {
@@ -2269,6 +2272,7 @@
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
     courseShown = true;
+    pageKind = null;
     cur = null;
     navPush({ v: 'course' });
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
@@ -2819,8 +2823,8 @@
     $('#sideToggleLabel').textContent = examShown ? 'Вариант ЕГЭ' : ui.scope === 'all' ? 'Все задания' : ui.scope === 'fav' ? 'Избранное'
       : ui.scope === 'asg' ? (asgOf(ui.asg) && asgOf(ui.asg).duel ? 'Дуэль' : asgOf(ui.asg) && asgOf(ui.asg).course ? 'Курс' : 'От учителя') : `№ ${numLabel(ui.scope)}`;
     const asgOn = inTrainer && ui.scope === 'asg' && !(asgOf(ui.asg) || {}).course;
-    $('#courseCard')?.classList.toggle('on', courseShown || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
-    $('#asgCard').classList.toggle('on', asgOn);
+    $('#courseCard')?.classList.toggle('on', (courseShown && pageKind !== 'asg') || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
+    $('#asgCard').classList.toggle('on', asgOn || (courseShown && pageKind === 'asg'));
     renderAsgCard();
     renderLevel();
 
@@ -5158,6 +5162,50 @@
     card.classList.toggle('alert', !!left);
     $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
   }
+  /** Страница «Задания от учителя» в основной области (как «Курс»): карточки текущих и пройденных подборок. */
+  function openAsgPage() {
+    if (!leaveExam()) return;
+    if (isNarrow()) setSideOpen(false);
+    abandonCurrent();
+    courseShown = true;
+    pageKind = 'asg';
+    cur = null;
+    navPush({ v: 'asgpage' });
+    renderAsgPage();
+    renderSidebar();
+    window.scrollTo(0, 0);
+  }
+  function renderAsgPage() {
+    if (!courseShown || pageKind !== 'asg') return;
+    const list = ASG.filter(a => !a.duel && !a.course);
+    const isDone = a => a.strict && (a.result || a.closed);
+    const active = list.filter(a => !isDone(a)), done = list.filter(isDone);
+    const left = active.reduce((n, a) => n + asgLeft(a).length, 0);
+    const card = a => {
+      const n = (a.done || []).length, total = a.tasks.length, r = a.result;
+      const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
+      const late = a.due && a.due * 1000 < Date.now() && !r;
+      const state = r ? `оценка <b>${r.grade}</b> · ${r.pct}% · верно ${r.ok} из ${r.total}${r.xp ? ` · +${r.xp} XP` : ''}`
+        : a.closed ? 'завершена учителем' : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
+      const btns = r ? `<button type="button" class="btn" data-asg="${a.id}">Результат</button><button type="button" class="btn" data-review="${a.id}">Разбор</button>`
+        : a.closed ? '' : `<button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить' : 'Начать'}</button>`;
+      return `<div class="ap-card${r || a.closed ? ' done' : ''}${a.started && !r ? ' going' : ''}">
+        <div class="ap-top"><span class="ap-ico">${r ? '✓' : '📝'}</span><div><b>${esc(a.title)}</b>
+          <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}${a.due ? ` · <span class="${late ? 'ap-late' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}</small></div></div>
+        <div class="ap-state">${state}</div>
+        ${r ? '' : `<i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i>`}
+        <div class="ap-btns">${btns}</div></div>`;
+    };
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Задания от учителя</span>';
+    trainerEl.innerHTML = `<div class="course asg-page">
+      <div class="crs-hero"><div><div class="crs-kicker">Задания от учителя</div><h2>Подборки твоего класса</h2>
+        <p>Новые подборки появляются здесь сами. Каждая пишется как контрольная: проверка — после сдачи, ответ можно изменить один раз.</p></div>
+        <div class="crs-prog"><b>${active.length}</b><span>${active.length ? `${plural(active.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'новых подборок нет'}</span></div></div>
+      <h3 class="ap-h">Сейчас</h3>
+      ${active.length ? `<div class="ap-grid">${active.map(card).join('')}</div>` : '<p class="fm-note">Новых подборок нет — когда учитель выдаст, они появятся здесь.</p>'}
+      ${done.length ? `<h3 class="ap-h">Пройденные</h3><div class="ap-grid">${done.map(card).join('')}</div>` : ''}
+    </div>`;
+  }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = a => a.strict && (a.result || a.closed);
@@ -5320,9 +5368,8 @@
 
   $('#lvlCard').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openGame(); });
   $('#asgCard').addEventListener('click', () => {
-    if (isNarrow()) setSideOpen(false);
-    openAssignments();
-    loadAssignments().then(() => { if (!$('#forecastModal').hidden && $('#asgWin')) openAssignments(); }).catch(() => {});
+    openAsgPage();
+    loadAssignments().then(renderAsgPage).catch(() => {});
   });
   $('#forecastBody').addEventListener('click', e => {
     const b = e.target.closest('[data-asg]');
@@ -5380,6 +5427,7 @@
   }
   function wkEnter(a) {
     if (!leaveExam()) return;
+    leaveCourse();
     if (isNarrow()) setSideOpen(false);
     ui.scope = 'asg';
     ui.asg = a.id;
@@ -5752,6 +5800,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.38.0', '12.10.2026', ['«Задания от учителя» — теперь отдельная страница, а не всплывающее окно: карточки подборок «Сейчас» и «Пройденные» с номерами заданий, сроком, оценкой и разбором']],
     ['1.37.2', '12.10.2026', ['Кто перерешивал подборку по кругу ради опыта, лишился всего опыта, набранного с первого такого повтора до закрытия лазейки']],
     ['1.37.1', '12.10.2026', ['Закрыта лазейка: одно и то же задание по кругу из подборки давало опыт каждый раз. Опыт пересчитан — за задание только первое решение']],
     ['1.37.0', '12.10.2026', ['Контрольная: сданный ответ можно один раз изменить — кнопкой «Изменить ответ»',
