@@ -775,9 +775,10 @@
       return `<div class="adm-asg">
         <div class="adm-asg-head"><b>${esc(a.title)}</b>
           <span class="adm-hint">${total} ${plural(total, 'задание', 'задания', 'заданий')} · выдано ${fmtDate(a.created)}${a.due ? ` · срок <span style="${late ? 'color:var(--weak)' : ''}">${fmtDate(a.due)}</span>` : ''}</span>
-          <span class="adm-actions"><button type="button" class="btn ghost" data-asg-edit="${a.id}">Изменить</button>
+          <span class="adm-actions"><button type="button" class="btn" data-asg-strict="${a.id}" title="Одна попытка, результат и оценка — после сдачи, полный экран, онлайн-сводка">📝 Сделать контрольной</button>
+          <button type="button" class="btn ghost" data-asg-edit="${a.id}">Изменить</button>
           <button type="button" class="btn ghost danger" data-asg-del="${a.id}">Удалить</button></span></div>
-        <div class="adm-hint" style="margin:0 0 8px">Сделали всё: <b>${done}</b> из ${a.progress.length}${zero ? ` · не начинали: ${zero}` : ''}</div>
+        <div class="adm-hint" style="margin:0 0 8px">Обычная подборка: ответ проверяется сразу, две попытки. Сделали всё: <b>${done}</b> из ${a.progress.length}${zero ? ` · не начинали: ${zero}` : ''}</div>
         <div class="adm-asg-prog">${a.progress.map(p => `<span class="adm-asg-st${p.done >= total ? ' full' : p.done ? '' : ' zero'}" data-open-st="${p.id}" title="${esc(p.name)}: ${p.done} из ${total}">
           <span>${esc(p.name)}</span><i><b style="width:${pct(p.done / total)}%"></b></i><small>${p.done}/${total}</small></span>`).join('') || '<span class="adm-hint">В классе нет учеников.</span>'}</div>
       </div>`;
@@ -1025,6 +1026,18 @@
     const openSt = t.closest('[data-open-st]') || (!t.closest('button') && t.closest('#classTable tr[data-id]'));
     if (openSt) { openStudent(+(openSt.dataset.openSt || openSt.dataset.id)); return; }
     if (t.closest('#asgNew')) { editAssignment(null); return; }
+    const mk = t.closest('[data-asg-strict]');
+    if (mk) {
+      const a = c.assignments.find(x => x.id === +mk.dataset.asgStrict);
+      if (!a || !confirm(`Сделать «${a.title}» контрольной? Ученики будут сдавать каждое задание один раз, без проверки, а результат и оценку увидят после сдачи. Решённое раньше в этой подборке не засчитывается.`)) return;
+      try {
+        await api('assignment/save', { id: a.id, class_id: c.id, title: a.title, due: a.due, strict: true, grading: grades(),
+          tasks: a.tasks.filter(x => !x.missing).map(x => x.id) });
+        toast('Подборка стала контрольной');
+        openClass(c.id);
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const ed = t.closest('[data-asg-edit]');
     if (ed) { editAssignment(c.assignments.find(a => a.id === +ed.dataset.asgEdit)); return; }
     const del = t.closest('[data-asg-del]');
