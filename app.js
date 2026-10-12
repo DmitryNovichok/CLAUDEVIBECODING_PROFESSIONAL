@@ -333,7 +333,6 @@
   $('.sidebar .brand-mark')?.addEventListener('click', () => { if (document.body.classList.contains('side-min')) setSideMin(false); });
 
   /** Цель в Яндекс Метрике (если счётчик включён в панели учителя). Объявлена до окна входа: оно работает раньше остального. */
-  function goal(name) { try { if (window.ym && window.EGE_YM) window.ym(window.EGE_YM, 'reachGoal', name); } catch (e) { /* не мешаем занятию */ } }
 
   // ------------------------------------------------------------ вход до загрузки заданий
   async function loginRequest(body, token) {
@@ -387,7 +386,6 @@
           forgetStudent();                               // прежний вход на этом компьютере больше не нужен
           try { if (temp) sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
           const r = await loginRequest(body);
-          if (body.mode === 'register') goal('register');
           if (!temp) writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
           ['#loginPass', '#regPass', '#regPass2', '#regCode'].forEach(sel => { $(sel).value = ''; });
@@ -1522,7 +1520,6 @@
       return;
     }
     const answer = got.join(' ');
-    goal('answer');
     const res = await verify({ answer, cells: cellsIn($('#answerInputs'), cur.shape) });
     if (!res || !cur || cur.done) return;
     cur.answers = cur.answers.concat(answer);
@@ -3402,7 +3399,6 @@
     exStrictLeave();
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     recordExam(res);
-    goal('exam');
     renderExamResult(res, done);
   }
 
@@ -6197,6 +6193,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.47.5', '12.10.2026', ['Яндекс Метрика убрана с сайта: никаких сторонних счётчиков посещаемости']],
     ['1.47.4', '12.10.2026', ['Исправлено: в заданиях №25 и №27 из КомпЕГЭ таблица ответа была неправильной, а верный ответ не засчитывался. Теперь №27 — таблица 2 × 2, №25 — 10 × 2, как на ЕГЭ']],
     ['1.47.3', '12.10.2026', ['Синие кубики теперь только сворачивают и разворачивают банк номеров — выбранный номер не сбрасывается. «Все номера» — отдельной кнопкой над сеткой']],
     ['1.47.2', '12.10.2026', ['Золотая плашка 👑 admin у администратора сайта — в рейтинге, профиле, турнирах и задании дня']],

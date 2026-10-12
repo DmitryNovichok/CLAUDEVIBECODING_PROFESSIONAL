@@ -1861,7 +1861,6 @@
       showMediaWarning(d);
       $('#infoLine').textContent = `В банке ${d.tasks} заданий · учеников: ${d.students} · записей в журнале: ${d.attempts}. Резервная копия — файл trainer/server_data/trainer.db.`;
       $('#inviteCode').value = d.invite || '';
-      $('#metrikaId').value = d.metrika || '';
       courseState(d.course_set, d.course_students);
       $('#authoredOn').checked = d.authored_on !== false;
       $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
@@ -1924,18 +1923,6 @@
   });
   $('#courseOff')?.addEventListener('click', () => {
     if (confirm('Выключить курс? Пароль сбросится, раздел будет закрыт у всех.')) courseSave({ off: true }, 'Курс выключен');
-  });
-  $('#metrikaForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const msg = $('#metrikaMsg');
-    msg.className = 'login-err';
-    msg.textContent = '';
-    try {
-      const r = await api('metrika', { id: $('#metrikaId').value });
-      $('#metrikaId').value = r.id;
-      msg.className = 'login-err ok';
-      msg.textContent = r.id ? `Счётчик ${r.id} включён — ученики попадут в Метрику, когда обновят страницу` : 'Метрика выключена';
-    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
   });
   $('#inviteForm').addEventListener('submit', async e => {
     e.preventDefault();
