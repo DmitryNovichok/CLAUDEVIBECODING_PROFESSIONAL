@@ -2000,3 +2000,10 @@ body.asg-wide .course.asg-page { max-width: none; }
 .exh-min { stroke: var(--weak); stroke-dasharray: 4 4; stroke-width: 1; opacity: .6; }
 .exh-open { padding: 4px 10px; font-size: 12px; }
 #exhBack { margin-bottom: 10px; }
+
+/* ---------- история заданий — страница */
+.hist-page .hist-list { max-height: none; overflow: visible; display: flex; flex-direction: column; gap: 6px; }
+.hist-page .hist-row { padding: 10px 14px; border: 2px solid var(--border); border-radius: 12px; background: var(--card); }
+.hist-page .hist-filters { margin: 18px 0 10px; }
+.hist-day { margin: 14px 0 2px; font: 800 13px var(--font); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.hist-page .hist-more { margin-top: 12px; }

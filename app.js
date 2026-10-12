@@ -2233,6 +2233,7 @@
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'tourpage') tourOpen();
       else if (st.v === 'exams') openExamsPage();
+      else if (st.v === 'history') openHistory();
       else if (st.v === 'exam' && st.id) openExamReview(st.id);
       else if (st.v === 'lesson') openLesson(st.n);
       else if (st.v === 'set' && courseSet(st.id)) { abandonCurrent(); openCourseSet(st.id); }
@@ -2807,6 +2808,7 @@
     $('#favCount').textContent = prefs.fav.length;
     $('#histCount').textContent = P.log.filter(e => !e.b).length;
     $('#examCard').classList.toggle('on', examShown || (courseShown && pageKind === 'exams'));
+    $('#histCard')?.classList.toggle('on', courseShown && pageKind === 'history');
     $('#examSub').textContent = EX ? `идёт · ${fmtClock((EX.deadline - Date.now()) / 1000)}` : '3 ч 55 мин';
 
     const now = Date.now();
@@ -3048,34 +3050,74 @@
     if (bk) { if (bk.dataset.reviewBack === 'asg') openAssignments(); else closeForecast(); }
   });
 
+  /** История заданий — страница в основной области (как подборки и варианты), а не всплывающее окно. */
   function openHistory() {
+    if (!leaveExam()) return;
+    if (!(courseShown && pageKind === 'history')) {
+      abandonCurrent();
+      courseShown = true;
+      pageKind = 'history';
+      cur = null;
+      navPush({ v: 'history' });
+      renderSidebar();
+      window.scrollTo(0, 0);
+    }
+    renderHistory();
+  }
+  function renderHistory() {
+    if (!courseShown || pageKind !== 'history') return;
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-    const list = P.log.slice().reverse().filter(e => !e.k && (histFilter === 'all'      // самостоятельные — в окне подборок
-      || (histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime())));
-    const when = ts => { const d = new Date(ts); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+    const all = P.log.filter(e => !e.k);                       // самостоятельные — на странице подборок
+    const list = all.slice().reverse().filter(e => histFilter === 'all'
+      || (histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime()));
+    const today = all.filter(e => e.t >= dayStart.getTime());
+    const bad = all.filter(e => e.s < 1 && !e.b).length;
+    const hm = ts => { const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+    const dayName = ts => {
+      const d = new Date(ts), y = new Date(dayStart.getTime() - 864e5);
+      if (d >= dayStart) return 'Сегодня';
+      if (d >= y) return 'Вчера';
+      return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} · ${WD[d.getDay()]}`;
+    };
+    let lastDay = '';
     const rows = list.slice(0, histLimit).map(e => {
       const t = byId.get(partToGroup.get(e.id) || e.id);
       const [cls, txt] = histResult(e);
-      return `<div class="hist-row">
-        <span class="hist-when">${when(e.t)}</span>
+      const dn = dayName(e.t);
+      const head = dn !== lastDay ? `<h4 class="hist-day">${dn}</h4>` : '';
+      lastDay = dn;
+      return `${head}<div class="hist-row">
+        <span class="hist-when">${hm(e.t)}</span>
         <span class="num-badge sm">${e.n}</span>
         <span class="hist-snip">${t ? esc(plainText(t)) : '<span class="fm-muted">задание удалено из банка</span>'}</span>
         <span class="chip ${cls}">${txt}</span>
         ${t ? `<button type="button" class="btn hist-open" data-open="${esc(e.id)}">Открыть</button>` : '<span></span>'}
       </div>`;
     }).join('');
-    $('#forecastBody').innerHTML = `
-      <h2 class="fm-title">История заданий</h2>
-      <p class="fm-note">«Открыть» — решить задание ещё раз. Уже решённое перерешивается только для тренировки: без опыта, огонька, серии и достижений. Сданные самостоятельные — в окне «Задания от учителя».</p>
+    $('#scopeInfo').innerHTML = '<span class="scope-title">История</span>';
+    document.body.classList.add('asg-wide');
+    trainerEl.innerHTML = `<div class="course asg-page hist-page">
+      <div class="crs-hero"><div><div class="crs-kicker">История</div><h2>Мои задания</h2>
+        <p>Все твои ответы по порядку. «Открыть» — решить задание ещё раз. Уже решённое перерешивается для тренировки:
+          без опыта, огонька, серии и достижений. Самостоятельные — на странице «Задания от учителя», варианты — в «Моих вариантах».</p></div>
+        <div class="crs-prog"><b>${today.length}</b><span>${plural(today.length, 'ответ', 'ответа', 'ответов')} сегодня · ошибок всего ${bad}</span></div></div>
       <div class="hist-filters">
         ${[['all', 'Все'], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
           `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
         <span class="fm-muted">${list.length} ${plural(list.length, 'ответ', 'ответа', 'ответов')}</span>
       </div>
       <div class="hist-list">${rows || '<p class="fm-note">Здесь пока пусто.</p>'}</div>
-      ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}`;
-    $('#forecastModal').hidden = false;
+      ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}
+    </div>`;
   }
+  trainerEl.addEventListener('click', e => {
+    if (pageKind !== 'history' || !courseShown) return;
+    const hf = e.target.closest('[data-hf]');
+    if (hf) { histFilter = hf.dataset.hf; histLimit = 100; renderHistory(); return; }
+    if (e.target.closest('[data-hmore]')) { histLimit += 100; renderHistory(); return; }
+    const ho = e.target.closest('[data-open]');
+    if (ho) { openPast(ho.dataset.open); navPush({ v: 'past', id: ho.dataset.open }); }   // «Назад» вернёт в историю
+  });
 
   // ------------------------------------------------------------ вариант ЕГЭ
   let EX = null;          // идущий вариант: { id, started, deadline, items: [{ id, n }], ans: { id: { answer, cells } }, cur }
@@ -3523,7 +3565,7 @@
     if (t.closest('#exhBack')) return openExamsPage();
     if (t.closest('#exhNew') || t.closest('#exhResume')) return openExamIntro();
     const o = t.closest('.exh-open');
-    if (o) { leaveCourse(); openPast(o.dataset.open); }
+    if (o) { leaveCourse(); openPast(o.dataset.open); navPush({ v: 'past', id: o.dataset.open }); }
   });
   $('#period').addEventListener('change', e => setPeriod(e.target.value));
   $('#banks').addEventListener('click', e => {
@@ -6136,6 +6178,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.47.1', '12.10.2026', ['История заданий открывается страницей, как подборки и варианты, — с разбивкой по дням']],
     ['1.47.0', '12.10.2026', ['«Мои варианты» — история вариантов ЕГЭ на отдельной странице, как подборки: балл, время, график по вариантам, разбор каждого с твоими и правильными ответами и кнопкой «Перерешать»']],
     ['1.46.1', '12.10.2026', ['Убраны напоминания об уходе со страницы и выходе из полного экрана, а в варианте — плашка строгого режима: ничего не отвлекает от заданий']],
     ['1.46.0', '12.10.2026', ['🔧 Работа над ошибками: после самостоятельной сразу появляется твоя личная подборка — похожие задания того же типа на те, где ты ошибся',
