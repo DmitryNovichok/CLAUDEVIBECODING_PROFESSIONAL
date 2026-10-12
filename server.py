@@ -106,8 +106,16 @@ mimetypes.add_type("application/vnd.oasis.opendocument.text", ".odt")
 
 
 # ================================================================ ответы (как в app.js)
+def clean_ans(a):
+    """Ответ из банка: в КомпЕГЭ перенос строки иногда записан двумя символами «\\n» — делаем настоящим.
+    Иначе у №25 и 27 форма ответа строилась неверно, а верный ответ не засчитывался."""
+    if not isinstance(a, str):
+        return a
+    return a.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "").replace("\r\n", "\n").strip()
+
+
 def tokens(s):
-    s = str(s or "").lower().replace("ё", "е")
+    s = str(s or "").replace("\\n", " ").lower().replace("ё", "е")
     s = re.sub("[−–—]", "-", s)
     return [x for x in re.split(r"[\s;|,]+", s) if x]
 
@@ -120,7 +128,9 @@ def alternatives(ans):
     return [x for x in ALT_RE.split(str(ans or "")) if x.strip()] or [str(ans or "")]
 
 
-def shape_of(ans):
+def shape_of(ans, n=None):
+    if n == 25 and len(tokens(alternatives(ans)[0])) > 1:
+        return {"type": "grid", "rows": 10, "cols": 2}     # №25 на ЕГЭ — всегда таблица 10 × 2
     rows = [tokens(r) for r in alternatives(ans)[0].split("\n")]
     rows = [r for r in rows if r]
     total = sum(len(r) for r in rows)
@@ -830,6 +840,11 @@ class Bank:
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
             self.titles = {b.get("id"): b.get("title") for b in data.get("banks", [])}
             for t in data.get("tasks", []):
+                if "ans" in t:
+                    t["ans"] = clean_ans(t["ans"])
+                for part in t.get("parts") or []:
+                    if "ans" in part:
+                        part["ans"] = clean_ans(part["ans"])
                 self.tasks[t["id"]] = t
                 # без ответа, решения и всего, что ведёт к ответу: ссылки на источник, видеоразбора, настоящего id
                 p = {k: v for k, v in t.items() if k not in ("ans", "sol", "parts", "link", "video")}
@@ -850,7 +865,7 @@ class Bank:
                         self.tasks[part["id"]] = full
                         p["parts"].append({"id": self.pid(part["id"]), "n": part["n"], "sh": shape_of(part.get("ans", ""))})
                 else:
-                    p["sh"] = shape_of(t.get("ans", ""))
+                    p["sh"] = shape_of(t.get("ans", ""), t.get("n"))
                     if t.get("sol"):
                         p["hasSol"] = True
                 pub_tasks.append(p)
