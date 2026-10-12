@@ -431,3 +431,5 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 tr.ex-ok td:first-child { box-shadow: inset 3px 0 0 #58cc02; } tr.ex-half td:first-child { box-shadow: inset 3px 0 0 #ff9600; }
 tr.ex-bad td:first-child { box-shadow: inset 3px 0 0 #ff4b4b; }
 #stExams { margin-top: 6px; }
+.sp-clear { margin-left: auto; padding: 4px 10px; font-size: 12px; }
+.adm-h3:has(.sp-clear) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }

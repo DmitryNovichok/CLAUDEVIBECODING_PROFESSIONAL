@@ -106,7 +106,7 @@ class ServerTest(unittest.TestCase):
         return r.status, data
 
     def login(self, name="Иванов Иван"):
-        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": name,
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": name,
                                                 "new_password": "secret1"})
         self.assertEqual(st, 200, d)
         return d["token"]
@@ -120,15 +120,15 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(d["has_password"])
         st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Паролев Павел", "password": "wrong"})
         self.assertEqual(st, 403)
-        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Паролев Павел",
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": "Паролев Павел",
                                                 "new_password": "другой1"})
         self.assertEqual(st, 409)                          # чужой аккаунт кодом приглашения не перехватить
         st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Нет Такого", "password": "x"})
         self.assertEqual(st, 404)
-        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "0000", "name": "Новый Ученик",
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "0000", "name": "Новый Ученик",
                                                 "new_password": "secret1"})
         self.assertEqual(st, 403)                          # без верного кода не зарегистрироваться
-        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Новый Ученик",
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": "Новый Ученик",
                                                 "new_password": "123"})
         self.assertEqual(st, 400)
 
@@ -142,7 +142,7 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(d["has_password"])                # страница попросит задать пароль
         st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Старый Степан", "password": ""})
         self.assertEqual((st, d.get("need")), (409, "set_password"))
-        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Старый Степан",
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": "Старый Степан",
                                                 "new_password": "secret1"})
         self.assertEqual(st, 200, d)
         self.assertEqual(d["sid"], sid)                    # тот же ученик — журнал на месте
@@ -152,7 +152,7 @@ class ServerTest(unittest.TestCase):
     def test_registration_limit_per_ip(self):
         server._REG_LOG.clear()
         server._REG_LOG["127.0.0.1"] = [time.time()] * server.REG_PER_HOUR_IP
-        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Лимитов Лев",
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": "Лимитов Лев",
                                                 "new_password": "secret1"})
         self.assertEqual(st, 429, d)
         server._REG_LOG.clear()
@@ -161,7 +161,7 @@ class ServerTest(unittest.TestCase):
     def test_student_cookie_lifetime(self):
         def cookie(headers):
             c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-            c.request("POST", "/api/login", body=json.dumps({"mode": "register", "code": "1234",
+            c.request("POST", "/api/login", body=json.dumps({"mode": "register", "consent": True, "code": "1234",
                       "name": headers.pop("name"), "new_password": "secret1"}),
                       headers=dict({"Content-Type": "application/json"}, **headers))
             r = c.getresponse(); r.read(); c.close()
@@ -1092,6 +1092,13 @@ class ServerTest(unittest.TestCase):
             self.req("POST", "/api/support", {"text": f"ещё обращение {i}"}, tok)
         self.assertEqual(self.req("POST", "/api/support", {"text": "шестое за час"}, tok)[0], 429)
         self.assertEqual(self.req("GET", "/api/support")[0], 401)
+        # удаляет только главный учитель — обращение стирается из базы, ученик его тоже больше не видит
+        mine = self.req("GET", "/api/support", token=tok)[1]["items"]
+        self.assertEqual(self.req("POST", "/api/support/delete", {"id": mine[0]["id"]}, tok)[0], 404)   # ученику — нельзя
+        self.admin("POST", "/api/admin/support/delete", {"id": mine[0]["id"]})
+        self.assertEqual(len(self.req("GET", "/api/support", token=tok)[1]["items"]), len(mine) - 1)
+        self.assertIsNone(server.APP.db.q("SELECT 1 FROM support WHERE id=?", (mine[0]["id"],), one=True))
+        self.assertEqual(self.admin("POST", "/api/admin/support/delete", {"closed": True})[1]["deleted"], 1)   # закрытое ранее
 
     def test_common_bank_rule(self):
         ok = lambda **t: server.bank_ok(dict({"n": 5, "ans": "1"}, **t))
@@ -1269,7 +1276,7 @@ class ServerTest(unittest.TestCase):
         st, me, _ = self.teacher_req(cookie, "GET", "/api/admin/me")
         self.assertEqual((me["name"], me["is_main"], me["invite"]), ("Мария Ивановна", 0, "MARIA1"))
         # ученик по её коду попадает к ней
-        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "MARIA1", "name": "Машин Михаил",
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "MARIA1", "name": "Машин Михаил",
                                                 "new_password": "secret1"})
         self.assertEqual(st, 200, d)
         her = d["sid"]
@@ -1635,6 +1642,30 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.answer_credit(27, "597 432\\n408 352", "597 432 408 352"), 1.0)   # и без очистки
         self.assertEqual(server.shape_of("1 2\n3 4\n5 6", 25), {"type": "grid", "rows": 10, "cols": 2})
         self.assertEqual(server.shape_of("100\n200\n300", 25), {"type": "grid", "rows": 10, "cols": 2})   # №25 — всегда 10 × 2
+
+    def test_legal_consent(self):
+        # без галочек не зарегистрироваться; при регистрации согласие записывается
+        st, d = self.req("POST", "/api/login", {"mode": "register", "code": "1234", "name": "Согласнов Семён", "new_password": "secret1"})
+        self.assertEqual(st, 400)
+        tok = self.login("Согласнов Семён")
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertFalse(me["consent_needed"])
+        sid = me["sid"]
+        st, c = self.admin("GET", f"/api/admin/student?id={sid}")
+        self.assertEqual((c["student"]["consent_ver"], c["student"]["consent_ok"]), (server.LEGAL_VERSION, True))
+        # уже зарегистрированный до документов — подтверждает при входе
+        server.APP.db.x("UPDATE students SET consent_ver=NULL WHERE id=?", (sid,))
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["consent_needed"])
+        self.assertEqual(self.req("POST", "/api/consent", {}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/consent", {"accept": True}, tok)[0], 200)
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["consent_needed"])
+        for page in ("terms.html", "privacy.html", "consent.html", "legal.css"):
+            shutil.copy(Path(__file__).resolve().parent.parent / page, server.HERE / page)
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+            c.request("GET", "/" + page)
+            r = c.getresponse()
+            self.assertEqual(r.status, 200, page)
+            r.read(); c.close()
 
     def test_csv_cell(self):
         self.assertEqual(server.csv_cell("=HYPERLINK(1)"), "'=HYPERLINK(1)")

@@ -244,14 +244,27 @@
         <span class="muted">${dt(x.ts)}</span>${x.task ? `<span class="muted">задание <code>${esc(x.task)}</code></span>` : ''}${x.page ? `<span class="muted">раздел: ${esc(x.page)}</span>` : ''}</div>
       <div class="sp-a-text">${esc(x.text)}</div>
       ${x.answer ? `<div class="sp-a-ans"><b>Ваш ответ · ${dt(x.answered)}</b>${esc(x.answer)}</div>` : ''}
-      ${x.status === 'closed' ? '' : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке»)"></textarea>
-        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-close>Закрыть</button></div></div>`}
+      ${x.status === 'closed' ? '<div class="sp-a-btns"><button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div>'
+        : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке»)"></textarea>
+        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-close>Закрыть</button>
+          <button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div></div>`}
     </div>`).join('');
+    const closed = list.filter(x => x.status === 'closed').length;
     return `<h3 class="adm-h3">Обращения в техподдержку ${fresh ? `<span class="sp-badge">${fresh} ${fresh === 1 ? 'новое' : 'новых'}</span>` : ''}
-        <span class="adm-hint">от учеников: кнопка «🛟 Техподдержка» на сайте</span></h3>
+        <span class="adm-hint">от учеников: кнопка «🛟 Техподдержка» на сайте</span>
+        ${closed ? `<button type="button" class="btn ghost danger sp-clear" data-sp-clear>Удалить закрытые (${closed})</button>` : ''}</h3>
       <div class="sp-admin">${items || '<p class="adm-empty">Обращений пока нет.</p>'}</div>`;
   }
   $('#siteBody').addEventListener('click', async e => {
+    const del = e.target.closest('[data-sp-del]'), clear = e.target.closest('[data-sp-clear]');
+    if (del || clear) {
+      const box = del && e.target.closest('[data-sp]');
+      if (!confirm(clear ? 'Удалить все закрытые обращения? Это нельзя отменить.' : 'Удалить это обращение? Ученик его тоже больше не увидит.')) return;
+      try { const r = await api('support/delete', clear ? { closed: true } : { id: +box.dataset.sp }); toast(clear ? `Удалено: ${r.deleted}` : 'Обращение удалено'); }
+      catch (err) { toast(err.message); return; }
+      loadSite();
+      return;
+    }
     const send = e.target.closest('[data-sp-send]'), close = e.target.closest('[data-sp-close]');
     if (!send && !close) return;
     const box = e.target.closest('[data-sp]');
@@ -1481,7 +1494,9 @@
     const ipLine = $('#stIp');
     if (ipLine) {
       ipLine.hidden = false;
-      ipLine.innerHTML = (s.has_password ? 'Пароль задан. ' : '<b>Пароль не задан</b> — ученик задаст его при следующем входе с кодом приглашения. ')
+      ipLine.innerHTML = (s.consent_ok ? `Документы приняты ${fmtWhen(s.consent_ts)}${s.consent_ip ? ` с адреса <code>${esc(s.consent_ip)}</code>` : ''}. `
+          : '<b>Документы ещё не приняты</b> — ученик примет их при следующем входе. ')
+        + (s.has_password ? 'Пароль задан. ' : '<b>Пароль не задан</b> — ученик задаст его при следующем входе с кодом приглашения. ')
         + (s.last_ip ? `Последний вход с адреса <code>${esc(s.last_ip)}</code>${(st.same_ip || []).length
         ? `. С него же входили: ${st.same_ip.map(esc).join(', ')}. Для класса за одним адресом школы это нормально; много новых ФИО с одного адреса — повод проверить.`
         : ''}` : '');
@@ -1848,7 +1863,6 @@
       showMediaWarning(d);
       $('#infoLine').textContent = `В банке ${d.tasks} заданий · учеников: ${d.students} · записей в журнале: ${d.attempts}. Резервная копия — файл trainer/server_data/trainer.db.`;
       $('#inviteCode').value = d.invite || '';
-      $('#metrikaId').value = d.metrika || '';
       courseState(d.course_set, d.course_students);
       $('#authoredOn').checked = d.authored_on !== false;
       $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
@@ -1911,18 +1925,6 @@
   });
   $('#courseOff')?.addEventListener('click', () => {
     if (confirm('Выключить курс? Пароль сбросится, раздел будет закрыт у всех.')) courseSave({ off: true }, 'Курс выключен');
-  });
-  $('#metrikaForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const msg = $('#metrikaMsg');
-    msg.className = 'login-err';
-    msg.textContent = '';
-    try {
-      const r = await api('metrika', { id: $('#metrikaId').value });
-      $('#metrikaId').value = r.id;
-      msg.className = 'login-err ok';
-      msg.textContent = r.id ? `Счётчик ${r.id} включён — ученики попадут в Метрику, когда обновят страницу` : 'Метрика выключена';
-    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
   });
   $('#inviteForm').addEventListener('submit', async e => {
     e.preventDefault();

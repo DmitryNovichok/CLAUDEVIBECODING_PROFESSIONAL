@@ -333,7 +333,6 @@
   $('.sidebar .brand-mark')?.addEventListener('click', () => { if (document.body.classList.contains('side-min')) setSideMin(false); });
 
   /** Цель в Яндекс Метрике (если счётчик включён в панели учителя). Объявлена до окна входа: оно работает раньше остального. */
-  function goal(name) { try { if (window.ym && window.EGE_YM) window.ym(window.EGE_YM, 'reachGoal', name); } catch (e) { /* не мешаем занятию */ } }
 
   // ------------------------------------------------------------ вход до загрузки заданий
   async function loginRequest(body, token) {
@@ -387,7 +386,6 @@
           forgetStudent();                               // прежний вход на этом компьютере больше не нужен
           try { if (temp) sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
           const r = await loginRequest(body);
-          if (body.mode === 'register') goal('register');
           if (!temp) writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
           ['#loginPass', '#regPass', '#regPass2', '#regCode'].forEach(sel => { $(sel).value = ''; });
@@ -417,7 +415,8 @@
         if (name.split(' ').length < 2) { errEl.textContent = 'Введите фамилию и имя через пробел.'; $('#regName').focus(); return; }
         if (pw.length < 6) { errEl.textContent = 'Пароль — не короче 6 символов.'; $('#regPass').focus(); return; }
         if (pw !== $('#regPass2').value) { errEl.textContent = 'Пароли не совпадают.'; $('#regPass2').select(); return; }
-        run(forms.reg, { mode: 'register', code: $('#regCode').value.trim(), name, new_password: pw });
+        if (!$('#regTerms').checked || !$('#regConsent').checked) { errEl.textContent = 'Отметьте обе галочки: соглашение и согласие на обработку персональных данных.'; return; }
+        run(forms.reg, { mode: 'register', code: $('#regCode').value.trim(), name, new_password: pw, consent: true });
       };
     });
   }
@@ -1522,7 +1521,6 @@
       return;
     }
     const answer = got.join(' ');
-    goal('answer');
     const res = await verify({ answer, cells: cellsIn($('#answerInputs'), cur.shape) });
     if (!res || !cur || cur.done) return;
     cur.answers = cur.answers.concat(answer);
@@ -3402,7 +3400,6 @@
     exStrictLeave();
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     recordExam(res);
-    goal('exam');
     renderExamResult(res, done);
   }
 
@@ -3835,6 +3832,7 @@
     writeStudent(student);
     if (me.rules) Object.assign(RULES, me.rules);
     ADMINS = new Set(me.admins || []);
+    CONSENT_NEEDED = !!me.consent_needed;
     if (me.game) GAME = me.game;
     COURSE_OK = !!me.course;
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
@@ -3887,7 +3885,31 @@
   async function askName() {
     const r = await loginDialog();
     applyMe(r);
+    await askConsent();
     await loadHistory();
+  }
+  // ---- согласие на обработку персональных данных: уже зарегистрированные подтверждают при входе
+  let CONSENT_NEEDED = false;
+  function askConsent() {
+    if (!CONSENT_NEEDED) return Promise.resolve();
+    return new Promise(resolve => {
+      const m = $('#consentModal'), ok = $('#consentOk'), err = $('#consentErr');
+      const upd = () => { ok.disabled = !($('#cnTerms').checked && $('#cnConsent').checked); };
+      $('#cnTerms').onchange = upd;
+      $('#cnConsent').onchange = upd;
+      upd();
+      m.hidden = false;
+      $('#consentForm').onsubmit = async e => {
+        e.preventDefault();
+        ok.disabled = true;
+        err.textContent = '';
+        try { await api('consent', { accept: true }); } catch (x) { err.textContent = x.message || 'Нет связи с сервером — попробуйте ещё раз'; upd(); return; }
+        CONSENT_NEEDED = false;
+        m.hidden = true;
+        resolve();
+      };
+      $('#consentOut').onclick = () => logout();
+    });
   }
 
   // ---- пароль ученика: смена, а у старых учеников без пароля — задать его
@@ -6197,6 +6219,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.48.0', '12.10.2026', ['Пользовательское соглашение, Политика обработки персональных данных и Согласие — ссылки внизу меню и в окне входа. При регистрации и при первом входе их нужно принять']],
+    ['1.47.5', '12.10.2026', ['Яндекс Метрика убрана с сайта: никаких сторонних счётчиков посещаемости']],
     ['1.47.4', '12.10.2026', ['Исправлено: в заданиях №25 и №27 из КомпЕГЭ таблица ответа была неправильной, а верный ответ не засчитывался. Теперь №27 — таблица 2 × 2, №25 — 10 × 2, как на ЕГЭ']],
     ['1.47.3', '12.10.2026', ['Синие кубики теперь только сворачивают и разворачивают банк номеров — выбранный номер не сбрасывается. «Все номера» — отдельной кнопкой над сеткой']],
     ['1.47.2', '12.10.2026', ['Золотая плашка 👑 admin у администратора сайта — в рейтинге, профиле, турнирах и задании дня']],
@@ -6363,6 +6387,7 @@
         try {
           const me = await api('me');
           applyMe(me);
+          await askConsent();                          // новая редакция документов — подтвердить перед занятиями
           mustSetPw = me.has_password === false;      // вошёл раньше, когда пароля ещё не было
           await loadHistory();
           await loadAssignments();

@@ -55,7 +55,10 @@ BANK_JS = HERE / "data" / "bank.js"
 EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк Egeshka (tools/gen_egeshka.py) — подмешивается к bank.js
 
 # что можно отдавать из папки trainer
-SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js"}
+SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js",
+              "terms.html", "privacy.html", "consent.html", "legal.css"}
+# редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
+LEGAL_VERSION = "2026-10-03"
 SITE_DIRS = ("vendor/", "media/")
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
@@ -141,22 +144,6 @@ def shape_of(ans, n=None):
     if nr >= 3:
         nr = max(nr, 10)
     return {"type": "grid", "rows": nr, "cols": cols}
-
-
-# Яндекс Метрика: номер счётчика задаёт главный учитель в панели; код вставляется только в страницу ученика.
-# Вебвизор выключен: на сайте занимаются школьники, записывать их экран незачем.
-METRIKA_TAG = """<script>(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
-m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
-k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
-(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
-window.EGE_YM=%(id)s;ym(%(id)s,"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true});</script>
-<noscript><div><img src="https://mc.yandex.ru/watch/%(id)s" style="position:absolute;left:-9999px" alt=""></div></noscript>
-"""
-
-
-def metrika_id():
-    v = APP.db.setting("metrika_id") or ""
-    return v if re.fullmatch(r"\d{3,12}", v) else ""
 
 
 def think_sec(n):
@@ -1016,6 +1003,9 @@ class DB:
                     ("exams", "tasks", "TEXT"),                       # задания варианта, выданные сервером
                     ("assignments", "student_id", "INTEGER"),         # личная подборка ученика; NULL — всему классу
                     ("students", "role", "TEXT"),                     # admin — золотая плашка 👑 admin рядом с именем
+                    ("students", "consent_ver", "TEXT"),              # какую редакцию документов принял
+                    ("students", "consent_ts", "REAL"),               # когда принял
+                    ("students", "consent_ip", "TEXT"),               # с какого адреса
                     ("assignments", "batch", "TEXT"),                 # серия личных подборок: fix:<id> — работа над ошибками, weak:<ts>
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
@@ -1032,6 +1022,7 @@ class DB:
                 c.execute("""UPDATE students SET role='admin' WHERE COALESCE(is_teacher, 0) = 0
                              AND (name_key LIKE 'malevin d%' OR name_key LIKE 'малевин д%')""")
                 c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('admin_badge_seeded', '1')")
+            c.execute("DELETE FROM settings WHERE key='metrika_id'")     # Яндекс Метрика убрана с сайта
             c.execute("UPDATE assignments SET kind='self' WHERE kind IS NULL")
             c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
@@ -1249,8 +1240,6 @@ class Handler(BaseHTTPRequestHandler):
         # файлы сайта
         if rel == "index.html":
             self.count_visit()
-        if rel == "index.html" and metrika_id():
-            return self.serve_index_with_metrika()
         if rel in SITE_FILES:
             return self.serve_file(HERE, rel, html=rel.endswith(".html"))
         for d in SITE_DIRS:
@@ -1336,13 +1325,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             ctype += "; charset=utf-8"
         return self.send_bytes(200, body, ctype, {
             "Cache-Control": "no-cache", "Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name)})
-
-    def serve_index_with_metrika(self):
-        body = (HERE / "index.html").read_text(encoding="utf-8")
-        tag = METRIKA_TAG % {"id": metrika_id()}
-        body = body.replace("</head>", tag + "</head>", 1).encode("utf-8")
-        return self.send_bytes(200, body, "text/html; charset=utf-8",
-                               {"Cache-Control": "no-cache", "X-Frame-Options": "DENY"})
 
     def serve_file(self, root: Path, rel, html=False, download_name=None):
         root = root.resolve()
@@ -1521,6 +1503,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s),
                 "teacher": bool(s["is_teacher"]),
+                "consent_needed": not s["is_teacher"] and s["consent_ver"] != LEGAL_VERSION,
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
     def is_admin(self):
@@ -1599,6 +1582,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 pw = str(data.get("new_password") or data.get("password") or "")
                 if len(pw) < 6:
                     return self.err(400, "Пароль — не короче 6 символов")
+                if not data.get("consent"):
+                    return self.err(400, "Чтобы зарегистрироваться, примите соглашение и дайте согласие на обработку персональных данных")
                 if not s:
                     if not reg_allowed(ip):
                         return self.err(429, "С этого адреса за час зарегистрировалось слишком много учеников. Попробуйте позже.")
@@ -1610,8 +1595,21 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("UPDATE students SET pw=?, teacher_id=COALESCE(teacher_id, ?) WHERE id=?", (hash_pw(pw), teacher["id"], s["id"]))
                     print(f"[ученик] задал пароль: {s['name']}", flush=True)
                 s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
+                db.x("UPDATE students SET consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?", (LEGAL_VERSION, now, ip, s["id"]))
+                s = db.q("SELECT * FROM students WHERE id=?", (s["id"],), one=True)
             db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
             return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(s["token"])})
+
+        if path == "/api/consent" and method == "POST":
+            # уже зарегистрированный ученик принимает (новую редакцию) документов
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not data.get("accept"):
+                return self.err(400, "Отметьте обе галочки")
+            db.x("UPDATE students SET consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?",
+                 (LEGAL_VERSION, time.time(), self.client_ip(), s["id"]))
+            return self.send_json({"ok": True, "version": LEGAL_VERSION})
 
         if path == "/api/password" and method == "POST":
             s = self.student(data)
@@ -2032,6 +2030,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if path == "/api/support/seen" and method == "POST":
                 db.x("UPDATE support SET seen=1 WHERE student_id=? AND answer IS NOT NULL", (s["id"],))
                 return self.send_json({"ok": True})
+            if path != "/api/support":
+                return self.err(404, "нет такого метода")
             if method == "POST":
                 text = str(data.get("text") or "").strip()[:SUPPORT_MAX]
                 kind = str(data.get("kind") or "")
@@ -2666,7 +2666,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
                                                      (s["last_ip"], sid))]
             student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
-            student["role"] = (db.q("SELECT role FROM students WHERE id=?", (sid,), one=True) or {"role": None})["role"]
+            extra_row = db.q("SELECT role, consent_ver, consent_ts, consent_ip FROM students WHERE id=?", (sid,), one=True)
+            student.update({k: extra_row[k] for k in ("role", "consent_ver", "consent_ts", "consent_ip")} if extra_row else {})
+            student["consent_ok"] = bool(extra_row and extra_row["consent_ver"] == LEGAL_VERSION)
             student["has_password"] = bool(db.q("SELECT pw FROM students WHERE id=?", (sid,), one=True)["pw"])
             coded = {r["task_id"] for r in db.q("SELECT task_id FROM solutions WHERE student_id=?", (sid,))}
             for d in out:
@@ -2899,15 +2901,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE teachers SET authored=? WHERE id=?", (on, self.T["id"]))
             return self.send_json({"ok": True, "on": bool(on)})
 
-        if path == "/api/admin/metrika" and method == "POST":
-            if not self.T["is_main"]:
-                return self.err(403, "Метрику настраивает главный учитель")
-            v = re.sub(r"\s", "", str(data.get("id") or ""))
-            if v and not re.fullmatch(r"\d{3,12}", v):
-                return self.err(400, "Номер счётчика — только цифры, например 98765432")
-            db.setting("metrika_id", v)
-            return self.send_json({"ok": True, "id": v})
-
         if path == "/api/admin/course/list":
             # кто открыл курс паролем — список для главного учителя
             if not self.T["is_main"]:
@@ -3064,6 +3057,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     SELECT p.*, s.name, COALESCE(t.name, '') AS teacher FROM support p JOIN students s ON s.id = p.student_id
                     LEFT JOIN teachers t ON t.id = COALESCE(s.teacher_id, ?)
                     ORDER BY (p.status = 'new') DESC, p.id DESC LIMIT 200""", (main_id,))]})
+
+        if path == "/api/admin/support/delete" and method == "POST":
+            # удалить обращение (или все закрытые разом) — только главный учитель
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            if data.get("closed"):
+                n = db.xn("DELETE FROM support WHERE status='closed'")
+            else:
+                n = db.xn("DELETE FROM support WHERE id=?", (to_int(data.get("id")),))
+            return self.send_json({"ok": True, "deleted": n})
 
         if path == "/api/admin/support/answer" and method == "POST":
             if not self.T["is_main"]:
@@ -3609,7 +3612,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             cond, args = self.student_scope()
             return self.send_json({"tasks": n_tasks, "authored_tasks": APP.bank.authored, "authored_on": bool(self.T["authored"]),
                                    "bank_built": APP.bank.mtime, "missing_media": APP.bank.missing_dirs,
-                                   "invite": self.T["invite"], "metrika": metrika_id() if self.T["is_main"] else None,
+                                   "invite": self.T["invite"],
                                    "course_set": bool(db.setting("course_pw")),
                                    "course_students": db.q("SELECT COUNT(*) c FROM students WHERE course=1", one=True)["c"],
                                    "students": db.q(f"SELECT COUNT(*) c FROM students s WHERE {cond}", args, one=True)["c"],

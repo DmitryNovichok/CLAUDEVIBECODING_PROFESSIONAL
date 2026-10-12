@@ -76,6 +76,7 @@
       <input type="file" id="importFile" accept=".json,application/json" hidden>
     </div>
     <button type="button" class="link-btn app-version" id="versionBtn" title="Что нового на сайте"></button>
+    <p class="side-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Персональные данные</a></p>
     </div>
     </div>
   </aside>
@@ -235,10 +236,31 @@
       <label class="login-field">Повторите пароль
         <input class="inp" id="regPass2" name="new-password-repeat" type="password" autocomplete="new-password" minlength="6" maxlength="200" required>
       </label>
+      <label class="login-check"><input type="checkbox" id="regTerms" required>
+        <span>Принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">Политику обработки персональных данных</a></span></label>
+      <label class="login-check"><input type="checkbox" id="regConsent" required>
+        <span>Даю <a href="consent.html" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и подтверждаю, что мне исполнилось 14 лет</span></label>
       <button class="btn primary btn-block" type="submit">Зарегистрироваться</button>
     </form>
     <label class="login-temp"><input type="checkbox" id="loginTemp"> Чужой компьютер — не запоминать вход</label>
     <div class="login-err" id="loginErr" role="alert"></div>
+    <p class="login-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика обработки данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></p>
+  </div>
+</div>
+
+<div class="modal login-modal" id="consentModal" hidden>
+  <div class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+    <h2 class="fm-title" id="consentTitle">Мы обновили правила</h2>
+    <p class="fm-note">Чтобы продолжить заниматься, ознакомьтесь с документами и подтвердите согласие. Мы храним только то, что нужно для занятий: фамилию и имя, результаты и ответы — их видит ваш учитель. Почту, телефон и паспортные данные не собираем, сторонних счётчиков и рекламы на сайте нет.</p>
+    <form id="consentForm" class="login-form login-stack">
+      <label class="login-check"><input type="checkbox" id="cnTerms" required>
+        <span>Принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">Политику обработки персональных данных</a></span></label>
+      <label class="login-check"><input type="checkbox" id="cnConsent" required>
+        <span>Даю <a href="consent.html" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и подтверждаю, что мне исполнилось 14 лет</span></label>
+      <button class="btn primary btn-block" type="submit" id="consentOk" disabled>Принять и продолжить</button>
+      <button class="btn ghost btn-block" type="button" id="consentOut">Не согласен — выйти</button>
+    </form>
+    <div class="login-err" id="consentErr" role="alert"></div>
   </div>
 </div>
 
