@@ -2944,9 +2944,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             items = asg_items(real)
             runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (aid,))}
             rows = []
+            sols = {}                              # сколько решений (кода) прикреплено к заданиям контрольной
+            if real:
+                for x in db.q(f"""SELECT student_id, COUNT(*) AS c FROM solutions WHERE task_id IN ({','.join('?' * len(real))})
+                                  AND ts >= ? GROUP BY student_id""", (*real, a["created"] or 0)):
+                    sols[x["student_id"]] = x["c"]
             for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? ORDER BY name", (a["class_id"],)):
                 r = runs.get(m["id"])
-                row = {"id": m["id"], "name": m["name"], "status": "none", "answered": 0, "total": len(items)}
+                row = {"id": m["id"], "name": m["name"], "status": "none", "answered": 0, "total": len(items),
+                       "sol": sols.get(m["id"], 0), "tasks": len(real)}
                 if r:
                     answers = json.loads(r["answers"] or "{}")
                     res = json.loads(r["result"]) if r["finished"] else asg_score(answers, items)
