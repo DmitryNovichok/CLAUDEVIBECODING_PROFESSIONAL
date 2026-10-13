@@ -1454,13 +1454,17 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((d["correct"], d["score"]), (True, 0.5))
         self.assertIn("решение", d["sol"])
 
-    def test_reopen_after_wrong_counts_as_abandoned(self):
+    def test_reopen_after_wrong_keeps_tries(self):
+        # ушёл к другому заданию подборки или перезагрузил — попытка не сгорает, но и новых не появляется
         tok = self.login("Хитров Хитрец")
         self.req("POST", "/api/open", {"task": "b:6"}, tok)
         self.check(tok, "b:6", answer="1")
-        self.req("POST", "/api/open", {"task": "b:6"}, tok)    # «перезагрузил», чтобы получить новые попытки
-        rows = server.APP.db.q("SELECT abandoned, score FROM attempts WHERE task_id='b:6' AND abandoned=1")
-        self.assertEqual(len(rows), 1)
+        st, d = self.req("POST", "/api/open", {"task": "b:6"}, tok)
+        self.assertEqual(d["tries"], {server.APP.bank.pid("b:6"): 1})
+        self.assertIsNone(server.APP.db.q("""SELECT 1 FROM attempts a JOIN students s ON s.id=a.student_id
+                                             WHERE a.task_id='b:6' AND s.name='Хитров Хитрец'""", one=True))
+        st, d = self.check(tok, "b:6", answer="7")            # верно со второй попытки — половина
+        self.assertEqual((d["correct"], d["score"]), (True, 0.5))
 
     def test_skip_without_answer_is_free(self):
         tok = self.login("Пропусков Павел")
