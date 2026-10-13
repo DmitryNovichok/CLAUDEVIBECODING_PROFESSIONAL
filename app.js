@@ -1045,7 +1045,6 @@
     }
     renderActions();
     wkDecorate();
-    pkBar();
     bindInputs();
     const first = $('#answerInputs input');
     if (first && window.matchMedia('(min-width: 861px)').matches && !pyOpen()) first.focus({ preventScroll: true });
@@ -1279,7 +1278,6 @@
   function renderActions() {
     const a = $('#actions');
     if (!a) return;
-    if ($('#pkNav')) pkBar();
     clearInterval(thinkTimer);
     if (wkTask()) { wkActions(a); return; }
     if (cur.done) {
@@ -1432,38 +1430,8 @@
     if (!SERVER) { localOpen(t); return; }
     const c = cur;
     api('open', { task: t.id }).then(r => {
-      if (cur !== c || !r) return;
-      if (r.think_left != null) cur.thinkUntil = Date.now() + r.think_left * 1000;
-      restoreTries(r.tries || {});
+      if (cur === c && r && r.think_left != null) cur.thinkUntil = Date.now() + r.think_left * 1000;
     }).catch(() => { /* проверка всё равно пройдёт: сервер начнёт отсчёт с первого ответа */ });
-  }
-  /** Вернулись к заданию после неверной попытки (ушли к другому заданию подборки): попытка не сгорела —
-      продолжаем со второй. Сколько попыток было, знает сервер. */
-  function restoreTries(used) {
-    if (!cur || cur.done) return;
-    const fill = n => new Array(n).fill('—');
-    if (cur.group) {
-      let any = false;
-      cur.parts.forEach((x, i) => {
-        const n = used[x.p.id];
-        if (!n || n <= x.attempt || x.final) return;
-        x.answers = fill(n);
-        x.attempt = n;
-        partRetry(i);
-        any = true;
-      });
-      if (!any) return;
-      cur.attempt = cur.parts.reduce((a, x) => a + x.attempt, 0);
-    } else {
-      const n = used[cur.task.id];
-      if (!n || n <= cur.attempt) return;
-      cur.answers = fill(n);
-      cur.attempt = n;
-      setFeedback('retry', 'Осталась одна попытка',
-        '<div class="fb-note">Первая попытка по этому заданию уже была — исправь ответ и проверь ещё раз.</div>');
-    }
-    pkPending.add(cur.task.id);
-    renderActions();
   }
   const thinkLeft = () => (cur && cur.thinkUntil ? Math.max(0, Math.ceil((cur.thinkUntil - Date.now()) / 1000)) : 0);
 
@@ -5874,59 +5842,6 @@
     clearTimeout(wkPopT);
     wkPopT = setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.hidden = true; }, 350); }, 5000);
   }
-  // ------------------------------------------------------------ практическая и домашняя: номера заданий сверху
-  // Как в варианте: можно перейти к любому заданию и вернуться. Ушёл после неверной попытки — она сохраняется
-  // (сервер помнит), вернёшься — исправишь ответ со второй попытки. Оценка — по первому итогу задания.
-  const pkPending = new Set();
-  const pkScope = () => {
-    if (ui.scope !== 'asg' || examShown || courseShown || !cur || (cur.why || {}).type !== 'asg') return null;
-    const a = asgOf(ui.asg);
-    return a && !a.strict && !a.duel && !a.course ? a : null;
-  };
-  /** Первый итог по каждому заданию (и по частям 19–21) после выдачи подборки — как считает оценку сервер. */
-  function pkFirst(a) {
-    const since = (a.created || 0) * 1000, first = new Map();
-    for (const e of P.log) if (e.t >= since && !e.b && !e.x && !first.has(e.id)) first.set(e.id, e.s);
-    const items = (a.score && a.score.items) || {};
-    for (const k of Object.keys(items)) if (items[k] != null && !first.has(k)) first.set(k, items[k]);
-    return first;
-  }
-  function pkState(id, first) {
-    const t = byId.get(id);
-    const mark = sc => (sc >= 1 ? ['ok', '✓ верно'] : sc > 0 ? ['half', '½ со 2-й'] : ['bad', '✗ неверно']);
-    if (t && t.parts) {
-      const v = t.parts.map(p => first.get(p.id));
-      if (v.every(x => x != null)) return mark(Math.min(...v));
-      if (v.some(x => x != null) || pkPending.has(id)) return ['pend', 'не до конца'];
-      return null;
-    }
-    if (first.has(id)) return mark(first.get(id));
-    return pkPending.has(id) ? ['pend', '1 попытка'] : null;
-  }
-  function pkNavHtml(a) {
-    const first = pkFirst(a), now = cur ? cur.task.id : null;
-    return `<nav class="ex-nav wk-nav pk-nav" id="pkNav" aria-label="Задания подборки">${a.tasks.map((id, i) => {
-      const t = byId.get(id), st = pkState(id, first);
-      const label = st ? st[1] : t ? '№' + numLabel(t.n) : '';
-      return `<button type="button" class="ex-nav-btn${id === now ? ' on' : ''}${st ? ' ' + st[0] : ''}" data-pk-go="${esc(id)}"
-        title="Задание ${i + 1}${t ? ` · №${numLabel(t.n)}` : ''}${st ? ' — ' + st[1] : ' — ещё не решено'}"><b>${i + 1}</b><small>${label}</small></button>`;
-    }).join('')}<span class="pk-hint">Можно перейти к любому заданию и вернуться. Оценка — по первому результату задания.</span></nav>`;
-  }
-  function pkBar() {
-    const a = pkScope(), nav = $('#pkNav');
-    if (!a) { if (nav) nav.remove(); return; }
-    if (nav) nav.outerHTML = pkNavHtml(a);
-    else if (trainerEl) trainerEl.insertAdjacentHTML('afterbegin', pkNavHtml(a));
-  }
-  function pkGo(id) {
-    const a = pkScope(), t = byId.get(id);
-    if (!a || !t || (cur && cur.task.id === id)) return;
-    // не «бросаем» задание: неверная попытка остаётся на сервере, вернёмся — продолжим с неё
-    if (cur && !cur.done && cur.attempt > 0) pkPending.add(cur.task.id);
-    if (cur && !cur.done && cur.group && cur.parts.some(x => x.final)) pkPending.add(cur.task.id);
-    show({ task: t, why: { type: 'asg', a } });
-  }
-
   /** Номера заданий сверху, как в варианте: можно перейти к любому, сданные отмечены. */
   function wkNavHtml(a) {
     const done = new Set(a.done || []), now = cur && !examShown ? cur.task.id : null;
@@ -6138,8 +6053,6 @@
     renderTopbar();
   }
   document.addEventListener('click', e => {
-    const pk = e.target.closest('[data-pk-go]');
-    if (pk) { pkGo(pk.dataset.pkGo); return; }
     const go = e.target.closest('[data-wk-go]');
     if (go) {
       const a = wkLive(), t = byId.get(go.dataset.wkGo);
@@ -6304,7 +6217,6 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
-    ['1.49.0', '13.10.2026', ['Практическая и домашняя: сверху номера заданий, как в варианте. Можно перейти к любому заданию и вернуться. Если ушёл после неверной попытки, она сохраняется: вернёшься — исправишь ответ со второй попытки. На номерах видно: верно, со 2-й попытки, неверно']],
     ['1.48.1', '13.10.2026', ['Уточнены документы: регион оператора, что видно участникам открытых турниров, где хранятся данные. Документы нужно принять заново при следующем входе. Удаление аккаунта теперь стирает все данные ученика']],
     ['1.48.0', '12.10.2026', ['Пользовательское соглашение, Политика обработки персональных данных и Согласие — ссылки внизу меню и в окне входа. При регистрации и при первом входе их нужно принять']],
     ['1.47.5', '12.10.2026', ['Убраны сторонние счётчики посещаемости: сайт ничего не передаёт сторонним сервисам']],

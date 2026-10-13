@@ -1835,15 +1835,6 @@ button.pf-item:hover { border-color: var(--accent); }
 .wk-pop.warn .wk-pop-msg { color: var(--weak); }
 .wk-nav { align-items: center; }
 .wk-nav-tools { margin-left: auto; display: inline-flex; gap: 8px; }
-/* практическая и домашняя: итог по каждому заданию */
-.pk-nav .ex-nav-btn.ok { background: var(--good); border-color: var(--good); color: var(--on-good, #fff); }
-.pk-nav .ex-nav-btn.half { background: var(--mid); border-color: var(--mid); color: #fff; }
-.pk-nav .ex-nav-btn.bad { background: var(--weak-soft); border-color: var(--weak); color: var(--weak); }
-.pk-nav .ex-nav-btn.pend { border-style: dashed; border-color: var(--mid); color: var(--text); }
-.pk-nav .ex-nav-btn.ok small, .pk-nav .ex-nav-btn.half small, .pk-nav .ex-nav-btn.bad small { opacity: 1; }
-.pk-nav .ex-nav-btn.on { box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
-.pk-nav .ex-nav-btn.on:not(.ok):not(.half):not(.bad) { background: var(--card); color: var(--text); }
-.pk-hint { flex-basis: 100%; font-size: 12px; color: var(--muted); }
 .wk-sol-warn { color: var(--weak); }
 /* разбор контрольной в истории */
 .rv-list { display: flex; flex-direction: column; gap: 12px; }

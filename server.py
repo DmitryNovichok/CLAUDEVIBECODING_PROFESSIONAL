@@ -2315,23 +2315,24 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     def api_open(self, s, t):
         """Ученик открыл задание: с этого момента идёт время на раздумье.
-        Открыл заново, не закончив после неверной попытки, — попытки не обнуляются: ученик продолжает
-        с того же места (в подборке можно уйти к другому заданию и вернуться). Новых попыток так не получить."""
+        Открыл заново, не закончив после неверной попытки, — засчитываем «ушёл после ошибки»,
+        иначе перезагрузкой страницы можно было бы получать новые попытки без конца."""
         ids = [p["id"] for p in t["parts"]] if t.get("parts") else [t["id"]]
         if t["id"] == daily_task_id():
             # задание дня: заходить можно один раз в день — запоминаем первый вход, от него считается время
             APP.db.x("INSERT OR IGNORE INTO daily_starts(day, student_id, ts) VALUES(?,?,?)",
                      (datetime.now().strftime("%Y-%m-%d"), s["id"], time.time()))
-        used = {}
         for tid in ids:
             st = OPENED.get(s["id"], tid, create=False)
             if st and st["final"] is None and st["tries"]:
-                used[APP.bank.pid(tid)] = len(st["tries"])      # уже была неверная попытка — продолжаем с неё
+                self.log_attempt(s, APP.bank.tasks[tid], st["tries"], 0.0, abandoned=True,
+                                 reason=st.get("reason", ""), rk=st.get("rk"), part=st.get("part"))
+                OPENED.reset(s["id"], tid)
             elif st is None or st["final"] is not None:
                 OPENED.reset(s["id"], tid)
             # открыто и ещё без ответа (например, перезагрузили страницу) — время открытия не сбрасываем
         st = OPENED.get(s["id"], ids[0])
-        return self.send_json({"ok": True, "think": think_sec(t.get("n")), "tries": used,
+        return self.send_json({"ok": True, "think": think_sec(t.get("n")),
                                "think_left": max(0, math.ceil(st["ts"] + think_sec(t.get("n")) - time.time()))})
 
     def api_check(self, s, t, data):
