@@ -4368,6 +4368,8 @@
     else if (id === 'bdClose') toggleBoard(false);
     else if (id === 'bdToPy') { toggleBoard(false); togglePy(true); }
     else if (id === 'bdWide') {
+      $('#bdDock').style.removeProperty('flex-basis');
+      try { localStorage.removeItem(DOCK_W.bdDock); } catch (x) {}
       const on = document.body.classList.toggle('bd-wide');
       $('#bdWide').setAttribute('aria-pressed', String(on));
       setTimeout(bdRedraw, 30);
@@ -4484,37 +4486,52 @@
 
   // кнопки размера текста не забирают фокус у надписи, которую печатают, — она растёт прямо на глазах
   $('#bdDock').addEventListener('mousedown', e => { if (e.target.closest('[data-bd-fs]') && BD.text) e.preventDefault(); });
-  // ------------------------------------------------------------ Python: высота редактора — перетаскиванием полосы под ним
-  const PY_EDH = 'egeTrainer.pyEdH';
-  (() => {
-    const dock = $('#pyDock'), grip = $('#pyGrip');
-    if (!dock || !grip) return;
-    const setH = h => { if (h) dock.style.setProperty('--py-ed-h', h + 'px'); else dock.style.removeProperty('--py-ed-h'); };
-    try { const v = +localStorage.getItem(PY_EDH); if (v >= 160) setH(v); } catch (e) {}
+  // ------------------------------------------------------------ правые панели: ширина — тянуть левый край влево
+  // Python и доска запоминают свою ширину; двойной щелчок по краю — обычная ширина. Задаче оставляем не меньше 340px.
+  const DOCK_W = { pyDock: 'egeTrainer.dockW.py', bdDock: 'egeTrainer.dockW.bd' };
+  const dockMax = () => Math.max(360, window.innerWidth - (document.body.classList.contains('side-min') ? 80 : 300) - 340);
+  function dockSetW(dock, w) {
+    if (w) dock.style.flexBasis = Math.round(Math.max(320, Math.min(dockMax(), w))) + 'px';
+    else dock.style.removeProperty('flex-basis');
+    if (dock.id === 'bdDock') setTimeout(bdRedraw, 30);
+  }
+  for (const [id, key] of Object.entries(DOCK_W)) {
+    const dock = $('#' + id), grip = dock && dock.querySelector('[data-dock-grip]');
+    if (!grip) continue;
+    try { const v = +localStorage.getItem(key); if (v >= 320) dockSetW(dock, v); } catch (e) {}
     let drag = null;
     grip.addEventListener('pointerdown', e => {
+      if (e.button > 0) return;
       e.preventDefault();
       grip.setPointerCapture(e.pointerId);
-      drag = { y: e.clientY, h: $('#pyDock .py-editor').getBoundingClientRect().height };
+      drag = { x: e.clientX, w: dock.getBoundingClientRect().width };
       grip.classList.add('on');
+      document.body.classList.add('dock-drag');
     });
     grip.addEventListener('pointermove', e => {
       if (!drag) return;
-      const h = Math.round(Math.max(160, Math.min(4000, drag.h + e.clientY - drag.y)));
-      setH(h);
-      if (e.clientY > window.innerHeight - 40) dock.scrollTop += 20;          // тянешь к низу экрана — панель едет вниз
+      const w = Math.max(320, Math.min(dockMax(), drag.w + drag.x - e.clientX));
+      dock.style.flexBasis = Math.round(w) + 'px';
+      if (id === 'bdDock') bdRedraw();
     });
     const up = () => {
       if (!drag) return;
       drag = null;
       grip.classList.remove('on');
-      const h = Math.round($('#pyDock .py-editor').getBoundingClientRect().height);
-      try { localStorage.setItem(PY_EDH, String(h)); } catch (e) {}
+      document.body.classList.remove('dock-drag');
+      if (id === 'bdDock') { document.body.classList.remove('bd-wide'); $('#bdWide')?.setAttribute('aria-pressed', 'false'); bdRedraw(); }
+      try { localStorage.setItem(key, String(Math.round(dock.getBoundingClientRect().width))); } catch (e) {}
     };
     grip.addEventListener('pointerup', up);
     grip.addEventListener('pointercancel', up);
-    grip.addEventListener('dblclick', () => { setH(0); try { localStorage.removeItem(PY_EDH); } catch (e) {} });
-  })();
+    grip.addEventListener('dblclick', () => { dockSetW(dock, 0); try { localStorage.removeItem(key); } catch (e) {} });
+  }
+  window.addEventListener('resize', () => {
+    for (const id of Object.keys(DOCK_W)) {
+      const dock = $('#' + id);
+      if (dock && dock.style.flexBasis) dockSetW(dock, parseFloat(dock.style.flexBasis));
+    }
+  });
 
   function toggleBoard(force) {
     const open = force != null ? force : !bdOpen();
@@ -6495,9 +6512,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
-    ['1.51.0', '14.10.2026', ['Python: окно редактора можно сделать выше — потяните полосу под ним, панель прокручивается',
+    ['1.51.0', '14.10.2026', ['Python и доска: панель можно расширить влево — потяните её левый край мышью (двойной щелчок — обычная ширина)',
       'Доска: кнопка ⇣ удлиняет лист вниз; картинку можно вставить — кнопкой 🖼 (рисунок из условия), Ctrl+V или перетащив мышью',
-      'Верхняя панель с прогнозом, огоньком и уровнем стала ниже и компактнее']],
+      'Когда открыт Python или доска, верхняя панель становится компактной и не мешает']],
     ['1.50.1', '14.10.2026', ['Сайт снова работает: после сбоя у хостинга все данные восстановлены']],
     ['1.50.0', '14.10.2026', ['Заморозки огонька ❄️: купи до 4 штук по 500 XP — если пропустишь день, заморозка сработает сама и огонёк не погаснет. Купить — в меню огонька',
       'Данные со старого сервера перенесены: ученики, результаты и подборки снова на месте']],

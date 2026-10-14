@@ -2054,48 +2054,39 @@ body.asg-wide .course.asg-page { max-width: none; }
 .side-docs a { color: var(--muted); }
 #consentModal .fm-note { font-size: 14px; }
 
-/* Python: редактор выше — тянешь полосу под ним, панель прокручивается */
-.py-dock { overflow-y: auto; overscroll-behavior: contain; }
-.py-editor { flex: none; height: var(--py-ed-h, 48vh); }
-.py-out { flex: 1 0 auto; min-height: 140px; max-height: none; }
-.py-grip { flex: none; height: 12px; margin: -6px 0 -2px; cursor: ns-resize; touch-action: none; display: grid; place-items: center; }
-.py-grip::before { content: ""; width: 54px; height: 5px; border-radius: 3px; background: var(--border-strong); transition: background .12s, width .12s; }
-.py-grip:hover::before, .py-grip.on::before { background: var(--good); width: 80px; }
+/* правые панели (Python, доска): левый край тянется мышью — панель расширяется влево, за счёт задания */
+.dock-grip { position: absolute; left: -6px; top: 0; bottom: 0; width: 12px; z-index: 6; cursor: ew-resize; touch-action: none; }
+.dock-grip::before { content: ""; position: absolute; left: 4px; top: 50%; width: 4px; height: 56px; margin-top: -28px; border-radius: 3px;
+  background: var(--border-strong); transition: background .12s, height .12s, margin .12s; }
+.dock-grip:hover::before, .dock-grip.on::before { background: var(--accent); height: 96px; margin-top: -48px; }
+body.dock-drag, body.dock-drag * { cursor: ew-resize !important; user-select: none !important; }
+@media (max-width: 860px) { .dock-grip { display: none; } }
 
 /* доска: сюда можно бросить картинку */
 .bd-sheet.drop { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
-/* компактная верхняя панель: ниже и без лишних подписей, особенно когда справа открыт Python или доска */
+/* когда справа открыт Python или доска — верхняя панель ниже и без второстепенных подписей; без панели — как прежде */
 @media (min-width: 861px) {
-  .topbar { padding-top: 6px; padding-bottom: 6px; gap: 12px; }
-  .forecast { padding: 4px 12px 4px 8px; gap: 8px; }
-  .forecast .fc-ico { width: 28px; height: 28px; }
-  .forecast .fc-label { font-size: 11px; }
-  .forecast .fc-value { font-size: 18px; }
-  .forecast.fc-empty .fc-value { font-size: 14px; }
-  .scope-title { font-size: 21px; }
-  .scope-stats { font-size: 13px; }
-  .rank-btn { font-size: 14px; padding: 2px 8px 2px 4px; }
-  .rank-btn b { font-size: 16px; }
-  .rank-lg { font-size: 19px; }
-  .rank-btn svg { width: 22px; height: 22px; }
-  .fire { font-size: 16px; }
-  .fire svg { width: 22px; height: 22px; }
-  .session-info { font-size: 13px; gap: 12px; }
-  .lvl-pill { padding: 4px 10px; gap: 7px; }
-  .lvl-star { font-size: 15px; }
-  .lvl-txt { font-size: 14px; }
-  .lvl-pill .lvl-info { width: 76px; }
-  .lvl-pill .xp-bar { height: 6px; }
-  .lvl-pill small { font-size: 10.5px; }
-  .ava { width: 36px; height: 36px; font-size: 13px; }
-}
-@media (min-width: 861px) {
-  body.py-open .topbar, body.bd-open .topbar { flex-wrap: wrap; row-gap: 4px; padding-left: 16px; padding-right: 16px; }
-  body.py-open .forecast .fc-label, body.bd-open .forecast .fc-label { display: none; }
-  body.py-open .lvl-pill .lvl-info, body.bd-open .lvl-pill .lvl-info { display: none; }
-  body.py-open .scope-stats, body.bd-open .scope-stats { display: none; }
-  body.py-open .rank-btn.none > span:last-child, body.bd-open .rank-btn.none > span:last-child { display: none; }
-  body.py-open .goal-txt .goal-of ~ *, body.bd-open .goal-txt .goal-of ~ * { display: none; }
-  body.py-open .scope-title, body.bd-open .scope-title { font-size: 18px; }
+  body:is(.py-open, .bd-open) .topbar { padding: 6px 16px; gap: 10px; flex-wrap: wrap; row-gap: 4px; }
+  body:is(.py-open, .bd-open) .forecast { padding: 4px 10px 4px 8px; gap: 8px; }
+  body:is(.py-open, .bd-open) .forecast .fc-ico { width: 26px; height: 26px; }
+  body:is(.py-open, .bd-open) .forecast .fc-label { display: none; }
+  body:is(.py-open, .bd-open) .forecast .fc-value { font-size: 17px; }
+  body:is(.py-open, .bd-open) .forecast.fc-empty .fc-value { font-size: 13px; }
+  body:is(.py-open, .bd-open) .scope-title { font-size: 18px; }
+  body:is(.py-open, .bd-open) .scope-stats { display: none; }
+  body:is(.py-open, .bd-open) .rank-btn { font-size: 13px; padding: 2px 6px 2px 4px; }
+  body:is(.py-open, .bd-open) .rank-btn b { font-size: 15px; }
+  body:is(.py-open, .bd-open) .rank-lg { font-size: 18px; }
+  body:is(.py-open, .bd-open) .rank-btn svg { width: 20px; height: 20px; }
+  body:is(.py-open, .bd-open) .rank-btn.none > span:last-child { display: none; }
+  body:is(.py-open, .bd-open) .fire { font-size: 15px; }
+  body:is(.py-open, .bd-open) .fire svg { width: 20px; height: 20px; }
+  body:is(.py-open, .bd-open) .session-info { font-size: 12.5px; gap: 10px; }
+  body:is(.py-open, .bd-open) .goal-txt .goal-of ~ * { display: none; }
+  body:is(.py-open, .bd-open) .lvl-pill { padding: 3px 9px; gap: 6px; }
+  body:is(.py-open, .bd-open) .lvl-star { font-size: 14px; }
+  body:is(.py-open, .bd-open) .lvl-txt { font-size: 13px; }
+  body:is(.py-open, .bd-open) .lvl-pill .lvl-info { display: none; }
+  body:is(.py-open, .bd-open) .ava { width: 32px; height: 32px; font-size: 12px; }
 }
