@@ -130,6 +130,7 @@
         <textarea class="py-code" id="pyCode" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Код на Python"></textarea>
       </div>
     </div>
+    <div class="py-grip" id="pyGrip" role="separator" aria-orientation="horizontal" title="Потяните вниз — редактор станет выше (панель прокручивается); двойной щелчок — как было"></div>
     <div class="py-sub">
       <details class="py-stdin"><summary>Ввод для input()</summary><textarea class="inp" id="pyIn" rows="3" spellcheck="false" placeholder="Каждая строка — один вызов input()"></textarea></details>
       <span class="py-links">
@@ -191,12 +192,14 @@
       <span class="bd-group bd-right">
         <button type="button" class="icon-btn" id="bdUndo" title="Отменить (Ctrl+Z)">↶</button>
         <button type="button" class="icon-btn" id="bdRedo" title="Вернуть (Ctrl+Y)">↷</button>
+        <button type="button" class="icon-btn" id="bdImg" title="Вставить картинку из условия задания. Ещё можно: скопировать любую картинку и нажать Ctrl+V или перетащить её на доску">🖼</button>
+        <button type="button" class="icon-btn" id="bdLonger" title="Удлинить лист вниз">⇣</button>
         <button type="button" class="icon-btn" id="bdBg" title="Фон: клетка / линейка / чистый">▦</button>
         <button type="button" class="icon-btn" id="bdClear" title="Очистить доску">🗑</button>
       </span>
     </div>
     <div class="bd-sheet" id="bdSheet"><canvas id="bdCanvas"></canvas></div>
-    <div class="bd-foot"><span id="bdHint">У каждого задания своя доска — рисунок сохраняется на этом устройстве.</span></div>
+    <div class="bd-foot"><span id="bdHint">У каждого задания своя доска — рисунок сохраняется на этом устройстве. Картинку можно вставить: 🖼, Ctrl+V или перетащить.</span></div>
   </aside>
 </div>
 
