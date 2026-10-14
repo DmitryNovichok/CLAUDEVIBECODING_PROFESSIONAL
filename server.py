@@ -967,6 +967,9 @@ class DB:
             CREATE TABLE IF NOT EXISTS xp_adjust(
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT);
             CREATE INDEX IF NOT EXISTS xp_adjust_student ON xp_adjust(student_id);
+            -- дни, засчитанные огоньку без трёх заданий: freeze — сработала заморозка, restore — восстановил учитель
+            CREATE TABLE IF NOT EXISTS fire_cover(
+                student_id INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, ts REAL, PRIMARY KEY(student_id, day));
             """)
             # новые поля в старых базах
             for table, col, decl in (
@@ -1006,6 +1009,7 @@ class DB:
                     ("students", "consent_ver", "TEXT"),              # какую редакцию документов принял
                     ("students", "consent_ts", "REAL"),               # когда принял
                     ("students", "consent_ip", "TEXT"),               # с какого адреса
+                    ("students", "freezes", "INTEGER DEFAULT 0"),     # заморозки огонька в запасе (до FREEZE_MAX)
                     ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
                     ("teachers", "consent_ts", "REAL"),
                     ("teachers", "consent_ip", "TEXT"),
@@ -1613,6 +1617,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?",
                  (LEGAL_VERSION, time.time(), self.client_ip(), s["id"]))
             return self.send_json({"ok": True, "version": LEGAL_VERSION})
+
+        if path == "/api/freeze/buy" and method == "POST":
+            # заморозка огонька: до FREEZE_MAX в запасе, каждая за FREEZE_PRICE опыта
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if s["is_teacher"]:
+                return self.err(403, "учительскому аккаунту заморозки не нужны")
+            have = db.q("SELECT freezes FROM students WHERE id=?", (s["id"],), one=True)["freezes"] or 0
+            if have >= FREEZE_MAX:
+                return self.err(409, f"В запасе уже {FREEZE_MAX} заморозки — больше не поместится")
+            if game_summary(db, s["id"])["xp"] < FREEZE_PRICE:
+                return self.err(400, f"Нужно {FREEZE_PRICE} XP")
+            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'freeze')", (s["id"], time.time(), -FREEZE_PRICE))
+            db.x("UPDATE students SET freezes=COALESCE(freezes, 0) + 1 WHERE id=?", (s["id"],))
+            return self.send_json({"ok": True, "game": game_summary(db, s["id"])})
 
         if path == "/api/password" and method == "POST":
             s = self.student(data)
@@ -2878,6 +2898,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET role=? WHERE id=?", ("admin" if data.get("admin") else None, sid))
             return self.send_json({"ok": True})
 
+        if path == "/api/admin/student/fire" and method == "POST":
+            # восстановить огонёк ученику (например, после сбоя сервера): серия станет не меньше days
+            sid = to_int(data.get("id"))
+            days = to_int(data.get("days"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
+            if not days or not 1 <= days <= 365:
+                return self.err(400, "Сколько дней огонька — от 1 до 365")
+            added, fire = restore_fire(db, sid, days)
+            return self.send_json({"ok": True, "added": added, "fire": fire})
+
         if path == "/api/admin/student/delete" and method == "POST":
             sid = to_int(data.get("id"))
             if not self.sees_student(sid):
@@ -2885,7 +2916,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             # удаление учётной записи стирает все данные ученика (152-ФЗ); в чужих турнирах и дуэлях
             # остаются только счёт и номер без имени — соперникам не ломаем таблицы
             for table in ("attempts", "reveal_log", "exams", "activity", "solutions", "daily_starts", "daily_results",
-                          "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust"):
+                          "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover"):
                 db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
             for aid in [r["id"] for r in db.q("SELECT id FROM assignments WHERE student_id=?", (sid,))]:
                 db.x("DELETE FROM asg_runs WHERE asg_id=?", (aid,))
@@ -3840,7 +3871,10 @@ def _gs_stamp(db, sid):
     a = db.q("SELECT MAX(id) m, COUNT(*) c FROM attempts WHERE student_id=?", (sid,), one=True)
     x = db.q("SELECT COUNT(*) c, COALESCE(SUM(delta), 0) s FROM xp_adjust WHERE student_id=?", (sid,), one=True)
     e = db.q("SELECT COUNT(*) c FROM exams WHERE student_id=? AND finished IS NOT NULL", (sid,), one=True)
-    return (a["m"], a["c"], x["c"], x["s"], e["c"], time.strftime("%Y-%m-%d"), int(time.time() // 300))
+    f = db.q("SELECT COUNT(*) c FROM fire_cover WHERE student_id=?", (sid,), one=True)
+    z = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
+    return (a["m"], a["c"], x["c"], x["s"], e["c"], f["c"], z["freezes"] if z else 0,
+            time.strftime("%Y-%m-%d"), int(time.time() // 300))
 
 
 COURSE_TRIES, COURSE_WINDOW = 8, 15 * 60  # попыток ввести пароль курса за 15 минут
@@ -4151,20 +4185,25 @@ def _game_summary(db, sid, brief=False, windows=None):
         gain(ACH_XP.get(aid, 0), ts, "достижение «" + next((t for a, _, t, _, _ in ACHIEVEMENTS if a == aid), aid) + "»")
     # поправки опыта: выигрыш и проигрыш в дуэлях
     for a in db.q("SELECT ts, delta, reason FROM xp_adjust WHERE student_id=?", (sid,)):
+        if (a["reason"] or "") == "freeze":
+            xp += a["delta"]                       # купил заморозку огонька: опыт списан, лиги и рейтинги не трогаем
+            xplog.append((a["ts"], a["delta"], "заморозка огонька"))
+            continue
         why = (f"турнир — {(a['reason'] or '').split(':')[-1]}-е место" if (a["reason"] or "").startswith("tour:")
                else "дуэль — победа" if a["delta"] > 0 else "дуэль — поражение")
         gain(a["delta"], a["ts"], why)
     xp = max(0, xp)
-    # огонёк: дни подряд, в каждый из которых решено не меньше FIRE_NEED заданий (сегодняшний ещё может идти)
-    fire, d = 0, datetime.now().date()
-    if fire_days.get(d.isoformat(), 0) < FIRE_NEED:
-        d -= timedelta(days=1)
-    while fire_days.get(d.isoformat(), 0) >= FIRE_NEED:
-        fire += 1
-        d -= timedelta(days=1)
+    # огонёк: дни подряд, в каждый из которых решено не меньше FIRE_NEED заданий (сегодняшний ещё может идти);
+    # пропущенный день закрывает заморозка (тратится сама) или восстановление от учителя
+    cover = fire_cover(db, sid)
+    froze = use_freezes(db, sid, fire_days, cover)
+    fire = fire_streak(fire_days, cover)
     xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
     lvl, title, cur_xp, need = level_of(xp)
+    zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze,
+           "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}
     if brief:
@@ -4190,6 +4229,76 @@ def _game_summary(db, sid, brief=False, windows=None):
 
 ACH_GOAL = {a: g for a, _, _, _, g in ACHIEVEMENTS}
 FIRE_NEED = 3                          # заданий за день, чтобы огонёк продлился (как в app.js)
+FREEZE_MAX = 4                         # заморозок огонька в запасе у ученика
+FREEZE_PRICE = 500                     # цена заморозки в опыте
+
+
+def fire_cover(db, sid):
+    """Дни, засчитанные огоньку без трёх заданий: {день: freeze | restore}."""
+    return {r["day"]: r["kind"] for r in db.q("SELECT day, kind FROM fire_cover WHERE student_id=?", (sid,))}
+
+
+def fire_ok(fire_days, cover, d):
+    return fire_days.get(d.isoformat(), 0) >= FIRE_NEED or d.isoformat() in cover
+
+
+def fire_streak(fire_days, cover, today=None):
+    """Огонёк — дней подряд с выполненным днём; сегодняшний ещё может идти, поэтому без него серия не рвётся."""
+    d = today or datetime.now().date()
+    if not fire_ok(fire_days, cover, d):
+        d -= timedelta(days=1)
+    n = 0
+    while fire_ok(fire_days, cover, d):
+        n += 1
+        d -= timedelta(days=1)
+    return n
+
+
+def use_freezes(db, sid, fire_days, cover, today=None):
+    """Пропущенные дни (до вчерашнего включительно) закрываются заморозками — если огонёк до пропуска горел
+    и заморозок хватает на весь пропуск. Не хватает — серия сгорает, заморозки остаются. Возвращает, сколько потрачено."""
+    row = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
+    have = (row["freezes"] or 0) if row else 0
+    if not have:
+        return 0
+    d = (today or datetime.now().date()) - timedelta(days=1)
+    gap = []
+    while not fire_ok(fire_days, cover, d) and len(gap) <= have:
+        gap.append(d)
+        d -= timedelta(days=1)
+    if not gap or len(gap) > have or not fire_ok(fire_days, cover, d):
+        return 0
+    now = time.time()
+    for g in gap:
+        db.x("INSERT OR IGNORE INTO fire_cover(student_id, day, kind, ts) VALUES(?,?, 'freeze', ?)", (sid, g.isoformat(), now))
+        cover[g.isoformat()] = "freeze"
+    db.x("UPDATE students SET freezes=MAX(0, COALESCE(freezes, 0) - ?) WHERE id=?", (len(gap), sid))
+    return len(gap)
+
+
+def restore_fire(db, sid, days, today=None):
+    """Учитель восстанавливает огонёк (например, после сбоя сервера): недостающие дни до сегодняшнего
+    помечаются «восстановлен», пока серия не станет days. Возвращает (сколько дней добавлено, огонёк теперь)."""
+    rows = db.q("""SELECT task_id, grp, n, score, ts, exam, spent_ms, gave_up, reason, revealed FROM attempts
+                   WHERE student_id=? ORDER BY ts, id""", (sid,))
+    fire_days = {}
+    for r, skip in zip(rows, reward_skips(rows, fast_xp_since(db))):    # как считает огонёк сводка
+        if not skip:
+            k = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
+            fire_days[k] = fire_days.get(k, 0) + 1
+    cover = fire_cover(db, sid)
+    d = today or datetime.now().date()
+    if not fire_ok(fire_days, cover, d):
+        d -= timedelta(days=1)
+    have, added, now = 0, 0, time.time()
+    while have < days:
+        if not fire_ok(fire_days, cover, d):
+            db.x("INSERT OR IGNORE INTO fire_cover(student_id, day, kind, ts) VALUES(?,?, 'restore', ?)", (sid, d.isoformat(), now))
+            cover[d.isoformat()] = "restore"
+            added += 1
+        have += 1
+        d -= timedelta(days=1)
+    return added, fire_streak(fire_days, cover, today)
 
 # ================================================================ соревнования
 LEAGUES = [("Бронзовая лига", "🥉"), ("Серебряная лига", "🥈"), ("Золотая лига", "🥇"), ("Алмазная лига", "💎")]
@@ -5130,6 +5239,8 @@ def main():
     ap.add_argument("--password", help="задать пароль учителя и выйти")
     ap.add_argument("--invite", help="задать код приглашения для учеников и выйти")
     ap.add_argument("--banks", help="папка, где лежат банки (ege_bank, kompege_bank, …); запоминается")
+    ap.add_argument("--fire", nargs=2, metavar=("ФАМИЛИЯ", "ДНЕЙ"),
+                    help='восстановить огонёк ученику и выйти, например --fire "Мегрелидзе" 5')
     args = ap.parse_args()
 
     db = DB(DB_PATH)
@@ -5149,6 +5260,19 @@ def main():
         db.setting("admin_password", hash_pw(args.password))
         db.x("UPDATE teachers SET pw=? WHERE is_main=1", (hash_pw(args.password),))
         print("Пароль главного учителя сохранён (логин admin).")
+        return
+    if args.fire:
+        who, days = args.fire[0].strip(), to_int(args.fire[1])
+        if not days or not 1 <= days <= 365:
+            sys.exit("Дней огонька — от 1 до 365")
+        key = norm_name(who)[1]
+        found = db.q("""SELECT id, name FROM students WHERE COALESCE(is_teacher, 0) = 0
+                        AND (name_key = ? OR name_key LIKE ?)""", (key, key + " %"))
+        if len(found) != 1:
+            print(f"Найдено учеников: {len(found)}" + "".join(f"\n  {r['name']}" for r in found))
+            sys.exit("Укажите фамилию и имя полностью, чтобы ученик нашёлся один")
+        added, fire = restore_fire(db, found[0]["id"], days)
+        print(f"{found[0]['name']}: огонёк — {fire} дн. (восстановлено дней: {added})")
         return
     global BANKS_ROOT
     if args.banks:

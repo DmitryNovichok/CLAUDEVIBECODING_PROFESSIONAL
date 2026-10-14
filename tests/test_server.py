@@ -1686,6 +1686,42 @@ class ServerTest(unittest.TestCase):
             col = "id" if table == "students" else "student_id"
             self.assertIsNone(db.q(f"SELECT 1 FROM {table} WHERE {col}=?", (sid,), one=True), table)
 
+    def test_fire_freezes_and_restore(self):
+        db = server.APP.db
+        tok = self.login("Морозов Матвей")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        # купить нельзя без опыта; с опытом — не больше FREEZE_MAX, опыт списывается
+        self.assertEqual(self.req("POST", "/api/freeze/buy", {}, tok)[0], 400)
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel:1')", (sid, time.time() - 30 * 86400, 2600))
+        xp0 = server.game_summary(db, sid)["xp"]
+        for _ in range(server.FREEZE_MAX):
+            self.assertEqual(self.req("POST", "/api/freeze/buy", {}, tok)[0], 200)
+        st, d = self.req("POST", "/api/freeze/buy", {}, tok)
+        self.assertEqual(st, 409)
+        g = server.game_summary(db, sid)
+        self.assertEqual((g["freezes"], g["xp"]), (server.FREEZE_MAX, xp0 - server.FREEZE_MAX * server.FREEZE_PRICE))
+        # огонёк два дня назад и три дня назад, вчера пропуск — заморозка закрывает вчера сама
+        today = datetime.datetime.now().date()
+        ids = [t["id"] for t in BANK["tasks"]]
+        k = 0
+        for back in (3, 2):
+            day = today - datetime.timedelta(days=back)
+            noon = time.mktime(day.timetuple()) + 12 * 3600
+            for j in range(3):
+                db.x("INSERT INTO attempts(student_id, ts, task_id, n, score) VALUES(?,?,?,5,1)", (sid, noon + j, ids[k % len(ids)] + f"#{k}"))
+                k += 1
+        g = server.game_summary(db, sid)
+        self.assertEqual((g["fire"], g["froze"], g["freezes"]), (3, 1, server.FREEZE_MAX - 1))
+        self.assertEqual(g["cover"][(today - datetime.timedelta(days=1)).isoformat()], "freeze")
+        self.assertEqual(server.game_summary(db, sid)["froze"], 0)      # второй раз не тратится
+        # учитель восстанавливает огонёк ученику без истории
+        tok2 = self.login("Огоньков Олег")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        st, d = self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 5})
+        self.assertEqual((st, d["fire"], d["added"]), (200, 5, 5))
+        self.assertEqual(server.game_summary(db, sid2)["fire"], 5)
+        self.assertEqual(self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 3})[1]["added"], 0)
+
     def test_csv_cell(self):
         self.assertEqual(server.csv_cell("=HYPERLINK(1)"), "'=HYPERLINK(1)")
         self.assertEqual(server.csv_cell("-5"), "-5")
