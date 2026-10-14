@@ -2090,3 +2090,11 @@ body.dock-drag, body.dock-drag * { cursor: ew-resize !important; user-select: no
   body:is(.py-open, .bd-open) .lvl-pill .lvl-info { display: none; }
   body:is(.py-open, .bd-open) .ava { width: 32px; height: 32px; font-size: 12px; }
 }
+
+/* Python: раскрашенная копия кода сдвигается вслед за полем ввода (см. syncScroll) */
+.py-hl-in { display: inline-block; min-width: 100%; will-change: transform; }
+/* парная скобка у курсора — рамкой, как в PyCharm; без пары — красным */
+.hl-br { border-radius: 2px; }
+.hl-br.ok { background: rgba(255, 255, 255, .13); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35); }
+:root[data-theme="light"] .hl-br.ok { background: rgba(0, 0, 0, .08); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3); }
+.hl-br.bad { background: rgba(239, 68, 68, .25); box-shadow: inset 0 0 0 1px rgba(239, 68, 68, .7); }
