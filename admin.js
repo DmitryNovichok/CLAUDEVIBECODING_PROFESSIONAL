@@ -1496,6 +1496,8 @@
         A.length ? `${pct(rv.granted / A.length)}% заданий` : ''].filter(Boolean).join(' · '),
         rv.blocked || (A.length >= 10 && rv.granted / A.length >= 0.5) ? 'var(--weak)' : ''),
       card('Уровень', st.game ? `${st.game.level}` : '—', st.game ? `${esc(st.game.title)} · ${st.game.xp} XP · за неделю +${st.game.week} · достижений ${(st.game.ach || []).filter(a => a.got).length}` : ''),
+      card('Огонёк', st.game ? `🔥 ${st.game.fire}` : '—', st.game
+        ? `заморозок ❄️ ${st.game.freezes || 0} из 4 · <button type="button" class="btn ghost" data-fire-restore title="Например, после сбоя сервера: недостающие дни засчитаются огоньку">Восстановить</button>` : ''),
       card('Уходил со вкладки', act.away ? act.away.count : 0, [
         act.away ? `всего ${fmtMinutes(act.away.sec * 1000)}` : 'ни разу за период',
         nSus ? `<span style="color:var(--weak)">⚠ ушёл и сразу верно: ${nSus}</span>` : '',
@@ -1702,6 +1704,19 @@
     if (!confirm(on ? `Выдать «${s.name}» золотую плашку «👑 admin» рядом с именем на сайте?` : `Снять плашку «👑 admin» у «${s.name}»?`)) return;
     try { await api('student/role', { id: s.id, admin: on }); toast(on ? 'Плашка выдана' : 'Плашка снята'); openStudent(s.id); }
     catch (e) { if (e.status !== 401) toast(e.message); }
+  });
+  $('#stCards').addEventListener('click', async e => {
+    if (!e.target.closest('[data-fire-restore]')) return;
+    const s = st.student, now = (st.game && st.game.fire) || 0;
+    const v = prompt(`Сколько дней огонька должно быть у «${s.name}»? Сейчас: ${now}.\nНедостающие дни до сегодняшнего засчитаются как восстановленные.`, String(Math.max(now, 1)));
+    if (v == null) return;
+    const days = parseInt(v, 10);
+    if (!(days >= 1 && days <= 365)) { toast('Нужно число от 1 до 365'); return; }
+    try {
+      const r = await api('student/fire', { id: s.id, days });
+      toast(r.added ? `Огонёк восстановлен: ${r.fire} дн.` : `Огонёк уже ${r.fire} дн. — восстанавливать нечего`);
+      openStudent(s.id);
+    } catch (x) { if (x.status !== 401) toast(x.message); }
   });
   $('#stPwReset').addEventListener('click', async () => {
     const s = st.student;

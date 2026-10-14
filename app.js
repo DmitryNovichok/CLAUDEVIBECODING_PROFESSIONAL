@@ -2674,22 +2674,26 @@
   }
   /** Сколько заданий нужно решить за день, чтобы огонёк продлился. */
   const fireNeed = () => 3;
+  const FREEZE_MAX = 4, FREEZE_PRICE = 500;
+  /** Дни, закрытые без трёх заданий: заморозка (freeze) или восстановление учителем (restore). Знает сервер. */
+  const fireCover = () => (GAME && GAME.cover) || {};
+  const dayOk = (m, k) => (m.get(k) || 0) >= fireNeed() || !!fireCover()[k];
   /** Дней подряд с выполненной целью (сегодняшний день ещё может быть не закончен). */
   function dayStreak() {
-    const m = dayCounts(), need = fireNeed();
+    const m = dayCounts();
     const d = new Date();
-    let s = (m.get(dayKey(d.getTime())) || 0) >= need ? 1 : 0;
+    let s = dayOk(m, dayKey(d.getTime())) ? 1 : 0;
     for (;;) {
       d.setDate(d.getDate() - 1);
-      if ((m.get(dayKey(d.getTime())) || 0) >= need) s++;
+      if (dayOk(m, dayKey(d.getTime()))) s++;
       else break;
     }
     return s;
   }
   /** Самая длинная серия дней за всё время. */
   function bestDayStreak() {
-    const need = fireNeed();
-    const days = [...dayCounts()].filter(([, c]) => c >= need).map(([k]) => k).sort();
+    const m = dayCounts();
+    const days = [...new Set([...m.keys(), ...Object.keys(fireCover())])].filter(k => dayOk(m, k)).sort();
     let best = 0, run = 0, prev = null;
     for (const k of days) {
       const t = new Date(k + 'T12:00').getTime();
@@ -2699,15 +2703,29 @@
     return best;
   }
   const FLAME = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path class="fl-out" d="M12 1.8c.5 3.2 2.6 4.9 4.4 6.9 1.9 2.1 3.3 4.2 3.3 7.1 0 4.3-3.4 7.4-7.7 7.4S4.3 20.1 4.3 15.8c0-2.4 1-4.4 2.6-6 .3 1.6 1 2.8 2.2 3.5-.4-4.5 1-8.5 2.9-11.5z"/><path class="fl-in" d="M12.2 11.6c1.7 1.8 3.4 3.4 3.4 5.7 0 2.2-1.6 3.8-3.6 3.8s-3.6-1.6-3.6-3.8c0-1.2.5-2.2 1.3-3 .2.8.7 1.4 1.3 1.7-.2-1.6.3-3.1 1.2-4.4z"/></svg>';
+  const SNOW = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M11 2h2v3.6l2.3-2.3 1.4 1.4-3.7 3.7v2.9l2.5-1.5 1.3-5.1 1.9.5-.8 3.1 3.1-1.8 1 1.7-3.1 1.8 3.1.8-.5 1.9-5.1-1.3-2.5 1.5 2.5 1.5 5.1-1.3.5 1.9-3.1.8 3.1 1.8-1 1.7-3.1-1.8.8 3.1-1.9.5-1.3-5.1-2.5-1.5v2.9l3.7 3.7-1.4 1.4-2.3-2.3V22h-2v-3.6l-2.3 2.3-1.4-1.4 3.7-3.7v-2.9l-2.5 1.5-1.3 5.1-1.9-.5.8-3.1-3.1 1.8-1-1.7 3.1-1.8-3.1-.8.5-1.9 5.1 1.3 2.5-1.5-2.5-1.5-5.1 1.3-.5-1.9 3.1-.8-3.1-1.8 1-1.7 3.1 1.8-.8-3.1 1.9-.5 1.3 5.1 2.5 1.5V8.4L7.3 4.7l1.4-1.4L11 5.6z"/></svg>';
+  /** Заморозки огонька: сколько в запасе и кнопка «купить» (только на сервере, не учителю). */
+  function freezeHtml() {
+    if (!SERVER || !GAME || TEACHER) return '';
+    const have = GAME.freezes || 0, full = have >= FREEZE_MAX, poor = (GAME.xp || 0) < FREEZE_PRICE;
+    const slots = Array.from({ length: FREEZE_MAX }, (_, i) => `<i class="fz-slot${i < have ? ' on' : ''}">${SNOW}</i>`).join('');
+    return `<div class="sm-freeze">
+        <div class="fz-top"><span class="fz-slots" title="Заморозки в запасе: ${have} из ${FREEZE_MAX}">${slots}</span>
+          <button type="button" class="btn fz-buy" id="freezeBuy"${full || poor ? ' disabled' : ''}
+            title="${full ? 'Запас заполнен' : poor ? `Нужно ${FREEZE_PRICE} XP` : `Списать ${FREEZE_PRICE} XP`}">${full ? 'Запас полон' : `Купить · ${FREEZE_PRICE} XP`}</button></div>
+        <div class="fz-note">Пропустишь день — заморозка сработает сама, и огонёк не погаснет. Запас — до ${FREEZE_MAX} штук.</div>
+      </div>`;
+  }
   function streakMenuHtml(days, todayDone, left) {
-    const m = dayCounts(), need = fireNeed();
+    const m = dayCounts(), need = fireNeed(), cover = fireCover();
     const d = new Date(); d.setHours(12, 0, 0, 0);
     d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // понедельник этой недели
     const todayK = dayKey(Date.now());
     const week = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(w => {
       const k = dayKey(d.getTime()); d.setDate(d.getDate() + 1);
-      const ok = (m.get(k) || 0) >= need;
-      return `<span class="sw-day${ok ? ' ok' : ''}${k === todayK ? ' now' : ''}${k > todayK ? ' future' : ''}"><i>${ok ? FLAME : ''}</i>${w}</span>`;
+      const real = (m.get(k) || 0) >= need, frozen = !real && cover[k] === 'freeze', ok = real || !!cover[k];
+      const tip = frozen ? ' title="День закрыт заморозкой"' : !real && ok ? ' title="Огонёк восстановлен"' : '';
+      return `<span class="sw-day${ok ? ' ok' : ''}${frozen ? ' frozen' : ''}${k === todayK ? ' now' : ''}${k > todayK ? ' future' : ''}"${tip}><i>${frozen ? SNOW : ok ? FLAME : ''}</i>${w}</span>`;
     }).join('');
     const best = Math.max(bestDayStreak(), days);
     return `<div class="sm-head"><span class="sm-flame${todayDone ? ' on' : ''}">${FLAME}</span>
@@ -2716,6 +2734,7 @@
           : days ? `Реши сегодня ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}, иначе серия сгорит`
           : `Реши ${left} ${plural(left, 'задание', 'задания', 'заданий')}, чтобы зажечь огонёк`}</div></div></div>
       <div class="sm-week">${week}</div>
+      ${freezeHtml()}
       <div class="sm-foot">Лучшая серия: <b>${best} ${plural(best, 'день', 'дня', 'дней')}</b></div>`;
   }
   let goalToastDay = null, fireDay = null, fireBurst = false;
@@ -3701,7 +3720,18 @@
       toast(prefs.goal ? `Цель: ${prefs.goal} заданий в день` : 'Цель на день отключена', 2000);
     }
   });
-  document.addEventListener('click', e => {
+  document.addEventListener('click', async e => {
+    const fb = e.target.closest('#freezeBuy');
+    if (fb && !fb.disabled) {
+      fb.disabled = true;
+      try {
+        const r = await api('freeze/buy', {});
+        if (r.game) onGame(r.game);
+        renderTopbar();
+        toast(`❄️ Заморозка куплена. В запасе: ${(GAME && GAME.freezes) || 0} из ${FREEZE_MAX}`, 3500);
+      } catch (x) { toast(x.message || 'Не получилось — попробуйте ещё раз', 3500); renderTopbar(); }
+      return;
+    }
     const menu = $('#goalMenu');
     if (menu && !menu.hidden && !e.target.closest('#sessionInfo')) menu.hidden = true;
     const sm = $('#streakMenu');
@@ -3864,6 +3894,7 @@
     ADMINS = new Set(me.admins || []);
     CONSENT_NEEDED = !!me.consent_needed;
     if (me.game) GAME = me.game;
+    if (GAME && GAME.froze) setTimeout(() => toast(`❄️ Ты пропустил ${GAME.froze === 1 ? 'день' : `${GAME.froze} ${plural(GAME.froze, 'день', 'дня', 'дней')}`} — заморозка спасла огонёк`, 6000), 1500);
     COURSE_OK = !!me.course;
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
     document.body.classList.toggle('teacher-mode', TEACHER);
@@ -4930,6 +4961,7 @@
     GAME = g;
     renderLevel();
     if (!old) return;
+    if (g.froze) toast(`❄️ Заморозка спасла огонёк`, 5000);
     if (g.xp !== old.xp) xpPop(g.xp - old.xp);
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
@@ -6304,6 +6336,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.50.0', '14.10.2026', ['Заморозки огонька ❄️: купи до 4 штук по 500 XP — если пропустишь день, заморозка сработает сама и огонёк не погаснет. Купить — в меню огонька',
+      'Данные со старого сервера перенесены: ученики, результаты и подборки снова на месте']],
     ['1.49.1', '14.10.2026', ['Сайт переехал на новый сервер после сбоя у хостинга. Если не получается войти — зарегистрируйтесь заново с теми же фамилией и именем: прежние результаты восстановим позже']],
     ['1.49.0', '13.10.2026', ['Практическая и домашняя: сверху номера заданий, как в варианте. Можно перейти к любому заданию и вернуться. Если ушёл после неверной попытки, она сохраняется: вернёшься — исправишь ответ со второй попытки. На номерах видно: верно, со 2-й попытки, неверно']],
     ['1.48.1', '13.10.2026', ['Уточнены документы: регион оператора, что видно участникам открытых турниров, где хранятся данные. Документы нужно принять заново при следующем входе. Удаление аккаунта теперь стирает все данные ученика']],
