@@ -1551,6 +1551,7 @@
       return;
     }
     const answer = got.join(' ');
+    autoAttach(cur.task.id);
     const res = await verify({ answer, cells: cellsIn($('#answerInputs'), cur.shape) });
     if (!res || !cur || cur.done) return;
     cur.answers = cur.answers.concat(answer);
@@ -1644,6 +1645,7 @@
       if (inp) { inp.focus(); inp.classList.add('bad'); }
       return;
     }
+    autoAttach(cur.task.id);
     const results = await runParts(filled, o => ({ answer: o.got.join(' '), cells: cellsIn(partBox(o.i), o.x.shape) }));
     if (!cur || cur.done) return;
     filled.forEach((o, k) => {
@@ -4943,6 +4945,21 @@
       put('\n' + ind, a, b);
       return;
     }
+    // парные скобки и кавычки: открыл — сразу закрылась, курсор внутри; закрывающую поверх такой же — просто перешагнуть
+    const PAIR = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
+    if (!(e.ctrlKey && !e.altKey) && !e.metaKey && !e.isComposing && e.key.length === 1) {   // AltGr = Ctrl+Alt — тоже ввод символа
+      const k = e.key, nx = v[b] || '', pv = v[a - 1] || '';
+      const isQ = k === '"' || k === "'";
+      if (a === b && (')]}'.includes(k) || isQ) && nx === k) { e.preventDefault(); ta.setSelectionRange(a + 1, a + 1); pyPaint(); return; }
+      if (PAIR[k]) {
+        if (a !== b) { e.preventDefault(); put(k + v.slice(a, b) + PAIR[k], a, b, a + 1, b + 1); return; }   // обернуть выделение
+        const free = !nx || /[\s)\]},:;=]/.test(nx);
+        if (free && !(isQ && (/\w/.test(pv) || pv === k))) { e.preventDefault(); put(k + PAIR[k], a, b, a + 1); return; }
+      }
+    }
+    if (e.key === 'Backspace' && a === b && a > 0 && PAIR[v[a - 1]] && PAIR[v[a - 1]] === v[a]) {
+      e.preventDefault(); put('', a - 1, a + 1, a - 1); return;          // пустая пара () — удалить обе
+    }
     if (e.key === 'Backspace' && a === b && a > 0) {
       const ls = v.lastIndexOf('\n', a - 1) + 1;
       const before = v.slice(ls, a);
@@ -5083,6 +5100,10 @@
   $('#pyFit').addEventListener('click', () => fitTurtle(false));
   $('#pyFitAll').addEventListener('click', () => fitTurtle(true));
   $('#pyGrid').addEventListener('change', renderTurtle);
+  $('#pyTtClose').addEventListener('click', () => {
+    if ($('#pyTurtle').classList.contains('big')) $('#pyBig').click();
+    $('#pyTurtle').hidden = true;
+  });
   $('#pyBig').addEventListener('click', () => {
     const box = $('#pyTurtle');
     box.classList.toggle('big');
@@ -5131,6 +5152,18 @@
       toast('Решение прикреплено — учитель увидит его в журнале рядом с ответом.', 3500);
     } catch (e) { netError(e); }
   });
+
+  /** Код из редактора Python к этому заданию — прикрепить как решение (при «Сдать ответ»). true — прикрепили. */
+  async function autoAttach(tid) {
+    if (!SERVER || !student || !tid) return false;
+    const code = PY.task && PY.task.id === tid ? $('#pyCode').value : readCode(tid);
+    if (!code || !code.trim()) return false;
+    try {
+      await api('solution', { task: tid, code });
+      if (PY.task && PY.task.id === tid) $('#pyAttach').textContent = 'Решение прикреплено ✓';
+      return true;
+    } catch (e) { return false; }
+  }
 
   // ------------------------------------------------------------ уровни, опыт, достижения
   // Опыт считает сервер по журналу: за первое решение задания (сложнее номер — больше), за дневную пятёрку,
@@ -6271,8 +6304,9 @@
     }
     const blank = items.filter(x => !x.answer).length;
     const c = cur;
-    let hasSol = false;                      // прикреплено ли решение к заданию — напомним, если нет
-    try { hasSol = !!(await api('solution?task=' + encodeURIComponent(cur.task.id))).code; } catch (e) { hasSol = true; }
+    let hasSol = await autoAttach(cur.task.id);   // код из окна Python прикрепляется сам
+    if (cur !== c) return;
+    if (!hasSol) try { hasSol = !!(await api('solution?task=' + encodeURIComponent(cur.task.id))).code; } catch (e) { hasSol = true; }
     const ans = await wkAsk(cur.changing ? (cur.group ? 'Изменить ответы?' : `Изменить ответ на «${esc(items[0].answer)}»?`)
       : cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
       (cur.changing ? 'Это единственное изменение — потом поменять будет нельзя.'
@@ -6552,6 +6586,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.52.0', '14.10.2026', ['Python: скобки ( [ { и кавычки ставятся парой — курсор сразу внутри; выделенный текст оборачивается; Backspace в пустой паре удаляет обе',
+      'Python: рисунок черепашки (turtle) можно закрыть кнопкой ✕',
+      'При «Сдать ответ» код из окна Python к этому заданию прикрепляется как решение автоматически']],
     ['1.51.1', '14.10.2026', ['Python: у скобки рядом с курсором подсвечивается парная — открывающая или закрывающая; скобка без пары — красным',
       'Python: исправлено — в длинной строке, уходящей за край редактора, часть кода была не видна',
       'Из верхней панели убрана «цель на день» (Сегодня N / 20)']],
