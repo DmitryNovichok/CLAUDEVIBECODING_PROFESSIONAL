@@ -2740,7 +2740,7 @@
   let goalToastDay = null, fireDay = null, fireBurst = false;
   /** После каждого засчитанного ответа: поздравить с целью дня, отправить прогноз учителю. */
   function afterAnswer() {
-    if (prefs.goal) {
+    if (false && prefs.goal) {                    // цель на день убрана из верхней панели
       const today = dayKey(Date.now());
       const c = (dayCounts().get(today) || 0);
       if (c >= prefs.goal && goalToastDay !== today && c - prefs.goal < 3) {
@@ -2821,16 +2821,8 @@
         ${FLAME}<b>${days}</b>
       </button>
       <div class="streak-menu" id="streakMenu"${menuOpen ? '' : ' hidden'}>${streakMenuHtml(days, todayDone, left)}</div>
-      <button type="button" class="goal${goal && today.length >= goal ? ' done' : ''}" id="goalBtn" aria-haspopup="true"
-        title="Цель на день — нажмите, чтобы изменить">
-        <span class="goal-txt">Сегодня <b>${today.length}</b>${goal ? `<span class="goal-of"> / ${goal}</span>` : ''}${today.length ? ` · верно <b>${okToday}</b>` : ''}${streak >= 2 ? ` · серия <b>${streak}</b>` : ''}</span>
-        ${goal ? `<i class="goal-bar"><b style="width:${Math.min(100, pct(today.length / goal))}%"></b></i>` : ''}
-      </button>
       ${P.log.length ? `<span class="dots" title="Последние ответы">${lastDots}</span>` : ''}
-      <div class="goal-menu" id="goalMenu" hidden>
-        <div class="goal-menu-h">Цель на день</div>
-        ${[10, 20, 30, 50, 0].map(g => `<button type="button" data-goal="${g}" class="${g === goal ? 'on' : ''}">${g ? `${g} заданий` : 'Без цели'}</button>`).join('')}
-      </div>`;
+`;
     fireBurst = false;
     renderForecast();
   }
@@ -3708,10 +3700,9 @@
 
   $('#scopeInfo').addEventListener('click', e => { if (e.target.id === 'exQuit') quitExam(); });
   $('#sessionInfo').addEventListener('click', e => {
-    const menu = $('#goalMenu'), sm = $('#streakMenu');
-    if (e.target.closest('#goalBtn')) { menu.hidden = !menu.hidden; sm.hidden = true; return; }
-    if (e.target.closest('#streakBtn')) { sm.hidden = !sm.hidden; menu.hidden = true; return; }
-    if (e.target.closest('#rankBtn')) { menu.hidden = true; sm.hidden = true; openRating(); return; }
+    const sm = $('#streakMenu');
+    if (e.target.closest('#streakBtn')) { sm.hidden = !sm.hidden; return; }
+    if (e.target.closest('#rankBtn')) { sm.hidden = true; openRating(); return; }
     const g = e.target.closest('button[data-goal]');
     if (g) {
       prefs.goal = +g.dataset.goal;
@@ -4804,14 +4795,52 @@
     const n = ta.value.split('\n').length;
     const g = $('#pyGutter');
     if (+g.dataset.n !== n) { g.textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n'); g.dataset.n = n; }
-    $('#pyHl').innerHTML = highlightPy(ta.value) + '\n';
+    pyPaint(true);
+  }
+  /** Раскраска под полем ввода; парная скобка у курсора подсвечивается рамкой (как в PyCharm). */
+  let pyMarks = '';
+  function pyPaint(force) {
+    const ta = $('#pyCode');
+    const marks = bracketMarks(ta.value, ta.selectionStart, ta.selectionEnd, document.activeElement === ta);
+    const key = marks.map(m => m.join(':')).join(',');
+    if (!force && key === pyMarks) return;
+    pyMarks = key;
+    $('#pyHl').innerHTML = '<div class="py-hl-in">' + highlightPy(ta.value, marks) + '\n</div>';
     syncScroll();
   }
+  // раскрашенная копия сдвигается сдвигом, а не прокруткой: у прокрутки свой предел, и в конце длинной строки
+  // копия «отставала» от поля ввода — часть кода становилась невидимой
   function syncScroll() {
-    const ta = $('#pyCode'), hl = $('#pyHl');
+    const ta = $('#pyCode'), inner = $('#pyHl').firstElementChild;
     $('#pyGutter').scrollTop = ta.scrollTop;
-    hl.scrollTop = ta.scrollTop;
-    hl.scrollLeft = ta.scrollLeft;
+    if (inner) inner.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+  }
+  /** Скобка рядом с курсором (или выделенная) и её пара: [[позиция, 'ok'|'bad'], ...]. Скобки в строках и комментариях не в счёт. */
+  const BR_OPEN = '([{', BR_CLOSE = ')]}';
+  function bracketMarks(code, a, b, focused) {
+    if (!focused || code.length > 200000) return [];
+    let i = -1;
+    if (b - a === 1 && (BR_OPEN + BR_CLOSE).includes(code[a])) i = a;
+    else if (a === b) {
+      if (a > 0 && (BR_OPEN + BR_CLOSE).includes(code[a - 1])) i = a - 1;
+      else if ((BR_OPEN + BR_CLOSE).includes(code[a])) i = a;
+    }
+    if (i < 0) return [];
+    // где строки и комментарии — там скобки не считаем
+    const skip = new Uint8Array(code.length);
+    PY_TOK.lastIndex = 0;
+    for (let m; (m = PY_TOK.exec(code));) if (m[1] || m[2]) skip.fill(1, m.index, PY_TOK.lastIndex);
+    if (skip[i]) return [];
+    const ch = code[i], open = BR_OPEN.includes(ch);
+    const pair = open ? BR_CLOSE[BR_OPEN.indexOf(ch)] : BR_OPEN[BR_CLOSE.indexOf(ch)];
+    const step = open ? 1 : -1;
+    let depth = 0;
+    for (let j = i; j >= 0 && j < code.length; j += step) {
+      if (skip[j]) continue;
+      if (code[j] === ch) depth++;
+      else if (code[j] === pair && --depth === 0) return [[Math.min(i, j), 'ok'], [Math.max(i, j), 'ok']];
+    }
+    return [[i, 'bad']];
   }
 
   // подсветка синтаксиса в цветах PyCharm: под прозрачным полем ввода лежит раскрашенная копия текста
@@ -4822,11 +4851,19 @@
     + 'min next object oct open ord pow print range repr reversed round set setattr slice sorted str sum super tuple type vars zip '
     + 'Exception ValueError KeyError IndexError TypeError ZeroDivisionError RecursionError StopIteration NameError').split(' '));
   const PY_TOK = /(#[^\n]*)|((?:[rRbBuUfF]{1,2})?(?:'''[\s\S]*?(?:'''|$)|"""[\s\S]*?(?:"""|$)|'(?:\\.|[^'\\\n])*'?|"(?:\\.|[^"\\\n])*"?))|(@[A-Za-z_][\w.]*)|(\b(?:0[xXoObB][\da-fA-F_]+|\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?j?)\b|\.\d+\b)|([A-Za-z_\u0400-\u04FF][\w\u0400-\u04FF]*)/g;
-  function highlightPy(code) {
+  function highlightPy(code, marks) {
     let out = '', last = 0, prevWord = '';
+    const mk = new Map((marks || []).map(([p, k]) => [p, k]));
+    // обычный текст между словами и строками; в нём же стоят скобки — их и обводим
+    const plain = (from, to) => {
+      if (!mk.size) return esc(code.slice(from, to));
+      let o = '';
+      for (let k = from; k < to; k++) o += mk.has(k) ? `<span class="hl-br ${mk.get(k)}">${esc(code[k])}</span>` : esc(code[k]);
+      return o;
+    };
     PY_TOK.lastIndex = 0;
     for (let m; (m = PY_TOK.exec(code));) {
-      out += esc(code.slice(last, m.index));
+      out += plain(last, m.index);
       last = PY_TOK.lastIndex;
       const [tok, com, str, dec, num, word] = m;
       let cls = '';
@@ -4841,7 +4878,7 @@
       if (!word) prevWord = '';
       out += cls ? `<span class="hl-${cls}">${esc(tok)}</span>` : esc(tok);
     }
-    return out + esc(code.slice(last));
+    return out + plain(last, code.length);
   }
   const FONT_KEY = 'egeshka.pyFont';
   function setPyFont(px) {
@@ -5069,6 +5106,9 @@
     PY.saveTimer = setTimeout(() => { if (t) writeCode(t.id, $('#pyCode').value); }, 500);
   });
   $('#pyCode').addEventListener('scroll', syncScroll);
+  // курсор переехал — пересчитать подсветку парной скобки
+  document.addEventListener('selectionchange', () => { if (document.activeElement === $('#pyCode')) pyPaint(); });
+  $('#pyCode').addEventListener('blur', () => pyPaint());
   $('#pyFontUp').addEventListener('click', () => setPyFont(pyFont() + 1));
   $('#pyFontDown').addEventListener('click', () => setPyFont(pyFont() - 1));
   $('#pyLoad').addEventListener('click', () => $('#pyFile').click());
@@ -6512,6 +6552,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.51.1', '14.10.2026', ['Python: у скобки рядом с курсором подсвечивается парная — открывающая или закрывающая; скобка без пары — красным',
+      'Python: исправлено — в длинной строке, уходящей за край редактора, часть кода была не видна',
+      'Из верхней панели убрана «цель на день» (Сегодня N / 20)']],
     ['1.51.0', '14.10.2026', ['Python и доска: панель можно расширить влево — потяните её левый край мышью (двойной щелчок — обычная ширина)',
       'Доска: кнопка ⇣ удлиняет лист вниз; картинку можно вставить — кнопкой 🖼 (рисунок из условия), Ctrl+V или перетащив мышью',
       'Когда открыт Python или доска, верхняя панель становится компактной и не мешает']],
