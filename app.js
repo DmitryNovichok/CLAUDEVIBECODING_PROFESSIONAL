@@ -4051,7 +4051,7 @@
   const BD_KEEP = 40, BD_INDEX = 'egeTrainer.boards', bdKey = id => 'egeTrainer.board.' + id;
   const BD_BGS = ['grid', 'lines', 'plain'];
   const BD_FS = [16, 20, 26, 34, 44, 60];
-  const BD = { task: null, strokes: [], undo: [], redo: [], tool: 'pen', color: 'ink', size: 2, fs: 20, bg: 'grid', drawing: null, text: null, ro: null, saveT: 0 };
+  const BD = { task: null, strokes: [], undo: [], redo: [], tool: 'pen', color: 'ink', size: 2, fs: 20, bg: 'grid', drawing: null, text: null, ro: null, saveT: 0, minH: 0 };
   const bdOpen = () => !$('#bdDock').hidden;
   try { const v = readJSON('egeTrainer.boardPrefs'); if (v) Object.assign(BD, { bg: BD_BGS.includes(v.bg) ? v.bg : 'grid', size: v.size === 5 ? 5 : 2, fs: BD_FS.includes(v.fs) ? v.fs : 20 }); } catch (e) {}
   const bdPrefs = () => writeJSON('egeTrainer.boardPrefs', { bg: BD.bg, size: BD.size, fs: BD.fs });
@@ -4062,6 +4062,7 @@
   function bdLoad(id) {
     const d = readJSON(bdKey(id));
     BD.strokes = d && Array.isArray(d.s) ? d.s : [];
+    BD.minH = d && d.h > 0 ? d.h : 0;
     BD.undo = [];
     BD.redo = [];
   }
@@ -4074,7 +4075,14 @@
     if (BD.strokes.length) {
       idx.push(id);
       while (idx.length > BD_KEEP) { const old = idx.shift(); try { storage && storage.removeItem(bdKey(old)); } catch (e) {} }
-      writeJSON(bdKey(id), { s: BD.strokes, t: Date.now() });
+      // с картинками доска весит больше: не помещается в память браузера — освобождаем место от самых старых досок
+      const raw = JSON.stringify({ s: BD.strokes, t: Date.now(), h: BD.minH || undefined });
+      for (;;) {
+        try { storage && storage.setItem(bdKey(id), raw); break; } catch (e) {
+          if (idx.length <= 1) { if (!BD.full) { BD.full = true; toast('Доска слишком большая, чтобы сохранить её в браузере: удалите часть картинок', 5000); } break; }
+          try { storage.removeItem(bdKey(idx.shift())); } catch (x) { break; }
+        }
+      }
     } else {
       try { storage && storage.removeItem(bdKey(id)); } catch (e) {}
     }
@@ -4089,10 +4097,11 @@
     const w = Math.max(50, sh.clientWidth - 1);
     let maxY = 0;
     for (const st of BD.strokes) {
-      if (st.k === 'text') maxY = Math.max(maxY, st.y + String(st.t).split('\n').length * bdFs(st) * 1.24 + 10);
+      if (st.k === 'img') maxY = Math.max(maxY, st.y + st.ih);
+      else if (st.k === 'text') maxY = Math.max(maxY, st.y + String(st.t).split('\n').length * bdFs(st) * 1.24 + 10);
       else for (let i = 1; i < st.p.length; i += 2) if (st.p[i] > maxY) maxY = st.p[i];
     }
-    const h = Math.max(sh.clientHeight - 1, maxY + 320);      // лист растёт вниз, пока решаешь
+    const h = Math.max(sh.clientHeight - 1, maxY + 320, BD.minH);   // лист растёт вниз, пока решаешь; ⇣ — удлинить заранее
     const dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
@@ -4100,7 +4109,27 @@
     }
     return dpr;
   }
+  // картинки на доске: хранятся как data:-адрес (не зависят от сервера), рисуются под штрихами, нарисованными позже
+  const BD_IMGS = new Map();
+  function bdImg(src) {
+    let im = BD_IMGS.get(src);
+    if (!im) {
+      im = new Image();
+      im.onload = () => bdRedraw();
+      im.src = src;
+      BD_IMGS.set(src, im);
+      if (BD_IMGS.size > 60) BD_IMGS.delete(BD_IMGS.keys().next().value);
+    }
+    return im;
+  }
   function bdDrawStroke(g, st) {
+    if (st.k === 'img') {
+      const im = bdImg(st.src);
+      g.fillStyle = '#fff';                             // картинки заданий — на белом, как в условии
+      g.fillRect(st.x, st.y, st.iw, st.ih);
+      if (im.complete && im.naturalWidth) g.drawImage(im, st.x, st.y, st.iw, st.ih);
+      return;
+    }
     g.strokeStyle = g.fillStyle = bdInk(st.c);
     if (st.k === 'text') {
       const fs = bdFs(st);
@@ -4144,6 +4173,7 @@
   function bdEraseAt(x, y) {
     const R = 10;
     const hit = st => {
+      if (st.k === 'img') return x >= st.x && x <= st.x + st.iw && y >= st.y && y <= st.y + st.ih;
       if (st.k === 'text') {
         const fs = bdFs(st), lines = String(st.t).split('\n'), lh = fs * 1.24;
         const g = $('#bdCanvas').getContext('2d');
@@ -4341,6 +4371,15 @@
       const on = document.body.classList.toggle('bd-wide');
       $('#bdWide').setAttribute('aria-pressed', String(on));
       setTimeout(bdRedraw, 30);
+    } else if (id === 'bdImg') {
+      const imgs = $$('#cond img').filter(i => i.complete && i.naturalWidth);
+      if (!imgs.length) { toast('В условии этого задания нет картинок. Любую картинку можно скопировать и вставить на доску (Ctrl+V) или перетащить мышью.', 5000); return; }
+      bdInsert(imgs.map(i => i.currentSrc || i.src));
+    } else if (id === 'bdLonger') {
+      const sh = $('#bdSheet');
+      BD.minH = Math.max(BD.minH, $('#bdCanvas').clientHeight) + Math.max(400, sh.clientHeight);
+      bdRedraw(); bdSaveSoon();
+      sh.scrollTo({ top: sh.scrollHeight, behavior: 'smooth' });
     } else if (id === 'bdBg') {
       BD.bg = BD_BGS[(BD_BGS.indexOf(BD.bg) + 1) % BD_BGS.length];
       bdPrefs();
@@ -4363,8 +4402,120 @@
     if (tool) bdSetTool(tool);
   });
 
+  /** Картинку — в data:-адрес, уменьшенную до ширины листа: так она хранится вместе с доской и не пропадёт. */
+  function bdImageData(src) {
+    return new Promise((ok, fail) => {
+      const im = new Image();
+      im.onload = () => {
+        const maxW = 1200, k = Math.min(1, maxW / im.naturalWidth);
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(im, 0, 0, c.width, c.height);
+        let data;
+        try { data = c.toDataURL('image/png'); if (data.length > 450000) data = c.toDataURL('image/jpeg', 0.82); }
+        catch (e) { fail(e); return; }                  // чужой сайт не разрешил: картинку не прочитать
+        ok({ data, w: c.width, h: c.height });
+      };
+      im.onerror = fail;
+      if (/^https?:/i.test(src) && !src.startsWith(location.origin)) im.crossOrigin = 'anonymous';
+      im.src = src;
+    });
+  }
+  /** Вставить картинки на доску: в точку (x, y) или в верх видимой части листа, одну под другой. */
+  async function bdInsert(srcs, x, y) {
+    if (!bdOpen() || !srcs.length) return;
+    bdTextCommit();
+    const sh = $('#bdSheet');
+    let px = x != null ? x : 10, py = y != null ? y : sh.scrollTop + 10;
+    const added = [];
+    for (const src of srcs.slice(0, 6)) {
+      let d;
+      try { d = await bdImageData(src); } catch (e) { toast('Эту картинку не получилось вставить — сохраните её на компьютер и перетащите файл на доску', 5000); continue; }
+      const maxW = Math.max(60, sh.clientWidth - 20 - px);
+      const k = Math.min(1, maxW / d.w);
+      const st = { k: 'img', x: px, y: py, iw: Math.round(d.w * k), ih: Math.round(d.h * k), src: d.data };
+      BD.strokes.push(st);
+      added.push(st);
+      py += st.ih + 12;
+    }
+    if (!added.length) return;
+    bdDo({ add: added });
+    if (BD.tool === 'eraser' || BD.tool === 'text') bdSetTool('pen');
+    bdRedraw(); bdSaveSoon();
+  }
+  const bdFileData = f => new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => ok(null); fr.readAsDataURL(f); });
+  /** Буфер обмена и перетаскивание браузер даёт прочитать только сразу, внутри события: забираем всё заранее. */
+  const bdGrab = dt => ({
+    files: Array.from((dt && dt.files) || []).filter(f => /^image\//.test(f.type)),
+    html: (dt && dt.getData && dt.getData('text/html')) || '',
+    uri: ((dt && dt.getData && (dt.getData('text/uri-list') || dt.getData('text/plain'))) || '').trim(),
+  });
+  /** Картинки: файлы, картинка из HTML (например, скопированная из условия), ссылка на картинку. */
+  async function bdSourcesOf(got) {
+    const out = [];
+    for (const f of got.files) { const d = await bdFileData(f); if (d) out.push(d); }
+    if (out.length) return out;
+    const m = got.html.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (m) return [new URL(m[1].replace(/&amp;/g, '&'), location.href).href];
+    const uri = got.uri;
+    if (uri && /^(https?:|data:image\/)/i.test(uri) && /\.(png|jpe?g|gif|webp|svg)(\?|#|$)|^data:image/i.test(uri)) return [uri];
+    return out;
+  }
+  document.addEventListener('paste', async e => {
+    if (!bdOpen() || e.target.closest('input, textarea, [contenteditable]')) return;
+    const got = bdGrab(e.clipboardData);
+    if (!got.files.length && !/<img/i.test(got.html)) return;            // обычный текст — не наше дело
+    e.preventDefault();
+    const srcs = await bdSourcesOf(got);
+    if (srcs.length) bdInsert(srcs);
+  });
+  $('#bdSheet').addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; $('#bdSheet').classList.add('drop'); });
+  $('#bdSheet').addEventListener('dragleave', () => $('#bdSheet').classList.remove('drop'));
+  $('#bdSheet').addEventListener('drop', async e => {
+    e.preventDefault();
+    $('#bdSheet').classList.remove('drop');
+    const [x, y] = bdPos(e);
+    const srcs = await bdSourcesOf(bdGrab(e.dataTransfer));
+    if (srcs.length) bdInsert(srcs, Math.max(0, x - 20), Math.max(0, y - 20));
+    else toast('Перетащите картинку — например, рисунок из условия задания', 3500);
+  });
+
   // кнопки размера текста не забирают фокус у надписи, которую печатают, — она растёт прямо на глазах
   $('#bdDock').addEventListener('mousedown', e => { if (e.target.closest('[data-bd-fs]') && BD.text) e.preventDefault(); });
+  // ------------------------------------------------------------ Python: высота редактора — перетаскиванием полосы под ним
+  const PY_EDH = 'egeTrainer.pyEdH';
+  (() => {
+    const dock = $('#pyDock'), grip = $('#pyGrip');
+    if (!dock || !grip) return;
+    const setH = h => { if (h) dock.style.setProperty('--py-ed-h', h + 'px'); else dock.style.removeProperty('--py-ed-h'); };
+    try { const v = +localStorage.getItem(PY_EDH); if (v >= 160) setH(v); } catch (e) {}
+    let drag = null;
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      grip.setPointerCapture(e.pointerId);
+      drag = { y: e.clientY, h: $('#pyDock .py-editor').getBoundingClientRect().height };
+      grip.classList.add('on');
+    });
+    grip.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const h = Math.round(Math.max(160, Math.min(4000, drag.h + e.clientY - drag.y)));
+      setH(h);
+      if (e.clientY > window.innerHeight - 40) dock.scrollTop += 20;          // тянешь к низу экрана — панель едет вниз
+    });
+    const up = () => {
+      if (!drag) return;
+      drag = null;
+      grip.classList.remove('on');
+      const h = Math.round($('#pyDock .py-editor').getBoundingClientRect().height);
+      try { localStorage.setItem(PY_EDH, String(h)); } catch (e) {}
+    };
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+    grip.addEventListener('dblclick', () => { setH(0); try { localStorage.removeItem(PY_EDH); } catch (e) {} });
+  })();
+
   function toggleBoard(force) {
     const open = force != null ? force : !bdOpen();
     if (open && pyOpen()) togglePy(false);             // справа одна панель: или Python, или доска
@@ -6344,6 +6495,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.51.0', '14.10.2026', ['Python: окно редактора можно сделать выше — потяните полосу под ним, панель прокручивается',
+      'Доска: кнопка ⇣ удлиняет лист вниз; картинку можно вставить — кнопкой 🖼 (рисунок из условия), Ctrl+V или перетащив мышью',
+      'Верхняя панель с прогнозом, огоньком и уровнем стала ниже и компактнее']],
     ['1.50.1', '14.10.2026', ['Сайт снова работает: после сбоя у хостинга все данные восстановлены']],
     ['1.50.0', '14.10.2026', ['Заморозки огонька ❄️: купи до 4 штук по 500 XP — если пропустишь день, заморозка сработает сама и огонёк не погаснет. Купить — в меню огонька',
       'Данные со старого сервера перенесены: ученики, результаты и подборки снова на месте']],
