@@ -5548,9 +5548,8 @@
     for (const m of tourMyMatches()) {
       if (m.status !== 'play' || !m.tasks || m.done) continue;
       const op = m.mine === 'a' ? m.b : m.a;
-      const cap = (TOUR.mine && TOUR.mine.cap_min) ? TOUR.mine.cap_min * 60 : 0;
       ASG.push({ id: 'tm-' + m.id, duel: 'tm' + m.id, tour: m.id, title: `${m.stage}: матч с ${op ? op.name : '?'}`, tasks: m.tasks, done: [], created: m.since,
-        ends: cap && m.since ? m.since + cap : null });
+        ends: m.cap && m.since ? m.since + m.cap : null });
     }
     for (const d of (DUELS && DUELS.duels) || []) {
       if (d.status !== 'active' || !d.tasks || d.done) continue;
@@ -5710,7 +5709,7 @@
           «Найти соперника» подбирает того, у кого рейтинг ближе.</p>
         <p>Соперники в матче и дуэли получают <b>разные задания одного типа и сложности</b> — подсмотреть ответ у соседа не выйдет.</p></div></div>
       ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">${esc(T.stage.toLowerCase())} · осталось ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}
-          ${T.cap_min ? `<span class="chip">⏱ ${T.cap_min} мин на матч</span>` : ''}</h3>
+          ${T.match_min ? `<span class="chip">⏱ ${T.match_min} мин на матч</span>` : ''}</h3>
         ${tourNoshowHtml(T)}
         ${tourNumsHtml(T)}
         ${T.status === 'done' ? tourPodium(T) : ''}
@@ -5856,6 +5855,7 @@
     if (!T.nums) return '';
     const names = ['Группы', ...T.playoff.map(r => r.name)];
     return `<p class="tour-nums">Задания турнира: ${T.nums.map(n => `<b class="chip">№${n}</b>`).join(' ')}</p>
+      ${T.cap_min ? '' : `<p class="fm-muted tour-ranks">Время на матч — с нажатия «Играть»: №1–23 по 10 минут на задание, №24–27 по 30. Решённое позже не засчитается.</p>`}
       <p class="fm-muted tour-ranks">Сложность по этапам: ${T.ranks.map((r, i) => `${esc(names[i] || '')} — ${TOUR_RANK_WORD[r]}`).join(' → ')}</p>`;
   }
   /** Входящие вызовы на дуэль, которые ждут ответа. */
@@ -5875,7 +5875,7 @@
           ${d.started ? `<button type="button" class="btn ghost" data-duel-fin="${d.id}">Закончить</button>` : ''}`;
       } else if (d.status === 'finished') {
         const [c, w] = RES[d.result] || ['d', d.result];
-        st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${d.stake ? ` <small>${d.result === 'win' ? '+' : '−'}${d.stake} XP</small>` : ''}`
+        st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${d.stake && d.result === 'win' ? ` <small>+${d.stake} XP</small>` : ''}`
           + (d.elo != null ? ` <small class="elo-d ${d.elo >= 0 ? 'up' : 'down'}">${d.elo >= 0 ? '+' : '−'}${Math.abs(d.elo)} Эло</small>` : '')
           + (d.bonus ? ` <small>🔥 +${d.bonus} XP за серию</small>` : '');
         if (d.can_rematch) btn = `<button type="button" class="btn ghost" data-duel-rematch="${d.id}">🔁 Реванш</button>`;
@@ -5896,7 +5896,7 @@
       <div class="duel-me"><span class="chip accent">Твой Эло: <b>${D.my_elo}</b></span>${D.streak >= 2 ? `<span class="chip hot">🔥 ${D.streak} ${plural(D.streak, 'победа', 'победы', 'побед')} подряд</span>` : ''}
         <small class="fm-muted">Эло меняется после каждой дуэли. Отдельно: 3 победы подряд и больше — бонус опыта (XP) 🔥</small></div>
       <p class="fm-muted">Нажми «Найти соперника» — подберём одноклассника с близким рейтингом, который тоже ищет дуэль. По ${D.tasks} заданий каждому (разные, но одного типа и сложности). Время с нажатия «Играть»: <b>№1–23 — 10 минут</b> на задание, <b>№24–27 — 30 минут</b>; начать дуэль нужно в течение ${D.hours} ч. Больше решил — победа, поровну — быстрее.
-        Победитель забирает у проигравшего <b>${D.stake} XP</b>. С одним соперником — одна дуэль в неделю, всего — до ${D.per_day} в день (сегодня ${D.today}).</p>
+        Победителю — <b>+${D.stake} XP</b> (проигравший ничего не теряет). С одним соперником — одна дуэль в неделю, всего — до ${D.per_day} в день (сегодня ${D.today}).</p>
       ${search}
       ${rows ? `<div class="tm-list">${rows}</div>` : ''}
       ${tab.length ? `<h4 class="dm-h">Таблица дуэлей недели</h4><table class="lb dm-tab"><tr><th></th><th>Игрок</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>О</th></tr>
@@ -5993,7 +5993,7 @@
   async function startTourMatch(id) {
     let r;
     try { r = await api('tour/start', { match: id }); } catch (e) { toast(e.message, 3000); return; }
-    if (r && r.cap) toast(`⏱ На матч ${Math.round(r.cap / 60)} минут — решённое позже не засчитается`, 5000);
+    if (r && r.cap) toast(`⏱ На матч ${Math.round(r.cap / 60)} минут — таймер вверху, решённое позже не засчитается`, 5000);
     await loadDuels();
     leaveCourse();
     setScope('asg', 'tm-' + id);
@@ -6926,6 +6926,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.58.0', '15.10.2026', ['Дуэли: за победу +100 XP (проигравший опыт не теряет)',
+      'Турниры: за победу 200 XP в мини-турнире, 400 в кубке, 600 в чемпионате; за 2-е место — половина, за 3-е — треть']],
+    ['1.57.2', '15.10.2026', ['Турниры: ограничение времени на матч, как в дуэлях — 10 минут на задание №1–23 и 30 минут на №24–27; таймер вверху']],
     ['1.57.1', '15.10.2026', ['Турниры: исправлено — матч против не пришедшего к началу соперника больше не заканчивается сам посреди игры; доиграй свои задания, победа засчитается']],
     ['1.57.0', '15.10.2026', ['Дуэли и турниры обновляются сами — на любой странице: вызовы, старт турнира, итоги матчей и дуэлей приходят уведомлением',
       'Вышла новая версия сайта — появится кнопка «Обновить», не нужно перезагружать вручную']],
