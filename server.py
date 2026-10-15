@@ -2304,6 +2304,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                              (m["tour_id"], s["id"]), one=True):
                 return self.err(409, "Ты не пришёл к началу турнира — матчи группы засчитаны поражением")
             if not m[side + "_start"]:
+                # начатый матч, время которого вышло, считается законченным — не мешает начать следующий
+                for x in db.q("""SELECT * FROM tour_matches WHERE id!=? AND status='play' AND
+                                 ((a=? AND a_start IS NOT NULL AND a_done IS NULL) OR (b=? AND b_start IS NOT NULL AND b_done IS NULL))""",
+                              (m["id"], s["id"], s["id"])):
+                    sd = "a" if x["a"] == s["id"] else "b"
+                    if time.time() > x[sd + "_start"] + match_cap(db, x, sd):
+                        db.x(f"UPDATE tour_matches SET {sd}_done=? WHERE id=?", (x[sd + "_start"] + match_cap(db, x, sd), x["id"]))
                 busy = db.q("""SELECT 1 FROM tour_matches WHERE id!=? AND status='play' AND
                                ((a=? AND a_start IS NOT NULL AND a_done IS NULL) OR (b=? AND b_start IS NOT NULL AND b_done IS NULL))""",
                             (m["id"], s["id"], s["id"]), one=True)
@@ -2311,7 +2318,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     return self.err(409, "Сначала закончи начатый матч")
                 db.x(f"UPDATE tour_matches SET {side}_start=? WHERE id=?", (time.time(), m["id"]))
             return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in side_tasks(m, side)], "ends": m["ends"],
-                                   "cap": tour_cap(db, m["tour_id"])})
+                                   "cap": match_cap(db, m, side)})
         if path == "/api/tour/finish":
             if m["status"] == "play" and m[side + "_start"] and not m[side + "_done"]:
                 db.x(f"UPDATE tour_matches SET {side}_done=? WHERE id=?", (time.time(), m["id"]))
@@ -4824,9 +4831,15 @@ TOUR_KINDS = [(4, ""), (8, ""), (12, ""), (4, "python"), (4, "sprint")]
 
 
 def tour_cap(db, tour_id):
-    """Ограничение времени на матч (сек) — у спринта; 0 — без ограничения."""
+    """Ограничение времени на матч (сек) у тематического турнира (спринт — 15 минут); 0 — считается по заданиям."""
     r = db.q("SELECT theme FROM tournaments WHERE id=?", (tour_id,), one=True)
     return TOUR_THEMES.get((r and r["theme"]) or "", {}).get("cap") or 0
+
+
+def match_cap(db, m, side):
+    """Время на матч игроку (сек) с нажатия «Играть»: у спринта — общее, иначе как в дуэли —
+    №1–23 по 10 минут на задание, №24–27 по 30."""
+    return tour_cap(db, m["tour_id"]) or duel_cap(side_tasks(m, side))
 
 
 # сезон — календарный месяц: очки за места в турнирах (чем больше турнир, тем дороже), за участие — 1
@@ -5005,12 +5018,11 @@ def tour_match_new(db, t, rnd, slot, a, b, ends, kind="po", grp=None):
 def tour_settle(db, m, seeds, now, gone=frozenset()):
     """Итог матча. Больше решил — победа. Поровну: в группе ничья, в плей-офф проходит быстрейший («пенальти»).
     Не сыграл — техническое поражение; в группе, если не сыграли оба, поражение обоим."""
-    cap = tour_cap(db, m["tour_id"])
     res = {}
     for side in ("a", "b"):
         st, dn = m[side + "_start"], min(m[side + "_done"] or now, m["ends"] or now)    # после срока не считается
-        if st and cap:
-            dn = min(dn, st + cap)                    # спринт: на матч — 15 минут с начала
+        if st:
+            dn = min(dn, st + match_cap(db, m, side))  # решённое после лимита времени на матч не считается
         res[side] = (duel_solved(db, m[side], side_tasks(m, side), st, dn) if st else -1, (dn - st) if st else None)
     for side, op in (("a", "b"), ("b", "a")):          # не явился к старту — поражение, сопернику победа
         if m[side] in gone and m[op] not in gone:
@@ -5154,9 +5166,9 @@ def tour_tick(db, t):
         for sid in (x for x, ok in here.items() if not ok):
             db.x("UPDATE tour_players SET gone=1 WHERE tour_id=? AND student_id=?", (t["id"], sid))
     gone = {r["student_id"] for r in db.q("SELECT student_id FROM tour_players WHERE tour_id=? AND gone=1", (t["id"],))}
-    cap = tour_cap(db, t["id"])
-    # матч закрывается, когда оба закончили (не явившийся — уже «закончил»): пришедший доигрывает свои задания спокойно
-    over = lambda m, sd: m[sd] in gone or m[sd + "_done"] or (cap and m[sd + "_start"] and now > m[sd + "_start"] + cap)
+    # матч закрывается, когда оба закончили (не явившийся — уже «закончил»; вышло время на матч — тоже):
+    # пришедший доигрывает свои задания спокойно
+    over = lambda m, sd: m[sd] in gone or m[sd + "_done"] or (m[sd + "_start"] and now > m[sd + "_start"] + match_cap(db, m, sd))
     for m in cur:
         if m["status"] == "play" and ((over(m, "a") and over(m, "b")) or now > (m["ends"] or now)):
             tour_settle(db, m, seeds, now, gone)
@@ -5196,12 +5208,13 @@ def tour_tick(db, t):
 
 def tour_match_view(m, people, me):
     side = "a" if m["a"] == me else "b" if m["b"] == me else None
+    cap = match_cap(APP.db, m, side) if side else None
     return {"id": m["id"], "slot": m["slot"], "kind": m["kind"], "grp": m["grp"], "status": m["status"], "ends": m["ends"],
             "tech": bool(m["tech"]), "a": people.get(m["a"]), "b": people.get(m["b"]), "a_solved": m["a_solved"],
             "b_solved": m["b_solved"], "winner": m["winner"], "mine": side, "started": bool(side and m[side + "_start"]),
             "done": bool(side and m[side + "_done"]),
             "tasks": [APP.bank.pid(x) for x in side_tasks(m, side)] if side and m[side + "_start"] else None,
-            "since": m[side + "_start"] if side else None}
+            "since": m[side + "_start"] if side else None, "cap": cap}
 
 
 def tour_view(db, t, me, brief=False):
@@ -5209,6 +5222,8 @@ def tour_view(db, t, me, brief=False):
     people = {p["sid"]: p for p in tour_people(db, t["id"])}
     out = {"id": t["id"], "title": t["title"], "size": t["size"], "status": t["status"], "round": t["round"],
            "theme": t["theme"] or "", "cap_min": (TOUR_THEMES.get(t["theme"] or "", {}).get("cap") or 0) // 60,
+           "match_min": ((TOUR_THEMES.get(t["theme"] or "", {}).get("cap") or 0)
+                         or sum(DUEL_TASK_SEC.get(n, 600) for n in json.loads(t["nums"] or "[]"))) // 60,
            "nums": json.loads(t["nums"]) if t["nums"] else None,
            "ranks": [tour_rank(t["size"], r) for r in range(1, TOUR_STAGES.get(t["size"], 2) + 1)],
            "round_ends": t["round_ends"], "started": t["started"], "finished": t["finished"],

@@ -1250,6 +1250,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(ms[mine[0]["id"]]["status"], "play")                           # пришедший доигрывает спокойно
         self.assertTrue(all(m["status"] == "done" for m in ms.values() if m["id"] not in {x["id"] for x in mine}))
         self.assertEqual(self.req("POST", "/api/tour/start", {"match": mine[1]["id"]}, toks[0])[0], 409)   # сначала закончи начатый
+        assert T["match_min"] > 0                                                       # время на матч — по заданиям
+        db.x("UPDATE tour_matches SET a_start=a_start-36000 WHERE id=? AND a_start IS NOT NULL", (mine[0]["id"],))
+        db.x("UPDATE tour_matches SET b_start=b_start-36000 WHERE id=? AND b_start IS NOT NULL", (mine[0]["id"],))
+        self.assertEqual(self.req("POST", "/api/tour/start", {"match": mine[1]["id"]}, toks[0])[0], 200)   # время вышло — можно дальше
         late = db.q("SELECT id, a FROM tour_matches WHERE tour_id=? AND status='play' AND a!=? AND b=?",
                     (T["id"], sids[0], sids[0]), one=True) or db.q(
                     "SELECT id, b AS a FROM tour_matches WHERE tour_id=? AND status='play' AND a=? AND b!=?",

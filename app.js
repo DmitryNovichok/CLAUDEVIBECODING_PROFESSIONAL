@@ -5548,9 +5548,8 @@
     for (const m of tourMyMatches()) {
       if (m.status !== 'play' || !m.tasks || m.done) continue;
       const op = m.mine === 'a' ? m.b : m.a;
-      const cap = (TOUR.mine && TOUR.mine.cap_min) ? TOUR.mine.cap_min * 60 : 0;
       ASG.push({ id: 'tm-' + m.id, duel: 'tm' + m.id, tour: m.id, title: `${m.stage}: матч с ${op ? op.name : '?'}`, tasks: m.tasks, done: [], created: m.since,
-        ends: cap && m.since ? m.since + cap : null });
+        ends: m.cap && m.since ? m.since + m.cap : null });
     }
     for (const d of (DUELS && DUELS.duels) || []) {
       if (d.status !== 'active' || !d.tasks || d.done) continue;
@@ -5710,7 +5709,7 @@
           «Найти соперника» подбирает того, у кого рейтинг ближе.</p>
         <p>Соперники в матче и дуэли получают <b>разные задания одного типа и сложности</b> — подсмотреть ответ у соседа не выйдет.</p></div></div>
       ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">${esc(T.stage.toLowerCase())} · осталось ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}
-          ${T.cap_min ? `<span class="chip">⏱ ${T.cap_min} мин на матч</span>` : ''}</h3>
+          ${T.match_min ? `<span class="chip">⏱ ${T.match_min} мин на матч</span>` : ''}</h3>
         ${tourNoshowHtml(T)}
         ${tourNumsHtml(T)}
         ${T.status === 'done' ? tourPodium(T) : ''}
@@ -5856,6 +5855,7 @@
     if (!T.nums) return '';
     const names = ['Группы', ...T.playoff.map(r => r.name)];
     return `<p class="tour-nums">Задания турнира: ${T.nums.map(n => `<b class="chip">№${n}</b>`).join(' ')}</p>
+      ${T.cap_min ? '' : `<p class="fm-muted tour-ranks">Время на матч — с нажатия «Играть»: №1–23 по 10 минут на задание, №24–27 по 30. Решённое позже не засчитается.</p>`}
       <p class="fm-muted tour-ranks">Сложность по этапам: ${T.ranks.map((r, i) => `${esc(names[i] || '')} — ${TOUR_RANK_WORD[r]}`).join(' → ')}</p>`;
   }
   /** Входящие вызовы на дуэль, которые ждут ответа. */
@@ -5993,7 +5993,7 @@
   async function startTourMatch(id) {
     let r;
     try { r = await api('tour/start', { match: id }); } catch (e) { toast(e.message, 3000); return; }
-    if (r && r.cap) toast(`⏱ На матч ${Math.round(r.cap / 60)} минут — решённое позже не засчитается`, 5000);
+    if (r && r.cap) toast(`⏱ На матч ${Math.round(r.cap / 60)} минут — таймер вверху, решённое позже не засчитается`, 5000);
     await loadDuels();
     leaveCourse();
     setScope('asg', 'tm-' + id);
@@ -6926,6 +6926,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.57.2', '15.10.2026', ['Турниры: ограничение времени на матч, как в дуэлях — 10 минут на задание №1–23 и 30 минут на №24–27; таймер вверху']],
     ['1.57.1', '15.10.2026', ['Турниры: исправлено — матч против не пришедшего к началу соперника больше не заканчивается сам посреди игры; доиграй свои задания, победа засчитается']],
     ['1.57.0', '15.10.2026', ['Дуэли и турниры обновляются сами — на любой странице: вызовы, старт турнира, итоги матчей и дуэлей приходят уведомлением',
       'Вышла новая версия сайта — появится кнопка «Обновить», не нужно перезагружать вручную']],
