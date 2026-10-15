@@ -863,10 +863,16 @@ class ServerTest(unittest.TestCase):
         tok = self.login("Дневной Денис")
         st, d = self.req("GET", "/api/daily", token=tok)
         self.assertEqual(st, 200, d)
+        self.assertIsNone(d["task"])                                      # какое задание — только после «Решать»
+        d = self.req("POST", "/api/daily/start", {}, tok)[1]
         real = server.APP.bank.real(d["task"])
         ans = next(t for t in BANK["tasks"] if t["id"] == real)["ans"]
         self.req("POST", "/api/open", {"task": d["task"]}, tok)
-        self.check(tok, d["task"], answer=ans)
+        old_min, server.DAILY_MIN_SEC = server.DAILY_MIN_SEC, {n: 0 for n in range(1, 28)}
+        try:
+            self.check(tok, d["task"], answer=ans)
+        finally:
+            server.DAILY_MIN_SEC = old_min
         st, d = self.req("GET", "/api/daily", token=tok)
         mine = next(r for r in d["top"] if r["me"])                       # другие ученики тестов могли решить раньше
         self.assertEqual((mine["name"], mine["place"], d["my_place"]), ("Дневной Д.", d["my_place"], d["my_place"]))
@@ -915,6 +921,8 @@ class ServerTest(unittest.TestCase):
         tok = self.login("Однодневов Олег")
         d = self.req("GET", "/api/daily", token=tok)[1]
         self.assertIsNone(d["started"])
+        d = self.req("POST", "/api/daily/start", {}, tok)[1]
+        self.assertEqual(self.req("POST", "/api/daily/start", {}, tok)[1], d)   # второй вход — то же задание и время
         real = server.APP.bank.real(d["task"])
         ans = next(t for t in BANK["tasks"] if t["id"] == real)["ans"]
         self.req("POST", "/api/open", {"task": d["task"]}, tok)
@@ -928,16 +936,32 @@ class ServerTest(unittest.TestCase):
         d = self.req("GET", "/api/daily", token=tok)[1]
         self.assertIsNone(d["my_place"])                                   # в рейтинг не попал
 
+    def test_daily_personal_and_too_fast(self):
+        # у каждого своё задание дня того же номера и типа; ответ за пару секунд в рейтинг не идёт
+        ta, tb = self.login("Личнов Лев"), self.login("Личнов Марк")
+        da = self.req("POST", "/api/daily/start", {}, ta)[1]
+        db_ = self.req("POST", "/api/daily/start", {}, tb)[1]
+        base = server.APP.bank.tasks[server.daily_task_id()]
+        for d in (da, db_):
+            t = server.APP.bank.tasks[server.APP.bank.real(d["task"])]
+            self.assertEqual((t["n"], t.get("c")), (base["n"], base.get("c")))
+        real = server.APP.bank.real(da["task"])
+        ans = next(t for t in BANK["tasks"] if t["id"] == real)["ans"]
+        self.req("POST", "/api/open", {"task": da["task"]}, ta)
+        st, r = self.check(ta, da["task"], answer=ans)
+        self.assertEqual(st, 200, r)
+        self.assertTrue(r.get("daily_fast"))
+        d = self.req("GET", "/api/daily", token=ta)[1]
+        self.assertTrue(d["fast"])
+        self.assertIsNone(d["my_place"])
+        self.assertFalse(any(x["me"] for x in d["top"]))
+
     def test_duel_full_cycle(self):
         ta, tb = self.login("Дуэлев Аркадий"), self.login("Дуэлев Борис")
         sb = self.req("GET", "/api/me", token=tb)[1]["sid"]
         server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
                         (sb, time.time() - 100, "du:old", 5, "[]", "1", 1.0))   # у Бориса есть опыт — будет что забрать
-        st, d = self.req("GET", "/api/duels", token=ta)
-        self.assertEqual((st, d.get("dev_locked")), (403, True))           # турнир в разработке — по коду
-        self.assertEqual(self.req("POST", "/api/dev/unlock", {"code": "1111"}, ta)[0], 403)
-        for t in (ta, tb):
-            self.assertEqual(self.req("POST", "/api/dev/unlock", {"code": "20011608"}, t)[0], 200)
+        self.assertEqual(self.req("GET", "/api/duels", token=ta)[0], 200)   # дуэли открыты всем, без кода
         mates = self.req("GET", "/api/duels", token=ta)[1]["mates"]
         self.assertIn("Дуэлев Б.", [m["name"] for m in mates])
         st, d = self.req("POST", "/api/duel/create", {"sid": sb}, ta)
@@ -996,6 +1020,13 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/tour/leave", {"id": big}, toks[0])
         for t in toks[:3]:
             self.req("POST", "/api/tour/join", {"id": quick}, t)
+        # голосование за номера: только записавшиеся, не больше трёх номеров
+        self.assertEqual(self.req("POST", "/api/tour/vote", {"id": quick, "nums": [5]}, toks[4])[0], 403)
+        self.assertEqual(self.req("POST", "/api/tour/vote", {"id": quick, "nums": [1, 2, 3, 4]}, toks[0])[0], 400)
+        for t in toks[:3]:
+            self.assertEqual(self.req("POST", "/api/tour/vote", {"id": quick, "nums": [5, 6]}, t)[0], 200)
+        lob4 = {l["size"]: l for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"]}[4]
+        self.assertEqual((lob4["votes"], lob4["my_votes"]), ({"5": 3, "6": 3}, [5, 6]))
         st, d = self.req("POST", "/api/tour/join", {"id": quick}, toks[3])
         self.assertEqual((st, d["started"]), (200, True))                               # набрались — турнир пошёл
         d = self.req("GET", "/api/tour", token=toks[0])[1]
@@ -1004,6 +1035,8 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(lob[4]["next_at"] > time.time())
         T = d["mine"]
         self.assertEqual((T["status"], T["stage"], len(T["groups"]), len(T["groups"][0]["matches"])), ("run", "Групповой этап", 1, 6))
+        self.assertTrue({5, 6} <= set(T["nums"]))                                        # выигравшие голосование номера
+        self.assertEqual(T["ranks"], [2, 5])                                             # группы проще, финал — сложнее
         mine = [m for m in T["groups"][0]["matches"] if m["mine"]]
         self.assertEqual(len(mine), 3)
         # Антон решает по 2 в каждом матче группы — он первый; второй матч, пока первый не закончен, начать нельзя
@@ -1049,6 +1082,7 @@ class ServerTest(unittest.TestCase):
             self.req("POST", "/api/tour/join", {"id": cid}, t)
         T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
         self.assertEqual([len(g["rows"]) for g in T["groups"]], [4, 4, 4])
+        self.assertEqual(T["ranks"], [2, 3, 4, 5])                                      # от групп к финалу сложнее
         self.assertEqual(sum(len(g["matches"]) for g in T["groups"]), 18)
         seeds = {p["sid"]: p for p in T["players"]}
         for g in T["groups"]:                       # корзины: в каждой группе по одному из каждой четвёрки сеяных
