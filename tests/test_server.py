@@ -1095,6 +1095,7 @@ class ServerTest(unittest.TestCase):
         db = server.APP.db
         db.x("DELETE FROM tournaments")
         db.x("DELETE FROM tour_players")
+        db.x("DELETE FROM tour_matches")
         toks = [self.login(f"Спринтов {n}") for n in ("Антон", "Борис", "Виктор", "Глеб")]
         sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
         lobs = self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"]
@@ -1153,6 +1154,7 @@ class ServerTest(unittest.TestCase):
     def test_tournament_groups_playoff_prizes(self):
         server.APP.db.x("DELETE FROM tournaments")
         server.APP.db.x("DELETE FROM tour_players")
+        server.APP.db.x("DELETE FROM tour_matches")
         toks = [self.login(f"Турниров {n}") for n in ("Антон", "Борис", "Виктор", "Глеб", "Денис")]
         sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
         st, d = self.req("GET", "/api/tour", token=toks[0])
@@ -1232,6 +1234,7 @@ class ServerTest(unittest.TestCase):
         db = server.APP.db
         db.x("DELETE FROM tournaments")
         db.x("DELETE FROM tour_players")
+        db.x("DELETE FROM tour_matches")
         toks = [self.login(f"Неявкин {n}") for n in ("Антон", "Борис", "Виктор", "Глеб")]
         sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
         quick = {l["size"]: l["id"] for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"] if not l["theme"]}[4]
@@ -1242,11 +1245,28 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/tour/start", {"match": mine[0]["id"]}, toks[0])          # Антон на месте, остальные — нет
         db.x("UPDATE tournaments SET started=? WHERE id=?", (time.time() - 200, T["id"]))
         T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
+        self.assertEqual(sorted(T["gone"]), sorted(sids[1:]))
+        ms = {m["id"]: m for m in T["groups"][0]["matches"]}
+        self.assertEqual(ms[mine[0]["id"]]["status"], "play")                           # пришедший доигрывает спокойно
+        self.assertTrue(all(m["status"] == "done" for m in ms.values() if m["id"] not in {x["id"] for x in mine}))
+        self.assertEqual(self.req("POST", "/api/tour/start", {"match": mine[1]["id"]}, toks[0])[0], 409)   # сначала закончи начатый
+        late = db.q("SELECT id, a FROM tour_matches WHERE tour_id=? AND status='play' AND a!=? AND b=?",
+                    (T["id"], sids[0], sids[0]), one=True) or db.q(
+                    "SELECT id, b AS a FROM tour_matches WHERE tour_id=? AND status='play' AND a=? AND b!=?",
+                    (T["id"], sids[0], sids[0]), one=True)
+        self.assertEqual(self.req("POST", "/api/tour/start", {"match": late["id"]}, toks[sids.index(late["a"])])[0], 409)   # опоздавший не играет
+        self.req("POST", "/api/tour/finish", {"match": mine[0]["id"]}, toks[0])
+        for m in mine[1:]:
+            self.req("POST", "/api/tour/start", {"match": m["id"]}, toks[0])
+            self.req("POST", "/api/tour/finish", {"match": m["id"]}, toks[0])
+        T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
         rows = {r["sid"]: r for r in T["groups"][0]["rows"]}
         self.assertEqual((rows[sids[0]]["w"], rows[sids[0]]["pts"]), (3, 9))           # все три матча — победы
         self.assertTrue(all(rows[x]["pts"] == 0 for x in sids[1:]))
-        self.assertEqual(sorted(T["gone"]), sorted(sids[1:]))
-        self.assertEqual(T["stage"], "Финал")                                           # группа закончилась сразу
+        self.assertEqual(T["stage"], "Финал")
+        fin = T["playoff"][0]["matches"][0]
+        loser_tok = toks[sids.index(fin["b"]["sid"] if fin["a"]["sid"] == sids[0] else fin["a"]["sid"])]
+        self.assertEqual(self.req("POST", "/api/tour/start", {"match": fin["id"]}, loser_tok)[0], 200)   # в плей-офф — снова можно
         # не больше трёх турниров каждого вида в сутки
         for _ in range(2):
             db.x("INSERT INTO tournaments(teacher_id, size, title, status, created, started, fmt) VALUES(?,?,?,?,?,?,2)",
@@ -1263,6 +1283,7 @@ class ServerTest(unittest.TestCase):
     def test_tournament_12_groups_thirds_bracket(self):
         server.APP.db.x("DELETE FROM tournaments")
         server.APP.db.x("DELETE FROM tour_players")
+        server.APP.db.x("DELETE FROM tour_matches")
         toks = [self.login(f"Чемпионов {chr(0x410 + i)}") for i in range(12)]
         tid = self.req("GET", "/api/tour", token=toks[0])[1]
         cid = {l["size"]: l["id"] for l in tid["lobbies"] if not l["theme"]}[12]
