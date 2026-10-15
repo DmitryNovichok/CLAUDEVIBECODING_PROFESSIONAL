@@ -220,31 +220,31 @@
       <button type="button" role="tab" data-tab="reg">Регистрация</button>
     </div>
 
-    <!-- вход: браузер сохранит и подставит ФИО и пароль -->
-    <form id="loginForm" class="login-form login-stack" autocomplete="on" hidden>
+    <!-- вход: браузер не должен сохранять ФИО и пароль — за компьютером класса сидят разные ученики -->
+    <form id="loginForm" class="login-form login-stack" autocomplete="off" hidden>
       <label class="login-field">Фамилия и имя
-        <input class="inp" id="loginName" name="username" autocomplete="username" placeholder="Иванов Иван" maxlength="80" required>
+        <input class="inp" id="loginName" autocomplete="off" placeholder="Иванов Иван" maxlength="80" required>
       </label>
       <label class="login-field">Пароль
-        <input class="inp" id="loginPass" name="password" type="password" autocomplete="current-password" maxlength="200" required>
+        <input class="inp secret" id="loginPass" type="password" autocomplete="off" maxlength="200" required>
       </label>
       <button class="btn primary btn-block" type="submit">Войти</button>
       <p class="fm-note login-hint">Забыли пароль — попросите учителя сбросить его, затем зарегистрируйтесь заново с тем же ФИО: прогресс сохранится.</p>
     </form>
 
     <!-- регистрация (и старый ученик без пароля) -->
-    <form id="regForm" class="login-form login-stack" autocomplete="on" hidden>
+    <form id="regForm" class="login-form login-stack" autocomplete="off" hidden>
       <label class="login-field">Код приглашения <span class="login-sub">его выдаёт учитель</span>
         <input class="inp" id="regCode" name="code" inputmode="numeric" autocomplete="off" maxlength="40" required>
       </label>
       <label class="login-field">Фамилия и имя <span class="login-sub">полностью — так учитель увидит ваши результаты</span>
-        <input class="inp" id="regName" name="username" autocomplete="username" placeholder="Иванов Иван Иванович" maxlength="80" required>
+        <input class="inp" id="regName" autocomplete="off" placeholder="Иванов Иван Иванович" maxlength="80" required>
       </label>
       <label class="login-field">Придумайте пароль <span class="login-sub">не короче 6 символов</span>
-        <input class="inp" id="regPass" name="new-password" type="password" autocomplete="new-password" minlength="6" maxlength="200" required>
+        <input class="inp secret" id="regPass" type="password" autocomplete="off" minlength="6" maxlength="200" required>
       </label>
       <label class="login-field">Повторите пароль
-        <input class="inp" id="regPass2" name="new-password-repeat" type="password" autocomplete="new-password" minlength="6" maxlength="200" required>
+        <input class="inp secret" id="regPass2" type="password" autocomplete="off" minlength="6" maxlength="200" required>
       </label>
       <label class="login-check"><input type="checkbox" id="regTerms" required>
         <span>Принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">Политику обработки персональных данных</a></span></label>
@@ -279,16 +279,15 @@
     <button type="button" class="fm-close" aria-label="Закрыть">×</button>
     <h2 class="fm-title" id="pwTitle">Пароль</h2>
     <p class="fm-note" id="pwNote"></p>
-    <form id="pwForm" class="login-form login-stack" autocomplete="on">
-      <input type="text" name="username" id="pwUser" autocomplete="username" hidden>
+    <form id="pwForm" class="login-form login-stack" autocomplete="off">
       <label class="login-field" id="pwOldField">Текущий пароль
-        <input class="inp" id="pwOld" type="password" autocomplete="current-password" maxlength="200">
+        <input class="inp secret" id="pwOld" type="password" autocomplete="off" maxlength="200">
       </label>
       <label class="login-field">Новый пароль <span class="login-sub">не короче 6 символов</span>
-        <input class="inp" id="pwNew" type="password" autocomplete="new-password" minlength="6" maxlength="200" required>
+        <input class="inp secret" id="pwNew" type="password" autocomplete="off" minlength="6" maxlength="200" required>
       </label>
       <label class="login-field">Повторите новый пароль
-        <input class="inp" id="pwNew2" type="password" autocomplete="new-password" minlength="6" maxlength="200" required>
+        <input class="inp secret" id="pwNew2" type="password" autocomplete="off" minlength="6" maxlength="200" required>
       </label>
       <button class="btn primary btn-block" type="submit">Сохранить пароль</button>
     </form>
