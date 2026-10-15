@@ -1008,6 +1008,21 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/duel/find", {}, ta)[1].get("matched"), did)
         duel = next(x for x in self.req("GET", "/api/duels", token=ta)[1]["duels"] if x["id"] == did)
         self.assertEqual((duel["status"], duel["quick"]), ("active", True))
+        # номера заданий: меньше трёх — нельзя; без трёх общих номеров не сводим; дуэль — только по общим номерам
+        server.APP.db.x("DELETE FROM duel_queue")
+        td, te, tf = self.login("Номеров Дима"), self.login("Номеров Егор"), self.login("Номеров Фёдор")
+        self.assertEqual(self.req("POST", "/api/duel/find", {"nums": [1, 2]}, td)[0], 400)
+        self.req("POST", "/api/duel/find", {"nums": [1, 2, 3]}, td)
+        self.assertTrue(self.req("POST", "/api/duel/find", {"nums": [4, 5, 6]}, te)[1].get("searching"))   # не совпали
+        st, d = self.req("POST", "/api/duel/find", {"nums": [3, 5, 6, 7]}, tf)
+        self.assertTrue(d.get("searching"))                                  # общих с Димой 1, с Егором 2 — мало
+        self.req("POST", "/api/duel/cancel", {}, tf)
+        st, d = self.req("POST", "/api/duel/find", {"nums": [1, 2, 3, 5]}, tf)
+        self.assertIn("matched", d)                                          # с Димой три общих номера
+        row = server.APP.db.q("SELECT * FROM duels WHERE id=?", (d["matched"],), one=True)
+        self.assertTrue({server.APP.bank.tasks[x]["n"] for x in json.loads(row["tasks"])} <= {1, 2, 3})
+        for t in (td, te, tf):
+            self.req("POST", "/api/duel/cancel", {}, t)
         # отмена поиска
         tc = self.login("Подборов Виктор")
         self.req("POST", "/api/duel/find", {}, tc)
