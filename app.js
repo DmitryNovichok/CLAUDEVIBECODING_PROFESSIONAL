@@ -5670,25 +5670,35 @@
           : D.busy ? '<span class="fm-muted">ты уже в другом турнире</span>'
             : `<button type="button" class="btn primary" data-tour-join="${l.id}">Записаться</button>`;
       return `<div class="ap-card tl-card${l.me_in ? ' going' : ''}${l.id ? '' : ' done'}">
-        <div class="ap-top"><span class="ap-ico">${{ 4: '⚡', 8: '🏆', 12: '🌍' }[l.size]}</span><div><span class="ap-kind">${l.size} игроков · ${TOUR_FMT[l.size]}</span>
+        <div class="ap-top"><span class="ap-ico">${l.icon || { 4: '⚡', 8: '🏆', 12: '🌍' }[l.size]}</span><div><span class="ap-kind">${l.size} игроков · ${l.about ? esc(l.about) : TOUR_FMT[l.size]}</span>
           <b>${esc(l.title || l.name)}</b><small>${l.id ? `набрано ${n} из ${l.size}${n < l.size ? ` — ещё ${l.size - n} и старт!` : ''}` : `${l.per_day} турнира в сутки`} · сегодня ${l.today} из ${l.per_day} · призы ${prizes} XP</small></div></div>
         ${l.id ? `<i class="xp-bar"><b style="width:${pct(n / l.size)}%"></b></i>
         <div class="tl-seats">${Array.from({ length: l.size }, (_, i) => l.players[i]
           ? `<span class="tl-seat on${isMe(l.players[i]) ? ' me' : ''}" title="ур. ${l.players[i].level}">${esc(l.players[i].name)}</span>`
           : '<span class="tl-seat">свободно</span>').join('')}</div>` : ''}
-        ${l.id && (l.me_in || Object.keys(l.votes || {}).length) ? tourVotes(l) : ''}
+        ${l.fixed_nums ? `<div class="tour-nums">Задания: ${l.fixed_nums.map(n => `<b class="chip">№${n}</b>`).join(' ')}${l.cap_min ? ` <span class="chip accent">⏱ ${l.cap_min} мин на матч</span>` : ''}</div>`
+          : l.id && (l.me_in || Object.keys(l.votes || {}).length) ? tourVotes(l) : ''}
         <div class="ap-btns">${btn}</div></div>`;
     };
     trainerEl.innerHTML = `<div class="course asg-page tour-page">
-      <div class="crs-hero"><div><div class="crs-kicker">Турниры</div><h2>Как в футболе</h2>
+      <div class="tour-top">${eloHtml()}${seasonHtml()}</div>
+      <div class="tour-about-bar"><button type="button" class="btn ghost" id="tourAbout" aria-expanded="${TOUR_ABOUT}">ℹ️ О турнире</button>
+        <span class="fm-muted">🏆 ${D.wins} ${plural(D.wins, 'победа', 'победы', 'побед')} в турнирах</span></div>
+      <div class="crs-hero tour-about"${TOUR_ABOUT ? '' : ' hidden'}><div><div class="crs-kicker">Турниры</div><h2>Как в футболе</h2>
         <p>Запишись в набор — как только наберутся все, турнир <b>начнётся сам</b>. Жеребьёвка по корзинам (по опыту) → <b>группы по 4</b>: каждый с каждым,
           победа — 3 очка, ничья — 1, «счёт» матча — сколько заданий решил каждый. Лучшие выходят в <b>плей-офф</b>: там при равном счёте проходит тот, кто решил быстрее, — как серия пенальти.
           Финал и матч за 3-е место. <b>Номера заданий выбирают участники голосованием</b> в наборе, а сложность растёт от этапа к этапу: в группах — попроще, в финале — самые трудные.
           На групповой этап — ${D.group_hours} ч, на каждый раунд плей-офф — ${D.po_hours} ч, не сыграл — техническое поражение.</p>
         <p>Турнир начинается, как только набрались все: <b>в течение ${Math.round(D.noshow_sec / 60)} минут начни любой матч</b>, иначе засчитается поражение во всех матчах группы.</p>
-        <p>Каждого вида — <b>до 3 турниров в сутки</b>. Чемпион получает награду <b>🎖 Победитель турнира</b> в профиль.</p></div>
-        <div class="crs-prog"><b>${D.wins}</b><span>${plural(D.wins, 'победа', 'победы', 'побед')} в турнирах</span></div></div>
-      ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">${esc(T.stage.toLowerCase())} · осталось ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}</h3>
+        <p>Каждого вида — <b>до 3 турниров в сутки</b>. Чемпион получает награду <b>🎖 Победитель турнира</b> в профиль.</p>
+        <p>Тематические: <b>🐍 Кубок по Python</b> (№24–27) и <b>⏱ Спринт</b> (№1–5, на матч — 15 минут).</p>
+        <p><b>Сезон</b> — календарный месяц: за места в турнирах начисляются очки (чем больше турнир, тем дороже), за участие — 1.
+          Тройка лучших сезона получает значок 🏅 / 🥈 / 🥉 в профиль.</p>
+        <p><b>Рейтинг Эло</b> — сила в дуэлях: все начинают с 1000, за победу над сильным соперником очков больше, за проигрыш слабому — больше теряешь.
+          «Найти соперника» подбирает того, у кого рейтинг ближе.</p>
+        <p>Соперники в матче и дуэли получают <b>разные задания одного типа и сложности</b> — подсмотреть ответ у соседа не выйдет.</p></div></div>
+      ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">${esc(T.stage.toLowerCase())} · осталось ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}
+          ${T.cap_min ? `<span class="chip">⏱ ${T.cap_min} мин на матч</span>` : ''}</h3>
         ${tourNoshowHtml(T)}
         ${tourNumsHtml(T)}
         ${T.status === 'done' ? tourPodium(T) : ''}
@@ -5702,6 +5712,25 @@
         <ol class="td-places">${(t.places || []).map(p => `<li class="${isMe(p) ? 'me' : ''}">${p.place ? `${MEDAL[p.place] || p.place + '.'}` : '—'} ${esc(p.name)}${p.gone ? ' <small class="fm-muted">не явился</small>' : ''}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</li>`).join('')}</ol>
         </details>`).join('')}</div>` : ''}
     </div>`;
+  }
+  let TOUR_ABOUT = false;
+  function eloHtml() {
+    const E = TOUR.elo, me = E && E.me;
+    if (!E) return '';
+    const rows = E.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td>${r.place}</td><td>${esc(r.name)}${admTag(r.sid)}</td><td class="num"><b>${r.elo}</b></td><td class="num fm-muted">${r.games}</td></tr>`).join('');
+    const mine = me && !E.top.some(r => r.me) ? `<tr class="me"><td>${me.place || '—'}</td><td>ты</td><td class="num"><b>${me.elo}</b></td><td class="num fm-muted">${me.games}</td></tr>` : '';
+    return `<div class="tt-box"><div class="tt-h">⚔️ Рейтинг Эло <small class="fm-muted">дуэли</small></div>
+      ${rows || mine ? `<table class="lb tt-tab"><tr><th></th><th>Игрок</th><th class="num">Эло</th><th class="num">Дуэлей</th></tr>${rows}${mine}</table>`
+        : '<p class="fm-muted">Пока никто не сыграл дуэль — начни первым!</p>'}</div>`;
+  }
+  function seasonHtml() {
+    const S = TOUR.season;
+    if (!S) return '';
+    const rows = S.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td>${MEDAL[r.place] || r.place}</td><td>${esc(r.name)}${admTag(r.sid)}</td><td class="num"><b>${r.pts}</b></td><td class="num fm-muted">${r.tours}</td></tr>`).join('');
+    const mine = S.me && !S.top.some(r => r.me) ? `<tr class="me"><td>${S.me.place}</td><td>ты</td><td class="num"><b>${S.me.pts}</b></td><td class="num fm-muted">${S.me.tours}</td></tr>` : '';
+    return `<div class="tt-box"><div class="tt-h">🏅 Сезон: ${esc(S.name)} <small class="fm-muted">осталось ${tourLeft(S.ends)}</small></div>
+      ${rows ? `<table class="lb tt-tab"><tr><th></th><th>Игрок</th><th class="num">Очки</th><th class="num">Турниров</th></tr>${rows}${mine}</table>`
+        : '<p class="fm-muted">В этом месяце турниров ещё не было. Тройка лучших сезона получит значок в профиль.</p>'}</div>`;
   }
   const TOUR_RANK_WORD = { 1: 'очень лёгкие', 2: 'лёгкие', 3: 'средние', 4: 'сложные', 5: 'очень сложные' };
   /** Голосование в наборе: каждый записавшийся выбирает до vote_max номеров; самые популярные будут в турнире. */
@@ -5746,7 +5775,7 @@
     const rows = D.duels.map(d => {
       let st, btn = '';
       if (d.status === 'pending') {
-        st = d.mine ? 'ждём ответа соперника' : '⚔️ тебя вызвали!';
+        st = d.mine ? (d.rematch ? 'реванш: ждём ответа соперника' : 'ждём ответа соперника') : d.rematch ? '🔁 тебя зовут на реванш!' : '⚔️ тебя вызвали!';
         if (!d.mine) btn = `<button type="button" class="btn primary" data-duel-accept="${d.id}">Принять</button><button type="button" class="btn ghost" data-duel-decline="${d.id}">Отказаться</button>`;
       } else if (d.status === 'active') {
         st = d.done ? (d.op_done ? 'подводим итог…' : 'ты сыграл — ждём соперника') : `осталось ${tourLeft(d.ends)}`;
@@ -5754,8 +5783,11 @@
           ${d.started ? `<button type="button" class="btn ghost" data-duel-fin="${d.id}">Закончить</button>` : ''}`;
       } else if (d.status === 'finished') {
         const [c, w] = RES[d.result] || ['d', d.result];
-        st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${d.stake ? ` <small>${d.result === 'win' ? '+' : '−'}${d.stake} XP</small>` : ''}`;
-      } else st = d.status === 'declined' ? 'вызов отклонён' : 'вызов не принят вовремя';
+        st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${d.stake ? ` <small>${d.result === 'win' ? '+' : '−'}${d.stake} XP</small>` : ''}`
+          + (d.elo != null ? ` <small class="elo-d ${d.elo >= 0 ? 'up' : 'down'}">${d.elo >= 0 ? '+' : '−'}${Math.abs(d.elo)} Эло</small>` : '')
+          + (d.bonus ? ` <small>🔥 +${d.bonus} XP за серию</small>` : '');
+        if (d.can_rematch) btn = `<button type="button" class="btn ghost" data-duel-rematch="${d.id}">🔁 Реванш</button>`;
+      } else st = d.status === 'declined' ? 'вызов отклонён' : d.status === 'void' ? 'отменена учителем' : 'вызов не принят вовремя';
       return `<div class="tm-row${d.status === 'active' && !d.done || (d.status === 'pending' && !d.mine) ? ' live' : ''}"><div><span class="ap-kind">Дуэль</span>
         <b>ты — ${esc(d.opponent)}</b><div class="fm-muted">${st}</div></div><div class="tm-btns">${btn}</div></div>`;
     }).join('');
@@ -5765,10 +5797,12 @@
           <button type="button" class="btn ghost" id="dqCancel">Отмена</button></div>`
       : D.today >= D.per_day ? `<div class="dq"><b>Сегодня сыграно ${D.today} дуэлей — это максимум.</b><div class="fm-muted">Новые дуэли — завтра.</div></div>`
       : `<div class="dq"><button type="button" class="btn primary dq-go" id="dqFind">🔍 Найти соперника</button>
-          <div class="fm-muted">Подберём того, кто тоже ищет дуэль прямо сейчас, — по возможности твоего уровня.${D.seekers ? ` <b>Сейчас ищут: ${D.seekers}</b>` : ''}</div></div>`;
+          <div class="fm-muted">Подберём того, кто тоже ищет дуэль прямо сейчас, — с рейтингом Эло поближе к твоему.${D.seekers ? ` <b>Сейчас ищут: ${D.seekers}</b>` : ''}</div></div>`;
     const tab = (D.tournament && D.tournament.table || []).filter(r => r.games);
     return `<h3 class="ap-h" id="duelsH">⚔️ Дуэли</h3>
-      <p class="fm-muted">Нажми «Найти соперника» — подберём одноклассника, который тоже ищет дуэль. ${D.tasks} одинаковых заданий, на дуэль — ${D.hours} ч. Больше решил — победа, поровну — быстрее.
+      <div class="duel-me"><span class="chip accent">Твой Эло: <b>${D.my_elo}</b></span>${D.streak >= 2 ? `<span class="chip hot">🔥 ${D.streak} ${plural(D.streak, 'победа', 'победы', 'побед')} подряд</span>` : ''}
+        <small class="fm-muted">С 3-й победы подряд — бонус опыта</small></div>
+      <p class="fm-muted">Нажми «Найти соперника» — подберём одноклассника с близким рейтингом, который тоже ищет дуэль. ${D.tasks} одинаковых заданий, на дуэль — ${D.hours} ч. Больше решил — победа, поровну — быстрее.
         Победитель забирает у проигравшего <b>${D.stake} XP</b>. С одним соперником — одна дуэль в неделю, всего — до ${D.per_day} в день (сегодня ${D.today}).</p>
       ${search}
       ${rows ? `<div class="tm-list">${rows}</div>` : ''}
@@ -5822,7 +5856,9 @@
     await loadDuels();
   }
   async function startTourMatch(id) {
-    try { await api('tour/start', { match: id }); } catch (e) { toast(e.message, 3000); return; }
+    let r;
+    try { r = await api('tour/start', { match: id }); } catch (e) { toast(e.message, 3000); return; }
+    if (r && r.cap) toast(`⏱ На матч ${Math.round(r.cap / 60)} минут — решённое позже не засчитается`, 5000);
     await loadDuels();
     leaveCourse();
     setScope('asg', 'tm-' + id);
@@ -5855,6 +5891,14 @@
     if (j) return tourAction('tour/join', { id: +j.dataset.tourJoin }, 'Ты в наборе! Турнир начнётся, когда наберутся все игроки.');
     if (l) return tourAction('tour/leave', { id: +l.dataset.tourLeave }, 'Ты вышел из набора');
     if (go) return startTourMatch(+go.dataset.tourGo);
+    if (t.closest('#tourAbout')) {
+      TOUR_ABOUT = !TOUR_ABOUT;
+      $('.tour-about').hidden = !TOUR_ABOUT;
+      t.closest('#tourAbout').setAttribute('aria-expanded', TOUR_ABOUT);
+      return;
+    }
+    const rm = t.closest('[data-duel-rematch]');
+    if (rm) return tourAction('duel/rematch', { id: +rm.dataset.duelRematch }, 'Вызов на реванш отправлен! Ждём ответа соперника.');
     const v = t.closest('[data-tour-vote]');
     if (v) {
       const [id, n] = v.dataset.tourVote.split(':').map(Number);
@@ -6744,6 +6788,13 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.56.0', '15.10.2026', ['Рейтинг Эло в дуэлях: за победу над сильным — больше очков; подбор соперника — по рейтингу. Таблица Эло — вверху страницы турниров',
+      'Сезоны турниров: каждый месяц очки за места складываются в таблицу, тройка лучших получает значок сезона',
+      'Серии побед в дуэлях: с 3-й победы подряд — бонус опыта 🔥',
+      'Реванш: после проигранной дуэли можно позвать соперника ещё раз',
+      'Тематические турниры: 🐍 Кубок по Python (№24–27) и ⏱ Спринт (№1–5, 15 минут на матч)',
+      'Честнее: соперники получают разные задания одного типа и сложности',
+      'Описание турниров спрятано под кнопку «О турнире»']],
     ['1.55.0', '15.10.2026', ['Турниры: каждого вида — до 3 в сутки',
       'Турниры: после старта есть 3 минуты, чтобы начать любой матч, — кто не пришёл, автоматически сдаётся',
       'Внизу страницы турниров — история: места всех участников и твоё место',

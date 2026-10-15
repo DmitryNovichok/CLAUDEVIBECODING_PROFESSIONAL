@@ -960,6 +960,8 @@ class DB:
                 a_solved INTEGER, b_solved INTEGER, a_sec REAL, b_sec REAL, winner INTEGER, tech INTEGER DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'play', ends REAL);
             CREATE INDEX IF NOT EXISTS tour_match_t ON tour_matches(tour_id, round);
+            CREATE TABLE IF NOT EXISTS duel_elo(
+                student_id INTEGER PRIMARY KEY, elo REAL NOT NULL, games INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS duel_queue(
                 student_id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, level INTEGER, since REAL, seen REAL);
             CREATE TABLE IF NOT EXISTS tour_votes(
@@ -1027,7 +1029,16 @@ class DB:
                     ("tournaments", "nums", "TEXT"),
                     ("duels", "quick", "INTEGER DEFAULT 0"),
                     ("tour_matches", "created", "REAL"),              # когда матч появился (начало стадии)
-                    ("tour_players", "gone", "INTEGER DEFAULT 0")):    # не явился к началу турнира — сдался          # дуэль из подбора соперника (оба нажали «Найти»)                 # номера заданий турнира (по голосованию), JSON        # открыл разделы «в разработке» (турнир) по коду                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
+                    ("tour_players", "gone", "INTEGER DEFAULT 0"),
+                    ("duels", "tasks_b", "TEXT"),                     # свои задания второму игроку (та же сложность)
+                    ("tour_matches", "tasks_b", "TEXT"),
+                    ("duels", "a_elo", "REAL"),                       # изменение рейтинга Эло за дуэль
+                    ("duels", "b_elo", "REAL"),
+                    ("duels", "bonus", "INTEGER DEFAULT 0"),          # бонус победителю за серию побед
+                    ("duels", "rematch_of", "INTEGER"),               # реванш за дуэль
+                    ("duel_queue", "elo", "REAL"),
+                    ("tournaments", "theme", "TEXT"),                 # тематический турнир: python, sprint
+                    ("tour_matches", "admin", "TEXT")):               # что сделал учитель вручную    # не явился к началу турнира — сдался          # дуэль из подбора соперника (оба нажали «Найти»)                 # номера заданий турнира (по голосованию), JSON        # открыл разделы «в разработке» (турнир) по коду                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
@@ -2218,10 +2229,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                               WHERE p.student_id=? AND t.status IN ('reg','run')""", (s["id"],))
         if path == "/api/tour":
             lobbies = []
-            for size, name in TOUR_SIZES.items():
-                t = db.q("SELECT * FROM tournaments WHERE teacher_id=? AND size=? AND status='reg'", (tid, size), one=True)
-                item = {"size": size, "name": name, "groups": TOUR_GROUPS[size], "qual": TOUR_QUAL[size],
-                        "prizes": TOUR_PRIZES[size], "today": tour_started_today(db, tid, size), "per_day": TOUR_PER_DAY}
+            for size, theme in TOUR_KINDS:
+                t = db.q("SELECT * FROM tournaments WHERE teacher_id=? AND size=? AND COALESCE(theme, '')=? AND status='reg'",
+                         (tid, size, theme), one=True)
+                th = TOUR_THEMES.get(theme, {})
+                item = {"size": size, "name": tour_kind_name(size, theme), "groups": TOUR_GROUPS[size], "qual": TOUR_QUAL[size],
+                        "prizes": TOUR_PRIZES[size], "today": tour_started_today(db, tid, size, theme), "per_day": TOUR_PER_DAY,
+                        "theme": theme, "icon": th.get("icon"), "about": th.get("about"), "fixed_nums": th.get("nums"),
+                        "cap_min": (th.get("cap") or 0) // 60}
                 if t:
                     players = tour_people(db, t["id"])
                     votes = {}
@@ -2243,7 +2258,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             done = [tour_view(db, t, s["id"], brief=True) for t in
                     db.q("SELECT * FROM tournaments WHERE teacher_id=? AND status='done' ORDER BY finished DESC LIMIT 30", (tid,))]
             wins = db.q("SELECT COUNT(*) AS c FROM awards WHERE student_id=? AND kind='tour1'", (s["id"],), one=True)["c"]
+            season_close(db, tid)
             return self.send_json({"lobbies": lobbies, "mine": mine, "done": done, "wins": wins, "tasks": DUEL_TASKS,
+                                   "elo": elo_board(db, tid, s["id"]), "season": season_view(db, tid, s["id"]),
                                    "vote_nums": sorted(TOUR_NUMS), "vote_max": TOUR_VOTE_MAX, "noshow_sec": TOUR_NOSHOW_SEC,
                                    "group_hours": TOUR_GROUP_HOURS, "po_hours": TOUR_PO_HOURS, "busy": bool(mine_active)})
         if method != "POST":
@@ -2258,6 +2275,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json({"ok": True})
             if path == "/api/tour/vote":
                 # голосование за номера заданий турнира: до TOUR_VOTE_MAX номеров, только у записавшихся
+                if t["theme"]:
+                    return self.err(409, "В тематическом турнире номера заданий уже заданы")
                 if not db.q("SELECT 1 FROM tour_players WHERE tour_id=? AND student_id=?", (t["id"], s["id"]), one=True):
                     return self.err(403, "Голосовать могут только записавшиеся в турнир")
                 nums = sorted({n for n in (to_int(x) for x in (data.get("nums") or [])[:30]) if n in TOUR_NUMS})
@@ -2287,7 +2306,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if busy:
                     return self.err(409, "Сначала закончи начатый матч")
                 db.x(f"UPDATE tour_matches SET {side}_start=? WHERE id=?", (time.time(), m["id"]))
-            return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in json.loads(m["tasks"])], "ends": m["ends"]})
+            return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in side_tasks(m, side)], "ends": m["ends"],
+                                   "cap": tour_cap(db, m["tour_id"])})
         if path == "/api/tour/finish":
             if m["status"] == "play" and m[side + "_start"] and not m[side + "_done"]:
                 db.x(f"UPDATE tour_matches SET {side}_done=? WHERE id=?", (time.time(), m["id"]))
@@ -2313,16 +2333,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         "started": bool(d[me + "_start"]), "done": bool(d[me + "_done"]), "op_done": bool(d[op + "_done"]),
                         "ends": (d["accepted"] or d["created"]) + DUEL_HOURS * 3600, "quick": bool(d["quick"])}
                 if d["status"] == "active" and d[me + "_start"]:
-                    item["tasks"] = [APP.bank.pid(x) for x in json.loads(d["tasks"])]
+                    item["tasks"] = [APP.bank.pid(x) for x in side_tasks(d, me)]
                     item["since"] = d[me + "_start"]
+                item["rematch"] = bool(d["rematch_of"])
                 if d["status"] == "finished":
                     item.update(my_solved=d[me + "_solved"], op_solved=d[op + "_solved"], stake=d["stake"] or 0,
-                                result="draw" if not d["winner"] else ("win" if d["winner"] == s["id"] else "lose"))
+                                result="draw" if not d["winner"] else ("win" if d["winner"] == s["id"] else "lose"),
+                                elo=round(d[me + "_elo"]) if d[me + "_elo"] is not None else None,
+                                bonus=(d["bonus"] or 0) if d["winner"] == s["id"] else 0)
+                    item["can_rematch"] = (d["winner"] is not None and d["winner"] != s["id"] and time.time() - (d["finished"] or 0) < 86400
+                                           and not db.q("SELECT 1 FROM duels WHERE rematch_of=?", (d["id"],), one=True))
                 out.append(item)
             lv = lambda sid: game_summary(db, sid, brief=True)["level"]
             q = db.q("SELECT since FROM duel_queue WHERE student_id=? AND seen>?", (s["id"], time.time() - DUEL_QUEUE_TTL), one=True)
             return self.send_json({"duels": out, "searching": bool(q), "search_since": q["since"] if q else None,
                                    "today": duels_today(db, s["id"]), "per_day": DUEL_PER_DAY,
+                                   "my_elo": round(elo_of(db, s["id"])), "streak": duel_streak(db, s["id"]),
                                    "seekers": duel_seekers(db, tid, s["id"]), "stake": DUEL_STAKE, "tasks": DUEL_TASKS, "hours": DUEL_HOURS,
                                    "tournament": tournament_table(db, s, mates),
                                    "mates": sorted(({"sid": m["id"], "name": short_name(m["name"]), "level": lv(m["id"])}
@@ -2351,6 +2377,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("DELETE FROM duel_queue WHERE student_id=?", (s["id"],))
                     return self.err(429, f"Сегодня уже {DUEL_PER_DAY} дуэлей — это максимум. Новые — завтра!")
                 me_lv = game_summary(db, s["id"], brief=True)["level"]
+                me_elo = elo_of(db, s["id"])
                 db.x("DELETE FROM duel_queue WHERE seen<?", (now - DUEL_QUEUE_TTL,))
                 busy = {r["x"] for r in db.q("""SELECT CASE WHEN a=? THEN b ELSE a END AS x FROM duels
                                                 WHERE (a=? OR b=?) AND (status IN ('pending','active')
@@ -2362,18 +2389,35 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     tasks = duel_tasks()
                     if not tasks:
                         return self.err(503, "нет подходящих заданий")
-                    op = min(cands, key=lambda r: (abs((r["level"] or 1) - me_lv), r["since"]))
+                    op = min(cands, key=lambda r: (abs((r["elo"] if r["elo"] is not None else ELO_START) - me_elo), r["since"]))
                     db.x("DELETE FROM duel_queue WHERE student_id IN (?,?)", (s["id"], op["student_id"]))
-                    did = db.x("""INSERT INTO duels(a, b, tasks, created, status, accepted, quick)
-                                  VALUES(?,?,?,?, 'active', ?, 1)""", (op["student_id"], s["id"], json.dumps(tasks), now, now))
+                    did = db.x("""INSERT INTO duels(a, b, tasks, tasks_b, created, status, accepted, quick)
+                                  VALUES(?,?,?,?,?, 'active', ?, 1)""",
+                               (op["student_id"], s["id"], json.dumps(tasks), json.dumps(twin_tasks(tasks)), now, now))
                     return self.send_json({"matched": did})
-                db.x("""INSERT INTO duel_queue(student_id, teacher_id, level, since, seen) VALUES(?,?,?,?,?)
-                        ON CONFLICT(student_id) DO UPDATE SET seen=excluded.seen, level=excluded.level""",
-                     (s["id"], tid, me_lv, now, now))
+                db.x("""INSERT INTO duel_queue(student_id, teacher_id, level, since, seen, elo) VALUES(?,?,?,?,?,?)
+                        ON CONFLICT(student_id) DO UPDATE SET seen=excluded.seen, level=excluded.level, elo=excluded.elo""",
+                     (s["id"], tid, me_lv, now, now, me_elo))
             q = db.q("SELECT since FROM duel_queue WHERE student_id=?", (s["id"],), one=True)
             return self.send_json({"searching": True, "since": q["since"], "seekers": duel_seekers(db, tid, s["id"])})
         if path == "/api/duel/create":
             return self.err(410, "Вызов на дуэль убран — нажми «Найти соперника»")
+        if path == "/api/duel/rematch":
+            # реванш: проигравший зовёт победителя ещё раз (сверх правила «одна дуэль с соперником в неделю»)
+            d = db.q("SELECT * FROM duels WHERE id=? AND (a=? OR b=?)", (to_int(data.get("id")), s["id"], s["id"]), one=True)
+            if not d or d["status"] != "finished" or not d["winner"] or d["winner"] == s["id"]:
+                return self.err(409, "Реванш можно попросить только после проигранной дуэли")
+            if time.time() - (d["finished"] or 0) > 86400:
+                return self.err(409, "Реванш можно попросить в течение суток после дуэли")
+            if db.q("SELECT 1 FROM duels WHERE rematch_of=?", (d["id"],), one=True):
+                return self.err(409, "Реванш за эту дуэль уже был")
+            if duels_today(db, s["id"]) >= DUEL_PER_DAY:
+                return self.err(429, f"Сегодня уже {DUEL_PER_DAY} дуэлей — это максимум. Новые — завтра!")
+            op = d["winner"]
+            tasks = duel_tasks()
+            did = db.x("""INSERT INTO duels(a, b, tasks, tasks_b, created, status, rematch_of) VALUES(?,?,?,?,?, 'pending', ?)""",
+                       (s["id"], op, json.dumps(tasks), json.dumps(twin_tasks(tasks)), time.time(), d["id"]))
+            return self.send_json({"ok": True, "id": did})
         d = db.q("SELECT * FROM duels WHERE id=? AND (a=? OR b=?)", (to_int(data.get("id")), s["id"], s["id"]), one=True)
         if not d:
             return self.err(404, "дуэль не найдена")
@@ -2391,7 +2435,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(409, "Дуэль не идёт")
             if not d[me + "_start"]:
                 db.x(f"UPDATE duels SET {me}_start=? WHERE id=?", (time.time(), d["id"]))
-            return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in json.loads(d["tasks"])]})
+            return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in side_tasks(d, me)]})
         if path == "/api/duel/finish":
             if d["status"] == "active" and d[me + "_start"] and not d[me + "_done"]:
                 db.x(f"UPDATE duels SET {me}_done=? WHERE id=?", (time.time(), d["id"]))
@@ -2690,24 +2734,84 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 for m in db.q("SELECT * FROM tour_matches WHERE tour_id=? ORDER BY round, slot", (t["id"],)):
                     po = {2: "Полуфинал", 4: "Четвертьфинал"}.get(len([x for x in db.q(
                         "SELECT 1 FROM tour_matches WHERE tour_id=? AND round=? AND kind='po'", (t["id"], m["round"]))]) * 2)
-                    matches.append({"stage": (f"Группа {m['grp']}" if m["kind"] == "group" else po if m["kind"] == "po" else stage.get(m["kind"], "")),
+                    matches.append({"id": m["id"], "cur": m["round"] == t["round"] and t["status"] == "run",
+                                    "sus_a": comp_flags(db, m, "a"), "sus_b": comp_flags(db, m, "b"), "admin": m["admin"],
+                                    "stage": (f"Группа {m['grp']}" if m["kind"] == "group" else po if m["kind"] == "po" else stage.get(m["kind"], "")),
                                     "a": names.get(m["a"], "?"), "b": names.get(m["b"], "?"), "a_solved": m["a_solved"],
                                     "b_solved": m["b_solved"], "winner": names.get(m["winner"]) if m["winner"] else None,
                                     "tech": bool(m["tech"]), "status": m["status"]})
                 tours.append({"id": t["id"], "title": t["title"], "size": t["size"], "status": t["status"], "started": t["started"],
+                              "theme": t["theme"] or "",
                               "finished": t["finished"], "nums": json.loads(t["nums"]) if t["nums"] else None,
                               "players": players, "matches": matches})
             duels = []
             ids = list(names)
             if ids:
                 ph = ",".join("?" * len(ids))
-                for d in db.q(f"""SELECT * FROM duels WHERE status IN ('finished','active') AND (a IN ({ph}) OR b IN ({ph}))
+                for d in db.q(f"""SELECT * FROM duels WHERE status IN ('finished','active','void') AND (a IN ({ph}) OR b IN ({ph}))
                                   ORDER BY COALESCE(finished, accepted, created) DESC LIMIT 500""", (*ids, *ids)):
                     duels.append({"id": d["id"], "status": d["status"], "ts": d["finished"] or d["accepted"] or d["created"],
                                   "a": names.get(d["a"], "?"), "b": names.get(d["b"], "?"), "a_solved": d["a_solved"],
                                   "b_solved": d["b_solved"], "winner": names.get(d["winner"]) if d["winner"] else None,
-                                  "stake": d["stake"] or 0, "quick": bool(d["quick"])})
+                                  "stake": d["stake"] or 0, "quick": bool(d["quick"]), "rematch": bool(d["rematch_of"]),
+                                  "a_elo": d["a_elo"], "b_elo": d["b_elo"], "sus_a": comp_flags(db, d, "a"), "sus_b": comp_flags(db, d, "b")})
             return self.send_json({"tournaments": tours, "duels": duels})
+
+        if path == "/api/admin/tour/match" and method == "POST":
+            # ручное управление матчем текущей стадии: победа одному (тех.), переиграть заново
+            m = db.q("""SELECT m.* FROM tour_matches m JOIN tournaments t ON t.id=m.tour_id
+                        WHERE m.id=? AND t.teacher_id=? AND t.status='run' AND m.round=t.round""",
+                     (to_int(data.get("id")), self.T["id"]), one=True)
+            if not m:
+                return self.err(404, "Матч не найден или его стадия уже закончилась")
+            act = str(data.get("action") or "")
+            if act in ("a", "b"):
+                db.x("""UPDATE tour_matches SET status='done', winner=?, tech=1, a_solved=COALESCE(a_solved, 0),
+                        b_solved=COALESCE(b_solved, 0), admin=? WHERE id=?""", (m[act], f"победа {act} (учитель)", m["id"]))
+            elif act == "replay":
+                t = db.q("SELECT * FROM tournaments WHERE id=?", (m["tour_id"],), one=True)
+                tasks, tasks_b = tour_new_tasks(db, t, m["round"])
+                hours = TOUR_GROUP_HOURS if m["kind"] == "group" else TOUR_PO_HOURS
+                ends = max(m["ends"] or 0, time.time() + hours * 3600)
+                db.x("""UPDATE tour_matches SET status='play', a_start=NULL, b_start=NULL, a_done=NULL, b_done=NULL, a_solved=NULL,
+                        b_solved=NULL, a_sec=NULL, b_sec=NULL, winner=NULL, tech=0, tasks=?, tasks_b=?, ends=?, admin='переигровка'
+                        WHERE id=?""", (json.dumps(tasks), json.dumps(tasks_b), ends, m["id"]))
+                db.x("UPDATE tournaments SET round_ends=MAX(COALESCE(round_ends, 0), ?) WHERE id=?", (ends, t["id"]))
+            else:
+                return self.err(400, "неизвестное действие")
+            tour_tick(db, db.q("SELECT * FROM tournaments WHERE id=?", (m["tour_id"],), one=True))
+            return self.send_json({"ok": True})
+
+        if path == "/api/admin/tour/restart" and method == "POST":
+            # перезапуск: турнир отменяется, те же игроки (и голоса) — в новом, он сразу стартует заново
+            t = db.q("SELECT * FROM tournaments WHERE id=? AND teacher_id=? AND status IN ('reg','run')",
+                     (to_int(data.get("id")), self.T["id"]), one=True)
+            if not t:
+                return self.err(404, "Турнир не найден или уже завершён")
+            db.x("UPDATE tournaments SET status='void', finished=? WHERE id=?", (time.time(), t["id"]))
+            db.x("DELETE FROM tournaments WHERE teacher_id=? AND size=? AND COALESCE(theme, '')=? AND status='reg' AND id!=?",
+                 (self.T["id"], t["size"], t["theme"] or "", t["id"]))   # пустой набор того же вида уступает место
+            nid = db.x("INSERT INTO tournaments(teacher_id, size, title, status, created, fmt, theme) VALUES(?,?,?,'reg',?,?,?)",
+                       (self.T["id"], t["size"], t["title"], time.time(), TOUR_FMT, t["theme"]))
+            for r in db.q("SELECT student_id, joined FROM tour_players WHERE tour_id=?", (t["id"],)):
+                db.x("INSERT INTO tour_players(tour_id, student_id, joined) VALUES(?,?,?)", (nid, r["student_id"], r["joined"]))
+            for r in db.q("SELECT student_id, n FROM tour_votes WHERE tour_id=?", (t["id"],)):
+                db.x("INSERT OR IGNORE INTO tour_votes(tour_id, student_id, n) VALUES(?,?,?)", (nid, r["student_id"], r["n"]))
+            tour_tick(db, db.q("SELECT * FROM tournaments WHERE id=?", (nid,), one=True))
+            return self.send_json({"ok": True, "id": nid})
+
+        if path == "/api/admin/duel/cancel" and method == "POST":
+            # отмена дуэли: опыт (ставка, бонус серии) и рейтинг Эло возвращаются как было
+            names = {m["id"] for m in teacher_students(db, self.T["id"])}
+            d = db.q("SELECT * FROM duels WHERE id=?", (to_int(data.get("id")),), one=True)
+            if not d or (d["a"] not in names and d["b"] not in names) or d["status"] == "void":
+                return self.err(404, "Дуэль не найдена")
+            db.x("DELETE FROM xp_adjust WHERE reason IN (?, ?)", (f"duel:{d['id']}", f"streak:{d['id']}"))
+            for side in ("a", "b"):
+                if d[side + "_elo"] is not None:
+                    db.x("UPDATE duel_elo SET elo=elo-?, games=MAX(games-1, 0) WHERE student_id=?", (d[side + "_elo"], d[side]))
+            db.x("UPDATE duels SET status='void', finished=?, a_elo=NULL, b_elo=NULL, bonus=0, stake=0 WHERE id=?", (time.time(), d["id"]))
+            return self.send_json({"ok": True})
 
         if path == "/api/admin/students":
             rows = db.q("""
@@ -4006,7 +4110,10 @@ AWARDS = [("crown", "👑", "Корона дня", "Быстрее всех ре
           ("league1", "🏆", "Победитель лиги", "1-е место в своей лиге по итогам недели"),
           ("up", "🚀", "Повышение", "Перешёл в лигу выше"),
           ("duel", "⚔️", "Победа в дуэли", "Выиграл дуэль"),
-          ("tour1", "🎖", "Победитель турнира", "1-е место в турнире")]
+          ("tour1", "🎖", "Победитель турнира", "1-е место в турнире"),
+          ("season1", "🏅", "Чемпион сезона", "1-е место в сезоне турниров (месяц)"),
+          ("season2", "🥈", "Призёр сезона", "2-е место в сезоне турниров"),
+          ("season3", "🥉", "Призёр сезона", "3-е место в сезоне турниров")]
 BADGES_MAX = 3
 
 
@@ -4573,6 +4680,76 @@ def tournament_table(db, s, mates):
 DUEL_QUEUE_TTL = 15        # сек: ищущий опрашивает сервер чаще; кто пропал дольше, тот уже не ищет
 
 
+ELO_START = 1000
+STREAK_BONUS = 5           # за серию побед в дуэлях: 3-я подряд +5 XP, 4-я +10 … не больше STREAK_BONUS_MAX
+STREAK_BONUS_MAX = 25
+
+
+def elo_of(db, sid):
+    r = db.q("SELECT elo FROM duel_elo WHERE student_id=?", (sid,), one=True)
+    return r["elo"] if r else ELO_START
+
+
+def elo_apply(db, a, b, score_a):
+    """Рейтинг Эло после дуэли: победа над сильным даёт больше; новичкам (до 10 дуэлей) коэффициент выше."""
+    ra, rb = elo_of(db, a), elo_of(db, b)
+    exp_a = 1 / (1 + 10 ** ((rb - ra) / 400))
+    out = []
+    for sid, r, sc, ex in ((a, ra, score_a, exp_a), (b, rb, 1 - score_a, 1 - exp_a)):
+        g = (db.q("SELECT games FROM duel_elo WHERE student_id=?", (sid,), one=True) or {"games": 0})["games"]
+        delta = (40 if g < 10 else 24) * (sc - ex)
+        db.x("""INSERT INTO duel_elo(student_id, elo, games) VALUES(?,?,1)
+                ON CONFLICT(student_id) DO UPDATE SET elo=excluded.elo, games=games+1""", (sid, r + delta))
+        out.append(round(delta, 1))
+    return out
+
+
+def elo_board(db, tid, sid):
+    """Рейтинг Эло учеников учителя: десятка лучших (сыгравшие хотя бы одну дуэль) и своя строка."""
+    ids = [m["id"] for m in teacher_students(db, tid)]
+    if not ids:
+        return {"top": [], "me": None}
+    rows = db.q(f"""SELECT e.student_id, e.elo, e.games, s.name FROM duel_elo e JOIN students s ON s.id=e.student_id
+                    WHERE e.games>0 AND e.student_id IN ({','.join('?' * len(ids))}) ORDER BY e.elo DESC""", ids)
+    out = [{"place": i + 1, "sid": r["student_id"], "name": short_name(r["name"]), "elo": round(r["elo"]), "games": r["games"],
+            "me": r["student_id"] == sid} for i, r in enumerate(rows)]
+    me = next((r for r in out if r["me"]), None)
+    return {"top": out[:10], "me": me or {"place": None, "elo": ELO_START, "games": 0, "me": True}}
+
+
+def duel_streak(db, sid):
+    """Сколько дуэлей подряд выиграно (с последней)."""
+    n = 0
+    for r in db.q("SELECT winner FROM duels WHERE status='finished' AND (a=? OR b=?) ORDER BY finished DESC LIMIT 50", (sid, sid)):
+        if r["winner"] != sid:
+            break
+        n += 1
+    return n
+
+
+SUS_FAST_MS = 5000         # верный ответ в соревновании быстрее 5 секунд — подозрительно
+
+
+def comp_flags(db, row, side):
+    """Что подозрительного у игрока в матче или дуэли: вставка ответа, верный ответ за секунды, уход со страницы."""
+    sid, st = row[side], row[side + "_start"]
+    tasks = side_tasks(row, side)
+    if not st or not tasks:
+        return []
+    dn = row[side + "_done"] or time.time()
+    out = set()
+    for a in db.q(f"""SELECT score, spent_ms, flags FROM attempts WHERE student_id=? AND ts>=? AND ts<=?
+                      AND task_id IN ({','.join('?' * len(tasks))})""", (sid, st, dn + 5, *tasks)):
+        fl = a["flags"] or ""
+        if "paste" in fl:
+            out.add("вставка ответа")
+        if "sus" in fl:
+            out.add("уходил со страницы")
+        if (a["score"] or 0) > 0 and a["spent_ms"] is not None and a["spent_ms"] < SUS_FAST_MS:
+            out.add("ответ за секунды")
+    return sorted(out)
+
+
 def duels_today(db, sid):
     return db.q("""SELECT COUNT(*) AS c FROM duels WHERE (a=? OR b=?) AND created>=? AND status NOT IN ('declined','expired')""",
                 (sid, sid, day_start()), one=True)["c"]
@@ -4618,21 +4795,92 @@ def day_start(ts=None):
     return time.mktime(d.timetuple())
 
 
-def tour_started_today(db, tid, size):
-    return db.q("SELECT COUNT(*) AS c FROM tournaments WHERE teacher_id=? AND size=? AND started>=? AND status!='void'",
-                (tid, size, day_start()), one=True)["c"]
+# тематические турниры: номера заданий заданы заранее (без голосования); у спринта на матч — 15 минут
+TOUR_THEMES = {"python": {"name": "Кубок по Python", "nums": [24, 25, 26, 27], "size": 4, "icon": "🐍", "cap": 0,
+                          "about": "Только задания с программированием: №24–27"},
+               "sprint": {"name": "Спринт", "nums": [1, 2, 3, 4, 5], "size": 4, "icon": "⏱", "cap": 15 * 60,
+                          "about": "Быстрые задания №1–5, на каждый матч — 15 минут"}}
+TOUR_KINDS = [(4, ""), (8, ""), (12, ""), (4, "python"), (4, "sprint")]
+
+
+def tour_cap(db, tour_id):
+    """Ограничение времени на матч (сек) — у спринта; 0 — без ограничения."""
+    r = db.q("SELECT theme FROM tournaments WHERE id=?", (tour_id,), one=True)
+    return TOUR_THEMES.get((r and r["theme"]) or "", {}).get("cap") or 0
+
+
+# сезон — календарный месяц: очки за места в турнирах (чем больше турнир, тем дороже), за участие — 1
+SEASON_PTS = {4: {1: 6, 2: 4, 3: 2, 4: 1}, 8: {1: 10, 2: 7, 3: 5, 4: 3}, 12: {1: 15, 2: 10, 3: 7, 4: 5}}
+MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]
+
+
+def season_key(ts=None):
+    return datetime.fromtimestamp(ts if ts is not None else time.time()).strftime("%Y-%m")
+
+
+def season_bounds(key):
+    y, m = map(int, key.split("-"))
+    a = datetime(y, m, 1).timestamp()
+    b = datetime(y + (m == 12), m % 12 + 1, 1).timestamp()
+    return a, b
+
+
+def season_table(db, tid, key):
+    a, b = season_bounds(key)
+    pts = {}
+    for r in db.q("""SELECT p.student_id, p.place, t.size FROM tour_players p JOIN tournaments t ON t.id=p.tour_id
+                     WHERE t.teacher_id=? AND t.status='done' AND t.finished>=? AND t.finished<?""", (tid, a, b)):
+        x = pts.setdefault(r["student_id"], {"pts": 0, "tours": 0, "wins": 0})
+        x["pts"] += SEASON_PTS.get(r["size"], {}).get(r["place"], 1)
+        x["tours"] += 1
+        x["wins"] += r["place"] == 1
+    return sorted(pts.items(), key=lambda kv: (-kv[1]["pts"], -kv[1]["wins"], kv[0]))
+
+
+def season_view(db, tid, sid):
+    key = season_key()
+    names = {m["id"]: short_name(m["name"]) for m in teacher_students(db, tid)}
+    rows = [{"place": i + 1, "sid": k, "name": names.get(k, "?"), **v, "me": k == sid}
+            for i, (k, v) in enumerate(season_table(db, tid, key))]
+    y, m = map(int, key.split("-"))
+    return {"key": key, "name": f"{MONTHS[m - 1]} {y}", "ends": season_bounds(key)[1], "top": rows[:10],
+            "me": next((r for r in rows if r["me"]), None)}
+
+
+def season_close(db, tid):
+    """Прошлый сезон закрыт — тройке лучших значки сезона (один раз)."""
+    first = datetime.fromtimestamp(season_bounds(season_key())[0])
+    prev = (first - timedelta(days=1)).strftime("%Y-%m")
+    flag = f"season:{tid}:{prev}"
+    if db.q("SELECT 1 FROM settings WHERE key=?", (flag,), one=True):
+        return
+    for i, (sid, _) in enumerate(season_table(db, tid, prev)[:3]):
+        db.x("INSERT OR IGNORE INTO awards(student_id, kind, week, info) VALUES(?,?,?,?)", (sid, f"season{i + 1}", prev, tid))
+    db.x("INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)", (flag, "1"))
+
+
+def tour_started_today(db, tid, size, theme=""):
+    return db.q("""SELECT COUNT(*) AS c FROM tournaments WHERE teacher_id=? AND size=? AND COALESCE(theme, '')=?
+                   AND started>=? AND status!='void'""", (tid, size, theme, day_start()), one=True)["c"]
+
+
+def tour_kind_name(size, theme):
+    return TOUR_THEMES[theme]["name"] if theme else TOUR_SIZES[size]
 
 
 def tour_lobbies(db, tid):
-    """Набор на каждый размер открыт, пока сегодня турниров этого размера стартовало меньше TOUR_PER_DAY."""
-    for size, name in TOUR_SIZES.items():
-        if db.q("SELECT 1 FROM tournaments WHERE teacher_id=? AND size=? AND status='reg'", (tid, size), one=True):
+    """Набор на каждый вид открыт, пока сегодня турниров этого вида стартовало меньше TOUR_PER_DAY."""
+    for size, theme in TOUR_KINDS:
+        if db.q("SELECT 1 FROM tournaments WHERE teacher_id=? AND size=? AND COALESCE(theme, '')=? AND status='reg'",
+                (tid, size, theme), one=True):
             continue
-        if tour_started_today(db, tid, size) >= TOUR_PER_DAY:
+        if tour_started_today(db, tid, size, theme) >= TOUR_PER_DAY:
             continue
-        n = db.q("SELECT COUNT(*) AS c FROM tournaments WHERE teacher_id=? AND size=? AND status!='void'", (tid, size), one=True)["c"] + 1
-        db.x("INSERT INTO tournaments(teacher_id, size, title, status, created, fmt) VALUES(?,?,?,'reg',?,?)",
-             (tid, size, f"{name} №{n}", time.time(), TOUR_FMT))
+        name = tour_kind_name(size, theme)
+        n = db.q("SELECT COUNT(*) AS c FROM tournaments WHERE teacher_id=? AND size=? AND COALESCE(theme, '')=? AND status!='void'",
+                 (tid, size, theme), one=True)["c"] + 1
+        db.x("INSERT INTO tournaments(teacher_id, size, title, status, created, fmt, theme) VALUES(?,?,?,'reg',?,?,?)",
+             (tid, size, f"{name} №{n}", time.time(), TOUR_FMT, theme or None))
 
 
 def tour_people(db, tour_id):
@@ -4666,15 +4914,43 @@ def tour_rank(size, rnd):
     return 2 + round((min(rnd, stages) - 1) * 3 / max(stages - 1, 1))
 
 
-def tour_tasks(nums, rank, used=()):
-    """По заданию на каждый номер, сложность — как можно ближе к rank; уже выданные в этом турнире — не повторяем."""
+def comp_pool():
+    """Задания для соревнований по номерам: целиком, с ответом, актуальные, без авторских (пересчёт при смене банка)."""
     if APP.bank.mtime not in _TOUR_POOL:
         _TOUR_POOL.clear()
         pool = {}
-        for i in bank_pool(TOUR_NUMS, single=True, authored_ok=False):
+        for i in bank_pool(None, single=True, authored_ok=False):
             pool.setdefault(APP.bank.tasks[i]["n"], []).append(i)
         _TOUR_POOL[APP.bank.mtime] = pool
-    pool, out = _TOUR_POOL[APP.bank.mtime], []
+    return _TOUR_POOL[APP.bank.mtime]
+
+
+def twin_tasks(tasks, used=()):
+    """Задания второму игроку: того же номера, типа и сложности, но другие — ответ у соседа не подсмотреть."""
+    pool, out, taken = comp_pool(), [], set(tasks) | set(used)
+    for tid in tasks:
+        t = APP.bank.tasks.get(tid) or {}
+        same_n = [i for i in pool.get(t.get("n"), []) if i not in taken]
+        cands = [i for i in same_n if APP.bank.tasks[i].get("c") == t.get("c")] or same_n
+        if not cands:
+            out.append(tid)                       # другого такого нет — то же задание
+            continue
+        best = min(abs((APP.bank.tasks[i].get("r") or 3) - (t.get("r") or 3)) for i in cands)
+        pick = random.choice([i for i in cands if abs((APP.bank.tasks[i].get("r") or 3) - (t.get("r") or 3)) == best])
+        taken.add(pick)
+        out.append(pick)
+    return out
+
+
+def side_tasks(row, side):
+    """Задания игрока a или b (у старых матчей и дуэлей — общие)."""
+    raw = row["tasks_b"] if side == "b" and row["tasks_b"] else row["tasks"]
+    return json.loads(raw or "[]")
+
+
+def tour_tasks(nums, rank, used=()):
+    """По заданию на каждый номер, сложность — как можно ближе к rank; уже выданные в этом турнире — не повторяем."""
+    pool, out = comp_pool(), []
     for n in nums:
         cands = [i for i in pool.get(n, []) if i not in used] or pool.get(n, [])
         if not cands:
@@ -4684,25 +4960,38 @@ def tour_tasks(nums, rank, used=()):
     return out
 
 
-def tour_match_new(db, t, rnd, slot, a, b, ends, kind="po", grp=None):
+def tour_used(db, tour_id):
+    return {x for r in db.q("SELECT tasks, tasks_b FROM tour_matches WHERE tour_id=?", (tour_id,))
+            for x in json.loads(r["tasks"] or "[]") + json.loads(r["tasks_b"] or "[]")}
+
+
+def tour_new_tasks(db, t, rnd):
+    """Задания матча: игроку a — по номерам турнира и сложности стадии, игроку b — такие же по типу, но другие."""
     nums = json.loads(t["nums"]) if t["nums"] else None
-    if nums:
-        used = {x for r in db.q("SELECT tasks FROM tour_matches WHERE tour_id=?", (t["id"],)) for x in json.loads(r["tasks"] or "[]")}
-        tasks = tour_tasks(nums, tour_rank(t["size"], rnd), used)
-    if not nums or not tasks:
+    used = tour_used(db, t["id"])
+    tasks = tour_tasks(nums, tour_rank(t["size"], rnd), used) if nums else []
+    if not tasks:
         tasks = duel_tasks()                         # турнир начался до голосования
-    db.x("""INSERT INTO tour_matches(tour_id, round, slot, a, b, tasks, status, ends, kind, grp, created)
-            VALUES(?,?,?,?,?,?, 'play', ?, ?, ?, ?)""", (t["id"], rnd, slot, a, b, json.dumps(tasks), ends, kind, grp, time.time()))
+    return tasks, twin_tasks(tasks, used)
+
+
+def tour_match_new(db, t, rnd, slot, a, b, ends, kind="po", grp=None):
+    tasks, tasks_b = tour_new_tasks(db, t, rnd)
+    db.x("""INSERT INTO tour_matches(tour_id, round, slot, a, b, tasks, tasks_b, status, ends, kind, grp, created)
+            VALUES(?,?,?,?,?,?,?, 'play', ?, ?, ?, ?)""",
+         (t["id"], rnd, slot, a, b, json.dumps(tasks), json.dumps(tasks_b), ends, kind, grp, time.time()))
 
 
 def tour_settle(db, m, seeds, now, gone=frozenset()):
     """Итог матча. Больше решил — победа. Поровну: в группе ничья, в плей-офф проходит быстрейший («пенальти»).
     Не сыграл — техническое поражение; в группе, если не сыграли оба, поражение обоим."""
-    tasks = json.loads(m["tasks"])
+    cap = tour_cap(db, m["tour_id"])
     res = {}
     for side in ("a", "b"):
         st, dn = m[side + "_start"], min(m[side + "_done"] or now, m["ends"] or now)    # после срока не считается
-        res[side] = (duel_solved(db, m[side], tasks, st, dn) if st else -1, (dn - st) if st else None)
+        if st and cap:
+            dn = min(dn, st + cap)                    # спринт: на матч — 15 минут с начала
+        res[side] = (duel_solved(db, m[side], side_tasks(m, side), st, dn) if st else -1, (dn - st) if st else None)
     for side, op in (("a", "b"), ("b", "a")):          # не явился к старту — поражение, сопернику победа
         if m[side] in gone and m[op] not in gone:
             res[side] = (-1, None)
@@ -4808,7 +5097,7 @@ def tour_tick(db, t):
         if len(ids) < t["size"]:
             return
         ends = now + TOUR_GROUP_HOURS * 3600
-        nums = tour_vote_nums(db, t["id"])
+        nums = TOUR_THEMES[t["theme"]]["nums"] if t["theme"] in TOUR_THEMES else tour_vote_nums(db, t["id"])
         if not db.xn("UPDATE tournaments SET status='run', started=?, round=1, round_ends=?, nums=? WHERE id=? AND status='reg'",
                      (now, ends, json.dumps(nums), t["id"])):
             return                               # стартовал параллельный запрос
@@ -4850,8 +5139,10 @@ def tour_tick(db, t):
             for sid in gone:
                 db.x("UPDATE tour_players SET gone=1 WHERE tour_id=? AND student_id=?", (t["id"], sid))
             cur = db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], t["round"]))
+    cap = tour_cap(db, t["id"])
+    over = lambda m, sd: m[sd + "_done"] or (cap and m[sd + "_start"] and now > m[sd + "_start"] + cap)
     for m in cur:
-        if m["status"] == "play" and ((m["a_done"] and m["b_done"]) or now > (m["ends"] or now)):
+        if m["status"] == "play" and ((over(m, "a") and over(m, "b")) or now > (m["ends"] or now)):
             tour_settle(db, m, seeds, now)
     cur = db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], t["round"]))
     if any(m["status"] != "done" for m in cur):
@@ -4893,7 +5184,7 @@ def tour_match_view(m, people, me):
             "tech": bool(m["tech"]), "a": people.get(m["a"]), "b": people.get(m["b"]), "a_solved": m["a_solved"],
             "b_solved": m["b_solved"], "winner": m["winner"], "mine": side, "started": bool(side and m[side + "_start"]),
             "done": bool(side and m[side + "_done"]),
-            "tasks": [APP.bank.pid(x) for x in json.loads(m["tasks"])] if side and m[side + "_start"] else None,
+            "tasks": [APP.bank.pid(x) for x in side_tasks(m, side)] if side and m[side + "_start"] else None,
             "since": m[side + "_start"] if side else None}
 
 
@@ -4901,6 +5192,7 @@ def tour_view(db, t, me, brief=False):
     """Турнир для страницы: группы с таблицами, сетка плей-офф, места."""
     people = {p["sid"]: p for p in tour_people(db, t["id"])}
     out = {"id": t["id"], "title": t["title"], "size": t["size"], "status": t["status"], "round": t["round"],
+           "theme": t["theme"] or "", "cap_min": (TOUR_THEMES.get(t["theme"] or "", {}).get("cap") or 0) // 60,
            "nums": json.loads(t["nums"]) if t["nums"] else None,
            "ranks": [tour_rank(t["size"], r) for r in range(1, TOUR_STAGES.get(t["size"], 2) + 1)],
            "round_ends": t["round_ends"], "started": t["started"], "finished": t["finished"],
@@ -4947,11 +5239,10 @@ def duel_settle(db, d):
     deadline = (d["accepted"] or now) + DUEL_HOURS * 3600
     if not ((d["a_done"] and d["b_done"]) or now > deadline):
         return
-    tasks = json.loads(d["tasks"])
     res = {}
     for side in ("a", "b"):
         st, dn = d[side + "_start"], d[side + "_done"] or min(now, deadline)
-        res[side] = (duel_solved(db, d[side], tasks, st, dn), (dn - st) if st else float("inf"))
+        res[side] = (duel_solved(db, d[side], side_tasks(d, side), st, dn), (dn - st) if st else float("inf"))
     (sa, ta), (sb, tb) = res["a"], res["b"]
     if sa != sb:
         win = "a" if sa > sb else "b"
@@ -4960,15 +5251,24 @@ def duel_settle(db, d):
     else:
         win = None
     stake = 0
+    lose = ("b" if win == "a" else "a") if win else None
     if win:
-        lose = "b" if win == "a" else "a"
         stake = min(DUEL_STAKE, game_summary(db, d[lose], brief=True)["xp"])
-        if stake:
-            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, stake, f"duel:{d['id']}"))
-            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[lose], now, -stake, f"duel:{d['id']}"))
-    db.x("UPDATE duels SET status='finished', a_solved=?, b_solved=?, winner=?, stake=?, finished=? WHERE id=?",
-         (sa, sb, d[win] if win else None, stake, now, d["id"]))
-
+    if not db.xn("""UPDATE duels SET status='finished', a_solved=?, b_solved=?, winner=?, stake=?, finished=?
+                    WHERE id=? AND status='active'""", (sa, sb, d[win] if win else None, stake, now, d["id"])):
+        return                                     # итог уже подвёл параллельный запрос
+    if stake:
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, stake, f"duel:{d['id']}"))
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[lose], now, -stake, f"duel:{d['id']}"))
+    if d["a_start"] or d["b_start"]:               # рейтинг Эло: никто не начал — дуэль не в счёт
+        da, db_ = elo_apply(db, d["a"], d["b"], 1.0 if win == "a" else 0.0 if win == "b" else 0.5)
+        db.x("UPDATE duels SET a_elo=?, b_elo=? WHERE id=?", (da, db_, d["id"]))
+    if win:                                        # серия побед: с третьей подряд — бонус опыта
+        streak = duel_streak(db, d[win])
+        bonus = min(STREAK_BONUS_MAX, STREAK_BONUS * (streak - 2)) if streak >= 3 else 0
+        if bonus:
+            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, bonus, f"streak:{d['id']}"))
+            db.x("UPDATE duels SET bonus=? WHERE id=?", (bonus, d["id"]))
 
 _CSETS = {}
 

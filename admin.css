@@ -442,3 +442,7 @@ tr.ex-bad td:first-child { box-shadow: inset 3px 0 0 #ff4b4b; }
 .comp-pl { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }
 #view-comp td.ok { color: var(--good); font-weight: 600; }
 @media (max-width: 760px) { .comp-in { grid-template-columns: 1fr; } }
+.comp-sus { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 6px; background: #fff1d6; color: #9a5b00; font-size: 12px; font-weight: 600; }
+.comp-act { white-space: nowrap; }
+.comp-act .link-btn { margin-right: 6px; font-size: 12.5px; }
+tr.comp-void td { opacity: .55; }

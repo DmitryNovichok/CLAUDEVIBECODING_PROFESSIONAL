@@ -641,30 +641,57 @@
     const has = (...names) => !q || names.some(n => String(n || '').toLowerCase().includes(q));
     const when = ts => ts ? new Date(ts * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
     const MED = { 1: '🥇', 2: '🥈', 3: '🥉' };
+    const sus = f => f && f.length ? ` <span class="comp-sus" title="${esc(f.join(', '))}">⚠ ${esc(f.join(', '))}</span>` : '';
     const tours = COMP.tournaments.filter(t => has(...t.players.map(p => p.name)));
     const tourHtml = tours.map(t => {
+      const anySus = t.matches.some(m => (m.sus_a || []).length || (m.sus_b || []).length);
       const pod = t.players.filter(p => p.place && p.place <= 3).map(p => `${MED[p.place]} ${esc(p.name)}${p.xp ? ` <span class="muted">+${p.xp} XP</span>` : ''}`).join(' · ');
-      const ms = t.matches.map(m => `<tr><td>${esc(m.stage)}</td><td${m.winner === m.a ? ' class="ok"' : ''}>${esc(m.a)}</td>
-        <td class="num">${m.status === 'done' ? `${m.a_solved ?? 0} : ${m.b_solved ?? 0}` : 'идёт'}</td><td${m.winner === m.b ? ' class="ok"' : ''}>${esc(m.b)}</td>
-        <td class="muted">${m.status !== 'done' ? '' : m.tech ? 'тех. результат' : m.winner ? '' : 'ничья'}</td></tr>`).join('');
+      const ms = t.matches.map(m => `<tr><td>${esc(m.stage)}</td><td${m.winner === m.a ? ' class="ok"' : ''}>${esc(m.a)}${sus(m.sus_a)}</td>
+        <td class="num">${m.status === 'done' ? `${m.a_solved ?? 0} : ${m.b_solved ?? 0}` : 'идёт'}</td><td${m.winner === m.b ? ' class="ok"' : ''}>${esc(m.b)}${sus(m.sus_b)}</td>
+        <td class="muted">${m.admin ? `✋ ${esc(m.admin)}` : m.status !== 'done' ? '' : m.tech ? 'тех. результат' : m.winner ? '' : 'ничья'}</td>
+        <td class="comp-act">${m.cur ? `<button type="button" class="link-btn" data-cm="${m.id}:a" title="Засчитать техническую победу">победа ${esc(m.a.split(' ')[0])}</button>
+          <button type="button" class="link-btn" data-cm="${m.id}:b" title="Засчитать техническую победу">победа ${esc(m.b.split(' ')[0])}</button>
+          <button type="button" class="link-btn" data-cm="${m.id}:replay" title="Обнулить матч и выдать новые задания">переиграть</button>` : ''}</td></tr>`).join('');
       const places = t.players.map(p => `<li>${p.place ? `${p.place}.` : '—'} ${esc(p.name)}${p.grp ? ` <span class="muted">гр. ${esc(p.grp)}</span>` : ''}${p.xp ? ` <span class="muted">+${p.xp} XP</span>` : ''}</li>`).join('');
       return `<details class="adm-box comp-t"><summary><b>${esc(t.title)}</b> <span class="muted">${t.size} игроков · ${t.status === 'done' ? `завершён ${when(t.finished)}` : `идёт с ${when(t.started)}`}</span>
-          ${t.nums ? `<span class="muted"> · задания №${t.nums.join(', ')}</span>` : ''}<div>${pod || '<span class="muted">итогов пока нет</span>'}</div></summary>
-        <div class="comp-in"><div><h4>Места</h4><ol class="comp-pl">${places}</ol></div>
-          <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Стадия</th><th>Игрок</th><th class="num">Счёт</th><th>Игрок</th><th></th></tr></thead><tbody>${ms}</tbody></table></div></div></details>`;
+          ${t.nums ? `<span class="muted"> · задания №${t.nums.join(', ')}</span>` : ''}${anySus ? ' <span class="comp-sus">⚠ есть подозрительные ответы</span>' : ''}<div>${pod || '<span class="muted">итогов пока нет</span>'}</div></summary>
+        <div class="comp-in"><div><h4>Места</h4><ol class="comp-pl">${places}</ol>
+            ${t.status === 'run' ? `<button type="button" class="btn ghost" data-ct-restart="${t.id}" title="Отменить турнир и начать заново с теми же игроками">↻ Перезапустить турнир</button>` : ''}</div>
+          <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Стадия</th><th>Игрок</th><th class="num">Счёт</th><th>Игрок</th><th></th><th></th></tr></thead><tbody>${ms}</tbody></table></div></div></details>`;
     }).join('');
     const duels = COMP.duels.filter(d => has(d.a, d.b));
-    const duelRows = duels.map(d => `<tr><td>${when(d.ts)}</td><td${d.winner === d.a ? ' class="ok"' : ''}>${esc(d.a)}</td>
-      <td class="num">${d.status === 'finished' ? `${d.a_solved ?? 0} : ${d.b_solved ?? 0}` : 'идёт'}</td><td${d.winner === d.b ? ' class="ok"' : ''}>${esc(d.b)}</td>
-      <td>${d.status !== 'finished' ? '<span class="muted">идёт</span>' : d.winner ? `🏆 ${esc(d.winner)}${d.stake ? ` <span class="muted">+${d.stake} XP</span>` : ''}` : 'ничья'}</td>
-      <td class="muted">${d.quick ? 'подбор' : 'вызов'}</td></tr>`).join('');
+    const eloD = v => v == null ? '' : ` <span class="muted">${v >= 0 ? '+' : '−'}${Math.abs(Math.round(v))} Эло</span>`;
+    const duelRows = duels.map(d => `<tr class="${d.status === 'void' ? 'comp-void' : ''}"><td>${when(d.ts)}</td><td${d.winner === d.a ? ' class="ok"' : ''}>${esc(d.a)}${eloD(d.a_elo)}${sus(d.sus_a)}</td>
+      <td class="num">${d.status === 'active' ? 'идёт' : `${d.a_solved ?? 0} : ${d.b_solved ?? 0}`}</td><td${d.winner === d.b ? ' class="ok"' : ''}>${esc(d.b)}${eloD(d.b_elo)}${sus(d.sus_b)}</td>
+      <td>${d.status === 'void' ? '<span class="muted">отменена</span>' : d.status !== 'finished' ? '<span class="muted">идёт</span>' : d.winner ? `🏆 ${esc(d.winner)}${d.stake ? ` <span class="muted">+${d.stake} XP</span>` : ''}` : 'ничья'}</td>
+      <td class="muted">${d.rematch ? 'реванш' : d.quick ? 'подбор' : 'вызов'}</td>
+      <td>${d.status !== 'void' ? `<button type="button" class="link-btn" data-cd="${d.id}" title="Отменить дуэль: опыт и рейтинг вернутся">отменить</button>` : ''}</td></tr>`).join('');
     $('#compBody').innerHTML = `<h3 class="adm-h3">Турниры <span class="muted">${tours.length}</span></h3>
       ${tourHtml || '<p class="adm-empty">Турниров пока не было.</p>'}
       <h3 class="adm-h3">Дуэли <span class="muted">${duels.length}</span></h3>
-      ${duelRows ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Игрок</th><th class="num">Счёт</th><th>Игрок</th><th>Итог</th><th>Как</th></tr></thead>
+      ${duelRows ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Игрок</th><th class="num">Счёт</th><th>Игрок</th><th>Итог</th><th>Как</th><th></th></tr></thead>
         <tbody>${duelRows}</tbody></table></div>` : '<p class="adm-empty">Дуэлей пока не было.</p>'}`;
   }
   $('#compFind').addEventListener('input', renderComp);
+  $('#compBody').addEventListener('click', async e => {
+    const cm = e.target.closest('[data-cm]'), cr = e.target.closest('[data-ct-restart]'), cd = e.target.closest('[data-cd]');
+    let path, body, ask;
+    if (cm) {
+      const [id, action] = cm.dataset.cm.split(':');
+      path = 'tour/match'; body = { id: +id, action };
+      ask = action === 'replay' ? 'Переиграть матч? Результаты обнулятся, игроки получат новые задания.' : 'Засчитать техническую победу?';
+    } else if (cr) {
+      path = 'tour/restart'; body = { id: +cr.dataset.ctRestart };
+      ask = 'Перезапустить турнир? Все матчи отменятся, турнир начнётся заново с теми же игроками.';
+    } else if (cd) {
+      path = 'duel/cancel'; body = { id: +cd.dataset.cd };
+      ask = 'Отменить дуэль? Ставка опыта, бонус и рейтинг Эло вернутся как было.';
+    } else return;
+    if (!confirm(ask)) return;
+    try { await api(path, body); } catch (err) { toast(err.message); return; }
+    toast('Готово');
+    loadComp();
+  });
 
   // ------------------------------------------------------------ вкладки
   let tab = 'students';

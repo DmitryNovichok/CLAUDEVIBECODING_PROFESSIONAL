@@ -1014,6 +1014,107 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/duel/cancel", {}, tc)
         self.assertFalse(self.req("GET", "/api/duels", token=tc)[1]["searching"])
 
+    def test_duel_elo_streak_rematch_twins_cancel(self):
+        db = server.APP.db
+        ta, tb = self.login("Эловский Антон"), self.login("Эловский Борис")
+        sa, sb = (self.req("GET", "/api/me", token=t)[1]["sid"] for t in (ta, tb))
+        db.x("DELETE FROM duel_queue")
+        self.req("POST", "/api/duel/find", {}, tb)
+        did = self.req("POST", "/api/duel/find", {}, ta)[1]["matched"]
+        row = db.q("SELECT * FROM duels WHERE id=?", (did,), one=True)
+        ta_tasks, tb_tasks = server.side_tasks(row, "a"), server.side_tasks(row, "b")
+        self.assertEqual(len(ta_tasks), len(tb_tasks))
+        for x, y in zip(ta_tasks, tb_tasks):                                   # у соперника — свои задания того же номера
+            self.assertEqual(server.APP.bank.tasks[x]["n"], server.APP.bank.tasks[y]["n"])
+        # Антон (b в дуэли) решает всё, Борис (a) — ничего
+        tasks = self.req("POST", "/api/duel/start", {"id": did}, ta)[1]["tasks"]
+        self.assertEqual([server.APP.bank.real(p) for p in tasks], tb_tasks)
+        for pid in tasks:
+            real = server.APP.bank.real(pid)
+            self.req("POST", "/api/open", {"task": pid}, ta)
+            self.check(ta, pid, answer=next(t for t in BANK["tasks"] if t["id"] == real)["ans"])
+        self.req("POST", "/api/duel/finish", {"id": did}, ta)
+        self.req("POST", "/api/duel/start", {"id": did}, tb)
+        self.req("POST", "/api/duel/finish", {"id": did}, tb)
+        da = self.req("GET", "/api/duels", token=ta)[1]
+        x = next(d for d in da["duels"] if d["id"] == did)
+        self.assertEqual(x["result"], "win")
+        self.assertGreater(x["elo"], 0)
+        self.assertGreater(da["my_elo"], 1000)
+        self.assertEqual(da["streak"], 1)
+        tour = self.req("GET", "/api/tour", token=ta)[1]
+        self.assertEqual(tour["elo"]["top"][0]["name"], "Эловский А.")              # рейтинг Эло сверху
+        # реванш: только проигравший, один раз; принимается как вызов
+        db_ = self.req("GET", "/api/duels", token=tb)[1]
+        self.assertTrue(next(d for d in db_["duels"] if d["id"] == did)["can_rematch"])
+        self.assertEqual(self.req("POST", "/api/duel/rematch", {"id": did}, ta)[0], 409)
+        st, r = self.req("POST", "/api/duel/rematch", {"id": did}, tb)
+        self.assertEqual(st, 200, r)
+        self.assertEqual(self.req("POST", "/api/duel/rematch", {"id": did}, tb)[0], 409)
+        inv = next(d for d in self.req("GET", "/api/duels", token=ta)[1]["duels"] if d["id"] == r["id"])
+        self.assertEqual((inv["status"], inv["rematch"]), ("pending", True))
+        # учитель отменяет первую дуэль — опыт и Эло возвращаются
+        xp_before = self.req("GET", "/api/me", token=ta)[1]["game"]["xp"]
+        st, _ = self.admin("POST", "/api/admin/duel/cancel", {"id": did})
+        self.assertEqual(st, 200)
+        self.assertEqual(round(server.elo_of(db, sa)), 1000)
+        self.assertLessEqual(self.req("GET", "/api/me", token=ta)[1]["game"]["xp"], xp_before)
+        arch = self.admin("GET", "/api/admin/competitions")[1]["duels"]
+        self.assertEqual(next(d for d in arch if d["id"] == did)["status"], "void")
+        # серия побед: считается подряд с последней дуэли
+        for i in range(3):
+            db.x("INSERT INTO duels(a, b, tasks, created, status, winner, finished) VALUES(?,?,?,?, 'finished', ?, ?)",
+                 (sa, sb, "[]", time.time(), sa, time.time() + i))
+        self.assertGreaterEqual(server.duel_streak(db, sa), 3)
+
+    def test_themed_tournament_and_season_and_admin(self):
+        db = server.APP.db
+        db.x("DELETE FROM tournaments")
+        db.x("DELETE FROM tour_players")
+        toks = [self.login(f"Спринтов {n}") for n in ("Антон", "Борис", "Виктор", "Глеб")]
+        sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
+        lobs = self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"]
+        sprint = next(l for l in lobs if l["theme"] == "sprint")
+        self.assertEqual((sprint["fixed_nums"], sprint["cap_min"]), ([1, 2, 3, 4, 5], 15))
+        self.assertEqual(self.req("POST", "/api/tour/join", {"id": sprint["id"]}, toks[0])[0], 200)
+        self.assertEqual(self.req("POST", "/api/tour/vote", {"id": sprint["id"], "nums": [7]}, toks[0])[0], 409)   # номера заданы
+        for t in toks[1:]:
+            self.req("POST", "/api/tour/join", {"id": sprint["id"]}, t)
+        T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
+        self.assertEqual((T["theme"], T["cap_min"], T["nums"]), ("sprint", 15, [1, 2, 3, 4, 5]))
+        m = next(x for x in T["groups"][0]["matches"] if x["mine"])
+        st, r = self.req("POST", "/api/tour/start", {"match": m["id"]}, toks[0])
+        self.assertEqual(r["cap"], 900)
+        # учитель: победа одному, переигровка, перезапуск
+        self.assertEqual(self.admin("POST", "/api/admin/tour/match", {"id": m["id"], "action": "replay"})[0], 200)
+        row = db.q("SELECT * FROM tour_matches WHERE id=?", (m["id"],), one=True)
+        self.assertEqual((row["status"], row["a_start"], row["admin"]), ("play", None, "переигровка"))
+        self.assertEqual(self.admin("POST", "/api/admin/tour/match", {"id": m["id"], "action": "a"})[0], 200)
+        row = db.q("SELECT * FROM tour_matches WHERE id=?", (m["id"],), one=True)
+        self.assertEqual((row["status"], row["winner"]), ("done", row["a"]))
+        st, r = self.admin("POST", "/api/admin/tour/restart", {"id": T["id"]})
+        self.assertEqual(st, 200, r)
+        T2 = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
+        self.assertEqual((T2["id"], T2["status"], T2["theme"]), (r["id"], "run", "sprint"))
+        self.assertEqual(db.q("SELECT status FROM tournaments WHERE id=?", (T["id"],), one=True)["status"], "void")
+        # сезон: места в завершённых турнирах этого месяца дают очки; прошлый месяц — значки тройке
+        self.tour_expire(T2["id"])
+        for _ in range(3):
+            self.req("GET", "/api/tour", token=toks[0])
+            self.tour_expire(T2["id"])
+        d = self.req("GET", "/api/tour", token=toks[0])[1]
+        self.assertEqual(d["mine"]["status"], "done")
+        self.assertEqual(len(d["season"]["top"]), 4)
+        self.assertEqual(d["season"]["top"][0]["pts"], 6)
+        tid = server.main_teacher()["id"]
+        first = datetime.datetime.fromtimestamp(server.season_bounds(server.season_key())[0])
+        prev = (first - datetime.timedelta(days=1)).strftime("%Y-%m")
+        db.x("DELETE FROM settings WHERE key=?", (f"season:{tid}:{prev}",))
+        old = server.season_bounds(prev)[0] + 3600
+        db.x("UPDATE tournaments SET finished=? WHERE id=?", (old, T2["id"]))
+        self.req("GET", "/api/tour", token=toks[0])
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM awards WHERE kind LIKE 'season%' AND week=?", (prev,), one=True)["c"], 3)
+
     def tour_play(self, tok, mid, solve):
         tasks = self.req("POST", "/api/tour/start", {"match": mid}, tok)[1]["tasks"]
         for pid in tasks[:solve]:
@@ -1032,7 +1133,7 @@ class ServerTest(unittest.TestCase):
         sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
         st, d = self.req("GET", "/api/tour", token=toks[0])
         self.assertEqual(st, 200)                                                      # без кода
-        lob = {l["size"]: l for l in d["lobbies"]}
+        lob = {l["size"]: l for l in d["lobbies"] if not l["theme"]}
         self.assertEqual(sorted(lob), [4, 8, 12])
         quick, big = lob[4]["id"], lob[8]["id"]
         server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
@@ -1049,12 +1150,12 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/tour/vote", {"id": quick, "nums": [1, 2, 3, 4]}, toks[0])[0], 400)
         for t in toks[:3]:
             self.assertEqual(self.req("POST", "/api/tour/vote", {"id": quick, "nums": [5, 6]}, t)[0], 200)
-        lob4 = {l["size"]: l for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"]}[4]
+        lob4 = {l["size"]: l for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"] if not l["theme"]}[4]
         self.assertEqual((lob4["votes"], lob4["my_votes"]), ({"5": 3, "6": 3}, [5, 6]))
         st, d = self.req("POST", "/api/tour/join", {"id": quick}, toks[3])
         self.assertEqual((st, d["started"]), (200, True))                               # набрались — турнир пошёл
         d = self.req("GET", "/api/tour", token=toks[0])[1]
-        lob = {l["size"]: l for l in d["lobbies"]}
+        lob = {l["size"]: l for l in d["lobbies"] if not l["theme"]}
         self.assertNotEqual(lob[4]["id"], quick)                                        # сразу открыт следующий набор
         self.assertEqual((lob[4]["today"], lob[4]["per_day"]), (1, 3))
         T = d["mine"]
@@ -1109,7 +1210,7 @@ class ServerTest(unittest.TestCase):
         db.x("DELETE FROM tour_players")
         toks = [self.login(f"Неявкин {n}") for n in ("Антон", "Борис", "Виктор", "Глеб")]
         sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
-        quick = {l["size"]: l["id"] for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"]}[4]
+        quick = {l["size"]: l["id"] for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"] if not l["theme"]}[4]
         for t in toks:
             self.req("POST", "/api/tour/join", {"id": quick}, t)
         T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
@@ -1127,7 +1228,7 @@ class ServerTest(unittest.TestCase):
             db.x("INSERT INTO tournaments(teacher_id, size, title, status, created, started, fmt) VALUES(?,?,?,?,?,?,2)",
                  (server.main_teacher()["id"], 4, "x", "done", time.time(), time.time()))
         db.x("DELETE FROM tournaments WHERE size=4 AND status='reg'")
-        lob = {l["size"]: l for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"]}[4]
+        lob = {l["size"]: l for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"] if not l["theme"]}[4]
         self.assertIsNone(lob["id"])
         # дуэлей — не больше 10 в сутки
         for _ in range(10):
@@ -1140,7 +1241,7 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("DELETE FROM tour_players")
         toks = [self.login(f"Чемпионов {chr(0x410 + i)}") for i in range(12)]
         tid = self.req("GET", "/api/tour", token=toks[0])[1]
-        cid = {l["size"]: l["id"] for l in tid["lobbies"]}[12]
+        cid = {l["size"]: l["id"] for l in tid["lobbies"] if not l["theme"]}[12]
         for t in toks:
             self.req("POST", "/api/tour/join", {"id": cid}, t)
         T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
