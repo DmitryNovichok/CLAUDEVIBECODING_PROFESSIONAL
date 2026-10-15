@@ -2670,6 +2670,39 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("DELETE FROM admin_sessions WHERE token=?", (c["egeadm"].value,))
             return self.send_json({"ok": True}, extra={"Set-Cookie": "egeadm=; Path=/; Max-Age=0" + self.cookie_attrs()})
 
+        if path == "/api/admin/competitions":
+            # разыгранные турниры и дуэли учеников этого учителя — архив списком
+            names = {m["id"]: m["name"] for m in teacher_students(db, self.T["id"])}
+            stage = {"group": "Группа", "po": "Плей-офф", "final": "Финал", "third": "Матч за 3-е место"}
+            tours = []
+            for t in db.q("""SELECT * FROM tournaments WHERE teacher_id=? AND status IN ('run','done')
+                             ORDER BY COALESCE(finished, started) DESC LIMIT 100""", (self.T["id"],)):
+                players = [{"sid": r["student_id"], "name": names.get(r["student_id"], "?"), "place": r["place"], "xp": r["xp"] or 0,
+                            "grp": r["grp"]}
+                           for r in db.q("SELECT * FROM tour_players WHERE tour_id=? ORDER BY COALESCE(place, 99), seed", (t["id"],))]
+                matches = []
+                for m in db.q("SELECT * FROM tour_matches WHERE tour_id=? ORDER BY round, slot", (t["id"],)):
+                    po = {2: "Полуфинал", 4: "Четвертьфинал"}.get(len([x for x in db.q(
+                        "SELECT 1 FROM tour_matches WHERE tour_id=? AND round=? AND kind='po'", (t["id"], m["round"]))]) * 2)
+                    matches.append({"stage": (f"Группа {m['grp']}" if m["kind"] == "group" else po if m["kind"] == "po" else stage.get(m["kind"], "")),
+                                    "a": names.get(m["a"], "?"), "b": names.get(m["b"], "?"), "a_solved": m["a_solved"],
+                                    "b_solved": m["b_solved"], "winner": names.get(m["winner"]) if m["winner"] else None,
+                                    "tech": bool(m["tech"]), "status": m["status"]})
+                tours.append({"id": t["id"], "title": t["title"], "size": t["size"], "status": t["status"], "started": t["started"],
+                              "finished": t["finished"], "nums": json.loads(t["nums"]) if t["nums"] else None,
+                              "players": players, "matches": matches})
+            duels = []
+            ids = list(names)
+            if ids:
+                ph = ",".join("?" * len(ids))
+                for d in db.q(f"""SELECT * FROM duels WHERE status IN ('finished','active') AND (a IN ({ph}) OR b IN ({ph}))
+                                  ORDER BY COALESCE(finished, accepted, created) DESC LIMIT 500""", (*ids, *ids)):
+                    duels.append({"id": d["id"], "status": d["status"], "ts": d["finished"] or d["accepted"] or d["created"],
+                                  "a": names.get(d["a"], "?"), "b": names.get(d["b"], "?"), "a_solved": d["a_solved"],
+                                  "b_solved": d["b_solved"], "winner": names.get(d["winner"]) if d["winner"] else None,
+                                  "stake": d["stake"] or 0, "quick": bool(d["quick"])})
+            return self.send_json({"tournaments": tours, "duels": duels})
+
         if path == "/api/admin/students":
             rows = db.q("""
               SELECT s.id, s.name, s.created, s.last_seen, s.forecast,

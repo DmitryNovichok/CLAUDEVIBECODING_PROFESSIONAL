@@ -629,6 +629,43 @@
   $('#cpFind').addEventListener('input', () => { if (CP.d) renderCourseProgress(); });
   $('#cpReload').addEventListener('click', loadCourseProgress);
 
+  // ------------------------------------------------------------ турниры и дуэли: архив
+  let COMP = null;
+  async function loadComp() {
+    try { COMP = await api('competitions'); } catch (err) { if (err.status !== 401) $('#compBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    renderComp();
+  }
+  function renderComp() {
+    if (!COMP) return;
+    const q = $('#compFind').value.trim().toLowerCase();
+    const has = (...names) => !q || names.some(n => String(n || '').toLowerCase().includes(q));
+    const when = ts => ts ? new Date(ts * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    const MED = { 1: '🥇', 2: '🥈', 3: '🥉' };
+    const tours = COMP.tournaments.filter(t => has(...t.players.map(p => p.name)));
+    const tourHtml = tours.map(t => {
+      const pod = t.players.filter(p => p.place && p.place <= 3).map(p => `${MED[p.place]} ${esc(p.name)}${p.xp ? ` <span class="muted">+${p.xp} XP</span>` : ''}`).join(' · ');
+      const ms = t.matches.map(m => `<tr><td>${esc(m.stage)}</td><td${m.winner === m.a ? ' class="ok"' : ''}>${esc(m.a)}</td>
+        <td class="num">${m.status === 'done' ? `${m.a_solved ?? 0} : ${m.b_solved ?? 0}` : 'идёт'}</td><td${m.winner === m.b ? ' class="ok"' : ''}>${esc(m.b)}</td>
+        <td class="muted">${m.status !== 'done' ? '' : m.tech ? 'тех. результат' : m.winner ? '' : 'ничья'}</td></tr>`).join('');
+      const places = t.players.map(p => `<li>${p.place ? `${p.place}.` : '—'} ${esc(p.name)}${p.grp ? ` <span class="muted">гр. ${esc(p.grp)}</span>` : ''}${p.xp ? ` <span class="muted">+${p.xp} XP</span>` : ''}</li>`).join('');
+      return `<details class="adm-box comp-t"><summary><b>${esc(t.title)}</b> <span class="muted">${t.size} игроков · ${t.status === 'done' ? `завершён ${when(t.finished)}` : `идёт с ${when(t.started)}`}</span>
+          ${t.nums ? `<span class="muted"> · задания №${t.nums.join(', ')}</span>` : ''}<div>${pod || '<span class="muted">итогов пока нет</span>'}</div></summary>
+        <div class="comp-in"><div><h4>Места</h4><ol class="comp-pl">${places}</ol></div>
+          <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Стадия</th><th>Игрок</th><th class="num">Счёт</th><th>Игрок</th><th></th></tr></thead><tbody>${ms}</tbody></table></div></div></details>`;
+    }).join('');
+    const duels = COMP.duels.filter(d => has(d.a, d.b));
+    const duelRows = duels.map(d => `<tr><td>${when(d.ts)}</td><td${d.winner === d.a ? ' class="ok"' : ''}>${esc(d.a)}</td>
+      <td class="num">${d.status === 'finished' ? `${d.a_solved ?? 0} : ${d.b_solved ?? 0}` : 'идёт'}</td><td${d.winner === d.b ? ' class="ok"' : ''}>${esc(d.b)}</td>
+      <td>${d.status !== 'finished' ? '<span class="muted">идёт</span>' : d.winner ? `🏆 ${esc(d.winner)}${d.stake ? ` <span class="muted">+${d.stake} XP</span>` : ''}` : 'ничья'}</td>
+      <td class="muted">${d.quick ? 'подбор' : 'вызов'}</td></tr>`).join('');
+    $('#compBody').innerHTML = `<h3 class="adm-h3">Турниры <span class="muted">${tours.length}</span></h3>
+      ${tourHtml || '<p class="adm-empty">Турниров пока не было.</p>'}
+      <h3 class="adm-h3">Дуэли <span class="muted">${duels.length}</span></h3>
+      ${duelRows ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Игрок</th><th class="num">Счёт</th><th>Игрок</th><th>Итог</th><th>Как</th></tr></thead>
+        <tbody>${duelRows}</tbody></table></div>` : '<p class="adm-empty">Дуэлей пока не было.</p>'}`;
+  }
+  $('#compFind').addEventListener('input', renderComp);
+
   // ------------------------------------------------------------ вкладки
   let tab = 'students';
   let backTab = 'students';            // куда вернуться из карточки ученика
@@ -636,7 +673,7 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     if (t === 'course') loadCourseProgress();
     if (t === 'site') loadSite();
     if (t === 'build') openBuilder();
@@ -645,6 +682,7 @@
     if (t === 'classes') loadClasses();
     if (t === 'feed') { $('#feedDot').hidden = true; renderFeed(); }
     if (t === 'settings') loadSettings();
+    if (t === 'comp') loadComp();
     window.scrollTo({ top: 0 });
   }
   $('#tabs').addEventListener('click', e => {

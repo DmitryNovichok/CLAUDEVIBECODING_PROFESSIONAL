@@ -433,3 +433,12 @@ tr.ex-bad td:first-child { box-shadow: inset 3px 0 0 #ff4b4b; }
 #stExams { margin-top: 6px; }
 .sp-clear { margin-left: auto; padding: 4px 10px; font-size: 12px; }
 .adm-h3:has(.sp-clear) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+
+/* турниры и дуэли: архив */
+.comp-t { margin-bottom: 10px; }
+.comp-t summary { cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.comp-in { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 16px; margin-top: 8px; }
+.comp-in h4 { margin: 0 0 6px; font-size: 13px; }
+.comp-pl { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }
+#view-comp td.ok { color: var(--good); font-weight: 600; }
+@media (max-width: 760px) { .comp-in { grid-template-columns: 1fr; } }
