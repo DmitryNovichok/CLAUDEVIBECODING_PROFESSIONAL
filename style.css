@@ -2117,3 +2117,11 @@ body.dock-drag, body.dock-drag * { cursor: ew-resize !important; user-select: no
 .dm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border: 2px solid var(--border);
   border-radius: 14px; }
 .dm-tab { max-width: 520px; }
+.dq { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 12px 0 6px; padding: 14px 18px; border: 2px solid var(--border); border-radius: 16px; }
+.dq.on { border-color: var(--accent); }
+.dq .fm-muted { flex: 1 1 260px; }
+.dq-go { font-size: 16px; }
+.dq-spin { font-size: 26px; animation: dq-spin 1.2s ease-in-out infinite; }
+@keyframes dq-spin { 0%, 100% { transform: rotate(-15deg); } 50% { transform: rotate(15deg); } }
+.dm-pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px; }
+.dm-pick select { min-width: 0; flex: 0 1 320px; padding: 9px 12px; border: 2px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); font: inherit; }

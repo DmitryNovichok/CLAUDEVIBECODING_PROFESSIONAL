@@ -960,6 +960,8 @@ class DB:
                 a_solved INTEGER, b_solved INTEGER, a_sec REAL, b_sec REAL, winner INTEGER, tech INTEGER DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'play', ends REAL);
             CREATE INDEX IF NOT EXISTS tour_match_t ON tour_matches(tour_id, round);
+            CREATE TABLE IF NOT EXISTS duel_queue(
+                student_id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, level INTEGER, since REAL, seen REAL);
             CREATE TABLE IF NOT EXISTS tour_votes(
                 tour_id INTEGER NOT NULL, student_id INTEGER NOT NULL, n INTEGER NOT NULL, PRIMARY KEY(tour_id, student_id, n));
             CREATE TABLE IF NOT EXISTS support(
@@ -1022,7 +1024,8 @@ class DB:
                     ("tour_players", "grp", "TEXT"),
                     ("tour_matches", "kind", "TEXT"),                 # group, po, final, third
                     ("tour_matches", "grp", "TEXT"),
-                    ("tournaments", "nums", "TEXT")):                 # номера заданий турнира (по голосованию), JSON        # открыл разделы «в разработке» (турнир) по коду                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
+                    ("tournaments", "nums", "TEXT"),
+                    ("duels", "quick", "INTEGER DEFAULT 0")):          # дуэль из подбора соперника (оба нажали «Найти»)                 # номера заданий турнира (по голосованию), JSON        # открыл разделы «в разработке» (турнир) по коду                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
@@ -2306,7 +2309,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 opr = db.q("SELECT name FROM students WHERE id=?", (d[op],), one=True)
                 item = {"id": d["id"], "status": d["status"], "mine": me == "a", "opponent": short_name(opr["name"] if opr else "?"),
                         "started": bool(d[me + "_start"]), "done": bool(d[me + "_done"]), "op_done": bool(d[op + "_done"]),
-                        "ends": (d["accepted"] or d["created"]) + DUEL_HOURS * 3600}
+                        "ends": (d["accepted"] or d["created"]) + DUEL_HOURS * 3600, "quick": bool(d["quick"])}
                 if d["status"] == "active" and d[me + "_start"]:
                     item["tasks"] = [APP.bank.pid(x) for x in json.loads(d["tasks"])]
                     item["since"] = d[me + "_start"]
@@ -2315,12 +2318,54 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                 result="draw" if not d["winner"] else ("win" if d["winner"] == s["id"] else "lose"))
                 out.append(item)
             lv = lambda sid: game_summary(db, sid, brief=True)["level"]
-            return self.send_json({"duels": out, "stake": DUEL_STAKE, "tasks": DUEL_TASKS, "hours": DUEL_HOURS,
+            q = db.q("SELECT since FROM duel_queue WHERE student_id=? AND seen>?", (s["id"], time.time() - DUEL_QUEUE_TTL), one=True)
+            return self.send_json({"duels": out, "searching": bool(q), "search_since": q["since"] if q else None,
+                                   "seekers": duel_seekers(db, tid, s["id"]), "stake": DUEL_STAKE, "tasks": DUEL_TASKS, "hours": DUEL_HOURS,
                                    "tournament": tournament_table(db, s, mates),
                                    "mates": sorted(({"sid": m["id"], "name": short_name(m["name"]), "level": lv(m["id"])}
                                                     for m in mates.values()), key=lambda x: x["name"])})
         if method != "POST":
             return self.err(405, "нужен POST")
+        if path == "/api/duel/cancel":
+            db.x("DELETE FROM duel_queue WHERE student_id=?", (s["id"],))
+            return self.send_json({"ok": True})
+        if path == "/api/duel/find":
+            # подбор соперника: кто ищет одновременно (страница опрашивает раз в несколько секунд), ближайший по уровню
+            if s["is_teacher"]:
+                return self.err(403, "Учитель в дуэлях не участвует")
+            now = time.time()
+            with _COMP_LOCK:
+                # пока ждали, нас подобрал другой ищущий — дуэль уже создана
+                hit = db.q("""SELECT id FROM duels WHERE status='active' AND a=? AND quick=1 AND accepted>=?
+                              ORDER BY id DESC LIMIT 1""", (s["id"], now - DUEL_QUEUE_TTL * 2), one=True)
+                if hit and not db.q("SELECT 1 FROM duel_queue WHERE student_id=?", (s["id"],), one=True):
+                    return self.send_json({"matched": hit["id"]})
+                if db.q("SELECT COUNT(*) AS c FROM duels WHERE status IN ('pending','active') AND (a=? OR b=?)",
+                        (s["id"], s["id"]), one=True)["c"] >= DUEL_MAX_OPEN:
+                    db.x("DELETE FROM duel_queue WHERE student_id=?", (s["id"],))
+                    return self.err(429, f"Не больше {DUEL_MAX_OPEN} дуэлей одновременно — закончи начатые")
+                me_lv = game_summary(db, s["id"], brief=True)["level"]
+                db.x("DELETE FROM duel_queue WHERE seen<?", (now - DUEL_QUEUE_TTL,))
+                busy = {r["x"] for r in db.q("""SELECT CASE WHEN a=? THEN b ELSE a END AS x FROM duels
+                                                WHERE (a=? OR b=?) AND (status IN ('pending','active')
+                                                     OR (status='finished' AND finished>=?))""",
+                                             (s["id"], s["id"], s["id"], week_start()))}
+                cands = [r for r in db.q("SELECT * FROM duel_queue WHERE teacher_id=? AND student_id!=? ORDER BY since",
+                                         (tid, s["id"])) if r["student_id"] in mates and r["student_id"] not in busy]
+                if cands:
+                    tasks = duel_tasks()
+                    if not tasks:
+                        return self.err(503, "нет подходящих заданий")
+                    op = min(cands, key=lambda r: (abs((r["level"] or 1) - me_lv), r["since"]))
+                    db.x("DELETE FROM duel_queue WHERE student_id IN (?,?)", (s["id"], op["student_id"]))
+                    did = db.x("""INSERT INTO duels(a, b, tasks, created, status, accepted, quick)
+                                  VALUES(?,?,?,?, 'active', ?, 1)""", (op["student_id"], s["id"], json.dumps(tasks), now, now))
+                    return self.send_json({"matched": did})
+                db.x("""INSERT INTO duel_queue(student_id, teacher_id, level, since, seen) VALUES(?,?,?,?,?)
+                        ON CONFLICT(student_id) DO UPDATE SET seen=excluded.seen, level=excluded.level""",
+                     (s["id"], tid, me_lv, now, now))
+            q = db.q("SELECT since FROM duel_queue WHERE student_id=?", (s["id"],), one=True)
+            return self.send_json({"searching": True, "since": q["since"], "seekers": duel_seekers(db, tid, s["id"])})
         if path == "/api/duel/create":
             op = to_int(data.get("sid"))
             if op not in mates:
@@ -2947,7 +2992,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             # удаление учётной записи стирает все данные ученика (152-ФЗ); в чужих турнирах и дуэлях
             # остаются только счёт и номер без имени — соперникам не ломаем таблицы
             for table in ("attempts", "reveal_log", "exams", "activity", "solutions", "daily_starts", "daily_results",
-                          "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes"):
+                          "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue"):
                 db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
             for aid in [r["id"] for r in db.q("SELECT id FROM assignments WHERE student_id=?", (sid,))]:
                 db.x("DELETE FROM asg_runs WHERE asg_id=?", (aid,))
@@ -4502,6 +4547,15 @@ def tournament_table(db, s, mates):
         r["place"] = i
     played = {op for pair in seen if s["id"] in pair for op in pair if op != s["id"]}
     return {"table": table, "played": sorted(played), "ends": week_start() + 7 * 86400}
+
+
+DUEL_QUEUE_TTL = 15        # сек: ищущий опрашивает сервер чаще; кто пропал дольше, тот уже не ищет
+
+
+def duel_seekers(db, tid, sid):
+    """Сколько одноклассников прямо сейчас ищут соперника."""
+    return db.q("SELECT COUNT(*) AS c FROM duel_queue WHERE teacher_id=? AND student_id!=? AND seen>?",
+                (tid, sid, time.time() - DUEL_QUEUE_TTL), one=True)["c"]
 
 
 def duel_tasks():
