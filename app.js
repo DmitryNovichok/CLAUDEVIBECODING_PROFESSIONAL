@@ -905,7 +905,7 @@
         if (!a) return { chip: '<span class="chip accent">Задание учителя</span>', line: '' };
         if (a.duel) {
           const done = a.tasks.length - asgLeft(a).length;
-          return { chip: '<span class="chip accent">🏆 Турнир</span>',
+          return { chip: `<span class="chip accent">${a.duelId ? '⚔️ Дуэль' : '🏆 Турнир'}</span>`,
             line: `${esc(a.title)}: задание ${Math.min(done + 1, a.tasks.length)} из ${a.tasks.length}. Решай точно — важны и число верных, и время.` };
         }
         if (a.strict) {
@@ -2787,7 +2787,7 @@
     } else if (ui.scope === 'asg' && asgOf(ui.asg)) {
       const a = asgOf(ui.asg);
       const left = asgLeft(a).length;
-      h = `<span class="scope-title">${a.duel ? '🏆 Турнир' : a.course ? '🎓 Курс' : 'От учителя'}</span>
+      h = `<span class="scope-title">${a.duelId ? '⚔️ Дуэль' : a.duel ? '🏆 Турнир' : a.course ? '🎓 Курс' : 'От учителя'}</span>
         <span class="scope-stats">«${esc(a.title)}» · решено ${a.tasks.length - left} из ${a.tasks.length}</span>
         ${a.due ? `<span class="chip ${a.due * 1000 < Date.now() && left ? 'weak' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}`;
     } else if (ui.scope === 'fav') {
@@ -5530,16 +5530,20 @@
   // ------------------------------------------------------------ турниры
   /* Как в футболе: набор на 4, 8 или 12 игроков (каждого вида — один турнир в сутки) → жеребьёвка по корзинам →
      группы по 4, каждый с каждым (победа 3 очка, ничья 1, «счёт» — решённые задания) → плей-офф и матч за 3-е место. */
-  let TOUR = null;
+  let TOUR = null, DUELS = null;
   async function loadDuels() {
     if (!SERVER || !student || TEACHER) return;
-    try { TOUR = await api('tour'); } catch (e) { return; }
-    // начатые матчи решаются как подборка: задания по порядку
+    try { [TOUR, DUELS] = await Promise.all([api('tour'), api('duels').catch(() => null)]); } catch (e) { return; }
+    // начатые матчи и дуэли решаются как подборка: задания по порядку
     ASG = ASG.filter(a => !a.duel);
     for (const m of tourMyMatches()) {
       if (m.status !== 'play' || !m.tasks || m.done) continue;
       const op = m.mine === 'a' ? m.b : m.a;
       ASG.push({ id: 'tm-' + m.id, duel: 'tm' + m.id, tour: m.id, title: `${m.stage}: матч с ${op ? op.name : '?'}`, tasks: m.tasks, done: [], created: m.since });
+    }
+    for (const d of (DUELS && DUELS.duels) || []) {
+      if (d.status !== 'active' || !d.tasks || d.done) continue;
+      ASG.push({ id: 'du-' + d.id, duel: 'du' + d.id, duelId: d.id, title: `Дуэль с ${d.opponent}`, tasks: d.tasks, done: [], created: d.since });
     }
     renderDuelCard();
     renderAsgCard();
@@ -5568,9 +5572,10 @@
     card.hidden = !SERVER || !student || TEACHER;
     const m = tourMyMatch(), T = TOUR && TOUR.mine;
     const lob = TOUR && TOUR.lobbies.find(l => l.me_in);
-    $('#duelSub').textContent = !TOUR ? 'наборы открыты' : m ? 'твой матч!' : T && T.status === 'run' ? 'ждём соперников'
+    const call = duelCalls().length;
+    $('#duelSub').textContent = !TOUR ? 'наборы открыты' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
       : lob ? `набор ${lob.players.length}/${lob.size}` : 'наборы открыты';
-    card.classList.toggle('alert', !!m);
+    card.classList.toggle('alert', !!m || !!call);
   }
   const tourLeft = sec => {
     const ms = sec * 1000 - Date.now();
@@ -5671,24 +5676,91 @@
         <div class="tl-seats">${Array.from({ length: l.size }, (_, i) => l.players[i]
           ? `<span class="tl-seat on${isMe(l.players[i]) ? ' me' : ''}" title="ур. ${l.players[i].level}">${esc(l.players[i].name)}</span>`
           : '<span class="tl-seat">свободно</span>').join('')}</div>` : ''}
+        ${l.id && (l.me_in || Object.keys(l.votes || {}).length) ? tourVotes(l) : ''}
         <div class="ap-btns">${btn}</div></div>`;
     };
     trainerEl.innerHTML = `<div class="course asg-page tour-page">
       <div class="crs-hero"><div><div class="crs-kicker">Турниры</div><h2>Как в футболе</h2>
         <p>Запишись в набор — как только наберутся все, турнир <b>начнётся сам</b>. Жеребьёвка по корзинам (по опыту) → <b>группы по 4</b>: каждый с каждым,
           победа — 3 очка, ничья — 1, «счёт» матча — сколько заданий решил каждый. Лучшие выходят в <b>плей-офф</b>: там при равном счёте проходит тот, кто решил быстрее, — как серия пенальти.
-          Финал и матч за 3-е место. На групповой этап — ${D.group_hours} ч, на каждый раунд плей-офф — ${D.po_hours} ч, не сыграл — техническое поражение.</p>
+          Финал и матч за 3-е место. <b>Номера заданий выбирают участники голосованием</b> в наборе, а сложность растёт от этапа к этапу: в группах — попроще, в финале — самые трудные.
+          На групповой этап — ${D.group_hours} ч, на каждый раунд плей-офф — ${D.po_hours} ч, не сыграл — техническое поражение.</p>
         <p>Каждого вида — <b>один турнир в сутки</b>. Чемпион получает награду <b>🎖 Победитель турнира</b> в профиль.</p></div>
         <div class="crs-prog"><b>${D.wins}</b><span>${plural(D.wins, 'победа', 'победы', 'побед')} в турнирах</span></div></div>
       ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">${esc(T.stage.toLowerCase())} · осталось ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}</h3>
+        ${tourNumsHtml(T)}
         ${T.status === 'done' ? tourPodium(T) : ''}
         ${T.status === 'run' ? tourMyList(T) : ''}
         <h3 class="ap-h">Групповой этап</h3>${tourGroups(T)}
         <h3 class="ap-h">Плей-офф</h3>${tourBracket(T)}` : ''}
       <h3 class="ap-h">Наборы</h3><div class="ap-grid tl-grid">${D.lobbies.map(lobby).join('')}</div>
+      ${duelsHtml()}
       ${D.done.length ? `<h3 class="ap-h">Завершённые турниры</h3><div class="td-list">${D.done.map(t => `<div class="td-row"><b>${esc(t.title)}</b>
         <small class="fm-muted">${t.finished ? apDay(t.finished) : ''}</small>${tourPodium(t)}</div>`).join('')}</div>` : ''}
     </div>`;
+  }
+  const TOUR_RANK_WORD = { 1: 'очень лёгкие', 2: 'лёгкие', 3: 'средние', 4: 'сложные', 5: 'очень сложные' };
+  /** Голосование в наборе: каждый записавшийся выбирает до vote_max номеров; самые популярные будут в турнире. */
+  function tourVotes(l) {
+    const D = TOUR, votes = l.votes || {}, my = new Set(l.my_votes || []);
+    const top = Object.entries(votes).sort((a, b) => b[1] - a[1]).slice(0, D.tasks).map(([n]) => +n);
+    const chips = D.vote_nums.map(n => {
+      const c = votes[n] || 0;
+      return `<button type="button" class="tv-n${my.has(n) ? ' on' : ''}${top.includes(n) ? ' top' : ''}"${l.me_in ? ` data-tour-vote="${l.id}:${n}"` : ' disabled'}
+        title="№${n}${c ? ` — голосов: ${c}` : ''}">${n}${c ? `<small>${c}</small>` : ''}</button>`;
+    }).join('');
+    return `<div class="tv"><div class="tv-h">🗳 Голосование за задания${l.me_in ? ` — выбери до ${D.vote_max} номеров (${my.size}/${D.vote_max})` : ' — голосуют записавшиеся'}</div>
+      <div class="tv-list">${chips}</div><small class="fm-muted">В турнир попадут ${D.tasks} самых популярных номеров; не хватит голосов — добавим случайные.</small></div>`;
+  }
+  function tourNumsHtml(T) {
+    if (!T.nums) return '';
+    const names = ['Группы', ...T.playoff.map(r => r.name)];
+    return `<p class="tour-nums">Задания турнира: ${T.nums.map(n => `<b class="chip">№${n}</b>`).join(' ')}</p>
+      <p class="fm-muted tour-ranks">Сложность по этапам: ${T.ranks.map((r, i) => `${esc(names[i] || '')} — ${TOUR_RANK_WORD[r]}`).join(' → ')}</p>`;
+  }
+  /** Входящие вызовы на дуэль, которые ждут ответа. */
+  const duelCalls = () => ((DUELS && DUELS.duels) || []).filter(d => d.status === 'pending' && !d.mine);
+  function duelsHtml() {
+    const D = DUELS;
+    if (!D) return '';
+    const busy = new Set(D.duels.filter(d => d.status === 'pending' || d.status === 'active').map(d => d.opponent));
+    const played = new Set((D.tournament && D.tournament.played) || []);
+    const RES = { win: ['w', 'победа'], lose: ['l', 'поражение'], draw: ['d', 'ничья'] };
+    const rows = D.duels.map(d => {
+      let st, btn = '';
+      if (d.status === 'pending') {
+        st = d.mine ? 'ждём ответа соперника' : '⚔️ тебя вызвали!';
+        if (!d.mine) btn = `<button type="button" class="btn primary" data-duel-accept="${d.id}">Принять</button><button type="button" class="btn ghost" data-duel-decline="${d.id}">Отказаться</button>`;
+      } else if (d.status === 'active') {
+        st = d.done ? (d.op_done ? 'подводим итог…' : 'ты сыграл — ждём соперника') : `осталось ${tourLeft(d.ends)}`;
+        if (!d.done) btn = `<button type="button" class="btn primary" data-duel-go="${d.id}">${d.started ? 'Продолжить' : 'Играть'}</button>
+          ${d.started ? `<button type="button" class="btn ghost" data-duel-fin="${d.id}">Закончить</button>` : ''}`;
+      } else if (d.status === 'finished') {
+        const [c, w] = RES[d.result] || ['d', d.result];
+        st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${d.stake ? ` <small>${d.result === 'win' ? '+' : '−'}${d.stake} XP</small>` : ''}`;
+      } else st = d.status === 'declined' ? 'вызов отклонён' : 'вызов не принят вовремя';
+      return `<div class="tm-row${d.status === 'active' && !d.done || (d.status === 'pending' && !d.mine) ? ' live' : ''}"><div><span class="ap-kind">Дуэль</span>
+        <b>ты — ${esc(d.opponent)}</b><div class="fm-muted">${st}</div></div><div class="tm-btns">${btn}</div></div>`;
+    }).join('');
+    const mates = D.mates.map(m => {
+      const can = !busy.has(m.name) && !played.has(m.sid);
+      return `<div class="dm-row"><span>${esc(m.name)} <small class="fm-muted">ур. ${m.level}</small></span>
+        ${can ? `<button type="button" class="btn ghost" data-duel-call="${m.sid}">⚔️ Вызвать</button>` : `<small class="fm-muted">${busy.has(m.name) ? 'дуэль идёт' : 'уже играли на неделе'}</small>`}</div>`;
+    }).join('');
+    const tab = (D.tournament && D.tournament.table || []).filter(r => r.games);
+    return `<h3 class="ap-h" id="duelsH">⚔️ Дуэли</h3>
+      <p class="fm-muted">Вызови одноклассника: ${D.tasks} одинаковых заданий, на дуэль — ${D.hours} ч. Больше решил — победа, поровну — быстрее.
+        Победитель забирает у проигравшего <b>${D.stake} XP</b>. С одним соперником — одна дуэль в неделю.</p>
+      ${rows ? `<div class="tm-list">${rows}</div>` : ''}
+      ${tab.length ? `<h4 class="dm-h">Таблица дуэлей недели</h4><table class="lb dm-tab"><tr><th></th><th>Игрок</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>О</th></tr>
+        ${tab.map(r => `<tr class="${r.me ? 'me' : ''}"><td>${r.place}</td><td>${esc(r.name)}</td><td>${r.games}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td><b>${r.pts}</b></td></tr>`).join('')}</table>` : ''}
+      <h4 class="dm-h">Кого вызвать</h4>${mates ? `<div class="dm-list">${mates}</div>` : '<p class="fm-muted">Пока не с кем — у учителя нет других учеников.</p>'}`;
+  }
+  async function startDuel(id) {
+    try { await api('duel/start', { id }); } catch (e) { toast(e.message, 3000); return; }
+    await loadDuels();
+    leaveCourse();
+    setScope('asg', 'du-' + id);
   }
   function tourPodium(T) {
     return `<div class="tpod">${(T.podium || []).map(p => `<span class="tpod-i p${p.place}${isMe(p) ? ' me' : ''}">${MEDAL[p.place] || `${p.place}.`} ${esc(p.name)}${admTag(p.sid)}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</span>`).join('')}</div>`;
@@ -5713,6 +5785,13 @@
   /** Решил последнее задание матча — сообщаем серверу, итог — когда закончит и соперник. */
   async function checkDuelDone() {
     const a = ui.scope === 'asg' && asgOf(ui.asg);
+    if (a && a.duelId && !asgLeft(a).length) {
+      try { await api('duel/finish', { id: a.duelId }); } catch (e) { return; }
+      toast('Дуэль сыграна! Итог — когда закончит соперник.', 4000);
+      ui.scope = 'all';
+      await loadDuels();
+      return tourOpen();
+    }
     if (!a || !a.tour || asgLeft(a).length) return;
     if (!await finishTourMatch(a.tour)) return;
     toast('Матч сыгран! Итог — когда закончит соперник.', 4000);
@@ -5727,6 +5806,27 @@
     if (j) return tourAction('tour/join', { id: +j.dataset.tourJoin }, 'Ты в наборе! Турнир начнётся, когда наберутся все игроки.');
     if (l) return tourAction('tour/leave', { id: +l.dataset.tourLeave }, 'Ты вышел из набора');
     if (go) return startTourMatch(+go.dataset.tourGo);
+    const v = t.closest('[data-tour-vote]');
+    if (v) {
+      const [id, n] = v.dataset.tourVote.split(':').map(Number);
+      const l = TOUR.lobbies.find(x => x.id === id);
+      const my = new Set(l.my_votes || []);
+      if (my.has(n)) my.delete(n);
+      else if (my.size >= TOUR.vote_max) { toast(`Можно выбрать не больше ${TOUR.vote_max} номеров — сначала сними один`, 3000); return; }
+      else my.add(n);
+      return tourAction('tour/vote', { id, nums: [...my] });
+    }
+    const dc = t.closest('[data-duel-call]'), da = t.closest('[data-duel-accept]'), dd = t.closest('[data-duel-decline]');
+    const dg = t.closest('[data-duel-go]'), df = t.closest('[data-duel-fin]');
+    if (dc) return tourAction('duel/create', { sid: +dc.dataset.duelCall }, 'Вызов отправлен! Ждём ответа соперника.');
+    if (da) return tourAction('duel/respond', { id: +da.dataset.duelAccept, accept: true }, 'Вызов принят! Жми «Играть», когда будешь готов.');
+    if (dd) return tourAction('duel/respond', { id: +dd.dataset.duelDecline, accept: false }, 'Вызов отклонён');
+    if (dg) return startDuel(+dg.dataset.duelGo);
+    if (df && confirm('Закончить дуэль? Засчитаются задания, решённые до этого момента.')) {
+      try { await api('duel/finish', { id: +df.dataset.duelFin }); } catch (e) { toast(e.message, 3000); return; }
+      toast('Дуэль закончена — ждём соперника', 3000);
+      return loadDuels();
+    }
     if (fin && confirm('Закончить матч? Засчитаются задания, решённые до этого момента.')) {
       if (await finishTourMatch(+fin.dataset.tourFin)) { toast('Матч закончен — ждём соперника', 3000); await loadDuels(); }
     }
@@ -5773,6 +5873,7 @@
     const inv = tm && !tm.done ? [tm] : [];
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Привет! Вот что нового</h2>${res}
       ${note ? `<div class="sum-note${passed ? ' hot' : ''}">${note}</div>` : ''}
+      ${duelCalls().length ? `<div class="sum-note hot">⚔️ Тебя вызвали на дуэль: ${duelCalls().map(d => esc(d.opponent)).join(', ')}. <button type="button" class="btn ghost" id="sumDuels">Ответить</button></div>` : ''}
       ${inv.length ? `<div class="sum-note hot">🏆 Турнир: ${esc(tm.stage.toLowerCase())} — твой матч ждёт тебя — осталось ${tourLeft(tm.ends)}. <button type="button" class="btn ghost" id="sumDuels">К матчу</button></div>` : ''}
       ${DAILY && DAILY.ready && !DAILY.my_place && !DAILY.started ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
       ${boardsHtml(d, 'league')}
@@ -6593,6 +6694,9 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.54.0', '15.10.2026', ['Дуэли вернулись — во вкладке «Турниры»: вызови одноклассника, 5 одинаковых заданий, победитель забирает 15 XP',
+      'Турниры: участники голосуют за номера заданий прямо в наборе — в турнир попадут самые популярные',
+      'Турниры: сложность растёт от этапа к этапу — в группах задания попроще, в финале самые трудные']],
     ['1.53.0', '15.10.2026', ['Задание дня: у каждого своё задание — того же номера, типа и сложности. Переслать ответ однокласснику больше не получится',
       'Задание дня: результат быстрее, чем задание можно прочитать, в рейтинг и корону не засчитывается']],
     ['1.52.0', '14.10.2026', ['Python: скобки ( [ { и кавычки ставятся парой — курсор сразу внутри; выделенный текст оборачивается; Backspace в пустой паре удаляет обе',
