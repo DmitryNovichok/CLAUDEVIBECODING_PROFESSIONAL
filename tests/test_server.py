@@ -1188,6 +1188,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((T["status"], T["stage"], len(T["groups"]), len(T["groups"][0]["matches"])), ("run", "Групповой этап", 1, 6))
         self.assertTrue({5, 6} <= set(T["nums"]))                                        # выигравшие голосование номера
         self.assertEqual(T["ranks"], [2, 5])                                             # группы проще, финал — сложнее
+        row = server.APP.db.q("SELECT * FROM tournaments WHERE id=?", (T["id"],), one=True)
+        stage = server.tour_stage_sec(row, T["nums"], group=True)                       # все играют одновременно:
+        self.assertEqual(stage, sum(server.DUEL_TASK_SEC[n] for n in T["nums"]) * 3 + 600)   # три матча подряд + 10 минут
+        self.assertAlmostEqual(T["round_ends"] - T["started"], stage, delta=2)
         mine = [m for m in T["groups"][0]["matches"] if m["mine"]]
         self.assertEqual(len(mine), 3)
         # Антон решает по 2 в каждом матче группы — он первый; второй матч, пока первый не закончен, начать нельзя
