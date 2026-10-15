@@ -962,15 +962,14 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
                         (sb, time.time() - 100, "du:old", 5, "[]", "1", 1.0))   # у Бориса есть опыт — будет что забрать
         self.assertEqual(self.req("GET", "/api/duels", token=ta)[0], 200)   # дуэли открыты всем, без кода
-        mates = self.req("GET", "/api/duels", token=ta)[1]["mates"]
-        self.assertIn("Дуэлев Б.", [m["name"] for m in mates])
-        st, d = self.req("POST", "/api/duel/create", {"sid": sb}, ta)
+        self.assertEqual(self.req("POST", "/api/duel/create", {"sid": sb}, ta)[0], 410)   # прямого вызова больше нет
+        server.APP.db.x("DELETE FROM duel_queue")
+        self.req("POST", "/api/duel/find", {}, tb)
+        st, d = self.req("POST", "/api/duel/find", {}, ta)
         self.assertEqual(st, 200, d)
-        did = d["id"]
-        self.assertEqual(self.req("POST", "/api/duel/create", {"sid": sb}, ta)[0], 409)   # второй вызов тому же — нельзя
+        did = d["matched"]
         inv = self.req("GET", "/api/duels", token=tb)[1]["duels"][0]
-        self.assertEqual((inv["status"], inv["mine"], inv["opponent"]), ("pending", False, "Дуэлев А."))
-        self.req("POST", "/api/duel/respond", {"id": did, "accept": True}, tb)
+        self.assertEqual((inv["status"], inv["opponent"]), ("active", "Дуэлев А."))
         tasks = self.req("POST", "/api/duel/start", {"id": did}, ta)[1]["tasks"]
         for pid in tasks:                                                 # Аркадий решает всё верно
             real = server.APP.bank.real(pid)
@@ -988,7 +987,10 @@ class ServerTest(unittest.TestCase):
         top = {r["name"]: r for r in T["table"]}
         self.assertEqual((top["Дуэлев А."]["pts"], top["Дуэлев А."]["w"], top["Дуэлев Б."]["pts"], top["Дуэлев Б."]["l"]), (3, 1, 0, 1))
         self.assertEqual(T["table"][0]["name"], "Дуэлев А.")
-        self.assertEqual(self.req("POST", "/api/duel/create", {"sid": sb}, ta)[0], 409)
+        self.req("POST", "/api/duel/find", {}, tb)                        # второй раз за неделю их не сведёт
+        self.assertTrue(self.req("POST", "/api/duel/find", {}, ta)[1].get("searching"))
+        self.req("POST", "/api/duel/cancel", {}, ta)
+        self.req("POST", "/api/duel/cancel", {}, tb)
 
     def test_duel_matchmaking(self):
         # «Найти соперника»: первый ждёт в очереди, второй нажал — дуэль создана сразу, первый узнаёт о ней при следующем опросе
