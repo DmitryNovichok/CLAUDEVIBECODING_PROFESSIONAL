@@ -2336,6 +2336,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if d["status"] == "active" and d[me + "_start"]:
                     item["tasks"] = [APP.bank.pid(x) for x in side_tasks(d, me)]
                     item["since"] = d[me + "_start"]
+                    item["cap"] = duel_cap(side_tasks(d, me))
                 item["rematch"] = bool(d["rematch_of"])
                 if d["status"] == "finished":
                     item.update(my_solved=d[me + "_solved"], op_solved=d[op + "_solved"], stake=d["stake"] or 0,
@@ -2443,7 +2444,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(409, "Дуэль не идёт")
             if not d[me + "_start"]:
                 db.x(f"UPDATE duels SET {me}_start=? WHERE id=?", (time.time(), d["id"]))
-            return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in side_tasks(d, me)]})
+            d = db.q("SELECT * FROM duels WHERE id=?", (d["id"],), one=True)
+            return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in side_tasks(d, me)],
+                                   "since": d[me + "_start"], "cap": duel_cap(side_tasks(d, me))})
         if path == "/api/duel/finish":
             if d["status"] == "active" and d[me + "_start"] and not d[me + "_done"]:
                 db.x(f"UPDATE duels SET {me}_done=? WHERE id=?", (time.time(), d["id"]))
@@ -4528,7 +4531,8 @@ DAILY_NUMS = set(range(1, 19)) | {22, 23, 24, 25}
 # быстрее этого задание дня не прочитать и не решить — значит, ответ был известен заранее (по номерам задания)
 DAILY_MIN_SEC = {**{n: 10 for n in range(1, 9)}, **{n: 15 for n in range(9, 19)}, **{n: 25 for n in (22, 23, 24, 25)}}
 DUEL_TASKS = 5
-DUEL_NUMS = list(range(1, 16))
+DUEL_NUMS = list(range(1, 19)) + [22, 23, 24, 25, 26, 27]   # 19–21 — игра из трёх вопросов, в дуэль не годится
+DUEL_TASK_SEC = {n: (30 if n >= 24 else 10) * 60 for n in range(1, 28)}   # время на задание дуэли: №1–23 — 10 мин, №24–27 — 30
 DUEL_MIN_NUMS = 3          # меньше общих номеров у двоих ищущих — их не сводим
 DUEL_STAKE = 15            # столько опыта победитель дуэли забирает у проигравшего
 DUEL_HOURS = 24
@@ -4768,6 +4772,11 @@ def duel_seekers(db, tid, sid):
     """Сколько одноклассников прямо сейчас ищут соперника."""
     return db.q("SELECT COUNT(*) AS c FROM duel_queue WHERE teacher_id=? AND student_id!=? AND seen>?",
                 (tid, sid, time.time() - DUEL_QUEUE_TTL), one=True)["c"]
+
+
+def duel_cap(tasks):
+    """Время на дуэль (сек): сумма лимитов её заданий — №1–23 по 10 минут, №24–27 по 30."""
+    return sum(DUEL_TASK_SEC.get((APP.bank.tasks.get(x) or {}).get("n"), 600) for x in tasks)
 
 
 def duel_tasks(nums=None):
@@ -5245,11 +5254,14 @@ def duel_settle(db, d):
     if d["status"] != "active":
         return
     deadline = (d["accepted"] or now) + DUEL_HOURS * 3600
-    if not ((d["a_done"] and d["b_done"]) or now > deadline):
+    over = lambda sd: d[sd + "_done"] or (d[sd + "_start"] and now > d[sd + "_start"] + duel_cap(side_tasks(d, sd)))
+    if not ((over("a") and over("b")) or now > deadline):
         return
     res = {}
     for side in ("a", "b"):
         st, dn = d[side + "_start"], d[side + "_done"] or min(now, deadline)
+        if st:
+            dn = min(dn, st + duel_cap(side_tasks(d, side)))      # решённое после лимита времени не считается
         res[side] = (duel_solved(db, d[side], side_tasks(d, side), st, dn), (dn - st) if st else float("inf"))
     (sa, ta), (sb, tb) = res["a"], res["b"]
     if sa != sb:
