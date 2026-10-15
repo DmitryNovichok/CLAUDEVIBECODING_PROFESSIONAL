@@ -4544,7 +4544,7 @@ DUEL_TASKS = 5
 DUEL_NUMS = list(range(1, 19)) + [22, 23, 24, 25, 26, 27]   # 19–21 — игра из трёх вопросов, в дуэль не годится
 DUEL_TASK_SEC = {n: (30 if n >= 24 else 10) * 60 for n in range(1, 28)}   # время на задание дуэли: №1–23 — 10 мин, №24–27 — 30
 DUEL_MIN_NUMS = 3          # меньше общих номеров у двоих ищущих — их не сводим
-DUEL_STAKE = 15            # столько опыта победитель дуэли забирает у проигравшего
+DUEL_STAKE = 100           # опыт победителю дуэли (у проигравшего не отнимается)
 DUEL_HOURS = 24
 DUEL_MAX_OPEN = 3
 DUEL_PER_DAY = 10          # дуэлей в сутки на одного ученика
@@ -4809,7 +4809,8 @@ TOUR_GROUPS = {4: 1, 8: 2, 12: 3}          # группы по 4
 TOUR_QUAL = {4: 2, 8: 4, 12: 8}            # сколько выходит в плей-офф (у 12 — по двое из группы и две лучшие третьи)
 TOUR_GROUP_HOURS = 24                      # на весь групповой этап
 TOUR_PO_HOURS = 12                         # на каждый раунд плей-офф
-TOUR_PRIZES = {4: {1: 60, 2: 35, 3: 20}, 8: {1: 100, 2: 60, 3: 30}, 12: {1: 150, 2: 90, 3: 50}}
+TOUR_WIN_XP = {4: 200, 8: 400, 12: 600}   # опыт за победу в турнире; 2-е место — половина, 3-е — треть
+TOUR_PRIZES = {size: {1: xp, 2: round(xp / 2), 3: round(xp / 3)} for size, xp in TOUR_WIN_XP.items()}
 ROUND_NAMES = {1: "Финал", 2: "Полуфинал", 4: "Четвертьфинал"}
 GROUP_NAMES = "ABCD"
 TOUR_PER_DAY = 3                           # турниров каждого вида в сутки
@@ -5287,13 +5288,12 @@ def duel_settle(db, d):
     stake = 0
     lose = ("b" if win == "a" else "a") if win else None
     if win:
-        stake = min(DUEL_STAKE, game_summary(db, d[lose], brief=True)["xp"])
+        stake = DUEL_STAKE
     if not db.xn("""UPDATE duels SET status='finished', a_solved=?, b_solved=?, winner=?, stake=?, finished=?
                     WHERE id=? AND status='active'""", (sa, sb, d[win] if win else None, stake, now, d["id"])):
         return                                     # итог уже подвёл параллельный запрос
     if stake:
         db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, stake, f"duel:{d['id']}"))
-        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[lose], now, -stake, f"duel:{d['id']}"))
     if d["a_start"] or d["b_start"]:               # рейтинг Эло: никто не начал — дуэль не в счёт
         da, db_ = elo_apply(db, d["a"], d["b"], 1.0 if win == "a" else 0.0 if win == "b" else 0.5)
         db.x("UPDATE duels SET a_elo=?, b_elo=? WHERE id=?", (da, db_, d["id"]))

@@ -980,8 +980,8 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/duel/finish", {"id": did}, tb)              # Борис ничего не решил
         res = {d["id"]: d for d in self.req("GET", "/api/duels", token=ta)[1]["duels"]}[did]
         self.assertEqual((res["status"], res["result"], res["my_solved"], res["op_solved"]), ("finished", "win", len(tasks), 0))
-        self.assertEqual(res["stake"], 15)                                # у Бориса 10 + 5 за «Первый шаг» — ровно ставка
-        self.assertEqual(self.req("GET", "/api/me", token=tb)[1]["game"]["xp"], 0)
+        self.assertEqual(res["stake"], 100)                               # за победу +100 XP
+        self.assertGreater(self.req("GET", "/api/me", token=tb)[1]["game"]["xp"], 0)   # проигравший опыт не теряет
         # турнирная таблица недели: победа — 3 очка; второй матч той же пары за неделю — нельзя
         T = self.req("GET", "/api/duels", token=ta)[1]["tournament"]
         top = {r["name"]: r for r in T["table"]}
@@ -1219,7 +1219,7 @@ class ServerTest(unittest.TestCase):
         T = d["mine"]
         self.assertEqual((T["status"], d["busy"], d["wins"]), ("done", False, 1))
         self.assertEqual([(p["sid"], p["place"], p["xp"]) for p in T["podium"]],
-                         [(sids[1], 1, 60), (sids[0], 2, 35), (sids[3], 3, 20), (sids[2], 4, 0)])
+                         [(sids[1], 1, 200), (sids[0], 2, 100), (sids[3], 3, 67), (sids[2], 4, 0)])
         self.assertTrue(server.APP.db.q("SELECT 1 FROM awards WHERE student_id=? AND kind='tour1'", (sids[1],), one=True))
         self.assertEqual(self.req("POST", "/api/tour/join", {"id": big}, toks[1])[0], 200)    # доиграл — можно в новый
         # у учителя — архив: турнир с местами и матчами
@@ -1318,7 +1318,7 @@ class ServerTest(unittest.TestCase):
         T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
         self.assertEqual(T["status"], "done")
         self.assertEqual([p["place"] for p in T["podium"]], [1, 2, 3, 4])
-        self.assertEqual(T["podium"][0]["xp"], 150)
+        self.assertEqual(T["podium"][0]["xp"], 600)
 
     def test_support_ticket_flow(self):
         tok = self.login("Поддержкин Павел")
