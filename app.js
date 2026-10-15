@@ -5627,7 +5627,7 @@
       <table class="tg-t"><thead><tr><th></th><th>Участник</th><th title="Игры">И</th><th title="Победы">В</th><th title="Ничьи">Н</th><th title="Поражения">П</th>
         <th title="Решено — пропущено (как голы)">Задачи</th><th>О</th></tr></thead><tbody>
       ${g.rows.map(r => `<tr class="${r.me ? 'me' : ''}${r.place <= 2 ? ' q' : n === 3 && r.place === 3 ? ' q3' : ''}"><td>${r.place}</td>
-        <td>${esc(r.name)}${r.me ? ' (ты)' : ''}${admTag(r.sid)}</td><td>${r.g}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.sf}–${r.sa}</td><td><b>${r.pts}</b></td></tr>`).join('')}
+        <td>${esc(r.name)}${r.me ? ' (ты)' : ''}${admTag(r.sid)}${(T.gone || []).includes(r.sid) ? ' <small class="fm-muted">не явился</small>' : ''}</td><td>${r.g}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.sf}–${r.sa}</td><td><b>${r.pts}</b></td></tr>`).join('')}
       </tbody></table>
       <div class="tg-ms">${g.matches.map(m => `<div class="tg-m${m.mine ? ' mine' : ''}"><span>${esc(m.a.name)}</span>
         <b>${m.status === 'done' ? `${m.a_solved} : ${m.b_solved}` : '– : –'}</b><span>${esc(m.b.name)}</span></div>`).join('')}</div></div>`).join('')}</div>
@@ -5665,13 +5665,13 @@
     const lobby = l => {
       const n = l.players.length;
       const prizes = Object.entries(l.prizes).map(([pl, xp]) => `${MEDAL[pl]} ${xp}`).join(' · ');
-      const btn = !l.id ? `<span class="fm-muted">Сегодня уже разыгран — новый набор откроется завтра</span>`
+      const btn = !l.id ? `<span class="fm-muted">Сегодня сыграно ${l.per_day} — новые наборы откроются завтра</span>`
         : l.me_in ? `<button type="button" class="btn" data-tour-leave="${l.id}">Выйти из набора</button>`
           : D.busy ? '<span class="fm-muted">ты уже в другом турнире</span>'
             : `<button type="button" class="btn primary" data-tour-join="${l.id}">Записаться</button>`;
       return `<div class="ap-card tl-card${l.me_in ? ' going' : ''}${l.id ? '' : ' done'}">
         <div class="ap-top"><span class="ap-ico">${{ 4: '⚡', 8: '🏆', 12: '🌍' }[l.size]}</span><div><span class="ap-kind">${l.size} игроков · ${TOUR_FMT[l.size]}</span>
-          <b>${esc(l.title || l.name)}</b><small>${l.id ? `набрано ${n} из ${l.size}${n < l.size ? ` — ещё ${l.size - n} и старт!` : ''}` : 'один турнир в сутки'} · призы ${prizes} XP</small></div></div>
+          <b>${esc(l.title || l.name)}</b><small>${l.id ? `набрано ${n} из ${l.size}${n < l.size ? ` — ещё ${l.size - n} и старт!` : ''}` : `${l.per_day} турнира в сутки`} · сегодня ${l.today} из ${l.per_day} · призы ${prizes} XP</small></div></div>
         ${l.id ? `<i class="xp-bar"><b style="width:${pct(n / l.size)}%"></b></i>
         <div class="tl-seats">${Array.from({ length: l.size }, (_, i) => l.players[i]
           ? `<span class="tl-seat on${isMe(l.players[i]) ? ' me' : ''}" title="ур. ${l.players[i].level}">${esc(l.players[i].name)}</span>`
@@ -5685,9 +5685,11 @@
           победа — 3 очка, ничья — 1, «счёт» матча — сколько заданий решил каждый. Лучшие выходят в <b>плей-офф</b>: там при равном счёте проходит тот, кто решил быстрее, — как серия пенальти.
           Финал и матч за 3-е место. <b>Номера заданий выбирают участники голосованием</b> в наборе, а сложность растёт от этапа к этапу: в группах — попроще, в финале — самые трудные.
           На групповой этап — ${D.group_hours} ч, на каждый раунд плей-офф — ${D.po_hours} ч, не сыграл — техническое поражение.</p>
-        <p>Каждого вида — <b>один турнир в сутки</b>. Чемпион получает награду <b>🎖 Победитель турнира</b> в профиль.</p></div>
+        <p>Турнир начинается, как только набрались все: <b>в течение ${Math.round(D.noshow_sec / 60)} минут начни любой матч</b>, иначе засчитается поражение во всех матчах группы.</p>
+        <p>Каждого вида — <b>до 3 турниров в сутки</b>. Чемпион получает награду <b>🎖 Победитель турнира</b> в профиль.</p></div>
         <div class="crs-prog"><b>${D.wins}</b><span>${plural(D.wins, 'победа', 'победы', 'побед')} в турнирах</span></div></div>
       ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">${esc(T.stage.toLowerCase())} · осталось ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}</h3>
+        ${tourNoshowHtml(T)}
         ${tourNumsHtml(T)}
         ${T.status === 'done' ? tourPodium(T) : ''}
         ${T.status === 'run' ? tourMyList(T) : ''}
@@ -5695,8 +5697,10 @@
         <h3 class="ap-h">Плей-офф</h3>${tourBracket(T)}` : ''}
       ${duelsHtml()}
       <h3 class="ap-h">Наборы</h3><div class="ap-grid tl-grid">${D.lobbies.map(lobby).join('')}</div>
-      ${D.done.length ? `<h3 class="ap-h">Завершённые турниры</h3><div class="td-list">${D.done.map(t => `<div class="td-row"><b>${esc(t.title)}</b>
-        <small class="fm-muted">${t.finished ? apDay(t.finished) : ''}</small>${tourPodium(t)}</div>`).join('')}</div>` : ''}
+      ${D.done.length ? `<h3 class="ap-h">История турниров</h3><div class="td-list">${D.done.map(t => `<details class="td-row">
+        <summary><b>${esc(t.title)}</b> <small class="fm-muted">${t.finished ? apDay(t.finished) : ''}${t.my_place ? ` · ты — ${t.my_place}-е место` : ''}</small>${tourPodium(t)}</summary>
+        <ol class="td-places">${(t.places || []).map(p => `<li class="${isMe(p) ? 'me' : ''}">${p.place ? `${MEDAL[p.place] || p.place + '.'}` : '—'} ${esc(p.name)}${p.gone ? ' <small class="fm-muted">не явился</small>' : ''}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</li>`).join('')}</ol>
+        </details>`).join('')}</div>` : ''}
     </div>`;
   }
   const TOUR_RANK_WORD = { 1: 'очень лёгкие', 2: 'лёгкие', 3: 'средние', 4: 'сложные', 5: 'очень сложные' };
@@ -5712,6 +5716,21 @@
     return `<div class="tv"><div class="tv-h">🗳 Голосование за задания${l.me_in ? ` — выбери до ${D.vote_max} номеров (${my.size}/${D.vote_max})` : ' — голосуют записавшиеся'}</div>
       <div class="tv-list">${chips}</div><small class="fm-muted">В турнир попадут ${D.tasks} самых популярных номеров; не хватит голосов — добавим случайные.</small></div>`;
   }
+  /** Первые минуты турнира: кто не начал ни одного матча — сдаётся автоматически. */
+  function tourNoshowHtml(T) {
+    if (T.status !== 'run' || T.round !== 1 || !T.started) return '';
+    const left = Math.round(T.started + TOUR.noshow_sec - Date.now() / 1000);
+    if (left <= 0 || tourMyMatches().some(m => m.started)) return '';
+    return `<div class="sum-note hot tour-noshow">⏱ Турнир начался! Начни любой матч в течение <b id="tnsLeft">${Math.floor(left / 60)}:${pad2(left % 60)}</b> — иначе засчитается поражение во всех матчах группы.</div>`;
+  }
+  setInterval(() => {
+    const el = $('#tnsLeft'), T = TOUR && TOUR.mine;
+    if (!el || !T) return;
+    const left = Math.max(0, Math.round(T.started + TOUR.noshow_sec - Date.now() / 1000));
+    el.textContent = `${Math.floor(left / 60)}:${pad2(left % 60)}`;
+  }, 1000);
+  // на странице турниров данные обновляются сами: старт турнира, итоги матчей, неявки
+  setInterval(() => { if (courseShown && pageKind === 'tour' && !document.hidden && !DSEARCH.on) loadDuels(); }, 20000);
   function tourNumsHtml(T) {
     if (!T.nums) return '';
     const names = ['Группы', ...T.playoff.map(r => r.name)];
@@ -5744,12 +5763,13 @@
       ? `<div class="dq on"><div class="dq-spin" aria-hidden="true">⚔️</div><div><b>Ищем соперника… <span id="dqTime">${dqTime()}</span></b>
           <div class="fm-muted">${DSEARCH.seekers ? `Сейчас ищут ещё ${DSEARCH.seekers}` : 'Как только кто-то из класса тоже нажмёт «Найти», дуэль начнётся'}. Не закрывай страницу.</div></div>
           <button type="button" class="btn ghost" id="dqCancel">Отмена</button></div>`
+      : D.today >= D.per_day ? `<div class="dq"><b>Сегодня сыграно ${D.today} дуэлей — это максимум.</b><div class="fm-muted">Новые дуэли — завтра.</div></div>`
       : `<div class="dq"><button type="button" class="btn primary dq-go" id="dqFind">🔍 Найти соперника</button>
           <div class="fm-muted">Подберём того, кто тоже ищет дуэль прямо сейчас, — по возможности твоего уровня.${D.seekers ? ` <b>Сейчас ищут: ${D.seekers}</b>` : ''}</div></div>`;
     const tab = (D.tournament && D.tournament.table || []).filter(r => r.games);
     return `<h3 class="ap-h" id="duelsH">⚔️ Дуэли</h3>
       <p class="fm-muted">Нажми «Найти соперника» — подберём одноклассника, который тоже ищет дуэль. ${D.tasks} одинаковых заданий, на дуэль — ${D.hours} ч. Больше решил — победа, поровну — быстрее.
-        Победитель забирает у проигравшего <b>${D.stake} XP</b>. С одним соперником — одна дуэль в неделю.</p>
+        Победитель забирает у проигравшего <b>${D.stake} XP</b>. С одним соперником — одна дуэль в неделю, всего — до ${D.per_day} в день (сегодня ${D.today}).</p>
       ${search}
       ${rows ? `<div class="tm-list">${rows}</div>` : ''}
       ${tab.length ? `<h4 class="dm-h">Таблица дуэлей недели</h4><table class="lb dm-tab"><tr><th></th><th>Игрок</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>О</th></tr>
@@ -5797,7 +5817,7 @@
   async function tourAction(path, body, msg) {
     let d;
     try { d = await api(path, body); } catch (e) { toast(e.message || 'Не получилось', 3000); return; }
-    if (d && d.started) toast('Набор заполнен — турнир начался! Сыграй свой матч.', 4000);
+    if (d && d.started) toast('Набор заполнен — турнир начался! Начни матч в течение 3 минут.', 5000);
     else if (msg) toast(msg, 2500);
     await loadDuels();
   }
@@ -6724,6 +6744,10 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.55.0', '15.10.2026', ['Турниры: каждого вида — до 3 в сутки',
+      'Турниры: после старта есть 3 минуты, чтобы начать любой матч, — кто не пришёл, автоматически сдаётся',
+      'Внизу страницы турниров — история: места всех участников и твоё место',
+      'Дуэли: не больше 10 в день']],
     ['1.54.1', '15.10.2026', ['Дуэли: только подбор соперника — нажми «🔍 Найти соперника», и мы сведём тебя с одноклассником, который тоже ищет дуэль прямо сейчас']],
     ['1.54.0', '15.10.2026', ['Дуэли вернулись — во вкладке «Турниры»: вызови одноклассника, 5 одинаковых заданий, победитель забирает 15 XP',
       'Турниры: участники голосуют за номера заданий прямо в наборе — в турнир попадут самые популярные',

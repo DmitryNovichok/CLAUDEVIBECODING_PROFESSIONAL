@@ -2125,3 +2125,8 @@ body.dock-drag, body.dock-drag * { cursor: ew-resize !important; user-select: no
 @keyframes dq-spin { 0%, 100% { transform: rotate(-15deg); } 50% { transform: rotate(15deg); } }
 .dm-pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px; }
 .dm-pick select { min-width: 0; flex: 0 1 320px; padding: 9px 12px; border: 2px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); font: inherit; }
+details.td-row { display: block; }
+details.td-row summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; cursor: pointer; }
+.td-places { margin: 10px 0 2px; padding-left: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 14px; font-size: 14px; }
+.td-places li.me { font-weight: 800; color: var(--accent); }
+.tour-noshow { margin: 6px 0 10px; }

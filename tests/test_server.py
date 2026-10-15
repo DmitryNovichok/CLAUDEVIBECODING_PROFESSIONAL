@@ -1055,8 +1055,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((st, d["started"]), (200, True))                               # набрались — турнир пошёл
         d = self.req("GET", "/api/tour", token=toks[0])[1]
         lob = {l["size"]: l for l in d["lobbies"]}
-        self.assertIsNone(lob[4]["id"])                                                 # мини-турнир сегодня уже был
-        self.assertTrue(lob[4]["next_at"] > time.time())
+        self.assertNotEqual(lob[4]["id"], quick)                                        # сразу открыт следующий набор
+        self.assertEqual((lob[4]["today"], lob[4]["per_day"]), (1, 3))
         T = d["mine"]
         self.assertEqual((T["status"], T["stage"], len(T["groups"]), len(T["groups"][0]["matches"])), ("run", "Групповой этап", 1, 6))
         self.assertTrue({5, 6} <= set(T["nums"]))                                        # выигравшие голосование номера
@@ -1101,6 +1101,39 @@ class ServerTest(unittest.TestCase):
         ct = next(x for x in c["tournaments"] if x["id"] == T["id"])
         self.assertEqual((ct["status"], ct["players"][0]["place"], ct["players"][0]["name"]), ("done", 1, "Турниров Борис"))
         self.assertEqual(len(ct["matches"]), 8)                                        # 6 в группе + финал + за 3-е
+
+    def test_tournament_noshow_and_daily_limit(self):
+        # не начал ни одного матча за 3 минуты после старта — сдался: его матчи группы проиграны
+        db = server.APP.db
+        db.x("DELETE FROM tournaments")
+        db.x("DELETE FROM tour_players")
+        toks = [self.login(f"Неявкин {n}") for n in ("Антон", "Борис", "Виктор", "Глеб")]
+        sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
+        quick = {l["size"]: l["id"] for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"]}[4]
+        for t in toks:
+            self.req("POST", "/api/tour/join", {"id": quick}, t)
+        T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
+        mine = [m for m in T["groups"][0]["matches"] if m["mine"]]
+        self.req("POST", "/api/tour/start", {"match": mine[0]["id"]}, toks[0])          # Антон на месте, остальные — нет
+        db.x("UPDATE tournaments SET started=? WHERE id=?", (time.time() - 200, T["id"]))
+        T = self.req("GET", "/api/tour", token=toks[0])[1]["mine"]
+        rows = {r["sid"]: r for r in T["groups"][0]["rows"]}
+        self.assertEqual((rows[sids[0]]["w"], rows[sids[0]]["pts"]), (3, 9))           # все три матча — победы
+        self.assertTrue(all(rows[x]["pts"] == 0 for x in sids[1:]))
+        self.assertEqual(sorted(T["gone"]), sorted(sids[1:]))
+        self.assertEqual(T["stage"], "Финал")                                           # группа закончилась сразу
+        # не больше трёх турниров каждого вида в сутки
+        for _ in range(2):
+            db.x("INSERT INTO tournaments(teacher_id, size, title, status, created, started, fmt) VALUES(?,?,?,?,?,?,2)",
+                 (server.main_teacher()["id"], 4, "x", "done", time.time(), time.time()))
+        db.x("DELETE FROM tournaments WHERE size=4 AND status='reg'")
+        lob = {l["size"]: l for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"]}[4]
+        self.assertIsNone(lob["id"])
+        # дуэлей — не больше 10 в сутки
+        for _ in range(10):
+            db.x("INSERT INTO duels(a, b, tasks, created, status) VALUES(?,?,?,?, 'finished')", (sids[2], sids[3], "[]", time.time()))
+        self.assertEqual(self.req("POST", "/api/duel/find", {}, toks[2])[0], 429)
+        self.assertEqual(self.req("GET", "/api/duels", token=toks[2])[1]["today"], 10)
 
     def test_tournament_12_groups_thirds_bracket(self):
         server.APP.db.x("DELETE FROM tournaments")
