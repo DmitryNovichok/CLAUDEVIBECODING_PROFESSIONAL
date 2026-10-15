@@ -5653,7 +5653,7 @@
         <b>ты — ${esc(op ? op.name : '?')}</b> <small class="fm-muted">${op ? `ур. ${op.level}` : ''}</small><div class="fm-muted">${st}</div></div>
         <div class="tm-btns">${btn}</div></div>`;
     }).join('');
-    return `<h3 class="ap-h">Мои матчи</h3><p class="fm-muted">Матч — ${TOUR.tasks} одинаковых заданий тебе и сопернику, время идёт с нажатия «Играть». Матчи играются по одному.</p>
+    return `<h3 class="ap-h">Мои матчи</h3><p class="fm-muted">Матч — по ${TOUR.tasks} заданий тебе и сопернику (разные, но одного типа и сложности), время идёт с нажатия «Играть». Матчи играются по одному.</p>
       <div class="tm-list">${rows}</div>`;
   }
   function renderTourPage() {
@@ -5802,7 +5802,7 @@
     return `<h3 class="ap-h" id="duelsH">⚔️ Дуэли</h3>
       <div class="duel-me"><span class="chip accent">Твой Эло: <b>${D.my_elo}</b></span>${D.streak >= 2 ? `<span class="chip hot">🔥 ${D.streak} ${plural(D.streak, 'победа', 'победы', 'побед')} подряд</span>` : ''}
         <small class="fm-muted">С 3-й победы подряд — бонус опыта</small></div>
-      <p class="fm-muted">Нажми «Найти соперника» — подберём одноклассника с близким рейтингом, который тоже ищет дуэль. ${D.tasks} одинаковых заданий, на дуэль — ${D.hours} ч. Больше решил — победа, поровну — быстрее.
+      <p class="fm-muted">Нажми «Найти соперника» — подберём одноклассника с близким рейтингом, который тоже ищет дуэль. По ${D.tasks} заданий каждому (разные, но одного типа и сложности), на дуэль — ${D.hours} ч. Больше решил — победа, поровну — быстрее.
         Победитель забирает у проигравшего <b>${D.stake} XP</b>. С одним соперником — одна дуэль в неделю, всего — до ${D.per_day} в день (сегодня ${D.today}).</p>
       ${search}
       ${rows ? `<div class="tm-list">${rows}</div>` : ''}
