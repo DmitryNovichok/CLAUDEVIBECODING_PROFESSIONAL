@@ -987,6 +987,8 @@ class ServerTest(unittest.TestCase):
         top = {r["name"]: r for r in T["table"]}
         self.assertEqual((top["Дуэлев А."]["pts"], top["Дуэлев А."]["w"], top["Дуэлев Б."]["pts"], top["Дуэлев Б."]["l"]), (3, 1, 0, 1))
         self.assertEqual(T["table"][0]["name"], "Дуэлев А.")
+        arch = self.admin("GET", "/api/admin/competitions")[1]["duels"]
+        self.assertEqual(next(x for x in arch if x["id"] == did)["winner"], "Дуэлев Аркадий")      # архив дуэлей у учителя
         self.req("POST", "/api/duel/find", {}, tb)                        # второй раз за неделю их не сведёт
         self.assertTrue(self.req("POST", "/api/duel/find", {}, ta)[1].get("searching"))
         self.req("POST", "/api/duel/cancel", {}, ta)
@@ -1093,6 +1095,12 @@ class ServerTest(unittest.TestCase):
                          [(sids[1], 1, 60), (sids[0], 2, 35), (sids[3], 3, 20), (sids[2], 4, 0)])
         self.assertTrue(server.APP.db.q("SELECT 1 FROM awards WHERE student_id=? AND kind='tour1'", (sids[1],), one=True))
         self.assertEqual(self.req("POST", "/api/tour/join", {"id": big}, toks[1])[0], 200)    # доиграл — можно в новый
+        # у учителя — архив: турнир с местами и матчами
+        st, c = self.admin("GET", "/api/admin/competitions")
+        self.assertEqual(st, 200, c)
+        ct = next(x for x in c["tournaments"] if x["id"] == T["id"])
+        self.assertEqual((ct["status"], ct["players"][0]["place"], ct["players"][0]["name"]), ("done", 1, "Турниров Борис"))
+        self.assertEqual(len(ct["matches"]), 8)                                        # 6 в группе + финал + за 3-е
 
     def test_tournament_12_groups_thirds_bracket(self):
         server.APP.db.x("DELETE FROM tournaments")

@@ -41,6 +41,7 @@
       <button type="button" data-tab="teachers" class="main-only">Учителя</button>
       <button type="button" data-tab="course" class="main-only">Курс</button>
       <button type="button" data-tab="site" class="main-only">Статистика сайта</button>
+      <button type="button" data-tab="comp">Турниры и дуэли</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
       <button type="button" data-tab="settings">Настройки</button>
     </nav>
@@ -226,6 +227,14 @@
     </section>
 
     <!-- Лента -->
+    <section class="adm-view" id="view-comp" hidden>
+      <div class="adm-toolbar">
+        <h2 class="adm-h">Турниры и дуэли <span class="adm-hint">все разыгранные соревнования ваших учеников</span></h2>
+        <input class="inp" id="compFind" placeholder="Поиск по ученику" style="max-width:240px">
+      </div>
+      <div id="compBody"><p class="adm-empty">Загрузка…</p></div>
+    </section>
+
     <section class="adm-view" id="view-feed" hidden>
       <div class="adm-toolbar">
         <h2 class="adm-h">Лента <span class="adm-hint">ответы учеников и уведомления контрольных, обновляется сама каждые 10 секунд</span></h2>
