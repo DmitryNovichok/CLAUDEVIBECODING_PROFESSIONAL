@@ -5708,8 +5708,8 @@
         <p><b>Рейтинг Эло</b> — сила в дуэлях: все начинают с 1000, за победу над сильным соперником очков больше, за проигрыш слабому — больше теряешь.
           «Найти соперника» подбирает того, у кого рейтинг ближе.</p>
         <p>Соперники в матче и дуэли получают <b>разные задания одного типа и сложности</b> — подсмотреть ответ у соседа не выйдет.</p></div></div>
-      ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent">${esc(T.stage.toLowerCase())} · осталось ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}
-          ${T.match_min ? `<span class="chip">⏱ ${T.match_min} мин на матч</span>` : ''}</h3>
+      ${T ? `<h3 class="ap-h tour-h">${esc(T.title)} ${T.status === 'run' ? `<span class="chip accent" title="За это время нужно сыграть все матчи этапа; не сыгранные к сроку — техническое поражение">${esc(T.stage.toLowerCase())}: сыграть матчи — ещё ${tourLeft(T.round_ends)}</span>` : '<span class="chip good">завершён</span>'}
+          ${T.match_min ? `<span class="chip" title="Время на один матч с нажатия «Играть»">⏱ на один матч — ${T.match_min} мин</span>` : ''}</h3>
         ${tourNoshowHtml(T)}
         ${tourNumsHtml(T)}
         ${T.status === 'done' ? tourPodium(T) : ''}
