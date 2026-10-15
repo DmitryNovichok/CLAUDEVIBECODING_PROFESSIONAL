@@ -5531,10 +5531,18 @@
   // ------------------------------------------------------------ турниры
   /* Как в футболе: набор на 4, 8 или 12 игроков (каждого вида — один турнир в сутки) → жеребьёвка по корзинам →
      группы по 4, каждый с каждым (победа 3 очка, ничья 1, «счёт» — решённые задания) → плей-офф и матч за 3-е место. */
-  let TOUR = null, DUELS = null;
-  async function loadDuels() {
+  let TOUR = null, DUELS = null, LIVE_SIG = '';
+  async function loadDuels(quiet) {
     if (!SERVER || !student || TEACHER) return;
-    try { [TOUR, DUELS] = await Promise.all([api('tour'), api('duels').catch(() => null)]); } catch (e) { return; }
+    const prevT = TOUR, prevD = DUELS;
+    let T2, D2;
+    try { [T2, D2] = await Promise.all([api('tour'), api('duels').catch(() => null)]); } catch (e) { return; }
+    // ничего не поменялось — не перерисовываем (не сбиваем раскрытые списки и прокрутку)
+    const sig = JSON.stringify([T2, D2 && { ...D2, seekers: 0 }]);
+    if (quiet && sig === LIVE_SIG) return;
+    LIVE_SIG = sig;
+    TOUR = T2; DUELS = D2;
+    if (prevT || prevD) liveNews(prevT, prevD);
     // начатые матчи и дуэли решаются как подборка: задания по порядку
     ASG = ASG.filter(a => !a.duel);
     for (const m of tourMyMatches()) {
@@ -5711,13 +5719,18 @@
         <h3 class="ap-h">Плей-офф</h3>${tourBracket(T)}` : ''}
       ${duelsHtml()}
       <h3 class="ap-h">Наборы</h3><div class="ap-grid tl-grid">${D.lobbies.map(lobby).join('')}</div>
-      ${D.done.length ? `<h3 class="ap-h">История турниров</h3><div class="td-list">${D.done.map(t => `<details class="td-row">
+      ${D.done.length ? `<h3 class="ap-h">История турниров</h3><div class="td-list">${D.done.map(t => `<details class="td-row" data-k="h${t.id}"${TOUR_OPEN.has('h' + t.id) ? ' open' : ''}>
         <summary><b>${esc(t.title)}</b> <small class="fm-muted">${t.finished ? apDay(t.finished) : ''}${t.my_place ? ` · ты — ${t.my_place}-е место` : ''}</small>${tourPodium(t)}</summary>
         <ol class="td-places">${(t.places || []).map(p => `<li class="${isMe(p) ? 'me' : ''}">${p.place ? `${MEDAL[p.place] || p.place + '.'}` : '—'} ${esc(p.name)}${p.gone ? ' <small class="fm-muted">не явился</small>' : ''}${p.xp ? ` <small>+${p.xp} XP</small>` : ''}</li>`).join('')}</ol>
         </details>`).join('')}</div>` : ''}
     </div>`;
   }
   let TOUR_ABOUT = false;
+  const TOUR_OPEN = new Set();             // раскрытые строки истории — переживают автообновление
+  trainerEl.addEventListener('toggle', e => {
+    const d = e.target;
+    if (d.matches && d.matches('details[data-k]')) { if (d.open) TOUR_OPEN.add(d.dataset.k); else TOUR_OPEN.delete(d.dataset.k); }
+  }, true);
   function eloHtml() {
     const E = TOUR.elo, me = E && E.me;
     if (!E) return '';
@@ -5762,8 +5775,83 @@
     const left = Math.max(0, Math.round(T.started + TOUR.noshow_sec - Date.now() / 1000));
     el.textContent = `${Math.floor(left / 60)}:${pad2(left % 60)}`;
   }, 1000);
-  // на странице турниров данные обновляются сами: старт турнира, итоги матчей, неявки
-  setInterval(() => { if (courseShown && pageKind === 'tour' && !document.hidden && !DSEARCH.on) loadDuels(); }, 20000);
+  // живое обновление дуэлей и турниров на любой странице: на странице турниров и во время матча — каждые 10 с,
+  // иначе — раз в 30 с; вкладка в фоне — не спрашиваем, вернулся на неё — сразу обновляем
+  let liveAt = 0;
+  function livePoll(force) {
+    if (!SERVER || !student || TEACHER || document.hidden || DSEARCH.on) return;
+    const a = ui.scope === 'asg' && asgOf(ui.asg);
+    const hot = (courseShown && pageKind === 'tour') || (a && a.duel);
+    if (!force && Date.now() - liveAt < (hot ? 10000 : 30000)) return;
+    liveAt = Date.now();
+    loadDuels(true);
+  }
+  setInterval(livePoll, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) livePoll(true); });
+  window.addEventListener('focus', () => livePoll(true));
+  /** Что изменилось с прошлого раза — сказать ученику, где бы он ни был. */
+  function liveNews(pT, pD) {
+    const me = student && student.sid;
+    const oldD = new Map(((pD && pD.duels) || []).map(d => [d.id, d]));
+    for (const d of (DUELS && DUELS.duels) || []) {
+      const o = oldD.get(d.id);
+      if (!o && d.status === 'pending' && !d.mine) toast(`${d.rematch ? '🔁 Реванш' : '⚔️ Вызов'}: ${d.opponent} зовёт на дуэль — ответь на странице турниров`, 6000);
+      if (o && o.status === 'pending' && d.status === 'active' && d.mine) toast(`⚔️ ${d.opponent} принял вызов — жми «Играть»!`, 5000);
+      if (o && o.status === 'active' && d.status === 'finished') {
+        const w = { win: 'победа', lose: 'поражение', draw: 'ничья' }[d.result] || d.result;
+        toast(`⚔️ Дуэль с ${d.opponent}: ${w} ${d.my_solved}:${d.op_solved}${d.elo != null ? ` (${d.elo >= 0 ? '+' : '−'}${Math.abs(d.elo)} Эло)` : ''}`, 6000);
+      }
+      if (o && !o.op_done && d.op_done && d.status === 'active' && !d.done) toast(`⚔️ ${d.opponent} уже закончил дуэль — твоя очередь!`, 4000);
+    }
+    const a = pT && pT.mine, b = TOUR && TOUR.mine;
+    const wasIn = pT && pT.lobbies.some(l => l.me_in);
+    if (b && b.status === 'run' && (!a || a.id !== b.id) && wasIn) toast('🏆 Набор заполнен — турнир начался! За 3 минуты начни любой матч.', 7000);
+    else if (a && b && a.id === b.id) {
+      if (a.status === 'run' && b.status === 'done') {
+        const pl = (b.podium || []).find(p => p.sid === me);
+        toast(`🏆 ${b.title} завершён${pl ? ` — ты ${pl.place}-й${pl.xp ? `, +${pl.xp} XP` : ''}` : ''}`, 7000);
+      } else if (a.round !== b.round && b.status === 'run') toast(`🏆 ${b.title}: новый этап — ${b.stage}`, 5000);
+      const mm = ms => new Map(tourMatchesOf(ms).map(m => [m.id, m]));
+      const om = mm(a);
+      for (const m of tourMatchesOf(b)) {
+        const o = om.get(m.id);
+        if (m.mine && o && o.status === 'play' && m.status === 'done') {
+          const my = m.mine === 'a' ? m.a_solved : m.b_solved, his = m.mine === 'a' ? m.b_solved : m.a_solved;
+          toast(`🏆 Матч: ${!m.winner ? 'ничья' : m.winner === me ? 'победа' : 'поражение'} ${my}:${his}`, 5000);
+        }
+      }
+    }
+    // новые наборы и места: рядом с иконкой турниров
+    renderDuelCard();
+  }
+  // новая версия сайта: раз в 2 минуты сверяем app.js и style.css с тем, что загружено; поменялись — предлагаем обновить
+  const VER = { tags: null, shown: false };
+  async function siteTags() {
+    try {
+      const rs = await Promise.all(['app.js', 'style.css'].map(f => fetch(f, { method: 'HEAD', cache: 'no-store' })));
+      return rs.map(r => r.headers.get('ETag') || r.headers.get('Last-Modified') || '').join('|');
+    } catch (e) { return null; }
+  }
+  async function checkVersion() {
+    if (VER.shown || (document.hidden && VER.tags !== null)) return;
+    const t = await siteTags();
+    if (!t) return;
+    if (VER.tags === null) { VER.tags = t; return; }
+    if (t === VER.tags) return;
+    VER.shown = true;
+    const bar = document.createElement('div');
+    bar.className = 'ver-bar';
+    bar.innerHTML = '✨ Вышла новая версия сайта <button type="button" class="btn primary">Обновить</button>';
+    bar.querySelector('button').addEventListener('click', () => location.reload());
+    document.body.appendChild(bar);
+  }
+  checkVersion();
+  setInterval(checkVersion, 120000);
+  /** Все матчи турнира списком (группы, плей-офф, за 3-е место). */
+  function tourMatchesOf(T) {
+    if (!T || !T.groups) return [];
+    return [...T.groups.flatMap(g => g.matches), ...T.playoff.flatMap(r => r.matches), ...(T.third ? [T.third] : [])];
+  }
   function tourNumsHtml(T) {
     if (!T.nums) return '';
     const names = ['Группы', ...T.playoff.map(r => r.name)];
@@ -6838,6 +6926,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.57.0', '15.10.2026', ['Дуэли и турниры обновляются сами — на любой странице: вызовы, старт турнира, итоги матчей и дуэлей приходят уведомлением',
+      'Вышла новая версия сайта — появится кнопка «Обновить», не нужно перезагружать вручную']],
     ['1.56.2', '15.10.2026', ['Дуэли: ограничение времени — 10 минут на задание №1–23 и 30 минут на №24–27, таймер виден во время дуэли',
       'Дуэли: можно играть по номерам 1–18 и 22–27']],
     ['1.56.1', '15.10.2026', ['Дуэли: можно выбрать номера заданий — сними те, по которым не хочешь соревноваться; соперник подберётся с похожим выбором']],
