@@ -1039,7 +1039,9 @@ class DB:
                     ("duel_queue", "elo", "REAL"),
                     ("duel_queue", "nums", "TEXT"),                   # номера заданий, по которым ученик готов играть
                     ("tournaments", "theme", "TEXT"),                 # тематический турнир: python, sprint
-                    ("tour_matches", "admin", "TEXT")):               # что сделал учитель вручную    # не явился к началу турнира — сдался          # дуэль из подбора соперника (оба нажали «Найти»)                 # номера заданий турнира (по голосованию), JSON        # открыл разделы «в разработке» (турнир) по коду                 # тип работы: self — самостоятельная, practice, home                    # сколько опыта принесла контрольная
+                    ("tour_matches", "admin", "TEXT"),                # что сделал учитель вручную
+                    ("duels", "surrender", "INTEGER"),                # кто сдался — проиграл сразу
+                    ("tour_matches", "surrender", "INTEGER")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
@@ -2319,6 +2321,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x(f"UPDATE tour_matches SET {side}_start=? WHERE id=?", (time.time(), m["id"]))
             return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in side_tasks(m, side)], "ends": m["ends"],
                                    "cap": match_cap(db, m, side)})
+        if path == "/api/tour/surrender":
+            # сдаться в матче: матч сразу проигран, сопернику — победа
+            if m["status"] != "play":
+                return self.err(409, "Матч уже закончен")
+            now = time.time()
+            db.x(f"UPDATE tour_matches SET surrender=?, {side}_done=COALESCE({side}_done, ?) WHERE id=? AND surrender IS NULL",
+                 (s["id"], now, m["id"]))
+            seeds = {r["student_id"]: r["seed"] for r in db.q("SELECT student_id, seed FROM tour_players WHERE tour_id=?", (m["tour_id"],))}
+            tour_settle(db, db.q("SELECT * FROM tour_matches WHERE id=?", (m["id"],), one=True), seeds, now)
+            tour_tick(db, db.q("SELECT * FROM tournaments WHERE id=?", (m["tour_id"],), one=True))
+            return self.send_json({"ok": True})
         if path == "/api/tour/finish":
             if m["status"] == "play" and m[side + "_start"] and not m[side + "_done"]:
                 db.x(f"UPDATE tour_matches SET {side}_done=? WHERE id=?", (time.time(), m["id"]))
@@ -2348,6 +2361,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     item["since"] = d[me + "_start"]
                     item["cap"] = duel_cap(side_tasks(d, me))
                 item["rematch"] = bool(d["rematch_of"])
+                item["surrender"] = None if not d["surrender"] else ("me" if d["surrender"] == s["id"] else "op")
                 if d["status"] == "finished":
                     item.update(my_solved=d[me + "_solved"], op_solved=d[op + "_solved"], stake=d["stake"] or 0,
                                 result="draw" if not d["winner"] else ("win" if d["winner"] == s["id"] else "lose"),
@@ -2457,6 +2471,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             d = db.q("SELECT * FROM duels WHERE id=?", (d["id"],), one=True)
             return self.send_json({"ok": True, "tasks": [APP.bank.pid(x) for x in side_tasks(d, me)],
                                    "since": d[me + "_start"], "cap": duel_cap(side_tasks(d, me))})
+        if path == "/api/duel/surrender":
+            # сдаться: дуэль сразу проиграна, сопернику — победа (вызов, который ещё не принят, просто отклоняется)
+            if d["status"] == "pending":
+                db.x("UPDATE duels SET status='declined', finished=? WHERE id=?", (time.time(), d["id"]))
+                return self.send_json({"ok": True})
+            if d["status"] != "active":
+                return self.err(409, "Дуэль уже закончена")
+            db.x(f"UPDATE duels SET surrender=?, {me}_done=COALESCE({me}_done, ?) WHERE id=? AND surrender IS NULL",
+                 (s["id"], time.time(), d["id"]))
+            duel_settle(db, db.q("SELECT * FROM duels WHERE id=?", (d["id"],), one=True))
+            return self.send_json({"ok": True})
         if path == "/api/duel/finish":
             if d["status"] == "active" and d[me + "_start"] and not d[me + "_done"]:
                 db.x(f"UPDATE duels SET {me}_done=? WHERE id=?", (time.time(), d["id"]))
@@ -5054,6 +5079,8 @@ def tour_settle(db, m, seeds, now, gone=frozenset()):
         win = "a" if ta < tb else "b"
     else:
         win = "a" if seeds.get(m["a"], 99) <= seeds.get(m["b"], 99) else "b"
+    if m["surrender"]:
+        win, tech = ("b" if m["surrender"] == m["a"] else "a"), 0      # сдался — проиграл
     db.x("""UPDATE tour_matches SET status='done', a_solved=?, b_solved=?, a_sec=?, b_sec=?, winner=?, tech=? WHERE id=?""",
          (max(sa, 0), max(sb, 0), ta, tb, m[win] if win else None, tech, m["id"]))
 
@@ -5226,7 +5253,7 @@ def tour_match_view(m, people, me):
             "b_solved": m["b_solved"], "winner": m["winner"], "mine": side, "started": bool(side and m[side + "_start"]),
             "done": bool(side and m[side + "_done"]),
             "tasks": [APP.bank.pid(x) for x in side_tasks(m, side)] if side and m[side + "_start"] else None,
-            "since": m[side + "_start"] if side else None, "cap": cap}
+            "since": m[side + "_start"] if side else None, "cap": cap, "surrender": m["surrender"]}
 
 
 def tour_view(db, t, me, brief=False):
@@ -5281,7 +5308,7 @@ def duel_settle(db, d):
         return
     deadline = (d["accepted"] or now) + DUEL_HOURS * 3600
     over = lambda sd: d[sd + "_done"] or (d[sd + "_start"] and now > d[sd + "_start"] + duel_cap(side_tasks(d, sd)))
-    if not ((over("a") and over("b")) or now > deadline):
+    if not ((over("a") and over("b")) or now > deadline or d["surrender"]):
         return
     res = {}
     for side in ("a", "b"):
@@ -5290,7 +5317,9 @@ def duel_settle(db, d):
             dn = min(dn, st + duel_cap(side_tasks(d, side)))      # решённое после лимита времени не считается
         res[side] = (duel_solved(db, d[side], side_tasks(d, side), st, dn), (dn - st) if st else float("inf"))
     (sa, ta), (sb, tb) = res["a"], res["b"]
-    if sa != sb:
+    if d["surrender"]:
+        win = "b" if d["surrender"] == d["a"] else "a"     # сдался — проиграл, сколько бы ни решил
+    elif sa != sb:
         win = "a" if sa > sb else "b"
     elif sa and ta != tb:
         win = "a" if ta < tb else "b"

@@ -1140,6 +1140,32 @@ class ServerTest(unittest.TestCase):
         self.req("GET", "/api/tour", token=toks[0])
         self.assertEqual(db.q("SELECT COUNT(*) c FROM awards WHERE kind LIKE 'season%' AND week=?", (prev,), one=True)["c"], 3)
 
+    def test_surrender_duel_and_match(self):
+        db = server.APP.db
+        db.x("DELETE FROM duel_queue")
+        ta, tb = self.login("Сдавалов Антон"), self.login("Сдавалов Борис")
+        sa, sb = (self.req("GET", "/api/me", token=t)[1]["sid"] for t in (ta, tb))
+        self.req("POST", "/api/duel/find", {}, tb)
+        did = self.req("POST", "/api/duel/find", {}, ta)[1]["matched"]
+        self.req("POST", "/api/duel/start", {"id": did}, ta)
+        self.assertEqual(self.req("POST", "/api/duel/surrender", {"id": did}, ta)[0], 200)   # Антон сдался — сразу итог
+        x = next(d for d in self.req("GET", "/api/duels", token=tb)[1]["duels"] if d["id"] == did)
+        self.assertEqual((x["status"], x["result"], x["surrender"], x["stake"]), ("finished", "win", "op", 100))
+        self.assertEqual(self.req("POST", "/api/duel/surrender", {"id": did}, tb)[0], 409)   # уже закончена
+        # турнир: сдался в матче группы — сопернику победа (3 очка), не техническое поражение
+        db.x("DELETE FROM tournaments"); db.x("DELETE FROM tour_players"); db.x("DELETE FROM tour_matches")
+        toks = [ta, tb, self.login("Сдавалов Виктор"), self.login("Сдавалов Глеб")]
+        quick = {l["size"]: l["id"] for l in self.req("GET", "/api/tour", token=ta)[1]["lobbies"] if not l["theme"]}[4]
+        for t in toks:
+            self.req("POST", "/api/tour/join", {"id": quick}, t)
+        T = self.req("GET", "/api/tour", token=ta)[1]["mine"]
+        m = next(x for x in T["groups"][0]["matches"] if x["mine"])
+        self.assertEqual(self.req("POST", "/api/tour/surrender", {"match": m["id"]}, ta)[0], 200)
+        row = db.q("SELECT * FROM tour_matches WHERE id=?", (m["id"],), one=True)
+        op = row["b"] if row["a"] == sa else row["a"]
+        self.assertEqual((row["status"], row["winner"], row["tech"], row["surrender"]), ("done", op, 0, sa))
+        self.assertEqual(self.req("POST", "/api/tour/surrender", {"match": m["id"]}, ta)[0], 409)
+
     def tour_play(self, tok, mid, solve):
         tasks = self.req("POST", "/api/tour/start", {"match": mid}, tok)[1]["tasks"]
         for pid in tasks[:solve]:

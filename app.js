@@ -2803,7 +2803,8 @@
       h = `<span class="scope-title">${a.duelId ? '⚔️ Дуэль' : a.duel ? '🏆 Турнир' : a.course ? '🎓 Курс' : 'От учителя'}</span>
         <span class="scope-stats">«${esc(a.title)}» · решено ${a.tasks.length - left} из ${a.tasks.length}</span>
         ${a.due ? `<span class="chip ${a.due * 1000 < Date.now() && left ? 'weak' : ''}">срок до ${fmtDay(a.due * 1000)}</span>` : ''}
-        ${a.ends ? `<span class="chip accent duel-timer" id="duelTimer">⏱ ${duelLeftText(a.ends)}</span>` : ''}`;
+        ${a.ends ? `<span class="chip accent duel-timer" id="duelTimer">⏱ ${duelLeftText(a.ends)}</span>` : ''}
+        ${a.duel ? '<button type="button" class="link-btn surrender-btn" id="surrenderBtn" title="Сдаться — матч сразу проигран, сопернику победа">🏳 Сдаться</button>' : ''}`;
     } else if (ui.scope === 'fav') {
       const list = pool();
       const solved = list.filter(t => P.tasks[t.id] && P.tasks[t.id].c > 0).length;
@@ -5664,13 +5665,15 @@
       let st, btn = '';
       if (m.status === 'done') {
         const my = meA ? m.a_solved : m.b_solved, his = meA ? m.b_solved : m.a_solved;
-        const res = !m.winner ? (m.tech ? 'тех. поражение' : 'ничья') : m.winner === student.sid ? 'победа' : 'поражение';
+        const res = !m.winner ? (m.tech ? 'тех. поражение' : 'ничья') : m.winner === student.sid ? (m.surrender ? 'победа — соперник сдался' : 'победа')
+          : (m.surrender === student.sid ? 'поражение — ты сдался' : 'поражение');
         st = `<b class="tm-res ${!m.winner ? (m.tech ? 'l' : 'd') : m.winner === student.sid ? 'w' : 'l'}">${res} ${my}:${his}</b>${m.tech ? ' <small>(кто-то не сыграл)</small>' : ''}`;
       } else if (m.done) st = 'ты сыграл — ждём соперника';
       else {
         st = `осталось ${tourLeft(m.ends)}`;
         btn = `<button type="button" class="btn primary" data-tour-go="${m.id}">${m.started ? 'Продолжить' : 'Играть'}</button>
-          ${m.started ? `<button type="button" class="btn ghost" data-tour-fin="${m.id}">Закончить</button>` : ''}`;
+          ${m.started ? `<button type="button" class="btn ghost" data-tour-fin="${m.id}">Закончить</button>` : ''}
+          <button type="button" class="link-btn surrender-btn" data-tour-sur="${m.id}">🏳 Сдаться</button>`;
       }
       return `<div class="tm-row${m.status === 'play' && !m.done ? ' live' : ''}"><div><span class="ap-kind">${m.stage}</span>
         <b>ты — ${esc(op ? op.name : '?')}</b> <small class="fm-muted">${op ? `ур. ${op.level}` : ''}</small><div class="fm-muted">${st}</div></div>
@@ -5811,7 +5814,7 @@
       if (o && o.status === 'pending' && d.status === 'active' && d.mine) toast(`⚔️ ${d.opponent} принял вызов — жми «Играть»!`, 5000);
       if (o && o.status === 'active' && d.status === 'finished') {
         const w = { win: 'победа', lose: 'поражение', draw: 'ничья' }[d.result] || d.result;
-        toast(`⚔️ Дуэль с ${d.opponent}: ${w} ${d.my_solved}:${d.op_solved}${d.elo != null ? ` (${d.elo >= 0 ? '+' : '−'}${Math.abs(d.elo)} Эло)` : ''}`, 6000);
+        toast(`⚔️ Дуэль с ${d.opponent}: ${w}${d.surrender === 'op' ? ' — соперник сдался' : ''} ${d.my_solved}:${d.op_solved}${d.elo != null ? ` (${d.elo >= 0 ? '+' : '−'}${Math.abs(d.elo)} Эло)` : ''}`, 6000);
       }
       if (o && !o.op_done && d.op_done && d.status === 'active' && !d.done) toast(`⚔️ ${d.opponent} уже закончил дуэль — твоя очередь!`, 4000);
     }
@@ -5885,9 +5888,11 @@
       } else if (d.status === 'active') {
         st = d.done ? (d.op_done ? 'подводим итог…' : 'ты сыграл — ждём соперника') : `осталось ${tourLeft(d.ends)}`;
         if (!d.done) btn = `<button type="button" class="btn primary" data-duel-go="${d.id}">${d.started ? 'Продолжить' : 'Играть'}</button>
-          ${d.started ? `<button type="button" class="btn ghost" data-duel-fin="${d.id}">Закончить</button>` : ''}`;
+          ${d.started ? `<button type="button" class="btn ghost" data-duel-fin="${d.id}">Закончить</button>` : ''}
+          <button type="button" class="link-btn surrender-btn" data-duel-sur="${d.id}">🏳 Сдаться</button>`;
       } else if (d.status === 'finished') {
-        const [c, w] = RES[d.result] || ['d', d.result];
+        const [c, w0] = RES[d.result] || ['d', d.result];
+        const w = d.surrender === 'me' ? `${w0} — ты сдался` : d.surrender === 'op' ? `${w0} — соперник сдался` : w0;
         st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${d.stake && d.result === 'win' ? ` <small>+${d.stake} XP</small>` : ''}`
           + (d.elo != null ? ` <small class="elo-d ${d.elo >= 0 ? 'up' : 'down'}">${d.elo >= 0 ? '+' : '−'}${Math.abs(d.elo)} Эло</small>` : '')
           + (d.bonus ? ` <small>🔥 +${d.bonus} XP за серию</small>` : '');
@@ -6015,6 +6020,23 @@
     try { await api('tour/finish', { match: id }); } catch (e) { return false; }
     return true;
   }
+  /** Сдаться: матч или дуэль сразу проиграны, сопернику — победа. */
+  async function surrender(kind, id) {
+    if (!confirm(kind === 'duel' ? 'Сдаться? Дуэль будет проиграна сразу, сопернику засчитается победа.'
+      : 'Сдаться? Матч будет проигран сразу, сопернику засчитается победа.')) return;
+    try { await api(kind === 'duel' ? 'duel/surrender' : 'tour/surrender', kind === 'duel' ? { id } : { match: id }); }
+    catch (e) { toast(e.message || 'Не получилось', 3000); return; }
+    toast('🏳 Ты сдался — победа засчитана сопернику', 3500);
+    if (ui.scope === 'asg') ui.scope = 'all';
+    await loadDuels();
+    tourOpen();
+  }
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#surrenderBtn')) return;
+    const a = ui.scope === 'asg' && asgOf(ui.asg);
+    if (a && a.duelId) surrender('duel', a.duelId);
+    else if (a && a.tour) surrender('tour', a.tour);
+  });
   /** Решил последнее задание матча — сообщаем серверу, итог — когда закончит и соперник. */
   async function checkDuelDone() {
     const a = ui.scope === 'asg' && asgOf(ui.asg);
@@ -6057,6 +6079,9 @@
       else my.add(n);
       return tourAction('tour/vote', { id, nums: [...my] });
     }
+    const ts = t.closest('[data-tour-sur]'), ds = t.closest('[data-duel-sur]');
+    if (ts) return surrender('tour', +ts.dataset.tourSur);
+    if (ds) return surrender('duel', +ds.dataset.duelSur);
     const da = t.closest('[data-duel-accept]'), dd = t.closest('[data-duel-decline]');
     const dg = t.closest('[data-duel-go]'), df = t.closest('[data-duel-fin]');
     if (t.closest('#dqFind')) return duelFind();
@@ -6939,6 +6964,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.59.0', '16.10.2026', ['Можно сдаться в дуэли и в матче турнира — кнопка «🏳 Сдаться»: матч сразу проигран, сопернику засчитывается победа']],
     ['1.58.2', '16.10.2026', ['Браузер больше не предлагает сохранить пароль от Egeshka — за общим компьютером никто не войдёт в чужой аккаунт']],
     ['1.58.1', '15.10.2026', ['Турниры играются одновременно: групповой этап длится три матча подряд (+10 минут), раунд плей-офф — один матч, следующий этап — сразу']],
     ['1.58.0', '15.10.2026', ['Дуэли: за победу +100 XP (проигравший опыт не теряет)',
