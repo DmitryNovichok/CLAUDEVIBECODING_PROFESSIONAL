@@ -990,6 +990,26 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(T["table"][0]["name"], "Дуэлев А.")
         self.assertEqual(self.req("POST", "/api/duel/create", {"sid": sb}, ta)[0], 409)
 
+    def test_duel_matchmaking(self):
+        # «Найти соперника»: первый ждёт в очереди, второй нажал — дуэль создана сразу, первый узнаёт о ней при следующем опросе
+        ta, tb = self.login("Подборов Аркадий"), self.login("Подборов Борис")
+        server.APP.db.x("DELETE FROM duel_queue")
+        st, d = self.req("POST", "/api/duel/find", {}, ta)
+        self.assertEqual((st, d.get("searching")), (200, True), d)
+        self.assertTrue(self.req("GET", "/api/duels", token=ta)[1]["searching"])
+        self.assertEqual(self.req("GET", "/api/duels", token=tb)[1]["seekers"], 1)
+        st, d = self.req("POST", "/api/duel/find", {}, tb)
+        self.assertEqual(st, 200, d)
+        did = d["matched"]
+        self.assertEqual(self.req("POST", "/api/duel/find", {}, ta)[1].get("matched"), did)
+        duel = next(x for x in self.req("GET", "/api/duels", token=ta)[1]["duels"] if x["id"] == did)
+        self.assertEqual((duel["status"], duel["quick"]), ("active", True))
+        # отмена поиска
+        tc = self.login("Подборов Виктор")
+        self.req("POST", "/api/duel/find", {}, tc)
+        self.req("POST", "/api/duel/cancel", {}, tc)
+        self.assertFalse(self.req("GET", "/api/duels", token=tc)[1]["searching"])
+
     def tour_play(self, tok, mid, solve):
         tasks = self.req("POST", "/api/tour/start", {"match": mid}, tok)[1]["tasks"]
         for pid in tasks[:solve]:

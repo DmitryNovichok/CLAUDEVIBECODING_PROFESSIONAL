@@ -5693,8 +5693,8 @@
         ${T.status === 'run' ? tourMyList(T) : ''}
         <h3 class="ap-h">Групповой этап</h3>${tourGroups(T)}
         <h3 class="ap-h">Плей-офф</h3>${tourBracket(T)}` : ''}
-      <h3 class="ap-h">Наборы</h3><div class="ap-grid tl-grid">${D.lobbies.map(lobby).join('')}</div>
       ${duelsHtml()}
+      <h3 class="ap-h">Наборы</h3><div class="ap-grid tl-grid">${D.lobbies.map(lobby).join('')}</div>
       ${D.done.length ? `<h3 class="ap-h">Завершённые турниры</h3><div class="td-list">${D.done.map(t => `<div class="td-row"><b>${esc(t.title)}</b>
         <small class="fm-muted">${t.finished ? apDay(t.finished) : ''}</small>${tourPodium(t)}</div>`).join('')}</div>` : ''}
     </div>`;
@@ -5742,20 +5742,55 @@
       return `<div class="tm-row${d.status === 'active' && !d.done || (d.status === 'pending' && !d.mine) ? ' live' : ''}"><div><span class="ap-kind">Дуэль</span>
         <b>ты — ${esc(d.opponent)}</b><div class="fm-muted">${st}</div></div><div class="tm-btns">${btn}</div></div>`;
     }).join('');
-    const mates = D.mates.map(m => {
-      const can = !busy.has(m.name) && !played.has(m.sid);
-      return `<div class="dm-row"><span>${esc(m.name)} <small class="fm-muted">ур. ${m.level}</small></span>
-        ${can ? `<button type="button" class="btn ghost" data-duel-call="${m.sid}">⚔️ Вызвать</button>` : `<small class="fm-muted">${busy.has(m.name) ? 'дуэль идёт' : 'уже играли на неделе'}</small>`}</div>`;
-    }).join('');
+    const free = D.mates.filter(m => !busy.has(m.name) && !played.has(m.sid));
+    const search = DSEARCH.on
+      ? `<div class="dq on"><div class="dq-spin" aria-hidden="true">⚔️</div><div><b>Ищем соперника… <span id="dqTime">${dqTime()}</span></b>
+          <div class="fm-muted">${DSEARCH.seekers ? `Сейчас ищут ещё ${DSEARCH.seekers}` : 'Как только кто-то из класса тоже нажмёт «Найти», дуэль начнётся'}. Не закрывай страницу.</div></div>
+          <button type="button" class="btn ghost" id="dqCancel">Отмена</button></div>`
+      : `<div class="dq"><button type="button" class="btn primary dq-go" id="dqFind">🔍 Найти соперника</button>
+          <div class="fm-muted">Подберём того, кто тоже ищет дуэль прямо сейчас, — по возможности твоего уровня.${D.seekers ? ` <b>Сейчас ищут: ${D.seekers}</b>` : ''}</div></div>`;
     const tab = (D.tournament && D.tournament.table || []).filter(r => r.games);
     return `<h3 class="ap-h" id="duelsH">⚔️ Дуэли</h3>
       <p class="fm-muted">Вызови одноклассника: ${D.tasks} одинаковых заданий, на дуэль — ${D.hours} ч. Больше решил — победа, поровну — быстрее.
         Победитель забирает у проигравшего <b>${D.stake} XP</b>. С одним соперником — одна дуэль в неделю.</p>
+      ${search}
       ${rows ? `<div class="tm-list">${rows}</div>` : ''}
       ${tab.length ? `<h4 class="dm-h">Таблица дуэлей недели</h4><table class="lb dm-tab"><tr><th></th><th>Игрок</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>О</th></tr>
         ${tab.map(r => `<tr class="${r.me ? 'me' : ''}"><td>${r.place}</td><td>${esc(r.name)}</td><td>${r.games}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td><b>${r.pts}</b></td></tr>`).join('')}</table>` : ''}
-      <h4 class="dm-h">Кого вызвать</h4>${mates ? `<div class="dm-list">${mates}</div>` : '<p class="fm-muted">Пока не с кем — у учителя нет других учеников.</p>'}`;
+      <h4 class="dm-h">Или вызови конкретного одноклассника</h4>
+      ${free.length ? `<div class="dm-pick"><select id="dmSel" aria-label="Соперник">${free.map(m => `<option value="${m.sid}">${esc(m.name)} · ур. ${m.level}</option>`).join('')}</select>
+        <button type="button" class="btn ghost" id="dmCall">⚔️ Вызвать</button></div><small class="fm-muted">Он получит вызов и сможет принять его в течение ${D.hours} ч.</small>`
+        : '<p class="fm-muted">Сейчас вызвать некого: со всеми уже идёт дуэль или вы играли на этой неделе.</p>'}`;
   }
+  // подбор соперника: пока ищем, раз в 3 с спрашиваем сервер (это и «я ещё здесь»)
+  const DSEARCH = { on: false, since: 0, seekers: 0, timer: null };
+  const dqTime = () => { const sec = Math.max(0, Math.round(Date.now() / 1000 - DSEARCH.since)); return `${Math.floor(sec / 60)}:${pad2(sec % 60)}`; };
+  async function duelFind() {
+    let r;
+    try { r = await api('duel/find', {}); } catch (e) { duelSearchStop(); toast(e.message || 'Не получилось', 3500); return; }
+    if (r.matched) {
+      duelSearchStop();
+      toast('⚔️ Соперник найден — дуэль началась!', 4000);
+      if (courseShown && pageKind === 'tour') return startDuel(r.matched);
+      await loadDuels();
+      return;
+    }
+    const first = !DSEARCH.on;
+    Object.assign(DSEARCH, { on: true, since: r.since, seekers: r.seekers });
+    clearTimeout(DSEARCH.timer);
+    DSEARCH.timer = setTimeout(duelFind, 3000);
+    if (first) renderTourPage();
+    else {
+      const t = $('#dqTime');
+      if (t) t.textContent = dqTime();
+    }
+  }
+  function duelSearchStop() {
+    clearTimeout(DSEARCH.timer);
+    DSEARCH.on = false;
+    renderTourPage();
+  }
+  setInterval(() => { const t = $('#dqTime'); if (t && DSEARCH.on) t.textContent = dqTime(); }, 1000);
   async function startDuel(id) {
     try { await api('duel/start', { id }); } catch (e) { toast(e.message, 3000); return; }
     await loadDuels();
@@ -5819,6 +5854,9 @@
     const dc = t.closest('[data-duel-call]'), da = t.closest('[data-duel-accept]'), dd = t.closest('[data-duel-decline]');
     const dg = t.closest('[data-duel-go]'), df = t.closest('[data-duel-fin]');
     if (dc) return tourAction('duel/create', { sid: +dc.dataset.duelCall }, 'Вызов отправлен! Ждём ответа соперника.');
+    if (t.closest('#dmCall')) return tourAction('duel/create', { sid: +$('#dmSel').value }, 'Вызов отправлен! Ждём ответа соперника.');
+    if (t.closest('#dqFind')) return duelFind();
+    if (t.closest('#dqCancel')) { duelSearchStop(); api('duel/cancel', {}).catch(() => {}); return; }
     if (da) return tourAction('duel/respond', { id: +da.dataset.duelAccept, accept: true }, 'Вызов принят! Жми «Играть», когда будешь готов.');
     if (dd) return tourAction('duel/respond', { id: +dd.dataset.duelDecline, accept: false }, 'Вызов отклонён');
     if (dg) return startDuel(+dg.dataset.duelGo);
@@ -6694,6 +6732,7 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.54.1', '15.10.2026', ['Дуэли: кнопка «🔍 Найти соперника» — подберём одноклассника, который тоже ищет дуэль прямо сейчас; вызвать конкретного — из списка']],
     ['1.54.0', '15.10.2026', ['Дуэли вернулись — во вкладке «Турниры»: вызови одноклассника, 5 одинаковых заданий, победитель забирает 15 XP',
       'Турниры: участники голосуют за номера заданий прямо в наборе — в турнир попадут самые популярные',
       'Турниры: сложность растёт от этапа к этапу — в группах задания попроще, в финале самые трудные']],
