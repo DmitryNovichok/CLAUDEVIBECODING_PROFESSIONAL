@@ -2263,7 +2263,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"lobbies": lobbies, "mine": mine, "done": done, "wins": wins, "tasks": DUEL_TASKS,
                                    "elo": elo_board(db, tid, s["id"]), "season": season_view(db, tid, s["id"]),
                                    "vote_nums": sorted(TOUR_NUMS), "vote_max": TOUR_VOTE_MAX, "noshow_sec": TOUR_NOSHOW_SEC,
-                                   "group_hours": TOUR_GROUP_HOURS, "po_hours": TOUR_PO_HOURS, "busy": bool(mine_active)})
+                                   "buffer_min": TOUR_BUFFER_SEC // 60, "busy": bool(mine_active)})
         if method != "POST":
             return self.err(405, "нужен POST")
         if path in ("/api/tour/join", "/api/tour/leave", "/api/tour/vote"):
@@ -2792,8 +2792,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             elif act == "replay":
                 t = db.q("SELECT * FROM tournaments WHERE id=?", (m["tour_id"],), one=True)
                 tasks, tasks_b = tour_new_tasks(db, t, m["round"])
-                hours = TOUR_GROUP_HOURS if m["kind"] == "group" else TOUR_PO_HOURS
-                ends = max(m["ends"] or 0, time.time() + hours * 3600)
+                ends = max(m["ends"] or 0, time.time() + tour_match_sec(t, json.loads(t["nums"] or "[]")) + TOUR_BUFFER_SEC)
                 db.x("""UPDATE tour_matches SET status='play', a_start=NULL, b_start=NULL, a_done=NULL, b_done=NULL, a_solved=NULL,
                         b_solved=NULL, a_sec=NULL, b_sec=NULL, winner=NULL, tech=0, tasks=?, tasks_b=?, ends=?, admin='переигровка'
                         WHERE id=?""", (json.dumps(tasks), json.dumps(tasks_b), ends, m["id"]))
@@ -4807,8 +4806,9 @@ SUPPORT_PER_HOUR = 5
 TOUR_SIZES = {4: "Мини-турнир", 8: "Кубок", 12: "Чемпионат"}
 TOUR_GROUPS = {4: 1, 8: 2, 12: 3}          # группы по 4
 TOUR_QUAL = {4: 2, 8: 4, 12: 8}            # сколько выходит в плей-офф (у 12 — по двое из группы и две лучшие третьи)
-TOUR_GROUP_HOURS = 24                      # на весь групповой этап
-TOUR_PO_HOURS = 12                         # на каждый раунд плей-офф
+# все играют одновременно: этап длится столько, сколько его матчи, плюс запас на переходы между ними
+TOUR_GROUP_MATCHES = 3                     # в группе из четырёх у каждого три матча — подряд
+TOUR_BUFFER_SEC = 10 * 60
 TOUR_WIN_XP = {4: 200, 8: 400, 12: 600}   # опыт за победу в турнире; 2-е место — половина, 3-е — треть
 TOUR_PRIZES = {size: {1: xp, 2: round(xp / 2), 3: round(xp / 3)} for size, xp in TOUR_WIN_XP.items()}
 ROUND_NAMES = {1: "Финал", 2: "Полуфинал", 4: "Четвертьфинал"}
@@ -4835,6 +4835,17 @@ def tour_cap(db, tour_id):
     """Ограничение времени на матч (сек) у тематического турнира (спринт — 15 минут); 0 — считается по заданиям."""
     r = db.q("SELECT theme FROM tournaments WHERE id=?", (tour_id,), one=True)
     return TOUR_THEMES.get((r and r["theme"]) or "", {}).get("cap") or 0
+
+
+def tour_match_sec(t, nums):
+    """Время одного матча турнира (сек): у спринта — общее, иначе по номерам — №1–23 по 10 мин, №24–27 по 30."""
+    return (TOUR_THEMES.get(t["theme"] or "", {}).get("cap")
+            or sum(DUEL_TASK_SEC.get(n, 600) for n in nums) or DUEL_TASKS * 600)
+
+
+def tour_stage_sec(t, nums, group):
+    """Срок этапа: группа — три матча подряд, раунд плей-офф — один матч; плюс 10 минут запаса."""
+    return tour_match_sec(t, nums) * (TOUR_GROUP_MATCHES if group else 1) + TOUR_BUFFER_SEC
 
 
 def match_cap(db, m, side):
@@ -5129,8 +5140,8 @@ def tour_tick(db, t):
         ids = [r["student_id"] for r in db.q("SELECT student_id FROM tour_players WHERE tour_id=? ORDER BY joined", (t["id"],))]
         if len(ids) < t["size"]:
             return
-        ends = now + TOUR_GROUP_HOURS * 3600
         nums = TOUR_THEMES[t["theme"]]["nums"] if t["theme"] in TOUR_THEMES else tour_vote_nums(db, t["id"])
+        ends = now + tour_stage_sec(t, nums, group=True)
         if not db.xn("UPDATE tournaments SET status='run', started=?, round=1, round_ends=?, nums=? WHERE id=? AND status='reg'",
                      (now, ends, json.dumps(nums), t["id"])):
             return                               # стартовал параллельный запрос
@@ -5178,7 +5189,7 @@ def tour_tick(db, t):
         return
     if any(m["kind"] == "final" for m in cur):
         return tour_finish(db, t, now)
-    nxt, ends = t["round"] + 1, now + TOUR_PO_HOURS * 3600
+    nxt, ends = t["round"] + 1, now + tour_stage_sec(t, json.loads(t["nums"] or "[]"), group=False)
     if not db.xn("UPDATE tournaments SET round=?, round_ends=? WHERE id=? AND round=?", (nxt, ends, t["id"], t["round"])):
         return
     if t["round"] == 1:                          # группы сыграны — кто вышел в плей-офф
