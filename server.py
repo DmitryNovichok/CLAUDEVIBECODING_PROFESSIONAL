@@ -2367,26 +2367,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             q = db.q("SELECT since FROM duel_queue WHERE student_id=?", (s["id"],), one=True)
             return self.send_json({"searching": True, "since": q["since"], "seekers": duel_seekers(db, tid, s["id"])})
         if path == "/api/duel/create":
-            op = to_int(data.get("sid"))
-            if op not in mates:
-                return self.err(404, "Соперник не найден — вызвать можно только ученика своего учителя")
-            if db.q("""SELECT 1 FROM duels WHERE status IN ('pending','active') AND ((a=? AND b=?) OR (a=? AND b=?))""",
-                    (s["id"], op, op, s["id"]), one=True):
-                return self.err(409, "С этим соперником матч уже идёт")
-            if db.q("""SELECT 1 FROM duels WHERE status='finished' AND finished>=? AND ((a=? AND b=?) OR (a=? AND b=?))""",
-                    (week_start(), s["id"], op, op, s["id"]), one=True):
-                return self.err(409, "С этим соперником матч турнира на этой неделе уже сыгран")
-            if db.q("SELECT COUNT(*) AS c FROM duels WHERE status IN ('pending','active') AND (a=? OR b=?)",
-                    (s["id"], s["id"]), one=True)["c"] >= DUEL_MAX_OPEN:
-                return self.err(429, f"Не больше {DUEL_MAX_OPEN} дуэлей одновременно — закончи начатые")
-            if not APP.bank.ensure():
-                return self.err(503, "банк заданий не собран")
-            tasks = duel_tasks()
-            if not tasks:
-                return self.err(503, "нет подходящих заданий")
-            did = db.x("INSERT INTO duels(a, b, tasks, created, status) VALUES(?,?,?,?, 'pending')",
-                       (s["id"], op, json.dumps(tasks), time.time()))
-            return self.send_json({"ok": True, "id": did})
+            return self.err(410, "Вызов на дуэль убран — нажми «Найти соперника»")
         d = db.q("SELECT * FROM duels WHERE id=? AND (a=? OR b=?)", (to_int(data.get("id")), s["id"], s["id"]), one=True)
         if not d:
             return self.err(404, "дуэль не найдена")
