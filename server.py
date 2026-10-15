@@ -2300,6 +2300,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/tour/start":
             if m["status"] != "play" or (m["ends"] and time.time() > m["ends"]):
                 return self.err(409, "Время на этот матч вышло")
+            if m["kind"] == "group" and db.q("SELECT 1 FROM tour_players WHERE tour_id=? AND student_id=? AND gone=1",
+                                             (m["tour_id"], s["id"]), one=True):
+                return self.err(409, "Ты не пришёл к началу турнира — матчи группы засчитаны поражением")
             if not m[side + "_start"]:
                 busy = db.q("""SELECT 1 FROM tour_matches WHERE id!=? AND status='play' AND
                                ((a=? AND a_start IS NOT NULL AND a_done IS NULL) OR (b=? AND b_start IS NOT NULL AND b_done IS NULL))""",
@@ -5148,19 +5151,15 @@ def tour_tick(db, t):
         for m in cur:
             for side in ("a", "b"):
                 here[m[side]] = here.get(m[side], False) or bool(m[side + "_start"])
-        gone = {sid for sid, ok in here.items() if not ok}
-        if gone:
-            for m in cur:
-                if m["status"] == "play" and (m["a"] in gone or m["b"] in gone):
-                    tour_settle(db, m, seeds, now, gone)
-            for sid in gone:
-                db.x("UPDATE tour_players SET gone=1 WHERE tour_id=? AND student_id=?", (t["id"], sid))
-            cur = db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], t["round"]))
+        for sid in (x for x, ok in here.items() if not ok):
+            db.x("UPDATE tour_players SET gone=1 WHERE tour_id=? AND student_id=?", (t["id"], sid))
+    gone = {r["student_id"] for r in db.q("SELECT student_id FROM tour_players WHERE tour_id=? AND gone=1", (t["id"],))}
     cap = tour_cap(db, t["id"])
-    over = lambda m, sd: m[sd + "_done"] or (cap and m[sd + "_start"] and now > m[sd + "_start"] + cap)
+    # матч закрывается, когда оба закончили (не явившийся — уже «закончил»): пришедший доигрывает свои задания спокойно
+    over = lambda m, sd: m[sd] in gone or m[sd + "_done"] or (cap and m[sd + "_start"] and now > m[sd + "_start"] + cap)
     for m in cur:
         if m["status"] == "play" and ((over(m, "a") and over(m, "b")) or now > (m["ends"] or now)):
-            tour_settle(db, m, seeds, now)
+            tour_settle(db, m, seeds, now, gone)
     cur = db.q("SELECT * FROM tour_matches WHERE tour_id=? AND round=? ORDER BY slot", (t["id"], t["round"]))
     if any(m["status"] != "done" for m in cur):
         return
