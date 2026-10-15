@@ -899,7 +899,7 @@
         return { chip: '<span class="chip">Найдено поиском</span>', line: '' };
       case 'daily':
         return { chip: '<span class="chip accent">👑 Задание дня</span>',
-          line: 'Одно задание для всех. Решишь с первой попытки — попадёшь в рейтинг по времени.' };
+          line: 'У каждого своё задание того же типа и сложности. Решишь с первой попытки — попадёшь в рейтинг по времени.' };
       case 'asg': {
         const a = why.a;
         if (!a) return { chip: '<span class="chip accent">Задание учителя</span>', line: '' };
@@ -1736,6 +1736,7 @@
 
   function finish(score, gaveUp, res) {
     if (!cur || cur.done) return;
+    if (res && res.daily_fast) toast('⚠ Задание дня решено слишком быстро — так его не прочитать. Результат в рейтинг не засчитан.', 6000);
     cur.done = true;
     cur.score = score;
     const t = cur.task;
@@ -5484,17 +5485,18 @@
   function renderDailyCard() {
     const card = $('#dailyCard');
     if (!card) return;
-    card.hidden = !(DAILY && DAILY.task && byId.get(DAILY.task));
+    card.hidden = !(DAILY && DAILY.ready);
     if (card.hidden) return;
-    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
+    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
     card.classList.toggle('done', !!DAILY.my_place);
   }
   function dailyHtml() {
-    if (!DAILY || !DAILY.task) return '';
+    if (!DAILY || !DAILY.ready) return '';
     const rows = DAILY.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td><td>${esc(r.name)}${admTag(r.sid)}</td><td class="num">${fmtMs(r.ms)}</td></tr>`).join('');
-    return `<p class="fm-note">Одно задание для всех на сегодня, №${DAILY.n}. Место — по времени решения <b>с первой попытки</b>
-        (время считает сервер с момента открытия задания). Самый быстрый завтра весь день носит 👑.${DAILY.crown ? ` Сегодня корона у <b>${esc(DAILY.crown)}</b>.` : ''}</p>
+    return `<p class="fm-note">Задание дня — №${DAILY.n}: <b>у каждого своё</b>, но одного типа и одной сложности.
+        Место — по времени решения <b>с первой попытки</b> (время считает сервер с момента открытия задания). Самый быстрый завтра весь день носит 👑.${DAILY.crown ? ` Сегодня корона у <b>${esc(DAILY.crown)}</b>.` : ''}</p>
       ${DAILY.my_place ? `<p class="lb-mine">Ты решил за <b>${fmtMs(DAILY.mine)}</b> — ${DAILY.my_place}-е место из ${DAILY.count}.</p>`
+        : DAILY.fast ? `<p class="daily-used">⚠ Решено за ${fmtMs(DAILY.mine)} — так быстро задание не прочитать, ответ был известен заранее. Результат в рейтинг не засчитан.</p>`
         : dailyNow() ? '<p class="lb-mine">Вы сейчас решаете задание дня — время идёт. <button type="button" class="btn ghost" id="dailyBack">Вернуться к заданию</button></p>'
         : DAILY.started ? `<p class="daily-used">🔒 Вы уже заходили выполнять задание дня сегодня в ${new Date(DAILY.started * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Войти второй раз нельзя — новое задание появится завтра.</p>`
         : '<p><button type="button" class="btn primary" id="dailyGo">Решать задание дня</button></p><p class="fm-note">Войти в задание можно <b>один раз</b>: время пойдёт сразу, а выйти и вернуться уже не получится.</p>'}
@@ -5508,15 +5510,20 @@
   }
   /** Ученик сейчас на открытом задании дня. */
   const dailyNow = () => !!(DAILY && cur && !cur.done && cur.task && cur.task.id === DAILY.task);
-  function goDaily() {
-    const t = DAILY && byId.get(DAILY.task);
-    if (!t) return;
+  async function goDaily() {
+    if (!DAILY || !DAILY.ready) return;
     closeForecast();
     if (dailyNow()) return;
     if (DAILY.started && !DAILY.my_place) { toast('Вы уже заходили выполнять задание дня сегодня — войти второй раз нельзя. Новое задание будет завтра.', 5000); return; }
     if (!leaveExam()) return;
+    // какое задание — сервер скажет только сейчас: у каждого своё, время пошло
+    let r;
+    try { r = await api('daily/start', {}); } catch (e) { netError(e); return; }
+    const t = byId.get(r.task);
+    if (!t) { toast('Задание дня не найдено — обновите страницу'); return; }
+    DAILY.task = r.task;
+    DAILY.started = r.started;
     show({ task: t, why: { type: 'daily' } });
-    DAILY.started = DAILY.started || Date.now() / 1000;
     renderDailyCard();
   }
 
@@ -5767,7 +5774,7 @@
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Привет! Вот что нового</h2>${res}
       ${note ? `<div class="sum-note${passed ? ' hot' : ''}">${note}</div>` : ''}
       ${inv.length ? `<div class="sum-note hot">🏆 Турнир: ${esc(tm.stage.toLowerCase())} — твой матч ждёт тебя — осталось ${tourLeft(tm.ends)}. <button type="button" class="btn ghost" id="sumDuels">К матчу</button></div>` : ''}
-      ${DAILY && DAILY.task && !DAILY.my_place && !DAILY.started ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
+      ${DAILY && DAILY.ready && !DAILY.my_place && !DAILY.started ? `<div class="sum-note">👑 Задание дня ждёт: №${DAILY.n}${DAILY.count ? `, решили уже ${DAILY.count}` : ''}. <button type="button" class="btn ghost" id="dailyGo">Решать</button></div>` : ''}
       ${boardsHtml(d, 'league')}
       <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
     $('#forecastModal').hidden = false;
@@ -6586,6 +6593,8 @@
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.
   const CHANGELOG = [
+    ['1.53.0', '15.10.2026', ['Задание дня: у каждого своё задание — того же номера, типа и сложности. Переслать ответ однокласснику больше не получится',
+      'Задание дня: результат быстрее, чем задание можно прочитать, в рейтинг и корону не засчитывается']],
     ['1.52.0', '14.10.2026', ['Python: скобки ( [ { и кавычки ставятся парой — курсор сразу внутри; выделенный текст оборачивается; Backspace в пустой паре удаляет обе',
       'Python: рисунок черепашки (turtle) можно закрыть кнопкой ✕',
       'При «Сдать ответ» код из окна Python к этому заданию прикрепляется как решение автоматически']],
