@@ -711,6 +711,71 @@
     loadComp();
   });
 
+  // ------------------------------------------------------------ уведомления: сдал работу, техподдержка, подозрительный ответ
+  // Колокольчик со счётчиком непрочитанных; прочитанным считается всё до момента, когда учитель открыл список
+  // (момент хранится в браузере). Счётчики и на вкладках: «Лента» — работы и ответы, «Статистика сайта» — техподдержка.
+  const NTF_KINDS = { finish: '📝', forced: '📝', exam: '🎯', support: '🛟', sus: '⚠' };
+  const NTF_KEY = 'egeAdm.ntfSeen';
+  let NTF = [];
+  let ntfSeen = (() => { try { return +localStorage.getItem(NTF_KEY) || 0; } catch (e) { return 0; } })();
+  if (!ntfSeen) { ntfSeen = Date.now() / 1000; try { localStorage.setItem(NTF_KEY, ntfSeen); } catch (e) { /* */ } }   // первый раз — старое не считаем
+  function ntfAdd(items) {
+    const have = new Set(NTF.map(x => x.kind + x.ts + x.sid));
+    const add = items.filter(x => !have.has(x.kind + x.ts + x.sid));
+    if (!add.length) return;
+    NTF = add.concat(NTF).sort((a, b) => b.ts - a.ts).slice(0, 80);
+    ntfRender();
+  }
+  function ntfRender() {
+    const fresh = NTF.filter(x => x.ts > ntfSeen);
+    const n = $('#ntfN');
+    if (n) { n.hidden = !fresh.length; n.textContent = fresh.length > 99 ? '99+' : fresh.length; }
+    const tabCount = (tab, kinds) => {
+      const b = $(`#tabs [data-tab="${tab}"]`);
+      if (!b) return;
+      const c = fresh.filter(x => kinds.includes(x.kind)).length;
+      let t = b.querySelector('.tab-n');
+      if (!c) { if (t) t.remove(); return; }
+      if (!t) { t = document.createElement('b'); t.className = 'tab-n'; b.appendChild(t); }
+      t.textContent = c;
+    };
+    tabCount('feed', ['finish', 'forced', 'exam', 'sus']);
+    tabCount('site', ['support']);
+    const pop = $('#ntfPop');
+    if (pop && !pop.hidden) ntfList();
+  }
+  function ntfList() {
+    const when = ts => new Date(ts * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    $('#ntfPop').innerHTML = `<div class="ntf-h"><b>Уведомления</b><button type="button" class="link-btn" id="ntfRead">прочитать все</button></div>
+      ${NTF.length ? `<ul class="ntf-list">${NTF.slice(0, 40).map((x, i) => `<li class="${x.ts > ntfSeen ? 'new' : ''}${x.kind === 'sus' ? ' warn' : ''}" data-ntf="${i}">
+        <span class="ntf-ico">${NTF_KINDS[x.kind]}</span><div><b>${esc(x.name)}</b> ${esc(x.text)}<small>${when(x.ts)}</small></div></li>`).join('')}</ul>`
+        : '<p class="adm-hint">Пока ничего нового. Здесь появятся сданные работы, обращения в техподдержку и подозрительные ответы.</p>'}`;
+  }
+  function ntfReadAll() {
+    ntfSeen = Math.max(ntfSeen, ...NTF.map(x => x.ts), Date.now() / 1000);
+    try { localStorage.setItem(NTF_KEY, ntfSeen); } catch (e) { /* */ }
+    ntfRender();
+  }
+  $('#ntfBtn')?.addEventListener('click', e => {
+    e.stopPropagation();
+    const pop = $('#ntfPop');
+    pop.hidden = !pop.hidden;
+    if (!pop.hidden) ntfList();
+  });
+  $('#ntfPop')?.addEventListener('click', e => {
+    e.stopPropagation();
+    if (e.target.closest('#ntfRead')) { ntfReadAll(); ntfList(); return; }
+    const li = e.target.closest('[data-ntf]');
+    if (!li) return;
+    const x = NTF[+li.dataset.ntf];
+    $('#ntfPop').hidden = true;
+    ntfReadAll();
+    if (x.kind === 'support') go('site');
+    else if (x.sid && typeof openStudent === 'function') openStudent(x.sid);
+    else go('feed');
+  });
+  document.addEventListener('click', () => { const p = $('#ntfPop'); if (p) p.hidden = true; });
+
   // ------------------------------------------------------------ история версий (changelog.js): для учителя и для учеников
   const CL = window.EGE_CHANGELOG || { student: [], teacher: [] };
   const CL_NOW = (CL.student[0] || [''])[0];
@@ -1849,10 +1914,13 @@
     start: () => 'начал(а) самостоятельную', away: e => `ушёл(ла) со вкладки${e.info ? ` на ${e.info} с` : ''}`,
     fs: () => 'вышел(ла) из полного экрана', finish: e => `сдал(а) самостоятельную${gradeOf(e)}`, forced: e => `работа завершена учителем${gradeOf(e)}`,
     exam: e => { try { const g = JSON.parse(e.info || '{}'); return `решил(а) вариант ЕГЭ · ${g.test} тест. баллов (${g.primary} перв.)`; } catch (err) { return 'решил(а) вариант ЕГЭ'; } },
+    support: e => `написал(а) в техподдержку: «${e.info}»`,
   };
   function gradeOf(e) { try { const g = JSON.parse(e.info || '{}'); return g.grade ? ` · оценка ${g.grade} (${g.pct}%)` : ''; } catch (err) { return ''; } }
   const evWarn = k => k === 'fs' || k === 'away';
   function feedEvents(list, first) {
+    ntfAdd((list || []).filter(e => NTF_KINDS[e.kind]).map(e => ({ ts: e.ts, kind: e.kind, sid: e.student_id, name: e.name,
+      text: EV_TEXT[e.kind](e) + (e.kind === 'support' ? ` · ${e.title}` : e.kind === 'exam' ? '' : ` — «${e.title}»`) })));
     if (!list || !list.length) return;
     const fresh = list.filter(e => e.ts > evSince);
     if (!fresh.length) return;
@@ -1871,13 +1939,16 @@
     box.hidden = !feedEv.length;
     box.innerHTML = `<h3 class="adm-h3">Работы и варианты · уведомления</h3><ul class="adm-events">${feedEv.slice(0, 30).map(e => `<li class="${evWarn(e.kind) ? 'warn' : ''}">
       <span class="muted">${fmtWhen(e.ts)}</span> <button type="button" class="task-link" data-student="${e.student_id}">${esc(e.name)}</button>
-      ${esc(EV_TEXT[e.kind] ? EV_TEXT[e.kind](e) : e.kind)} ${e.kind === 'exam' ? `<button type="button" class="link-btn" data-exam="${esc(e.exam)}">разбор</button>` : `<span class="muted">· «${esc(e.title)}»</span>`}</li>`).join('')}</ul>`;
+      ${esc(EV_TEXT[e.kind] ? EV_TEXT[e.kind](e) : e.kind)} ${e.kind === 'support' ? `<span class="muted">· ${esc(e.title)}</span>` : e.kind === 'exam' ? `<button type="button" class="link-btn" data-exam="${esc(e.exam)}">разбор</button>` : `<span class="muted">· «${esc(e.title)}»</span>`}</li>`).join('')}</ul>`;
   }
   async function pollFeed() {
     try {
       const d = await api(`feed?since=${feedSince}`);
       feedEvents(d.events, !evPolled);
       evPolled = true;
+      // подозрительные ответы (ушёл со страницы и сразу верно, вставка ответа) — тоже в уведомления
+      ntfAdd(d.attempts.filter(a => /sus|paste/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
+        text: `${/paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
       if (d.attempts.length) {
         const first = feedSince === 0;
         d.attempts.forEach(a => { if (!first) freshIds.add(a.id); });

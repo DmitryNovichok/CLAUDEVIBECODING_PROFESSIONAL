@@ -1168,7 +1168,20 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/duel/start", {"id": did}, ta)
         self.assertEqual(self.req("POST", "/api/duel/surrender", {"id": did}, ta)[0], 200)   # Антон сдался — сразу итог
         x = next(d for d in self.req("GET", "/api/duels", token=tb)[1]["duels"] if d["id"] == did)
-        self.assertEqual((x["status"], x["result"], x["surrender"], x["stake"]), ("finished", "win", "op", 100))
+        self.assertEqual((x["status"], x["result"], x["surrender"], x["stake"]), ("finished", "win", "op", 0))   # сдался — опыт победителю, только если он что-то решил
+        # полная награда — за первые 3 победы в сутки, дальше — меньше
+        db = server.APP.db
+        for _ in range(3):
+            db.x("INSERT INTO duels(a, b, tasks, created, status, winner, stake, finished) VALUES(?,?,?,?, 'finished', ?, 100, ?)",
+                 (sa, sb, "[]", time.time(), sa, time.time()))
+        now = time.time()
+        task = next(t["id"] for t in BANK["tasks"] if t.get("ans") and not t.get("parts"))
+        did2 = db.x("""INSERT INTO duels(a, b, tasks, created, status, accepted, a_start, b_start, a_done, b_done)
+                       VALUES(?,?,?,?, 'active', ?, ?, ?, ?, ?)""", (sa, sb, json.dumps([task]), now, now, now - 50, now - 50, now + 5, now + 5))
+        db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)", (sa, now, task, 5, "[]", "1", 1.0))
+        server.duel_settle(db, db.q("SELECT * FROM duels WHERE id=?", (did2,), one=True))
+        r = db.q("SELECT winner, stake FROM duels WHERE id=?", (did2,), one=True)
+        self.assertEqual((r["winner"], r["stake"]), (sa, server.DUEL_STAKE_LATE))
         self.assertEqual(self.req("POST", "/api/duel/surrender", {"id": did}, tb)[0], 409)   # уже закончена
         # турнир: сдался в матче группы — сопернику победа (3 очка), не техническое поражение
         db.x("DELETE FROM tournaments"); db.x("DELETE FROM tour_players"); db.x("DELETE FROM tour_matches")
