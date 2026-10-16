@@ -2,7 +2,8 @@
 # Ежедневная копия базы тренажёра (ученики, журнал, учителя).
 # Кладёт /opt/trainer-backups/trainer-ГГГГ-ММ-ДД.db.gz и хранит последние 14 копий.
 # Копия снимается через sqlite3 backup — безопасно, даже когда сервер работает.
-# Запуск по расписанию: /etc/cron.d/egeshka-backup (см. deploy/DEPLOY.md, раздел «Резервные копии»).
+# Запуск по расписанию: /etc/cron.d/egeshka-backup — в 09:50, за 10 минут до того, как Мак заберёт копии в 10:00
+# (см. deploy/DEPLOY.md, раздел «Резервные копии»).
 set -e
 SRC=${1:-/opt/trainer/server_data/trainer.db}
 DST=${2:-/opt/trainer-backups}
