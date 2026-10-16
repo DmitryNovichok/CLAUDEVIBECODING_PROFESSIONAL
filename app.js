@@ -1,3 +1,4 @@
+// Собрано из src/app/*.js командой python3 tools/build_app.py — правьте модули, а не этот файл.
 /* Тренажёр ЕГЭ по информатике — адаптивный подбор заданий.
    Данные: window.EGE_BANK из data/bank.js (собирается build.py).
    Прогресс ученика хранится в localStorage этого браузера. */
@@ -119,10 +120,14 @@
       box.setAttribute('aria-live', 'polite');
       document.body.appendChild(box);
     }
+    // то же сообщение уже на экране — второй раз не показываем; больше трёх сразу — старые уходят
+    if ([...box.children].some(x => x.textContent === msg && !x.classList.contains('out'))) return;
     const t = document.createElement('div');
     t.className = 'toast';
     t.textContent = msg;
     box.appendChild(t);
+    const live = [...box.children].filter(x => !x.classList.contains('out'));
+    for (const x of live.slice(0, Math.max(0, live.length - 3))) { x.classList.add('out'); setTimeout(() => x.remove(), 250); }
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, ms);
   }
 
@@ -581,6 +586,7 @@
   const recent = P.log.slice(-CFG.recentWindow).map(x => x.id);
   let lastNum = null;
 
+  // ═══════ src/app/02-trainer.js
   // ------------------------------------------------------------ подбор задания
   function targetDifficulty(n) {
     const s = statsFor(n);
@@ -1847,6 +1853,7 @@
     show(pickNext(cur && cur.task.id));
   }
 
+  // ═══════ src/app/03-forecast-course.js
   // ------------------------------------------------------------ прогноз балла ЕГЭ
   // ЕГЭ-2026: задания 1–25 — по 1 первичному баллу, 26 и 27 — по 2, всего 29.
   const EGE = {
@@ -2662,6 +2669,7 @@
     </div>`;
   }
 
+  // ═══════ src/app/04-stats-goals.js
   // ------------------------------------------------------------ статистика
   function numStats(n) {
     const s = statsFor(n);
@@ -3184,6 +3192,7 @@
     if (ho) { openPast(ho.dataset.open); navPush({ v: 'past', id: ho.dataset.open }); }   // «Назад» вернёт в историю
   });
 
+  // ═══════ src/app/05-exam.js
   // ------------------------------------------------------------ вариант ЕГЭ
   let EX = null;          // идущий вариант: { id, started, deadline, items: [{ id, n }], ans: { id: { answer, cells } }, cur }
   let examShown = false;
@@ -3849,6 +3858,7 @@
   // формулы, если KaTeX догрузился после первого показа
   document.addEventListener('DOMContentLoaded', () => renderMath($('#cond')));
 
+  // ═══════ src/app/06-server-sync.js
   // ------------------------------------------------------------ сервер: вход и синхронизация
   async function api(path, body, method) {
     const headers = { 'Content-Type': 'application/json' };
@@ -4054,6 +4064,7 @@
 
 
 
+  // ═══════ src/app/07-calc.js
   // ------------------------------------------------------------ калькулятор
   // Плавающее окно поверх задания: как калькулятор на телефоне — операции по очереди, «=», %, ±, ⌫.
   // Окно перетаскивается за верхнюю полосу (место запоминается), работает с клавиатуры.
@@ -4189,6 +4200,7 @@
     calcPress(k);
   });
 
+  // ═══════ src/app/08-board.js
   // ------------------------------------------------------------ доска для решения
   // Панель справа от задания (вместо окна Python): ручка, прямая, текст, ластик. Штрихи хранятся в пикселях листа,
   // у каждого задания своя доска (в браузере ученика, последние BD_KEEP). Цвет «ink» — цвет текста темы.
@@ -4720,6 +4732,7 @@
   }
   window.addEventListener('beforeunload', () => { if (BD.saveT) bdSave(); });
 
+  // ═══════ src/app/09-python.js
   // ------------------------------------------------------------ Python в браузере
   // Настоящий CPython (Pyodide) в отдельном потоке: math, itertools, functools, ipaddress, re, string, collections…
   // Файлы задания лежат рядом с кодом — open('17.txt') работает. Черепашка для №6 рисует на холсте.
@@ -5318,6 +5331,7 @@
     } catch (e) { return false; }
   }
 
+  // ═══════ src/app/10-levels-league.js
   // ------------------------------------------------------------ уровни, опыт, достижения
   // Опыт считает сервер по журналу: за первое решение задания (сложнее номер — больше), за дневную пятёрку,
   // за вариант ЕГЭ. Страница только показывает и празднует.
@@ -5679,6 +5693,7 @@
     renderDailyCard();
   }
 
+  // ═══════ src/app/11-tours-duels.js
   // ------------------------------------------------------------ турниры
   /* Как в футболе: набор на 4, 8 или 12 игроков (каждого вида — один турнир в сутки) → жеребьёвка по корзинам →
      группы по 4, каждый с каждым (победа 3 очка, ничья 1, «счёт» — решённые задания) → плей-офф и матч за 3-е место. */
@@ -5928,14 +5943,15 @@
     const left = Math.max(0, Math.round(T.started + TOUR.noshow_sec - Date.now() / 1000));
     el.textContent = `${Math.floor(left / 60)}:${pad2(left % 60)}`;
   }, 1000);
-  // живое обновление дуэлей и турниров на любой странице: на странице турниров и во время матча — каждые 10 с,
-  // иначе — раз в 30 с; вкладка в фоне — не спрашиваем, вернулся на неё — сразу обновляем
+  // живое обновление дуэлей и турниров на любой странице. Есть живое соединение (13-live.js) — сервер сам скажет,
+  // что поменялось, а опрос раз в 2 минуты — только страховка. Нет — на странице турниров и во время матча каждые 10 с,
+  // иначе раз в 30 с; вкладка в фоне — не спрашиваем, вернулся на неё — сразу обновляем
   let liveAt = 0;
   function livePoll(force) {
     if (!SERVER || !student || TEACHER || document.hidden || DSEARCH.on) return;
     const a = ui.scope === 'asg' && asgOf(ui.asg);
     const hot = (courseShown && pageKind === 'tour') || (a && a.duel);
-    if (!force && Date.now() - liveAt < (hot ? 10000 : 30000)) return;
+    if (!force && Date.now() - liveAt < (liveOn() ? 120000 : hot ? 10000 : 30000)) return;
     liveAt = Date.now();
     loadDuels(true);
   }
@@ -6290,6 +6306,7 @@
     $('#forecastModal').hidden = false;
   }
 
+  // ═══════ src/app/12-sets.js
   // ------------------------------------------------------------ задания от учителя
   let ASG = [], ASG_IN_CLASS = false;
   const fmtDay = ms => { const d = new Date(ms); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`; };
@@ -6986,6 +7003,94 @@
 
   }
 
+  // ═══════ src/app/13-live.js
+  // ------------------------------------------------------------ живые обновления (SSE)
+  /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя; страница перезапрашивает нужное.
+     Одно соединение на браузер: вкладки решают через Web Locks, какая ведущая. Она держит /api/live и пересылает
+     события остальным через BroadcastChannel; закрыли её — соединение подхватывает другая вкладка.
+     Нет связи или браузер старый — работает прежний опрос (livePoll), только чаще. */
+  const LV = { up: false, upAt: 0, sentAt: 0, chan: null, started: false, dirty: new Set(), timers: {}, was: false };
+  const liveOn = () => LV.up && Date.now() - LV.upAt < 70000;
+  function liveStart() {
+    if (LV.started || !SERVER || !student || TEACHER || !window.fetch || !window.ReadableStream || !window.TextDecoder) return;
+    LV.started = true;
+    const key = 'egeshka-live-' + student.sid;
+    if ('BroadcastChannel' in window) {
+      LV.chan = new BroadcastChannel(key);
+      LV.chan.onmessage = e => liveMsg(e.data || {});
+    }
+    if (navigator.locks && LV.chan) {
+      LV.chan.postMessage({ t: 'hi' });                 // ведущая уже есть — пусть скажет, что связь жива
+      navigator.locks.request(key, () => liveConnect()).catch(() => {});
+    } else liveConnect();                              // без замков у каждой вкладки своё соединение
+  }
+  function liveMsg(m) {
+    if (m.t === 'up') { LV.up = true; LV.upAt = Date.now(); }
+    else if (m.t === 'down') LV.up = false;
+    else if (m.t === 'hi' && LV.lead && liveOn()) LV.chan.postMessage({ t: 'up' });
+    else if (m.t === 'ev') liveEvent(m.topic);
+  }
+  function liveMark(up) {
+    const was = LV.up;
+    LV.up = up; LV.upAt = Date.now();
+    // остальным вкладкам — не чаще раза в 20 с, пока ничего не меняется
+    if (LV.chan && (up !== was || Date.now() - LV.sentAt > 20000)) { LV.sentAt = Date.now(); LV.chan.postMessage({ t: up ? 'up' : 'down' }); }
+  }
+  async function liveConnect() {
+    LV.lead = true;
+    let delay = 3000;
+    while (SERVER && student && !TEACHER) {
+      let got = false;
+      try {
+        const r = await fetch('api/live', { headers: { 'X-Token': student.token }, cache: 'no-store' });
+        if (r.status === 401) break;
+        if (!r.ok || !r.body) throw new Error('live ' + r.status);
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          liveMark(true);
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const ev = (/^event: (\w+)$/m.exec(buf.slice(0, i)) || [])[1];
+            buf = buf.slice(i + 2);
+            if (ev === 'hello') {
+              got = true;
+              if (LV.was) { liveSend('comp'); liveSend('asg'); }    // переподключились — вдруг что-то пропустили
+              LV.was = true;
+            } else if (ev) liveSend(ev);
+          }
+        }
+      } catch (e) { /* сеть пропала — переподключимся */ }
+      liveMark(false);
+      delay = got ? 3000 : Math.min(delay * 2, 120000);
+      await new Promise(res => setTimeout(res, delay + Math.random() * 2000));
+    }
+    LV.lead = false;
+  }
+  function liveSend(topic) {
+    if (LV.chan) LV.chan.postMessage({ t: 'ev', topic });
+    liveEvent(topic);
+  }
+  /** Событие пришло: вкладка на виду — обновляем (пачку подряд — один раз), в фоне — когда на неё вернутся. */
+  function liveEvent(topic) {
+    if (document.hidden) { LV.dirty.add(topic); return; }
+    clearTimeout(LV.timers[topic]);
+    LV.timers[topic] = setTimeout(() => liveRun(topic), 200 + Math.random() * 800);   // не все ученики класса в одну миллисекунду
+  }
+  function liveRun(topic) {
+    if (topic === 'comp') { liveAt = Date.now(); loadDuels(true); }
+    else if (topic === 'asg') loadAssignments().catch(() => {});
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !LV.dirty.size) return;
+    const ts = [...LV.dirty];
+    LV.dirty.clear();
+    ts.forEach(liveEvent);
+  });
+  // ═══════ src/app/14-boot.js
   // ------------------------------------------------------------ старт
   function start() {
     recent.length = 0;
@@ -7026,6 +7131,7 @@
     if (!P.log.length && !tourSeen()) setTimeout(openTour, 400);      // новичку — коротко о том, как всё устроено
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
+      liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       if (P.log.length || tourSeen()) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху

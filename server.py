@@ -28,6 +28,7 @@ import math
 import mimetypes
 import os
 import posixpath
+import queue
 import random
 import re
 import secrets
@@ -1361,6 +1362,122 @@ class App:
         self.bank.ensure()
 
 
+# ---------- живые обновления (SSE)
+# Браузер держит одно долгое соединение /api/live (вкладки одного браузера делят его между собой),
+# сервер пишет туда короткое «поменялось: comp» или «поменялось: asg» — браузер сам перезапрашивает нужное.
+# Сами данные по соединению не идут: событие — несколько байт, а права проверяют обычные запросы.
+LIVE_PING_SEC = 25          # «я жив» раз в столько секунд: прокси и браузер не рвут молчащее соединение
+LIVE_LIFE_SEC = 30 * 60     # соединение живёт полчаса, потом браузер переподключается сам
+LIVE_TICK_SEC = 5           # раз в столько секунд — ход турниров и проверка, поменялось ли что-то в дуэлях и турнирах
+LIVE_MAX = 1500             # всего соединений; больше — браузер опрашивает сервер по-старому
+LIVE_PER_STUDENT = 4        # на одного ученика (разные браузеры и устройства)
+
+
+def comp_sig(db, tid):
+    """Подпись состояния дуэлей и турниров учителя: поменялась — ученикам пора обновить страницу турниров."""
+    now = time.time()
+    tours = db.q("""SELECT id, status, round, round_ends FROM tournaments WHERE teacher_id=?
+                    AND (status IN ('reg','run') OR finished > ?) ORDER BY id""", (tid, now - 3600))
+    ids = [t["id"] for t in tours]
+    marks = ",".join("?" * len(ids))
+    rows = [tuple(t) for t in tours]
+    if ids:
+        rows += [tuple(r) for r in db.q(f"""SELECT tour_id, COUNT(*), MAX(joined), SUM(COALESCE(place, 0)) FROM tour_players
+                                            WHERE tour_id IN ({marks}) GROUP BY tour_id""", ids)]
+        rows += [tuple(r) for r in db.q(f"SELECT tour_id, COUNT(*) FROM tour_votes WHERE tour_id IN ({marks}) GROUP BY tour_id", ids)]
+        rows += [tuple(r) for r in db.q(f"""SELECT id, status, a_start, b_start, a_done, b_done, winner FROM tour_matches
+                                            WHERE tour_id IN ({marks}) ORDER BY id""", ids)]
+    sids = {m["id"] for m in teacher_students(db, tid)}
+    for d in db.q("""SELECT id, a, b, status, a_start, b_start, a_done, b_done, winner FROM duels
+                     WHERE status IN ('pending','active') OR finished > ? ORDER BY id""", (now - 3600,)):
+        if d["a"] in sids or d["b"] in sids:
+            rows.append(tuple(d))
+    return hashlib.sha1(repr(rows).encode()).hexdigest()
+
+
+class LiveHub:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.subs = {}               # ученик -> {очередь: учитель}
+        self.sig = {}                # учитель -> подпись дуэлей и турниров
+        self.wake = threading.Event()
+        self.thread = None
+
+    def count(self):
+        with self.lock:
+            return sum(len(v) for v in self.subs.values())
+
+    def subscribe(self, sid, tid):
+        with self.lock:
+            if sum(len(v) for v in self.subs.values()) >= LIVE_MAX or len(self.subs.get(sid, ())) >= LIVE_PER_STUDENT:
+                return None
+            q = queue.SimpleQueue()
+            self.subs.setdefault(sid, {})[q] = tid
+            if not self.thread:
+                self.thread = threading.Thread(target=self.ticker, name="live", daemon=True)
+                self.thread.start()
+        return q
+
+    def unsubscribe(self, sid, q):
+        with self.lock:
+            mine = self.subs.get(sid)
+            if mine is not None:
+                mine.pop(q, None)
+                if not mine:
+                    del self.subs[sid]
+
+    def send(self, sids, topic):
+        with self.lock:
+            qs = [q for sid in set(sids) for q in self.subs.get(sid, ())]
+        for q in qs:
+            q.put(topic)
+
+    def poke(self):
+        """Что-то поменялось в дуэлях или турнирах — проверить сразу, не дожидаясь очередного хода."""
+        self.wake.set()
+
+    def ticker(self):
+        while True:
+            self.wake.wait(LIVE_TICK_SEC)
+            self.wake.clear()
+            try:
+                self.check()
+            except Exception as e:
+                print(f"[живые обновления] {e!r}", flush=True)
+
+    def check(self):
+        if not APP:
+            return
+        with self.lock:
+            by_tid = {}
+            for sid, qs in self.subs.items():
+                for tid in qs.values():
+                    by_tid.setdefault(tid, set()).add(sid)
+        db = APP.db
+        for tid, sids in by_tid.items():
+            # ход турниров идёт и без запросов: этап закончился, неявка — ученики узнают сразу
+            for t in db.q("SELECT * FROM tournaments WHERE teacher_id=? AND status IN ('reg','run')", (tid,)):
+                tour_tick(db, t)
+            sig = comp_sig(db, tid)
+            old = self.sig.get(tid)
+            self.sig[tid] = sig
+            if old is not None and old != sig:
+                self.send(sids, "comp")
+        for tid in list(self.sig):
+            if tid not in by_tid:
+                del self.sig[tid]
+
+
+LIVE = LiveHub()
+
+
+def live_class(db, cid, sids=None):
+    """Ученикам класса (или только выбранным) — «поменялись подборки»."""
+    if sids is None:
+        sids = [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=?", (cid,))]
+    LIVE.send(sids, "asg")
+
+
 APP = None
 
 
@@ -1419,6 +1536,8 @@ class Handler(BaseHTTPRequestHandler):
             u = urlparse(self.path)
             path = unquote(u.path)
             qs = {k: v[0] for k, v in parse_qs(u.query).items()}
+            if path == "/api/live":
+                return self.live()
             if path.startswith("/api/"):
                 return self.api("GET", path, qs, {})
             return self.static(path)
@@ -1631,6 +1750,48 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_bytes(200, b.public_gz, "application/javascript; charset=utf-8", extra)
         return self.send_bytes(200, b.public_raw, "application/javascript; charset=utf-8", extra)
 
+    # ---------- живые обновления
+    def live(self):
+        s = self.student()
+        if not s or s["is_teacher"]:
+            return self.err(401, "нужно войти")
+        q = LIVE.subscribe(s["id"], teacher_of(s)["id"])
+        if q is None:
+            return self.err(503, "много соединений — обновления придут обычными запросами")
+        self.close_connection = True
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-transform")    # прокси не копит и не сжимает поток
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if self.command == "HEAD":
+                return
+            self.wfile.write(b"event: hello\ndata: {}\n\n")
+            self.wfile.flush()
+            LIVE.poke()                          # запомнить подпись дуэлей и турниров к первому событию
+            end = time.time() + LIVE_LIFE_SEC
+            while time.time() < end:
+                try:
+                    topics = {q.get(timeout=LIVE_PING_SEC)}
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")
+                    self.wfile.flush()
+                    continue
+                time.sleep(0.3)                  # пачка событий подряд — одно сообщение на тему
+                while True:
+                    try:
+                        topics.add(q.get_nowait())
+                    except queue.Empty:
+                        break
+                self.wfile.write("".join(f"event: {t}\ndata: {{}}\n\n" for t in sorted(topics)).encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
+            pass                                 # вкладку закрыли или связь пропала — браузер переподключится сам
+        finally:
+            LIVE.unsubscribe(s["id"], q)
+
     # ---------- API
     def cookie(self, name):
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
@@ -1790,6 +1951,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 (main_teacher()["id"], self.T["id"]))
 
     def api(self, method, path, qs, data):
+        try:
+            return self.api_route(method, path, qs, data)
+        finally:
+            if method == "POST" and ("/tour" in path or "/duel" in path):
+                LIVE.poke()                      # дуэль или турнир поменялись — соперники узнают сразу
+
+    def api_route(self, method, path, qs, data):
         db = APP.db
         # ----- ученик
         if path == "/api/ping":
@@ -3944,10 +4112,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 for sid in members:
                     aid = db.x("""INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading,kind,student_id,batch)
                                   VALUES(?,?,?,?,?,?,?,?,?,?)""", (cid, title, json.dumps(tasks), now, due, strict, grading, kind, sid, batch))
+                live_class(db, cid, members)
                 return self.send_json({"ok": True, "id": aid, "personal": len(members)})
             else:
                 aid = db.x("INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading,kind) VALUES(?,?,?,?,?,?,?,?)",
                            (cid, title, json.dumps(tasks), now, due, strict, grading, kind))
+            live_class(db, cid)
             return self.send_json({"ok": True, "id": aid})
 
         if path == "/api/admin/assignment/delete" and method == "POST":
@@ -3956,6 +4126,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "подборка не найдена")
             db.x("DELETE FROM assignments WHERE id=?", (to_int(data.get("id")),))
             db.x("DELETE FROM asg_runs WHERE asg_id=?", (to_int(data.get("id")),))
+            live_class(db, a["class_id"])
             return self.send_json({"ok": True})
 
         if path in ("/api/admin/asg/live", "/api/admin/asg/close"):
@@ -3972,6 +4143,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if data.get("reopen"):
                     # открыть снова: прошедший срок снимаем, иначе работа тут же закроется по сроку
                     db.x("UPDATE assignments SET closed=NULL, due=CASE WHEN due < ? THEN NULL ELSE due END WHERE id=?", (now, aid))
+                    live_class(db, a["class_id"])
                     return self.send_json({"ok": True})
                 db.x("UPDATE assignments SET closed=? WHERE id=?", (now, aid))
                 a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
@@ -3981,6 +4153,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if st:
                         asg_finish_run(self, db, a, st, real, forced=1)
                         n += 1
+                live_class(db, a["class_id"])
                 return self.send_json({"ok": True, "finished": n})
             items = asg_items(real)
             sols = {}                              # сколько решений (кода) прикреплено к заданиям работы

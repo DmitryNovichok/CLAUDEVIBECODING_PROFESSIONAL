@@ -10,6 +10,8 @@ ExecStart=/usr/bin/python3 /opt/trainer/server.py --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
+# живые обновления держат по соединению на браузер — запас открытых файлов
+LimitNOFILE=8192
 
 [Install]
 WantedBy=multi-user.target
