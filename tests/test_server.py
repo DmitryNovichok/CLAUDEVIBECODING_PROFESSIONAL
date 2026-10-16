@@ -522,6 +522,24 @@ class ServerTest(unittest.TestCase):
             for k in extra:
                 T.pop(k, None)
 
+    def test_personal_assignment_from_teacher(self):
+        # учитель выдаёт подборку только выбранным ученикам: у них — «персональная», у остальных её нет
+        t1, t2 = self.login("Персонов Пётр"), self.login("Персонова Полина")
+        s1, s2 = (self.req("GET", "/api/me", token=t)[1]["sid"] for t in (t1, t2))
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "11П"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [s1, s2]})
+        st, d = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Только Пете", "kind": "practice",
+                                                                  "tasks": ["b:5", "b:6"], "students": [s1, 999999]})
+        self.assertEqual((st, d.get("personal")), (200, 1), d)
+        a1 = self.req("GET", "/api/assignments", token=t1)[1]["assignments"]
+        self.assertEqual([(a["title"], a["personal"]) for a in a1], [("Только Пете", "own")])
+        self.assertEqual(self.req("GET", "/api/assignments", token=t2)[1]["assignments"], [])
+        b = self.admin("GET", f"/api/admin/assignments?class_id={cid}")[1]["batches"]
+        self.assertEqual((b[0]["title"], b[0]["students"]), ("Персональная: Только Пете", 1))
+        self.assertEqual(self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "x", "tasks": ["b:5"],
+                                                                          "students": [999999]})[0], 400)
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
     def test_strict_assignment(self):
         # контрольная: ответ один раз, проверка — после сдачи, учитель видит онлайн и может завершить для всех
         tok = self.login("Контрольнов Костя")
