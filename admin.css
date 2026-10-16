@@ -464,3 +464,18 @@ tr.comp-void td { opacity: .55; }
 .ver-add { color: var(--good); }
 .ver-chg { color: var(--accent); }
 .ver-now { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--good); color: #fff; }
+/* уведомления */
+.ntf-wrap { position: relative; display: inline-flex; }
+.ntf-btn { position: relative; font-size: 17px; }
+.ntf-n { position: absolute; top: -6px; right: -6px; min-width: 18px; padding: 0 5px; border-radius: 999px; background: #ff4b4b; color: #fff;
+  font-size: 11px; line-height: 18px; text-align: center; }
+.ntf-pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 45; width: min(420px, calc(100vw - 24px)); max-height: 70vh; overflow: auto;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); text-align: left; }
+.ntf-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.ntf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ntf-list li { display: flex; gap: 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 13.5px; }
+.ntf-list li:hover { background: var(--card-hover); }
+.ntf-list li.new { background: var(--accent-soft); }
+.ntf-list li.warn .ntf-ico { color: #d97706; }
+.ntf-list small { display: block; color: var(--muted); font-size: 12px; }
+.tab-n { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #ff4b4b; color: #fff; font-size: 11px; line-height: 17px; display: inline-block; }

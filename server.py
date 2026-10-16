@@ -2593,6 +2593,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             q = db.q("SELECT since FROM duel_queue WHERE student_id=? AND seen>?", (s["id"], time.time() - DUEL_QUEUE_TTL), one=True)
             return self.send_json({"duels": out, "searching": bool(q), "search_since": q["since"] if q else None,
                                    "today": duels_today(db, s["id"]), "per_day": DUEL_PER_DAY,
+                                   "full_per_day": DUEL_FULL_PER_DAY, "stake_late": DUEL_STAKE_LATE,
                                    "duel_nums": DUEL_NUMS, "min_nums": DUEL_MIN_NUMS,
                                    "my_elo": round(elo_of(db, s["id"])), "streak": duel_streak(db, s["id"]),
                                    "seekers": duel_seekers(db, tid, s["id"]), "stake": DUEL_STAKE, "tasks": DUEL_TASKS, "hours": DUEL_HOURS,
@@ -3204,6 +3205,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 events.append({"ts": e["finished"], "kind": "exam", "student_id": e["student_id"], "name": e["name"],
                                "title": "Вариант ЕГЭ", "exam": e["id"],
                                "info": json.dumps({"test": e["test_score"], "primary": e["primary_score"]})})
+            if self.T["is_main"]:
+                # обращения в техподдержку — главному учителю
+                for t in db.q("""SELECT x.id, x.ts, x.kind, x.text, x.student_id, s.name FROM support x
+                                 JOIN students s ON s.id = x.student_id WHERE x.ts > ? ORDER BY x.ts DESC LIMIT 50""", (since,)):
+                    events.append({"ts": t["ts"], "kind": "support", "student_id": t["student_id"], "name": t["name"],
+                                   "title": SUPPORT_KINDS.get(t["kind"], "Обращение"), "info": (t["text"] or "")[:160]})
             events.sort(key=lambda x: -x["ts"])
             return self.send_json({"attempts": out, "events": events, "now": now})
 
@@ -4800,6 +4807,8 @@ DUEL_NUMS = list(range(1, 19)) + [22, 23, 24, 25, 26, 27]   # 19–21 — игр
 DUEL_TASK_SEC = {n: (30 if n >= 24 else 10) * 60 for n in range(1, 28)}   # время на задание дуэли: №1–23 — 10 мин, №24–27 — 30
 DUEL_MIN_NUMS = 3          # меньше общих номеров у двоих ищущих — их не сводим
 DUEL_STAKE = 100           # опыт победителю дуэли (у проигравшего не отнимается)
+DUEL_FULL_PER_DAY = 3      # полная награда — за первые 3 победы в сутки, дальше — DUEL_STAKE_LATE
+DUEL_STAKE_LATE = 20
 DUEL_HOURS = 24
 DUEL_MAX_OPEN = 3
 DUEL_PER_DAY = 10          # дуэлей в сутки на одного ученика
@@ -5559,7 +5568,15 @@ def duel_settle(db, d):
     stake = 0
     lose = ("b" if win == "a" else "a") if win else None
     if win:
-        stake = DUEL_STAKE
+        # против накрутки: победа сдачей соперника без единого решённого задания — без опыта;
+        # полная награда — только за первые победы за сутки
+        won = sa if win == "a" else sb
+        if d["surrender"] and won <= 0:
+            stake = 0
+        else:
+            full = db.q("""SELECT COUNT(*) AS c FROM duels WHERE status='finished' AND winner=? AND finished>=? AND stake>=?""",
+                        (d[win], day_start(), DUEL_STAKE), one=True)["c"]
+            stake = DUEL_STAKE if full < DUEL_FULL_PER_DAY else DUEL_STAKE_LATE
     if not db.xn("""UPDATE duels SET status='finished', a_solved=?, b_solved=?, winner=?, stake=?, finished=?
                     WHERE id=? AND status='active'""", (sa, sb, d[win] if win else None, stake, now, d["id"])):
         return                                     # итог уже подвёл параллельный запрос
@@ -5568,7 +5585,7 @@ def duel_settle(db, d):
     if d["a_start"] or d["b_start"]:               # рейтинг Эло: никто не начал — дуэль не в счёт
         da, db_ = elo_apply(db, d["a"], d["b"], 1.0 if win == "a" else 0.0 if win == "b" else 0.5)
         db.x("UPDATE duels SET a_elo=?, b_elo=? WHERE id=?", (da, db_, d["id"]))
-    if win:                                        # серия побед: с третьей подряд — бонус опыта
+    if win and stake:                              # серия побед: с третьей подряд — бонус опыта
         streak = duel_streak(db, d[win])
         bonus = min(STREAK_BONUS_MAX, STREAK_BONUS * (streak - 2)) if streak >= 3 else 0
         if bonus:
