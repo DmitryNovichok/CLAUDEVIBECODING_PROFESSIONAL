@@ -1044,6 +1044,41 @@ class ServerTest(unittest.TestCase):
         for t in (ta, tb):
             self.req("POST", "/api/duel/cancel", {}, t)
 
+    def test_live_teacher_and_support(self):
+        # учитель: обращение ученика и его ответы — «feed»; учитель ответил — ученику «support»
+        self.admin("GET", "/api/admin/me")                       # сессия учителя в базе
+        tok = self.login("Живолентов Павел")
+
+        def stream(headers):
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            c.request("GET", "/api/admin/live" if "Cookie" in headers else "/api/live", headers=headers)
+            r = c.getresponse()
+            self.assertEqual(r.status, 200)
+
+            def nxt():
+                ev = None
+                while True:
+                    line = r.fp.readline().decode().strip()
+                    if line.startswith("event: "):
+                        ev = line[7:]
+                    elif not line and ev:
+                        return ev
+            self.assertEqual(nxt(), "hello")
+            return c, nxt
+
+        self.assertEqual(self.req("GET", "/api/admin/live")[0], 401)
+        ct, teacher = stream({"Cookie": "egeadm=admtest"})
+        cs, pupil = stream({"X-Token": tok})
+        self.assertEqual(self.req("POST", "/api/support", {"kind": "bug", "text": "Не открывается задание"}, tok)[0], 200)
+        self.assertEqual(teacher(), "feed")
+        self.check(tok, "b:5", answer="12")
+        self.assertEqual(teacher(), "feed")
+        sid = server.APP.db.q("SELECT id FROM support ORDER BY id DESC LIMIT 1", one=True)["id"]
+        self.assertEqual(self.admin("POST", "/api/admin/support/answer", {"id": sid, "answer": "Починили"})[0], 200)
+        self.assertEqual(pupil(), "support")
+        ct.close()
+        cs.close()
+
     def test_duel_matchmaking(self):
         # «Найти соперника»: первый ждёт в очереди, второй нажал — дуэль создана сразу, первый узнаёт о ней при следующем опросе
         ta, tb = self.login("Подборов Аркадий"), self.login("Подборов Борис")

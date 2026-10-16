@@ -7005,7 +7005,7 @@
 
   // ═══════ src/app/13-live.js
   // ------------------------------------------------------------ живые обновления (SSE)
-  /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя; страница перезапрашивает нужное.
+  /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя, support — ответ техподдержки; страница перезапрашивает нужное.
      Одно соединение на браузер: вкладки решают через Web Locks, какая ведущая. Она держит /api/live и пересылает
      события остальным через BroadcastChannel; закрыли её — соединение подхватывает другая вкладка.
      Нет связи или браузер старый — работает прежний опрос (livePoll), только чаще. */
@@ -7083,6 +7083,14 @@
   function liveRun(topic) {
     if (topic === 'comp') { liveAt = Date.now(); loadDuels(true); }
     else if (topic === 'asg') loadAssignments().catch(() => {});
+    else if (topic === 'support') liveSupport();
+  }
+  /** Учитель ответил в техподдержке: точка на кнопке, уведомление; окно поддержки открыто и черновика нет — обновить. */
+  async function liveSupport() {
+    const was = (SUPPORT && SUPPORT.unread) || 0;
+    await loadSupport();
+    if (SUPPORT && SUPPORT.unread > was) toast('🛟 Пришёл ответ техподдержки — открой «Техподдержку»', 6000);
+    if (!$('#forecastModal').hidden && $('#spForm') && !$('#spText').value.trim()) openSupport();
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden || !LV.dirty.size) return;

@@ -1454,7 +1454,8 @@ class LiveHub:
             by_tid = {}
             for sid, qs in self.subs.items():
                 for tid in qs.values():
-                    by_tid.setdefault(tid, set()).add(sid)
+                    if tid is not None:          # у учителя (ключ ("t", id)) дуэлей и турниров нет
+                        by_tid.setdefault(tid, set()).add(sid)
         db = APP.db
         for tid, sids in by_tid.items():
             # ход турниров идёт и без запросов: этап закончился, неявка — ученики узнают сразу
@@ -1471,6 +1472,14 @@ class LiveHub:
 
 
 LIVE = LiveHub()
+
+
+def live_teacher(s, main=False):
+    """Учителю ученика (и главному, если main) — «в ленте новое»: ответ, сдача работы, вариант, обращение."""
+    keys = [("t", s["teacher_id"] or main_teacher()["id"])]
+    if main:
+        keys.append(("t", main_teacher()["id"]))
+    LIVE.send(keys, "feed")
 
 
 def live_class(db, cid, sids=None):
@@ -1540,6 +1549,8 @@ class Handler(BaseHTTPRequestHandler):
             qs = {k: v[0] for k, v in parse_qs(u.query).items()}
             if path == "/api/live":
                 return self.live()
+            if path == "/api/admin/live":
+                return self.live_admin()
             if path.startswith("/api/"):
                 return self.api("GET", path, qs, {})
             return self.static(path)
@@ -1757,7 +1768,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         s = self.student()
         if not s or s["is_teacher"]:
             return self.err(401, "нужно войти")
-        q = LIVE.subscribe(s["id"], teacher_of(s)["id"])
+        return self.live_stream(s["id"], teacher_of(s)["id"])
+
+    def live_admin(self):
+        if not self.is_admin():
+            return self.err(401, "нужно войти")
+        return self.live_stream(("t", self.T["id"]), None)
+
+    def live_stream(self, key, tid):
+        q = LIVE.subscribe(key, tid)
         if q is None:
             return self.err(503, "много соединений — обновления придут обычными запросами")
         self.close_connection = True
@@ -1792,7 +1811,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
             pass                                 # вкладку закрыли или связь пропала — браузер переподключится сам
         finally:
-            LIVE.unsubscribe(s["id"], q)
+            LIVE.unsubscribe(key, q)
 
     # ---------- API
     def cookie(self, name):
@@ -1829,12 +1848,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if st.get("paste"):
                 fl.append("paste")
             flags = ",".join(fl) or None
-        return APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,
+        aid = APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,
                                                spent_ms,reason,rk,part,grp,revealed,exam,ip,away,away_sec,flags)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (s["id"], time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps(answers, ensure_ascii=False),
                          t.get("ans", ""), score, int(gave_up), int(abandoned), spent, reason, rk, part,
                          t.get("group"), int(revealed), exam, self.client_ip(), away or None, away_sec, flags))
+        live_teacher(s)                          # учитель видит ответ в ленте сразу
+        return aid
 
     def daily_result(self, s, t, st):
         """Задание дня решено с первой попытки: в рейтинг — только первый заход за день,
@@ -2493,6 +2514,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     return self.err(429, "Слишком много обращений за час — подожди немного")
                 db.x("INSERT INTO support(student_id, ts, kind, text, task, page) VALUES(?,?,?,?,?,?)",
                      (s["id"], time.time(), kind, text, str(data.get("task") or "")[:60] or None, str(data.get("page") or "")[:120] or None))
+                LIVE.send([("t", main_teacher()["id"])], "feed")      # главному учителю — сразу
                 return self.send_json({"ok": True})
             rows = db.q("SELECT * FROM support WHERE student_id=? ORDER BY id DESC LIMIT 20", (s["id"],))
             return self.send_json({"kinds": SUPPORT_KINDS, "unread": sum(1 for r in rows if not r["seen"]),
@@ -3050,6 +3072,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                     else "Учитель уже завершил эту самостоятельную")
                 db.x("INSERT INTO asg_runs(asg_id, student_id, started, last, answers) VALUES(?,?,?,?,?)", (aid, s["id"], now, now, "{}"))
                 db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind) VALUES(?,?,?,'start')", (aid, s["id"], now))
+                live_teacher(s)
             return self.send_json(asg_run_public(db, a, s["id"], real))
         if not run:
             return self.err(409, "Сначала начните самостоятельную")
@@ -3062,6 +3085,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x(f"UPDATE asg_runs SET {kind}=COALESCE({kind}, 0)+1, last=? WHERE asg_id=? AND student_id=?", (now, aid, s["id"]))
                     db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind, info) VALUES(?,?,?,?,?)",
                          (aid, s["id"], now, kind, str(round(to_float(data.get("dur")))) if data.get("dur") else None))
+                    live_teacher(s)
             return self.send_json({"ok": True})
         if run["finished"] or a["closed"]:
             if not run["finished"]:
@@ -3142,6 +3166,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS}
         db.x("UPDATE exams SET finished=?, items=?, primary_score=?, test_score=?, result=? WHERE id=?",
              (now, len(results), primary, test, json.dumps(out, ensure_ascii=False), e["id"]))
+        live_teacher(s)
         return self.send_json(dict(out, game=game_summary(db, s["id"])))
 
     # ---------- API учителя
@@ -3773,6 +3798,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE support SET answer=?, answered=?, status=?, seen=0 WHERE id=?", (answer, time.time(), status, sid))
             else:
                 db.x("UPDATE support SET status=? WHERE id=?", (status, sid))
+            LIVE.send([r["student_id"]], "support")      # ответ появится у ученика сразу
             return self.send_json({"ok": True})
 
         if path == "/api/admin/teachers":
@@ -5896,6 +5922,7 @@ def asg_finish_run(handler, db, a, s, real, forced=0):
         return                                     # уже сдал (два запроса разом) — второй раз в журнал не пишем
     db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind, info) VALUES(?,?,?,?,?)",
          (a["id"], s["id"], now, "forced" if forced else "finish", json.dumps({"grade": grade, "pct": pct})))
+    live_teacher(s)
     for k, credit in res.items():                 # в журнал — как обычные ответы (опыт, повторения, статистика)
         if credit is None:
             continue

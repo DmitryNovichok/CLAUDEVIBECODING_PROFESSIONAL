@@ -1926,6 +1926,7 @@
     if (!fresh.length) return;
     evSince = Math.max(evSince, ...fresh.map(e => e.ts));
     feedEv = fresh.concat(feedEv).slice(0, 100);
+    if (!first && tab === 'site' && fresh.some(e => e.kind === 'support')) loadSite();   // новое обращение — сразу в списке
     if (!first) {
       fresh.filter(e => evWarn(e.kind) || e.kind === 'finish' || e.kind === 'exam').slice(0, 3)
         .forEach(e => toast(`${evWarn(e.kind) ? '⚠ ' : e.kind === 'exam' ? '🎯 ' : '📝 '}${e.name}: ${EV_TEXT[e.kind](e)}${e.kind === 'exam' ? '' : ` — «${e.title}»`}`));
@@ -1964,8 +1965,86 @@
     clearInterval(feedTimer);
     feed = []; feedSince = 0; feedEv = []; evSince = 0; evPolled = false;
     pollFeed();
-    feedTimer = setInterval(pollFeed, 10000);
+    // есть живое соединение — сервер сам скажет «в ленте новое», опрос раз в 2 минуты только на всякий случай
+    feedTimer = setInterval(() => { if (!liveOn() || Date.now() - feedAt > 120000) feedNow(); }, 10000);
+    liveStart();
   }
+  let feedAt = 0, feedT = null;
+  /** Обновить ленту: не чаще раза в 3 с (класс отвечает пачкой — один запрос). */
+  function feedNow() {
+    if (feedT) return;
+    const wait = Math.max(0, feedAt + 3000 - Date.now());
+    feedT = setTimeout(() => { feedT = null; feedAt = Date.now(); pollFeed(); }, wait);
+  }
+
+  // живые обновления: одно соединение на браузер (вкладки делят его через Web Locks и BroadcastChannel), как у учеников
+  const LV = { up: false, upAt: 0, sentAt: 0, chan: null, started: false, lead: false, dirty: false };
+  const liveOn = () => LV.up && Date.now() - LV.upAt < 70000;
+  function liveStart() {
+    if (LV.started || !window.fetch || !window.ReadableStream || !window.TextDecoder) return;
+    LV.started = true;
+    const key = 'egeshka-live-teacher';
+    if ('BroadcastChannel' in window) {
+      LV.chan = new BroadcastChannel(key);
+      LV.chan.onmessage = e => {
+        const m = e.data || {};
+        if (m.t === 'up') { LV.up = true; LV.upAt = Date.now(); }
+        else if (m.t === 'down') LV.up = false;
+        else if (m.t === 'hi' && LV.lead && liveOn()) LV.chan.postMessage({ t: 'up' });
+        else if (m.t === 'ev') liveEvent(m.topic);
+      };
+    }
+    if (navigator.locks && LV.chan) {
+      LV.chan.postMessage({ t: 'hi' });
+      navigator.locks.request(key, () => liveConnect()).catch(() => {});
+    } else liveConnect();
+  }
+  function liveMark(up) {
+    const was = LV.up;
+    LV.up = up; LV.upAt = Date.now();
+    if (LV.chan && (up !== was || Date.now() - LV.sentAt > 20000)) { LV.sentAt = Date.now(); LV.chan.postMessage({ t: up ? 'up' : 'down' }); }
+  }
+  async function liveConnect() {
+    LV.lead = true;
+    let delay = 3000, again = false;
+    for (;;) {
+      let got = false;
+      try {
+        const r = await fetch('api/admin/live', { credentials: 'same-origin', cache: 'no-store' });
+        if (r.status === 401) break;
+        if (!r.ok || !r.body) throw new Error('live ' + r.status);
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          liveMark(true);
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const ev = (/^event: (\w+)$/m.exec(buf.slice(0, i)) || [])[1];
+            buf = buf.slice(i + 2);
+            if (ev === 'hello') { got = true; if (again) liveSend('feed'); again = true; }   // переподключились — догнать пропущенное
+            else if (ev) liveSend(ev);
+          }
+        }
+      } catch (e) { /* сеть пропала — переподключимся */ }
+      liveMark(false);
+      delay = got ? 3000 : Math.min(delay * 2, 120000);
+      await new Promise(res => setTimeout(res, delay + Math.random() * 2000));
+    }
+    LV.lead = false;
+  }
+  function liveSend(topic) {
+    if (LV.chan) LV.chan.postMessage({ t: 'ev', topic });
+    liveEvent(topic);
+  }
+  function liveEvent(topic) {
+    if (topic !== 'feed') return;
+    if (document.hidden) { LV.dirty = true; return; }
+    feedNow();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && LV.dirty) { LV.dirty = false; feedNow(); } });
   function renderFeed() {
     $('#feedEmpty').hidden = feed.length > 0;
     $('#feedTable').hidden = feed.length === 0;
