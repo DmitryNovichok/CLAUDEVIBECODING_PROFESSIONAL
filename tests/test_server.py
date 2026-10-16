@@ -1012,6 +1012,38 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/duel/cancel", {}, ta)
         self.req("POST", "/api/duel/cancel", {}, tb)
 
+    def test_live_events(self):
+        # живые обновления: без входа — 401; соперник нашёлся — обоим приходит «comp»; учитель выдал подборку — «asg»
+        self.assertEqual(self.req("GET", "/api/live")[0], 401)
+        server.APP.db.x("DELETE FROM duel_queue")
+        ta, tb = self.login("Живой Андрей"), self.login("Живой Борис")
+        sid_a = server.APP.db.q("SELECT id FROM students WHERE token=?", (ta,), one=True)["id"]
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/api/live", headers={"X-Token": ta})
+        r = c.getresponse()
+        self.assertEqual((r.status, r.getheader("Content-Type")), (200, "text/event-stream; charset=utf-8"))
+
+        def next_event():
+            ev = None
+            while True:
+                line = r.fp.readline().decode().strip()
+                if line.startswith("event: "):
+                    ev = line[7:]
+                elif not line and ev:
+                    return ev
+
+        self.assertEqual(next_event(), "hello")
+        time.sleep(0.5)                                  # сервер запомнил подпись дуэлей и турниров
+        self.req("POST", "/api/duel/find", {}, ta)      # встал в очередь — это ещё не событие
+        self.assertIn("matched", self.req("POST", "/api/duel/find", {}, tb)[1])
+        self.assertEqual(next_event(), "comp")
+        server.live_class(server.APP.db, None, [sid_a])
+        self.assertEqual(next_event(), "asg")
+        self.assertEqual(server.LIVE.count(), 1)
+        c.close()
+        for t in (ta, tb):
+            self.req("POST", "/api/duel/cancel", {}, t)
+
     def test_duel_matchmaking(self):
         # «Найти соперника»: первый ждёт в очереди, второй нажал — дуэль создана сразу, первый узнаёт о ней при следующем опросе
         ta, tb = self.login("Подборов Аркадий"), self.login("Подборов Борис")

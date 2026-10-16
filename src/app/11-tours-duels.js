@@ -247,14 +247,15 @@
     const left = Math.max(0, Math.round(T.started + TOUR.noshow_sec - Date.now() / 1000));
     el.textContent = `${Math.floor(left / 60)}:${pad2(left % 60)}`;
   }, 1000);
-  // живое обновление дуэлей и турниров на любой странице: на странице турниров и во время матча — каждые 10 с,
-  // иначе — раз в 30 с; вкладка в фоне — не спрашиваем, вернулся на неё — сразу обновляем
+  // живое обновление дуэлей и турниров на любой странице. Есть живое соединение (13-live.js) — сервер сам скажет,
+  // что поменялось, а опрос раз в 2 минуты — только страховка. Нет — на странице турниров и во время матча каждые 10 с,
+  // иначе раз в 30 с; вкладка в фоне — не спрашиваем, вернулся на неё — сразу обновляем
   let liveAt = 0;
   function livePoll(force) {
     if (!SERVER || !student || TEACHER || document.hidden || DSEARCH.on) return;
     const a = ui.scope === 'asg' && asgOf(ui.asg);
     const hot = (courseShown && pageKind === 'tour') || (a && a.duel);
-    if (!force && Date.now() - liveAt < (hot ? 10000 : 30000)) return;
+    if (!force && Date.now() - liveAt < (liveOn() ? 120000 : hot ? 10000 : 30000)) return;
     liveAt = Date.now();
     loadDuels(true);
   }

@@ -120,10 +120,14 @@
       box.setAttribute('aria-live', 'polite');
       document.body.appendChild(box);
     }
+    // то же сообщение уже на экране — второй раз не показываем; больше трёх сразу — старые уходят
+    if ([...box.children].some(x => x.textContent === msg && !x.classList.contains('out'))) return;
     const t = document.createElement('div');
     t.className = 'toast';
     t.textContent = msg;
     box.appendChild(t);
+    const live = [...box.children].filter(x => !x.classList.contains('out'));
+    for (const x of live.slice(0, Math.max(0, live.length - 3))) { x.classList.add('out'); setTimeout(() => x.remove(), 250); }
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, ms);
   }
 
@@ -5939,14 +5943,15 @@
     const left = Math.max(0, Math.round(T.started + TOUR.noshow_sec - Date.now() / 1000));
     el.textContent = `${Math.floor(left / 60)}:${pad2(left % 60)}`;
   }, 1000);
-  // живое обновление дуэлей и турниров на любой странице: на странице турниров и во время матча — каждые 10 с,
-  // иначе — раз в 30 с; вкладка в фоне — не спрашиваем, вернулся на неё — сразу обновляем
+  // живое обновление дуэлей и турниров на любой странице. Есть живое соединение (13-live.js) — сервер сам скажет,
+  // что поменялось, а опрос раз в 2 минуты — только страховка. Нет — на странице турниров и во время матча каждые 10 с,
+  // иначе раз в 30 с; вкладка в фоне — не спрашиваем, вернулся на неё — сразу обновляем
   let liveAt = 0;
   function livePoll(force) {
     if (!SERVER || !student || TEACHER || document.hidden || DSEARCH.on) return;
     const a = ui.scope === 'asg' && asgOf(ui.asg);
     const hot = (courseShown && pageKind === 'tour') || (a && a.duel);
-    if (!force && Date.now() - liveAt < (hot ? 10000 : 30000)) return;
+    if (!force && Date.now() - liveAt < (liveOn() ? 120000 : hot ? 10000 : 30000)) return;
     liveAt = Date.now();
     loadDuels(true);
   }
@@ -6998,7 +7003,94 @@
 
   }
 
-  // ═══════ src/app/13-boot.js
+  // ═══════ src/app/13-live.js
+  // ------------------------------------------------------------ живые обновления (SSE)
+  /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя; страница перезапрашивает нужное.
+     Одно соединение на браузер: вкладки решают через Web Locks, какая ведущая. Она держит /api/live и пересылает
+     события остальным через BroadcastChannel; закрыли её — соединение подхватывает другая вкладка.
+     Нет связи или браузер старый — работает прежний опрос (livePoll), только чаще. */
+  const LV = { up: false, upAt: 0, sentAt: 0, chan: null, started: false, dirty: new Set(), timers: {}, was: false };
+  const liveOn = () => LV.up && Date.now() - LV.upAt < 70000;
+  function liveStart() {
+    if (LV.started || !SERVER || !student || TEACHER || !window.fetch || !window.ReadableStream || !window.TextDecoder) return;
+    LV.started = true;
+    const key = 'egeshka-live-' + student.sid;
+    if ('BroadcastChannel' in window) {
+      LV.chan = new BroadcastChannel(key);
+      LV.chan.onmessage = e => liveMsg(e.data || {});
+    }
+    if (navigator.locks && LV.chan) {
+      LV.chan.postMessage({ t: 'hi' });                 // ведущая уже есть — пусть скажет, что связь жива
+      navigator.locks.request(key, () => liveConnect()).catch(() => {});
+    } else liveConnect();                              // без замков у каждой вкладки своё соединение
+  }
+  function liveMsg(m) {
+    if (m.t === 'up') { LV.up = true; LV.upAt = Date.now(); }
+    else if (m.t === 'down') LV.up = false;
+    else if (m.t === 'hi' && LV.lead && liveOn()) LV.chan.postMessage({ t: 'up' });
+    else if (m.t === 'ev') liveEvent(m.topic);
+  }
+  function liveMark(up) {
+    const was = LV.up;
+    LV.up = up; LV.upAt = Date.now();
+    // остальным вкладкам — не чаще раза в 20 с, пока ничего не меняется
+    if (LV.chan && (up !== was || Date.now() - LV.sentAt > 20000)) { LV.sentAt = Date.now(); LV.chan.postMessage({ t: up ? 'up' : 'down' }); }
+  }
+  async function liveConnect() {
+    LV.lead = true;
+    let delay = 3000;
+    while (SERVER && student && !TEACHER) {
+      let got = false;
+      try {
+        const r = await fetch('api/live', { headers: { 'X-Token': student.token }, cache: 'no-store' });
+        if (r.status === 401) break;
+        if (!r.ok || !r.body) throw new Error('live ' + r.status);
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          liveMark(true);
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const ev = (/^event: (\w+)$/m.exec(buf.slice(0, i)) || [])[1];
+            buf = buf.slice(i + 2);
+            if (ev === 'hello') {
+              got = true;
+              if (LV.was) { liveSend('comp'); liveSend('asg'); }    // переподключились — вдруг что-то пропустили
+              LV.was = true;
+            } else if (ev) liveSend(ev);
+          }
+        }
+      } catch (e) { /* сеть пропала — переподключимся */ }
+      liveMark(false);
+      delay = got ? 3000 : Math.min(delay * 2, 120000);
+      await new Promise(res => setTimeout(res, delay + Math.random() * 2000));
+    }
+    LV.lead = false;
+  }
+  function liveSend(topic) {
+    if (LV.chan) LV.chan.postMessage({ t: 'ev', topic });
+    liveEvent(topic);
+  }
+  /** Событие пришло: вкладка на виду — обновляем (пачку подряд — один раз), в фоне — когда на неё вернутся. */
+  function liveEvent(topic) {
+    if (document.hidden) { LV.dirty.add(topic); return; }
+    clearTimeout(LV.timers[topic]);
+    LV.timers[topic] = setTimeout(() => liveRun(topic), 200 + Math.random() * 800);   // не все ученики класса в одну миллисекунду
+  }
+  function liveRun(topic) {
+    if (topic === 'comp') { liveAt = Date.now(); loadDuels(true); }
+    else if (topic === 'asg') loadAssignments().catch(() => {});
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !LV.dirty.size) return;
+    const ts = [...LV.dirty];
+    LV.dirty.clear();
+    ts.forEach(liveEvent);
+  });
+  // ═══════ src/app/14-boot.js
   // ------------------------------------------------------------ старт
   function start() {
     recent.length = 0;
@@ -7039,6 +7131,7 @@
     if (!P.log.length && !tourSeen()) setTimeout(openTour, 400);      // новичку — коротко о том, как всё устроено
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
+      liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       if (P.log.length || tourSeen()) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху

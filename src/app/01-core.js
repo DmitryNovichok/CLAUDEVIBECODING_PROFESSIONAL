@@ -119,10 +119,14 @@
       box.setAttribute('aria-live', 'polite');
       document.body.appendChild(box);
     }
+    // то же сообщение уже на экране — второй раз не показываем; больше трёх сразу — старые уходят
+    if ([...box.children].some(x => x.textContent === msg && !x.classList.contains('out'))) return;
     const t = document.createElement('div');
     t.className = 'toast';
     t.textContent = msg;
     box.appendChild(t);
+    const live = [...box.children].filter(x => !x.classList.contains('out'));
+    for (const x of live.slice(0, Math.max(0, live.length - 3))) { x.classList.add('out'); setTimeout(() => x.remove(), 250); }
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, ms);
   }
 
