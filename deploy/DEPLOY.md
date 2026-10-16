@@ -111,11 +111,11 @@ systemctl reload caddy
 
 ```
 chmod +x /opt/trainer/deploy/backup.sh
-echo "30 3 * * * root /opt/trainer/deploy/backup.sh >/dev/null" > /etc/cron.d/egeshka-backup
+echo "50 9 * * * root /opt/trainer/deploy/backup.sh >/dev/null" > /etc/cron.d/egeshka-backup
 /opt/trainer/deploy/backup.sh
 ```
 
-Последняя команда сразу делает первую копию — проверка, что всё работает. Копии лежат на том же сервере: раз в месяц скачивайте свежую к себе (`scp root@egeshka.online:/opt/trainer-backups/trainer-*.db.gz .`).
+Копия снимается в 09:50 (время сервера — Europe/Moscow), чтобы в 10:00 её забрал компьютер учителя (launchd на Маке, `~/Library/Scripts/egeshka-backup.sh`): на Мак приходит копия десятиминутной давности. Последняя команда сразу делает первую копию — проверка, что всё работает. Копии лежат на том же сервере: раз в месяц скачивайте свежую к себе (`scp root@egeshka.online:/opt/trainer-backups/trainer-*.db.gz .`).
 
 Восстановить базу из копии:
 
