@@ -1253,6 +1253,7 @@
   function renderGradebook() {
     const box = $('#clsJournal');
     if (!box || !gradebook) return;
+    const w0 = box.querySelector('.jr-wrap'), sx = w0 ? w0.scrollLeft : 0;    // журнал обновляется сам — не сбивать прокрутку
     const A = gradebook.assignments, S = gradebook.students;
     if (!S.length) { box.innerHTML = '<p class="adm-empty">В классе нет учеников.</p>'; return; }
     if (!A.length) { box.innerHTML = '<p class="adm-empty">Подборок пока нет — когда выдадите, здесь появятся оценки за каждую.</p>'; return; }
@@ -1283,6 +1284,8 @@
         ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : a.title.startsWith('Персональная') ? '⭐' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
         <th class="num">Средняя</th></tr></thead><tbody>${rows}</tbody>
         <tfoot><tr><td class="muted">По классу</td><td></td><td></td>${foot}<td></td></tr></tfoot></table></div>`;
+    const w1 = box.querySelector('.jr-wrap');
+    if (w1 && sx) w1.scrollLeft = sx;
   }
   function renderNumsHeat() {
     const box = $('#clsNums');
@@ -1344,7 +1347,9 @@
       <div class="adm-live" id="live-${a.id}">${liveId === a.id ? '<p class="adm-hint">Загружаю…</p>' : ''}</div>
     </div>`;
   }
+  let liveLoadAt = 0;
   async function liveLoad() {
+    liveLoadAt = Date.now();
     const box = liveId && $('#live-' + liveId);
     if (!box) { clearInterval(liveTimer); liveId = null; return; }
     let d;
@@ -1377,7 +1382,8 @@
       liveId = liveId === id ? null : id;
       clearInterval(liveTimer);
       [prev, id].forEach(asgCardRedraw);
-      if (liveId) { liveLoad(); liveTimer = setInterval(liveLoad, 5000); }
+      // живое соединение: сводка обновляется по событиям ленты, опрос раз в 30 с — страховка; без него — каждые 5 с
+      if (liveId) { liveLoad(); liveTimer = setInterval(() => { if (!liveOn() || Date.now() - liveLoadAt > 30000) liveLoad(); }, 5000); }
       return;
     }
     const cl = e.target.closest('[data-close]');
@@ -2040,13 +2046,20 @@
     liveStart();
   }
   let feedAt = 0, feedT = null;
-  /** Обновить ленту: не чаще раза в 3 с (класс отвечает пачкой — один запрос). */
+  /** Обновить ленту: не чаще раза в 2 с (класс отвечает пачкой — один запрос). */
   function feedNow() {
     if (feedT) return;
-    const wait = Math.max(0, feedAt + 3000 - Date.now());
-    feedT = setTimeout(() => { feedT = null; feedAt = Date.now(); pollFeed(); }, wait);
+    const wait = Math.max(0, feedAt + 2000 - Date.now());
+    feedT = setTimeout(() => { feedT = null; feedAt = Date.now(); pollFeed(); feedSide(); }, wait);
   }
 
+  /** Вместе с лентой — то, что открыто сейчас: онлайн-сводка работы и журнал класса (не чаще раза в 10 с). */
+  let jrAt = 0;
+  function feedSide() {
+    if (liveId && $('#live-' + liveId)) liveLoad();
+    const jr = tab === 'classes' && curClass && (clsPane === 'journal' || clsPane === 'nums');
+    if (jr && Date.now() - jrAt > 10000) { jrAt = Date.now(); loadGradebook(); }
+  }
   // живые обновления: одно соединение на браузер (вкладки делят его через Web Locks и BroadcastChannel), как у учеников
   const LV = { up: false, upAt: 0, sentAt: 0, chan: null, started: false, lead: false, dirty: false };
   const liveOn = () => LV.up && Date.now() - LV.upAt < 70000;

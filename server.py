@@ -1384,6 +1384,7 @@ LIVE_LIFE_SEC = 30 * 60     # соединение живёт полчаса, п
 LIVE_TICK_SEC = 5           # раз в столько секунд — ход турниров и проверка, поменялось ли что-то в дуэлях и турнирах
 LIVE_MAX = 1500             # всего соединений; больше — браузер опрашивает сервер по-старому
 LIVE_PER_STUDENT = 4        # на одного ученика (разные браузеры и устройства)
+LIVE_RATE_GAP = 3           # «рейтинг изменился» — одноклассникам не чаще раза в столько секунд (класс решает пачкой)
 
 
 def comp_sig(db, tid):
@@ -1413,6 +1414,8 @@ class LiveHub:
         self.lock = threading.Lock()
         self.subs = {}               # ученик -> {очередь: учитель}
         self.sig = {}                # учитель -> подпись дуэлей и турниров
+        self.rate_due = set()        # учителя, у чьих учеников поменялся рейтинг (ещё не разослано)
+        self.rate_at = {}            # учитель -> когда последний раз рассылали «рейтинг изменился»
         self.wake = threading.Event()
         self.thread = None
 
@@ -1449,10 +1452,25 @@ class LiveHub:
         """Что-то поменялось в дуэлях или турнирах — проверить сразу, не дожидаясь очередного хода."""
         self.wake.set()
 
+    def rate(self, tid):
+        """Ученик учителя tid получил опыт — рейтинг класса поменялся; разошлём пачкой из фонового потока."""
+        with self.lock:
+            if tid in self.rate_due or not any(t == tid for qs in self.subs.values() for t in qs.values()):
+                return                   # уже ждёт рассылки — или никого из этого класса нет на сайте
+            self.rate_due.add(tid)
+        self.wake.set()
+
     def ticker(self):
         while True:
-            self.wake.wait(LIVE_TICK_SEC)
+            wait = LIVE_TICK_SEC
+            with self.lock:
+                if self.rate_due:        # рейтинг ждёт рассылки — проснуться, как только выйдет пауза
+                    now = time.time()
+                    wait = min(wait, max(0.3, min(self.rate_at.get(t, 0) + LIVE_RATE_GAP - now for t in self.rate_due)))
+            self.wake.wait(wait)
             self.wake.clear()
+            if self.rate_due:
+                time.sleep(0.3)          # ответы одноклассников подряд — одна рассылка
             try:
                 self.check()
             except Exception as e:
@@ -1467,6 +1485,14 @@ class LiveHub:
                 for tid in qs.values():
                     if tid is not None:          # у учителя (ключ ("t", id)) дуэлей и турниров нет
                         by_tid.setdefault(tid, set()).add(sid)
+        now = time.time()
+        with self.lock:
+            due = {t for t in self.rate_due if now - self.rate_at.get(t, 0) >= LIVE_RATE_GAP}
+            self.rate_due -= due         # кому рано — дошлём, когда выйдет пауза (ticker проснётся сам)
+        for tid in due:
+            self.rate_at[tid] = now
+            if tid in by_tid:
+                self.send(by_tid[tid], "rate")
         db = APP.db
         for tid, sids in by_tid.items():
             # ход турниров идёт и без запросов: этап закончился, неявка — ученики узнают сразу
@@ -1826,7 +1852,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     self.wfile.write(b": ping\n\n")
                     self.wfile.flush()
                     continue
-                time.sleep(0.3)                  # пачка событий подряд — одно сообщение на тему
+                time.sleep(0.15)                 # пачка событий подряд — одно сообщение на тему
                 while True:
                     try:
                         topics.add(q.get_nowait())
@@ -1881,6 +1907,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                          t.get("ans", ""), score, int(gave_up), int(abandoned), spent, reason, rk, part,
                          t.get("group"), int(revealed), exam, self.client_ip(), away or None, away_sec, flags))
         live_teacher(s)                          # учитель видит ответ в ленте сразу
+        LIVE.send([s["id"]], "mine")             # другие вкладки и устройства ученика: опыт, уровень, плитки номеров
+        if score > 0 and not s["is_teacher"]:
+            LIVE.rate(s["teacher_id"] or main_teacher()["id"])     # одноклассники видят рейтинг без перезагрузки
         return aid
 
     def daily_result(self, s, t, st):
@@ -3172,6 +3201,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None}
             db.x("UPDATE asg_runs SET answers=?, last=? WHERE asg_id=? AND student_id=?",
                  (json.dumps(answers, ensure_ascii=False), now, aid, s["id"]))
+            live_teacher(s)                      # «● Онлайн» у учителя: сдано на одно задание больше
             return self.send_json(asg_run_public(db, a, s["id"], real))
         if path == "/api/asg/finish":
             asg_finish_run(self, db, a, s, real)

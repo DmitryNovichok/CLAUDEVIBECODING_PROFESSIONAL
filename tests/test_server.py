@@ -1085,6 +1085,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(teacher(), "feed")
         self.check(tok, "b:5", answer="12")
         self.assertEqual(teacher(), "feed")
+        got = {pupil(), pupil()}
+        self.assertEqual(got, {"mine", "rate"})   # верный ответ: другим вкладкам ученика — «мои данные», классу — рейтинг
         sid = server.APP.db.q("SELECT id FROM support ORDER BY id DESC LIMIT 1", one=True)["id"]
         self.assertEqual(self.admin("POST", "/api/admin/support/answer", {"id": sid, "answer": "Починили"})[0], 200)
         self.assertEqual(pupil(), "support")

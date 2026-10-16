@@ -3860,7 +3860,9 @@
 
   // ═══════ src/app/06-server-sync.js
   // ------------------------------------------------------------ сервер: вход и синхронизация
+  let localWriteAt = 0;                 // когда эта вкладка сама отправила ответ или сдала работу — для живых обновлений
   async function api(path, body, method) {
+    if (body && /^(check|reveal|asg\/(answer|finish)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
     if (isTemp()) headers['X-Temp'] = '1';
@@ -6135,7 +6137,7 @@
     const first = !DSEARCH.on;
     Object.assign(DSEARCH, { on: true, since: r.since, seekers: r.seekers });
     clearTimeout(DSEARCH.timer);
-    DSEARCH.timer = setTimeout(duelFind, 3000);
+    DSEARCH.timer = setTimeout(duelFind, liveOn() ? 15000 : 3000);   // есть живое соединение — о сопернике скажет сервер
     if (first) renderTourPage();
     else {
       const t = $('#dqTime');
@@ -6619,7 +6621,7 @@
   // ------------------------------------------------------------ самостоятельная от учителя
   // Ответ на задание сдаётся один раз и не проверяется до конца; итог и оценка — после «Завершить».
   // Пишется в полном экране; уход со вкладки и выход из полного экрана сразу уходят учителю.
-  let wkPoll = null, wkFsOn = false;
+  let wkPoll = null, wkFsOn = false, wkAt = 0;
   const wkScope = () => { const a = ui.scope === 'asg' && asgOf(ui.asg); return a && a.strict ? a : null; };
   const wkLive = () => { const a = wkScope(); return a && a.started && !a.finished && !a.closed && !examShown && !courseShown ? a : null; };
   const wkTask = () => (cur && cur.why && cur.why.type === 'asg' ? wkLive() : null);
@@ -6888,6 +6890,8 @@
     wkPoll = setInterval(() => {
       const a = wkLive();
       if (!a) { if (!wkScope()) clearInterval(wkPoll); return; }
+      if (liveOn() && Date.now() - wkAt < 60000) return;       // завершение учителем придёт событием, опрос — страховка
+      wkAt = Date.now();
       wkRefresh(a);
     }, 10000);
   }
@@ -7007,7 +7011,9 @@
 
   // ═══════ src/app/13-live.js
   // ------------------------------------------------------------ живые обновления (SSE)
-  /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя, support — ответ техподдержки; страница перезапрашивает нужное.
+  /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя, support — ответ техподдержки,
+     rate — рейтинг класса (кто-то получил опыт), mine — ученик ответил в другой вкладке или на другом устройстве;
+     страница перезапрашивает нужное.
      Одно соединение на браузер: вкладки решают через Web Locks, какая ведущая. Она держит /api/live и пересылает
      события остальным через BroadcastChannel; закрыли её — соединение подхватывает другая вкладка.
      Нет связи или браузер старый — работает прежний опрос (livePoll), только чаще. */
@@ -7071,7 +7077,7 @@
             buf = buf.slice(i + 2);
             if (ev === 'hello') {
               got = true;
-              if (LV.was) { liveSend('comp'); liveSend('asg'); }    // переподключились — вдруг что-то пропустили
+              if (LV.was) { liveSend('comp'); liveSend('asg'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
               LV.was = true;
             } else if (ev) liveSend(ev);
           }
@@ -7092,19 +7098,48 @@
   function liveEvent(topic) {
     if (document.hidden) { LV.dirty.add(topic); return; }
     clearTimeout(LV.timers[topic]);
-    LV.timers[topic] = setTimeout(() => liveRun(topic), 200 + Math.random() * 800);   // не все ученики класса в одну миллисекунду
+    LV.timers[topic] = setTimeout(() => liveRun(topic), 80 + Math.random() * 400);    // не все ученики класса в одну миллисекунду
   }
   function liveRun(topic) {
-    if (topic === 'comp') { liveAt = Date.now(); loadDuels(true); }
+    if (topic === 'comp') {
+      if (DSEARCH.on) { clearTimeout(DSEARCH.timer); duelFind(); return; }     // ищешь соперника — проверить сразу: возможно, нашёлся
+      liveAt = Date.now(); loadDuels(true);
+    }
+    else if (topic === 'rate') liveRate();
+    else if (topic === 'mine') liveMine();
     else if (topic === 'asg') {
       // новая подборка для класса — одно короткое уведомление (личные подборки объявляет asgNotices)
       const had = new Set(ASG.map(a => a.id));
       loadAssignments().then(() => {
         const fresh = ASG.filter(a => !a.duel && !a.course && !a.personal && !a.closed && !had.has(a.id));
         if (fresh.length) toast(fresh.length === 1 ? `📚 Учитель выдал подборку «${fresh[0].title}» — она в «Подборках»` : `📚 Учитель выдал подборки: ${fresh.length}`, 6000);
+        if (wkLive()) wkRefresh(wkLive());           // пишешь самостоятельную — вдруг учитель её завершил
       }).catch(() => {});
     }
     else if (topic === 'support') liveSupport();
+  }
+  /** Ученик ответил в другой вкладке или на телефоне — здесь подтянуть опыт, уровень и плитки номеров.
+      Вкладка, где ответили, свои данные уже знает — её не трогаем. */
+  async function liveMine() {
+    if (Date.now() - localWriteAt < 4000) return;
+    try { const me = await api('me'); if (me.game) { GAME = me.game; renderLevel(); } } catch (e) { return; }
+    try { await loadHistory(); } catch (e) { return; }
+    renderSidebar(); renderTopbar();
+  }
+  /** Рейтинг класса поменялся: открытое окно «Рейтинг» обновляется сразу (та же вкладка),
+      место на кнопке вверху — не чаще раза в 2 минуты, чтобы класс не засыпал сервер запросами. */
+  let rateAt = 0;
+  async function liveRate() {
+    const isOpen = () => !$('#forecastModal').hidden && $('#forecastBody .lb-wrap') && ($('#forecastBody .fm-title') || {}).textContent === 'Рейтинг';
+    const open = isOpen();
+    if (!open && Date.now() - rateAt < 120000) return;
+    rateAt = Date.now();
+    await loadRating();
+    const w = $('#forecastBody .lb-wrap');
+    if (open && isOpen() && LB) {
+      const on = w.querySelector('.lb-tabs .on');
+      w.outerHTML = boardsHtml(LB, on ? on.dataset.lbtab : 'league');
+    }
   }
   /** Учитель ответил в техподдержке: точка на кнопке, уведомление; окно поддержки открыто и черновика нет — обновить. */
   async function liveSupport() {
