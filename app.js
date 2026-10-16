@@ -4044,6 +4044,7 @@
     abandonCurrent();
     flushSync(false);
     try { await api('logout', {}); } catch (e) { /* cookie сотрётся при следующем входе */ }
+    liveStop();
     forgetStudent();
     clearInterval(exTimer);
     EX = null;
@@ -6328,6 +6329,7 @@
     try { const d = await api('assignments'); ASG = d.assignments || []; ASG_IN_CLASS = !!d.in_class; } catch (e) { if (e.status === 401) throw e; ASG = []; }
     ASG = ASG.concat(duels);
     renderAsgCard();
+    renderAsgPage();                      // открыта страница подборок — новая подборка появится на ней сразу
     if (wkLive()) wkWatch();
     asgNotices();
   }
@@ -7009,7 +7011,7 @@
      Одно соединение на браузер: вкладки решают через Web Locks, какая ведущая. Она держит /api/live и пересылает
      события остальным через BroadcastChannel; закрыли её — соединение подхватывает другая вкладка.
      Нет связи или браузер старый — работает прежний опрос (livePoll), только чаще. */
-  const LV = { up: false, upAt: 0, sentAt: 0, chan: null, started: false, dirty: new Set(), timers: {}, was: false };
+  const LV = { up: false, upAt: 0, sentAt: 0, chan: null, started: false, dirty: new Set(), timers: {}, was: false, gen: 0, ctrl: null };
   const liveOn = () => LV.up && Date.now() - LV.upAt < 70000;
   function liveStart() {
     if (LV.started || !SERVER || !student || TEACHER || !window.fetch || !window.ReadableStream || !window.TextDecoder) return;
@@ -7019,10 +7021,19 @@
       LV.chan = new BroadcastChannel(key);
       LV.chan.onmessage = e => liveMsg(e.data || {});
     }
+    const gen = ++LV.gen;
     if (navigator.locks && LV.chan) {
       LV.chan.postMessage({ t: 'hi' });                 // ведущая уже есть — пусть скажет, что связь жива
-      navigator.locks.request(key, () => liveConnect()).catch(() => {});
-    } else liveConnect();                              // без замков у каждой вкладки своё соединение
+      navigator.locks.request(key, () => liveConnect(gen)).catch(() => {});
+    } else liveConnect(gen);                           // без замков у каждой вкладки своё соединение
+  }
+  /** Выход из аккаунта: закрыть соединение и канал — следующий ученик в этой вкладке получит своё. */
+  function liveStop() {
+    LV.gen++;
+    if (LV.ctrl) LV.ctrl.abort();
+    if (LV.chan) LV.chan.close();
+    Object.assign(LV, { up: false, chan: null, started: false, lead: false, was: false, ctrl: null });
+    LV.dirty.clear();
   }
   function liveMsg(m) {
     if (m.t === 'up') { LV.up = true; LV.upAt = Date.now(); }
@@ -7036,13 +7047,15 @@
     // остальным вкладкам — не чаще раза в 20 с, пока ничего не меняется
     if (LV.chan && (up !== was || Date.now() - LV.sentAt > 20000)) { LV.sentAt = Date.now(); LV.chan.postMessage({ t: up ? 'up' : 'down' }); }
   }
-  async function liveConnect() {
+  async function liveConnect(gen) {
+    if (gen !== LV.gen) return;                        // пока ждали замок, ученик вышел
     LV.lead = true;
     let delay = 3000;
-    while (SERVER && student && !TEACHER) {
+    while (SERVER && student && !TEACHER && gen === LV.gen) {
       let got = false;
       try {
-        const r = await fetch('api/live', { headers: { 'X-Token': student.token }, cache: 'no-store' });
+        LV.ctrl = new AbortController();
+        const r = await fetch('api/live', { headers: { 'X-Token': student.token }, cache: 'no-store', signal: LV.ctrl.signal });
         if (r.status === 401) break;
         if (!r.ok || !r.body) throw new Error('live ' + r.status);
         const rd = r.body.getReader(), dec = new TextDecoder();
@@ -7064,11 +7077,12 @@
           }
         }
       } catch (e) { /* сеть пропала — переподключимся */ }
+      if (gen !== LV.gen) return;                      // вышли из аккаунта — соединение закрыто намеренно
       liveMark(false);
       delay = got ? 3000 : Math.min(delay * 2, 120000);
       await new Promise(res => setTimeout(res, delay + Math.random() * 2000));
     }
-    LV.lead = false;
+    if (gen === LV.gen) LV.lead = false;
   }
   function liveSend(topic) {
     if (LV.chan) LV.chan.postMessage({ t: 'ev', topic });
@@ -7082,7 +7096,14 @@
   }
   function liveRun(topic) {
     if (topic === 'comp') { liveAt = Date.now(); loadDuels(true); }
-    else if (topic === 'asg') loadAssignments().catch(() => {});
+    else if (topic === 'asg') {
+      // новая подборка для класса — одно короткое уведомление (личные подборки объявляет asgNotices)
+      const had = new Set(ASG.map(a => a.id));
+      loadAssignments().then(() => {
+        const fresh = ASG.filter(a => !a.duel && !a.course && !a.personal && !a.closed && !had.has(a.id));
+        if (fresh.length) toast(fresh.length === 1 ? `📚 Учитель выдал подборку «${fresh[0].title}» — она в «Подборках»` : `📚 Учитель выдал подборки: ${fresh.length}`, 6000);
+      }).catch(() => {});
+    }
     else if (topic === 'support') liveSupport();
   }
   /** Учитель ответил в техподдержке: точка на кнопке, уведомление; окно поддержки открыто и черновика нет — обновить. */
@@ -7090,7 +7111,8 @@
     const was = (SUPPORT && SUPPORT.unread) || 0;
     await loadSupport();
     if (SUPPORT && SUPPORT.unread > was) toast('🛟 Пришёл ответ техподдержки — открой «Техподдержку»', 6000);
-    if (!$('#forecastModal').hidden && $('#spForm') && [...$('#forecastBody').querySelectorAll('textarea')].every(t => !t.value.trim())) openSupport();
+    if (!$('#forecastModal').hidden && $('#spForm') && [...$('#forecastBody').querySelectorAll('textarea')].every(t => !t.value.trim())
+      && ![...$('#forecastBody').querySelectorAll('[data-sp-box]')].some(b => b.spImg)) openSupport();
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden || !LV.dirty.size) return;
@@ -7185,6 +7207,71 @@
     b.hidden = false;
     $('#supportDot').hidden = !SUPPORT.unread;
   }
+  // картинки в техподдержке: скриншот ошибки — кнопкой 📎 или вставкой Ctrl+V в поле
+  const SP_IMG = new Map();                          // имя файла на сервере → blob-ссылка (картинку отдают только автору)
+  const spImgHtml = name => (name ? `<button type="button" class="sp-img" data-sp-img="${esc(name)}" title="Открыть картинку"><img alt="картинка"></button>` : '');
+  async function spLoadImgs(root) {
+    for (const b of root.querySelectorAll('[data-sp-img]')) {
+      const f = b.dataset.spImg;
+      let url = SP_IMG.get(f);
+      if (!url) {
+        try {
+          const r = await fetch('api/support/img?f=' + encodeURIComponent(f), { headers: { 'X-Token': student.token } });
+          if (!r.ok) continue;
+          url = URL.createObjectURL(await r.blob());
+          SP_IMG.set(f, url);
+        } catch (e) { continue; }
+      }
+      b.querySelector('img').src = url;
+    }
+  }
+  /** Картинка из файла или буфера → JPEG не больше 1600 точек по стороне и ~1,4 МБ (данные о месте съёмки отбрасываются). */
+  function spShrink(file) {
+    return new Promise((res, rej) => {
+      if (!file || !/^image\//.test(file.type)) { rej(new Error('Это не картинка')); return; }
+      const img = new Image(), u = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(u);
+        let q = 0.85, side = 1600, out = '';
+        for (let i = 0; i < 5; i++) {
+          const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+          const g = c.getContext('2d');
+          g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+          g.drawImage(img, 0, 0, c.width, c.height);
+          out = c.toDataURL('image/jpeg', q);
+          if (out.length * 0.75 < 1.4e6) break;
+          q = Math.max(0.5, q - 0.1); side = Math.round(side * 0.8);
+        }
+        res(out);
+      };
+      img.onerror = () => { URL.revokeObjectURL(u); rej(new Error('Не получилось открыть картинку')); };
+      img.src = u;
+    });
+  }
+  /** У поля ввода: кнопка 📎, вставка картинки через Ctrl+V, превью с крестиком. Картинка — в box.spImg. */
+  function spAttach(box) {
+    const ta = box.querySelector('textarea'), prev = box.querySelector('.sp-prev');
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*'; inp.hidden = true;
+    box.appendChild(inp);
+    const set = async file => {
+      try { box.spImg = await spShrink(file); } catch (e) { toast(e.message, 3000); return; }
+      prev.innerHTML = `<img src="${box.spImg}" alt="прикреплённая картинка"><button type="button" class="sp-prev-x" title="Убрать картинку">×</button>`;
+      prev.hidden = false;
+    };
+    box.querySelector('[data-sp-pick]').addEventListener('click', () => inp.click());
+    inp.addEventListener('change', () => { if (inp.files[0]) set(inp.files[0]); inp.value = ''; });
+    ta.addEventListener('paste', e => {
+      const f = [...((e.clipboardData && e.clipboardData.files) || [])].find(x => /^image\//.test(x.type));
+      if (!f) return;
+      if (!e.clipboardData.getData('text')) e.preventDefault();
+      set(f);
+    });
+    prev.addEventListener('click', e => { if (e.target.closest('.sp-prev-x')) { box.spImg = null; prev.innerHTML = ''; prev.hidden = true; } });
+  }
+  const SP_PICK = '<button type="button" class="btn ghost sp-pick" data-sp-pick title="Прикрепить картинку — или вставь скриншот в поле через Ctrl+V">📎 Картинка</button><span class="sp-prev" hidden></span>';
   async function openSupport() {
     if (isNarrow()) setSideOpen(false);
     await loadSupport();
@@ -7192,47 +7279,56 @@
     const kinds = Object.entries(SUPPORT.kinds || {}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
     const list = SUPPORT.items.map(x => {
       const st = SP_STATUS[x.status] || SP_STATUS.new;
-      const thread = (x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map((m, i) => m.who === 'teacher'
-        ? `<div class="sp-ans"><b>Учитель · ${mskTime(m.ts)}</b>${esc(m.text)}</div>`
-        : `<div class="sp-msg"><b>Ты · ${mskTime(m.ts)}</b>${esc(m.text)}</div>`).join('');
+      const thread = (x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map(m => m.who === 'teacher'
+        ? `<div class="sp-ans"><b>Учитель · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`
+        : `<div class="sp-msg"><b>Ты · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`).join('');
       return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}" data-sp="${x.id}"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
         <span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span>${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
         <div class="sp-thread">${thread}</div>
         ${x.status === 'closed' ? '<p class="sp-closed">Тема закрыта. Если вопрос остался — напиши новое обращение выше.</p>'
-          : `<div class="sp-reply"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
-          <button type="button" class="btn" data-sp-reply>Отправить</button></div>`}</div>`;
+          : `<div class="sp-reply" data-sp-box><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
+          <div class="sp-row">${SP_PICK}<button type="button" class="btn" data-sp-reply>Отправить</button></div></div>`}</div>`;
     }).join('');
     $('#forecastBody').innerHTML = `<h2 class="fm-title">🛟 Техподдержка</h2>
-      <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Обращение получит учитель, ответ появится здесь.</p>
-      <form class="sp-form" id="spForm">
+      <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Можно приложить скриншот: кнопка «📎 Картинка» или Ctrl+V в поле. Обращение получит учитель, ответ появится здесь.</p>
+      <form class="sp-form" id="spForm" data-sp-box>
         <select class="inp" id="spKind">${kinds}</select>
         <textarea class="inp" id="spText" maxlength="2000" placeholder="Опиши, что случилось: что делал, что ожидал и что получилось" required></textarea>
         <div class="sp-row">${t ? `<label class="sp-att"><input type="checkbox" id="spTask" checked> приложить задание №${numLabel(t.n)} (${esc(t.id)})</label>` : '<span></span>'}
-          <button type="submit" class="btn primary">Отправить</button></div>
+          ${SP_PICK}<button type="submit" class="btn primary">Отправить</button></div>
       </form>
       ${list ? `<h3 class="fm-sub">Мои обращения</h3><div class="sp-list">${list}</div>` : ''}`;
     $('#forecastModal').hidden = false;
     if (t) $('#spKind').value = 'task';
+    $('#forecastBody').querySelectorAll('[data-sp-box]').forEach(spAttach);
+    spLoadImgs($('#forecastBody'));
     $('#forecastBody').querySelectorAll('[data-sp-reply]').forEach(b => b.addEventListener('click', async () => {
-      const box = b.closest('[data-sp]'), text = box.querySelector('textarea').value.trim();
-      if (!text) { toast('Напиши сообщение'); return; }
+      const box = b.closest('[data-sp]'), rep = box.querySelector('[data-sp-box]'), text = rep.querySelector('textarea').value.trim();
+      if (!text && !rep.spImg) { toast('Напиши сообщение'); return; }
       b.disabled = true;
-      try { await api('support/reply', { id: +box.dataset.sp, text }); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); b.disabled = false; return; }
+      try { await api('support/reply', { id: +box.dataset.sp, text, img: rep.spImg || null }); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); b.disabled = false; return; }
       toast('Сообщение отправлено', 2500);
-      box.querySelector('textarea').value = '';
+      rep.querySelector('textarea').value = ''; rep.spImg = null;
       openSupport();
     }));
     $('#spForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const body = { kind: $('#spKind').value, text: $('#spText').value, page: pageKind || (courseShown ? 'course' : ui.scope) };
+      const btn = e.target.querySelector('[type=submit]');
+      const body = { kind: $('#spKind').value, text: $('#spText').value, page: pageKind || (courseShown ? 'course' : ui.scope), img: $('#spForm').spImg || null };
       if (t && $('#spTask') && $('#spTask').checked) body.task = t.id;
-      try { await api('support', body); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); return; }
+      btn.disabled = true;                              // двойной клик — одно обращение
+      try { await api('support', body); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); btn.disabled = false; return; }
       toast('Обращение отправлено — ответ появится в «Техподдержке»', 3500);
+      $('#spText').value = ''; $('#spForm').spImg = null;
       openSupport();
     });
     if (SUPPORT.unread) { try { await api('support/seen', {}); } catch (e) { /* не страшно */ } SUPPORT.unread = 0; $('#supportDot').hidden = true; }
   }
   $('#supportBtn').addEventListener('click', openSupport);
+  $('#forecastBody').addEventListener('click', e => {                 // картинку в техподдержке — открыть целиком
+    const b = e.target.closest('[data-sp-img]');
+    if (b && SP_IMG.get(b.dataset.spImg)) window.open(SP_IMG.get(b.dataset.spImg), '_blank');
+  });
 
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.

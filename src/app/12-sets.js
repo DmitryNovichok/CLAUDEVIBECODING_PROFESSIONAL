@@ -19,6 +19,7 @@
     try { const d = await api('assignments'); ASG = d.assignments || []; ASG_IN_CLASS = !!d.in_class; } catch (e) { if (e.status === 401) throw e; ASG = []; }
     ASG = ASG.concat(duels);
     renderAsgCard();
+    renderAsgPage();                      // открыта страница подборок — новая подборка появится на ней сразу
     if (wkLive()) wkWatch();
     asgNotices();
   }

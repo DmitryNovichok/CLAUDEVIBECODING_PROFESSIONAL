@@ -183,6 +183,7 @@
     abandonCurrent();
     flushSync(false);
     try { await api('logout', {}); } catch (e) { /* cookie сотрётся при следующем входе */ }
+    liveStop();
     forgetStudent();
     clearInterval(exTimer);
     EX = null;

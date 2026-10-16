@@ -18,6 +18,7 @@
 Если пересобрать банк, сервер подхватит его сам, перезапуск не нужен.
 """
 import argparse
+import base64
 import csv
 import gzip
 import hashlib
@@ -1267,7 +1268,9 @@ class DB:
                     ("tournaments", "theme", "TEXT"),                 # тематический турнир: python, sprint
                     ("tour_matches", "admin", "TEXT"),                # что сделал учитель вручную
                     ("duels", "surrender", "INTEGER"),                # кто сдался — проиграл сразу
-                    ("tour_matches", "surrender", "INTEGER")):
+                    ("tour_matches", "surrender", "INTEGER"),
+                    ("support", "img", "TEXT"),                       # картинка к обращению (файл в server_data/support_img)
+                    ("support_msgs", "img", "TEXT")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
@@ -1770,6 +1773,21 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             extra["Content-Encoding"] = "gzip"
             return self.send_bytes(200, b.public_gz, "application/javascript; charset=utf-8", extra)
         return self.send_bytes(200, b.public_raw, "application/javascript; charset=utf-8", extra)
+
+    def support_img(self, name, sid):
+        """Картинка из техподдержки: автору обращения (sid) или главному учителю (sid=None)."""
+        name = str(name or "")
+        if not SUPPORT_IMG_RE.fullmatch(name):
+            return self.err(404, "нет такой картинки")
+        if sid is not None and not APP.db.q(
+                """SELECT 1 FROM support p WHERE p.student_id=? AND (p.img=? OR EXISTS
+                   (SELECT 1 FROM support_msgs m WHERE m.support_id=p.id AND m.img=?))""", (sid, name, name), one=True):
+            return self.err(404, "нет такой картинки")
+        f = support_img_dir() / name
+        if not f.is_file():
+            return self.err(404, "нет такой картинки")
+        return self.send_bytes(200, f.read_bytes(), SUPPORT_IMG_MIME[name.rsplit(".", 1)[1]],
+                               {"Cache-Control": "private, max-age=86400", "Content-Security-Policy": "default-src 'none'"})
 
     # ---------- живые обновления
     def live(self):
@@ -2516,16 +2534,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if p["status"] == "closed":
                     return self.err(409, "Тема закрыта — если вопрос остался, создай новое обращение")
                 text = str(data.get("text") or "").strip()[:SUPPORT_MAX]
-                if len(text) < 2:
+                if len(text) < 2 and not data.get("img"):
                     return self.err(400, "Напиши сообщение")
                 recent = db.q("""SELECT COUNT(*) AS c FROM support_msgs m JOIN support p ON p.id = m.support_id
                                  WHERE p.student_id=? AND m.who='student' AND m.ts>?""", (s["id"], time.time() - 3600), one=True)["c"]
                 if recent >= SUPPORT_PER_HOUR * 4:
                     return self.err(429, "Слишком много сообщений за час — подожди немного")
-                db.x("INSERT INTO support_msgs(support_id, ts, who, text) VALUES(?,?,?,?)", (p["id"], time.time(), "student", text))
+                try:
+                    img = support_img_save(data.get("img"))
+                except ValueError as e:
+                    return self.err(400, str(e))
+                db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,?)", (p["id"], time.time(), "student", text, img))
                 db.x("UPDATE support SET status='new' WHERE id=?", (p["id"],))
                 LIVE.send([("t", main_teacher()["id"])], "feed")
                 return self.send_json({"ok": True})
+            if path == "/api/support/img":
+                return self.support_img(qs.get("f"), s["id"])
             if path != "/api/support":
                 return self.err(404, "нет такого метода")
             if method == "POST":
@@ -2538,8 +2562,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 recent = db.q("SELECT COUNT(*) AS c FROM support WHERE student_id=? AND ts>?", (s["id"], time.time() - 3600), one=True)["c"]
                 if recent >= SUPPORT_PER_HOUR:
                     return self.err(429, "Слишком много обращений за час — подожди немного")
-                db.x("INSERT INTO support(student_id, ts, kind, text, task, page) VALUES(?,?,?,?,?,?)",
-                     (s["id"], time.time(), kind, text, str(data.get("task") or "")[:60] or None, str(data.get("page") or "")[:120] or None))
+                try:
+                    img = support_img_save(data.get("img"))
+                except ValueError as e:
+                    return self.err(400, str(e))
+                # ученик видит задание под открытым кодом — учителю нужен настоящий номер из банка
+                task = str(data.get("task") or "")[:60] or None
+                if task and APP.bank.ensure():
+                    task = APP.bank.real(task) or task
+                db.x("INSERT INTO support(student_id, ts, kind, text, task, page, img) VALUES(?,?,?,?,?,?,?)",
+                     (s["id"], time.time(), kind, text, task, str(data.get("page") or "")[:120] or None, img))
                 LIVE.send([("t", main_teacher()["id"])], "feed")      # главному учителю — сразу
                 return self.send_json({"ok": True})
             rows = db.q("SELECT * FROM support WHERE student_id=? ORDER BY id DESC LIMIT 20", (s["id"],))
@@ -3465,7 +3497,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/task":
             APP.bank.ensure()
-            t = APP.bank.tasks.get(qs.get("id") or "")
+            t = APP.bank.tasks.get(APP.bank.real(qs.get("id")) or "")      # и открытый код из обращения ученика
             if not t:
                 return self.err(404, "задание не найдено (банк мог быть пересобран)")
             own = db.q("SELECT text FROM tsolutions WHERE teacher_id=? AND task_id IN (?, ?)",
@@ -3614,6 +3646,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             for table in ("attempts", "reveal_log", "exams", "activity", "solutions", "daily_starts", "daily_results",
                           "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue"):
                 db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
+            db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
+            support_img_cleanup(db)
             for aid in [r["id"] for r in db.q("SELECT id FROM assignments WHERE student_id=?", (sid,))]:
                 db.x("DELETE FROM asg_runs WHERE asg_id=?", (aid,))
                 db.x("DELETE FROM asg_events WHERE asg_id=?", (aid,))
@@ -3807,6 +3841,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     LEFT JOIN teachers t ON t.id = COALESCE(s.teacher_id, ?)
                     ORDER BY (p.status = 'new') DESC, last DESC LIMIT 200""", (main_id,))]})
 
+        if path == "/api/admin/support/img":
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            return self.support_img(qs.get("f"), None)
+
         if path == "/api/admin/support/delete" and method == "POST":
             # удалить обращение (или все закрытые разом) — только главный учитель
             if not self.T["is_main"]:
@@ -3816,6 +3855,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             else:
                 n = db.xn("DELETE FROM support WHERE id=?", (to_int(data.get("id")),))
             db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")
+            support_img_cleanup(db)
             return self.send_json({"ok": True, "deleted": n})
 
         if path == "/api/admin/support/answer" and method == "POST":
@@ -3826,12 +3866,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not r:
                 return self.err(404, "Обращение не найдено")
             answer = str(data.get("answer") or "").strip()[:SUPPORT_MAX]
+            try:
+                img = support_img_save(data.get("img"))
+            except ValueError as e:
+                return self.err(400, str(e))
+            if img and not answer:
+                answer = "(картинка)"
             status = "closed" if data.get("close") else ("answered" if answer else r["status"])
             if data.get("reopen"):
                 last = db.q("SELECT who FROM support_msgs WHERE support_id=? ORDER BY ts DESC, id DESC LIMIT 1", (sid,), one=True)
                 status = "answered" if last and last["who"] == "teacher" else "new"
             if answer:
-                db.x("INSERT INTO support_msgs(support_id, ts, who, text) VALUES(?,?,?,?)", (sid, time.time(), "teacher", answer))
+                db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,?)", (sid, time.time(), "teacher", answer, img))
                 db.x("UPDATE support SET answer=?, answered=?, status=?, seen=0 WHERE id=?", (answer, time.time(), status, sid))
             else:
                 db.x("UPDATE support SET status=? WHERE id=?", (status, sid))
@@ -4148,6 +4194,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tasks = tasks[:100]
             due = to_float(data.get("due")) or None
             aid = to_int(data.get("id"))
+            if due and not aid and due < now:
+                return self.err(400, "Срок уже прошёл — выберите сегодняшнюю или более позднюю дату")
             kind = data.get("kind") if data.get("kind") in ASG_KINDS else "self"
             strict = 1 if kind == "self" else 0      # самостоятельная — проверка после сдачи; практическая и домашняя — сразу
             g = data.get("grading") if isinstance(data.get("grading"), dict) else {}
@@ -4800,6 +4848,7 @@ def _game_summary(db, sid, brief=False, windows=None):
         ts, tid = r["ts"], r["task_id"]
         lt = time.localtime(ts)
         day = time.strftime("%Y-%m-%d", lt)
+        fun = ACH_CLOCK(ts)                    # час, день недели и дата — для «забавных» достижений
         if prev_day and day != prev_day and (datetime.strptime(day, "%Y-%m-%d") - datetime.strptime(prev_day, "%Y-%m-%d")).days >= 8:
             cnt["phoenix"] = 1                 # между днями занятий — неделя без единого ответа
         prev_day = day
@@ -4821,7 +4870,7 @@ def _game_summary(db, sid, brief=False, windows=None):
             solves_of[tid] = solves_of.get(tid, 0) + 1
             if solves_of[tid] >= 3:
                 cnt["dejavu"] = 1
-            if 12 <= lt.tm_hour < 14:
+            if 12 <= fun.tm_hour < 14:
                 lunch_of[day] = lunch_of.get(day, 0) + 1
             nums_of.setdefault(day, set()).add(r["n"])
             if r["spent_ms"] and r["spent_ms"] >= 30 * 60000:
@@ -4836,13 +4885,13 @@ def _game_summary(db, sid, brief=False, windows=None):
             if cnt["fails"] >= 5:
                 cnt["bug"] = 1
             cnt["fails"] = 0
-            if lt.tm_hour == 0 and lt.tm_min < 5:
+            if fun.tm_hour == 0 and fun.tm_min < 5:
                 cnt["cinderella"] = 1
-            if lt.tm_wday == 4 and lt.tm_mday == 13:
+            if fun.tm_wday == 4 and fun.tm_mday == 13:
                 cnt["fri13"] = 1
-            if lt.tm_mon == 3 and lt.tm_mday == 14:
+            if fun.tm_mon == 3 and fun.tm_mday == 14:
                 cnt["pi"] = 1
-            if (lt.tm_mon, lt.tm_mday) in ((12, 31), (1, 1)):
+            if (fun.tm_mon, fun.tm_mday) in ((12, 31), (1, 1)):
                 cnt["newyear"] = 1
             # решено быстрее минуты — похоже на подсмотренный ответ: вместо опыта −1 XP, задание не считается решённым
             fast = r["spent_ms"] is not None and r["spent_ms"] < FAST_XP_MS and ts >= fast_since
@@ -4865,9 +4914,9 @@ def _game_summary(db, sid, brief=False, windows=None):
             per_day[day] = per_day.get(day, 0) + (0 if fast else 1)
             if per_day[day] == 5 and not fast:
                 gain(15, ts, "5 заданий за день")  # бонус за день: 5 решённых
-            if lt.tm_hour >= 23:
+            if fun.tm_hour >= 23:
                 cnt["night"] = 1
-            if lt.tm_hour < 7:
+            if fun.tm_hour < 7:
                 cnt["early"] = 1
             cnt["row"] = cnt["row"] + 1 if r["score"] == 1 else 0
         else:
@@ -4884,7 +4933,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                          ("day50", per_day.get(day, 0)), ("night", cnt["night"]), ("early", cnt["early"]),
                          ("turtle", cnt["turtle"]),
                          ("bug", cnt["bug"]), ("phoenix", cnt["phoenix"]), ("cinderella", cnt["cinderella"]),
-                         ("weekend", per_day.get(day, 0) if lt.tm_wday >= 5 else 0), ("fri13", cnt["fri13"]),
+                         ("weekend", per_day.get(day, 0) if fun.tm_wday >= 5 else 0), ("fri13", cnt["fri13"]),
                          ("pi", cnt["pi"]), ("newyear", cnt["newyear"]), ("stubborn", cnt["stubborn"]),
                          ("peek", cnt["peek"]), ("lunch", lunch_of.get(day, 0)), ("snail", cnt["snail"]),
                          ("rainbow", len(nums_of.get(day, ()))), ("perfect", cnt["perfect"]), ("binge", cnt["best_binge"]),
@@ -5314,13 +5363,61 @@ def duel_tasks(nums=None):
 # плей-офф на выбывание с матчем за 3-е место. «Счёт» матча — сколько заданий решил каждый.
 SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не работает сайт", "xp": "Опыт, рейтинг, турниры", "question": "Вопрос", "other": "Другое"}
 SUPPORT_MAX = 2000
+ACH_CLOCK = time.localtime          # часы для достижений «ночью», «в обед», «пятница 13-е»… (тесты подменяют)
 
 
 def support_thread(db, p):
     """Переписка по обращению: первое сообщение ученика и все ответы по порядку."""
-    return [{"who": "student", "ts": p["ts"], "text": p["text"]}] + [
-        {"who": r["who"], "ts": r["ts"], "text": r["text"]}
-        for r in db.q("SELECT who, ts, text FROM support_msgs WHERE support_id=? ORDER BY ts, id", (p["id"],))]
+    return [{"who": "student", "ts": p["ts"], "text": p["text"], "img": p["img"]}] + [
+        {"who": r["who"], "ts": r["ts"], "text": r["text"], "img": r["img"]}
+        for r in db.q("SELECT who, ts, text, img FROM support_msgs WHERE support_id=? ORDER BY ts, id", (p["id"],))]
+
+
+# картинки в техподдержке (скриншот ошибки): браузер пересжимает их в JPEG без метаданных, сервер проверяет,
+# что это правда картинка, и кладёт файлом рядом с базой; показывает только автору обращения и главному учителю
+SUPPORT_IMG_MAX = 1_500_000
+SUPPORT_IMG_RE = re.compile(r"[0-9a-f]{32}\.(jpg|png|webp)")
+SUPPORT_IMG_MIME = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+
+def support_img_dir():
+    return DB_PATH.parent / "support_img"
+
+
+def support_img_save(data_url):
+    """data:image/…;base64 → имя файла; None — картинки нет; ValueError — не картинка или слишком большая."""
+    if not data_url:
+        return None
+    m = re.fullmatch(r"data:image/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)", str(data_url).strip())
+    if not m:
+        raise ValueError("Это не картинка")
+    try:
+        raw = base64.b64decode(m.group(1), validate=True)
+    except ValueError:
+        raise ValueError("Картинка повреждена")
+    if len(raw) > SUPPORT_IMG_MAX:
+        raise ValueError("Картинка слишком большая — до 1,5 МБ")
+    ext = ("jpg" if raw[:3] == b"\xff\xd8\xff" else "png" if raw[:8] == b"\x89PNG\r\n\x1a\n"
+           else "webp" if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP" else None)
+    if not ext:
+        raise ValueError("Это не картинка")
+    name = f"{secrets.token_hex(16)}.{ext}"
+    d = support_img_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_bytes(raw)
+    return name
+
+
+def support_img_cleanup(db):
+    """Удалить файлы картинок, на которые больше не ссылается ни одно обращение."""
+    d = support_img_dir()
+    if not d.is_dir():
+        return
+    used = {r["img"] for r in db.q("SELECT img FROM support WHERE img IS NOT NULL")}
+    used |= {r["img"] for r in db.q("SELECT img FROM support_msgs WHERE img IS NOT NULL")}
+    for f in d.iterdir():
+        if SUPPORT_IMG_RE.fullmatch(f.name) and f.name not in used:
+            f.unlink(missing_ok=True)
 SUPPORT_PER_HOUR = 5
 
 

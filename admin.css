@@ -374,6 +374,12 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 .sp-a-ans b { display: block; font-size: 12px; color: var(--good); }
 .sp-a-text .sp-a-who { display: block; font-size: 12px; color: var(--muted); font-weight: 700; }
 .sp-a-ans { margin-left: 24px; }
+.sp-a-img { display: block; margin-top: 6px; width: fit-content; }
+.sp-a-img img { max-width: min(100%, 360px); max-height: 240px; border-radius: 8px; border: 1px solid var(--border); display: block; }
+.sp-prev { position: relative; display: inline-flex; }
+.sp-prev[hidden] { display: none; }
+.sp-prev img { max-height: 44px; max-width: 100px; border-radius: 6px; border: 1px solid var(--border); display: block; }
+.sp-prev-x { position: absolute; top: -8px; right: -8px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: var(--weak, #e5484d); color: #fff; font-weight: 800; cursor: pointer; line-height: 20px; padding: 0; }
 .sp-a-form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .sp-a-form textarea { width: 100%; resize: vertical; font: inherit; }
 .sp-a-btns { display: flex; gap: 8px; }
