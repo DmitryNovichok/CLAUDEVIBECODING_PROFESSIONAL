@@ -2156,3 +2156,34 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
 .cl-kind { margin: 6px 0 2px; font-size: 12.5px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
 .cl-add { color: var(--good-strong); }
 .cl-chg { color: var(--accent); }
+
+/* калькулятор: плавающее окно, кнопки как в калькуляторе телефона, в стиле сайта */
+.calc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; font: 800 13px var(--font); }
+.calc-btn svg { width: 17px; height: 17px; }
+.calc-btn.on { background: #ff9600; color: #fff; border-color: #ff9600; }
+.calc { position: fixed; top: 90px; right: 24px; z-index: 70; width: 248px; padding: 10px 12px 14px; border: 2px solid var(--border);
+  border-radius: 26px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); font-family: var(--font); user-select: none; }
+.calc[hidden] { display: none; }
+.calc-bar { display: flex; align-items: center; gap: 10px; padding: 2px 2px 6px; cursor: grab; touch-action: none; }
+.calc-bar:active { cursor: grabbing; }
+.calc-bar b { font-size: 13px; color: var(--muted); font-weight: 800; }
+.calc-dots { display: inline-flex; gap: 6px; }
+.calc-dots > * { width: 12px; height: 12px; border-radius: 50%; border: 0; padding: 0; }
+.calc-x { background: #ff5f57; cursor: pointer; }
+.calc-x:hover { box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .25); }
+.calc-dots i:nth-child(2) { background: #febc2e; }
+.calc-dots i:nth-child(3) { background: var(--border-strong); }
+.calc-screen { min-height: 78px; padding: 6px 6px 4px; text-align: right; cursor: copy; }
+.calc-expr { min-height: 18px; font-size: 13px; color: var(--muted); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calc-out { font-size: 44px; font-weight: 800; line-height: 1.1; white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
+.calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+.calc-k { aspect-ratio: 1; border: 0; border-radius: 50%; font: 800 22px var(--font); color: var(--text); cursor: pointer;
+  background: var(--card-hover); box-shadow: 0 4px 0 var(--border-strong); transition: transform .06s, box-shadow .06s, filter .1s; }
+.calc-k:hover { filter: brightness(1.08); }
+.calc-k:active, .calc-k.hit { transform: translateY(3px); box-shadow: 0 1px 0 var(--border-strong); }
+.calc-k.fn, .calc-k.fn2 { background: var(--border); }
+.calc-k.fn2 { font-size: 17px; }
+.calc-k.op, .calc-k.eq { background: #ff9600; color: #fff; box-shadow: 0 4px 0 #cc7700; font-size: 26px; }
+.calc-k.op:active, .calc-k.eq:active, .calc-k.op.hit, .calc-k.eq.hit { box-shadow: 0 1px 0 #cc7700; }
+.calc-k.op.on { background: #fff; color: #ff9600; }
+@media (max-width: 600px) { .calc { right: 8px; top: 70px; width: 228px; } }
