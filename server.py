@@ -1198,6 +1198,10 @@ class DB:
             -- дни, засчитанные огоньку без трёх заданий: freeze — сработала заморозка, restore — восстановил учитель
             CREATE TABLE IF NOT EXISTS fire_cover(
                 student_id INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, ts REAL, PRIMARY KEY(student_id, day));
+            -- переписка в обращении техподдержки: первое сообщение — support.text, дальше — здесь
+            CREATE TABLE IF NOT EXISTS support_msgs(
+                id INTEGER PRIMARY KEY, support_id INTEGER NOT NULL, ts REAL NOT NULL, who TEXT NOT NULL, text TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS support_msgs_s ON support_msgs(support_id, ts);
             """)
             # новые поля в старых базах
             for table, col, decl in (
@@ -1277,6 +1281,10 @@ class DB:
                 c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('admin_badge_seeded', '1')")
             c.execute("DELETE FROM settings WHERE key='metrika_id'")     # старая настройка стороннего счётчика больше не нужна
             c.execute("UPDATE assignments SET kind='self' WHERE kind IS NULL")
+            # прежние ответы техподдержки (одно поле answer) — первым сообщением учителя в переписке
+            c.execute("""INSERT INTO support_msgs(support_id, ts, who, text)
+                         SELECT id, COALESCE(answered, ts), 'teacher', answer FROM support
+                         WHERE answer IS NOT NULL AND answer <> '' AND id NOT IN (SELECT support_id FROM support_msgs)""")
             c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
@@ -2500,6 +2508,24 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if path == "/api/support/seen" and method == "POST":
                 db.x("UPDATE support SET seen=1 WHERE student_id=? AND answer IS NOT NULL", (s["id"],))
                 return self.send_json({"ok": True})
+            if path == "/api/support/reply" and method == "POST":
+                # продолжить переписку по своему обращению; закрытую тему — только новым обращением
+                p = db.q("SELECT * FROM support WHERE id=? AND student_id=?", (to_int(data.get("id")), s["id"]), one=True)
+                if not p:
+                    return self.err(404, "Обращение не найдено")
+                if p["status"] == "closed":
+                    return self.err(409, "Тема закрыта — если вопрос остался, создай новое обращение")
+                text = str(data.get("text") or "").strip()[:SUPPORT_MAX]
+                if len(text) < 2:
+                    return self.err(400, "Напиши сообщение")
+                recent = db.q("""SELECT COUNT(*) AS c FROM support_msgs m JOIN support p ON p.id = m.support_id
+                                 WHERE p.student_id=? AND m.who='student' AND m.ts>?""", (s["id"], time.time() - 3600), one=True)["c"]
+                if recent >= SUPPORT_PER_HOUR * 4:
+                    return self.err(429, "Слишком много сообщений за час — подожди немного")
+                db.x("INSERT INTO support_msgs(support_id, ts, who, text) VALUES(?,?,?,?)", (p["id"], time.time(), "student", text))
+                db.x("UPDATE support SET status='new' WHERE id=?", (p["id"],))
+                LIVE.send([("t", main_teacher()["id"])], "feed")
+                return self.send_json({"ok": True})
             if path != "/api/support":
                 return self.err(404, "нет такого метода")
             if method == "POST":
@@ -2520,7 +2546,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"kinds": SUPPORT_KINDS, "unread": sum(1 for r in rows if not r["seen"]),
                                    "items": [{"id": r["id"], "ts": r["ts"], "kind": r["kind"], "text": r["text"], "task": r["task"],
                                               "status": r["status"], "answer": r["answer"], "answered": r["answered"],
-                                              "seen": bool(r["seen"])} for r in rows]})
+                                              "seen": bool(r["seen"]), "thread": support_thread(db, r)} for r in rows]})
 
         if path == "/api/dev/unlock" and method == "POST":
             # раздел «в разработке» (турнир) — по коду доступа; попыток немного, чтобы код не подбирали
@@ -3406,6 +3432,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                  JOIN students s ON s.id = x.student_id WHERE x.ts > ? ORDER BY x.ts DESC LIMIT 50""", (since,)):
                     events.append({"ts": t["ts"], "kind": "support", "student_id": t["student_id"], "name": t["name"],
                                    "title": SUPPORT_KINDS.get(t["kind"], "Обращение"), "info": (t["text"] or "")[:160]})
+                for t in db.q("""SELECT m.ts, m.text, p.kind, p.student_id, s.name FROM support_msgs m JOIN support p ON p.id = m.support_id
+                                 JOIN students s ON s.id = p.student_id WHERE m.who='student' AND m.ts > ? ORDER BY m.ts DESC LIMIT 50""", (since,)):
+                    events.append({"ts": t["ts"], "kind": "support", "student_id": t["student_id"], "name": t["name"],
+                                   "title": "ответ в обращении", "info": (t["text"] or "")[:160]})
             events.sort(key=lambda x: -x["ts"])
             return self.send_json({"attempts": out, "events": events, "now": now})
 
@@ -3770,10 +3800,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "duels": one("SELECT COUNT(*) c FROM duels WHERE status = 'finished'")["c"],
                 "bank": len(APP.bank.tasks) if APP.bank.ensure() else 0,
                 "series": series, "nums": nums, "by_teacher": teachers, "support_kinds": SUPPORT_KINDS,
-                "support": [dict(r) for r in db.q("""
-                    SELECT p.*, s.name, COALESCE(t.name, '') AS teacher FROM support p JOIN students s ON s.id = p.student_id
+                "support": [dict(r, thread=support_thread(db, r)) for r in db.q("""
+                    SELECT p.*, s.name, COALESCE(t.name, '') AS teacher,
+                           COALESCE((SELECT MAX(ts) FROM support_msgs m WHERE m.support_id = p.id), p.ts) AS last
+                    FROM support p JOIN students s ON s.id = p.student_id
                     LEFT JOIN teachers t ON t.id = COALESCE(s.teacher_id, ?)
-                    ORDER BY (p.status = 'new') DESC, p.id DESC LIMIT 200""", (main_id,))]})
+                    ORDER BY (p.status = 'new') DESC, last DESC LIMIT 200""", (main_id,))]})
 
         if path == "/api/admin/support/delete" and method == "POST":
             # удалить обращение (или все закрытые разом) — только главный учитель
@@ -3783,6 +3815,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 n = db.xn("DELETE FROM support WHERE status='closed'")
             else:
                 n = db.xn("DELETE FROM support WHERE id=?", (to_int(data.get("id")),))
+            db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")
             return self.send_json({"ok": True, "deleted": n})
 
         if path == "/api/admin/support/answer" and method == "POST":
@@ -3794,7 +3827,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "Обращение не найдено")
             answer = str(data.get("answer") or "").strip()[:SUPPORT_MAX]
             status = "closed" if data.get("close") else ("answered" if answer else r["status"])
+            if data.get("reopen"):
+                last = db.q("SELECT who FROM support_msgs WHERE support_id=? ORDER BY ts DESC, id DESC LIMIT 1", (sid,), one=True)
+                status = "answered" if last and last["who"] == "teacher" else "new"
             if answer:
+                db.x("INSERT INTO support_msgs(support_id, ts, who, text) VALUES(?,?,?,?)", (sid, time.time(), "teacher", answer))
                 db.x("UPDATE support SET answer=?, answered=?, status=?, seen=0 WHERE id=?", (answer, time.time(), status, sid))
             else:
                 db.x("UPDATE support SET status=? WHERE id=?", (status, sid))
@@ -4117,11 +4154,20 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             grading = json.dumps({k: max(0, min(100, to_int(g.get(k, v)))) for k, v in ASG_GRADES.items()})
             if aid:
                 old = db.q("SELECT strict, kind, tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
+                ended = 0
                 if old and old["strict"] and db.q("SELECT 1 FROM asg_runs WHERE asg_id=? LIMIT 1", (aid,), one=True):
-                    if kind != "self":
-                        return self.err(409, "Самостоятельную уже начали писать — тип работы менять нельзя")
                     if json.loads(old["tasks"]) != tasks:
                         return self.err(409, "Самостоятельную уже начали писать — состав заданий менять нельзя")
+                    if kind != "self":
+                        # самостоятельная → практическая/домашняя: начатые сдаются по уже данным ответам (попадают в журнал),
+                        # дальше ученики решают как обычную подборку
+                        full = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
+                        real = [i for i in tasks if i in APP.bank.tasks]
+                        for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NULL", (aid,)):
+                            st = db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True)
+                            if st:
+                                asg_finish_run(self, db, full, st, real, forced=1)
+                                ended += 1
                 prev = db.q("SELECT closed, due FROM assignments WHERE id=?", (aid,), one=True)
                 db.x("UPDATE assignments SET title=?, tasks=?, due=?, strict=?, grading=?, kind=? WHERE id=? AND class_id=?",
                      (title, json.dumps(tasks), due, strict, grading, kind, aid, cid))
@@ -4129,6 +4175,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 # закрытую учителем вручную не трогаем
                 if prev and prev["closed"] and prev["due"] and prev["closed"] == prev["due"] and (not due or due > now):
                     db.x("UPDATE assignments SET closed=NULL WHERE id=?", (aid,))
+                live_class(db, cid)
+                return self.send_json({"ok": True, "id": aid, "ended": ended})
             elif data.get("students"):
                 # персональная подборка: только выбранным ученикам класса (у каждого своя, в журнале — одна колонка)
                 want = {to_int(x) for x in data.get("students") or []}
@@ -5266,6 +5314,13 @@ def duel_tasks(nums=None):
 # плей-офф на выбывание с матчем за 3-е место. «Счёт» матча — сколько заданий решил каждый.
 SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не работает сайт", "xp": "Опыт, рейтинг, турниры", "question": "Вопрос", "other": "Другое"}
 SUPPORT_MAX = 2000
+
+
+def support_thread(db, p):
+    """Переписка по обращению: первое сообщение ученика и все ответы по порядку."""
+    return [{"who": "student", "ts": p["ts"], "text": p["text"]}] + [
+        {"who": r["who"], "ts": r["ts"], "text": r["text"]}
+        for r in db.q("SELECT who, ts, text FROM support_msgs WHERE support_id=? ORDER BY ts, id", (p["id"],))]
 SUPPORT_PER_HOUR = 5
 
 

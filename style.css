@@ -2009,6 +2009,13 @@ body.asg-wide .course.asg-page { max-width: none; }
 .sp-text { margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
 .sp-ans { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); white-space: pre-wrap; word-break: break-word; }
 .sp-ans b { display: block; font-size: 12px; color: var(--accent-text); margin-bottom: 2px; }
+.sp-thread { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.sp-thread .sp-ans { margin-top: 0; margin-left: 24px; }
+.sp-msg { padding: 10px 12px; border-radius: 12px; background: var(--card-hover); margin-right: 24px; white-space: pre-wrap; word-break: break-word; }
+.sp-msg b { display: block; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.sp-reply { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+.sp-reply textarea { flex: 1; min-height: 44px; resize: vertical; }
+.sp-closed { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 .ap-note { margin: 0; font-size: 13px; color: var(--muted); }
 
 /* ---------- мои варианты */

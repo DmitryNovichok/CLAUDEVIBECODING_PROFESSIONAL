@@ -372,6 +372,8 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 .sp-a-text { margin-top: 8px; white-space: pre-wrap; word-break: break-word; }
 .sp-a-ans { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--good-soft); white-space: pre-wrap; word-break: break-word; }
 .sp-a-ans b { display: block; font-size: 12px; color: var(--good); }
+.sp-a-text .sp-a-who { display: block; font-size: 12px; color: var(--muted); font-weight: 700; }
+.sp-a-ans { margin-left: 24px; }
 .sp-a-form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .sp-a-form textarea { width: 100%; resize: vertical; font: inherit; }
 .sp-a-btns { display: flex; gap: 8px; }

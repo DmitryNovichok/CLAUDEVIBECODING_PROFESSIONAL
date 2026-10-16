@@ -84,7 +84,7 @@
     const was = (SUPPORT && SUPPORT.unread) || 0;
     await loadSupport();
     if (SUPPORT && SUPPORT.unread > was) toast('🛟 Пришёл ответ техподдержки — открой «Техподдержку»', 6000);
-    if (!$('#forecastModal').hidden && $('#spForm') && !$('#spText').value.trim()) openSupport();
+    if (!$('#forecastModal').hidden && $('#spForm') && [...$('#forecastBody').querySelectorAll('textarea')].every(t => !t.value.trim())) openSupport();
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden || !LV.dirty.size) return;

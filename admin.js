@@ -17,6 +17,9 @@
   }
   const pad = n => String(n).padStart(2, '0');
   const fmtDate = ts => { const d = new Date(ts * 1000); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`; };
+  // время обращений в техподдержку — московское
+  const MSK_FMT = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const mskTime = ts => MSK_FMT.format(new Date(ts * 1000)).replace(',', '') + ' МСК';
   const fmtTime = ts => { const d = new Date(ts * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   const fmtWhen = ts => {
     if (!ts) return '—';
@@ -263,16 +266,18 @@
   function supportHtml(d) {
     const list = d.support || [];
     const fresh = list.filter(x => x.status === 'new').length;
-    const dt = ts => { const x = new Date(ts * 1000); return `${pad(x.getDate())}.${pad(x.getMonth() + 1)} ${fmtTime(ts)}`; };
+    const dt = mskTime;
     const items = list.map(x => `<div class="sp-a ${SP_ST[x.status] ? SP_ST[x.status][0] : ''}" data-sp="${x.id}">
       <div class="sp-a-head"><span class="sp-st">${(SP_ST[x.status] || SP_ST.new)[1]}</span><b>${esc(x.name)}</b>
         <span class="muted">${esc(x.teacher ? 'учитель: ' + x.teacher : '')}</span><span class="muted">${esc((d.support_kinds || {})[x.kind] || '')}</span>
         <span class="muted">${dt(x.ts)}</span>${x.task ? `<span class="muted">задание <code>${esc(x.task)}</code></span>` : ''}${x.page ? `<span class="muted">раздел: ${esc(x.page)}</span>` : ''}</div>
-      <div class="sp-a-text">${esc(x.text)}</div>
-      ${x.answer ? `<div class="sp-a-ans"><b>Ваш ответ · ${dt(x.answered)}</b>${esc(x.answer)}</div>` : ''}
-      ${x.status === 'closed' ? '<div class="sp-a-btns"><button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div>'
-        : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке»)"></textarea>
-        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-close>Закрыть</button>
+      ${(x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map(m => m.who === 'teacher'
+        ? `<div class="sp-a-ans"><b>Ответ учителя · ${dt(m.ts)}</b>${esc(m.text)}</div>`
+        : `<div class="sp-a-text"><b class="sp-a-who">${esc(x.name)} · ${dt(m.ts)}</b>${esc(m.text)}</div>`).join('')}
+      ${x.status === 'closed' ? `<div class="sp-a-btns"><span class="muted">Тема закрыта — ученик может только создать новое обращение.</span>
+          <button type="button" class="btn ghost" data-sp-reopen>Открыть снова</button><button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div>`
+        : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке» и сможет ответить в этой теме)"></textarea>
+        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-close title="Ученик больше не сможет писать в эту тему">Закрыть тему</button>
           <button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div></div>`}
     </div>`).join('');
     const closed = list.filter(x => x.status === 'closed').length;
@@ -291,13 +296,14 @@
       loadSite();
       return;
     }
-    const send = e.target.closest('[data-sp-send]'), close = e.target.closest('[data-sp-close]');
-    if (!send && !close) return;
+    const send = e.target.closest('[data-sp-send]'), close = e.target.closest('[data-sp-close]'), reopen = e.target.closest('[data-sp-reopen]');
+    if (!send && !close && !reopen) return;
     const box = e.target.closest('[data-sp]');
-    const answer = box.querySelector('textarea').value.trim();
+    const ta = box.querySelector('textarea'), answer = ta ? ta.value.trim() : '';
     if (send && !answer) { toast('Напишите ответ'); return; }
-    try { await api('support/answer', { id: +box.dataset.sp, answer, close: !!close }); } catch (err) { toast(err.message); return; }
-    toast(close ? 'Обращение закрыто' : 'Ответ отправлен');
+    if (close && !confirm(answer ? 'Отправить ответ и закрыть тему? Ученик больше не сможет писать в неё.' : 'Закрыть тему? Ученик больше не сможет писать в неё.')) return;
+    try { await api('support/answer', { id: +box.dataset.sp, answer, close: !!close, reopen: !!reopen }); } catch (err) { toast(err.message); return; }
+    toast(reopen ? 'Тема снова открыта' : close ? 'Тема закрыта' : 'Ответ отправлен');
     loadSite();
   });
   $('#siteReload').addEventListener('click', loadSite);
@@ -560,11 +566,13 @@
       if (!D.title.trim()) { toast('Введите название подборки'); $('#bdTitle').focus(); return; }
       try {
         const pers = !D.id && D.to === 'some';
-        await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, kind: D.kind || 'self', grading: grades(),
+        const prevKind = D.id && ((BLD.asg || []).find(x => x.id === D.id) || {}).kind;
+        if (!kindChangeOk(prevKind, D.kind || 'self')) return;
+        const r = await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, kind: D.kind || 'self', grading: grades(),
           due: D.due ? new Date(D.due + 'T23:59:00').getTime() / 1000 : null, tasks: D.tasks.map(t => t.id),
           students: pers ? D.students : null });
         const cls = (BLD.cat.classes.find(c => String(c.id) === String(D.class_id)) || {}).name || '';
-        toast(D.id ? 'Подборка сохранена' : pers ? `Персональная подборка отправлена: ${D.students.length} ${plural(D.students.length, 'ученику', 'ученикам', 'ученикам')}` : `Подборка отправлена классу ${cls}`);
+        toast(D.id ? 'Подборка сохранена' + keptNote(r) : pers ? `Персональная подборка отправлена: ${D.students.length} ${plural(D.students.length, 'ученику', 'ученикам', 'ученикам')}` : `Подборка отправлена классу ${cls}`);
         BLD.d = { class_id: D.class_id, id: null, title: '', due: '', tasks: [], to: D.to, students: [] };
         bldSave(); renderBldDraft(); loadBldAsg(); if (BLD.res) renderBldList();
       } catch (err) { if (err.status !== 401) toast(err.message); }
@@ -1257,6 +1265,14 @@
     practice: { name: 'Практическая', ico: '🛠', hint: 'Ученик сразу видит, верно или нет, — две попытки на задание. Оценка ставится сама: верно с 1-й попытки — полный балл, со 2-й — половина, ошибка — 0.' },
     home: { name: 'Домашняя работа', ico: '🏠', hint: 'Как практическая: проверка сразу, две попытки, оценка ставится сама по попыткам и ответам.' },
   };
+  /** Тип уже выданной работы меняется — предупредить, что станет с теми, кто уже решает. */
+  function kindChangeOk(was, now) {
+    if (!was || was === now) return true;
+    return confirm(was === 'self'
+      ? `Сделать работу «${KINDS[now].name}»? Кто уже начал самостоятельную — она сдастся по уже данным ответам (в журнал), дальше ученики решают с проверкой сразу.`
+      : 'Сделать работу самостоятельной? Ученики, которые ещё не решали, будут сдавать её без проверки; уже данные ответы остаются в журнале.');
+  }
+  const keptNote = r => (r && r.ended ? ` · сдано начатых самостоятельных: ${r.ended}` : '');
   document.addEventListener('change', e => {
     const k = e.target.closest('#dKind, #bdKind');
     if (!k) return;
@@ -1497,7 +1513,7 @@
   // ------------------------------------------------------------ конструктор подборки
   let draft = null;           // { id, title, due, tasks: [{ id, n, snip }] }
   function editAssignment(a) {
-    draft = a ? { id: a.id, title: a.title, due: a.due, kind: a.kind || 'self', tasks: a.tasks.filter(t => !t.missing).map(t => ({ id: t.id, n: t.n, snip: t.snip })) }
+    draft = a ? { id: a.id, title: a.title, due: a.due, kind: a.kind || 'self', origKind: a.kind || 'self', tasks: a.tasks.filter(t => !t.missing).map(t => ({ id: t.id, n: t.n, snip: t.snip })) }
       : { id: null, title: '', due: null, kind: 'self', tasks: [] };
     renderDraft();
     $('#asgEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1539,9 +1555,10 @@
     draft.title = $('#dTitle').value;
     const due = $('#dDue').value;
     try {
-      await api('assignment/save', { id: draft.id, class_id: curClass.id, title: draft.title, kind: $('#dKind').value, grading: grades(),
+      if (!kindChangeOk(draft.id && draft.origKind, $('#dKind').value)) return;
+      const r = await api('assignment/save', { id: draft.id, class_id: curClass.id, title: draft.title, kind: $('#dKind').value, grading: grades(),
         due: due ? new Date(due + 'T23:59:00').getTime() / 1000 : null, tasks: draft.tasks.map(t => t.id) });
-      toast(draft.id ? 'Подборка сохранена' : 'Подборка отправлена классу');
+      toast(draft.id ? 'Подборка сохранена' + keptNote(r) : 'Подборка отправлена классу');
       draft = null;
       openClass(curClass.id);
     } catch (err) { if (err.status !== 401) toast(err.message); }

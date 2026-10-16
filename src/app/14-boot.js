@@ -73,6 +73,9 @@
 
   // ------------------------------------------------------------ техподдержка: обращение уходит главному учителю, ответ — здесь
   let SUPPORT = { items: [], kinds: {}, unread: 0 };
+  // время в техподдержке — московское, где бы ни был ученик и его часовой пояс
+  const MSK_FMT = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const mskTime = sec => MSK_FMT.format(new Date(sec * 1000)).replace(',', '') + ' МСК';
   const SP_STATUS = { new: ['chip', 'ждёт ответа'], answered: ['chip good', 'есть ответ'], closed: ['chip', 'закрыто'] };
   async function loadSupport() {
     const b = $('#supportBtn');
@@ -88,10 +91,15 @@
     const kinds = Object.entries(SUPPORT.kinds || {}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
     const list = SUPPORT.items.map(x => {
       const st = SP_STATUS[x.status] || SP_STATUS.new;
-      return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
-        <span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span><span>${apTime(x.ts)}</span>${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
-        <div class="sp-text">${esc(x.text)}</div>
-        ${x.answer ? `<div class="sp-ans"><b>Ответ · ${apTime(x.answered)}</b>${esc(x.answer)}</div>` : ''}</div>`;
+      const thread = (x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map((m, i) => m.who === 'teacher'
+        ? `<div class="sp-ans"><b>Учитель · ${mskTime(m.ts)}</b>${esc(m.text)}</div>`
+        : `<div class="sp-msg"><b>Ты · ${mskTime(m.ts)}</b>${esc(m.text)}</div>`).join('');
+      return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}" data-sp="${x.id}"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
+        <span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span>${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
+        <div class="sp-thread">${thread}</div>
+        ${x.status === 'closed' ? '<p class="sp-closed">Тема закрыта. Если вопрос остался — напиши новое обращение выше.</p>'
+          : `<div class="sp-reply"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
+          <button type="button" class="btn" data-sp-reply>Отправить</button></div>`}</div>`;
     }).join('');
     $('#forecastBody').innerHTML = `<h2 class="fm-title">🛟 Техподдержка</h2>
       <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Обращение получит учитель, ответ появится здесь.</p>
@@ -104,6 +112,15 @@
       ${list ? `<h3 class="fm-sub">Мои обращения</h3><div class="sp-list">${list}</div>` : ''}`;
     $('#forecastModal').hidden = false;
     if (t) $('#spKind').value = 'task';
+    $('#forecastBody').querySelectorAll('[data-sp-reply]').forEach(b => b.addEventListener('click', async () => {
+      const box = b.closest('[data-sp]'), text = box.querySelector('textarea').value.trim();
+      if (!text) { toast('Напиши сообщение'); return; }
+      b.disabled = true;
+      try { await api('support/reply', { id: +box.dataset.sp, text }); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); b.disabled = false; return; }
+      toast('Сообщение отправлено', 2500);
+      box.querySelector('textarea').value = '';
+      openSupport();
+    }));
     $('#spForm').addEventListener('submit', async e => {
       e.preventDefault();
       const body = { kind: $('#spKind').value, text: $('#spText').value, page: pageKind || (courseShown ? 'course' : ui.scope) };

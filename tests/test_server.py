@@ -1482,6 +1482,49 @@ class ServerTest(unittest.TestCase):
         self.assertIsNone(server.APP.db.q("SELECT 1 FROM support WHERE id=?", (mine[0]["id"],), one=True))
         self.assertEqual(self.admin("POST", "/api/admin/support/delete", {"closed": True})[1]["deleted"], 1)   # закрытое ранее
 
+    def test_support_dialog_and_close(self):
+        # переписка в теме: ученик отвечает, учитель отвечает ещё раз; закрытая тема — писать нельзя, можно открыть снова
+        tok = self.login("Диалогов Денис")
+        self.req("POST", "/api/support", {"kind": "bug", "text": "Не грузится задание"}, tok)
+        sid = server.APP.db.q("SELECT id FROM support ORDER BY id DESC LIMIT 1", one=True)["id"]
+        self.admin("POST", "/api/admin/support/answer", {"id": sid, "answer": "Какое именно?"})
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": sid, "text": "№7 из подборки"}, tok)[0], 200)
+        x = next(r for r in self.admin("GET", "/api/admin/site-stats")[1]["support"] if r["id"] == sid)
+        self.assertEqual(x["status"], "new")                                  # ученик ответил — снова ждёт учителя
+        self.assertEqual([m["who"] for m in x["thread"]], ["student", "teacher", "student"])
+        self.admin("POST", "/api/admin/support/answer", {"id": sid, "answer": "Починили", "close": True})
+        item = self.req("GET", "/api/support", token=tok)[1]["items"][0]
+        self.assertEqual((item["status"], [m["text"] for m in item["thread"]]),
+                         ("closed", ["Не грузится задание", "Какое именно?", "№7 из подборки", "Починили"]))
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": sid, "text": "спасибо"}, tok)[0], 409)
+        other = self.login("Чужаков Чарли")
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": sid, "text": "я не автор"}, other)[0], 404)
+        self.admin("POST", "/api/admin/support/answer", {"id": sid, "reopen": True})
+        self.assertEqual(self.req("GET", "/api/support", token=tok)[1]["items"][0]["status"], "answered")
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": sid, "text": "спасибо"}, tok)[0], 200)
+        self.admin("POST", "/api/admin/support/delete", {"id": sid})
+        self.assertIsNone(server.APP.db.q("SELECT 1 FROM support_msgs WHERE support_id=?", (sid,), one=True))
+
+    def test_change_kind_of_started_work(self):
+        # самостоятельную уже пишут — тип всё равно можно сменить: начатые сдаются по уже данным ответам
+        tok = self.login("Типов Тимур")
+        me = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "10Т"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [me]})
+        aid = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "СР-тип", "kind": "self", "tasks": ["b:5", "b:6"]})[1]["id"]
+        self.req("POST", "/api/asg/start", {"id": aid}, tok)
+        self.req("POST", "/api/asg/answer", {"id": aid, "task": server.APP.bank.pid("b:5"), "answer": "12"}, tok)
+        st, d = self.admin("POST", "/api/admin/assignment/save", {"id": aid, "class_id": cid, "title": "СР-тип", "kind": "practice", "tasks": ["b:5", "b:6"]})
+        self.assertEqual((st, d.get("ended")), (200, 1), d)
+        row = server.APP.db.q("SELECT kind, strict FROM assignments WHERE id=?", (aid,), one=True)
+        self.assertEqual((row["kind"], row["strict"]), ("practice", 0))
+        run = server.APP.db.q("SELECT finished, forced FROM asg_runs WHERE asg_id=? AND student_id=?", (aid, me), one=True)
+        self.assertTrue(run["finished"] and run["forced"])
+        # состав заданий у начатой самостоятельной менять по-прежнему нельзя
+        aid2 = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "СР-2", "kind": "self", "tasks": ["b:5"]})[1]["id"]
+        self.req("POST", "/api/asg/start", {"id": aid2}, tok)
+        self.assertEqual(self.admin("POST", "/api/admin/assignment/save", {"id": aid2, "class_id": cid, "title": "СР-2", "kind": "self", "tasks": ["b:6"]})[0], 409)
+
     def test_common_bank_rule(self):
         ok = lambda **t: server.bank_ok(dict({"n": 5, "ans": "1"}, **t))
         self.assertTrue(ok(y=2022))
