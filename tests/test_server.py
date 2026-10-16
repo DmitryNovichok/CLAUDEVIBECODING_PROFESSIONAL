@@ -2053,5 +2053,13 @@ class ServerTest(unittest.TestCase):
         c.close()
 
 
+class AppBuildTest(unittest.TestCase):
+    def test_app_js_built_from_modules(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+        import build_app
+        self.assertEqual(build_app.OUT.read_text(encoding="utf-8"), build_app.build(),
+                         "app.js не собран из src/app/*.js — запустите python3 tools/build_app.py")
+
+
 if __name__ == "__main__":
     unittest.main()
