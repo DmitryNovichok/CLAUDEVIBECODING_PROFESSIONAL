@@ -33,6 +33,7 @@ import re
 import secrets
 import socket
 import sqlite3
+import struct
 import sys
 import threading
 import time
@@ -471,7 +472,7 @@ def zip_display_name(info):
 
 # ---------------- №9: таблица → текст, как если бы ученик скопировал её в .txt
 try:
-    import xlrd                     # старый формат .xls; на сервере: apt install python3-xlrd (необязательно)
+    import xlrd                     # старый .xls; не обязателен — есть встроенный разбор (_xls_rows_builtin)
 except ImportError:
     xlrd = None
 TABLE_EXT = (".xlsx", ".ods", ".xls", ".csv")
@@ -555,14 +556,232 @@ def _ods_rows(data):
     return rows
 
 
-def _xls_rows(data):
-    if xlrd is None:
-        return None
-    sh = xlrd.open_workbook(file_contents=data).sheet_by_index(0)
+def _ole_stream(data, names=("Workbook", "Book")):
+    """Поток из файла OLE2 (контейнер старого .xls) — без сторонних библиотек."""
+    if data[:8] != b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        raise ValueError("не OLE2")
+    ssz = 1 << struct.unpack_from("<H", data, 30)[0]
+    msz = 1 << struct.unpack_from("<H", data, 32)[0]
+    n_fat, dir_start, cutoff, mini_fat_start, n_mini, difat_start, n_difat = (
+        struct.unpack_from("<I", data, 44)[0], struct.unpack_from("<I", data, 48)[0], struct.unpack_from("<I", data, 56)[0],
+        struct.unpack_from("<I", data, 60)[0], struct.unpack_from("<I", data, 64)[0], struct.unpack_from("<I", data, 68)[0],
+        struct.unpack_from("<I", data, 72)[0])
+    sector = lambda i: data[512 + i * ssz: 512 + (i + 1) * ssz]
+    difat = list(struct.unpack_from("<109I", data, 76))
+    nxt, guard = difat_start, 0
+    while nxt < 0xFFFFFFFA and guard < n_difat + 1:
+        sec = sector(nxt)
+        vals = struct.unpack("<%dI" % (ssz // 4), sec)
+        difat += vals[:-1]
+        nxt, guard = vals[-1], guard + 1
+    fat = []
+    for i in difat[:n_fat]:
+        if i >= 0xFFFFFFFA:
+            break
+        fat += struct.unpack("<%dI" % (ssz // 4), sector(i))
+
+    def chain(start, table, read, limit):
+        out, i, seen = [], start, 0
+        while i < 0xFFFFFFFA and i < len(table) and seen < limit:
+            out.append(read(i))
+            i, seen = table[i], seen + 1
+        return b"".join(out)
+
+    limit = len(data) // ssz + 2
+    dirs = chain(dir_start, fat, sector, limit)
+    entries = []
+    for k in range(len(dirs) // 128):
+        e = dirs[k * 128:(k + 1) * 128]
+        nlen = struct.unpack_from("<H", e, 64)[0]
+        name = e[:max(nlen - 2, 0)].decode("utf-16-le", errors="replace")
+        entries.append((name, e[66], struct.unpack_from("<I", e, 116)[0], struct.unpack_from("<I", e, 120)[0]))
+    root = next((x for x in entries if x[1] == 5), None)
+    for want in names:
+        for name, kind, start, size in entries:
+            if kind == 2 and name == want:
+                if size >= cutoff or root is None:
+                    return chain(start, fat, sector, limit)[:size]
+                # маленький поток — в мини-секторах
+                mini_data = chain(root[2], fat, sector, limit)
+                mini_fat = []
+                raw = chain(mini_fat_start, fat, sector, limit)
+                mini_fat = list(struct.unpack("<%dI" % (len(raw) // 4), raw))
+                return chain(start, mini_fat, lambda i: mini_data[i * msz:(i + 1) * msz], len(mini_fat) + 1)[:size]
+    raise ValueError("в файле нет листа Workbook")
+
+
+def _biff_string(buf, pos, lenbytes=2):
+    """Строка BIFF8: длина, флаги (сжатая 8-битная или UTF-16), без форматирования и фонетики (они пропускаются)."""
+    n = struct.unpack_from("<H" if lenbytes == 2 else "<B", buf, pos)[0]
+    pos += lenbytes
+    fl = buf[pos]
+    pos += 1
+    rt = sz = 0
+    if fl & 0x08:
+        rt = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+    if fl & 0x04:
+        sz = struct.unpack_from("<I", buf, pos)[0]
+        pos += 4
+    if fl & 0x01:
+        s = buf[pos:pos + 2 * n].decode("utf-16-le", errors="replace")
+        pos += 2 * n
+    else:
+        s = buf[pos:pos + n].decode("latin-1")
+        pos += n
+    return s, pos + rt * 4 + sz
+
+
+def _rk(v):
+    if v & 2:
+        x = v >> 2
+        if x & 0x20000000:
+            x -= 0x40000000
+        val = float(x)
+    else:
+        val = struct.unpack("<d", struct.pack("<Q", (v & 0xFFFFFFFC) << 32))[0]
+    return val / 100 if v & 1 else val
+
+
+def _sst(chunks):
+    """Общая таблица строк BIFF8; строки могут переходить через записи CONTINUE (там свой флаг ширины символов)."""
     out = []
-    for i in range(sh.nrows):
-        out.append([_num_text(c.value) if c.ctype == xlrd.XL_CELL_NUMBER else str(c.value) for c in sh.row(i)])
+    if not chunks:
+        return out
+    total = struct.unpack_from("<I", chunks[0], 4)[0]
+    ci, pos, buf = 0, 8, chunks[0]
+    while len(out) < total:
+        if pos >= len(buf):
+            ci += 1
+            if ci >= len(chunks):
+                break
+            buf, pos = chunks[ci], 0
+        n = struct.unpack_from("<H", buf, pos)[0]
+        fl = buf[pos + 2]
+        pos += 3
+        rt = sz = 0
+        if fl & 0x08:
+            rt = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2
+        if fl & 0x04:
+            sz = struct.unpack_from("<I", buf, pos)[0]
+            pos += 4
+        wide, parts, left = fl & 1, [], n
+        while left > 0:
+            if pos >= len(buf):                          # строка продолжается в следующей записи CONTINUE
+                ci += 1
+                if ci >= len(chunks):
+                    break
+                buf, pos = chunks[ci], 1
+                wide = chunks[ci][0] & 1
+            take = min(left, (len(buf) - pos) // (2 if wide else 1))
+            if take <= 0:
+                break
+            if wide:
+                parts.append(buf[pos:pos + 2 * take].decode("utf-16-le", errors="replace"))
+                pos += 2 * take
+            else:
+                parts.append(buf[pos:pos + take].decode("latin-1"))
+                pos += take
+            left -= take
+        out.append("".join(parts))
+        skip = rt * 4 + sz                               # форматирование и фонетика — тоже могут переходить
+        while skip > 0:
+            if pos >= len(buf):
+                ci += 1
+                if ci >= len(chunks):
+                    break
+                buf, pos = chunks[ci], 0
+            step = min(skip, len(buf) - pos)
+            pos += step
+            skip -= step
     return out
+
+
+def _xls_rows_builtin(data):
+    """Первый лист старого .xls (BIFF8): числа и строки ячеек — встроенный разбор, xlrd не нужен."""
+    wb = _ole_stream(data)
+    recs, pos = [], 0
+    while pos + 4 <= len(wb):
+        rid, ln = struct.unpack_from("<HH", wb, pos)
+        recs.append((rid, pos, wb[pos + 4:pos + 4 + ln]))
+        pos += 4 + ln
+    sst_chunks, first_sheet = [], None
+    for i, (rid, at, body) in enumerate(recs):
+        if rid == 0x00FC:                                # SST + следующие CONTINUE
+            sst_chunks = [body]
+            j = i + 1
+            while j < len(recs) and recs[j][0] == 0x003C:
+                sst_chunks.append(recs[j][2])
+                j += 1
+        elif rid == 0x0085 and first_sheet is None:      # BOUNDSHEET: где начинается лист
+            if len(body) >= 6 and body[5] == 0:          # обычный лист (не диаграмма, не макрос)
+                first_sheet = struct.unpack_from("<I", body, 0)[0]
+    sst = _sst(sst_chunks)
+    if first_sheet is None:
+        return []
+    cells, cells_n, pending = {}, 0, None
+    start = next((k for k, r in enumerate(recs) if r[1] == first_sheet), None)
+    if start is None:
+        return []
+    for rid, at, b in recs[start + 1:]:
+        if rid == 0x000A:                                # EOF листа
+            break
+        try:
+            if rid == 0x0203:                            # NUMBER
+                r, c = struct.unpack_from("<HH", b, 0)
+                cells[(r, c)] = _num_text(struct.unpack_from("<d", b, 6)[0])
+            elif rid == 0x027E:                          # RK
+                r, c = struct.unpack_from("<HH", b, 0)
+                cells[(r, c)] = _num_text(_rk(struct.unpack_from("<I", b, 6)[0]))
+            elif rid == 0x00BD:                          # MULRK: несколько RK подряд
+                r, c0 = struct.unpack_from("<HH", b, 0)
+                k = (len(b) - 6) // 6
+                for j in range(k):
+                    cells[(r, c0 + j)] = _num_text(_rk(struct.unpack_from("<I", b, 4 + j * 6 + 2)[0]))
+            elif rid == 0x00FD:                          # LABELSST
+                r, c = struct.unpack_from("<HH", b, 0)
+                idx = struct.unpack_from("<I", b, 6)[0]
+                cells[(r, c)] = sst[idx] if idx < len(sst) else ""
+            elif rid == 0x0204:                          # LABEL
+                r, c = struct.unpack_from("<HH", b, 0)
+                cells[(r, c)] = _biff_string(b, 6)[0]
+            elif rid == 0x0205:                          # BOOLERR
+                r, c = struct.unpack_from("<HH", b, 0)
+                cells[(r, c)] = ("TRUE" if b[6] else "FALSE") if b[7] == 0 else ""
+            elif rid == 0x0006:                          # FORMULA: берём сохранённый результат
+                r, c = struct.unpack_from("<HH", b, 0)
+                res = b[6:14]
+                if res[6:8] == b"\xff\xff":
+                    if res[0] == 0:
+                        pending = (r, c)                 # строка — в следующей записи STRING
+                    elif res[0] == 1:
+                        cells[(r, c)] = "TRUE" if res[2] else "FALSE"
+                else:
+                    cells[(r, c)] = _num_text(struct.unpack("<d", res)[0])
+            elif rid == 0x0207 and pending:              # STRING после формулы
+                cells[pending] = _biff_string(b, 0)[0]
+                pending = None
+        except struct.error:
+            continue
+        cells_n = len(cells)
+        if cells_n > MAX_TABLE_CELLS:
+            break
+    if not cells:
+        return []
+    nrows = max(r for r, _ in cells) + 1
+    width = {}
+    for r, c in cells:
+        width[r] = max(width.get(r, 0), c + 1)
+    return [[cells.get((r, c), "") for c in range(width.get(r, 0))] for r in range(nrows)]
+
+
+def _xls_rows(data):
+    if xlrd is not None:
+        sh = xlrd.open_workbook(file_contents=data).sheet_by_index(0)
+        return [[_num_text(c.value) if c.ctype == xlrd.XL_CELL_NUMBER else str(c.value) for c in sh.row(i)]
+                for i in range(sh.nrows)]
+    return _xls_rows_builtin(data)
 
 
 def table_to_text(data, ext):
@@ -715,7 +934,7 @@ class Bank:
         best = None
         for o in out:
             ext = os.path.splitext(o["name"])[1].lower()
-            if ext not in order or (ext == ".xls" and xlrd is None):
+            if ext not in order:
                 continue
             tok = o["href"].split("/")[1] if o["href"].startswith("files/") else None
             target = self.files.get(tok)

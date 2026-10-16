@@ -1166,6 +1166,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((row["status"], row["winner"], row["tech"], row["surrender"]), ("done", op, 0, sa))
         self.assertEqual(self.req("POST", "/api/tour/surrender", {"match": m["id"]}, ta)[0], 409)
 
+    def test_xls_to_txt_builtin(self):
+        # старый .xls (КомпЕГЭ, №9) → 9.txt без сторонних библиотек: числа как в Excel, текст — как есть
+        import base64, gzip
+        data = gzip.decompress(base64.b64decode("H4sIAHDo0WoC/+1YTWgTQRT+ZjL5pU03NRWbQggBo9YeLF6K0KwtaE6W6kVRQVObg7SkErzoxdqaoyB4UrwUevFS9eIP/qA3D0JFD4IgJHoUBEHBQ5v1zcuuTX8ODWhQmW+Zb96+mTfzknnzdmdfL8Yqc/cSVaxBFj7UnDACDTpBJezdWKB2x9GiV4eoOAb/FMIhWsiAH4/bXwX1Gur1rkLirnpBDHykchLnMDJVLKRaiGH2IS+0D4PEArdIE0U3e9XJfIZ5C/Md7vmEeT9rrjIPUt+KOI5Fe6R3wI3iYzLNbVHocR+wzXvW9KMLL3UUX7om6n39GCqdzU/+nQ1J1YZ50LrlCsVCKT9ZQZwWcB7fnRTwzdupz1NG31q9AOl/rNYHN9BflwqYhnOaA7xMofrMp1v8okcNqCE1rPqxRIsv3OTrh0irrMqpfWqPiuhszLvXWrV72zmq24jH0cFyjGPbovy8dPvrm0Njo/Yp1kxzxq4PvV27AgeXtQUZR7nF94t72WI38wyP2sNygjlOrlGdGe1yhYOz3OcKt2Zonr2Mt/aOBnknyeXPhx8my5/sXSQv5KoX4wvv7Dmk6TkzTvb6mkWf6BM3b2g8sr1auDngA3P3unwQkpbru+M+vDrwlGw0Yogyf6H8J7AM/U9KuodrJ9bZbWNdDCek5gjLM4kAWen+coP+kvskmdPMGZ4lKztxXzdSllpBBAYGBgYGBgYGBgatgOC30vo7vuIjRv0UEXS/6yxTqZnPJP8tjmCKrvN0MD2AItUlXGgqfrbSYdUbS2zSxvteqHGUZi9hAmPsx0TT8UunQNH4ezZtaP2+LdTs/LVm/PzD8/8EouSJWQAWAAA="))
+        self.assertEqual(server._xls_rows_builtin(data), [["3", "-5", "Точка"], ["1.5", "2", "100000"], ["7", "8", "9"]])
+        self.assertEqual(server.table_to_text(data, ".xls"), "3\t-5\tТочка\n1.5\t2\t100000\n7\t8\t9\n".encode())
+
     def tour_play(self, tok, mid, solve):
         tasks = self.req("POST", "/api/tour/start", {"match": mid}, tok)[1]["tasks"]
         for pid in tasks[:solve]:
