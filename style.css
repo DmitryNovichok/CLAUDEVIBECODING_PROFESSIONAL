@@ -2161,7 +2161,7 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
 .calc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; font: 800 13px var(--font); }
 .calc-btn svg { width: 17px; height: 17px; }
 .calc-btn.on { background: #ff9600; color: #fff; border-color: #ff9600; }
-.calc { position: fixed; top: 90px; right: 24px; z-index: 70; width: 248px; padding: 10px 12px 14px; border: 2px solid var(--border);
+.calc { position: fixed; top: 90px; right: 24px; z-index: 35; width: 248px; padding: 10px 12px 14px; border: 2px solid var(--border);
   border-radius: 26px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); font-family: var(--font); user-select: none; }
 .calc[hidden] { display: none; }
 .calc-bar { display: flex; align-items: center; gap: 10px; padding: 2px 2px 6px; cursor: grab; touch-action: none; }
