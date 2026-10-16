@@ -139,6 +139,26 @@ def classify(t):
     return OTHER[0]
 
 
+# Банк иногда относит задание не к тому номеру (черепаха из №6 попадалась в №2). Безошибочные признаки
+# условия → правильный номер; проверяются при загрузке банка сервером.
+NUMBER_FIX = [(6, re.compile(r"черепах\w*.{0,600}(вперед|повтори)"))]
+
+
+def fix_numbers(tasks):
+    """Переносит задания с чужим номером на свой. Возвращает [(id, было, стало)]."""
+    moved = []
+    for t in tasks:
+        if t.get("parts"):
+            continue
+        txt = plain(t.get("html"))
+        for n, rx in NUMBER_FIX:
+            if t.get("n") != n and rx.search(txt):
+                moved.append((t.get("id"), t.get("n"), n))
+                t["n"] = n
+                break
+    return moved
+
+
 def annotate(tasks):
     """Проставляет каждому заданию c (тип) и r (сложность 1–5). tasks — список заданий банка (меняются на месте)."""
     by = {}

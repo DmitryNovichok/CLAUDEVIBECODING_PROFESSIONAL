@@ -2085,6 +2085,16 @@ class ServerTest(unittest.TestCase):
         c.close()
 
 
+class NumberFixTest(unittest.TestCase):
+    def test_turtle_moves_to_6(self):
+        import clusters
+        tasks = [{"id": "x:1", "n": 2, "html": "<p>Исполнитель Черепаха действует на плоскости… Повтори 7 [Вперёд 5 Направо 90]</p>"},
+                 {"id": "x:2", "n": 3, "html": "<p>Магазины района Черепахино: сколько плинтуса продано?</p>"},
+                 {"id": "x:3", "n": 6, "html": "<p>Черепаха: Повтори 4 [Вперёд 10 Направо 90]</p>"}]
+        self.assertEqual(clusters.fix_numbers(tasks), [("x:1", 2, 6)])
+        self.assertEqual([t["n"] for t in tasks], [6, 3, 6])
+
+
 class AppBuildTest(unittest.TestCase):
     def test_app_js_built_from_modules(self):
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))

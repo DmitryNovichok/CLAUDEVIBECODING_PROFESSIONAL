@@ -1044,6 +1044,8 @@ class Bank:
             self.broken = []
             self.authored = 0
             pub_tasks = []
+            for tid, was, now_n in clusters.fix_numbers(data.get("tasks", [])):
+                print(f"Банк: задание {tid} перенесено из №{was} в №{now_n}", flush=True)
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
             self.titles = {b.get("id"): b.get("title") for b in data.get("banks", [])}
             for t in data.get("tasks", []):
