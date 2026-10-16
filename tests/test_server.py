@@ -1140,6 +1140,39 @@ class ServerTest(unittest.TestCase):
         self.req("GET", "/api/tour", token=toks[0])
         self.assertEqual(db.q("SELECT COUNT(*) c FROM awards WHERE kind LIKE 'season%' AND week=?", (prev,), one=True)["c"], 3)
 
+    def test_surrender_duel_and_match(self):
+        db = server.APP.db
+        db.x("DELETE FROM duel_queue")
+        ta, tb = self.login("Сдавалов Антон"), self.login("Сдавалов Борис")
+        sa, sb = (self.req("GET", "/api/me", token=t)[1]["sid"] for t in (ta, tb))
+        self.req("POST", "/api/duel/find", {}, tb)
+        did = self.req("POST", "/api/duel/find", {}, ta)[1]["matched"]
+        self.req("POST", "/api/duel/start", {"id": did}, ta)
+        self.assertEqual(self.req("POST", "/api/duel/surrender", {"id": did}, ta)[0], 200)   # Антон сдался — сразу итог
+        x = next(d for d in self.req("GET", "/api/duels", token=tb)[1]["duels"] if d["id"] == did)
+        self.assertEqual((x["status"], x["result"], x["surrender"], x["stake"]), ("finished", "win", "op", 100))
+        self.assertEqual(self.req("POST", "/api/duel/surrender", {"id": did}, tb)[0], 409)   # уже закончена
+        # турнир: сдался в матче группы — сопернику победа (3 очка), не техническое поражение
+        db.x("DELETE FROM tournaments"); db.x("DELETE FROM tour_players"); db.x("DELETE FROM tour_matches")
+        toks = [ta, tb, self.login("Сдавалов Виктор"), self.login("Сдавалов Глеб")]
+        quick = {l["size"]: l["id"] for l in self.req("GET", "/api/tour", token=ta)[1]["lobbies"] if not l["theme"]}[4]
+        for t in toks:
+            self.req("POST", "/api/tour/join", {"id": quick}, t)
+        T = self.req("GET", "/api/tour", token=ta)[1]["mine"]
+        m = next(x for x in T["groups"][0]["matches"] if x["mine"])
+        self.assertEqual(self.req("POST", "/api/tour/surrender", {"match": m["id"]}, ta)[0], 200)
+        row = db.q("SELECT * FROM tour_matches WHERE id=?", (m["id"],), one=True)
+        op = row["b"] if row["a"] == sa else row["a"]
+        self.assertEqual((row["status"], row["winner"], row["tech"], row["surrender"]), ("done", op, 0, sa))
+        self.assertEqual(self.req("POST", "/api/tour/surrender", {"match": m["id"]}, ta)[0], 409)
+
+    def test_xls_to_txt_builtin(self):
+        # старый .xls (КомпЕГЭ, №9) → 9.txt без сторонних библиотек: числа как в Excel, текст — как есть
+        import base64, gzip
+        data = gzip.decompress(base64.b64decode("H4sIAHDo0WoC/+1YTWgTQRT+ZjL5pU03NRWbQggBo9YeLF6K0KwtaE6W6kVRQVObg7SkErzoxdqaoyB4UrwUevFS9eIP/qA3D0JFD4IgJHoUBEHBQ5v1zcuuTX8ODWhQmW+Zb96+mTfzknnzdmdfL8Yqc/cSVaxBFj7UnDACDTpBJezdWKB2x9GiV4eoOAb/FMIhWsiAH4/bXwX1Gur1rkLirnpBDHykchLnMDJVLKRaiGH2IS+0D4PEArdIE0U3e9XJfIZ5C/Md7vmEeT9rrjIPUt+KOI5Fe6R3wI3iYzLNbVHocR+wzXvW9KMLL3UUX7om6n39GCqdzU/+nQ1J1YZ50LrlCsVCKT9ZQZwWcB7fnRTwzdupz1NG31q9AOl/rNYHN9BflwqYhnOaA7xMofrMp1v8okcNqCE1rPqxRIsv3OTrh0irrMqpfWqPiuhszLvXWrV72zmq24jH0cFyjGPbovy8dPvrm0Njo/Yp1kxzxq4PvV27AgeXtQUZR7nF94t72WI38wyP2sNygjlOrlGdGe1yhYOz3OcKt2Zonr2Mt/aOBnknyeXPhx8my5/sXSQv5KoX4wvv7Dmk6TkzTvb6mkWf6BM3b2g8sr1auDngA3P3unwQkpbru+M+vDrwlGw0Yogyf6H8J7AM/U9KuodrJ9bZbWNdDCek5gjLM4kAWen+coP+kvskmdPMGZ4lKztxXzdSllpBBAYGBgYGBgYGBgatgOC30vo7vuIjRv0UEXS/6yxTqZnPJP8tjmCKrvN0MD2AItUlXGgqfrbSYdUbS2zSxvteqHGUZi9hAmPsx0TT8UunQNH4ezZtaP2+LdTs/LVm/PzD8/8EouSJWQAWAAA="))
+        self.assertEqual(server._xls_rows_builtin(data), [["3", "-5", "Точка"], ["1.5", "2", "100000"], ["7", "8", "9"]])
+        self.assertEqual(server.table_to_text(data, ".xls"), "3\t-5\tТочка\n1.5\t2\t100000\n7\t8\t9\n".encode())
+
     def tour_play(self, tok, mid, solve):
         tasks = self.req("POST", "/api/tour/start", {"match": mid}, tok)[1]["tasks"]
         for pid in tasks[:solve]:

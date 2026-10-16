@@ -2150,3 +2150,4 @@ details.td-row summary { display: flex; flex-wrap: wrap; align-items: center; ga
   font-weight: 700; box-shadow: var(--shadow); max-width: calc(100vw - 32px); }
 /* пароль в обычном поле: символы скрыты точками, браузер не предлагает его сохранить */
 input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
+.surrender-btn { color: var(--weak); font-weight: 700; }
