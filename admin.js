@@ -401,8 +401,13 @@
   }
   async function loadBldAsg() {
     BLD.asg = [];
+    BLD.members = [];
     if (!BLD.d.class_id) return;
-    try { BLD.asg = (await api('assignments?class_id=' + BLD.d.class_id)).assignments || []; } catch (e) { BLD.asg = []; }
+    try {
+      const [a, m] = await Promise.all([api('assignments?class_id=' + BLD.d.class_id), api('students?class_id=' + BLD.d.class_id)]);
+      BLD.asg = a.assignments || [];
+      BLD.members = (m.students || []).map(x => ({ id: x.id, name: x.name })).sort((x, y) => x.name.localeCompare(y.name, 'ru'));
+    } catch (e) { BLD.asg = []; }
     renderBldDraft();
   }
   function renderBldDraft() {
@@ -416,6 +421,11 @@
       ${D.class_id && BLD.asg.length ? `<label class="bld-f">Изменить готовую <select class="adm-select" id="bdLoad"><option value="">— новая подборка —</option>${BLD.asg.map(a => `<option value="${a.id}"${a.id === D.id ? ' selected' : ''}>${esc(a.title)} (${a.tasks.length})</option>`).join('')}</select></label>` : ''}
       <input class="inp" id="bdTitle" maxlength="80" placeholder="Название, например «№5: двоичная запись»" value="${esc(D.title)}">
       <label class="bld-f">Срок <input class="inp" type="date" id="bdDue" value="${esc(D.due || '')}"></label>
+      ${D.class_id && !D.id ? `<div class="bld-to"><span class="bld-f">Кому</span>
+        <label><input type="radio" name="bdTo" value="class"${D.to !== 'some' ? ' checked' : ''}> всему классу</label>
+        <label><input type="radio" name="bdTo" value="some"${D.to === 'some' ? ' checked' : ''}> <b class="pers-tag">персонально</b> — выбранным ученикам</label>
+        ${D.to === 'some' ? `<div class="bld-who">${(BLD.members || []).map(m => `<label><input type="checkbox" data-who="${m.id}"${(D.students || []).includes(m.id) ? ' checked' : ''}> ${esc(m.name)}</label>`).join('') || '<span class="adm-hint">В классе нет учеников</span>'}</div>
+          <p class="adm-hint">Подборку увидят только выбранные — у них она отмечена зелёной надписью «Персональная подборка». В журнале класса — отдельная колонка.</p>` : ''}</div>` : ''}
 <label class="adm-hint">Тип работы <select class="adm-select" id="bdKind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(D.kind || 'self') === k ? ' selected' : ''}>${v.name}</option>`).join('')}</select></label>
       <p class="adm-hint" id="bdKindHint">${KINDS[D.kind || 'self'].hint}</p>
       <div class="bld-sum"><b>${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
@@ -429,7 +439,7 @@
       ${total > 1 ? `<div class="bld-tools"><button type="button" class="link-btn" data-sortd="rank">по сложности ↑</button>
         <button type="button" class="link-btn" data-sortd="num">по номерам</button><button type="button" class="link-btn" data-sortd="shuffle">перемешать</button>
         <button type="button" class="link-btn danger" data-sortd="clear">очистить</button></div>` : ''}
-      <button type="button" class="btn primary bld-send" id="bdSend"${total && D.class_id ? '' : ' disabled'}>${D.id ? 'Сохранить изменения' : 'Отправить классу'}</button>
+      <button type="button" class="btn primary bld-send" id="bdSend"${total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : 'Отправить классу'}</button>
       ${D.class_id ? '' : '<p class="adm-hint">Выберите класс, которому отправить подборку.</p>'}`;
   }
   $('#bldFilters').addEventListener('click', e => {
@@ -509,7 +519,13 @@
     if (e.target.id === 'bdDue') { BLD.d.due = e.target.value; bldSave(); }
   });
   $('#bldDraft').addEventListener('change', e => {
-    if (e.target.id === 'bdClass') { BLD.d.class_id = e.target.value; BLD.d.id = null; bldSave(); renderBldDraft(); loadBldAsg(); }
+    if (e.target.id === 'bdClass') { BLD.d.class_id = e.target.value; BLD.d.id = null; BLD.d.students = []; bldSave(); renderBldDraft(); loadBldAsg(); }
+    if (e.target.name === 'bdTo') { BLD.d.to = e.target.value; bldSave(); renderBldDraft(); }
+    if (e.target.dataset.who) {
+      const id = +e.target.dataset.who, l = BLD.d.students = (BLD.d.students || []).filter(x => x !== id);
+      if (e.target.checked) l.push(id);
+      bldSave(); renderBldDraft();
+    }
     if (e.target.id === 'bdLoad') {
       const a = BLD.asg.find(x => String(x.id) === e.target.value);
       if (!a) { Object.assign(BLD.d, { id: null, title: '', due: '', tasks: [] }); }
@@ -543,11 +559,13 @@
     if (e.target.closest('#bdSend')) {
       if (!D.title.trim()) { toast('Введите название подборки'); $('#bdTitle').focus(); return; }
       try {
+        const pers = !D.id && D.to === 'some';
         await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, kind: D.kind || 'self', grading: grades(),
-          due: D.due ? new Date(D.due + 'T23:59:00').getTime() / 1000 : null, tasks: D.tasks.map(t => t.id) });
+          due: D.due ? new Date(D.due + 'T23:59:00').getTime() / 1000 : null, tasks: D.tasks.map(t => t.id),
+          students: pers ? D.students : null });
         const cls = (BLD.cat.classes.find(c => String(c.id) === String(D.class_id)) || {}).name || '';
-        toast(D.id ? 'Подборка сохранена' : `Подборка отправлена классу ${cls}`);
-        BLD.d = { class_id: D.class_id, id: null, title: '', due: '', tasks: [] };
+        toast(D.id ? 'Подборка сохранена' : pers ? `Персональная подборка отправлена: ${D.students.length} ${plural(D.students.length, 'ученику', 'ученикам', 'ученикам')}` : `Подборка отправлена классу ${cls}`);
+        BLD.d = { class_id: D.class_id, id: null, title: '', due: '', tasks: [], to: D.to, students: [] };
         bldSave(); renderBldDraft(); loadBldAsg(); if (BLD.res) renderBldList();
       } catch (err) { if (err.status !== 401) toast(err.message); }
     }
@@ -691,6 +709,27 @@
     try { await api(path, body); } catch (err) { toast(err.message); return; }
     toast('Готово');
     loadComp();
+  });
+
+  // ------------------------------------------------------------ история версий (changelog.js): для учителя и для учеников
+  const CL = window.EGE_CHANGELOG || { student: [], teacher: [] };
+  const CL_NOW = (CL.student[0] || [''])[0];
+  if ($('#admVerBtn')) $('#admVerBtn').textContent = `Версия ${CL_NOW} · что нового`;
+  function renderVer(kind) {
+    const list = CL[kind] || [];
+    $$('#verModal [data-ver]').forEach(b => b.classList.toggle('on', b.dataset.ver === kind));
+    const ul = arr => `<ul>${arr.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+    $('#verBody').innerHTML = `<p class="adm-hint">${kind === 'teacher' ? 'Что менялось в панели учителя и на сервере — с версии 1.0.0.' : 'Что видят ученики в «Что нового» на сайте.'}</p>
+      <div class="ver-list">${list.map(([v, d, added, changed], i) => `<section class="ver-item">
+        <h3><b>${esc(v)}</b> <span class="muted">${esc(d)}</span>${v === CL_NOW ? ' <span class="ver-now">сейчас</span>' : ''}</h3>
+        ${(added || []).length ? `<div class="ver-k ver-add">✨ Добавлено</div>${ul(added)}` : ''}
+        ${(changed || []).length ? `<div class="ver-k ver-chg">🔧 Изменено</div>${ul(changed)}` : ''}</section>`).join('')}</div>`;
+  }
+  $('#admVerBtn')?.addEventListener('click', () => { renderVer('teacher'); $('#verModal').hidden = false; });
+  $('#verModal').addEventListener('click', e => {
+    const b = e.target.closest('[data-ver]');
+    if (b) return renderVer(b.dataset.ver);
+    if (e.target.id === 'verModal' || e.target.closest('.fm-close')) $('#verModal').hidden = true;
   });
 
   // ------------------------------------------------------------ вкладки
@@ -1117,7 +1156,7 @@
       <div class="dg-actions"><button type="button" class="btn" data-weak>🎯 Каждому — по 3 задания на его 3 слабых номера</button>
         <span class="adm-hint">У каждого ученика своя подборка; появится в журнале отдельной колонкой.</span></div>
       <div class="adm-table-wrap jr-wrap"><table class="adm-table jr-table"><thead><tr><th>Ученик</th><th class="jr-h" title="Прогноз балла ЕГЭ: сейчас и изменение за месяц">Прогноз<small>за 30 дней</small></th><th class="jr-h" title="Варианты ЕГЭ, которые ученик решил сам">Вариант ЕГЭ<small>последний</small></th>
-        ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
+        ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : a.title.startsWith('Персональная') ? '⭐' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
         <th class="num">Средняя</th></tr></thead><tbody>${rows}</tbody>
         <tfoot><tr><td class="muted">По классу</td><td></td><td></td>${foot}<td></td></tr></tfoot></table></div>`;
   }

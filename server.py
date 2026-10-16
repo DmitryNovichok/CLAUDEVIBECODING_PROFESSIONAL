@@ -56,7 +56,7 @@ BANK_JS = HERE / "data" / "bank.js"
 EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк Egeshka (tools/gen_egeshka.py) — подмешивается к bank.js
 
 # что можно отдавать из папки trainer
-SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js",
+SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "changelog.js",
               "terms.html", "privacy.html", "consent.html", "legal.css"}
 # редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
 LEGAL_VERSION = "2026-10-13"
@@ -3926,6 +3926,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 # закрытую учителем вручную не трогаем
                 if prev and prev["closed"] and prev["due"] and prev["closed"] == prev["due"] and (not due or due > now):
                     db.x("UPDATE assignments SET closed=NULL WHERE id=?", (aid,))
+            elif data.get("students"):
+                # персональная подборка: только выбранным ученикам класса (у каждого своя, в журнале — одна колонка)
+                want = {to_int(x) for x in data.get("students") or []}
+                members = [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=? AND COALESCE(is_teacher, 0)=0", (cid,))
+                           if r["id"] in want]
+                if not members:
+                    return self.err(400, "Выберите хотя бы одного ученика этого класса")
+                batch = f"own:{int(now * 1000)}"
+                for sid in members:
+                    aid = db.x("""INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading,kind,student_id,batch)
+                                  VALUES(?,?,?,?,?,?,?,?,?,?)""", (cid, title, json.dumps(tasks), now, due, strict, grading, kind, sid, batch))
+                return self.send_json({"ok": True, "id": aid, "personal": len(members)})
             else:
                 aid = db.x("INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading,kind) VALUES(?,?,?,?,?,?,?,?)",
                            (cid, title, json.dumps(tasks), now, due, strict, grading, kind))
@@ -5787,6 +5799,8 @@ def batch_title(a):
         return "Работа над ошибками" + (f": {src['title']}" if src else "")
     if b.startswith("weak:"):
         return "Слабые места · " + datetime.fromtimestamp(to_int(b[5:]) or a["created"] or 0).strftime("%d.%m")
+    if b.startswith("own:"):
+        return "Персональная: " + a["title"]
     return a["title"]
 
 

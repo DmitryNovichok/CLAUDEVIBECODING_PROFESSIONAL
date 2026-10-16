@@ -84,7 +84,7 @@ systemctl reload caddy
 ## Обновление
 
 - **Задания.** На своём компьютере `python openfipi_parser.py` (по желанию), затем `python build.py --standalone`. Загрузите на сервер `trainer/data/bank.js` и новые файлы из `trainer/media` (в WinSCP удобна «Синхронизация»). Перезапуск не нужен, сервер подхватит новый банк сам.
-- **Сайт** (`app.js`, `style.css`, `index.html`, `admin.*`): загрузить и обновить страницу.
+- **Сайт** (`app.js`, `style.css`, `index.html`, `admin.*`, `changelog.js`): загрузить и обновить страницу.
 - **`server.py`:** загрузить и выполнить `systemctl restart ege-trainer`.
 
 После загрузки выполните `chown -R trainer:trainer /opt/trainer`.
