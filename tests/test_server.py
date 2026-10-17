@@ -1554,6 +1554,23 @@ class ServerTest(unittest.TestCase):
         self.admin("POST", "/api/admin/support/delete", {"id": item["id"]})
         self.assertFalse(any((server.DB_PATH.parent / "support_img" / m["img"]).exists() for m in thread))
 
+    def test_change_kind_of_personal_batch(self):
+        # персональная подборка: тип меняется сразу у всех учеников пачки
+        t1, t2 = self.login("Пачкин Пётр"), self.login("Пачкина Полина")
+        ids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in (t1, t2)]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "10П"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": ids})
+        self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Лично", "kind": "self", "tasks": ["b:5"], "students": ids})
+        b = self.admin("GET", f"/api/admin/assignments?class_id={cid}")[1]["batches"][0]
+        self.assertEqual((b["kind"], b["students"]), ("self", 2))
+        aid = server.APP.db.q("SELECT id FROM assignments WHERE student_id=? AND class_id=?", (ids[0], cid), one=True)["id"]
+        self.req("POST", "/api/asg/start", {"id": aid}, t1)
+        st, d = self.admin("POST", "/api/admin/batch/kind", {"class_id": cid, "batch": b["batch"], "kind": "home"})
+        self.assertEqual((st, d["changed"], d["ended"]), (200, 2, 1))
+        kinds = {r["kind"] + str(r["strict"]) for r in server.APP.db.q("SELECT kind, strict FROM assignments WHERE class_id=?", (cid,))}
+        self.assertEqual(kinds, {"home0"})
+        self.assertEqual(self.admin("POST", "/api/admin/batch/kind", {"class_id": cid, "batch": b["batch"], "kind": "zzz"})[0], 400)
+
     def test_change_kind_of_started_work(self):
         # самостоятельную уже пишут — тип всё равно можно сменить: начатые сдаются по уже данным ответам
         tok = self.login("Типов Тимур")
