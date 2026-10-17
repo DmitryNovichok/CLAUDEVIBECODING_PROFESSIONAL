@@ -59,7 +59,9 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "changelog.js",
-              "terms.html", "privacy.html", "consent.html", "legal.css"}
+              "terms.html", "privacy.html", "consent.html", "legal.css",
+              # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
+              "favicon.ico", "favicon.svg", "favicon-96.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "site.webmanifest"}
 # редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
 LEGAL_VERSION = "2026-10-13"
 SITE_DIRS = ("vendor/", "media/")
@@ -105,6 +107,8 @@ LOCKED_BANK = b'window.EGE_BANK = {"srv":true,"locked":true,"banks":[],"tasks":[
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("image/x-icon", ".ico")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("application/vnd.oasis.opendocument.spreadsheet", ".ods")
@@ -1765,7 +1769,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if html:
             extra["X-Frame-Options"] = "DENY"
             extra["Referrer-Policy"] = "same-origin"
-        if p.suffix.lower() not in (".html", ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".woff2", ".wasm"):
+        if p.suffix.lower() not in (".html", ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".woff2", ".wasm",
+                                    ".ico", ".webmanifest"):
             name = download_name or p.name           # настоящее имя может содержать код задания
             extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote_rfc(name)
         self.send_response(200)
