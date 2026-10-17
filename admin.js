@@ -1172,7 +1172,8 @@
         <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке, ⭐ персональная — в «Создать подборку» → «Кому: персонально». Результаты — в журнале.</p>
         ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : b.batch.startsWith('own') ? '⭐' : '🎯'} ${esc(b.title)}</b>
           <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
-          <span class="adm-actions"><button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div></div>`).join('')}` : ''}
+          <span class="adm-actions"><select class="adm-select" data-batch-kind="${esc(b.batch)}" data-was="${esc(b.kind || 'self')}" title="Тип работы — сразу у всех учеников этой подборки">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(b.kind || 'self') === k ? ' selected' : ''}>${v.ico} ${v.name}</option>`).join('')}</select>
+          <button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div></div>`).join('')}` : ''}
       </div>`;
     if (clsPane === 'journal' || clsPane === 'nums') loadGradebook();
     if (clsPane === 'digest') loadDigest();
@@ -1327,6 +1328,16 @@
       : 'Сделать работу самостоятельной? Ученики, которые ещё не решали, будут сдавать её без проверки; уже данные ответы остаются в журнале.');
   }
   const keptNote = r => (r && r.ended ? ` · сдано начатых самостоятельных: ${r.ended}` : '');
+  document.addEventListener('change', async e => {
+    const bk = e.target.closest('[data-batch-kind]');
+    if (!bk || !curClass) return;
+    if (!kindChangeOk(bk.dataset.was, bk.value)) { bk.value = bk.dataset.was; return; }
+    try {
+      const r = await api('batch/kind', { class_id: curClass.id, batch: bk.dataset.batchKind, kind: bk.value });
+      bk.dataset.was = bk.value;
+      toast(`Тип изменён: ${KINDS[bk.value].name}` + (r.changed > 1 ? ` · у ${r.changed} учеников` : '') + keptNote(r));
+    } catch (err) { bk.value = bk.dataset.was; if (err.status !== 401) toast(err.message); }
+  });
   document.addEventListener('change', e => {
     const k = e.target.closest('#dKind, #bdKind');
     if (!k) return;

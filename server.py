@@ -4199,6 +4199,35 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             made, skipped = weak_sets(db, cid, per, k, days, bool(self.T["authored"]))
             return self.send_json({"ok": True, "made": made, "skipped": skipped})
 
+        if path == "/api/admin/batch/kind" and method == "POST":
+            # тип личной подборки (персональной, работы над ошибками, слабых мест) — сразу у всех учеников пачки;
+            # самостоятельная → практическая/домашняя: начатые сдаются по уже данным ответам, как у подборки класса
+            cid = to_int(data.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            kind = data.get("kind")
+            if kind not in ASG_KINDS:
+                return self.err(400, "неизвестный тип работы")
+            batch = str(data.get("batch") or "")
+            rows = (db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (to_int(batch[4:]), cid))
+                    if batch.startswith("one:") else
+                    db.q("SELECT * FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid)))
+            if not rows:
+                return self.err(404, "подборка не найдена")
+            APP.bank.ensure()
+            ended = 0
+            for a in rows:
+                if a["strict"] and kind != "self":
+                    real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+                    for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NULL", (a["id"],)):
+                        st = db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True)
+                        if st:
+                            asg_finish_run(self, db, a, st, real, forced=1)
+                            ended += 1
+                db.x("UPDATE assignments SET kind=?, strict=? WHERE id=?", (kind, 1 if kind == "self" else 0, a["id"]))
+            live_class(db, cid, [a["student_id"] for a in rows])
+            return self.send_json({"ok": True, "changed": len(rows), "ended": ended})
+
         if path == "/api/admin/batch/delete" and method == "POST":
             cid = to_int(data.get("class_id"))
             if not self.sees_class(cid):
