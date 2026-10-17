@@ -18,6 +18,7 @@
 Если пересобрать банк, сервер подхватит его сам, перезапуск не нужен.
 """
 import argparse
+import base64
 import csv
 import gzip
 import hashlib
@@ -1198,6 +1199,10 @@ class DB:
             -- дни, засчитанные огоньку без трёх заданий: freeze — сработала заморозка, restore — восстановил учитель
             CREATE TABLE IF NOT EXISTS fire_cover(
                 student_id INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, ts REAL, PRIMARY KEY(student_id, day));
+            -- переписка в обращении техподдержки: первое сообщение — support.text, дальше — здесь
+            CREATE TABLE IF NOT EXISTS support_msgs(
+                id INTEGER PRIMARY KEY, support_id INTEGER NOT NULL, ts REAL NOT NULL, who TEXT NOT NULL, text TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS support_msgs_s ON support_msgs(support_id, ts);
             """)
             # новые поля в старых базах
             for table, col, decl in (
@@ -1263,7 +1268,9 @@ class DB:
                     ("tournaments", "theme", "TEXT"),                 # тематический турнир: python, sprint
                     ("tour_matches", "admin", "TEXT"),                # что сделал учитель вручную
                     ("duels", "surrender", "INTEGER"),                # кто сдался — проиграл сразу
-                    ("tour_matches", "surrender", "INTEGER")):
+                    ("tour_matches", "surrender", "INTEGER"),
+                    ("support", "img", "TEXT"),                       # картинка к обращению (файл в server_data/support_img)
+                    ("support_msgs", "img", "TEXT")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
@@ -1277,6 +1284,10 @@ class DB:
                 c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('admin_badge_seeded', '1')")
             c.execute("DELETE FROM settings WHERE key='metrika_id'")     # старая настройка стороннего счётчика больше не нужна
             c.execute("UPDATE assignments SET kind='self' WHERE kind IS NULL")
+            # прежние ответы техподдержки (одно поле answer) — первым сообщением учителя в переписке
+            c.execute("""INSERT INTO support_msgs(support_id, ts, who, text)
+                         SELECT id, COALESCE(answered, ts), 'teacher', answer FROM support
+                         WHERE answer IS NOT NULL AND answer <> '' AND id NOT IN (SELECT support_id FROM support_msgs)""")
             c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
@@ -1373,6 +1384,7 @@ LIVE_LIFE_SEC = 30 * 60     # соединение живёт полчаса, п
 LIVE_TICK_SEC = 5           # раз в столько секунд — ход турниров и проверка, поменялось ли что-то в дуэлях и турнирах
 LIVE_MAX = 1500             # всего соединений; больше — браузер опрашивает сервер по-старому
 LIVE_PER_STUDENT = 4        # на одного ученика (разные браузеры и устройства)
+LIVE_RATE_GAP = 3           # «рейтинг изменился» — одноклассникам не чаще раза в столько секунд (класс решает пачкой)
 
 
 def comp_sig(db, tid):
@@ -1402,6 +1414,8 @@ class LiveHub:
         self.lock = threading.Lock()
         self.subs = {}               # ученик -> {очередь: учитель}
         self.sig = {}                # учитель -> подпись дуэлей и турниров
+        self.rate_due = set()        # учителя, у чьих учеников поменялся рейтинг (ещё не разослано)
+        self.rate_at = {}            # учитель -> когда последний раз рассылали «рейтинг изменился»
         self.wake = threading.Event()
         self.thread = None
 
@@ -1438,10 +1452,25 @@ class LiveHub:
         """Что-то поменялось в дуэлях или турнирах — проверить сразу, не дожидаясь очередного хода."""
         self.wake.set()
 
+    def rate(self, tid):
+        """Ученик учителя tid получил опыт — рейтинг класса поменялся; разошлём пачкой из фонового потока."""
+        with self.lock:
+            if tid in self.rate_due or not any(t == tid for qs in self.subs.values() for t in qs.values()):
+                return                   # уже ждёт рассылки — или никого из этого класса нет на сайте
+            self.rate_due.add(tid)
+        self.wake.set()
+
     def ticker(self):
         while True:
-            self.wake.wait(LIVE_TICK_SEC)
+            wait = LIVE_TICK_SEC
+            with self.lock:
+                if self.rate_due:        # рейтинг ждёт рассылки — проснуться, как только выйдет пауза
+                    now = time.time()
+                    wait = min(wait, max(0.3, min(self.rate_at.get(t, 0) + LIVE_RATE_GAP - now for t in self.rate_due)))
+            self.wake.wait(wait)
             self.wake.clear()
+            if self.rate_due:
+                time.sleep(0.3)          # ответы одноклассников подряд — одна рассылка
             try:
                 self.check()
             except Exception as e:
@@ -1454,7 +1483,16 @@ class LiveHub:
             by_tid = {}
             for sid, qs in self.subs.items():
                 for tid in qs.values():
-                    by_tid.setdefault(tid, set()).add(sid)
+                    if tid is not None:          # у учителя (ключ ("t", id)) дуэлей и турниров нет
+                        by_tid.setdefault(tid, set()).add(sid)
+        now = time.time()
+        with self.lock:
+            due = {t for t in self.rate_due if now - self.rate_at.get(t, 0) >= LIVE_RATE_GAP}
+            self.rate_due -= due         # кому рано — дошлём, когда выйдет пауза (ticker проснётся сам)
+        for tid in due:
+            self.rate_at[tid] = now
+            if tid in by_tid:
+                self.send(by_tid[tid], "rate")
         db = APP.db
         for tid, sids in by_tid.items():
             # ход турниров идёт и без запросов: этап закончился, неявка — ученики узнают сразу
@@ -1471,6 +1509,14 @@ class LiveHub:
 
 
 LIVE = LiveHub()
+
+
+def live_teacher(s, main=False):
+    """Учителю ученика (и главному, если main) — «в ленте новое»: ответ, сдача работы, вариант, обращение."""
+    keys = [("t", s["teacher_id"] or main_teacher()["id"])]
+    if main:
+        keys.append(("t", main_teacher()["id"]))
+    LIVE.send(keys, "feed")
 
 
 def live_class(db, cid, sids=None):
@@ -1540,6 +1586,8 @@ class Handler(BaseHTTPRequestHandler):
             qs = {k: v[0] for k, v in parse_qs(u.query).items()}
             if path == "/api/live":
                 return self.live()
+            if path == "/api/admin/live":
+                return self.live_admin()
             if path.startswith("/api/"):
                 return self.api("GET", path, qs, {})
             return self.static(path)
@@ -1752,12 +1800,35 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_bytes(200, b.public_gz, "application/javascript; charset=utf-8", extra)
         return self.send_bytes(200, b.public_raw, "application/javascript; charset=utf-8", extra)
 
+    def support_img(self, name, sid):
+        """Картинка из техподдержки: автору обращения (sid) или главному учителю (sid=None)."""
+        name = str(name or "")
+        if not SUPPORT_IMG_RE.fullmatch(name):
+            return self.err(404, "нет такой картинки")
+        if sid is not None and not APP.db.q(
+                """SELECT 1 FROM support p WHERE p.student_id=? AND (p.img=? OR EXISTS
+                   (SELECT 1 FROM support_msgs m WHERE m.support_id=p.id AND m.img=?))""", (sid, name, name), one=True):
+            return self.err(404, "нет такой картинки")
+        f = support_img_dir() / name
+        if not f.is_file():
+            return self.err(404, "нет такой картинки")
+        return self.send_bytes(200, f.read_bytes(), SUPPORT_IMG_MIME[name.rsplit(".", 1)[1]],
+                               {"Cache-Control": "private, max-age=86400", "Content-Security-Policy": "default-src 'none'"})
+
     # ---------- живые обновления
     def live(self):
         s = self.student()
         if not s or s["is_teacher"]:
             return self.err(401, "нужно войти")
-        q = LIVE.subscribe(s["id"], teacher_of(s)["id"])
+        return self.live_stream(s["id"], teacher_of(s)["id"])
+
+    def live_admin(self):
+        if not self.is_admin():
+            return self.err(401, "нужно войти")
+        return self.live_stream(("t", self.T["id"]), None)
+
+    def live_stream(self, key, tid):
+        q = LIVE.subscribe(key, tid)
         if q is None:
             return self.err(503, "много соединений — обновления придут обычными запросами")
         self.close_connection = True
@@ -1781,7 +1852,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     self.wfile.write(b": ping\n\n")
                     self.wfile.flush()
                     continue
-                time.sleep(0.3)                  # пачка событий подряд — одно сообщение на тему
+                time.sleep(0.15)                 # пачка событий подряд — одно сообщение на тему
                 while True:
                     try:
                         topics.add(q.get_nowait())
@@ -1792,7 +1863,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
             pass                                 # вкладку закрыли или связь пропала — браузер переподключится сам
         finally:
-            LIVE.unsubscribe(s["id"], q)
+            LIVE.unsubscribe(key, q)
 
     # ---------- API
     def cookie(self, name):
@@ -1829,12 +1900,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if st.get("paste"):
                 fl.append("paste")
             flags = ",".join(fl) or None
-        return APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,
+        aid = APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,
                                                spent_ms,reason,rk,part,grp,revealed,exam,ip,away,away_sec,flags)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (s["id"], time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps(answers, ensure_ascii=False),
                          t.get("ans", ""), score, int(gave_up), int(abandoned), spent, reason, rk, part,
                          t.get("group"), int(revealed), exam, self.client_ip(), away or None, away_sec, flags))
+        live_teacher(s)                          # учитель видит ответ в ленте сразу
+        LIVE.send([s["id"]], "mine")             # другие вкладки и устройства ученика: опыт, уровень, плитки номеров
+        if score > 0 and not s["is_teacher"]:
+            LIVE.rate(s["teacher_id"] or main_teacher()["id"])     # одноклассники видят рейтинг без перезагрузки
+        return aid
 
     def daily_result(self, s, t, st):
         """Задание дня решено с первой попытки: в рейтинг — только первый заход за день,
@@ -2479,6 +2555,30 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if path == "/api/support/seen" and method == "POST":
                 db.x("UPDATE support SET seen=1 WHERE student_id=? AND answer IS NOT NULL", (s["id"],))
                 return self.send_json({"ok": True})
+            if path == "/api/support/reply" and method == "POST":
+                # продолжить переписку по своему обращению; закрытую тему — только новым обращением
+                p = db.q("SELECT * FROM support WHERE id=? AND student_id=?", (to_int(data.get("id")), s["id"]), one=True)
+                if not p:
+                    return self.err(404, "Обращение не найдено")
+                if p["status"] == "closed":
+                    return self.err(409, "Тема закрыта — если вопрос остался, создай новое обращение")
+                text = str(data.get("text") or "").strip()[:SUPPORT_MAX]
+                if len(text) < 2 and not data.get("img"):
+                    return self.err(400, "Напиши сообщение")
+                recent = db.q("""SELECT COUNT(*) AS c FROM support_msgs m JOIN support p ON p.id = m.support_id
+                                 WHERE p.student_id=? AND m.who='student' AND m.ts>?""", (s["id"], time.time() - 3600), one=True)["c"]
+                if recent >= SUPPORT_PER_HOUR * 4:
+                    return self.err(429, "Слишком много сообщений за час — подожди немного")
+                try:
+                    img = support_img_save(data.get("img"))
+                except ValueError as e:
+                    return self.err(400, str(e))
+                db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,?)", (p["id"], time.time(), "student", text, img))
+                db.x("UPDATE support SET status='new' WHERE id=?", (p["id"],))
+                LIVE.send([("t", main_teacher()["id"])], "feed")
+                return self.send_json({"ok": True})
+            if path == "/api/support/img":
+                return self.support_img(qs.get("f"), s["id"])
             if path != "/api/support":
                 return self.err(404, "нет такого метода")
             if method == "POST":
@@ -2491,14 +2591,23 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 recent = db.q("SELECT COUNT(*) AS c FROM support WHERE student_id=? AND ts>?", (s["id"], time.time() - 3600), one=True)["c"]
                 if recent >= SUPPORT_PER_HOUR:
                     return self.err(429, "Слишком много обращений за час — подожди немного")
-                db.x("INSERT INTO support(student_id, ts, kind, text, task, page) VALUES(?,?,?,?,?,?)",
-                     (s["id"], time.time(), kind, text, str(data.get("task") or "")[:60] or None, str(data.get("page") or "")[:120] or None))
+                try:
+                    img = support_img_save(data.get("img"))
+                except ValueError as e:
+                    return self.err(400, str(e))
+                # ученик видит задание под открытым кодом — учителю нужен настоящий номер из банка
+                task = str(data.get("task") or "")[:60] or None
+                if task and APP.bank.ensure():
+                    task = APP.bank.real(task) or task
+                db.x("INSERT INTO support(student_id, ts, kind, text, task, page, img) VALUES(?,?,?,?,?,?,?)",
+                     (s["id"], time.time(), kind, text, task, str(data.get("page") or "")[:120] or None, img))
+                LIVE.send([("t", main_teacher()["id"])], "feed")      # главному учителю — сразу
                 return self.send_json({"ok": True})
             rows = db.q("SELECT * FROM support WHERE student_id=? ORDER BY id DESC LIMIT 20", (s["id"],))
             return self.send_json({"kinds": SUPPORT_KINDS, "unread": sum(1 for r in rows if not r["seen"]),
                                    "items": [{"id": r["id"], "ts": r["ts"], "kind": r["kind"], "text": r["text"], "task": r["task"],
                                               "status": r["status"], "answer": r["answer"], "answered": r["answered"],
-                                              "seen": bool(r["seen"])} for r in rows]})
+                                              "seen": bool(r["seen"]), "thread": support_thread(db, r)} for r in rows]})
 
         if path == "/api/dev/unlock" and method == "POST":
             # раздел «в разработке» (турнир) — по коду доступа; попыток немного, чтобы код не подбирали
@@ -3050,6 +3159,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                     else "Учитель уже завершил эту самостоятельную")
                 db.x("INSERT INTO asg_runs(asg_id, student_id, started, last, answers) VALUES(?,?,?,?,?)", (aid, s["id"], now, now, "{}"))
                 db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind) VALUES(?,?,?,'start')", (aid, s["id"], now))
+                live_teacher(s)
             return self.send_json(asg_run_public(db, a, s["id"], real))
         if not run:
             return self.err(409, "Сначала начните самостоятельную")
@@ -3062,6 +3172,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x(f"UPDATE asg_runs SET {kind}=COALESCE({kind}, 0)+1, last=? WHERE asg_id=? AND student_id=?", (now, aid, s["id"]))
                     db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind, info) VALUES(?,?,?,?,?)",
                          (aid, s["id"], now, kind, str(round(to_float(data.get("dur")))) if data.get("dur") else None))
+                    live_teacher(s)
             return self.send_json({"ok": True})
         if run["finished"] or a["closed"]:
             if not run["finished"]:
@@ -3090,6 +3201,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None}
             db.x("UPDATE asg_runs SET answers=?, last=? WHERE asg_id=? AND student_id=?",
                  (json.dumps(answers, ensure_ascii=False), now, aid, s["id"]))
+            live_teacher(s)                      # «● Онлайн» у учителя: сдано на одно задание больше
             return self.send_json(asg_run_public(db, a, s["id"], real))
         if path == "/api/asg/finish":
             asg_finish_run(self, db, a, s, real)
@@ -3142,6 +3254,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS}
         db.x("UPDATE exams SET finished=?, items=?, primary_score=?, test_score=?, result=? WHERE id=?",
              (now, len(results), primary, test, json.dumps(out, ensure_ascii=False), e["id"]))
+        live_teacher(s)
         return self.send_json(dict(out, game=game_summary(db, s["id"])))
 
     # ---------- API учителя
@@ -3381,6 +3494,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                  JOIN students s ON s.id = x.student_id WHERE x.ts > ? ORDER BY x.ts DESC LIMIT 50""", (since,)):
                     events.append({"ts": t["ts"], "kind": "support", "student_id": t["student_id"], "name": t["name"],
                                    "title": SUPPORT_KINDS.get(t["kind"], "Обращение"), "info": (t["text"] or "")[:160]})
+                for t in db.q("""SELECT m.ts, m.text, p.kind, p.student_id, s.name FROM support_msgs m JOIN support p ON p.id = m.support_id
+                                 JOIN students s ON s.id = p.student_id WHERE m.who='student' AND m.ts > ? ORDER BY m.ts DESC LIMIT 50""", (since,)):
+                    events.append({"ts": t["ts"], "kind": "support", "student_id": t["student_id"], "name": t["name"],
+                                   "title": "ответ в обращении", "info": (t["text"] or "")[:160]})
             events.sort(key=lambda x: -x["ts"])
             return self.send_json({"attempts": out, "events": events, "now": now})
 
@@ -3410,7 +3527,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/task":
             APP.bank.ensure()
-            t = APP.bank.tasks.get(qs.get("id") or "")
+            t = APP.bank.tasks.get(APP.bank.real(qs.get("id")) or "")      # и открытый код из обращения ученика
             if not t:
                 return self.err(404, "задание не найдено (банк мог быть пересобран)")
             own = db.q("SELECT text FROM tsolutions WHERE teacher_id=? AND task_id IN (?, ?)",
@@ -3559,6 +3676,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             for table in ("attempts", "reveal_log", "exams", "activity", "solutions", "daily_starts", "daily_results",
                           "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue"):
                 db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
+            db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
+            support_img_cleanup(db)
             for aid in [r["id"] for r in db.q("SELECT id FROM assignments WHERE student_id=?", (sid,))]:
                 db.x("DELETE FROM asg_runs WHERE asg_id=?", (aid,))
                 db.x("DELETE FROM asg_events WHERE asg_id=?", (aid,))
@@ -3745,10 +3864,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "duels": one("SELECT COUNT(*) c FROM duels WHERE status = 'finished'")["c"],
                 "bank": len(APP.bank.tasks) if APP.bank.ensure() else 0,
                 "series": series, "nums": nums, "by_teacher": teachers, "support_kinds": SUPPORT_KINDS,
-                "support": [dict(r) for r in db.q("""
-                    SELECT p.*, s.name, COALESCE(t.name, '') AS teacher FROM support p JOIN students s ON s.id = p.student_id
+                "support": [dict(r, thread=support_thread(db, r)) for r in db.q("""
+                    SELECT p.*, s.name, COALESCE(t.name, '') AS teacher,
+                           COALESCE((SELECT MAX(ts) FROM support_msgs m WHERE m.support_id = p.id), p.ts) AS last
+                    FROM support p JOIN students s ON s.id = p.student_id
                     LEFT JOIN teachers t ON t.id = COALESCE(s.teacher_id, ?)
-                    ORDER BY (p.status = 'new') DESC, p.id DESC LIMIT 200""", (main_id,))]})
+                    ORDER BY (p.status = 'new') DESC, last DESC LIMIT 200""", (main_id,))]})
+
+        if path == "/api/admin/support/img":
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            return self.support_img(qs.get("f"), None)
 
         if path == "/api/admin/support/delete" and method == "POST":
             # удалить обращение (или все закрытые разом) — только главный учитель
@@ -3758,6 +3884,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 n = db.xn("DELETE FROM support WHERE status='closed'")
             else:
                 n = db.xn("DELETE FROM support WHERE id=?", (to_int(data.get("id")),))
+            db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")
+            support_img_cleanup(db)
             return self.send_json({"ok": True, "deleted": n})
 
         if path == "/api/admin/support/answer" and method == "POST":
@@ -3768,11 +3896,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not r:
                 return self.err(404, "Обращение не найдено")
             answer = str(data.get("answer") or "").strip()[:SUPPORT_MAX]
+            try:
+                img = support_img_save(data.get("img"))
+            except ValueError as e:
+                return self.err(400, str(e))
+            if img and not answer:
+                answer = "(картинка)"
             status = "closed" if data.get("close") else ("answered" if answer else r["status"])
+            if data.get("reopen"):
+                last = db.q("SELECT who FROM support_msgs WHERE support_id=? ORDER BY ts DESC, id DESC LIMIT 1", (sid,), one=True)
+                status = "answered" if last and last["who"] == "teacher" else "new"
             if answer:
+                db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,?)", (sid, time.time(), "teacher", answer, img))
                 db.x("UPDATE support SET answer=?, answered=?, status=?, seen=0 WHERE id=?", (answer, time.time(), status, sid))
             else:
                 db.x("UPDATE support SET status=? WHERE id=?", (status, sid))
+            LIVE.send([r["student_id"]], "support")      # ответ появится у ученика сразу
             return self.send_json({"ok": True})
 
         if path == "/api/admin/teachers":
@@ -4085,17 +4224,28 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tasks = tasks[:100]
             due = to_float(data.get("due")) or None
             aid = to_int(data.get("id"))
+            if due and not aid and due < now:
+                return self.err(400, "Срок уже прошёл — выберите сегодняшнюю или более позднюю дату")
             kind = data.get("kind") if data.get("kind") in ASG_KINDS else "self"
             strict = 1 if kind == "self" else 0      # самостоятельная — проверка после сдачи; практическая и домашняя — сразу
             g = data.get("grading") if isinstance(data.get("grading"), dict) else {}
             grading = json.dumps({k: max(0, min(100, to_int(g.get(k, v)))) for k, v in ASG_GRADES.items()})
             if aid:
                 old = db.q("SELECT strict, kind, tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
+                ended = 0
                 if old and old["strict"] and db.q("SELECT 1 FROM asg_runs WHERE asg_id=? LIMIT 1", (aid,), one=True):
-                    if kind != "self":
-                        return self.err(409, "Самостоятельную уже начали писать — тип работы менять нельзя")
                     if json.loads(old["tasks"]) != tasks:
                         return self.err(409, "Самостоятельную уже начали писать — состав заданий менять нельзя")
+                    if kind != "self":
+                        # самостоятельная → практическая/домашняя: начатые сдаются по уже данным ответам (попадают в журнал),
+                        # дальше ученики решают как обычную подборку
+                        full = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
+                        real = [i for i in tasks if i in APP.bank.tasks]
+                        for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NULL", (aid,)):
+                            st = db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True)
+                            if st:
+                                asg_finish_run(self, db, full, st, real, forced=1)
+                                ended += 1
                 prev = db.q("SELECT closed, due FROM assignments WHERE id=?", (aid,), one=True)
                 db.x("UPDATE assignments SET title=?, tasks=?, due=?, strict=?, grading=?, kind=? WHERE id=? AND class_id=?",
                      (title, json.dumps(tasks), due, strict, grading, kind, aid, cid))
@@ -4103,6 +4253,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 # закрытую учителем вручную не трогаем
                 if prev and prev["closed"] and prev["due"] and prev["closed"] == prev["due"] and (not due or due > now):
                     db.x("UPDATE assignments SET closed=NULL WHERE id=?", (aid,))
+                live_class(db, cid)
+                return self.send_json({"ok": True, "id": aid, "ended": ended})
             elif data.get("students"):
                 # персональная подборка: только выбранным ученикам класса (у каждого своя, в журнале — одна колонка)
                 want = {to_int(x) for x in data.get("students") or []}
@@ -4726,6 +4878,7 @@ def _game_summary(db, sid, brief=False, windows=None):
         ts, tid = r["ts"], r["task_id"]
         lt = time.localtime(ts)
         day = time.strftime("%Y-%m-%d", lt)
+        fun = ACH_CLOCK(ts)                    # час, день недели и дата — для «забавных» достижений
         if prev_day and day != prev_day and (datetime.strptime(day, "%Y-%m-%d") - datetime.strptime(prev_day, "%Y-%m-%d")).days >= 8:
             cnt["phoenix"] = 1                 # между днями занятий — неделя без единого ответа
         prev_day = day
@@ -4747,7 +4900,7 @@ def _game_summary(db, sid, brief=False, windows=None):
             solves_of[tid] = solves_of.get(tid, 0) + 1
             if solves_of[tid] >= 3:
                 cnt["dejavu"] = 1
-            if 12 <= lt.tm_hour < 14:
+            if 12 <= fun.tm_hour < 14:
                 lunch_of[day] = lunch_of.get(day, 0) + 1
             nums_of.setdefault(day, set()).add(r["n"])
             if r["spent_ms"] and r["spent_ms"] >= 30 * 60000:
@@ -4762,13 +4915,13 @@ def _game_summary(db, sid, brief=False, windows=None):
             if cnt["fails"] >= 5:
                 cnt["bug"] = 1
             cnt["fails"] = 0
-            if lt.tm_hour == 0 and lt.tm_min < 5:
+            if fun.tm_hour == 0 and fun.tm_min < 5:
                 cnt["cinderella"] = 1
-            if lt.tm_wday == 4 and lt.tm_mday == 13:
+            if fun.tm_wday == 4 and fun.tm_mday == 13:
                 cnt["fri13"] = 1
-            if lt.tm_mon == 3 and lt.tm_mday == 14:
+            if fun.tm_mon == 3 and fun.tm_mday == 14:
                 cnt["pi"] = 1
-            if (lt.tm_mon, lt.tm_mday) in ((12, 31), (1, 1)):
+            if (fun.tm_mon, fun.tm_mday) in ((12, 31), (1, 1)):
                 cnt["newyear"] = 1
             # решено быстрее минуты — похоже на подсмотренный ответ: вместо опыта −1 XP, задание не считается решённым
             fast = r["spent_ms"] is not None and r["spent_ms"] < FAST_XP_MS and ts >= fast_since
@@ -4791,9 +4944,9 @@ def _game_summary(db, sid, brief=False, windows=None):
             per_day[day] = per_day.get(day, 0) + (0 if fast else 1)
             if per_day[day] == 5 and not fast:
                 gain(15, ts, "5 заданий за день")  # бонус за день: 5 решённых
-            if lt.tm_hour >= 23:
+            if fun.tm_hour >= 23:
                 cnt["night"] = 1
-            if lt.tm_hour < 7:
+            if fun.tm_hour < 7:
                 cnt["early"] = 1
             cnt["row"] = cnt["row"] + 1 if r["score"] == 1 else 0
         else:
@@ -4810,7 +4963,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                          ("day50", per_day.get(day, 0)), ("night", cnt["night"]), ("early", cnt["early"]),
                          ("turtle", cnt["turtle"]),
                          ("bug", cnt["bug"]), ("phoenix", cnt["phoenix"]), ("cinderella", cnt["cinderella"]),
-                         ("weekend", per_day.get(day, 0) if lt.tm_wday >= 5 else 0), ("fri13", cnt["fri13"]),
+                         ("weekend", per_day.get(day, 0) if fun.tm_wday >= 5 else 0), ("fri13", cnt["fri13"]),
                          ("pi", cnt["pi"]), ("newyear", cnt["newyear"]), ("stubborn", cnt["stubborn"]),
                          ("peek", cnt["peek"]), ("lunch", lunch_of.get(day, 0)), ("snail", cnt["snail"]),
                          ("rainbow", len(nums_of.get(day, ()))), ("perfect", cnt["perfect"]), ("binge", cnt["best_binge"]),
@@ -5240,6 +5393,61 @@ def duel_tasks(nums=None):
 # плей-офф на выбывание с матчем за 3-е место. «Счёт» матча — сколько заданий решил каждый.
 SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не работает сайт", "xp": "Опыт, рейтинг, турниры", "question": "Вопрос", "other": "Другое"}
 SUPPORT_MAX = 2000
+ACH_CLOCK = time.localtime          # часы для достижений «ночью», «в обед», «пятница 13-е»… (тесты подменяют)
+
+
+def support_thread(db, p):
+    """Переписка по обращению: первое сообщение ученика и все ответы по порядку."""
+    return [{"who": "student", "ts": p["ts"], "text": p["text"], "img": p["img"]}] + [
+        {"who": r["who"], "ts": r["ts"], "text": r["text"], "img": r["img"]}
+        for r in db.q("SELECT who, ts, text, img FROM support_msgs WHERE support_id=? ORDER BY ts, id", (p["id"],))]
+
+
+# картинки в техподдержке (скриншот ошибки): браузер пересжимает их в JPEG без метаданных, сервер проверяет,
+# что это правда картинка, и кладёт файлом рядом с базой; показывает только автору обращения и главному учителю
+SUPPORT_IMG_MAX = 1_500_000
+SUPPORT_IMG_RE = re.compile(r"[0-9a-f]{32}\.(jpg|png|webp)")
+SUPPORT_IMG_MIME = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+
+def support_img_dir():
+    return DB_PATH.parent / "support_img"
+
+
+def support_img_save(data_url):
+    """data:image/…;base64 → имя файла; None — картинки нет; ValueError — не картинка или слишком большая."""
+    if not data_url:
+        return None
+    m = re.fullmatch(r"data:image/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)", str(data_url).strip())
+    if not m:
+        raise ValueError("Это не картинка")
+    try:
+        raw = base64.b64decode(m.group(1), validate=True)
+    except ValueError:
+        raise ValueError("Картинка повреждена")
+    if len(raw) > SUPPORT_IMG_MAX:
+        raise ValueError("Картинка слишком большая — до 1,5 МБ")
+    ext = ("jpg" if raw[:3] == b"\xff\xd8\xff" else "png" if raw[:8] == b"\x89PNG\r\n\x1a\n"
+           else "webp" if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP" else None)
+    if not ext:
+        raise ValueError("Это не картинка")
+    name = f"{secrets.token_hex(16)}.{ext}"
+    d = support_img_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_bytes(raw)
+    return name
+
+
+def support_img_cleanup(db):
+    """Удалить файлы картинок, на которые больше не ссылается ни одно обращение."""
+    d = support_img_dir()
+    if not d.is_dir():
+        return
+    used = {r["img"] for r in db.q("SELECT img FROM support WHERE img IS NOT NULL")}
+    used |= {r["img"] for r in db.q("SELECT img FROM support_msgs WHERE img IS NOT NULL")}
+    for f in d.iterdir():
+        if SUPPORT_IMG_RE.fullmatch(f.name) and f.name not in used:
+            f.unlink(missing_ok=True)
 SUPPORT_PER_HOUR = 5
 
 
@@ -5896,6 +6104,7 @@ def asg_finish_run(handler, db, a, s, real, forced=0):
         return                                     # уже сдал (два запроса разом) — второй раз в журнал не пишем
     db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind, info) VALUES(?,?,?,?,?)",
          (a["id"], s["id"], now, "forced" if forced else "finish", json.dumps({"grade": grade, "pct": pct})))
+    live_teacher(s)
     for k, credit in res.items():                 # в журнал — как обычные ответы (опыт, повторения, статистика)
         if credit is None:
             continue

@@ -1,5 +1,7 @@
   // ------------------------------------------------------------ сервер: вход и синхронизация
+  let localWriteAt = 0;                 // когда эта вкладка сама отправила ответ или сдала работу — для живых обновлений
   async function api(path, body, method) {
+    if (body && /^(check|reveal|asg\/(answer|finish)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
     if (isTemp()) headers['X-Temp'] = '1';
@@ -183,6 +185,7 @@
     abandonCurrent();
     flushSync(false);
     try { await api('logout', {}); } catch (e) { /* cookie сотрётся при следующем входе */ }
+    liveStop();
     forgetStudent();
     clearInterval(exTimer);
     EX = null;

@@ -19,6 +19,7 @@
     try { const d = await api('assignments'); ASG = d.assignments || []; ASG_IN_CLASS = !!d.in_class; } catch (e) { if (e.status === 401) throw e; ASG = []; }
     ASG = ASG.concat(duels);
     renderAsgCard();
+    renderAsgPage();                      // открыта страница подборок — новая подборка появится на ней сразу
     if (wkLive()) wkWatch();
     asgNotices();
   }
@@ -308,7 +309,7 @@
   // ------------------------------------------------------------ самостоятельная от учителя
   // Ответ на задание сдаётся один раз и не проверяется до конца; итог и оценка — после «Завершить».
   // Пишется в полном экране; уход со вкладки и выход из полного экрана сразу уходят учителю.
-  let wkPoll = null, wkFsOn = false;
+  let wkPoll = null, wkFsOn = false, wkAt = 0;
   const wkScope = () => { const a = ui.scope === 'asg' && asgOf(ui.asg); return a && a.strict ? a : null; };
   const wkLive = () => { const a = wkScope(); return a && a.started && !a.finished && !a.closed && !examShown && !courseShown ? a : null; };
   const wkTask = () => (cur && cur.why && cur.why.type === 'asg' ? wkLive() : null);
@@ -577,6 +578,8 @@
     wkPoll = setInterval(() => {
       const a = wkLive();
       if (!a) { if (!wkScope()) clearInterval(wkPoll); return; }
+      if (liveOn() && Date.now() - wkAt < 60000) return;       // завершение учителем придёт событием, опрос — страховка
+      wkAt = Date.now();
       wkRefresh(a);
     }, 10000);
   }

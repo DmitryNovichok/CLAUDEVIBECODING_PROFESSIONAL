@@ -16,7 +16,12 @@
     return many;
   }
   const pad = n => String(n).padStart(2, '0');
-  const fmtDate = ts => { const d = new Date(ts * 1000); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`; };
+  const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  // дата: ДД.ММ, а если год не текущий — ДД.ММ.ГГ (иначе срок «05.04» не отличить от прошлогоднего)
+  const fmtDate = ts => { const d = new Date(ts * 1000); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}${d.getFullYear() !== new Date().getFullYear() ? '.' + String(d.getFullYear()).slice(2) : ''}`; };
+  // время обращений в техподдержку — московское
+  const MSK_FMT = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const mskTime = ts => MSK_FMT.format(new Date(ts * 1000)).replace(',', '') + ' МСК';
   const fmtTime = ts => { const d = new Date(ts * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   const fmtWhen = ts => {
     if (!ts) return '—';
@@ -205,7 +210,7 @@
   });
   $('#logoutBtn').addEventListener('click', async () => {
     try { await api('logout', {}); } catch (e) { /* всё равно выходим */ }
-    showLogin();
+    location.reload();                 // с нуля: остановить опрос ленты и живое соединение прежнего учителя
   });
 
   // ------------------------------------------------------------ учитель решает как ученик
@@ -258,21 +263,63 @@
         <tbody>${d.by_teacher.map(t => `<tr><td class="name">${esc(t.name)}${t.is_main ? ' <span class="muted">· главный</span>' : ''}</td><td class="num">${n(t.students)}</td><td class="num">${n(t.active_week)}</td><td class="num">${n(t.solved_week)}</td></tr>`).join('')}</tbody></table></div>
       ${supportHtml(d)}`;
   }
+  // картинки в техподдержке: показываются по ссылке (только главному учителю); свою — кнопкой 📎 или Ctrl+V
+  const spImg = name => (name ? `<a class="sp-a-img" href="api/admin/support/img?f=${encodeURIComponent(name)}" target="_blank" rel="noopener" title="Открыть картинку"><img src="api/admin/support/img?f=${encodeURIComponent(name)}" alt="картинка" loading="lazy"></a>` : '');
+  /** Картинка → JPEG не больше 1600 точек и ~1,4 МБ (без данных о месте съёмки). */
+  function spShrink(file) {
+    return new Promise((res, rej) => {
+      if (!file || !/^image\//.test(file.type)) { rej(new Error('Это не картинка')); return; }
+      const img = new Image(), u = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(u);
+        let q = 0.85, side = 1600, out = '';
+        for (let i = 0; i < 5; i++) {
+          const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+          const g = c.getContext('2d');
+          g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+          g.drawImage(img, 0, 0, c.width, c.height);
+          out = c.toDataURL('image/jpeg', q);
+          if (out.length * 0.75 < 1.4e6) break;
+          q = Math.max(0.5, q - 0.1); side = Math.round(side * 0.8);
+        }
+        res(out);
+      };
+      img.onerror = () => { URL.revokeObjectURL(u); rej(new Error('Не получилось открыть картинку')); };
+      img.src = u;
+    });
+  }
+  async function spSetImg(box, file) {
+    try { box.spImg = await spShrink(file); } catch (e) { toast(e.message); return; }
+    const prev = box.querySelector('.sp-prev');
+    prev.innerHTML = `<img src="${box.spImg}" alt="прикреплённая картинка"><button type="button" class="sp-prev-x" title="Убрать картинку">×</button>`;
+    prev.hidden = false;
+  }
+  $('#siteBody').addEventListener('paste', e => {
+    const box = e.target.closest('[data-sp]');
+    const f = box && [...((e.clipboardData && e.clipboardData.files) || [])].find(x => /^image\//.test(x.type));
+    if (!f) return;
+    if (!e.clipboardData.getData('text')) e.preventDefault();
+    spSetImg(box, f);
+  });
   /** Обращения в техподдержку от учеников: новые сверху, ответ виден ученику на сайте. */
   const SP_ST = { new: ['new', 'новое'], answered: ['ans', 'отвечено'], closed: ['closed', 'закрыто'] };
   function supportHtml(d) {
     const list = d.support || [];
     const fresh = list.filter(x => x.status === 'new').length;
-    const dt = ts => { const x = new Date(ts * 1000); return `${pad(x.getDate())}.${pad(x.getMonth() + 1)} ${fmtTime(ts)}`; };
+    const dt = mskTime;
     const items = list.map(x => `<div class="sp-a ${SP_ST[x.status] ? SP_ST[x.status][0] : ''}" data-sp="${x.id}">
       <div class="sp-a-head"><span class="sp-st">${(SP_ST[x.status] || SP_ST.new)[1]}</span><b>${esc(x.name)}</b>
         <span class="muted">${esc(x.teacher ? 'учитель: ' + x.teacher : '')}</span><span class="muted">${esc((d.support_kinds || {})[x.kind] || '')}</span>
-        <span class="muted">${dt(x.ts)}</span>${x.task ? `<span class="muted">задание <code>${esc(x.task)}</code></span>` : ''}${x.page ? `<span class="muted">раздел: ${esc(x.page)}</span>` : ''}</div>
-      <div class="sp-a-text">${esc(x.text)}</div>
-      ${x.answer ? `<div class="sp-a-ans"><b>Ваш ответ · ${dt(x.answered)}</b>${esc(x.answer)}</div>` : ''}
-      ${x.status === 'closed' ? '<div class="sp-a-btns"><button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div>'
-        : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке»)"></textarea>
-        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-close>Закрыть</button>
+        <span class="muted">${dt(x.ts)}</span>${x.task ? `<span class="muted">задание <button type="button" class="task-link" data-task="${esc(x.task)}"><code>${esc(x.task)}</code></button></span>` : ''}${x.page ? `<span class="muted">раздел: ${esc(x.page)}</span>` : ''}</div>
+      ${(x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map(m => m.who === 'teacher'
+        ? `<div class="sp-a-ans"><b>Ответ учителя · ${dt(m.ts)}</b>${esc(m.text)}${spImg(m.img)}</div>`
+        : `<div class="sp-a-text"><b class="sp-a-who">${esc(x.name)} · ${dt(m.ts)}</b>${esc(m.text)}${spImg(m.img)}</div>`).join('')}
+      ${x.status === 'closed' ? `<div class="sp-a-btns"><span class="muted">Тема закрыта — ученик может только создать новое обращение.</span>
+          <button type="button" class="btn ghost" data-sp-reopen>Открыть снова</button><button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div>`
+        : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке» и сможет ответить в этой теме). Скриншот — Ctrl+V или 📎"></textarea>
+        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-pick title="Приложить картинку — или вставьте скриншот в поле через Ctrl+V">📎 Картинка</button><span class="sp-prev" hidden></span><button type="button" class="btn ghost" data-sp-close title="Ученик больше не сможет писать в эту тему">Закрыть тему</button>
           <button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div></div>`}
     </div>`).join('');
     const closed = list.filter(x => x.status === 'closed').length;
@@ -291,13 +338,23 @@
       loadSite();
       return;
     }
-    const send = e.target.closest('[data-sp-send]'), close = e.target.closest('[data-sp-close]');
-    if (!send && !close) return;
+    const pick = e.target.closest('[data-sp-pick]'), unpick = e.target.closest('.sp-prev-x');
+    if (pick) {
+      const box = e.target.closest('[data-sp]'), inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*';
+      inp.addEventListener('change', () => { if (inp.files[0]) spSetImg(box, inp.files[0]); });
+      inp.click();
+      return;
+    }
+    if (unpick) { const box = e.target.closest('[data-sp]'); box.spImg = null; const p = box.querySelector('.sp-prev'); p.innerHTML = ''; p.hidden = true; return; }
+    const send = e.target.closest('[data-sp-send]'), close = e.target.closest('[data-sp-close]'), reopen = e.target.closest('[data-sp-reopen]');
+    if (!send && !close && !reopen) return;
     const box = e.target.closest('[data-sp]');
-    const answer = box.querySelector('textarea').value.trim();
-    if (send && !answer) { toast('Напишите ответ'); return; }
-    try { await api('support/answer', { id: +box.dataset.sp, answer, close: !!close }); } catch (err) { toast(err.message); return; }
-    toast(close ? 'Обращение закрыто' : 'Ответ отправлен');
+    const ta = box.querySelector('textarea'), answer = ta ? ta.value.trim() : '';
+    if (send && !answer && !box.spImg) { toast('Напишите ответ'); return; }
+    if (close && !confirm(answer ? 'Отправить ответ и закрыть тему? Ученик больше не сможет писать в неё.' : 'Закрыть тему? Ученик больше не сможет писать в неё.')) return;
+    try { await api('support/answer', { id: +box.dataset.sp, answer, img: box.spImg || null, close: !!close, reopen: !!reopen }); } catch (err) { toast(err.message); return; }
+    toast(reopen ? 'Тема снова открыта' : close ? 'Тема закрыта' : 'Ответ отправлен');
     loadSite();
   });
   $('#siteReload').addEventListener('click', loadSite);
@@ -420,7 +477,7 @@
       <label class="bld-f">Класс <select class="adm-select" id="bdClass"><option value="">— выберите —</option>${C.classes.map(c => `<option value="${c.id}"${String(c.id) === String(D.class_id) ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
       ${D.class_id && BLD.asg.length ? `<label class="bld-f">Изменить готовую <select class="adm-select" id="bdLoad"><option value="">— новая подборка —</option>${BLD.asg.map(a => `<option value="${a.id}"${a.id === D.id ? ' selected' : ''}>${esc(a.title)} (${a.tasks.length})</option>`).join('')}</select></label>` : ''}
       <input class="inp" id="bdTitle" maxlength="80" placeholder="Название, например «№5: двоичная запись»" value="${esc(D.title)}">
-      <label class="bld-f">Срок <input class="inp" type="date" id="bdDue" value="${esc(D.due || '')}"></label>
+      <label class="bld-f">Срок <input class="inp" type="date" id="bdDue" value="${esc(D.due || '')}"${D.id ? '' : ` min="${todayIso()}"`}></label>
       ${D.class_id && !D.id ? `<div class="bld-to"><span class="bld-f">Кому</span>
         <label><input type="radio" name="bdTo" value="class"${D.to !== 'some' ? ' checked' : ''}> всему классу</label>
         <label><input type="radio" name="bdTo" value="some"${D.to === 'some' ? ' checked' : ''}> <b class="pers-tag">персонально</b> — выбранным ученикам</label>
@@ -560,11 +617,13 @@
       if (!D.title.trim()) { toast('Введите название подборки'); $('#bdTitle').focus(); return; }
       try {
         const pers = !D.id && D.to === 'some';
-        await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, kind: D.kind || 'self', grading: grades(),
+        const prevKind = D.id && ((BLD.asg || []).find(x => x.id === D.id) || {}).kind;
+        if (!kindChangeOk(prevKind, D.kind || 'self')) return;
+        const r = await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, kind: D.kind || 'self', grading: grades(),
           due: D.due ? new Date(D.due + 'T23:59:00').getTime() / 1000 : null, tasks: D.tasks.map(t => t.id),
           students: pers ? D.students : null });
         const cls = (BLD.cat.classes.find(c => String(c.id) === String(D.class_id)) || {}).name || '';
-        toast(D.id ? 'Подборка сохранена' : pers ? `Персональная подборка отправлена: ${D.students.length} ${plural(D.students.length, 'ученику', 'ученикам', 'ученикам')}` : `Подборка отправлена классу ${cls}`);
+        toast(D.id ? 'Подборка сохранена' + keptNote(r) : pers ? `Персональная подборка отправлена: ${D.students.length} ${plural(D.students.length, 'ученику', 'ученикам', 'ученикам')}` : `Подборка отправлена классу ${cls}`);
         BLD.d = { class_id: D.class_id, id: null, title: '', due: '', tasks: [], to: D.to, students: [] };
         bldSave(); renderBldDraft(); loadBldAsg(); if (BLD.res) renderBldList();
       } catch (err) { if (err.status !== 401) toast(err.message); }
@@ -1110,8 +1169,8 @@
       <div id="asgEditor"></div>
       ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}
       ${c.batches.length ? `<h3 class="adm-h3">Личные подборки</h3>
-        <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке. Результаты — в журнале.</p>
-        ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : '🎯'} ${esc(b.title)}</b>
+        <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке, ⭐ персональная — в «Создать подборку» → «Кому: персонально». Результаты — в журнале.</p>
+        ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : b.batch.startsWith('own') ? '⭐' : '🎯'} ${esc(b.title)}</b>
           <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
           <span class="adm-actions"><button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div></div>`).join('')}` : ''}
       </div>`;
@@ -1194,6 +1253,7 @@
   function renderGradebook() {
     const box = $('#clsJournal');
     if (!box || !gradebook) return;
+    const w0 = box.querySelector('.jr-wrap'), sx = w0 ? w0.scrollLeft : 0;    // журнал обновляется сам — не сбивать прокрутку
     const A = gradebook.assignments, S = gradebook.students;
     if (!S.length) { box.innerHTML = '<p class="adm-empty">В классе нет учеников.</p>'; return; }
     if (!A.length) { box.innerHTML = '<p class="adm-empty">Подборок пока нет — когда выдадите, здесь появятся оценки за каждую.</p>'; return; }
@@ -1224,6 +1284,8 @@
         ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : a.title.startsWith('Персональная') ? '⭐' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
         <th class="num">Средняя</th></tr></thead><tbody>${rows}</tbody>
         <tfoot><tr><td class="muted">По классу</td><td></td><td></td>${foot}<td></td></tr></tfoot></table></div>`;
+    const w1 = box.querySelector('.jr-wrap');
+    if (w1 && sx) w1.scrollLeft = sx;
   }
   function renderNumsHeat() {
     const box = $('#clsNums');
@@ -1257,6 +1319,14 @@
     practice: { name: 'Практическая', ico: '🛠', hint: 'Ученик сразу видит, верно или нет, — две попытки на задание. Оценка ставится сама: верно с 1-й попытки — полный балл, со 2-й — половина, ошибка — 0.' },
     home: { name: 'Домашняя работа', ico: '🏠', hint: 'Как практическая: проверка сразу, две попытки, оценка ставится сама по попыткам и ответам.' },
   };
+  /** Тип уже выданной работы меняется — предупредить, что станет с теми, кто уже решает. */
+  function kindChangeOk(was, now) {
+    if (!was || was === now) return true;
+    return confirm(was === 'self'
+      ? `Сделать работу «${KINDS[now].name}»? Кто уже начал самостоятельную — она сдастся по уже данным ответам (в журнал), дальше ученики решают с проверкой сразу.`
+      : 'Сделать работу самостоятельной? Ученики, которые ещё не решали, будут сдавать её без проверки; уже данные ответы остаются в журнале.');
+  }
+  const keptNote = r => (r && r.ended ? ` · сдано начатых самостоятельных: ${r.ended}` : '');
   document.addEventListener('change', e => {
     const k = e.target.closest('#dKind, #bdKind');
     if (!k) return;
@@ -1277,7 +1347,9 @@
       <div class="adm-live" id="live-${a.id}">${liveId === a.id ? '<p class="adm-hint">Загружаю…</p>' : ''}</div>
     </div>`;
   }
+  let liveLoadAt = 0;
   async function liveLoad() {
+    liveLoadAt = Date.now();
     const box = liveId && $('#live-' + liveId);
     if (!box) { clearInterval(liveTimer); liveId = null; return; }
     let d;
@@ -1310,7 +1382,8 @@
       liveId = liveId === id ? null : id;
       clearInterval(liveTimer);
       [prev, id].forEach(asgCardRedraw);
-      if (liveId) { liveLoad(); liveTimer = setInterval(liveLoad, 5000); }
+      // живое соединение: сводка обновляется по событиям ленты, опрос раз в 30 с — страховка; без него — каждые 5 с
+      if (liveId) { liveLoad(); liveTimer = setInterval(() => { if (!liveOn() || Date.now() - liveLoadAt > 30000) liveLoad(); }, 5000); }
       return;
     }
     const cl = e.target.closest('[data-close]');
@@ -1497,7 +1570,7 @@
   // ------------------------------------------------------------ конструктор подборки
   let draft = null;           // { id, title, due, tasks: [{ id, n, snip }] }
   function editAssignment(a) {
-    draft = a ? { id: a.id, title: a.title, due: a.due, kind: a.kind || 'self', tasks: a.tasks.filter(t => !t.missing).map(t => ({ id: t.id, n: t.n, snip: t.snip })) }
+    draft = a ? { id: a.id, title: a.title, due: a.due, kind: a.kind || 'self', origKind: a.kind || 'self', tasks: a.tasks.filter(t => !t.missing).map(t => ({ id: t.id, n: t.n, snip: t.snip })) }
       : { id: null, title: '', due: null, kind: 'self', tasks: [] };
     renderDraft();
     $('#asgEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1510,7 +1583,7 @@
       <h3 class="adm-h3" style="margin:0">${draft.id ? 'Изменить подборку' : 'Новая подборка'} для ${esc(curClass.name)}</h3>
       <div class="adm-draft-row">
         <input class="inp" id="dTitle" placeholder="Название, например «Графы: №1 и №15»" maxlength="80" value="${esc(draft.title)}" required>
-        <label class="adm-hint">срок <input class="inp" type="date" id="dDue" value="${due}"></label>
+        <label class="adm-hint">срок <input class="inp" type="date" id="dDue" value="${due}"${draft.id ? '' : ` min="${todayIso()}"`}></label>
       </div>
 <label class="adm-hint">Тип работы <select class="adm-select" id="dKind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(draft.kind || 'self') === k ? ' selected' : ''}>${v.name}</option>`).join('')}</select></label>
       <p class="adm-hint" id="dKindHint">${KINDS[draft.kind || 'self'].hint}</p>
@@ -1539,9 +1612,10 @@
     draft.title = $('#dTitle').value;
     const due = $('#dDue').value;
     try {
-      await api('assignment/save', { id: draft.id, class_id: curClass.id, title: draft.title, kind: $('#dKind').value, grading: grades(),
+      if (!kindChangeOk(draft.id && draft.origKind, $('#dKind').value)) return;
+      const r = await api('assignment/save', { id: draft.id, class_id: curClass.id, title: draft.title, kind: $('#dKind').value, grading: grades(),
         due: due ? new Date(due + 'T23:59:00').getTime() / 1000 : null, tasks: draft.tasks.map(t => t.id) });
-      toast(draft.id ? 'Подборка сохранена' : 'Подборка отправлена классу');
+      toast(draft.id ? 'Подборка сохранена' + keptNote(r) : 'Подборка отправлена классу');
       draft = null;
       openClass(curClass.id);
     } catch (err) { if (err.status !== 401) toast(err.message); }
@@ -1926,6 +2000,9 @@
     if (!fresh.length) return;
     evSince = Math.max(evSince, ...fresh.map(e => e.ts));
     feedEv = fresh.concat(feedEv).slice(0, 100);
+    // новое обращение — сразу в списке (если вы не пишете ответ: черновик не стираем)
+    if (!first && tab === 'site' && fresh.some(e => e.kind === 'support')
+      && ![...$$('#siteBody [data-sp]')].some(b => b.spImg || (b.querySelector('textarea') && b.querySelector('textarea').value.trim()))) loadSite();
     if (!first) {
       fresh.filter(e => evWarn(e.kind) || e.kind === 'finish' || e.kind === 'exam').slice(0, 3)
         .forEach(e => toast(`${evWarn(e.kind) ? '⚠ ' : e.kind === 'exam' ? '🎯 ' : '📝 '}${e.name}: ${EV_TEXT[e.kind](e)}${e.kind === 'exam' ? '' : ` — «${e.title}»`}`));
@@ -1964,8 +2041,93 @@
     clearInterval(feedTimer);
     feed = []; feedSince = 0; feedEv = []; evSince = 0; evPolled = false;
     pollFeed();
-    feedTimer = setInterval(pollFeed, 10000);
+    // есть живое соединение — сервер сам скажет «в ленте новое», опрос раз в 2 минуты только на всякий случай
+    feedTimer = setInterval(() => { if (!liveOn() || Date.now() - feedAt > 120000) feedNow(); }, 10000);
+    liveStart();
   }
+  let feedAt = 0, feedT = null;
+  /** Обновить ленту: не чаще раза в 2 с (класс отвечает пачкой — один запрос). */
+  function feedNow() {
+    if (feedT) return;
+    const wait = Math.max(0, feedAt + 2000 - Date.now());
+    feedT = setTimeout(() => { feedT = null; feedAt = Date.now(); pollFeed(); feedSide(); }, wait);
+  }
+
+  /** Вместе с лентой — то, что открыто сейчас: онлайн-сводка работы и журнал класса (не чаще раза в 10 с). */
+  let jrAt = 0;
+  function feedSide() {
+    if (liveId && $('#live-' + liveId)) liveLoad();
+    const jr = tab === 'classes' && curClass && (clsPane === 'journal' || clsPane === 'nums');
+    if (jr && Date.now() - jrAt > 10000) { jrAt = Date.now(); loadGradebook(); }
+  }
+  // живые обновления: одно соединение на браузер (вкладки делят его через Web Locks и BroadcastChannel), как у учеников
+  const LV = { up: false, upAt: 0, sentAt: 0, chan: null, started: false, lead: false, dirty: false };
+  const liveOn = () => LV.up && Date.now() - LV.upAt < 70000;
+  function liveStart() {
+    if (LV.started || !window.fetch || !window.ReadableStream || !window.TextDecoder) return;
+    LV.started = true;
+    const key = 'egeshka-live-teacher';
+    if ('BroadcastChannel' in window) {
+      LV.chan = new BroadcastChannel(key);
+      LV.chan.onmessage = e => {
+        const m = e.data || {};
+        if (m.t === 'up') { LV.up = true; LV.upAt = Date.now(); }
+        else if (m.t === 'down') LV.up = false;
+        else if (m.t === 'hi' && LV.lead && liveOn()) LV.chan.postMessage({ t: 'up' });
+        else if (m.t === 'ev') liveEvent(m.topic);
+      };
+    }
+    if (navigator.locks && LV.chan) {
+      LV.chan.postMessage({ t: 'hi' });
+      navigator.locks.request(key, () => liveConnect()).catch(() => {});
+    } else liveConnect();
+  }
+  function liveMark(up) {
+    const was = LV.up;
+    LV.up = up; LV.upAt = Date.now();
+    if (LV.chan && (up !== was || Date.now() - LV.sentAt > 20000)) { LV.sentAt = Date.now(); LV.chan.postMessage({ t: up ? 'up' : 'down' }); }
+  }
+  async function liveConnect() {
+    LV.lead = true;
+    let delay = 3000, again = false;
+    for (;;) {
+      let got = false;
+      try {
+        const r = await fetch('api/admin/live', { credentials: 'same-origin', cache: 'no-store' });
+        if (r.status === 401) break;
+        if (!r.ok || !r.body) throw new Error('live ' + r.status);
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          liveMark(true);
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const ev = (/^event: (\w+)$/m.exec(buf.slice(0, i)) || [])[1];
+            buf = buf.slice(i + 2);
+            if (ev === 'hello') { got = true; if (again) liveSend('feed'); again = true; }   // переподключились — догнать пропущенное
+            else if (ev) liveSend(ev);
+          }
+        }
+      } catch (e) { /* сеть пропала — переподключимся */ }
+      liveMark(false);
+      delay = got ? 3000 : Math.min(delay * 2, 120000);
+      await new Promise(res => setTimeout(res, delay + Math.random() * 2000));
+    }
+    LV.lead = false;
+  }
+  function liveSend(topic) {
+    if (LV.chan) LV.chan.postMessage({ t: 'ev', topic });
+    liveEvent(topic);
+  }
+  function liveEvent(topic) {
+    if (topic !== 'feed') return;
+    if (document.hidden) { LV.dirty = true; return; }
+    feedNow();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && LV.dirty) { LV.dirty = false; feedNow(); } });
   function renderFeed() {
     $('#feedEmpty').hidden = feed.length > 0;
     $('#feedTable').hidden = feed.length === 0;

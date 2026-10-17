@@ -438,7 +438,7 @@
     const first = !DSEARCH.on;
     Object.assign(DSEARCH, { on: true, since: r.since, seekers: r.seekers });
     clearTimeout(DSEARCH.timer);
-    DSEARCH.timer = setTimeout(duelFind, 3000);
+    DSEARCH.timer = setTimeout(duelFind, liveOn() ? 15000 : 3000);   // есть живое соединение — о сопернике скажет сервер
     if (first) renderTourPage();
     else {
       const t = $('#dqTime');

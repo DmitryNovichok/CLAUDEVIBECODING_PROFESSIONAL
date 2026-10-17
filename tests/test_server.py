@@ -61,7 +61,10 @@ class ServerTest(unittest.TestCase):
         (fip / "files" / "ege" / "9" / "BAD001.zip").write_text("<html>Ошибка</html>", encoding="utf-8")
         (cls.tmp / "vendor").mkdir()
         (cls.tmp / "vendor" / "ok.css").write_text("body{}")
-        cls.saved = {k: getattr(server, k) for k in ("HERE", "DB_PATH", "BANK_JS", "EXTRA_BANK", "THINK_SEC_DEFAULT", "THINK_SEC_HARD")}
+        cls.saved = {k: getattr(server, k) for k in ("HERE", "DB_PATH", "BANK_JS", "EXTRA_BANK", "THINK_SEC_DEFAULT", "THINK_SEC_HARD",
+                                                     "ACH_CLOCK")}
+        # «забавные» достижения (ночью, в обед, в выходные, 31 декабря…) зависят от часов — тесты идут в обычную среду, 10:00
+        server.ACH_CLOCK = lambda ts: time.struct_time((2026, 3, 4, 10, 0, 0, 2, 63, -1))
         server.HERE = cls.tmp
         server.DB_PATH = cls.tmp / "server_data" / "trainer.db"
         server.BANK_JS = cls.tmp / "data" / "bank.js"
@@ -80,6 +83,7 @@ class ServerTest(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def setUp(self):
+        server.LIVE.subs.clear()            # закрытые тестами живые соединения не должны двигать турниры в фоне
         server.THINK_SEC_DEFAULT = 0
         server.THINK_SEC_HARD = 0
         server.OPENED.m.clear()
@@ -506,8 +510,12 @@ class ServerTest(unittest.TestCase):
             a2 = next(x for x in self.req("GET", "/api/assignments", token=tok)[1]["assignments"] if x["id"] == aid2)
             self.assertTrue(a2["closed"] and a2["finished"])
             self.assertEqual(self.req("POST", "/api/asg/start", {"id": aid2}, tok)[0], 200)      # уже сдана — просто состояние
+            # новую работу с прошедшим сроком выдать нельзя — срок проходит потом
+            self.assertEqual(self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "ДЗ", "kind": "home",
+                                                                               "tasks": ["b:6x"], "due": time.time() - 60})[0], 400)
             aid3 = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "ДЗ", "kind": "home",
-                                                                     "tasks": ["b:6x"], "due": time.time() - 60})[1]["id"]
+                                                                     "tasks": ["b:6x"], "due": time.time() + 3600})[1]["id"]
+            server.APP.db.x("UPDATE assignments SET due=? WHERE id=?", (time.time() - 60, aid3))
             j = self.admin("GET", f"/api/admin/class/journal?class_id={cid}")[1]
             self.assertEqual(j["students"][0]["cells"][str(aid3)]["st"], "miss")
             d = self.admin("GET", f"/api/admin/class/digest?class_id={cid}")[1]
@@ -840,7 +848,11 @@ class ServerTest(unittest.TestCase):
         for k, sc in enumerate((0, 0, 0, 1)):                               # одно и то же задание: три раза мимо, потом верно
             db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score,spent_ms) VALUES(?,?,?,?,?,?,?,?)",
                  (sid, fri13 + 20 + k, "fun:stub", 8, "[]", "1", sc, 2000000))
-        got = {a["id"] for a in server.game_summary(db, sid)["ach"] if a["got"]}
+        clock, server.ACH_CLOCK = server.ACH_CLOCK, time.localtime          # здесь нужны настоящие даты попыток
+        try:
+            got = {a["id"] for a in server.game_summary(db, sid)["ach"] if a["got"]}
+        finally:
+            server.ACH_CLOCK = clock
         self.assertTrue({"bug", "phoenix", "fri13", "lucky", "stubborn", "snail"} <= got, got)
         self.assertFalse({"pi", "newyear", "cinderella", "perfect", "dejavu", "rainbow"} & got)
         db.x("DELETE FROM attempts WHERE student_id=?", (sid,))
@@ -1043,6 +1055,43 @@ class ServerTest(unittest.TestCase):
         c.close()
         for t in (ta, tb):
             self.req("POST", "/api/duel/cancel", {}, t)
+
+    def test_live_teacher_and_support(self):
+        # учитель: обращение ученика и его ответы — «feed»; учитель ответил — ученику «support»
+        self.admin("GET", "/api/admin/me")                       # сессия учителя в базе
+        tok = self.login("Живолентов Павел")
+
+        def stream(headers):
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            c.request("GET", "/api/admin/live" if "Cookie" in headers else "/api/live", headers=headers)
+            r = c.getresponse()
+            self.assertEqual(r.status, 200)
+
+            def nxt():
+                ev = None
+                while True:
+                    line = r.fp.readline().decode().strip()
+                    if line.startswith("event: "):
+                        ev = line[7:]
+                    elif not line and ev:
+                        return ev
+            self.assertEqual(nxt(), "hello")
+            return c, nxt
+
+        self.assertEqual(self.req("GET", "/api/admin/live")[0], 401)
+        ct, teacher = stream({"Cookie": "egeadm=admtest"})
+        cs, pupil = stream({"X-Token": tok})
+        self.assertEqual(self.req("POST", "/api/support", {"kind": "bug", "text": "Не открывается задание"}, tok)[0], 200)
+        self.assertEqual(teacher(), "feed")
+        self.check(tok, "b:5", answer="12")
+        self.assertEqual(teacher(), "feed")
+        got = {pupil(), pupil()}
+        self.assertEqual(got, {"mine", "rate"})   # верный ответ: другим вкладкам ученика — «мои данные», классу — рейтинг
+        sid = server.APP.db.q("SELECT id FROM support ORDER BY id DESC LIMIT 1", one=True)["id"]
+        self.assertEqual(self.admin("POST", "/api/admin/support/answer", {"id": sid, "answer": "Починили"})[0], 200)
+        self.assertEqual(pupil(), "support")
+        ct.close()
+        cs.close()
 
     def test_duel_matchmaking(self):
         # «Найти соперника»: первый ждёт в очереди, второй нажал — дуэль создана сразу, первый узнаёт о ней при следующем опросе
@@ -1446,6 +1495,84 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(len(self.req("GET", "/api/support", token=tok)[1]["items"]), len(mine) - 1)
         self.assertIsNone(server.APP.db.q("SELECT 1 FROM support WHERE id=?", (mine[0]["id"],), one=True))
         self.assertEqual(self.admin("POST", "/api/admin/support/delete", {"closed": True})[1]["deleted"], 1)   # закрытое ранее
+
+    def test_support_dialog_and_close(self):
+        # переписка в теме: ученик отвечает, учитель отвечает ещё раз; закрытая тема — писать нельзя, можно открыть снова
+        tok = self.login("Диалогов Денис")
+        self.req("POST", "/api/support", {"kind": "bug", "text": "Не грузится задание"}, tok)
+        sid = server.APP.db.q("SELECT id FROM support ORDER BY id DESC LIMIT 1", one=True)["id"]
+        self.admin("POST", "/api/admin/support/answer", {"id": sid, "answer": "Какое именно?"})
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": sid, "text": "№7 из подборки"}, tok)[0], 200)
+        x = next(r for r in self.admin("GET", "/api/admin/site-stats")[1]["support"] if r["id"] == sid)
+        self.assertEqual(x["status"], "new")                                  # ученик ответил — снова ждёт учителя
+        self.assertEqual([m["who"] for m in x["thread"]], ["student", "teacher", "student"])
+        self.admin("POST", "/api/admin/support/answer", {"id": sid, "answer": "Починили", "close": True})
+        item = self.req("GET", "/api/support", token=tok)[1]["items"][0]
+        self.assertEqual((item["status"], [m["text"] for m in item["thread"]]),
+                         ("closed", ["Не грузится задание", "Какое именно?", "№7 из подборки", "Починили"]))
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": sid, "text": "спасибо"}, tok)[0], 409)
+        other = self.login("Чужаков Чарли")
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": sid, "text": "я не автор"}, other)[0], 404)
+        self.admin("POST", "/api/admin/support/answer", {"id": sid, "reopen": True})
+        self.assertEqual(self.req("GET", "/api/support", token=tok)[1]["items"][0]["status"], "answered")
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": sid, "text": "спасибо"}, tok)[0], 200)
+        self.admin("POST", "/api/admin/support/delete", {"id": sid})
+        self.assertIsNone(server.APP.db.q("SELECT 1 FROM support_msgs WHERE support_id=?", (sid,), one=True))
+
+    def test_support_images(self):
+        # картинка в обращении: только настоящая картинка, видна автору и главному учителю, удаляется вместе с обращением
+        import base64
+        jpg = b"\xff\xd8\xff\xe0" + b"0" * 100
+        url = "data:image/jpeg;base64," + base64.b64encode(jpg).decode()
+        tok, other = self.login("Скриншотов Семён"), self.login("Подсмотров Пётр")
+        bad = "data:image/png;base64," + base64.b64encode(b"<script>alert(1)</script>").decode()
+        self.assertEqual(self.req("POST", "/api/support", {"kind": "bug", "text": "Белый экран", "img": bad}, tok)[0], 400)
+        big = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff" + b"0" * 1_600_000).decode()
+        self.assertEqual(self.req("POST", "/api/support", {"kind": "bug", "text": "Белый экран", "img": big}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/support", {"kind": "bug", "text": "Белый экран", "img": url}, tok)[0], 200)
+        item = self.req("GET", "/api/support", token=tok)[1]["items"][0]
+        name = item["thread"][0]["img"]
+        self.assertRegex(name, r"^[0-9a-f]{32}\.jpg$")
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/api/support/img?f=" + name, headers={"X-Token": tok})
+        r = c.getresponse()
+        self.assertEqual((r.status, r.getheader("Content-Type"), r.read()), (200, "image/jpeg", jpg))
+        c.close()
+        self.assertEqual(self.req("GET", "/api/support/img?f=" + name, token=other)[0], 404)       # чужую — нельзя
+        self.assertEqual(self.req("GET", "/api/support/img?f=../trainer.db", token=tok)[0], 404)
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/api/admin/support/img?f=" + name, headers={"Cookie": "egeadm=admtest"})
+        r = c.getresponse()
+        self.assertEqual((r.status, r.read()), (200, jpg))                                       # главному учителю — можно
+        c.close()
+        # ответ учителя с картинкой и ответ ученика картинкой без текста
+        self.admin("POST", "/api/admin/support/answer", {"id": item["id"], "img": url})
+        self.assertEqual(self.req("POST", "/api/support/reply", {"id": item["id"], "text": "", "img": url}, tok)[0], 200)
+        thread = self.req("GET", "/api/support", token=tok)[1]["items"][0]["thread"]
+        self.assertEqual([bool(m["img"]) for m in thread], [True, True, True])
+        self.assertTrue(all((server.DB_PATH.parent / "support_img" / m["img"]).is_file() for m in thread))
+        self.admin("POST", "/api/admin/support/delete", {"id": item["id"]})
+        self.assertFalse(any((server.DB_PATH.parent / "support_img" / m["img"]).exists() for m in thread))
+
+    def test_change_kind_of_started_work(self):
+        # самостоятельную уже пишут — тип всё равно можно сменить: начатые сдаются по уже данным ответам
+        tok = self.login("Типов Тимур")
+        me = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "10Т"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [me]})
+        aid = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "СР-тип", "kind": "self", "tasks": ["b:5", "b:6"]})[1]["id"]
+        self.req("POST", "/api/asg/start", {"id": aid}, tok)
+        self.req("POST", "/api/asg/answer", {"id": aid, "task": server.APP.bank.pid("b:5"), "answer": "12"}, tok)
+        st, d = self.admin("POST", "/api/admin/assignment/save", {"id": aid, "class_id": cid, "title": "СР-тип", "kind": "practice", "tasks": ["b:5", "b:6"]})
+        self.assertEqual((st, d.get("ended")), (200, 1), d)
+        row = server.APP.db.q("SELECT kind, strict FROM assignments WHERE id=?", (aid,), one=True)
+        self.assertEqual((row["kind"], row["strict"]), ("practice", 0))
+        run = server.APP.db.q("SELECT finished, forced FROM asg_runs WHERE asg_id=? AND student_id=?", (aid, me), one=True)
+        self.assertTrue(run["finished"] and run["forced"])
+        # состав заданий у начатой самостоятельной менять по-прежнему нельзя
+        aid2 = self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "СР-2", "kind": "self", "tasks": ["b:5"]})[1]["id"]
+        self.req("POST", "/api/asg/start", {"id": aid2}, tok)
+        self.assertEqual(self.admin("POST", "/api/admin/assignment/save", {"id": aid2, "class_id": cid, "title": "СР-2", "kind": "self", "tasks": ["b:6"]})[0], 409)
 
     def test_common_bank_rule(self):
         ok = lambda **t: server.bank_ok(dict({"n": 5, "ans": "1"}, **t))

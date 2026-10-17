@@ -73,6 +73,9 @@
 
   // ------------------------------------------------------------ техподдержка: обращение уходит главному учителю, ответ — здесь
   let SUPPORT = { items: [], kinds: {}, unread: 0 };
+  // время в техподдержке — московское, где бы ни был ученик и его часовой пояс
+  const MSK_FMT = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const mskTime = sec => MSK_FMT.format(new Date(sec * 1000)).replace(',', '') + ' МСК';
   const SP_STATUS = { new: ['chip', 'ждёт ответа'], answered: ['chip good', 'есть ответ'], closed: ['chip', 'закрыто'] };
   async function loadSupport() {
     const b = $('#supportBtn');
@@ -81,6 +84,71 @@
     b.hidden = false;
     $('#supportDot').hidden = !SUPPORT.unread;
   }
+  // картинки в техподдержке: скриншот ошибки — кнопкой 📎 или вставкой Ctrl+V в поле
+  const SP_IMG = new Map();                          // имя файла на сервере → blob-ссылка (картинку отдают только автору)
+  const spImgHtml = name => (name ? `<button type="button" class="sp-img" data-sp-img="${esc(name)}" title="Открыть картинку"><img alt="картинка"></button>` : '');
+  async function spLoadImgs(root) {
+    for (const b of root.querySelectorAll('[data-sp-img]')) {
+      const f = b.dataset.spImg;
+      let url = SP_IMG.get(f);
+      if (!url) {
+        try {
+          const r = await fetch('api/support/img?f=' + encodeURIComponent(f), { headers: { 'X-Token': student.token } });
+          if (!r.ok) continue;
+          url = URL.createObjectURL(await r.blob());
+          SP_IMG.set(f, url);
+        } catch (e) { continue; }
+      }
+      b.querySelector('img').src = url;
+    }
+  }
+  /** Картинка из файла или буфера → JPEG не больше 1600 точек по стороне и ~1,4 МБ (данные о месте съёмки отбрасываются). */
+  function spShrink(file) {
+    return new Promise((res, rej) => {
+      if (!file || !/^image\//.test(file.type)) { rej(new Error('Это не картинка')); return; }
+      const img = new Image(), u = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(u);
+        let q = 0.85, side = 1600, out = '';
+        for (let i = 0; i < 5; i++) {
+          const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+          const g = c.getContext('2d');
+          g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+          g.drawImage(img, 0, 0, c.width, c.height);
+          out = c.toDataURL('image/jpeg', q);
+          if (out.length * 0.75 < 1.4e6) break;
+          q = Math.max(0.5, q - 0.1); side = Math.round(side * 0.8);
+        }
+        res(out);
+      };
+      img.onerror = () => { URL.revokeObjectURL(u); rej(new Error('Не получилось открыть картинку')); };
+      img.src = u;
+    });
+  }
+  /** У поля ввода: кнопка 📎, вставка картинки через Ctrl+V, превью с крестиком. Картинка — в box.spImg. */
+  function spAttach(box) {
+    const ta = box.querySelector('textarea'), prev = box.querySelector('.sp-prev');
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*'; inp.hidden = true;
+    box.appendChild(inp);
+    const set = async file => {
+      try { box.spImg = await spShrink(file); } catch (e) { toast(e.message, 3000); return; }
+      prev.innerHTML = `<img src="${box.spImg}" alt="прикреплённая картинка"><button type="button" class="sp-prev-x" title="Убрать картинку">×</button>`;
+      prev.hidden = false;
+    };
+    box.querySelector('[data-sp-pick]').addEventListener('click', () => inp.click());
+    inp.addEventListener('change', () => { if (inp.files[0]) set(inp.files[0]); inp.value = ''; });
+    ta.addEventListener('paste', e => {
+      const f = [...((e.clipboardData && e.clipboardData.files) || [])].find(x => /^image\//.test(x.type));
+      if (!f) return;
+      if (!e.clipboardData.getData('text')) e.preventDefault();
+      set(f);
+    });
+    prev.addEventListener('click', e => { if (e.target.closest('.sp-prev-x')) { box.spImg = null; prev.innerHTML = ''; prev.hidden = true; } });
+  }
+  const SP_PICK = '<button type="button" class="btn ghost sp-pick" data-sp-pick title="Прикрепить картинку — или вставь скриншот в поле через Ctrl+V">📎 Картинка</button><span class="sp-prev" hidden></span>';
   async function openSupport() {
     if (isNarrow()) setSideOpen(false);
     await loadSupport();
@@ -88,33 +156,56 @@
     const kinds = Object.entries(SUPPORT.kinds || {}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
     const list = SUPPORT.items.map(x => {
       const st = SP_STATUS[x.status] || SP_STATUS.new;
-      return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
-        <span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span><span>${apTime(x.ts)}</span>${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
-        <div class="sp-text">${esc(x.text)}</div>
-        ${x.answer ? `<div class="sp-ans"><b>Ответ · ${apTime(x.answered)}</b>${esc(x.answer)}</div>` : ''}</div>`;
+      const thread = (x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map(m => m.who === 'teacher'
+        ? `<div class="sp-ans"><b>Учитель · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`
+        : `<div class="sp-msg"><b>Ты · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`).join('');
+      return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}" data-sp="${x.id}"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
+        <span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span>${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
+        <div class="sp-thread">${thread}</div>
+        ${x.status === 'closed' ? '<p class="sp-closed">Тема закрыта. Если вопрос остался — напиши новое обращение выше.</p>'
+          : `<div class="sp-reply" data-sp-box><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
+          <div class="sp-row">${SP_PICK}<button type="button" class="btn" data-sp-reply>Отправить</button></div></div>`}</div>`;
     }).join('');
     $('#forecastBody').innerHTML = `<h2 class="fm-title">🛟 Техподдержка</h2>
-      <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Обращение получит учитель, ответ появится здесь.</p>
-      <form class="sp-form" id="spForm">
+      <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Можно приложить скриншот: кнопка «📎 Картинка» или Ctrl+V в поле. Обращение получит учитель, ответ появится здесь.</p>
+      <form class="sp-form" id="spForm" data-sp-box>
         <select class="inp" id="spKind">${kinds}</select>
         <textarea class="inp" id="spText" maxlength="2000" placeholder="Опиши, что случилось: что делал, что ожидал и что получилось" required></textarea>
         <div class="sp-row">${t ? `<label class="sp-att"><input type="checkbox" id="spTask" checked> приложить задание №${numLabel(t.n)} (${esc(t.id)})</label>` : '<span></span>'}
-          <button type="submit" class="btn primary">Отправить</button></div>
+          ${SP_PICK}<button type="submit" class="btn primary">Отправить</button></div>
       </form>
       ${list ? `<h3 class="fm-sub">Мои обращения</h3><div class="sp-list">${list}</div>` : ''}`;
     $('#forecastModal').hidden = false;
     if (t) $('#spKind').value = 'task';
+    $('#forecastBody').querySelectorAll('[data-sp-box]').forEach(spAttach);
+    spLoadImgs($('#forecastBody'));
+    $('#forecastBody').querySelectorAll('[data-sp-reply]').forEach(b => b.addEventListener('click', async () => {
+      const box = b.closest('[data-sp]'), rep = box.querySelector('[data-sp-box]'), text = rep.querySelector('textarea').value.trim();
+      if (!text && !rep.spImg) { toast('Напиши сообщение'); return; }
+      b.disabled = true;
+      try { await api('support/reply', { id: +box.dataset.sp, text, img: rep.spImg || null }); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); b.disabled = false; return; }
+      toast('Сообщение отправлено', 2500);
+      rep.querySelector('textarea').value = ''; rep.spImg = null;
+      openSupport();
+    }));
     $('#spForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const body = { kind: $('#spKind').value, text: $('#spText').value, page: pageKind || (courseShown ? 'course' : ui.scope) };
+      const btn = e.target.querySelector('[type=submit]');
+      const body = { kind: $('#spKind').value, text: $('#spText').value, page: pageKind || (courseShown ? 'course' : ui.scope), img: $('#spForm').spImg || null };
       if (t && $('#spTask') && $('#spTask').checked) body.task = t.id;
-      try { await api('support', body); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); return; }
+      btn.disabled = true;                              // двойной клик — одно обращение
+      try { await api('support', body); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); btn.disabled = false; return; }
       toast('Обращение отправлено — ответ появится в «Техподдержке»', 3500);
+      $('#spText').value = ''; $('#spForm').spImg = null;
       openSupport();
     });
     if (SUPPORT.unread) { try { await api('support/seen', {}); } catch (e) { /* не страшно */ } SUPPORT.unread = 0; $('#supportDot').hidden = true; }
   }
   $('#supportBtn').addEventListener('click', openSupport);
+  $('#forecastBody').addEventListener('click', e => {                 // картинку в техподдержке — открыть целиком
+    const b = e.target.closest('[data-sp-img]');
+    if (b && SP_IMG.get(b.dataset.spImg)) window.open(SP_IMG.get(b.dataset.spImg), '_blank');
+  });
 
   // ------------------------------------------------------------ версия и что нового (новое — сверху)
   // Каждый коммит, который меняет что-то для учеников, — новая версия: новая возможность — второе число, исправление — третье.

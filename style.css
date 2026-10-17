@@ -822,6 +822,10 @@ pre.tsol { margin: 8px 0 0; padding: 10px 12px; background: var(--code-bg); bord
 @media (max-width: 860px) {
   .py-dock { position: fixed; inset: 0; z-index: 40; height: auto; border-left: 0; }
   .py-turtle canvas { height: 240px; }
+  /* на телефоне кнопки панели переносятся на вторую строку — крестик «Закрыть» всегда виден */
+  .py-bar, .bd-bar { flex-wrap: wrap; gap: 6px 10px; }
+  .py-tools { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .py-tools .btn { padding: 6px 10px; }
 }
 .task-meta + .task-tools { margin-left: auto; }
 
@@ -2009,6 +2013,22 @@ body.asg-wide .course.asg-page { max-width: none; }
 .sp-text { margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
 .sp-ans { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); white-space: pre-wrap; word-break: break-word; }
 .sp-ans b { display: block; font-size: 12px; color: var(--accent-text); margin-bottom: 2px; }
+.sp-thread { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.sp-thread .sp-ans { margin-top: 0; margin-left: 24px; }
+.sp-msg { padding: 10px 12px; border-radius: 12px; background: var(--card-hover); margin-right: 24px; white-space: pre-wrap; word-break: break-word; }
+.sp-msg b { display: block; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.sp-reply { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+.sp-reply textarea { flex: 1; min-height: 44px; resize: vertical; }
+.sp-closed { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.sp-reply { flex-direction: column; align-items: stretch; }
+.sp-reply .sp-row { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.sp-pick { margin-left: auto; }
+.sp-prev { position: relative; display: inline-flex; }
+.sp-prev[hidden] { display: none; }
+.sp-prev img { max-height: 56px; max-width: 120px; border-radius: 8px; border: 2px solid var(--border); display: block; }
+.sp-prev-x { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--weak); color: #fff; font-weight: 800; cursor: pointer; line-height: 22px; padding: 0; }
+.sp-img { display: block; margin-top: 8px; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.sp-img img { max-width: min(100%, 320px); max-height: 220px; border-radius: 10px; border: 2px solid var(--border); display: block; }
 .ap-note { margin: 0; font-size: 13px; color: var(--muted); }
 
 /* ---------- мои варианты */
