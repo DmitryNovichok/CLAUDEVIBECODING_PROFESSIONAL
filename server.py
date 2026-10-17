@@ -4118,7 +4118,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 real = json.loads(a["tasks"] or "[]")
                 b = batches.setdefault(a["batch"] or f"one:{a['id']}", {"batch": a["batch"] or f"one:{a['id']}", "title": batch_title(a),
                                                                        "kind": a["kind"], "created": a["created"], "due": a["due"],
-                                                                       "students": 0, "done": 0, "tasks": 0})
+                                                                       "students": 0, "done": 0, "tasks": 0, "ids": []})
+                b["ids"].append(a["id"])
                 b["students"] += 1
                 b["tasks"] += len(real)
                 b["done"] += len(assignment_done(db, a["student_id"], real, a["created"])) >= len(real) > 0

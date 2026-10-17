@@ -1169,11 +1169,13 @@
       <div id="asgEditor"></div>
       ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}
       ${c.batches.length ? `<h3 class="adm-h3">Личные подборки</h3>
-        <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке, ⭐ персональная — в «Создать подборку» → «Кому: персонально». Результаты — в журнале.</p>
+        <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке, ⭐ персональная — в «Создать подборку» → «Кому: персонально». Результаты по каждому ученику — кнопка «📊 Результаты».</p>
         ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : b.batch.startsWith('own') ? '⭐' : '🎯'} ${esc(b.title)}</b>
           <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
-          <span class="adm-actions"><select class="adm-select" data-batch-kind="${esc(b.batch)}" data-was="${esc(b.kind || 'self')}" title="Тип работы — сразу у всех учеников этой подборки">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(b.kind || 'self') === k ? ' selected' : ''}>${v.ico} ${v.name}</option>`).join('')}</select>
-          <button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div></div>`).join('')}` : ''}
+          <span class="adm-actions"><button type="button" class="btn${batchOpen === b.batch ? ' primary' : ''}" data-batch-stats="${esc(b.batch)}" data-ids="${(b.ids || []).join(',')}">📊 Результаты</button>
+          <select class="adm-select" data-batch-kind="${esc(b.batch)}" data-was="${esc(b.kind || 'self')}" title="Тип работы — сразу у всех учеников этой подборки">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(b.kind || 'self') === k ? ' selected' : ''}>${v.ico} ${v.name}</option>`).join('')}</select>
+          <button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div>
+          <div class="adm-live" data-batch-box="${esc(b.batch)}"></div></div>`).join('')}` : ''}
       </div>`;
     if (clsPane === 'journal' || clsPane === 'nums') loadGradebook();
     if (clsPane === 'digest') loadDigest();
@@ -1344,6 +1346,40 @@
     const h = $('#' + k.id + 'Hint');
     if (h) h.textContent = KINDS[k.value].hint;
     if (k.id === 'bdKind') { BLD.d.kind = k.value; bldSave(); }
+  });
+  // ---------- личная подборка: результаты всех учеников пачки (у каждого своя копия — собираем по одной)
+  let batchOpen = null, batchIds = [];
+  const batchBox = () => batchOpen && [...document.querySelectorAll('[data-batch-box]')].find(x => x.dataset.batchBox === batchOpen);
+  async function batchLoad() {
+    const box = batchBox();
+    if (!box) { batchOpen = null; return; }
+    let parts;
+    try { parts = await Promise.all(batchIds.map(id => api('asg/live?id=' + id))); } catch (e) { if (e.status !== 401) box.innerHTML = `<p class="adm-hint">${esc(e.message)}</p>`; return; }
+    const rows = parts.flatMap(d => d.rows.map(r => ({ ...r, strict: d.strict, title: d.title }))).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    const st = r => (r.strict ? { none: 'не начинал', work: 'пишет', done: 'сдал' } : { none: 'не начинал', work: 'решает', done: 'сделал все' })[r.status];
+    const done = rows.filter(r => r.status === 'done').length, work = rows.filter(r => r.status === 'work').length;
+    const grades = rows.filter(r => r.grade).map(r => r.grade), avg = grades.length ? (grades.reduce((a, b) => a + b, 0) / grades.length).toFixed(1) : '—';
+    box.innerHTML = `<div class="adm-live-bar"><span class="adm-hint">Сделали все: <b>${done}</b> · решают: <b>${work}</b> · не начинали: <b>${rows.length - done - work}</b> из ${rows.length} · средняя оценка: <b>${avg}</b> · обновляется само</span></div>
+      <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Ученик</th><th>Статус</th><th class="num">Сдано</th><th class="num">Верно</th><th class="num">Неверно</th><th class="num">%</th><th class="num">Оценка</th><th class="num" title="Заданий с прикреплённым решением">Код</th></tr></thead><tbody>
+      ${rows.map(r => `<tr class="${r.status === 'work' ? 'live-work' : ''}"><td class="name"><button type="button" class="task-link" data-open-st="${r.id}">${esc(r.name)}</button></td>
+        <td>${r.status === 'work' && r.online ? '<span class="live-dot" title="на сайте"></span>' : ''}${st(r)}${r.forced ? ' <span class="adm-hint">(завершил учитель)</span>' : ''}</td>
+        <td class="num">${r.answered}/${r.total}</td><td class="num" style="color:var(--good)">${r.status === 'none' ? '' : r.ok + (r.half ? ` +${r.half}½` : '')}</td>
+        <td class="num" style="color:var(--weak)">${r.status === 'none' ? '' : r.bad}</td><td class="num">${r.status === 'none' ? '' : r.pct + '%'}</td>
+        <td class="num cs-grade">${r.grade ? `<b class="g${r.grade}">${r.grade}</b>` : ''}</td><td class="num">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  document.addEventListener('click', e => {
+    const bs = e.target.closest('[data-batch-stats]');
+    if (!bs) return;
+    const was = batchOpen;
+    document.querySelectorAll('[data-batch-box]').forEach(x => { x.innerHTML = ''; });
+    document.querySelectorAll('[data-batch-stats]').forEach(x => x.classList.remove('primary'));
+    batchOpen = was === bs.dataset.batchStats ? null : bs.dataset.batchStats;
+    if (!batchOpen) return;
+    bs.classList.add('primary');
+    batchIds = bs.dataset.ids.split(',').filter(Boolean).map(Number);
+    batchBox().innerHTML = '<p class="adm-hint">Загружаю…</p>';
+    batchLoad();
   });
   // ---------- работа класса: онлайн-сводка, «Завершить для всех»
   let liveTimer = null, liveId = null;
@@ -2068,6 +2104,7 @@
   let jrAt = 0;
   function feedSide() {
     if (liveId && $('#live-' + liveId)) liveLoad();
+    if (batchOpen && batchBox()) batchLoad();
     const jr = tab === 'classes' && curClass && (clsPane === 'journal' || clsPane === 'nums');
     if (jr && Date.now() - jrAt > 10000) { jrAt = Date.now(); loadGradebook(); }
   }
