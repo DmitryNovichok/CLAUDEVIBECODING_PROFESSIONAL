@@ -711,7 +711,7 @@
   async function loadPyc() {
     try { PYA.d = await api('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     PYA.detail = {};
-    pycPwState(PYA.d.pw_set, PYA.d.students.filter(s => s.access).length);
+    pycPwState(PYA.d.pw_set, PYA.d.students.length);
     renderPyc();
   }
   function pycPwState(set, n) {
@@ -745,33 +745,40 @@
     const d = PYA.d, q = ($('#pycFind').value || '').trim().toLowerCase();
     if (!d.modules.length) { $('#pycBody').innerHTML = '<p class="adm-empty">Курс ещё не собран: на сервере нет папки pycourse/.</p>'; return; }
     const total = d.modules.reduce((a, m) => a + m.tasks, 0);
-    const S = d.students.filter(s => !q || s.name.toLowerCase().includes(q))
-      .sort((a, b) => b.access - a.access || b.done - a.done || a.name.localeCompare(b.name, 'ru'));   // сначала те, кто вошёл в курс
-    const inCourse = d.students.filter(s => s.access);
+    const pctOf = s => (total ? Math.round(s.done / total * 100) : 0);
+    const S = d.students.filter(s => !q || s.name.toLowerCase().includes(q));
     const week = Date.now() / 1000 - 7 * 86400;
-    const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+    const avg = d.students.length ? Math.round(d.students.reduce((a, s) => a + pctOf(s), 0) / d.students.length) : 0;
+    const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
     const heads = d.modules.map(m => `<th class="num pyc-mh" title="${esc(m.title)}">${m.icon}<small>${esc(pycLbl(m))}</small></th>`).join('');
+    const cols = 5 + d.modules.length;
     const rows = S.map(s => {
-      return `<tr class="cp-row${PYA.open === s.id ? ' on' : ''}" data-pya="${s.id}"><td class="name">${esc(s.name)}<small>${esc(s.class || 'без класса')}</small></td>
-        <td>${s.access ? `🔓 вошёл${s.since ? `<small>${fmtWhen(s.since)}</small>` : ''}` : '<span class="muted">🔒 нет</span>'}</td>
-        <td class="num"><b>${s.done}</b><small>/${total}</small> ${cpBar(s.done, total)}</td>
-        ${d.modules.map(m => { const v = s.mods[m.id] || 0; return `<td class="num"><b style="color:${pctColor(m.tasks ? v / m.tasks * 100 : 0)}">${v || '·'}</b></td>`; }).join('')}
+      const cells = d.modules.map(m => {
+        const v = s.mods[m.id] || { done: 0, bad: 0 };
+        return `<td class="num"><b style="color:${pctColor(m.tasks ? v.done / m.tasks * 100 : 0)}">${v.done}</b><small>/${m.tasks}</small>${v.bad ? `<em class="cp-bad" title="не решено с первой попытки">${v.bad}</em>` : ''}</td>`;
+      }).join('');
+      return `<tr class="cp-row${PYA.open === s.id ? ' on' : ''}" data-pya="${s.id}"><td class="name">${esc(s.name)}${s.free ? ' <span class="pyc-free" title="Все уровни открыты">🔓</span>' : ''}<small>${esc(s.class || 'без класса')}</small></td>
+        <td class="muted">${s.since ? fmtDate(s.since) : ''}</td>
+        <td class="num"><b>${s.done}</b><small>/${total}</small> ${cpBar(s.done, total)}</td>${cells}
+        <td class="num"><b class="cp-pct" style="color:${pctColor(pctOf(s))}">${pctOf(s)}%</b></td>
         <td class="muted">${s.last ? fmtWhen(s.last) : '—'}</td></tr>
-        ${PYA.open === s.id ? `<tr class="cp-detail"><td colspan="${4 + d.modules.length}">${pycDetailHtml(s.id)}</td></tr>` : ''}`;
+        ${PYA.open === s.id ? `<tr class="cp-detail"><td colspan="${cols}">${pycDetailHtml(s.id)}</td></tr>` : ''}`;
     }).join('');
     $('#pycBody').innerHTML = `<div class="adm-cards">
-        ${card('Вошли по паролю', inCourse.length, `из ${d.students.length} учеников`)}
-        ${card('В курсе', d.modules.length + ' тем', `${total} задач, ${d.modules.reduce((a, m) => a + m.levels.length, 0)} уровней`)}
-        ${card('Решено задач', inCourse.reduce((a, s) => a + s.done, 0), 'всеми учениками вместе')}
-        ${card('Занимались за неделю', d.students.filter(s => (s.last || 0) >= week).length, 'отправляли ответы')}
+        ${card('В курсе', d.students.length, 'учеников открыли курс паролем')}
+        ${card('Средний прогресс', avg + '%', 'решённые задачи курса', pctColor(avg))}
+        ${card('Решено задач', d.students.reduce((a, s) => a + s.done, 0), 'всеми учениками вместе')}
+        ${card('Занимались за неделю', d.students.filter(s => (s.last || 0) >= week).length, 'решали задачи курса')}
       </div>
-      <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th><th>В курсе</th><th class="num">Решено</th>${heads}<th>Последний ответ</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="${4 + d.modules.length}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Учеников пока нет'}</td></tr>`}</tbody></table></div>`;
+      <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th><th>Открыл курс</th><th class="num">Решено</th>${heads}<th class="num">Итог</th><th>Последнее решение</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="${cols}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Курс пока никто не открыл — сообщите ученикам пароль курса.'}</td></tr>`}</tbody></table></div>`;
   }
   function pycDetailHtml(sid) {
-    const x = PYA.detail[sid];
+    const x = PYA.detail[sid], st = PYA.d.students.find(s => s.id === sid);
     if (!x) return '<p class="adm-hint">Загружаю…</p>';
-    return `<div class="pyc-det">${x.modules.map(m => `<div class="cp-lesson"><b>${m.icon} ${esc(pycLbl(m))} · ${esc(m.title)}</b>
+    const free = st && st.free;
+    return `<div class="pyc-det"><div class="pyc-free-row"><button type="button" class="btn ${free ? 'ghost' : 'primary'}" data-pya-free="${sid}" data-on="${free ? 0 : 1}">${free ? '🔒 Вернуть замки уровней' : '🔓 Открыть все уровни'}</button>
+      <span class="adm-hint">${free ? 'Все уровни всех тем открыты сразу — без условия «решить половину задач».' : 'Сейчас следующий уровень темы открывается, когда решена половина задач предыдущего.'}</span></div>${x.modules.map(m => `<div class="cp-lesson"><b>${m.icon} ${esc(pycLbl(m))} · ${esc(m.title)}</b>
       <div class="cp-sets">${m.levels.map((lv, i) => `<div class="cp-set"><div class="cp-set-h"><b>${i + 1}. ${esc(lv.title)}</b>
         <span>${lv.tasks.filter(t => t.ok).length}/${lv.tasks.length}</span></div>
         <div class="cp-sqs">${lv.tasks.map((t, k) => `<button type="button" class="cp-sq ${t.ok ? 'ok' : t.tries ? 'bad' : ''}" data-pya-task="${esc(t.id)}"
@@ -788,6 +795,17 @@
     $('#taskModal').hidden = false;
   }
   $('#pycBody').addEventListener('click', async e => {
+    const fb = e.target.closest('[data-pya-free]');
+    if (fb) {
+      try {
+        await api('pyc/free', { student_id: +fb.dataset.pyaFree, on: fb.dataset.on === '1' });
+        toast(fb.dataset.on === '1' ? 'Все уровни открыты — у ученика замки пропадут сразу' : 'Замки уровней возвращены');
+      } catch (err) { if (err.status !== 401) toast(err.message); }
+      const open = PYA.open;
+      await loadPyc();
+      if (open) { PYA.open = open; try { PYA.detail[open] = await api('pyc/student?id=' + open); } catch (err) { /* таблица уже обновлена */ } renderPyc(); }
+      return;
+    }
     const sq = e.target.closest('[data-pya-task]');
     if (sq) { pycShowTask(PYA.open, sq.dataset.pyaTask); return; }
     const r = e.target.closest('[data-pya]');

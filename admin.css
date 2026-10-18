@@ -492,3 +492,5 @@ tr.comp-void td { opacity: .55; }
 .pyc-mh { font-size: 16px; line-height: 1.1; }
 .pyc-mh small { display: block; font-size: 10.5px; color: var(--muted); font-weight: 700; }
 .pyc-det { display: flex; flex-direction: column; gap: 10px; }
+.pyc-free-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pyc-free { font-size: 13px; }

@@ -885,8 +885,9 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/pyc-data/m90/t1/a.txt")[1], b"1\n2\n")              # файл задачи отдаётся как есть
         self.assertEqual(self.req("GET", "/pycourse/m90.json")[0], 404)                         # а уроки с ответами — нет
         st, a = self.admin("GET", "/api/admin/pyc")
-        row = next(x for x in a["students"] if x["id"] == me["sid"])
-        self.assertEqual((row["access"], row["done"], row["mods"]), (True, 1, {"m90": 1}))
+        self.assertEqual([x["id"] for x in a["students"]], [me["sid"]])                            # в списке — только вошедшие
+        row = a["students"][0]
+        self.assertEqual((row["done"], row["mods"], row["free"]), (1, {"m90": {"done": 1, "bad": 0}}, False))
         self.assertTrue(row["since"])                                                             # учитель видит, когда вошёл
         st, det = self.admin("GET", f"/api/admin/pyc/student?id={me['sid']}")
         t1 = det["modules"][0]["levels"][0]["tasks"][0]
@@ -894,6 +895,18 @@ class ServerTest(unittest.TestCase):
         # другой ученик пароля не знает — курс ему закрыт; подбирать пароль не выйдет
         tok2 = self.login("Подборов Пётр")
         self.assertFalse(self.req("GET", "/api/pyc", token=tok2)[1]["access"])
+        # учитель открывает ученику все уровни сразу: второй уровень доступен без решённых задач первого
+        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2026"}, tok2)[0], 200)
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=1", token=tok2)[0], 403)
+        self.assertEqual(self.admin("POST", "/api/admin/pyc/free", {"student_id": sid2, "on": True})[0], 200)
+        self.assertEqual(self.req("GET", "/api/pyc", token=tok2)[1]["modules"][0]["open"], 2)
+        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=1", token=tok2)[0], 200)
+        self.assertNotIn("sol", self.req("GET", "/api/pyc/level?m=m90&l=1", token=tok2)[1]["level"]["tasks"][0])  # разбор — нет
+        self.assertTrue(next(x for x in self.admin("GET", "/api/admin/pyc")[1]["students"] if x["id"] == sid2)["free"])
+        self.admin("POST", "/api/admin/pyc/free", {"student_id": sid2, "on": False})
+        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=1", token=tok2)[0], 403)
+        tok2 = self.login("Переборов Павел")                                                      # этот пароль подбирает
         for _ in range(server.COURSE_TRIES):
             self.req("POST", "/api/pyc/unlock", {"password": "kod-0000"}, tok2)
         self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2026"}, tok2)[0], 429)
