@@ -711,8 +711,35 @@
   async function loadPyc() {
     try { PYA.d = await api('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     PYA.detail = {};
+    pycPwState(PYA.d.pw_set, PYA.d.students.filter(s => s.by_pw).length);
     renderPyc();
   }
+  function pycPwState(set, n) {
+    $('#pycPwState').textContent = set ? `Вход по паролю включён · по паролю вошли: ${n || 0}` : 'Пароль не задан — курс открывают только галочки ниже';
+  }
+  async function pycPwSave(body, okText) {
+    const msg = $('#pycPwMsgAdm');
+    msg.className = 'login-err';
+    msg.textContent = '';
+    try {
+      const r = await api('pyc/password', body);
+      pycPwState(r.pw_set, r.by_pw);
+      $('#pycPwAdm').value = '';
+      msg.className = 'login-err ok';
+      msg.textContent = okText;
+      loadPyc();
+    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
+  }
+  $('#pycPwAdmForm').addEventListener('submit', e => {
+    e.preventDefault();
+    if ($('#pycPwAdm').value.trim()) pycPwSave({ password: $('#pycPwAdm').value }, 'Пароль курса сохранён');
+  });
+  $('#pycRevoke').addEventListener('click', () => {
+    if (confirm('Закрыть курс программирования всем ученикам и классам? Войти снова можно будет по паролю.')) pycPwSave({ revoke: true }, 'Курс закрыт всем');
+  });
+  $('#pycPwOff').addEventListener('click', () => {
+    if (confirm('Выключить вход по паролю? Кто уже в курсе — останется, новые смогут попасть только по вашей галочке.')) pycPwSave({ off: true }, 'Вход по паролю выключен');
+  });
   const pycLbl = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : 'Старт');
   function renderPyc() {
     const d = PYA.d, q = ($('#pycFind').value || '').trim().toLowerCase();
@@ -729,7 +756,7 @@
       const viaClass = cls && cls.pyc;
       return `<tr class="cp-row${PYA.open === s.id ? ' on' : ''}" data-pya="${s.id}"><td class="name">${esc(s.name)}<small>${esc(s.class || 'без класса')}</small></td>
         <td><label class="pyc-acc" title="${viaClass ? 'Открыт всему классу' : 'Открыть курс этому ученику'}"><input type="checkbox" data-pya-acc="${s.id}"
-          ${s.access ? 'checked' : ''} ${viaClass ? 'disabled' : ''}> ${viaClass ? 'через класс' : s.access ? 'открыт' : 'закрыт'}</label></td>
+          ${s.access ? 'checked' : ''} ${viaClass ? 'disabled' : ''}> ${viaClass ? 'через класс' : s.by_pw ? 'по паролю' : s.access ? 'открыт' : 'закрыт'}</label></td>
         <td class="num"><b>${s.done}</b><small>/${total}</small> ${cpBar(s.done, total)}</td>
         ${d.modules.map(m => { const v = s.mods[m.id] || 0; return `<td class="num"><b style="color:${pctColor(m.tasks ? v / m.tasks * 100 : 0)}">${v || '·'}</b></td>`; }).join('')}
         <td class="muted">${s.last ? fmtWhen(s.last) : '—'}</td></tr>

@@ -1438,7 +1438,7 @@ label.vw-row { cursor: pointer; }
 .crs-lock h2 { margin: 6px 0 8px; font: 900 22px var(--font); }
 .crs-lock p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 16px; }
 .crs-lock-form { justify-content: center; }
-#courseCard.locked::after { content: "🔒"; position: absolute; right: -1px; bottom: -1px; font-size: 12px; line-height: 1; }
+#courseCard.locked::after, #pycCard.locked::after { content: "🔒"; position: absolute; right: -1px; bottom: -1px; font-size: 12px; line-height: 1; }
 
 /* ---------- презентация урока */
 .crs-deck { grid-template-columns: 1fr 210px; align-items: start; }

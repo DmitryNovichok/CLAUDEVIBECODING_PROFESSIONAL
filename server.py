@@ -2008,6 +2008,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s),
+                "pyc_pw": bool(APP.db.setting("pyc_pw")),
                 "teacher": bool(s["is_teacher"]),
                 "consent_needed": not s["is_teacher"] and s["consent_ver"] != LEGAL_VERSION,
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
@@ -2048,10 +2049,29 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         s = self.student(data)
         if not s:
             return self.err(401, "нужно войти")
+        if path == "/api/pyc/unlock" and method == "POST":
+            # вход по паролю курса: кто знает пароль — тому курс открыт (лично, pyc=2 — «по паролю»)
+            if pyc_access(s):
+                return self.send_json({"ok": True})
+            stored = db.setting("pyc_pw")
+            if not stored:
+                return self.err(403, "Курс программирования открывает учитель")
+            now = time.time()
+            with _COURSE_LOCK:
+                tries = [t for t in _PYC_PW_TRIES.get(s["id"], []) if now - t < COURSE_WINDOW]
+                if len(tries) >= COURSE_TRIES:
+                    return self.err(429, f"Слишком много попыток — попробуйте через {int((COURSE_WINDOW - (now - tries[0])) // 60) + 1} мин")
+                tries.append(now)
+                _PYC_PW_TRIES[s["id"]] = tries
+            if not check_pw(str(data.get("password") or "").strip()[:200], stored):
+                return self.err(403, "Неверный пароль курса")
+            db.x("UPDATE students SET pyc=2, pyc_ts=? WHERE id=?", (now, s["id"]))
+            live_teacher(s)                       # во вкладке «Программирование» у учителя ученик появится сразу
+            return self.send_json({"ok": True})
         if not pyc_access(s):
             if path == "/api/pyc":
-                return self.send_json({"access": False})
-            return self.err(403, "Курс программирования открывает учитель")
+                return self.send_json({"access": False, "pw": bool(db.setting("pyc_pw"))})
+            return self.err(403, "Курс программирования открывается по паролю от учителя")
         teacher = bool(s["is_teacher"])
         prog = pyc_solved(db, s["id"])
         if path == "/api/pyc":
@@ -3903,14 +3923,33 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             for r in rows:
                 st = stats.get(r["id"], {})
                 out.append({"id": r["id"], "name": r["name"], "class_id": r["class_id"], "class": r["cls"], "own": bool(r["pyc"]),
-                            "access": bool(r["pyc"] or r["cpyc"]), "done": st.get("done", 0), "tries": st.get("tries", 0),
+                            "by_pw": r["pyc"] == 2, "access": bool(r["pyc"] or r["cpyc"]), "done": st.get("done", 0), "tries": st.get("tries", 0),
                             "last": st.get("last"), "mods": st.get("mods", {})})
             return self.send_json({"modules": [{"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"],
                                                 "tasks": sum(len(lv["tasks"]) for lv in m["levels"]),
                                                 "levels": [{"title": lv["title"], "tasks": len(lv["tasks"])} for lv in m["levels"]]}
                                                for m in mods],
                                    "classes": [{"id": c["id"], "name": c["name"], "pyc": bool(c["pyc"])} for c in cls],
-                                   "students": out})
+                                   "students": out, "pw_set": bool(db.setting("pyc_pw")), "is_main": bool(self.T["is_main"])})
+
+        if path == "/api/admin/pyc/password" and method == "POST":
+            # пароль курса программирования: задать или сменить; off — убрать вход по паролю; revoke — закрыть курс всем ученикам
+            if not self.T["is_main"]:
+                return self.err(403, "Пароль курса задаёт главный учитель")
+            pw = str(data.get("password") or "").strip()
+            if pw:
+                if len(pw) < 4:
+                    return self.err(400, "Пароль курса — не короче 4 символов")
+                db.setting("pyc_pw", hash_pw(pw[:200]))
+            if data.get("off"):
+                db.setting("pyc_pw", "")
+            sids = [r["id"] for r in db.q("SELECT id FROM students")]
+            if data.get("revoke"):
+                db.x("UPDATE students SET pyc=0")
+                db.x("UPDATE classes SET pyc=0")
+            LIVE.send(sids, "pyc")                # у учеников сразу появится замок или пропадёт курс
+            n = db.q("SELECT COUNT(*) c FROM students WHERE pyc=2", one=True)["c"]
+            return self.send_json({"ok": True, "pw_set": bool(db.setting("pyc_pw")), "by_pw": n})
 
         if path == "/api/admin/pyc/access" and method == "POST":
             on = 1 if data.get("on") else 0
@@ -4907,6 +4946,7 @@ _PYC = {}                               # имя файла → (mtime, данн
 _PYC_LOCK = threading.Lock()
 PYC_CHECKS, PYC_WINDOW = 40, 60         # не больше 40 проверок ответа в минуту — перебор ответов не пройдёт
 _PYC_TRIES = {}
+_PYC_PW_TRIES = {}                      # попытки ввести пароль курса (лимит — как у раздела «Курс»)
 
 
 def pyc_load(name):

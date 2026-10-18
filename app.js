@@ -3941,7 +3941,7 @@
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
     document.body.classList.toggle('teacher-mode', TEACHER);
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
-    pycSetAccess(me.pyc);
+    pycSetAccess(me.pyc, me.pyc_pw);
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);
     writeJSON(prefsKey(), prefs);
@@ -7023,9 +7023,10 @@
 
   // ═══════ src/app/12b-pycourse.js
   // ------------------------------------------------------------ курс «Программирование для ЕГЭ» (закрытый)
-  // Доступ открывает учитель (ученику или всему классу). Модуль = тема, внутри лестница уровней:
+  // Доступ — по паролю курса (его задаёт учитель) или галочкой учителя ученику / классу. Модуль = тема, внутри лестница уровней:
   // следующий уровень открывается, когда в текущем решено need задач. Ответы проверяет сервер.
   let PYC_OK = false;
+  let PYC_PW = false;                    // вход по паролю включён — кнопку курса видят все, у кого нет доступа, с замком
   let PYC = null;                        // план курса и прогресс с сервера
   let PYC_L = null;                      // открытый уровень
   let PYC_PY = null;                     // задача (или пример со слайда), с которой открыт редактор Python
@@ -7035,21 +7036,49 @@
   const pycModTotal = m => m.levels.reduce((a, lv) => a + lv.tasks.length, 0);
   const pycLabel = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : 'Старт');
 
-  function pycSetAccess(on) {
+  function pycSetAccess(on, pw) {
     PYC_OK = !!on;
+    if (pw !== undefined) PYC_PW = !!pw;
     const b = $('#pycCard');
-    if (b) b.hidden = !PYC_OK;
+    if (!b) return;
+    b.hidden = !(PYC_OK || PYC_PW);
+    b.classList.toggle('locked', !PYC_OK);
   }
   async function pycLoad() {
     PYC = await api('pyc');
-    if (!PYC.access) { pycSetAccess(false); return false; }
+    if (!PYC.access) { pycSetAccess(false, PYC.pw); return false; }
     pycSetAccess(true);
     return true;
   }
   function pycLock(msg) {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Программирование</span>';
-    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><div class="crs-lock-ic">🔒</div>
-      <h2>Курс закрыт</h2><p>${esc(msg || 'Курс программирования открывает учитель — попросите его выдать доступ.')}</p></div></div>`;
+    if (msg || !PYC_PW) {
+      trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><div class="crs-lock-ic">🔒</div>
+        <h2>Курс закрыт</h2><p>${esc(msg || 'Курс программирования открывает учитель — попросите у него пароль.')}</p></div></div>`;
+      return;
+    }
+    trainerEl.innerHTML = `<div class="course"><div class="crs-lock">
+      <div class="crs-lock-ic">🐍</div>
+      <h2>Курс «Программирование для ЕГЭ» — по паролю</h2>
+      <p>Пароль выдаёт учитель. Ввести его нужно один раз — дальше курс будет открыт на любом устройстве.</p>
+      <form class="login-form crs-lock-form" id="pycPwForm" autocomplete="off">
+        <input class="inp" id="pycPw" type="password" maxlength="200" placeholder="Пароль курса" autocomplete="off" required>
+        <button class="btn primary" type="submit">Открыть курс</button>
+      </form>
+      <div class="login-err" id="pycPwMsg"></div>
+    </div></div>`;
+    $('#pycPw').focus();
+    $('#pycPwForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const m = $('#pycPwMsg');
+      m.textContent = '';
+      try {
+        await api('pyc/unlock', { password: $('#pycPw').value });
+        pycSetAccess(true);
+        toast('Курс открыт 🐍', 2500);
+        openPyc();
+      } catch (err) { m.textContent = err.message || 'Не получилось — попробуйте ещё раз'; }
+    });
   }
   function pycEnter() {
     if (!leaveExam()) return false;
@@ -7259,10 +7288,10 @@
     if (e.target.matches('.pyc-ans')) { const m = e.target.closest('.pyc-task').querySelector('.pyc-msg'); m.textContent = ''; m.className = 'pyc-msg'; }
   });
   $('#pycCard')?.addEventListener('click', () => openPyc());
-  /** Учитель открыл или закрыл курс — кнопка появляется (или пропадает) сразу. */
+  /** Учитель открыл или закрыл курс (или сменил вход по паролю) — кнопка появляется, пропадает или получает замок сразу. */
   async function pycLive() {
     const was = PYC_OK;
-    try { const me = await api('me'); pycSetAccess(me.pyc); } catch (e) { return; }
+    try { const me = await api('me'); pycSetAccess(me.pyc, me.pyc_pw); } catch (e) { return; }
     if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
     else if (PYC_OK && !was) toast('🐍 Учитель открыл вам курс «Программирование для ЕГЭ» — кнопка слева', 6000);
   }

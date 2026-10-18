@@ -138,9 +138,24 @@
       <div class="adm-toolbar"><h2 class="adm-h">Курс «Программирование для ЕГЭ»</h2>
         <input class="inp" id="pycFind" placeholder="Поиск по ФИО" style="max-width:240px">
         <button type="button" class="btn ghost" id="pycReload">Обновить</button></div>
-      <p class="adm-hint" style="margin:0 0 12px">Закрытый курс: ученик видит его, только если вы открыли доступ ему лично или всему его классу.
-        Открыли — кнопка курса появляется у ученика сразу, без перезагрузки. Нажмите на ученика — увидите каждую задачу:
+      <p class="adm-hint" style="margin:0 0 12px">Закрытый курс: ученик попадает в него по паролю курса — или если вы открыли доступ ему лично или всему его классу.
+        Открыли — курс появляется у ученика сразу, без перезагрузки. Нажмите на ученика — увидите каждую задачу:
         <span class="cp-sq ok"></span> решена, <span class="cp-sq bad"></span> есть неверные попытки, <span class="cp-sq"></span> не начата; по клику — его код.</p>
+      <form class="adm-box main-only" id="pycPwAdmForm" style="margin-bottom:14px">
+        <h3 class="adm-h3">Пароль курса</h3>
+        <p class="fm-note">Ученик вводит пароль на странице курса один раз — дальше курс открыт ему на любом устройстве. Пока пароль задан, кнопка курса с замком видна всем ученикам.
+          Новый пароль действует для новых входов; «Закрыть курс всем» закрывает его всем ученикам и классам — войти снова можно будет только по паролю.</p>
+        <div class="login-form">
+          <input class="inp" id="pycPwAdm" type="text" autocomplete="off" maxlength="200" placeholder="новый пароль курса">
+          <button class="btn primary" type="submit">Сохранить</button>
+        </div>
+        <div class="adm-row-btns">
+          <button class="btn ghost" type="button" id="pycRevoke">Закрыть курс всем</button>
+          <button class="btn ghost" type="button" id="pycPwOff">Выключить вход по паролю</button>
+        </div>
+        <p class="fm-note" id="pycPwState"></p>
+        <div class="login-err" id="pycPwMsgAdm"></div>
+      </form>
       <div id="pycBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
