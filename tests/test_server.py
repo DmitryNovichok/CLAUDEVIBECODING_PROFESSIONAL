@@ -850,10 +850,21 @@ class ServerTest(unittest.TestCase):
                                                                "slides": 1} for x in mod["levels"]]}], ensure_ascii=False), encoding="utf-8")
         tok = self.login("Кодов Константин")
         me = self.req("GET", "/api/me", token=tok)[1]
-        self.assertFalse(me["pyc"])
+        # курс — по паролю, как раздел «Курс»: пока пароль не задан, закрыт у всех учеников
+        self.assertEqual((me["pyc"], me["pyc_pw"]), (False, False))
         self.assertEqual(self.req("GET", "/api/pyc", token=tok)[1], {"access": False, "pw": False})
         self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=0", token=tok)[0], 403)
-        self.assertEqual(self.admin("POST", "/api/admin/pyc/access", {"student_id": me["sid"], "on": True})[0], 200)
+        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2026"}, tok)[0], 403)
+        self.assertEqual(self.admin("POST", "/api/admin/pyc/access", {"student_id": me["sid"], "on": True})[0], 404)  # галочек нет
+        self.assertEqual(self.admin("POST", "/api/admin/pyc/password", {"password": "12"})[0], 400)    # слишком короткий
+        st, r = self.admin("POST", "/api/admin/pyc/password", {"password": "kod-2026"})
+        self.assertEqual((st, r["pw_set"], r["students"]), (200, True, 0))
+        self.assertNotIn("kod-2026", json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")]))  # в базе только хеш
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertEqual((me["pyc"], me["pyc_pw"]), (False, True))                                 # у ученика — замок и поле пароля
+        self.assertEqual(self.req("GET", "/api/pyc", token=tok)[1], {"access": False, "pw": True})
+        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2025"}, tok)[0], 403)
+        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": " kod-2026 "}, tok)[0], 200)
         st, plan = self.req("GET", "/api/pyc", token=tok)
         self.assertTrue(plan["access"])
         self.assertEqual(plan["modules"][0]["open"], 1)                                          # открыт только первый уровень
@@ -876,44 +887,25 @@ class ServerTest(unittest.TestCase):
         st, a = self.admin("GET", "/api/admin/pyc")
         row = next(x for x in a["students"] if x["id"] == me["sid"])
         self.assertEqual((row["access"], row["done"], row["mods"]), (True, 1, {"m90": 1}))
+        self.assertTrue(row["since"])                                                             # учитель видит, когда вошёл
         st, det = self.admin("GET", f"/api/admin/pyc/student?id={me['sid']}")
         t1 = det["modules"][0]["levels"][0]["tasks"][0]
         self.assertEqual((t1["ok"], t1["tries"], t1["code"]), (True, 2, "print(2, 5)"))
-        # доступ всему классу
-        cid = self.admin("POST", "/api/admin/class/save", {"name": "Кодеры"})[1]["id"]
-        tok2 = self.login("Классов Кодер")
-        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
-        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid2]})
+        # другой ученик пароля не знает — курс ему закрыт; подбирать пароль не выйдет
+        tok2 = self.login("Подборов Пётр")
         self.assertFalse(self.req("GET", "/api/pyc", token=tok2)[1]["access"])
-        self.admin("POST", "/api/admin/pyc/access", {"class_id": cid, "on": True})
-        self.assertTrue(self.req("GET", "/api/pyc", token=tok2)[1]["access"])
-        self.admin("POST", "/api/admin/pyc/access", {"class_id": cid, "on": False})
-        self.assertFalse(self.req("GET", "/api/me", token=tok2)[1]["pyc"])
-        self.admin("POST", "/api/admin/pyc/access", {"student_id": me["sid"], "on": False})
-        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=0", token=tok)[0], 403)
-        # вход по паролю курса: пока пароля нет — открыть нельзя; задал главный учитель — кто знает пароль, тот в курсе
-        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["pyc_pw"])
-        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2026"}, tok)[0], 403)
-        self.assertEqual(self.admin("POST", "/api/admin/pyc/password", {"password": "12"})[0], 400)    # слишком короткий
-        st, r = self.admin("POST", "/api/admin/pyc/password", {"password": "kod-2026"})
-        self.assertEqual((st, r["pw_set"]), (200, True))
-        self.assertNotIn("kod-2026", json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")]))  # в базе только хеш
-        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["pyc_pw"])                         # у ученика — кнопка с замком
-        self.assertEqual(self.req("GET", "/api/pyc", token=tok)[1], {"access": False, "pw": True})
-        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2025"}, tok)[0], 403)
-        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": " kod-2026 "}, tok)[0], 200)
-        self.assertTrue(self.req("GET", "/api/pyc", token=tok)[1]["access"])
-        row = next(x for x in self.admin("GET", "/api/admin/pyc")[1]["students"] if x["id"] == me["sid"])
-        self.assertEqual((row["access"], row["by_pw"]), (True, True))                              # учитель видит: «по паролю»
-        for _ in range(server.COURSE_TRIES):                                                        # подбирать пароль не выйдет
+        for _ in range(server.COURSE_TRIES):
             self.req("POST", "/api/pyc/unlock", {"password": "kod-0000"}, tok2)
         self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2026"}, tok2)[0], 429)
-        st, r = self.admin("POST", "/api/admin/pyc/password", {"revoke": True})                    # закрыть всем
-        self.assertEqual((r["pw_set"], r["by_pw"]), (True, 0))
+        # «Закрыть всем» — снова нужен пароль; «Выключить курс» — пароль сброшен, закрыт у всех
+        st, r = self.admin("POST", "/api/admin/pyc/password", {"revoke": True})
+        self.assertEqual((r["pw_set"], r["students"]), (True, 0))
         self.assertFalse(self.req("GET", "/api/pyc", token=tok)[1]["access"])
-        self.admin("POST", "/api/admin/pyc/password", {"off": True})                                # выключить вход по паролю
+        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2026"}, tok)[0], 200)
+        self.admin("POST", "/api/admin/pyc/password", {"off": True})
+        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=0", token=tok)[0], 403)
         self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2026"}, tok)[0], 403)
-        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["pyc_pw"])
+        self.assertEqual(self.req("GET", "/api/me", token=tok)[1]["pyc_pw"], False)
         shutil.rmtree(d)
 
     def test_funny_achievements(self):

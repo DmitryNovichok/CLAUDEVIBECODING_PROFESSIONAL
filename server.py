@@ -1252,9 +1252,8 @@ class DB:
                     ("students", "consent_ip", "TEXT"),               # с какого адреса
                     ("students", "freezes", "INTEGER DEFAULT 0"),     # заморозки огонька в запасе (до FREEZE_MAX)
                     ("daily_starts", "task_id", "TEXT"),              # личное задание дня ученика; NULL — общее (до 1.53)
-                    ("students", "pyc", "INTEGER DEFAULT 0"),         # открыт ли курс программирования лично ученику
-                    ("students", "pyc_ts", "REAL"),
-                    ("classes", "pyc", "INTEGER DEFAULT 0"),          # курс программирования открыт всему классу
+                    ("students", "pyc", "INTEGER DEFAULT 0"),         # ученик ввёл пароль курса программирования
+                    ("students", "pyc_ts", "REAL"),                   # когда ввёл
                     ("daily_results", "fast", "INTEGER DEFAULT 0"),   # решено нереально быстро — в рейтинг и корону не идёт
                     ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
                     ("teachers", "consent_ts", "REAL"),
@@ -2050,7 +2049,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if not s:
             return self.err(401, "нужно войти")
         if path == "/api/pyc/unlock" and method == "POST":
-            # вход по паролю курса: кто знает пароль — тому курс открыт (лично, pyc=2 — «по паролю»)
+            # вход по паролю курса (как у раздела «Курс»): кто знает пароль — тому курс открыт
             if pyc_access(s):
                 return self.send_json({"ok": True})
             stored = db.setting("pyc_pw")
@@ -2065,7 +2064,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 _PYC_PW_TRIES[s["id"]] = tries
             if not check_pw(str(data.get("password") or "").strip()[:200], stored):
                 return self.err(403, "Неверный пароль курса")
-            db.x("UPDATE students SET pyc=2, pyc_ts=? WHERE id=?", (now, s["id"]))
+            db.x("UPDATE students SET pyc=1, pyc_ts=? WHERE id=?", (now, s["id"]))
             live_teacher(s)                       # во вкладке «Программирование» у учителя ученик появится сразу
             return self.send_json({"ok": True})
         if not pyc_access(s):
@@ -3902,9 +3901,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "set": bool(db.setting("course_pw")), "students": n})
 
         if path == "/api/admin/pyc":
-            # курс программирования: кому открыт и сколько решено по модулям (ученики этого учителя)
+            # курс программирования: кто вошёл по паролю и сколько решено по модулям (ученики этого учителя)
             where, args = self.student_scope()
-            rows = db.q(f"""SELECT s.id, s.name, s.class_id, s.pyc, s.pyc_ts, s.last_seen, c.name AS cls, COALESCE(c.pyc, 0) AS cpyc
+            rows = db.q(f"""SELECT s.id, s.name, s.class_id, s.pyc, s.pyc_ts, c.name AS cls
                             FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where} ORDER BY s.name""", args)
             mods = pyc_index()
             owner = {t: m["id"] for m in mods for lv in m["levels"] for t in lv["tasks"]}
@@ -3917,23 +3916,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if r["ok"] and r["task_id"] in owner:
                     st["done"] += 1
                     st["mods"][owner[r["task_id"]]] = st["mods"].get(owner[r["task_id"]], 0) + 1
-            cls = db.q("""SELECT id, name, COALESCE(pyc, 0) AS pyc FROM classes WHERE COALESCE(teacher_id, ?) = ? ORDER BY name""",
-                       (main_teacher()["id"], self.T["id"]))
+            pw_set = bool(db.setting("pyc_pw"))
             out = []
             for r in rows:
                 st = stats.get(r["id"], {})
-                out.append({"id": r["id"], "name": r["name"], "class_id": r["class_id"], "class": r["cls"], "own": bool(r["pyc"]),
-                            "by_pw": r["pyc"] == 2, "access": bool(r["pyc"] or r["cpyc"]), "done": st.get("done", 0), "tries": st.get("tries", 0),
-                            "last": st.get("last"), "mods": st.get("mods", {})})
+                out.append({"id": r["id"], "name": r["name"], "class_id": r["class_id"], "class": r["cls"],
+                            "access": bool(r["pyc"]) and pw_set, "since": r["pyc_ts"] if r["pyc"] else None,
+                            "done": st.get("done", 0), "tries": st.get("tries", 0), "last": st.get("last"), "mods": st.get("mods", {})})
             return self.send_json({"modules": [{"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"],
                                                 "tasks": sum(len(lv["tasks"]) for lv in m["levels"]),
                                                 "levels": [{"title": lv["title"], "tasks": len(lv["tasks"])} for lv in m["levels"]]}
                                                for m in mods],
-                                   "classes": [{"id": c["id"], "name": c["name"], "pyc": bool(c["pyc"])} for c in cls],
-                                   "students": out, "pw_set": bool(db.setting("pyc_pw")), "is_main": bool(self.T["is_main"])})
+                                   "students": out, "pw_set": pw_set})
 
         if path == "/api/admin/pyc/password" and method == "POST":
-            # пароль курса программирования: задать или сменить; off — убрать вход по паролю; revoke — закрыть курс всем ученикам
+            # пароль курса программирования — как у раздела «Курс»: задать или сменить; revoke — закрыть всем, кто уже вошёл;
+            # off — выключить курс (пароль сбрасывается, закрыт у всех)
             if not self.T["is_main"]:
                 return self.err(403, "Пароль курса задаёт главный учитель")
             pw = str(data.get("password") or "").strip()
@@ -3943,36 +3941,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.setting("pyc_pw", hash_pw(pw[:200]))
             if data.get("off"):
                 db.setting("pyc_pw", "")
-            sids = [r["id"] for r in db.q("SELECT id FROM students")]
-            if data.get("revoke"):
+            if data.get("revoke") or data.get("off"):
                 db.x("UPDATE students SET pyc=0")
-                db.x("UPDATE classes SET pyc=0")
-            LIVE.send(sids, "pyc")                # у учеников сразу появится замок или пропадёт курс
-            n = db.q("SELECT COUNT(*) c FROM students WHERE pyc=2", one=True)["c"]
-            return self.send_json({"ok": True, "pw_set": bool(db.setting("pyc_pw")), "by_pw": n})
-
-        if path == "/api/admin/pyc/access" and method == "POST":
-            on = 1 if data.get("on") else 0
-            where, args = self.student_scope()
-            if data.get("class_id") is not None:
-                cid = to_int(data.get("class_id"))
-                c = db.q("SELECT id FROM classes WHERE id=? AND COALESCE(teacher_id, ?) = ?",
-                         (cid, main_teacher()["id"], self.T["id"]), one=True)
-                if not c:
-                    return self.err(404, "нет такого класса")
-                db.x("UPDATE classes SET pyc=? WHERE id=?", (on, cid))
-                if not on:                      # закрыли классу — закрываем и тем, кому открывали лично
-                    db.x(f"UPDATE students SET pyc=0 WHERE class_id=? AND id IN (SELECT s.id FROM students s WHERE {where})",
-                         (cid,) + args)
-                sids = [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=?", (cid,))]
-            else:
-                sid = to_int(data.get("student_id"))
-                if not db.q(f"SELECT s.id FROM students s WHERE s.id=? AND {where}", (sid,) + args, one=True):
-                    return self.err(404, "нет такого ученика")
-                db.x("UPDATE students SET pyc=?, pyc_ts=COALESCE(pyc_ts, ?) WHERE id=?", (on, time.time(), sid))
-                sids = [sid]
-            LIVE.send(sids, "pyc")                # у ученика сразу появится (или пропадёт) курс
-            return self.send_json({"ok": True})
+            LIVE.send([r["id"] for r in db.q("SELECT id FROM students")], "pyc")   # у учеников сразу появится замок или поле пароля
+            n = db.q("SELECT COUNT(*) c FROM students WHERE pyc=1", one=True)["c"]
+            return self.send_json({"ok": True, "pw_set": bool(db.setting("pyc_pw")), "students": n})
 
         if path == "/api/admin/pyc/student":
             # подробно: каждая задача курса — решена ли, сколько попыток, код решения
@@ -4941,7 +4914,7 @@ def course_open(s):
     return bool(s["course"]) and bool(APP.db.setting("course_pw"))
 
 
-# ---------- курс «Программирование для ЕГЭ» (закрытый: доступ выдаёт учитель ученику или всему классу)
+# ---------- курс «Программирование для ЕГЭ» (закрытый: вход по паролю, как у раздела «Курс»)
 _PYC = {}                               # имя файла → (mtime, данные): курс пересобрали — перечитаем без перезапуска
 _PYC_LOCK = threading.Lock()
 PYC_CHECKS, PYC_WINDOW = 40, 60         # не больше 40 проверок ответа в минуту — перебор ответов не пройдёт
@@ -4989,12 +4962,10 @@ def pyc_task(tid):
 
 
 def pyc_access(s):
-    if s["is_teacher"] or s["pyc"]:
-        return True
-    if s["class_id"]:
-        r = APP.db.q("SELECT pyc FROM classes WHERE id=?", (s["class_id"],), one=True)
-        return bool(r and r["pyc"])
-    return False
+    """Курс программирования открыт ученику, если он ввёл пароль, а учитель не выключил курс (как раздел «Курс»)."""
+    if s["is_teacher"]:
+        return True                      # учителю курс открыт без пароля
+    return bool(s["pyc"]) and bool(APP.db.setting("pyc_pw"))
 
 
 def pyc_solved(db, sid):

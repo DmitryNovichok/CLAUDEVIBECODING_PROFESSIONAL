@@ -711,11 +711,11 @@
   async function loadPyc() {
     try { PYA.d = await api('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     PYA.detail = {};
-    pycPwState(PYA.d.pw_set, PYA.d.students.filter(s => s.by_pw).length);
+    pycPwState(PYA.d.pw_set, PYA.d.students.filter(s => s.access).length);
     renderPyc();
   }
   function pycPwState(set, n) {
-    $('#pycPwState').textContent = set ? `Вход по паролю включён · по паролю вошли: ${n || 0}` : 'Пароль не задан — курс открывают только галочки ниже';
+    $('#pycPwState').textContent = set ? `Курс включён · вошли по паролю: ${n || 0}` : 'Курс выключен: пароль не задан';
   }
   async function pycPwSave(body, okText) {
     const msg = $('#pycPwMsgAdm');
@@ -723,7 +723,7 @@
     msg.textContent = '';
     try {
       const r = await api('pyc/password', body);
-      pycPwState(r.pw_set, r.by_pw);
+      pycPwState(r.pw_set, r.students);
       $('#pycPwAdm').value = '';
       msg.className = 'login-err ok';
       msg.textContent = okText;
@@ -735,10 +735,10 @@
     if ($('#pycPwAdm').value.trim()) pycPwSave({ password: $('#pycPwAdm').value }, 'Пароль курса сохранён');
   });
   $('#pycRevoke').addEventListener('click', () => {
-    if (confirm('Закрыть курс программирования всем ученикам и классам? Войти снова можно будет по паролю.')) pycPwSave({ revoke: true }, 'Курс закрыт всем');
+    if (confirm('Закрыть курс программирования всем ученикам? Им придётся снова ввести пароль.')) pycPwSave({ revoke: true }, 'Курс закрыт всем — нужен пароль');
   });
   $('#pycPwOff').addEventListener('click', () => {
-    if (confirm('Выключить вход по паролю? Кто уже в курсе — останется, новые смогут попасть только по вашей галочке.')) pycPwSave({ off: true }, 'Вход по паролю выключен');
+    if (confirm('Выключить курс программирования? Пароль сбросится, курс будет закрыт у всех.')) pycPwSave({ off: true }, 'Курс выключен');
   });
   const pycLbl = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : 'Старт');
   function renderPyc() {
@@ -746,30 +746,26 @@
     if (!d.modules.length) { $('#pycBody').innerHTML = '<p class="adm-empty">Курс ещё не собран: на сервере нет папки pycourse/.</p>'; return; }
     const total = d.modules.reduce((a, m) => a + m.tasks, 0);
     const S = d.students.filter(s => !q || s.name.toLowerCase().includes(q))
-      .sort((a, b) => b.access - a.access || b.done - a.done || a.name.localeCompare(b.name, 'ru'));   // сначала те, кому курс открыт
+      .sort((a, b) => b.access - a.access || b.done - a.done || a.name.localeCompare(b.name, 'ru'));   // сначала те, кто вошёл в курс
     const inCourse = d.students.filter(s => s.access);
     const week = Date.now() / 1000 - 7 * 86400;
     const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
     const heads = d.modules.map(m => `<th class="num pyc-mh" title="${esc(m.title)}">${m.icon}<small>${esc(pycLbl(m))}</small></th>`).join('');
     const rows = S.map(s => {
-      const cls = d.classes.find(c => c.id === s.class_id);
-      const viaClass = cls && cls.pyc;
       return `<tr class="cp-row${PYA.open === s.id ? ' on' : ''}" data-pya="${s.id}"><td class="name">${esc(s.name)}<small>${esc(s.class || 'без класса')}</small></td>
-        <td><label class="pyc-acc" title="${viaClass ? 'Открыт всему классу' : 'Открыть курс этому ученику'}"><input type="checkbox" data-pya-acc="${s.id}"
-          ${s.access ? 'checked' : ''} ${viaClass ? 'disabled' : ''}> ${viaClass ? 'через класс' : s.by_pw ? 'по паролю' : s.access ? 'открыт' : 'закрыт'}</label></td>
+        <td>${s.access ? `🔓 вошёл${s.since ? `<small>${fmtWhen(s.since)}</small>` : ''}` : '<span class="muted">🔒 нет</span>'}</td>
         <td class="num"><b>${s.done}</b><small>/${total}</small> ${cpBar(s.done, total)}</td>
         ${d.modules.map(m => { const v = s.mods[m.id] || 0; return `<td class="num"><b style="color:${pctColor(m.tasks ? v / m.tasks * 100 : 0)}">${v || '·'}</b></td>`; }).join('')}
         <td class="muted">${s.last ? fmtWhen(s.last) : '—'}</td></tr>
         ${PYA.open === s.id ? `<tr class="cp-detail"><td colspan="${4 + d.modules.length}">${pycDetailHtml(s.id)}</td></tr>` : ''}`;
     }).join('');
     $('#pycBody').innerHTML = `<div class="adm-cards">
-        ${card('Доступ открыт', inCourse.length, `из ${d.students.length} учеников`)}
+        ${card('Вошли по паролю', inCourse.length, `из ${d.students.length} учеников`)}
         ${card('В курсе', d.modules.length + ' тем', `${total} задач, ${d.modules.reduce((a, m) => a + m.levels.length, 0)} уровней`)}
         ${card('Решено задач', inCourse.reduce((a, s) => a + s.done, 0), 'всеми учениками вместе')}
         ${card('Занимались за неделю', d.students.filter(s => (s.last || 0) >= week).length, 'отправляли ответы')}
       </div>
-      ${d.classes.length ? `<div class="pyc-cls"><b>Открыть всему классу:</b> ${d.classes.map(c => `<label class="pyc-acc pill"><input type="checkbox" data-pya-cls="${c.id}" ${c.pyc ? 'checked' : ''}> ${esc(c.name)}</label>`).join('')}</div>` : ''}
-      <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th><th>Доступ</th><th class="num">Решено</th>${heads}<th>Последний ответ</th></tr></thead>
+      <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th><th>В курсе</th><th class="num">Решено</th>${heads}<th>Последний ответ</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="${4 + d.modules.length}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Учеников пока нет'}</td></tr>`}</tbody></table></div>`;
   }
   function pycDetailHtml(sid) {
@@ -791,19 +787,7 @@
       ${t.code ? `<div class="adm-hint">Код ученика (последний отправленный с ответом):</div><pre class="tsol">${esc(t.code)}</pre>` : '<p class="adm-hint">Код ученик не отправлял — ответ вводил вручную.</p>'}`;
     $('#taskModal').hidden = false;
   }
-  $('#pycBody').addEventListener('change', async e => {
-    const a = e.target.closest('[data-pya-acc]'), c = e.target.closest('[data-pya-cls]');
-    if (!a && !c) return;
-    const on = e.target.checked;
-    if (c && !on && !confirm('Закрыть курс всему классу? Личный доступ ученикам этого класса тоже закроется.')) { e.target.checked = true; return; }
-    try {
-      await api('pyc/access', a ? { student_id: +a.dataset.pyaAcc, on } : { class_id: +c.dataset.pyaCls, on });
-      toast(on ? 'Курс открыт — ученик увидит его сразу' : 'Доступ к курсу закрыт');
-    } catch (err) { if (err.status !== 401) toast(err.message); }
-    loadPyc();
-  });
   $('#pycBody').addEventListener('click', async e => {
-    if (e.target.closest('label, input')) return;
     const sq = e.target.closest('[data-pya-task]');
     if (sq) { pycShowTask(PYA.open, sq.dataset.pyaTask); return; }
     const r = e.target.closest('[data-pya]');
