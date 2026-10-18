@@ -1265,6 +1265,7 @@ class DB:
                     ("daily_starts", "task_id", "TEXT"),              # личное задание дня ученика; NULL — общее (до 1.53)
                     ("students", "pyc", "INTEGER DEFAULT 0"),         # ученик ввёл пароль курса программирования
                     ("students", "pyc_ts", "REAL"),                   # когда ввёл
+                    ("students", "pyc_free", "INTEGER DEFAULT 0"),    # учитель открыл все уровни курса (без замков)
                     ("daily_results", "fast", "INTEGER DEFAULT 0"),   # решено нереально быстро — в рейтинг и корону не идёт
                     ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
                     ("teachers", "consent_ts", "REAL"),
@@ -2083,11 +2084,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json({"access": False, "pw": bool(db.setting("pyc_pw"))})
             return self.err(403, "Курс программирования открывается по паролю от учителя")
         teacher = bool(s["is_teacher"])
+        free = teacher or bool(s["pyc_free"])   # все уровни открыты: учителю и ученику, которому учитель так открыл
         prog = pyc_solved(db, s["id"])
         if path == "/api/pyc":
             mods = []
             for m in pyc_index():
-                mods.append({**m, "open": pyc_open_levels(m, prog, teacher)})
+                mods.append({**m, "open": pyc_open_levels(m, prog, free)})
             return self.send_json({"access": True, "teacher": teacher, "modules": mods,
                                    "progress": {k: v for k, v in prog.items()}})
         if path == "/api/pyc/level":
@@ -2095,7 +2097,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             li = to_int(qs.get("l"))
             if not mod or li is None or not 0 <= li < len(mod["levels"]):
                 return self.err(404, "нет такого уровня")
-            if li >= pyc_open_levels(mod, prog, teacher):
+            if li >= pyc_open_levels(mod, prog, free):
                 return self.err(403, "Уровень ещё закрыт: решите задачи предыдущего")
             lv = mod["levels"][li]
             tasks = []
@@ -2117,7 +2119,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             mod, li, t = pyc_task(tid)
             if not t:
                 return self.err(404, "нет такой задачи")
-            if li >= pyc_open_levels(mod, prog, teacher):
+            if li >= pyc_open_levels(mod, prog, free):
                 return self.err(403, "Уровень ещё закрыт")
             ans = str(data.get("answer") or "").strip()[:300]
             if not ans:
@@ -2146,7 +2148,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if ok:
                 out["ans"] = t["ans"]
                 before = li + 1
-                out["opened"] = pyc_open_levels(mod, prog, teacher) > before and before < len(mod["levels"])
+                out["opened"] = pyc_open_levels(mod, prog, free) > before and before < len(mod["levels"])
                 live_teacher(s)                 # у учителя обновится прогресс курса
             return self.send_json(out)
         return self.err(404, "нет такого метода")
@@ -3912,33 +3914,46 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "set": bool(db.setting("course_pw")), "students": n})
 
         if path == "/api/admin/pyc":
-            # курс программирования: кто вошёл по паролю и сколько решено по модулям (ученики этого учителя)
+            # прогресс курса программирования (как «Прогресс курса»): ученики этого учителя, вошедшие по паролю, —
+            # когда вошли, сколько решили по каждой теме, сколько задач с ошибкой
             where, args = self.student_scope()
-            rows = db.q(f"""SELECT s.id, s.name, s.class_id, s.pyc, s.pyc_ts, c.name AS cls
-                            FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where} ORDER BY s.name""", args)
+            rows = db.q(f"""SELECT s.id, s.name, s.pyc_ts, COALESCE(s.pyc_free, 0) AS free, c.name AS cls
+                            FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.pyc = 1 AND {where} ORDER BY s.name""", args)
             mods = pyc_index()
             owner = {t: m["id"] for m in mods for lv in m["levels"] for t in lv["tasks"]}
             stats = {}
             for r in db.q("""SELECT p.student_id, p.task_id, p.ok, p.tries, p.last_ts FROM pyc_progress p
-                             JOIN students s ON s.id = p.student_id WHERE """ + where, args):
-                st = stats.setdefault(r["student_id"], {"done": 0, "tries": 0, "last": None, "mods": {}})
-                st["tries"] += r["tries"]
+                             JOIN students s ON s.id = p.student_id WHERE s.pyc = 1 AND """ + where, args):
+                if r["task_id"] not in owner:
+                    continue                     # задачу убрали из курса — в прогрессе не считаем
+                st = stats.setdefault(r["student_id"], {"done": 0, "last": None, "mods": {}})
                 st["last"] = max(st["last"] or 0, r["last_ts"] or 0) or None
-                if r["ok"] and r["task_id"] in owner:
+                m = st["mods"].setdefault(owner[r["task_id"]], {"done": 0, "bad": 0})
+                if r["ok"]:
                     st["done"] += 1
-                    st["mods"][owner[r["task_id"]]] = st["mods"].get(owner[r["task_id"]], 0) + 1
-            pw_set = bool(db.setting("pyc_pw"))
+                    m["done"] += 1
+                elif r["tries"]:
+                    m["bad"] += 1                # пробовал, но пока не решил
             out = []
             for r in rows:
                 st = stats.get(r["id"], {})
-                out.append({"id": r["id"], "name": r["name"], "class_id": r["class_id"], "class": r["cls"],
-                            "access": bool(r["pyc"]) and pw_set, "since": r["pyc_ts"] if r["pyc"] else None,
-                            "done": st.get("done", 0), "tries": st.get("tries", 0), "last": st.get("last"), "mods": st.get("mods", {})})
+                out.append({"id": r["id"], "name": r["name"], "class": r["cls"], "since": r["pyc_ts"], "free": bool(r["free"]),
+                            "done": st.get("done", 0), "last": st.get("last"), "mods": st.get("mods", {})})
             return self.send_json({"modules": [{"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"],
                                                 "tasks": sum(len(lv["tasks"]) for lv in m["levels"]),
                                                 "levels": [{"title": lv["title"], "tasks": len(lv["tasks"])} for lv in m["levels"]]}
                                                for m in mods],
-                                   "students": out, "pw_set": pw_set})
+                                   "students": out, "pw_set": bool(db.setting("pyc_pw"))})
+
+        if path == "/api/admin/pyc/free" and method == "POST":
+            # открыть ученику все уровни курса программирования сразу (без замков) — например, тестовому аккаунту
+            where, args = self.student_scope()
+            sid = to_int(data.get("student_id"))
+            if not db.q(f"SELECT s.id FROM students s WHERE s.id=? AND {where}", (sid,) + args, one=True):
+                return self.err(404, "нет такого ученика")
+            db.x("UPDATE students SET pyc_free=? WHERE id=?", (1 if data.get("on") else 0, sid))
+            LIVE.send([sid], "pyc")              # у ученика замки уровней пропадут (или вернутся) сразу
+            return self.send_json({"ok": True})
 
         if path == "/api/admin/pyc/password" and method == "POST":
             # пароль курса программирования — как у раздела «Курс»: задать или сменить; revoke — закрыть всем, кто уже вошёл;
@@ -4984,10 +4999,10 @@ def pyc_solved(db, sid):
             for r in db.q("SELECT task_id, ok, tries FROM pyc_progress WHERE student_id=?", (sid,))}
 
 
-def pyc_open_levels(mod, prog, teacher=False):
-    """Сколько уровней модуля открыто: следующий — когда в предыдущем решено need задач."""
+def pyc_open_levels(mod, prog, all_open=False):
+    """Сколько уровней модуля открыто: следующий — когда в предыдущем решено need задач (all_open — все сразу)."""
     lv = mod.get("levels", [])
-    if teacher:
+    if all_open:
         return len(lv)
     k = 1
     while k < len(lv):
