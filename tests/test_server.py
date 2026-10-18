@@ -2275,9 +2275,18 @@ class ServerTest(unittest.TestCase):
                 db.x("INSERT INTO attempts(student_id, ts, task_id, n, score) VALUES(?,?,?,5,1)", (sid, noon + j, ids[k % len(ids)] + f"#{k}"))
                 k += 1
         g = server.game_summary(db, sid)
-        self.assertEqual((g["fire"], g["froze"], g["freezes"]), (3, 1, server.FREEZE_MAX - 1))
+        # заморозка сохраняет огонёк, но не прибавляет: было 2 — осталось 2 (а не 3)
+        self.assertEqual((g["fire"], g["froze"], g["freezes"]), (2, 1, server.FREEZE_MAX - 1))
         self.assertEqual(g["cover"][(today - datetime.timedelta(days=1)).isoformat()], "freeze")
         self.assertEqual(server.game_summary(db, sid)["froze"], 0)      # второй раз не тратится
+        dawn = time.mktime(today.timetuple()) + 1                      # начало сегодняшнего дня — всегда уже в прошлом
+        for j in range(3):                                             # сегодня решил — огонёк +1 за сегодня
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score) VALUES(?,?,?,5,1)", (sid, dawn + j, ids[k % len(ids)] + f"#{k}"))
+            k += 1
+        self.assertEqual(server.game_summary(db, sid)["fire"], 3)
+        # восстановление учителем через замороженный день: замороженный день не считается, восстановленные — считаются
+        st, d = self.admin("POST", "/api/admin/student/fire", {"id": sid, "days": 5})
+        self.assertEqual((st, d["fire"], d["added"]), (200, 5, 2))
         # учитель восстанавливает огонёк ученику без истории
         tok2 = self.login("Огоньков Олег")
         sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
@@ -2285,6 +2294,23 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((st, d["fire"], d["added"]), (200, 5, 5))
         self.assertEqual(server.game_summary(db, sid2)["fire"], 5)
         self.assertEqual(self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 3})[1]["added"], 0)
+
+    def test_answer_fix(self):
+        # исправленный вручную ответ банка подменяется при загрузке: верный засчитывается, ответ из банка — нет
+        bank = server.APP.bank
+        tid = BANK["tasks"][0]["id"]
+        server.ANS_FIX[tid] = "011"
+        try:
+            bank.mtime = None
+            bank.ensure()
+            self.assertEqual(bank.tasks[tid]["ans"], "011")
+            self.assertEqual(server.answer_credit(4, bank.tasks[tid]["ans"], "011"), 1.0)
+            self.assertEqual(server.answer_credit(4, bank.tasks[tid]["ans"], "11"), 0.0)
+        finally:
+            del server.ANS_FIX[tid]
+            bank.mtime = None
+            bank.ensure()
+        self.assertNotEqual(bank.tasks[tid]["ans"], "011")
 
     def test_csv_cell(self):
         self.assertEqual(server.csv_cell("=HYPERLINK(1)"), "'=HYPERLINK(1)")

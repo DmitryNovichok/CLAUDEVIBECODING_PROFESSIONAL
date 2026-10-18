@@ -124,6 +124,15 @@ def clean_ans(a):
     return a.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "").replace("\r\n", "\n").strip()
 
 
+# Ошибки в ответах банков, проверенные вручную: id задания → верный ответ. Банк на сервере собирается из папок,
+# поэтому исправляем при загрузке — пересборка банка исправление не сотрёт.
+ANS_FIX = {
+    # №4, Фано: А 000, Б 001, В 10, Г 11. Д = 01 занял бы всё «01…» — для Е кода не осталось бы, значит Д трёхзначный:
+    # 010 или 011, наибольший — 011. В банке ФИПИ стоит «11» — это код буквы Г
+    "openfipi_bank:460D7D": "011",
+}
+
+
 def tokens(s):
     s = str(s or "").replace("\\n", " ").lower().replace("ё", "е")
     s = re.sub("[−–—]", "-", s)
@@ -1054,6 +1063,8 @@ class Bank:
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
             self.titles = {b.get("id"): b.get("title") for b in data.get("banks", [])}
             for t in data.get("tasks", []):
+                if t.get("id") in ANS_FIX:
+                    t["ans"] = ANS_FIX[t["id"]]
                 if "ans" in t:
                     t["ans"] = clean_ans(t["ans"])
                 for part in t.get("parts") or []:
@@ -5359,6 +5370,12 @@ def fire_ok(fire_days, cover, d):
     return fire_days.get(d.isoformat(), 0) >= FIRE_NEED or d.isoformat() in cover
 
 
+def fire_counts(fire_days, cover, d):
+    """День прибавляет огоньку: выполнен или восстановлен учителем. День под заморозкой серию не рвёт, но и не прибавляет:
+    заморозка сохраняет огонёк (было 10 — осталось 10), а не продлевает его."""
+    return fire_days.get(d.isoformat(), 0) >= FIRE_NEED or cover.get(d.isoformat()) == "restore"
+
+
 def fire_streak(fire_days, cover, today=None):
     """Огонёк — дней подряд с выполненным днём; сегодняшний ещё может идти, поэтому без него серия не рвётся."""
     d = today or datetime.now().date()
@@ -5366,7 +5383,7 @@ def fire_streak(fire_days, cover, today=None):
         d -= timedelta(days=1)
     n = 0
     while fire_ok(fire_days, cover, d):
-        n += 1
+        n += fire_counts(fire_days, cover, d)
         d -= timedelta(days=1)
     return n
 
@@ -5413,7 +5430,7 @@ def restore_fire(db, sid, days, today=None):
             db.x("INSERT OR IGNORE INTO fire_cover(student_id, day, kind, ts) VALUES(?,?, 'restore', ?)", (sid, d.isoformat(), now))
             cover[d.isoformat()] = "restore"
             added += 1
-        have += 1
+        have += fire_counts(fire_days, cover, d)      # день под заморозкой огоньку не прибавляет — его не считаем
         d -= timedelta(days=1)
     return added, fire_streak(fire_days, cover, today)
 
