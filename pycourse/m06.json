@@ -1,0 +1,257 @@
+{
+ "id": "m06",
+ "n": 6,
+ "title": "Исполнитель Черепаха",
+ "icon": "🐢",
+ "sub": "Рисуем в turtle и считаем точки: прямоугольники, пересечения, косые фигуры, своя черепаха",
+ "levels": [
+  {
+   "title": "База: рисуем и считаем глазами",
+   "goal": "turtle: вперёд, направо, повтори; масштаб и точки сетки",
+   "need": 2,
+   "slides": [
+    {
+     "t": "title",
+     "k": "Программирование для ЕГЭ",
+     "h": "Задание 6",
+     "sub": "Черепаха: рисуем фигуру по программе и считаем точки с целыми координатами",
+     "chips": [
+      "forward / right",
+      "for _ in range(n)",
+      "up / down",
+      "dot"
+     ]
+    },
+    {
+     "t": "text",
+     "k": "Уровень 1",
+     "h": "Команды",
+     "html": "<table class=\"sl-tab\"><tr><th>Исполнитель</th><th>Python (turtle)</th></tr><tr><td>Вперёд n</td><td>forward(n * k)  или  fd(n * k)</td></tr><tr><td>Назад n</td><td>back(n * k)  или  bk(n * k)</td></tr><tr><td>Направо a</td><td>right(a)  или  rt(a)</td></tr><tr><td>Налево a</td><td>left(a)  или  lt(a)</td></tr><tr><td>Повтори k [ … ]</td><td>for _ in range(k): …</td></tr><tr><td>Поднять / опустить хвост</td><td>up() / down()</td></tr></table><div class=\"sl-callout\"><b>Масштаб</b><p>Черепаха ЕГЭ шагает на 1, а на экране это 1 пиксель — ничего не разглядеть. Умножаем все шаги на k = 20 и ставим точки сетки в (x·k, y·k).</p></div>"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Прямоугольник и сетка",
+     "ch": "Пример",
+     "cond": "<p>Повтори 2 [Вперёд 9 Направо 90 Вперёд 15 Направо 90]. После рисования поднимаем хвост и ставим точку в каждом узле сетки — видно, сколько точек внутри.</p>",
+     "note": "left(90) в начале обязателен: в ЕГЭ черепаха смотрит вдоль оси ординат, а в Python — вдоль оси абсцисс.",
+     "nk": "warn",
+     "code": "from turtle import *\ntracer(0)\nleft(90)                 # черепаха смотрит вверх, вдоль оси ординат\nk = 20                   # масштаб: 1 шаг = 20 пикселей\nfor _ in range(2):\n    forward(9 * k)\n    right(90)\n    forward(15 * k)\n    right(90)\nup()\nfor x in range(-30, 30):\n    for y in range(-30, 30):\n        goto(x * k, y * k)\n        dot(3)\ndone()",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Формула для прямоугольника",
+     "ch": "Пример",
+     "cond": "<p>Прямоугольник a × b со сторонами по линиям сетки: строго внутри (a − 1)(b − 1) точек, вместе с границей (a + 1)(b + 1).</p>",
+     "nk": "secret",
+     "code": "a, b = 9, 15\nprint('внутри:', (a - 1) * (b - 1))\nprint('с границей:', (a + 1) * (b + 1))",
+     "out": "внутри: 112\nс границей: 160"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m06.rect",
+     "h": "Прямоугольник",
+     "cond": "<p>Черепаха выполнила программу: Повтори 2 [Вперёд 12 Направо 90 Вперёд 21 Направо 90]. Сколько точек с целыми координатами находятся строго внутри фигуры (точки на линиях не считаются)?</p>",
+     "stars": 1,
+     "ans": "220",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('F', 12), ('R', 90), ('F', 21), ('R', 90)] * 2)\nprint(count(polygon(segs)))",
+     "sec": 0.02
+    },
+    {
+     "id": "m06.rectb",
+     "h": "Вместе с границей",
+     "cond": "<p>Программа: Повтори 2 [Вперёд 8 Налево 90 Вперёд 17 Налево 90]. Сколько точек с целыми координатами лежат внутри фигуры или на её границе?</p>",
+     "stars": 1,
+     "ans": "162",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('F', 8), ('L', 90), ('F', 17), ('L', 90)] * 2)\nprint(count(polygon(segs), border=True))",
+     "sec": 0.01
+    },
+    {
+     "id": "m06.rep7",
+     "h": "Лишние повторы",
+     "cond": "<p>Программа: Повтори 7 [Вперёд 14 Направо 90 Вперёд 9 Направо 90]. Сколько точек с целыми координатами строго внутри нарисованной фигуры?</p>",
+     "stars": 1,
+     "ans": "104",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('F', 14), ('R', 90), ('F', 9), ('R', 90)] * 7)\nprint(count(polygon(segs)))",
+     "sec": 0.01,
+     "hint": "Черепаха обходит один и тот же прямоугольник много раз — фигура одна."
+    }
+   ]
+  },
+  {
+   "title": "Стандарт: две фигуры",
+   "goal": "поднять хвост и переместиться, вторая фигура; пересечение и объединение",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Две фигуры",
+     "ch": "Пример",
+     "cond": "<p>Между фигурами черепаха поднимает хвост, перемещается и опускает его. Вторая фигура рисуется из новой точки с текущим направлением.</p>",
+     "note": "После перемещения проверьте направление: «Направо 90 … Налево 90» возвращает черепаху лицом вверх.",
+     "nk": "secret",
+     "code": "from turtle import *\ntracer(0)\nleft(90)                 # черепаха смотрит вверх, вдоль оси ординат\nk = 20                   # масштаб: 1 шаг = 20 пикселей\nfor _ in range(2):\n    fd(10 * k); rt(90); fd(16 * k); rt(90)\nup()\nfd(4 * k); rt(90); fd(5 * k); lt(90)\ndown()\nfor _ in range(2):\n    fd(12 * k); rt(90); fd(7 * k); rt(90)\nup()\nfor x in range(-30, 30):\n    for y in range(-30, 30):\n        goto(x * k, y * k)\n        dot(3)\ndone()",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Пересечение двух прямоугольников",
+     "ch": "Пример",
+     "cond": "<p>Точка внутри обеих фигур — внутри пересечения. Своя «черепаха» walk даёт вершины, inside проверяет точку.</p>",
+     "nk": "secret",
+     "code": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\ns1, pos, h = walk([('F', 10), ('R', 90), ('F', 16), ('R', 90)] * 2)\ns2, _, _ = walk([('F', 12), ('R', 90), ('F', 7), ('R', 90)] * 2, start=(5, 4), h=90)\np1, p2 = polygon(s1), polygon(s2)\nk = 0\nfor x in range(-5, 30):\n    for y in range(-5, 30):\n        a = inside(x, y, p1) and not on_edge(x, y, p1)\n        b = inside(x, y, p2) and not on_edge(x, y, p2)\n        k += a and b\nprint(k)",
+     "out": "30",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m06.inter",
+     "h": "Пересечение",
+     "cond": "<p>Программа: Повтори 2 [Вперёд 10 Направо 90 Вперёд 16 Направо 90] Поднять хвост Вперёд 4 Направо 90 Вперёд 5 Налево 90 Опустить хвост Повтори 2 [Вперёд 12 Направо 90 Вперёд 7 Направо 90]. Сколько точек с целыми координатами находятся строго внутри пересечения фигур?</p>",
+     "stars": 1,
+     "ans": "30",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nprog = [('F', 10), ('R', 90), ('F', 16), ('R', 90)] * 2 + [('U', 0), ('F', 4), ('R', 90), ('F', 5), ('L', 90), ('D', 0)] + \\\n       [('F', 12), ('R', 90), ('F', 7), ('R', 90)] * 2\nsegs, _, _ = walk(prog)\np1 = polygon(segs[:4])\np2 = polygon(segs[4:])\nk = 0\nfor x in range(-5, 40):\n    for y in range(-5, 40):\n        if all(inside(x, y, q) and not on_edge(x, y, q) for q in (p1, p2)):\n            k += 1\nprint(k)",
+     "sec": 0.02
+    },
+    {
+     "id": "m06.union",
+     "h": "Объединение",
+     "cond": "<p>Программа: Повтори 2 [Вперёд 21 Направо 90 Вперёд 27 Направо 90] Поднять хвост Вперёд 9 Направо 90 Вперёд 10 Налево 90 Опустить хвост Повтори 2 [Вперёд 86 Направо 90 Вперёд 47 Направо 90]. Сколько точек с целыми координатами находятся внутри объединения фигур, включая точки на линиях?</p>",
+     "stars": 2,
+     "ans": "4558",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nprog = [('F', 21), ('R', 90), ('F', 27), ('R', 90)] * 2 + [('U', 0), ('F', 9), ('R', 90), ('F', 10), ('L', 90), ('D', 0)] + \\\n       [('F', 86), ('R', 90), ('F', 47), ('R', 90)] * 2\nsegs, _, _ = walk(prog)\np1, p2 = polygon(segs[:4]), polygon(segs[4:])\nk = 0\nfor x in range(-5, 70):\n    for y in range(-5, 110):\n        if any(inside(x, y, q) or on_edge(x, y, q) for q in (p1, p2)):\n            k += 1\nprint(k)",
+     "sec": 0.04
+    },
+    {
+     "id": "m06.lines",
+     "h": "Сколько точек на линиях",
+     "cond": "<p>Программа: Повтори 2 [Вперёд 13 Направо 90 Вперёд 18 Направо 90] Поднять хвост Вперёд 5 Направо 90 Вперёд 9 Налево 90 Опустить хвост Повтори 2 [Вперёд 11 Направо 90 Вперёд 7 Направо 90]. Сколько точек с целыми координатами лежат на линиях (хотя бы одной из фигур)?</p>",
+     "stars": 2,
+     "ans": "96",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nprog = [('F', 13), ('R', 90), ('F', 18), ('R', 90)] * 2 + [('U', 0), ('F', 5), ('R', 90), ('F', 9), ('L', 90), ('D', 0)] + \\\n       [('F', 11), ('R', 90), ('F', 7), ('R', 90)] * 2\nsegs, _, _ = walk(prog)\np1, p2 = polygon(segs[:4]), polygon(segs[4:])\nprint(sum(1 for x in range(-5, 40) for y in range(-5, 40) if on_edge(x, y, p1) or on_edge(x, y, p2)))",
+     "sec": 0.02
+    }
+   ]
+  },
+  {
+   "title": "Профи: косые линии",
+   "goal": "углы 45°, 60°, 120°: глазами считать трудно — проверяем программой",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Треугольник",
+     "ch": "Пример",
+     "cond": "<p>Стороны под углом — точки сетки на них почти не попадают, и «на глаз» легко ошибиться на единицу.</p>",
+     "nk": "secret",
+     "code": "from turtle import *\ntracer(0)\nleft(90)                 # черепаха смотрит вверх, вдоль оси ординат\nk = 20                   # масштаб: 1 шаг = 20 пикселей\nfor _ in range(3):\n    forward(10 * k)\n    right(120)\nup()\nfor x in range(-30, 30):\n    for y in range(-30, 30):\n        goto(x * k, y * k)\n        dot(3)\ndone()",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Проверка программой",
+     "ch": "Пример",
+     "cond": "<p>Своя черепаха считает вершины точно (cos и sin), функция inside — луч вправо: нечётное число пересечений сторон — точка внутри.</p>",
+     "nk": "secret",
+     "code": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('F', 10), ('R', 120)] * 3)\nprint(count(polygon(segs)))",
+     "out": "38",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m06.tri",
+     "h": "Треугольник",
+     "cond": "<p>Программа: Повтори 7 [Вперёд 15 Направо 120]. Сколько точек с целыми координатами находится строго внутри фигуры?</p>",
+     "stars": 1,
+     "ans": "90",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('F', 15), ('R', 120)] * 7)\nprint(count(polygon(segs)))",
+     "sec": 0.01
+    },
+    {
+     "id": "m06.hex",
+     "h": "Шестиугольник",
+     "cond": "<p>Программа: Повтори 12 [Направо 60 Вперёд 7]. Сколько точек с целыми координатами строго внутри фигуры?</p>",
+     "stars": 1,
+     "ans": "126",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('R', 60), ('F', 7)] * 12)\nprint(count(polygon(segs)))",
+     "sec": 0.01
+    },
+    {
+     "id": "m06.k45",
+     "h": "Углы по 45°",
+     "cond": "<p>Программа: Направо 45 Повтори 7 [Вперёд 6 Направо 45 Вперёд 12 Направо 135]. Сколько точек с целыми координатами строго внутри фигуры?</p>",
+     "stars": 2,
+     "ans": "44",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('R', 45)] + [('F', 6), ('R', 45), ('F', 12), ('R', 135)] * 7)\nprint(count(polygon(segs)))",
+     "sec": 0.01
+    }
+   ]
+  },
+  {
+   "title": "Максимум: своя черепаха",
+   "goal": "фигуры любого вида: вершины через cos и sin, проверка точки внутри многоугольника, большие масштабы",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Своя черепаха целиком",
+     "ch": "Пример",
+     "cond": "<ul class=\"sl-ul\"><li>walk — двигает точку по углу h (в градусах), записывает отрезки опущенного хвоста</li><li>polygon — вершины замкнутой фигуры (первый обход)</li><li>on_edge — точка на стороне (векторное произведение ≈ 0)</li><li>inside — луч вправо: считаем пересечения сторон</li><li>count — перебор целых точек в рамке фигуры</li></ul>",
+     "note": "round(…, 9) убирает погрешности вроде 9.999999999 вместо 10 — без этого точки на границе «уплывают».",
+     "nk": "warn",
+     "code": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, end, h = walk([('F', 30), ('R', 90), ('F', 40), ('R', 90)] * 2)\npoly = polygon(segs)\nprint(poly, count(poly), count(poly, border=True))",
+     "wide": true,
+     "out": "[(0.0, 0.0), (0.0, 30.0), (40.0, 30.0), (40.0, 0.0)] 1131 1271"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m06.big",
+     "h": "Большая фигура",
+     "cond": "<p>Программа: Повтори 3 [Вперёд 150 Направо 120]. Сколько точек с целыми координатами строго внутри фигуры?</p>",
+     "stars": 2,
+     "ans": "9667",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('F', 150), ('R', 120)] * 3)\nprint(count(polygon(segs)))",
+     "sec": 0.04,
+     "hint": "Глазами не сосчитать — только программой."
+    },
+    {
+     "id": "m06.star",
+     "h": "Многоугольник",
+     "cond": "<p>Программа: Налево 15 Повтори 7 [Налево 30 Вперёд 10 Налево 60]. Сколько точек с целыми координатами строго внутри фигуры?</p>",
+     "stars": 3,
+     "ans": "98",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('L', 15)] + [('L', 30), ('F', 10), ('L', 60)] * 7)\nprint(count(polygon(segs)))",
+     "sec": 0.01
+    },
+    {
+     "id": "m06.rot",
+     "h": "Повёрнутый квадрат",
+     "cond": "<p>Программа: Направо 30 Повтори 4 [Вперёд 23 Направо 90]. Сколько точек с целыми координатами строго внутри фигуры?</p>",
+     "stars": 3,
+     "ans": "529",
+     "sol": "from math import cos, sin, radians\n\ndef walk(prog, start=(0.0, 0.0), h=90.0, pen=True):\n    \"\"\"Своя черепаха: список отрезков, нарисованных опущенным хвостом. prog — [('F', 10), ('R', 90), ('U', 0), ('D', 0), ...].\"\"\"\n    x, y = start\n    segs = []\n    for c, v in prog:\n        if c in 'FB':\n            d = v if c == 'F' else -v\n            nx, ny = round(x + d * cos(radians(h)), 9), round(y + d * sin(radians(h)), 9)\n            if pen:\n                segs.append(((x, y), (nx, ny)))\n            x, y = nx, ny\n        elif c == 'R':\n            h -= v\n        elif c == 'L':\n            h += v\n        elif c == 'U':\n            pen = False\n        elif c == 'D':\n            pen = True\n    return segs, (x, y), h\n\ndef polygon(segs):\n    \"\"\"Замкнутая фигура → вершины по порядку (первый обход, без повторов).\"\"\"\n    pts = [segs[0][0]]\n    for a, b in segs:\n        pts.append(b)\n        if b == pts[0]:\n            break\n    return pts[:-1]\n\ndef on_edge(px, py, poly):\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-9 and min(x1, x2) - 1e-9 <= px <= max(x1, x2) + 1e-9 and min(y1, y2) - 1e-9 <= py <= max(y1, y2) + 1e-9:\n            return True\n    return False\n\ndef inside(px, py, poly):\n    \"\"\"Луч вправо: нечётное число пересечений — точка внутри.\"\"\"\n    res = False\n    n = len(poly)\n    for i in range(n):\n        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]\n        if (y1 > py) != (y2 > py):\n            xc = x1 + (py - y1) * (x2 - x1) / (y2 - y1)\n            if xc > px:\n                res = not res\n    return res\n\ndef count(poly, border=False):\n    xs = [p[0] for p in poly]\n    ys = [p[1] for p in poly]\n    k = 0\n    for x in range(int(min(xs)) - 1, int(max(xs)) + 2):\n        for y in range(int(min(ys)) - 1, int(max(ys)) + 2):\n            e = on_edge(x, y, poly)\n            if (inside(x, y, poly) and not e) or (border and e):\n                k += 1\n    return k\n\nsegs, _, _ = walk([('R', 30)] + [('F', 23), ('R', 90)] * 4)\nprint(count(polygon(segs)))",
+     "sec": 0.02,
+     "hint": "Площадь квадрата 529, и точек внутри примерно столько же. Точно — только программой."
+    }
+   ]
+  }
+ ]
+}

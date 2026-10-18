@@ -1,0 +1,508 @@
+{
+ "id": "m09",
+ "n": 9,
+ "title": "Электронные таблицы на Python",
+ "icon": "📊",
+ "sub": "Таблица из файла: строки, повторы, чётность, столбцы и соседи",
+ "levels": [
+  {
+   "title": "База: строка таблицы — список",
+   "goal": "чтение строк, split, сортировка, сумма и максимум, счётчик строк",
+   "need": 3,
+   "slides": [
+    {
+     "t": "title",
+     "k": "Программирование для ЕГЭ",
+     "h": "Задание 9",
+     "sub": "Электронная таблица — это текстовый файл: каждая строка таблицы — строка файла с числами через табуляцию",
+     "chips": [
+      "split",
+      "sorted",
+      "a.count(x)",
+      "set"
+     ]
+    },
+    {
+     "t": "text",
+     "k": "Уровень 1",
+     "h": "Как перенести таблицу в Python",
+     "html": "<ol class=\"sl-ol\"><li>Откройте файл задания (xlsx / csv) в Excel или LibreOffice.</li><li>Выделите все данные (Ctrl + A или Ctrl + Shift + ↓) и скопируйте.</li><li>Вставьте в текстовый файл 9.txt рядом с программой и сохраните.</li><li>Каждая строка файла — одна строка таблицы, числа разделены табуляцией.</li></ol><div class=\"sl-callout\"><b>В курсе</b><p>Файлы задач уже в формате .txt — можно сразу открывать в Python.</p></div>"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Строка → список чисел",
+     "ch": "Пример",
+     "cond": "<p>split() без аргументов режет и по пробелам, и по табуляциям. После sort() минимум — a[0], максимум — a[-1], а «три средних» — a[1], a[2], a[3].</p>",
+     "nk": "secret",
+     "code": "for line in open('9.txt'):\n    a = list(map(int, line.split()))\n    a.sort()\n    print(a, sum(a), a[0], a[-1])",
+     "out": "[3, 5, 7, 12] 27 3 12\n[1, 9, 9, 40] 59 1 40",
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/L1S3/9.txt?v=0f7d2333",
+       "size": 18
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Счётчик и номер строки",
+     "ch": "Пример",
+     "cond": "<p>«Сколько строк» — счётчик. «Номер строки» — enumerate(…, start=1): строки таблицы нумеруются с 1.</p>",
+     "nk": "secret",
+     "code": "k = 0\nfor i, line in enumerate(open('9.txt'), start=1):\n    a = sorted(map(int, line.split()))\n    if a[-1] < a[0] + a[1] + a[2]:\n        k += 1\n        print('подошла строка', i)\nprint(k)",
+     "out": "подошла строка 1\n1",
+     "wide": true,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/L1S4/9.txt?v=0f7d2333",
+       "size": 18
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m09.sum2max",
+     "h": "Сумма больше двух максимумов",
+     "cond": "<p>В каждой строке файла <b>9.txt</b> — четыре натуральных числа. Сколько строк, в которых сумма всех чисел больше удвоенного максимального?</p>",
+     "stars": 1,
+     "ans": "2499",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    if sum(a) > 2 * max(a):\n        k += 1\nprint(k)",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/sum2max/9.txt?v=138bc4af",
+       "size": 41501
+      }
+     ]
+    },
+    {
+     "id": "m09.distinct5",
+     "h": "Все разные и неравенство",
+     "cond": "<p>В строках файла <b>9.txt</b> по пять натуральных чисел. Сколько строк, в которых все числа различны, а утроенная сумма максимального и минимального не меньше удвоенной суммы трёх оставшихся?</p>",
+     "stars": 1,
+     "ans": "964",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = sorted(map(int, line.split()))\n    if len(set(a)) == 5 and (a[0] + a[-1]) * 3 >= (a[1] + a[2] + a[3]) * 2:\n        k += 1\nprint(k)",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/distinct5/9.txt?v=b78fb57a",
+       "size": 49251
+      }
+     ]
+    },
+    {
+     "id": "m09.sorted",
+     "h": "Уже по возрастанию",
+     "cond": "<p>В строках файла <b>9.txt</b> по шесть чисел. Найдите сумму чисел всех строк, в которых числа идут строго по возрастанию.</p>",
+     "stars": 1,
+     "ans": "244745",
+     "sol": "total = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    if all(a[i] < a[i + 1] for i in range(len(a) - 1)):\n        total += sum(a)\nprint(total)",
+     "sec": 0.02,
+     "hint": "Сортировать нельзя — проверяем исходный порядок: a[i] &lt; a[i+1] для всех соседей.",
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/sorted/9.txt?v=280259b1",
+       "size": 89537
+      }
+     ]
+    },
+    {
+     "id": "m09.firstrow",
+     "h": "Номер первой строки",
+     "cond": "<p>В строках файла <b>9.txt</b> по четыре числа. Найдите номер первой строки, в которой разность максимального и минимального числа равна сумме двух оставшихся.</p>",
+     "stars": 1,
+     "ans": "873",
+     "sol": "for i, line in enumerate(open('9.txt'), start=1):\n    a = sorted(map(int, line.split()))\n    if a[-1] - a[0] == a[1] + a[2]:\n        print(i)\n        break",
+     "sec": 0.01,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/firstrow/9.txt?v=fb068482",
+       "size": 43668
+      }
+     ]
+    },
+    {
+     "id": "m09.avg",
+     "h": "Больше среднего",
+     "cond": "<p>В строках файла <b>9.txt</b> по шесть чисел. Сколько строк, в которых ровно три числа больше среднего арифметического чисел этой строки?</p>",
+     "stars": 1,
+     "ans": "1426",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    m = sum(a) / len(a)\n    if sum(1 for x in a if x > m) == 3:\n        k += 1\nprint(k)",
+     "sec": 0.03,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/avg/9.txt?v=f0d09d9c",
+       "size": 52558
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Стандарт: повторяющиеся числа",
+   "goal": "списки повторяющихся и неповторяющихся, сколько раз и каких значений",
+   "need": 3,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "pov и ne_pov",
+     "ch": "Пример",
+     "cond": "<ul class=\"sl-ul\"><li>pov — все повторяющиеся значения (каждое столько раз, сколько встречается)</li><li>len(pov) — сколько ячеек с повторами, len(set(pov)) — сколько РАЗНЫХ значений повторяется</li><li>ne_pov — числа, которые встречаются один раз</li></ul>",
+     "nk": "secret",
+     "code": "a = [77, 65, 77, 65, 33, 33, 111]\npov = [x for x in a if a.count(x) > 1]\nne_pov = [x for x in a if a.count(x) == 1]\nprint(pov, len(pov), set(pov), len(set(pov)))\nprint(ne_pov)",
+     "out": "[77, 65, 77, 65, 33, 33] 6 {65, 77, 33} 3\n[111]",
+     "wide": true
+    },
+    {
+     "t": "text",
+     "k": "Уровень 2",
+     "h": "Словарь условий",
+     "html": "<table class=\"sl-tab\"><tr><th>В условии</th><th>В коде</th></tr><tr><td>ровно одно число повторяется дважды, остальные различны</td><td>len(pov) == 2</td></tr><tr><td>три числа повторяются по два раза</td><td>len(set(pov)) == 3 and len(pov) == 6</td></tr><tr><td>одно число повторяется трижды</td><td>len(pov) == 3 and len(set(pov)) == 1</td></tr><tr><td>повторов нет</td><td>len(set(a)) == len(a)</td></tr><tr><td>есть повторяющиеся числа</td><td>len(pov) > 0</td></tr><tr><td>среднее неповторяющихся</td><td>sum(ne_pov) / len(ne_pov)</td></tr></table>"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Проверка на маленьком примере",
+     "ch": "Пример",
+     "cond": "<p>Прежде чем запускать на файле — проверьте условие на трёх руками придуманных строках. Ошибки в pov ловятся сразу.</p>",
+     "nk": "secret",
+     "code": "for a in ([5, 5, 1, 2, 3], [5, 5, 5, 1, 2], [4, 4, 7, 7, 9]):\n    pov = [x for x in a if a.count(x) > 1]\n    print(a, len(pov) == 2)",
+     "out": "[5, 5, 1, 2, 3] True\n[5, 5, 5, 1, 2] False\n[4, 4, 7, 7, 9] False",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m09.pair1",
+     "h": "Одна пара повторов",
+     "cond": "<p>В строках файла <b>9.txt</b> по шесть чисел. Сколько строк, в которых ровно одно число повторяется ровно дважды, остальные числа различны, а повторяющееся число больше среднего арифметического неповторяющихся?</p>",
+     "stars": 1,
+     "ans": "655",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    pov = [x for x in a if a.count(x) > 1]\n    ne = [x for x in a if a.count(x) == 1]\n    if len(pov) == 2 and pov[0] > sum(ne) / len(ne):\n        k += 1\nprint(k)",
+     "sec": 0.05,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/pair1/9.txt?v=430631e5",
+       "size": 68436
+      }
+     ]
+    },
+    {
+     "id": "m09.three2",
+     "h": "Три пары",
+     "cond": "<p>В строках файла <b>9.txt</b> по семь чисел. Сколько строк, в которых три числа повторяются ровно по два раза, седьмое не повторяется, а среднее арифметическое наибольшего и наименьшего из повторяющихся меньше неповторяющегося?</p>",
+     "stars": 2,
+     "ans": "560",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    pov = [x for x in a if a.count(x) > 1]\n    ne = [x for x in a if a.count(x) == 1]\n    if len(set(pov)) == 3 and len(pov) == 6 and len(ne) == 1 and (max(pov) + min(pov)) / 2 < ne[0]:\n        k += 1\nprint(k)",
+     "sec": 0.08,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/three2/9.txt?v=0add8dd0",
+       "size": 86259
+      }
+     ]
+    },
+    {
+     "id": "m09.triple",
+     "h": "Тройной повтор",
+     "cond": "<p>В строках файла <b>9.txt</b> по шесть чисел. Сколько строк, в которых одно число повторяется ровно три раза, остальные три различны, и повторяющееся число больше среднего остальных трёх?</p>",
+     "stars": 1,
+     "ans": "223",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    pov = [x for x in a if a.count(x) > 1]\n    ne = [x for x in a if a.count(x) == 1]\n    if len(pov) == 3 and len(set(pov)) == 1 and len(ne) == 3 and pov[0] > sum(ne) / 3:\n        k += 1\nprint(k)",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/triple/9.txt?v=d543dc5b",
+       "size": 66548
+      }
+     ]
+    },
+    {
+     "id": "m09.maxnot",
+     "h": "Максимум не повторяется",
+     "cond": "<p>В строках файла <b>9.txt</b> по семь чисел. Найдите сумму чисел той строки, в которой два значения повторяются по два раза, три числа не повторяются, а максимальное число строки встречается один раз. Если таких строк несколько, в ответ запишите сумму чисел последней из них.</p>",
+     "stars": 2,
+     "ans": "241",
+     "sol": "ans = None\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    pov = [x for x in a if a.count(x) > 1]\n    ne = [x for x in a if a.count(x) == 1]\n    if len(set(pov)) == 2 and len(pov) == 4 and len(ne) == 3 and a.count(max(a)) == 1:\n        ans = sum(a)\nprint(ans)",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/maxnot/9.txt?v=baeb4420",
+       "size": 60934
+      }
+     ]
+    },
+    {
+     "id": "m09.avgpov",
+     "h": "Среднее повторяющихся",
+     "cond": "<p>В строках файла <b>9.txt</b> по семь чисел. Найдите номер первой строки, в которой ровно два значения повторяются по два раза, три числа не повторяются и среднее всех повторяющихся (с учётом повторов) меньше наибольшего неповторяющегося.</p>",
+     "stars": 1,
+     "ans": "19",
+     "sol": "for i, line in enumerate(open('9.txt'), start=1):\n    a = list(map(int, line.split()))\n    pov = [x for x in a if a.count(x) > 1]\n    ne = [x for x in a if a.count(x) == 1]\n    if len(pov) == 4 and len(set(pov)) == 2 and len(ne) == 3 and sum(pov) / 4 < max(ne):\n        print(i)\n        break",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/avgpov/9.txt?v=e80da267",
+       "size": 60889
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Профи: чётность и составные условия",
+   "goal": "чётные и нечётные, «ровно одно из условий», несколько списков сразу",
+   "need": 3,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Ещё два списка",
+     "ch": "Пример",
+     "cond": "<p>Чётность в Python работает и для отрицательных: -7 % 2 == 1. Но «оканчивается на 5» — только через abs.</p>",
+     "nk": "secret",
+     "code": "a = [12, -7, 3, 8, 8]\nchet = [x for x in a if x % 2 == 0]\nnechet = [x for x in a if x % 2 != 0]\nprint(chet, nechet)",
+     "out": "[12, 8, 8] [-7, 3]"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Ровно одно из двух условий",
+     "ch": "Пример",
+     "cond": "<p>«Выполнено ровно одно из условий» — исключающее ИЛИ: c1 != c2 (или c1 + c2 == 1). «Хотя бы одно» — or, «оба» — and.</p>",
+     "nk": "secret",
+     "code": "a = [3, 5, 7, 2, 2, 9]\npov = [x for x in a if a.count(x) > 1]\nnechet = [x for x in a if x % 2 != 0]\nc1 = len(pov) > 0\nc2 = len(nechet) == 3\nprint(c1, c2, c1 != c2, (c1 + c2) == 1)",
+     "out": "True False True True"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Средние с защитой от деления на ноль",
+     "ch": "Пример",
+     "cond": "<p>Если нечётных в строке нет, sum(od) / len(od) упадёт с ошибкой. Условное выражение … if od else 0 спасает.</p>",
+     "note": "Прочитайте условие: иногда строка без нечётных просто не подходит — тогда проверьте это отдельно.",
+     "nk": "warn",
+     "code": "a = [2, 4, 6]\nev = [x for x in a if x % 2 == 0]\nod = [x for x in a if x % 2 != 0]\nm_ev = sum(ev) / len(ev) if ev else 0\nm_od = sum(od) / len(od) if od else 0\nprint(m_ev, m_od)",
+     "out": "4.0 0"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m09.xor",
+     "h": "Ровно одно условие",
+     "cond": "<p>В строках файла <b>9.txt</b> по шесть чисел. Сколько строк, в которых выполнено ровно одно из условий: «в строке есть повторяющиеся числа» и «в строке ровно три нечётных числа»?</p>",
+     "stars": 1,
+     "ans": "2260",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    c1 = any(a.count(x) > 1 for x in a)\n    c2 = sum(1 for x in a if x % 2 != 0) == 3\n    if c1 != c2:\n        k += 1\nprint(k)",
+     "sec": 0.08,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/xor/9.txt?v=e9d9ef4b",
+       "size": 70013
+      }
+     ]
+    },
+    {
+     "id": "m09.evodd",
+     "h": "Средние чётных и нечётных",
+     "cond": "<p>В строках файла <b>9.txt</b> по пять чисел. Сколько строк, в которых выполнено ровно одно из условий: «все числа различны» и «средние арифметические чётных и нечётных чисел строки отличаются больше чем на 50» (если чисел какой-то чётности нет, их среднее считается равным 0)?</p>",
+     "stars": 2,
+     "ans": "2268",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    ev = [x for x in a if x % 2 == 0]\n    od = [x for x in a if x % 2 != 0]\n    m1 = sum(ev) / len(ev) if ev else 0\n    m2 = sum(od) / len(od) if od else 0\n    if (len(set(a)) == 5) + (abs(m1 - m2) > 50) == 1:\n        k += 1\nprint(k)",
+     "sec": 0.03,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/evodd/9.txt?v=7a22ddf1",
+       "size": 69344
+      }
+     ]
+    },
+    {
+     "id": "m09.negs",
+     "h": "Отрицательные числа",
+     "cond": "<p>В строках файла <b>9.txt</b> по шесть целых чисел (бывают отрицательные). Сколько строк, в которых положительных чисел больше, чем отрицательных, а сумма модулей отрицательных больше суммы положительных?</p>",
+     "stars": 1,
+     "ans": "106",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    pos = [x for x in a if x > 0]\n    neg = [x for x in a if x < 0]\n    if len(pos) > len(neg) and sum(abs(x) for x in neg) > sum(pos):\n        k += 1\nprint(k)",
+     "sec": 0.03,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/negs/9.txt?v=312dea65",
+       "size": 82141
+      }
+     ]
+    },
+    {
+     "id": "m09.evensq",
+     "h": "Квадраты крайних",
+     "cond": "<p>В строках файла <b>9.txt</b> по пять чисел. Сколько строк, в которых ровно одно число повторяется дважды, остальные различны, и квадрат суммы наибольшего и наименьшего чисел меньше суммы квадратов трёх оставшихся?</p>",
+     "stars": 1,
+     "ans": "440",
+     "sol": "k = 0\nfor line in open('9.txt'):\n    a = sorted(map(int, line.split()))\n    pov = [x for x in a if a.count(x) > 1]\n    if len(pov) == 2 and (a[0] + a[-1]) ** 2 < a[1] ** 2 + a[2] ** 2 + a[3] ** 2:\n        k += 1\nprint(k)",
+     "sec": 0.03,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/evensq/9.txt?v=3be4014b",
+       "size": 58317
+      }
+     ]
+    },
+    {
+     "id": "m09.rowsum",
+     "h": "Наибольшая сумма",
+     "cond": "<p>В строках файла <b>9.txt</b> по шесть чисел. Среди строк, в которых все числа чётные или все нечётные, найдите наибольшую сумму чисел строки.</p>",
+     "stars": 1,
+     "ans": "5770",
+     "sol": "best = None\nfor line in open('9.txt'):\n    a = list(map(int, line.split()))\n    if all(x % 2 == 0 for x in a) or all(x % 2 != 0 for x in a):\n        if best is None or sum(a) > best:\n            best = sum(a)\nprint(best)",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/rowsum/9.txt?v=b0b94af3",
+       "size": 116888
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Максимум: двумерная таблица",
+   "goal": "вся таблица в памяти, столбцы через zip, соседи клетки по восьми направлениям",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Таблица целиком",
+     "ch": "Пример",
+     "cond": "<p>a[i][j] — строка i, столбец j (с нуля). zip(*a) «поворачивает» таблицу: получаются столбцы.</p>",
+     "nk": "secret",
+     "code": "a = [list(map(int, line.split())) for line in open('9.txt')]\nprint(len(a), len(a[0]))\nprint(a[1][2])\ncols = list(zip(*a))\nprint(cols[0], [sum(c) for c in cols])",
+     "out": "3 3\n6\n(1, 4, 7) [12, 15, 18]",
+     "wide": true,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/L4S1/9.txt?v=640ba86b",
+       "size": 18
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Соседи клетки",
+     "ch": "Пример",
+     "cond": "<p>Восемь направлений — все пары di, dj из -1, 0, 1, кроме (0, 0). Соседи за краем таблицы не берутся — проверка границ.</p>",
+     "note": "a[-1] в Python — последняя строка, а не «за краем». Без проверки границ угловая клетка получит чужих соседей.",
+     "nk": "warn",
+     "code": "a = [list(map(int, line.split())) for line in open('9.txt')]\nn, m = len(a), len(a[0])\ni, j = 0, 1\nnb = []\nfor di in (-1, 0, 1):\n    for dj in (-1, 0, 1):\n        if (di or dj) and 0 <= i + di < n and 0 <= j + dj < m:\n            nb.append(a[i + di][j + dj])\nprint(nb)",
+     "out": "[1, 3, 4, 5, 6]",
+     "wide": true,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/L4S2/9.txt?v=640ba86b",
+       "size": 18
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m09.peaks",
+     "h": "Не меньше соседей",
+     "cond": "<p>В файле <b>9.txt</b> — прямоугольная таблица чисел. Найдите сумму всех чисел, которые не меньше любого из своих соседей (по горизонтали, вертикали и диагоналям) и при этом среди соседей есть число, равное им.</p>",
+     "stars": 2,
+     "ans": "2869",
+     "sol": "a = [list(map(int, line.split())) for line in open('9.txt')]\nn, m = len(a), len(a[0])\ntotal = 0\nfor i in range(n):\n    for j in range(m):\n        nb = [a[i + di][j + dj] for di in (-1, 0, 1) for dj in (-1, 0, 1)\n              if (di or dj) and 0 <= i + di < n and 0 <= j + dj < m]\n        if a[i][j] >= max(nb) and a[i][j] in nb:\n            total += a[i][j]\nprint(total)",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/peaks/9.txt?v=f4d540b7",
+       "size": 6477
+      }
+     ]
+    },
+    {
+     "id": "m09.colmax",
+     "h": "Столбец с наибольшей суммой",
+     "cond": "<p>В файле <b>9.txt</b> — таблица чисел. Найдите номер столбца (с 1) с наибольшей суммой; если таких несколько — наименьший номер.</p>",
+     "stars": 1,
+     "ans": "10",
+     "sol": "a = [list(map(int, line.split())) for line in open('9.txt')]\nsums = [sum(c) for c in zip(*a)]\nprint(sums.index(max(sums)) + 1)",
+     "sec": 0.01,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/colmax/9.txt?v=0b57f973",
+       "size": 23298
+      }
+     ]
+    },
+    {
+     "id": "m09.rowcol",
+     "h": "Максимум строки и столбца",
+     "cond": "<p>В файле <b>9.txt</b> — таблица чисел. Сколько клеток, число в которых одновременно наибольшее в своей строке и наибольшее в своём столбце (если наибольших несколько, подходит каждое)?</p>",
+     "stars": 3,
+     "ans": "66",
+     "sol": "a = [list(map(int, line.split())) for line in open('9.txt')]\ncols = [max(c) for c in zip(*a)]\nk = 0\nfor i, row in enumerate(a):\n    for j, x in enumerate(row):\n        if x == max(row) and x == cols[j]:\n            k += 1\nprint(k)",
+     "sec": 0.01,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/rowcol/9.txt?v=c49f5da1",
+       "size": 4211
+      }
+     ]
+    },
+    {
+     "id": "m09.diag",
+     "h": "Диагонали",
+     "cond": "<p>В файле <b>9.txt</b> — квадратная таблица. Найдите модуль разности суммы главной диагонали (слева сверху вправо вниз) и суммы побочной диагонали.</p>",
+     "stars": 1,
+     "ans": "7361",
+     "sol": "a = [list(map(int, line.split())) for line in open('9.txt')]\nn = len(a)\nprint(abs(sum(a[i][i] for i in range(n)) - sum(a[i][n - 1 - i] for i in range(n))))",
+     "sec": 0.01,
+     "files": [
+      {
+       "name": "9.txt",
+       "url": "pyc-data/m09/diag/9.txt?v=e1a6a2c9",
+       "size": 20987
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

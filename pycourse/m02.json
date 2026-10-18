@@ -1,0 +1,346 @@
+{
+ "id": "m02",
+ "n": 2,
+ "title": "Таблицы истинности",
+ "icon": "⚖️",
+ "sub": "Логика на Python: перебор наборов, фрагменты таблиц, автоматический подбор столбцов",
+ "levels": [
+  {
+   "title": "База: логика в Python",
+   "goal": "and, or, not, импликация через <=, эквивалентность через ==, перебор всех наборов",
+   "need": 3,
+   "slides": [
+    {
+     "t": "title",
+     "k": "Программирование для ЕГЭ",
+     "h": "Задание 2",
+     "sub": "Таблицы истинности: Python перебирает все наборы переменных и сам находит нужные строки",
+     "chips": [
+      "and or not",
+      "a <= b",
+      "a == b",
+      "product"
+     ]
+    },
+    {
+     "t": "text",
+     "k": "Уровень 1",
+     "h": "Логические операции на Python",
+     "html": "<table class=\"sl-tab\"><tr><th>Операция</th><th>Обозначение</th><th>Python</th></tr><tr><td>Конъюнкция (И)</td><td>a ∧ b</td><td>a and b</td></tr><tr><td>Дизъюнкция (ИЛИ)</td><td>a ∨ b</td><td>a or b</td></tr><tr><td>Отрицание</td><td>¬a</td><td>not a</td></tr><tr><td>Импликация</td><td>a → b</td><td>a <= b</td></tr><tr><td>Эквивалентность</td><td>a ≡ b</td><td>a == b</td></tr><tr><td>Исключающее ИЛИ</td><td>a ⊕ b</td><td>a != b</td></tr></table><div class=\"sl-callout\"><b>Почему a → b — это a <= b</b><p>Импликация ложна только при a = 1, b = 0. Для чисел 0 и 1 ровно в этом случае a &lt;= b ложно.</p></div>"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Перебор всех наборов",
+     "ch": "Пример",
+     "cond": "<p>Четыре вложенных цикла по 0 и 1 — все 16 наборов. Печатаем только строки, где F равна нужному значению.</p>",
+     "note": "Скобки ставьте щедро: в Python not сильнее and, and сильнее or, а сравнения (&lt;=, ==) слабее арифметики, но сильнее not. Выражение «x &lt;= y and z» читается как «(x &lt;= y) and z».",
+     "nk": "warn",
+     "code": "print('x y z w F')\nfor x in range(2):\n    for y in range(2):\n        for z in range(2):\n            for w in range(2):\n                F = (x <= y) and (not z or w)\n                if F == 0:\n                    print(x, y, z, w, int(F))",
+     "out": "x y z w F\n0 0 1 0 0\n0 1 1 0 0\n1 0 0 0 0\n1 0 0 1 0\n1 0 1 0 0\n1 0 1 1 0\n1 1 1 0 0",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "То же через product",
+     "ch": "Пример",
+     "cond": "<p>product([0, 1], repeat=4) выдаёт все наборы из четырёх нулей и единиц — без вложенных циклов.</p>",
+     "nk": "secret",
+     "code": "from itertools import product\nfor x, y, z, w in product([0, 1], repeat=4):\n    F = (x == y) or not (z <= w)\n    if F:\n        print(x, y, z, w)",
+     "out": "0 0 0 0\n0 0 0 1\n0 0 1 0\n0 0 1 1\n0 1 1 0\n1 0 1 0\n1 1 0 0\n1 1 0 1\n1 1 1 0\n1 1 1 1"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Не перепутать == и =",
+     "ch": "Пример",
+     "cond": "<p>= — присваивание, == — сравнение (эквивалентность). not x == y — это not (x == y): сравнение выполняется раньше not.</p>",
+     "note": "Пишите отрицание со скобками: (not x). Так безопаснее всего.",
+     "nk": "warn",
+     "code": "x, y = 1, 0\nprint(x == y, x <= y, x != y)\nprint(not x == y)      # not (x == y)\nprint((not x) == y)",
+     "out": "False False True\nTrue\nTrue"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m02.cnt1",
+     "h": "Сколько единиц",
+     "cond": "<p>Сколько существует наборов значений переменных x, y, z, w, при которых выражение (x → y) ∧ (¬z ∨ w) истинно?</p>",
+     "stars": 1,
+     "ans": "9",
+     "sol": "from itertools import product\nprint(sum(1 for x, y, z, w in product([0, 1], repeat=4) if (x <= y) and (not z or w)))",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.cnt0",
+     "h": "Сколько нулей",
+     "cond": "<p>Сколько существует наборов значений x, y, z, w, при которых выражение ((x ≡ y) ∨ ¬(z ≡ w)) ∧ (y → ¬z) ложно?</p>",
+     "stars": 1,
+     "ans": "7",
+     "sol": "from itertools import product\nk = 0\nfor x, y, z, w in product([0, 1], repeat=4):\n    if not (((x == y) or not (z == w)) and (y <= (not z))):\n        k += 1\nprint(k)",
+     "sec": 0.01
+    },
+    {
+     "id": "m02.xor",
+     "h": "Исключающее ИЛИ",
+     "cond": "<p>Сколько наборов x, y, z, w делают истинным выражение (x ⊕ y) ∧ (z ∨ ¬w) ∧ ¬(x ∧ z)?</p>",
+     "stars": 1,
+     "ans": "4",
+     "sol": "from itertools import product\nprint(sum(1 for x, y, z, w in product([0, 1], repeat=4) if (x != y) and (z or not w) and not (x and z)))",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.five",
+     "h": "Пять переменных",
+     "cond": "<p>Сколько существует наборов значений переменных a, b, c, d, e, при которых истинно выражение (a → b) ∧ (b → c) ∧ (c → d) ∧ (d → e)?</p>",
+     "stars": 1,
+     "ans": "6",
+     "sol": "from itertools import product\nprint(sum(1 for a, b, c, d, e in product([0, 1], repeat=5) if (a <= b) and (b <= c) and (c <= d) and (d <= e)))",
+     "sec": 0.02,
+     "hint": "Ответ подсказывает идею: цепочка импликаций истинна, только если единицы идут «хвостом» в конце."
+    },
+    {
+     "id": "m02.first",
+     "h": "Первая подходящая строка",
+     "cond": "<p>Строки таблицы истинности выражения ¬(y → (x ≡ w)) ∧ (z → x) упорядочены по возрастанию двоичного числа xyzw (0000, 0001, …). Запишите значения x, y, z, w первой строки, в которой выражение истинно, — четыре цифры подряд.</p>",
+     "stars": 1,
+     "ans": "0101",
+     "sol": "from itertools import product\nfor x, y, z, w in product([0, 1], repeat=4):\n    if (not (y <= (x == w))) and (z <= x):\n        print(f'{x}{y}{z}{w}')\n        break",
+     "sec": 0.01,
+     "hint": "product перебирает наборы как раз по возрастанию двоичного числа."
+    }
+   ]
+  },
+  {
+   "title": "Стандарт: фрагмент таблицы",
+   "goal": "печатаем строки нужного значения и сопоставляем столбцы — вручную и с проверкой кодом",
+   "need": 3,
+   "slides": [
+    {
+     "t": "text",
+     "k": "Уровень 2",
+     "h": "Как читается задание",
+     "html": "<ol class=\"sl-ol\"><li>Python печатает все строки, где F равна значению из фрагмента (обычно все строки фрагмента — с F = 1 или с F = 0).</li><li>Смотрим на строки фрагмента: в каком столбце сколько единиц, какие столбцы совпадают.</li><li>Ищем переменную, которая в напечатанных строках ведёт себя так же: например, всегда равна 1.</li><li>Записываем порядок переменных по столбцам фрагмента.</li></ol><div class=\"sl-callout\"><b>Хитрость</b><p>Сначала найдите «особенную» переменную — ту, что во всех нужных строках постоянна. Её столбец во фрагменте виден сразу.</p></div>"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Печатаем строки с F = 0",
+     "ch": "Пример",
+     "cond": "<p>Выражение (x ∧ ¬y) ∨ (y ≡ z) ∨ ¬w ложно в трёх строках. По ним видно: w всегда 1, а y и z всегда разные.</p>",
+     "nk": "secret",
+     "code": "print('x y z w')\nfor x in range(2):\n    for y in range(2):\n        for z in range(2):\n            for w in range(2):\n                if ((x and not y) or (y == z) or not w) == 0:\n                    print(x, y, z, w)",
+     "out": "x y z w\n0 0 1 1\n0 1 0 1\n1 1 0 1",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Проверяем догадку программой",
+     "ch": "Пример",
+     "cond": "<p>Догадку о порядке столбцов можно проверить перебором всех перестановок — так работает и автоматическое решение (уровень 3). Пустые клетки фрагмента перебираются отдельно.</p>",
+     "nk": "secret",
+     "code": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return (x and not y) or (y == z) or (not w)\n\nfrag = [\n    (0, 0, 1, 1, 0),\n    (0, 1, 0, 1, 0),\n    (None, 1, 0, None, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "wide": true,
+     "out": "xyzw"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m02.f1",
+     "h": "Фрагмент: импликация",
+     "cond": "<p>Логическая функция F задаётся выражением <b>(x → y) ∨ (¬z ∧ w)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>0</td><td>1</td><td>0</td><td>0</td><td>0</td></tr><tr><td>1</td><td></td><td></td><td>1</td><td>0</td></tr><tr><td>0</td><td>1</td><td>0</td><td>1</td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 1,
+     "ans": "wxyz",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return (x <= y) or ((not z) and w)\n\nfrag = [\n    (0, 1, 0, 0, 0),\n    (1, None, None, 1, 0),\n    (0, 1, 0, 1, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.f2",
+     "h": "Фрагмент: эквивалентность",
+     "cond": "<p>Логическая функция F задаётся выражением <b>((x ≡ y) ∨ ¬(z ≡ w)) ∧ (y → ¬z)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>1</td><td>1</td><td>0</td><td>0</td><td>0</td></tr><tr><td>0</td><td></td><td>0</td><td></td><td>0</td></tr><tr><td>1</td><td>0</td><td>0</td><td></td><td>0</td></tr><tr><td>0</td><td></td><td>1</td><td>1</td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 2,
+     "ans": "yzwx",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return ((x == y) or not (z == w)) and (y <= (not z))\n\nfrag = [\n    (1, 1, 0, 0, 0),\n    (0, None, 0, None, 0),\n    (1, 0, 0, None, 0),\n    (0, None, 1, 1, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.f3",
+     "h": "Фрагмент с нулями",
+     "cond": "<p>Логическая функция F задаётся выражением <b>(x ∧ ¬y) ∨ (y ≡ z) ∨ ¬w</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td></tr><tr><td>0</td><td>1</td><td>0</td><td></td><td>0</td></tr><tr><td></td><td>0</td><td>1</td><td></td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 2,
+     "ans": "xzyw",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return (x and not y) or (y == z) or (not w)\n\nfrag = [\n    (0, 0, 1, 1, 0),\n    (0, 1, 0, None, 0),\n    (None, 0, 1, None, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.f4",
+     "h": "Фрагмент с единицами",
+     "cond": "<p>Логическая функция F задаётся выражением <b>¬(y → (x ≡ w)) ∧ (z → x)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>1</td><td></td><td></td><td>1</td><td>1</td></tr><tr><td>1</td><td>1</td><td></td><td>0</td><td>1</td></tr><tr><td>1</td><td>1</td><td>0</td><td>0</td><td>1</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 2,
+     "ans": "yxzw",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return (not (y <= (x == w))) and (z <= x)\n\nfrag = [\n    (1, None, None, 1, 1),\n    (1, 1, None, 0, 1),\n    (1, 1, 0, 0, 1),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.01
+    },
+    {
+     "id": "m02.f5",
+     "h": "Три множителя",
+     "cond": "<p>Логическая функция F задаётся выражением <b>(w → z) ∧ ¬(x ∨ y) ∨ (z ≡ x)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>0</td><td>0</td><td></td><td>1</td><td>0</td></tr><tr><td></td><td>1</td><td></td><td>1</td><td>0</td></tr><tr><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td></tr><tr><td>1</td><td>1</td><td>1</td><td></td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 2,
+     "ans": "wyzx",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return ((w <= z) and not (x or y)) or (z == x)\n\nfrag = [\n    (0, 0, None, 1, 0),\n    (None, 1, None, 1, 0),\n    (0, 1, 1, 0, 0),\n    (1, 1, 1, None, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    }
+   ]
+  },
+  {
+   "title": "Профи: автоматическое решение",
+   "goal": "перестановки столбцов, перебор пустых клеток, различные строки",
+   "need": 3,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Полный перебор: столбцы и пустые клетки",
+     "ch": "Пример",
+     "cond": "<ol class=\"sl-ol\"><li>permutations — все способы сопоставить переменные столбцам (24 для четырёх).</li><li>product([0, 1], repeat=holes) — все способы заполнить пустые клетки.</li><li>Строки после заполнения должны быть различными (фрагмент — из неповторяющихся строк таблицы).</li><li>Подходит, если во всех строках функция даёт указанное значение.</li></ol>",
+     "note": "Если программа напечатала несколько ответов — вы ошиблись в выражении или забыли условие «строки различны».",
+     "nk": "warn",
+     "code": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return (x <= y) or ((not z) and w)\n\nfrag = [\n    (0, 0, None, None, 0),\n    (0, 1, 1, 1, 0),\n    (0, 1, 0, None, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "wide": true,
+     "out": "yzwx"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Как записать фрагмент",
+     "ch": "Пример",
+     "cond": "<p>Каждая строка — кортеж из значений столбцов и значения F. Число пустых клеток определяет, сколько вариантов заполнения перебрать.</p>",
+     "nk": "secret",
+     "code": "# пустая клетка — None, последнее число — значение F\nfrag = [\n    (None, 1, 0, None, 0),\n    (0, None, 0, 1, 0),\n]\nprint(sum(x is None for r in frag for x in r[:-1]))",
+     "out": "3",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m02.a1",
+     "h": "Четыре пустые клетки",
+     "cond": "<p>Логическая функция F задаётся выражением <b>(x ≡ ¬y) → ((x ∧ w) ≡ z)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>1</td><td></td><td></td><td></td><td>0</td></tr><tr><td>1</td><td>1</td><td>1</td><td>0</td><td>0</td></tr><tr><td>1</td><td>1</td><td></td><td>0</td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 2,
+     "ans": "zywx",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return (x == (not y)) <= ((x and w) == z)\n\nfrag = [\n    (1, None, None, None, 0),\n    (1, 1, 1, 0, 0),\n    (1, 1, None, 0, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.01
+    },
+    {
+     "id": "m02.a2",
+     "h": "Смешанные значения F",
+     "cond": "<p>Логическая функция F задаётся выражением <b>((x ∨ ¬y) → z) ∧ ¬(w ∧ y)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>0</td><td></td><td>0</td><td>1</td><td>0</td></tr><tr><td>0</td><td>1</td><td>0</td><td></td><td>1</td></tr><tr><td>0</td><td>1</td><td>1</td><td></td><td>0</td></tr><tr><td></td><td>1</td><td>1</td><td>0</td><td>1</td></tr><tr><td>0</td><td>1</td><td>1</td><td></td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 3,
+     "ans": "zyxw",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return ((x or not y) <= z) and not (w and y)\n\nfrag = [\n    (0, None, 0, 1, 0),\n    (0, 1, 0, None, 1),\n    (0, 1, 1, None, 0),\n    (None, 1, 1, 0, 1),\n    (0, 1, 1, None, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.03,
+     "hint": "Здесь у строк разные значения F — программа проверяет каждую строку со своим значением."
+    },
+    {
+     "id": "m02.a3",
+     "h": "Много пустых",
+     "cond": "<p>Логическая функция F задаётся выражением <b>¬(x → z) ∨ (y ≡ w) ∨ y</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>0</td><td></td><td></td><td>0</td><td>0</td></tr><tr><td>1</td><td></td><td></td><td>1</td><td>0</td></tr><tr><td>1</td><td>1</td><td></td><td>0</td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 3,
+     "ans": "zwyx",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return (not (x <= z)) or (y == w) or y\n\nfrag = [\n    (0, None, None, 0, 0),\n    (1, None, None, 1, 0),\n    (1, 1, None, 0, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.a4",
+     "h": "Импликация в импликации",
+     "cond": "<p>Логическая функция F задаётся выражением <b>((x → y) → z) ∧ ¬w</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td></td><td>0</td><td>0</td><td></td><td>1</td></tr><tr><td></td><td>0</td><td>1</td><td>0</td><td>1</td></tr><tr><td></td><td>1</td><td>0</td><td>1</td><td>1</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 2,
+     "ans": "wyxz",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return ((x <= y) <= z) and not w\n\nfrag = [\n    (None, 0, 0, None, 1),\n    (None, 0, 1, 0, 1),\n    (None, 1, 0, 1, 1),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.a5",
+     "h": "Исключающее ИЛИ",
+     "cond": "<p>Логическая функция F задаётся выражением <b>((x ⊕ y) → z) ∧ (w ∨ x)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>1</td><td>1</td><td>0</td><td></td><td>0</td></tr><tr><td></td><td>0</td><td>1</td><td>1</td><td>0</td></tr><tr><td>0</td><td>0</td><td>0</td><td>1</td><td>0</td></tr><tr><td>0</td><td></td><td>0</td><td>1</td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 2,
+     "ans": "xwzy",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return ((x != y) <= z) and (w or x)\n\nfrag = [\n    (1, 1, 0, None, 0),\n    (None, 0, 1, 1, 0),\n    (0, 0, 0, 1, 0),\n    (0, None, 0, 1, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.01
+    }
+   ]
+  },
+  {
+   "title": "Максимум: пять переменных и сложные фрагменты",
+   "goal": "пять переменных, длинные выражения, фрагменты из одной-двух строк",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Пять переменных",
+     "ch": "Пример",
+     "cond": "<p>Тот же код: перестановок уже 120, а пустые клетки перебираются отдельно. Python справляется мгновенно.</p>",
+     "nk": "secret",
+     "code": "from itertools import permutations, product\n\ndef F(a, b, c, d, e):\n    return (not (a and b)) and (c <= d) and (e != a)\n\nfrag = [\n    (0, 0, 1, 0, 1, 1),\n    (0, 1, 0, None, 1, 1),\n    (1, 1, None, 0, 1, 1),\n    (1, 0, 1, 1, 0, 1),\n    (0, 0, None, 0, 1, 1),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('abcde'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "wide": true,
+     "out": "cbdae"
+    },
+    {
+     "t": "text",
+     "k": "Уровень 4",
+     "h": "Когда автоматическое решение спасает",
+     "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card\"><b>Мало строк</b><p>Фрагмент из двух строк вручную разбирать долго — программа перебирает всё сама.</p></div><div class=\"sl-card\"><b>Много пустых</b><p>Пять и больше пустых клеток — 32+ вариантов заполнения, руками не перебрать.</p></div><div class=\"sl-card\"><b>Пять переменных</b><p>120 перестановок — только программой.</p></div></div><div class=\"sl-callout\"><b>На экзамене</b><p>Держите шаблон в голове: F(...), frag, два цикла, проверка различных строк, all(...). Это 15 строк — 3 минуты.</p></div>"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m02.p1",
+     "h": "Пять переменных",
+     "cond": "<p>Логическая функция F задаётся выражением <b>(a → b) ∧ (b → c) ∧ (c ⊕ d) ∧ (d ∨ e)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных a, b, c, d, e.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td></td><td></td><td>1</td><td>0</td><td>0</td><td>1</td></tr><tr><td></td><td>1</td><td>1</td><td>1</td><td>0</td><td>1</td></tr><tr><td>1</td><td>0</td><td>1</td><td>0</td><td>0</td><td>1</td></tr><tr><td>1</td><td>0</td><td></td><td>0</td><td>0</td><td>1</td></tr></table><p>В ответе напишите буквы a, b, c, d, e в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 3,
+     "ans": "dceba",
+     "sol": "from itertools import permutations, product\n\ndef F(a, b, c, d, e):\n    return (a <= b) and (b <= c) and (c != d) and (d or e)\n\nfrag = [\n    (None, None, 1, 0, 0, 1),\n    (None, 1, 1, 1, 0, 1),\n    (1, 0, 1, 0, 0, 1),\n    (1, 0, None, 0, 0, 1),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('abcde'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.p2",
+     "h": "Пять переменных, F = 1",
+     "cond": "<p>Логическая функция F задаётся выражением <b>¬(a ∧ b) ∧ (c → d) ∧ (e ⊕ a)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных a, b, c, d, e.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td></td><td>0</td><td>1</td><td></td><td>0</td><td>1</td></tr><tr><td>1</td><td>0</td><td>1</td><td>1</td><td>0</td><td>1</td></tr><tr><td></td><td>0</td><td>1</td><td></td><td>1</td><td>1</td></tr><tr><td>1</td><td>1</td><td>1</td><td>1</td><td>0</td><td>1</td></tr><tr><td>0</td><td>0</td><td>1</td><td>1</td><td>1</td><td>1</td></tr></table><p>В ответе напишите буквы a, b, c, d, e в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 3,
+     "ans": "ebdca",
+     "sol": "from itertools import permutations, product\n\ndef F(a, b, c, d, e):\n    return (not (a and b)) and (c <= d) and (e != a)\n\nfrag = [\n    (None, 0, 1, None, 0, 1),\n    (1, 0, 1, 1, 0, 1),\n    (None, 0, 1, None, 1, 1),\n    (1, 1, 1, 1, 0, 1),\n    (0, 0, 1, 1, 1, 1),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('abcde'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.p3",
+     "h": "Две строки",
+     "cond": "<p>Логическая функция F задаётся выражением <b>(x ∧ y) ∨ ((x ∨ z) ≡ w)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td></tr><tr><td>0</td><td></td><td>0</td><td>0</td><td>0</td></tr><tr><td>0</td><td></td><td>0</td><td>1</td><td>0</td></tr><tr><td>0</td><td>0</td><td></td><td>1</td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 2,
+     "ans": "wxyz",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return (x and y) or ((x or z) == w)\n\nfrag = [\n    (0, 0, 1, 1, 0),\n    (0, None, 0, 0, 0),\n    (0, None, 0, 1, 0),\n    (0, 0, None, 1, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.02
+    },
+    {
+     "id": "m02.p4",
+     "h": "Эквивалентности и импликация",
+     "cond": "<p>Логическая функция F задаётся выражением <b>((x ≡ y) → (z ≡ w)) ∧ (w → x)</b>. Дан частично заполненный фрагмент, содержащий неповторяющиеся строки таблицы истинности функции F. Определите, какому столбцу соответствует каждая из переменных x, y, z, w.</p><table><tr><th>?</th><th>?</th><th>?</th><th>?</th><th>F</th></tr><tr><td>1</td><td>0</td><td>0</td><td></td><td>0</td></tr><tr><td></td><td>0</td><td>0</td><td>1</td><td>0</td></tr><tr><td>1</td><td>1</td><td></td><td>0</td><td>0</td></tr><tr><td>1</td><td>1</td><td></td><td>0</td><td>0</td></tr></table><p>В ответе напишите буквы x, y, z, w в том порядке, в котором идут соответствующие им столбцы. Все строки фрагмента различны.</p>",
+     "stars": 3,
+     "ans": "wyxz",
+     "sol": "from itertools import permutations, product\n\ndef F(x, y, z, w):\n    return ((x == y) <= (z == w)) and (w <= x)\n\nfrag = [\n    (1, 0, 0, None, 0),\n    (None, 0, 0, 1, 0),\n    (1, 1, None, 0, 0),\n    (1, 1, None, 0, 0),\n]\nholes = sum(x is None for r in frag for x in r[:-1])\nfor p in permutations('xyzw'):\n    for fill in product([0, 1], repeat=holes):\n        it = iter(fill)\n        rows = [[x if x is not None else next(it) for x in r[:-1]] + [r[-1]] for r in frag]\n        if len(set(tuple(r[:-1]) for r in rows)) < len(rows):\n            continue            # строки фрагмента должны быть разными\n        if all(F(**dict(zip(p, r[:-1]))) == r[-1] for r in rows):\n            print(''.join(p))\n            break",
+     "sec": 0.01
+    }
+   ]
+  }
+ ]
+}

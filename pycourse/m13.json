@@ -1,0 +1,343 @@
+{
+ "id": "m13",
+ "n": 13,
+ "title": "IP-адреса и маски",
+ "icon": "🌐",
+ "sub": "ipaddress: сети и узлы, неизвестные маски, условия на двоичную запись",
+ "levels": [
+  {
+   "title": "База: сеть и её адреса",
+   "goal": "ipaddress: ip_network(…, 0), адрес сети, широковещательный, перебор адресов, двоичная запись",
+   "need": 3,
+   "slides": [
+    {
+     "t": "title",
+     "k": "Программирование для ЕГЭ",
+     "h": "Задание 13",
+     "sub": "IP-адреса и маски: модуль ipaddress делает всю двоичную арифметику за нас",
+     "chips": [
+      "ip_network",
+      "f'{ip:b}'",
+      "net[0], net[-1]",
+      "маска /n"
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Сеть по адресу и маске",
+     "ch": "Пример",
+     "cond": "<p>ip_network('адрес/маска', 0) — сеть, в которую входит адрес. Второй аргумент 0 (strict=False) обязателен: иначе Python ругается, что адрес узла — не адрес сети.</p><p>net[0] — адрес сети, net[-1] — широковещательный адрес. Узлам их назначать нельзя.</p>",
+     "note": "Маску можно писать и числом единиц: /28 — то же, что 255.255.255.240.",
+     "nk": "secret",
+     "code": "from ipaddress import ip_network\nnet = ip_network('192.168.32.48/255.255.255.240', 0)\nprint(net)\nprint(net.network_address, net.broadcast_address, net.netmask)\nprint(net.num_addresses, net[0], net[-1], net[1])",
+     "out": "192.168.32.48/28\n192.168.32.48 192.168.32.63 255.255.255.240\n16 192.168.32.48 192.168.32.63 192.168.32.49",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Двоичная запись адреса",
+     "ch": "Пример",
+     "cond": "<p>f'{ip:b}' — все 32 бита адреса одной строкой, с ведущими нулями. Дальше — обычные методы строк.</p>",
+     "nk": "secret",
+     "code": "from ipaddress import ip_address\nip = ip_address('172.16.160.7')\nb = f'{ip:b}'\nprint(b, len(b), b.count('1'))\nprint(bin(160)[2:].zfill(8))",
+     "out": "10101100000100001010000000000111 32 10\n10100000"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Перебор адресов сети",
+     "ch": "Пример",
+     "cond": "<p>for ip in net перебирает все адреса сети, включая адрес сети и широковещательный. Нужны только узлы — net.hosts().</p>",
+     "nk": "secret",
+     "code": "from ipaddress import ip_network\nnet = ip_network('172.16.160.0/255.255.240.0', 0)\nk = 0\nfor ip in net:\n    if f'{ip:b}'.count('1') % 2 == 0:\n        k += 1\nprint(k)",
+     "out": "2048",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m13.even1",
+     "h": "Чётное число единиц",
+     "cond": "<p>Сеть задана IP-адресом 172.16.160.0 и маской 255.255.240.0. Сколько в этой сети адресов, в двоичной записи которых чётное число единиц?</p>",
+     "stars": 1,
+     "ans": "2048",
+     "sol": "from ipaddress import ip_network\nnet = ip_network('172.16.160.0/255.255.240.0', 0)\nprint(sum(1 for ip in net if f'{ip:b}'.count('1') % 2 == 0))",
+     "sec": 0.03
+    },
+    {
+     "id": "m13.netaddr",
+     "h": "Адрес сети",
+     "cond": "<p>Узел имеет IP-адрес 205.99.68.249, маска сети 255.255.248.0. Найдите адрес сети. Ответ запишите в обычном виде, например 10.0.0.0.</p>",
+     "stars": 1,
+     "ans": "205.99.64.0",
+     "sol": "from ipaddress import ip_network\nprint(ip_network('205.99.68.249/255.255.248.0', 0).network_address)",
+     "sec": 0.02
+    },
+    {
+     "id": "m13.lastnode",
+     "h": "Последний узел",
+     "cond": "<p>Узел с IP-адресом 73.148.145.65 находится в сети с маской 255.224.0.0. Найдите наибольший IP-адрес, который может быть назначен узлу этой сети. В ответе запишите сумму четырёх чисел этого адреса.</p>",
+     "stars": 1,
+     "ans": "741",
+     "sol": "from ipaddress import ip_network\nnet = ip_network('73.148.145.65/255.224.0.0', 0)\nip = net[-2]\nprint(sum(int(x) for x in str(ip).split('.')))",
+     "sec": 0.04,
+     "hint": "Наибольший адрес узла — предпоследний: net[-2]. Последний (широковещательный) узлу не дают."
+    },
+    {
+     "id": "m13.odd1",
+     "h": "Нечётное число единиц",
+     "cond": "<p>Сеть задана адресом 172.16.80.0 и маской 255.255.248.0. Сколько адресов этой сети содержат нечётное число единиц в двоичной записи?</p>",
+     "stars": 1,
+     "ans": "1024",
+     "sol": "from ipaddress import ip_network\nnet = ip_network('172.16.80.0/255.255.248.0', 0)\nprint(sum(1 for ip in net if f'{ip:b}'.count('1') % 2 == 1))",
+     "sec": 0.02
+    },
+    {
+     "id": "m13.not7",
+     "h": "Не кратно 7",
+     "cond": "<p>Сеть задана адресом 203.68.128.0 и маской 255.255.192.0. Сколько адресов сети, у которых количество единиц в двоичной записи не делится на 7?</p>",
+     "stars": 1,
+     "ans": "13367",
+     "sol": "from ipaddress import ip_network\nnet = ip_network('203.68.128.0/255.255.192.0', 0)\nprint(sum(1 for ip in net if f'{ip:b}'.count('1') % 7 != 0))",
+     "sec": 0.04
+    }
+   ]
+  },
+  {
+   "title": "Стандарт: неизвестная маска",
+   "goal": "перебор масок от /0 до /32: адрес в сети, адрес сети совпал, байт маски",
+   "need": 3,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Перебор масок",
+     "ch": "Пример",
+     "cond": "<p>Маска неизвестна — перебираем все 33 варианта /0 … /32 и оставляем подходящие по условию.</p>",
+     "note": "Адрес узла не может совпадать с адресом сети и широковещательным: для узла проверяйте net[0] &lt; ip &lt; net[-1].",
+     "nk": "warn",
+     "code": "from ipaddress import ip_address, ip_network\nip = ip_address('84.23.84.23')\nfor m in range(33):\n    net = ip_network(f'{ip}/{m}', 0)\n    if net.network_address == ip_address('84.23.84.0'):\n        print(m, net.netmask)",
+     "out": "22 255.255.252.0\n23 255.255.254.0\n24 255.255.255.0\n25 255.255.255.128\n26 255.255.255.192\n27 255.255.255.224",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Два узла в одной сети",
+     "ch": "Пример",
+     "cond": "<p>«ip in net» — входит ли адрес в сеть. Чем больше единиц в маске, тем меньше сеть: идём от /32 вниз и берём первую, где оба адреса вместе.</p>",
+     "nk": "secret",
+     "code": "from ipaddress import ip_address, ip_network\na = ip_address('157.220.185.237')\nb = ip_address('157.220.184.230')\nfor m in range(32, -1, -1):\n    if b in ip_network(f'{a}/{m}', 0):\n        print('наибольшая маска:', m)\n        break",
+     "out": "наибольшая маска: 23"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Байт маски",
+     "ch": "Пример",
+     "cond": "<p>Третий слева байт маски — третье число в записи netmask.</p>",
+     "nk": "secret",
+     "code": "from ipaddress import ip_network\nnet = ip_network('200.154.190.7/21', 0)\nprint(net.netmask, str(net.netmask).split('.')[2])",
+     "out": "255.255.248.0 248",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m13.maxones",
+     "h": "Наибольшее число единиц",
+     "cond": "<p>Для узла с IP-адресом 84.23.84.23 адрес сети равен 84.23.84.0. Чему равно наибольшее возможное количество единиц в маске?</p>",
+     "stars": 1,
+     "ans": "27",
+     "sol": "from ipaddress import ip_address, ip_network\nip = ip_address('84.23.84.23')\nbest = None\nfor m in range(33):\n    net = ip_network(f'{ip}/{m}', 0)\n    if net.network_address == ip_address('84.23.84.0') and net[0] < ip < net[-1]:\n        best = m\nprint(best)",
+     "sec": 0.02
+    },
+    {
+     "id": "m13.byte3",
+     "h": "Третий байт маски",
+     "cond": "<p>Для узла с IP-адресом 215.181.200.27 адрес сети равен 215.181.192.0. Чему равен третий слева байт маски, если известно, что в сети наибольшее возможное количество адресов?</p>",
+     "stars": 1,
+     "ans": "192",
+     "sol": "from ipaddress import ip_address, ip_network\nip = ip_address('215.181.200.27')\nfor m in range(33):\n    net = ip_network(f'{ip}/{m}', 0)\n    if net.network_address == ip_address('215.181.192.0'):\n        print(str(net.netmask).split('.')[2])\n        break",
+     "sec": 0.02,
+     "hint": "Больше адресов — меньше единиц в маске: перебирайте маски с /0 вверх и берите первую подходящую."
+    },
+    {
+     "id": "m13.count15",
+     "h": "Сеть для двух узлов",
+     "cond": "<p>Узлы 157.220.185.237 и 157.220.184.230 находятся в одной сети, и маска этой сети наибольшая из возможных. Сколько адресов этой сети содержат ровно 15 единиц в двоичной записи?</p>",
+     "stars": 1,
+     "ans": "9",
+     "sol": "from ipaddress import ip_address, ip_network\na, b = ip_address('157.220.185.237'), ip_address('157.220.184.230')\nfor m in range(32, -1, -1):\n    net = ip_network(f'{a}/{m}', 0)\n    if b in net:\n        break\nprint(sum(1 for ip in net if f'{ip:b}'.count('1') == 15))",
+     "sec": 0.02
+    },
+    {
+     "id": "m13.nmasks",
+     "h": "Сколько масок",
+     "cond": "<p>Узел с IP-адресом 111.81.88.168. Сколько существует различных масок, при которых этот адрес можно назначить узлу (он не совпадает ни с адресом сети, ни с широковещательным)?</p>",
+     "stars": 1,
+     "ans": "29",
+     "sol": "from ipaddress import ip_address, ip_network\nip = ip_address('111.81.88.168')\nk = 0\nfor m in range(33):\n    net = ip_network(f'{ip}/{m}', 0)\n    if net[0] < ip < net[-1]:\n        k += 1\nprint(k)",
+     "sec": 0.02
+    },
+    {
+     "id": "m13.same",
+     "h": "Одна маска на двоих",
+     "cond": "<p>Узлы 134.181.67.112 и 134.181.94.117 находятся в одной сети. Какое наибольшее количество единиц может быть в маске этой сети, если ни один из адресов не является адресом сети или широковещательным?</p>",
+     "stars": 1,
+     "ans": "19",
+     "sol": "from ipaddress import ip_address, ip_network\na, b = ip_address('134.181.67.112'), ip_address('134.181.94.117')\nbest = None\nfor m in range(33):\n    net = ip_network(f'{a}/{m}', 0)\n    if b in net and net[0] < a < net[-1] and net[0] < b < net[-1]:\n        best = m\nprint(best)",
+     "sec": 0.02
+    }
+   ]
+  },
+  {
+   "title": "Профи: условия на биты",
+   "goal": "половины адреса, равенство нулей и единиц, только узлы, последний подходящий адрес",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Левая и правая половины",
+     "ch": "Пример",
+     "cond": "<p>32-битная строка режется срезами: [:16] — два левых байта, [16:] — два правых, [8:16] — второй байт.</p>",
+     "nk": "secret",
+     "code": "from ipaddress import ip_address\nb = f\"{ip_address('253.112.169.12'):b}\"\nleft, right = b[:16], b[16:]\nprint(left.count('1'), right.count('1'))",
+     "out": "10 6"
+    },
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Только узлы",
+     "ch": "Пример",
+     "cond": "<p>hosts() — адреса без адреса сети и широковещательного. Количество узлов — num_addresses − 2.</p>",
+     "note": "Срез net[1:-1] у сети не работает (ошибка TypeError) — пользуйтесь hosts() или индексами net[i].",
+     "nk": "warn",
+     "code": "from ipaddress import ip_network\nnet = ip_network('10.0.0.0/29', 0)\nprint([str(ip) for ip in net.hosts()])\nprint(net.num_addresses - 2)",
+     "out": "['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4', '10.0.0.5', '10.0.0.6']\n6"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m13.halves",
+     "h": "Справа не меньше",
+     "cond": "<p>Сеть задана адресом 253.112.169.12 и маской 255.255.254.0. Сколько адресов сети, у которых в двух правых байтах единиц не меньше, чем в двух левых?</p>",
+     "stars": 1,
+     "ans": "46",
+     "sol": "from ipaddress import ip_network\nnet = ip_network('253.112.169.12/255.255.254.0', 0)\nk = 0\nfor ip in net:\n    b = f'{ip:b}'\n    if b[16:].count('1') >= b[:16].count('1'):\n        k += 1\nprint(k)",
+     "sec": 0.02
+    },
+    {
+     "id": "m13.equal",
+     "h": "Нулей и единиц поровну",
+     "cond": "<p>Сеть задана адресом 192.168.12.207 и маской 255.255.192.0. Среди адресов узлов сети (кроме адреса сети и широковещательного) найдите последний адрес, у которого нулей и единиц в двоичной записи поровну. Ответ — адрес в обычном виде.</p>",
+     "stars": 2,
+     "ans": "192.168.63.248",
+     "sol": "from ipaddress import ip_network\nnet = ip_network('192.168.12.207/255.255.192.0', 0)\nlast = None\nfor ip in net.hosts():\n    b = f'{ip:b}'\n    if b.count('1') == b.count('0'):\n        last = ip\nprint(last)",
+     "sec": 0.07,
+     "hint": "«Последний» — запоминайте найденный адрес в переменной и печатайте после цикла."
+    },
+    {
+     "id": "m13.byte2",
+     "h": "Второй байт",
+     "cond": "<p>Сеть задана адресом 115.200.0.0 и маской 255.255.0.0. Сколько адресов сети, у которых количество единиц в двоичной записи второго слева байта больше количества единиц в третьем байте?</p>",
+     "stars": 2,
+     "ans": "9472",
+     "sol": "from ipaddress import ip_network\nnet = ip_network('115.200.0.0/255.255.0.0', 0)\nk = 0\nfor ip in net:\n    b = f'{ip:b}'\n    if b[8:16].count('1') > b[16:24].count('1'):\n        k += 1\nprint(k)",
+     "sec": 0.2
+    },
+    {
+     "id": "m13.ends",
+     "h": "Оканчивается на 0",
+     "cond": "<p>Сеть задана адресом 172.16.192.0 и маской 255.255.192.0. Сколько адресов узлов, двоичная запись которых оканчивается на 0 и содержит число единиц, не кратное 5?</p>",
+     "stars": 1,
+     "ans": "6617",
+     "sol": "from ipaddress import ip_network\nnet = ip_network('172.16.192.0/255.255.192.0', 0)\nk = 0\nfor ip in net.hosts():\n    b = f'{ip:b}'\n    if b.endswith('0') and b.count('1') % 5 != 0:\n        k += 1\nprint(k)",
+     "sec": 0.05
+    }
+   ]
+  },
+  {
+   "title": "Максимум: перебор сетей",
+   "goal": "неизвестная маска + условия на адреса сети, сравнение адресов, количества",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Сеть, в которой есть нужные адреса",
+     "ch": "Пример",
+     "cond": "<p>Условие может касаться всей сети: «в сети не меньше 100 адресов с чётным числом единиц». Перебираем маски и для каждой считаем.</p>",
+     "note": "Маленькие маски — гигантские сети (миллионы адресов). Отсекайте их заранее, иначе перебор будет очень долгим.",
+     "nk": "warn",
+     "code": "from ipaddress import ip_address, ip_network\nip = ip_address('76.172.10.140')\nfor m in range(33):\n    net = ip_network(f'{ip}/{m}', 0)\n    cnt = sum(1 for x in net if f'{x:b}'.count('1') % 2 == 0) if net.num_addresses <= 1 << 12 else None\n    if cnt is not None and cnt >= 100:\n        print(m, cnt)",
+     "out": "20 2048\n21 1024\n22 512\n23 256\n24 128",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Адреса можно сравнивать и складывать с числами",
+     "ch": "Пример",
+     "cond": "<p>IP-адрес — это 32-битное число. int(ip) — его значение, ip + 1 — следующий адрес.</p>",
+     "nk": "secret",
+     "code": "from ipaddress import ip_address\na = ip_address('10.0.0.255')\nprint(a + 1, a > ip_address('10.0.0.7'), int(a))",
+     "out": "10.0.1.0 True 167772415",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m13.min100",
+     "h": "Хватит ли адресов",
+     "cond": "<p>Узел имеет адрес 76.172.10.140. Найдите наибольшее количество единиц в маске, при котором в сети этого узла не меньше 100 адресов с чётным числом единиц в двоичной записи.</p>",
+     "stars": 2,
+     "ans": "24",
+     "sol": "from ipaddress import ip_address, ip_network\nip = ip_address('76.172.10.140')\nbest = None\nfor m in range(33):\n    net = ip_network(f'{ip}/{m}', 0)\n    if net.num_addresses > 1 << 16:\n        continue\n    if sum(1 for x in net if f'{x:b}'.count('1') % 2 == 0) >= 100:\n        best = m\nprint(best)",
+     "sec": 0.28
+    },
+    {
+     "id": "m13.between",
+     "h": "Между двумя адресами",
+     "cond": "<p>Сколько IP-адресов строго между 10.27.255.200 и 10.28.1.17 содержат в двоичной записи ровно 19 единиц?</p>",
+     "stars": 2,
+     "ans": "19",
+     "sol": "from ipaddress import ip_address\na, b = int(ip_address('10.27.255.200')), int(ip_address('10.28.1.17'))\nprint(sum(1 for x in range(a + 1, b) if bin(x).count('1') == 19))",
+     "sec": 0.02,
+     "hint": "Адреса — числа: int(ip_address(...)). Дальше обычный range."
+    },
+    {
+     "id": "m13.netcount",
+     "h": "Сколько сетей",
+     "cond": "<p>Для скольких масок (от /0 до /32) адрес 192.168.217.38 можно назначить узлу, а в сети при этом не больше 1000 адресов?</p>",
+     "stars": 1,
+     "ans": "8",
+     "sol": "from ipaddress import ip_address, ip_network\nip = ip_address('192.168.217.38')\nk = 0\nfor m in range(33):\n    net = ip_network(f'{ip}/{m}', 0)\n    if net[0] < ip < net[-1] and net.num_addresses <= 1000:\n        k += 1\nprint(k)",
+     "sec": 0.02
+    },
+    {
+     "id": "m13.third",
+     "h": "Третий байт по двум условиям",
+     "cond": "<p>Узел с адресом 140.116.195.120 находится в сети, в которой адрес 140.116.200.1 тоже является адресом узла, а адрес 140.116.224.5 — не входит. Найдите количество возможных масок.</p>",
+     "stars": 3,
+     "ans": "2",
+     "sol": "from ipaddress import ip_address, ip_network\na = ip_address('140.116.195.120')\nb, c = ip_address('140.116.200.1'), ip_address('140.116.224.5')\nk = 0\nfor m in range(33):\n    net = ip_network(f'{a}/{m}', 0)\n    if b in net and net[0] < b < net[-1] and net[0] < a < net[-1] and c not in net:\n        k += 1\nprint(k)",
+     "sec": 0.02
+    }
+   ]
+  }
+ ]
+}

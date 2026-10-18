@@ -1,0 +1,240 @@
+{
+ "id": "m22",
+ "n": 22,
+ "title": "Параллельные процессы",
+ "icon": "⏱️",
+ "sub": "Таблица зависимостей: время окончания, моменты времени, критический путь",
+ "levels": [
+  {
+   "title": "База: время окончания",
+   "goal": "таблица процессов в словари; окончание процесса = его время + наибольшее окончание зависимостей",
+   "need": 1,
+   "slides": [
+    {
+     "t": "title",
+     "k": "Программирование для ЕГЭ",
+     "h": "Задание 22",
+     "sub": "Параллельные процессы: рекурсия по зависимостям вместо ручного счёта в таблице",
+     "chips": [
+      "словарь",
+      "max(…, default=0)",
+      "lru_cache",
+      "граф"
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Читаем таблицу",
+     "ch": "Пример",
+     "cond": "<p>В каждой строке: номер процесса, время выполнения (мс) и номера процессов, от которых он зависит, через «;» (0 — независимый).</p>",
+     "nk": "secret",
+     "code": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nprint(T)\nprint(D)",
+     "out": "{1: 4, 2: 3, 3: 1, 4: 7, 5: 6}\n{1: [], 2: [], 3: [1, 2], 4: [3], 5: [1]}",
+     "wide": true,
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/L1S2/22.txt?v=eb98ae85",
+       "size": 32
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Когда закончится каждый",
+     "ch": "Пример",
+     "cond": "<p>Процесс стартует, когда закончились все, от кого он зависит, — то есть в момент max(fin(q)). Все процессы закончатся в момент max(fin(p)).</p>",
+     "note": "max(…, default=0) — для процесса без зависимостей. Без default max([]) упадёт с ошибкой.",
+     "nk": "warn",
+     "code": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\nprint({p: fin(p) for p in T}, max(fin(p) for p in T))",
+     "out": "{1: 4, 2: 3, 3: 5, 4: 12, 5: 10} 12",
+     "wide": true,
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/L1S3/22.txt?v=eb98ae85",
+       "size": 32
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m22.total",
+     "h": "Все процессы",
+     "cond": "<p>В файле <b>22.txt</b> — таблица процессов: номер, время выполнения (мс), номера процессов, от которых он зависит (0 — нет зависимостей). Процессы выполняются параллельно, каждый стартует сразу, как только закончатся все, от кого он зависит. Через сколько миллисекунд закончатся все процессы?</p>",
+     "stars": 1,
+     "ans": "107",
+     "sol": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\nprint(max(fin(p) for p in T))",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/total/22.txt?v=922e0870",
+       "size": 577
+      }
+     ]
+    },
+    {
+     "id": "m22.one",
+     "h": "Конкретный процесс",
+     "cond": "<p>Файл <b>22.txt</b> (тот же формат). В какой момент закончится процесс с наибольшим номером?</p>",
+     "stars": 1,
+     "ans": "82",
+     "sol": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\nprint(fin(max(T)))",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/one/22.txt?v=4d0b41d2",
+       "size": 902
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Стандарт: вопросы про моменты времени",
+   "goal": "сколько процессов идёт в момент t, когда стартует процесс, что изменится при ускорении",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Сколько идёт одновременно",
+     "ch": "Пример",
+     "cond": "<p>Процесс идёт в промежутке [старт; окончание): старт = fin(p) − T[p]. Считаем, сколько промежутков содержат момент t.</p>",
+     "nk": "secret",
+     "code": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\nt = 10\nprint(sum(1 for p in T if fin(p) - T[p] <= t < fin(p)))",
+     "out": "1",
+     "wide": true,
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/L2S1/22.txt?v=eb98ae85",
+       "size": 32
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m22.at",
+     "h": "В момент времени",
+     "cond": "<p>Файл <b>22.txt</b>. Сколько процессов выполняется в момент t = 40 мс (процесс, закончившийся ровно в 40, уже не выполняется; стартовавший в 40 — выполняется)?</p>",
+     "stars": 1,
+     "ans": "5",
+     "sol": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\nprint(sum(1 for p in T if fin(p) - T[p] <= 40 < fin(p)))",
+     "sec": 0.01,
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/at/22.txt?v=0c8558de",
+       "size": 666
+      }
+     ]
+    },
+    {
+     "id": "m22.maxpar",
+     "h": "Наибольшая параллельность",
+     "cond": "<p>Файл <b>22.txt</b>. Какое наибольшее количество процессов выполнялось одновременно?</p>",
+     "stars": 2,
+     "ans": "14",
+     "sol": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\nev = []\nfor p in T:\n    ev.append((fin(p) - T[p], 1))\n    ev.append((fin(p), -1))\nev.sort()\ncur = best = 0\nfor t, d in ev:\n    cur += d\n    best = max(best, cur)\nprint(best)",
+     "sec": 0.02,
+     "hint": "События «начался» и «закончился» по времени; при равном времени окончание обрабатывается раньше.",
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/maxpar/22.txt?v=8e579f15",
+       "size": 701
+      }
+     ]
+    },
+    {
+     "id": "m22.speed",
+     "h": "Ускорение процесса",
+     "cond": "<p>Файл <b>22.txt</b>. Время выполнения процесса 5 сократили вдвое (округлив вниз). Через сколько миллисекунд теперь закончатся все процессы?</p>",
+     "stars": 1,
+     "ans": "119",
+     "sol": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nT[5] //= 2\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\nprint(max(fin(p) for p in T))",
+     "sec": 0.01,
+     "hint": "Меняем T до первого вызова fin: кеш lru_cache запомнил бы старые значения.",
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/speed/22.txt?v=37e4831f",
+       "size": 605
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Профи: критический путь",
+   "goal": "какие процессы определяют общее время; добавление процесса; минимальное общее время",
+   "need": 1,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Критический путь",
+     "ch": "Пример",
+     "cond": "<p>Общее время определяет цепочка зависимостей, на которой «все ждут друг друга». Идём от последнего процесса назад, каждый раз к зависимости, которая заканчивается позже всех.</p>",
+     "nk": "secret",
+     "code": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\np = max(T, key=fin)\npath = [p]\nwhile D[p]:\n    p = max(D[p], key=fin)\n    path.append(p)\nprint(path[::-1])",
+     "out": "[1, 3, 4]",
+     "wide": true,
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/L3S1/22.txt?v=eb98ae85",
+       "size": 32
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m22.crit",
+     "h": "Длина критического пути",
+     "cond": "<p>Файл <b>22.txt</b>. Найдите критическую цепочку так: начните с процесса, который заканчивается позже всех (при равенстве — с меньшим номером), и каждый раз переходите к его зависимости, которая заканчивается позже всех (при равенстве — с меньшим номером), пока зависимостей не останется. Сколько процессов в этой цепочке?</p>",
+     "stars": 2,
+     "ans": "10",
+     "sol": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\np = min(T, key=lambda x: (-fin(x), x))\nk = 1\nwhile D[p]:\n    p = min(D[p], key=lambda x: (-fin(x), x))\n    k += 1\nprint(k)",
+     "sec": 0.01,
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/crit/22.txt?v=24f0a4db",
+       "size": 601
+      }
+     ]
+    },
+    {
+     "id": "m22.slack",
+     "h": "Запас времени",
+     "cond": "<p>Файл <b>22.txt</b>. Сколько процессов можно задержать хотя бы на 1 мс, не увеличив общее время выполнения всех процессов? (Процесс можно задержать, если ни одна цепочка через него не является самой длинной.)</p>",
+     "stars": 3,
+     "ans": "53",
+     "sol": "T, D = {}, {}\nfor line in open('22.txt'):\n    pid, t, deps = line.split()\n    T[int(pid)] = int(t)\n    D[int(pid)] = [] if deps == '0' else list(map(int, deps.split(';')))\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef fin(p):\n    \"\"\"Момент окончания процесса p: старт — когда закончатся все, от кого он зависит.\"\"\"\n    return T[p] + max((fin(q) for q in D[p]), default=0)\n\ntotal = max(fin(p) for p in T)\nafter = {p: [] for p in T}\nfor p in T:\n    for q in D[p]:\n        after[q].append(p)\n\nfrom functools import lru_cache\n\n@lru_cache(None)\ndef tail(p):\n    \"\"\"Сколько ещё времени нужно после окончания p до конца цепочек, которые от него зависят.\"\"\"\n    return max((T[r] + tail(r) for r in after[p]), default=0)\n\nprint(sum(1 for p in T if fin(p) + tail(p) < total))",
+     "sec": 0.02,
+     "hint": "Самая длинная цепочка через процесс p = fin(p) + «хвост» после p. Если она меньше общего времени — у p есть запас.",
+     "files": [
+      {
+       "name": "22.txt",
+       "url": "pyc-data/m22/slack/22.txt?v=9ccba4e2",
+       "size": 570
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

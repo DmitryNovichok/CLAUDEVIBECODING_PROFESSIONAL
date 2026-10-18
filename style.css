@@ -1438,7 +1438,7 @@ label.vw-row { cursor: pointer; }
 .crs-lock h2 { margin: 6px 0 8px; font: 900 22px var(--font); }
 .crs-lock p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 16px; }
 .crs-lock-form { justify-content: center; }
-#courseCard.locked::after { content: "🔒"; position: absolute; right: -1px; bottom: -1px; font-size: 12px; line-height: 1; }
+#courseCard.locked::after, #pycCard.locked::after { content: "🔒"; position: absolute; right: -1px; bottom: -1px; font-size: 12px; line-height: 1; }
 
 /* ---------- презентация урока */
 .crs-deck { grid-template-columns: 1fr 210px; align-items: start; }
@@ -2207,3 +2207,74 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
 .calc-k.op:active, .calc-k.eq:active, .calc-k.op.hit, .calc-k.eq.hit { box-shadow: 0 1px 0 #cc7700; }
 .calc-k.op.on { background: #fff; color: #ff9600; }
 @media (max-width: 600px) { .calc { right: 8px; top: 70px; width: 228px; } }
+
+/* ------------------------------------------------------------ курс «Программирование для ЕГЭ» */
+.course.pyc { display: flex; flex-direction: column; gap: 14px; }
+.pyc-hero { background: linear-gradient(135deg, rgba(61, 123, 214, .14), rgba(255, 212, 59, .12)); }
+.pyc-gsub { margin-top: -8px; }
+.pyc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.pyc-mod { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 2px solid var(--border); border-bottom-width: 4px;
+  border-radius: 18px; background: var(--card); }
+.pyc-mod.done { border-color: rgba(88, 204, 2, .5); }
+.pyc-mod-h { display: flex; gap: 12px; align-items: flex-start; }
+.pyc-mod-h b { display: block; font: 900 17px/1.25 var(--font); }
+.pyc-mod-h small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.4; margin-top: 2px; }
+.pyc-mod-ic { flex: none; width: 46px; height: 46px; display: grid; place-items: center; font-size: 25px; border-radius: 13px; background: var(--bg); }
+.pyc-num { display: inline-block; padding: 1px 8px; margin-bottom: 3px; border-radius: 999px; font: 900 11.5px var(--font);
+  color: #fff; background: #3d7bd6; letter-spacing: .02em; }
+.pyc-ladder { display: flex; flex-direction: column; gap: 6px; }
+.pyc-step { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 2px solid var(--border); border-radius: 12px;
+  background: var(--bg); color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.pyc-step:hover:not(:disabled) { border-color: var(--accent); }
+.pyc-step i { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; font: 900 13px var(--font);
+  font-style: normal; background: var(--card); border: 2px solid var(--border-strong); }
+.pyc-step b { display: block; font-size: 14px; }
+.pyc-step small { color: var(--muted); font-size: 12px; }
+.pyc-step.go i { border-color: var(--accent); color: var(--accent-text); }
+.pyc-step.done i { background: var(--good); border-color: var(--good); color: #fff; }
+.pyc-step.lock { opacity: .55; cursor: default; }
+.pyc-step.lock i { border-style: dashed; }
+.pyc-goal { color: var(--muted); font-size: 13.5px; }
+.pyc-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.pyc-tabs button { padding: 6px 12px; border-radius: 999px; border: 2px solid var(--border); background: var(--card); color: var(--text);
+  font: 800 13px var(--font); cursor: pointer; }
+.pyc-tabs button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.pyc-tabs button.lock { opacity: .5; cursor: default; }
+.pyc-tasks { display: flex; flex-direction: column; gap: 12px; }
+.pyc-task { padding: 14px 16px; border: 2px solid var(--border); border-radius: 16px; background: var(--card); }
+.pyc-task.ok { border-color: rgba(88, 204, 2, .55); }
+.pyc-task.bad { border-color: rgba(255, 75, 75, .35); }
+.pyc-task.shake { animation: shake .28s; }
+.pyc-th { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pyc-th b { font: 900 16px var(--font); }
+.pyc-tn { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; font: 900 14px var(--font);
+  background: var(--bg); border: 2px solid var(--border-strong); }
+.pyc-task.ok .pyc-tn { background: var(--good); border-color: var(--good); color: #fff; }
+.pyc-stars { color: #f5a400; letter-spacing: 1px; font-size: 14px; }
+.pyc-st { margin-left: auto; font-size: 12.5px; color: var(--muted); font-weight: 700; }
+.pyc-task.ok .pyc-st { color: var(--good-strong); }
+.pyc-cond { margin-top: 10px; border: 0; padding: 0; background: none; font-weight: 500; }
+.pyc-cond pre { font: 14px/1.5 var(--mono); background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  overflow: auto; white-space: pre; }
+.pyc-cond table { border-collapse: collapse; margin: 6px 0; }
+.pyc-cond td, .pyc-cond th { border: 1px solid var(--border-strong); padding: 3px 10px; text-align: center; font-family: var(--mono); }
+.pyc-files .file small { color: var(--muted); font-size: 11.5px; }
+.pyc-act { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+.pyc-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.pyc-ans { width: 220px; max-width: 100%; }
+.pyc-task.ok .pyc-ans { border-color: var(--good); background: var(--good-soft); }
+.pyc-msg { font-size: 13.5px; font-weight: 700; }
+.pyc-msg.bad { color: var(--weak); }
+.pyc-more { margin-top: 10px; }
+.pyc-more summary { cursor: pointer; font-weight: 800; color: var(--accent-text); }
+.pyc-more > div { margin-top: 6px; padding: 10px 12px; border-radius: 10px; background: var(--bg); line-height: 1.5; }
+.pyc-sol .sl-code { margin: 8px 0; }
+.pyc-next { align-self: flex-start; }
+.sl-outbox summary { cursor: pointer; font-weight: 800; color: var(--accent-text); }
+.sl-out { margin: 8px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--code-bg); border: 1px solid var(--border);
+  font: 13.5px/1.45 var(--mono); white-space: pre-wrap; max-height: 260px; overflow: auto; }
+.sl-ul { margin: 6px 0; padding-left: 20px; line-height: 1.55; }
+@media (max-width: 640px) {
+  .pyc-grid { grid-template-columns: 1fr; }
+  .pyc-st { margin-left: 0; width: 100%; }
+}
