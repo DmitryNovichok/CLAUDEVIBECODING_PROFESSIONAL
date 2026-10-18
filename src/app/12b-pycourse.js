@@ -2,7 +2,7 @@
   // Доступ — по паролю курса (его задаёт учитель) или галочкой учителя ученику / классу. Модуль = тема, внутри лестница уровней:
   // следующий уровень открывается, когда в текущем решено need задач. Ответы проверяет сервер.
   let PYC_OK = false;
-  let PYC_PW = false;                    // вход по паролю включён — кнопку курса видят все, у кого нет доступа, с замком
+  let PYC_PW = false;                    // учитель задал пароль курса — на экране с замком есть поле для пароля
   let PYC = null;                        // план курса и прогресс с сервера
   let PYC_L = null;                      // открытый уровень
   let PYC_PY = null;                     // задача (или пример со слайда), с которой открыт редактор Python
@@ -15,10 +15,7 @@
   function pycSetAccess(on, pw) {
     PYC_OK = !!on;
     if (pw !== undefined) PYC_PW = !!pw;
-    const b = $('#pycCard');
-    if (!b) return;
-    b.hidden = !(PYC_OK || PYC_PW);
-    b.classList.toggle('locked', !PYC_OK);
+    $('#pycCard')?.classList.toggle('locked', !PYC_OK);   // кнопка видна всем; без доступа — с замком
   }
   async function pycLoad() {
     PYC = await api('pyc');
@@ -30,7 +27,8 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Программирование</span>';
     if (msg || !PYC_PW) {
       trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><div class="crs-lock-ic">🔒</div>
-        <h2>Курс закрыт</h2><p>${esc(msg || 'Курс программирования открывает учитель — попросите у него пароль.')}</p></div></div>`;
+        <h2>Курс «Программирование для ЕГЭ» — по паролю</h2>
+        <p>${esc(msg || 'Учитель ещё не задал пароль курса. Как только задаст — здесь появится поле для пароля.')}</p></div></div>`;
       return;
     }
     trainerEl.innerHTML = `<div class="course"><div class="crs-lock">
