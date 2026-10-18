@@ -489,11 +489,6 @@ tr.comp-void td { opacity: .55; }
 .tab-n { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #ff4b4b; color: #fff; font-size: 11px; line-height: 17px; display: inline-block; }
 
 /* курс «Программирование для ЕГЭ» */
-.pyc-acc { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; cursor: pointer; }
-.pyc-acc input { width: 16px; height: 16px; accent-color: var(--good); cursor: pointer; }
-.pyc-acc.pill { padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); margin: 3px 4px 3px 0; }
-.pyc-cls { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13.5px; }
-.pyc-cls > b { margin-right: 6px; }
 .pyc-mh { font-size: 16px; line-height: 1.1; }
 .pyc-mh small { display: block; font-size: 10.5px; color: var(--muted); font-weight: 700; }
 .pyc-det { display: flex; flex-direction: column; gap: 10px; }
