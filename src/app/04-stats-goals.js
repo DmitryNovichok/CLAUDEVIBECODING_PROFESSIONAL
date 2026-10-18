@@ -400,6 +400,8 @@
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
     if (cur) lastNum = cur.task.n;
+    // выбрана сданная (или не начатая) самостоятельная — show() показал бы её экран результата вместо задания
+    if (wkScope() && !wkLive()) { ui.scope = scopeOf(t.n); save(); }
     show({ task: t, why: { type: 'history', last: (P.tasks[gid] || {}).last }, back });
     renderSidebar();
   }
