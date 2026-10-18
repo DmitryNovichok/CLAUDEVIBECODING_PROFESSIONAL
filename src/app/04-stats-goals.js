@@ -31,15 +31,19 @@
   /** Дни, закрытые без трёх заданий: заморозка (freeze) или восстановление учителем (restore). Знает сервер. */
   const fireCover = () => (GAME && GAME.cover) || {};
   const dayOk = (m, k) => (m.get(k) || 0) >= fireNeed() || !!fireCover()[k];
+  /** День прибавляет огоньку: выполнен или восстановлен учителем. День под заморозкой серию не рвёт, но и не прибавляет —
+      заморозка сохраняет огонёк (было 10 — осталось 10), а не продлевает его. Так же считает сервер. */
+  const dayAdds = (m, k) => (m.get(k) || 0) >= fireNeed() || fireCover()[k] === 'restore';
   /** Дней подряд с выполненной целью (сегодняшний день ещё может быть не закончен). */
   function dayStreak() {
     const m = dayCounts();
     const d = new Date();
-    let s = dayOk(m, dayKey(d.getTime())) ? 1 : 0;
+    let s = dayAdds(m, dayKey(d.getTime())) ? 1 : 0;
     for (;;) {
       d.setDate(d.getDate() - 1);
-      if (dayOk(m, dayKey(d.getTime()))) s++;
-      else break;
+      const k = dayKey(d.getTime());
+      if (!dayOk(m, k)) break;
+      if (dayAdds(m, k)) s++;
     }
     return s;
   }
@@ -50,7 +54,7 @@
     let best = 0, run = 0, prev = null;
     for (const k of days) {
       const t = new Date(k + 'T12:00').getTime();
-      run = prev != null && Math.round((t - prev) / 864e5) === 1 ? run + 1 : 1;
+      run = (prev != null && Math.round((t - prev) / 864e5) === 1 ? run : 0) + (dayAdds(m, k) ? 1 : 0);
       best = Math.max(best, run); prev = t;
     }
     return best;
