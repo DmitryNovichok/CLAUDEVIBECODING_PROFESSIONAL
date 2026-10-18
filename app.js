@@ -3072,6 +3072,8 @@
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
     if (cur) lastNum = cur.task.n;
+    // выбрана сданная (или не начатая) самостоятельная — show() показал бы её экран результата вместо задания
+    if (wkScope() && !wkLive()) { ui.scope = scopeOf(t.n); save(); }
     show({ task: t, why: { type: 'history', last: (P.tasks[gid] || {}).last }, back });
     renderSidebar();
   }
@@ -3778,7 +3780,7 @@
     if (va) { setView('accent', va.dataset.viewAccent); openThemes(); return; }
     if (e.target.closest('[data-view-reset]')) { writeJSON(VIEW_STORE, VIEW_DEF); applyTheme(effectiveTheme()); applyView(); openThemes(); return; }
     const ho = e.target.closest('[data-open]');
-    if (ho) { closeForecast(); openPast(ho.dataset.open); return; }
+    if (ho) { closeForecast(); openPast(ho.dataset.open); navPush({ v: 'past', id: ho.dataset.open }); return; }
     const hf = e.target.closest('[data-hf]');
     if (hf) { histFilter = hf.dataset.hf; histLimit = 100; openHistory(); return; }
     if (e.target.closest('[data-hmore]')) { histLimit += 100; openHistory(); return; }
