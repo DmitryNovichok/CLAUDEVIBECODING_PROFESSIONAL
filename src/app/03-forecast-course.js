@@ -434,6 +434,8 @@
       else if (st.v === 'history') openHistory();
       else if (st.v === 'exam' && st.id) openExamReview(st.id);
       else if (st.v === 'lesson') openLesson(st.n);
+      else if (st.v === 'pyc') openPyc();
+      else if (st.v === 'pycl') openPycLevel(st.m, st.l);
       else if (st.v === 'set' && courseSet(st.id)) { abandonCurrent(); openCourseSet(st.id); }
       else if (st.v === 'task' && courseSet(st.set) && byId.get(st.id)) openSetTask(courseSet(st.set), byId.get(st.id));
       else if (courseShown || inCourseSet()) {
@@ -519,9 +521,10 @@
   let DECK = null, deckI = 0;
   function slideHtml(sl, i) {
     const kick = sl.k ? `<div class="sl-k ${sl.kc || ''}">${esc(sl.k)}</div>` : '';
-    const runBtn = (k, ans) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button>
-        ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(ans)}</b></span></details>` : ''}</div>`;
-    const codeBox = (code, k, ans) => `<div class="sl-codecol"><pre class="sl-code">${highlightPy(code)}</pre>${runBtn(k, ans)}</div>`;
+    const runBtn = (k, ans, out) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button>
+        ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(ans)}</b></span></details>` : ''}
+        ${out ? `<details class="sl-ansbox sl-outbox"><summary>Что выведет программа</summary><pre class="sl-out">${esc(out)}</pre></details>` : ''}</div>`;
+    const codeBox = (code, k, ans, out) => `<div class="sl-codecol"><pre class="sl-code">${highlightPy(code)}</pre>${runBtn(k, ans, out)}</div>`;
     if (sl.t === 'title') {
       return `<div class="sl sl-title"><div class="sl-title-main"><div class="crs-kicker">${esc(sl.k || 'Egeshka · курс ЕГЭ')}</div><h3>${esc(sl.h)}</h3><p>${esc(sl.sub || '')}</p>
         ${(sl.chips || []).length ? `<div class="sl-chips">${sl.chips.map(c => `<span>${esc(c)}</span>`).join('')}</div>` : ''}</div>
@@ -535,7 +538,7 @@
       return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-split${sl.wide ? ' wide' : ''}${sl.stack ? ' stack' : ''}">
         <div class="sl-left"><div class="sl-cond"><div class="sl-cond-h">${esc(sl.ch || 'Условие')}</div>${safeHtml(sl.cond)}</div>
           ${sl.note ? `<div class="sl-nuance ${sl.kc || ''} ${sl.nk ? 'nk-' + sl.nk : ''}">${sl.nk === 'warn' ? '<b class="nk">⚠ Осторожно!</b> ' : sl.nk === 'secret' ? '<b class="nk">💡 Секрет.</b> ' : ''}${safeHtml(sl.note)}</div>` : ''}</div>
-        ${codeBox(sl.code, 0, sl.ans)}</div></div>`;
+        ${codeBox(sl.code, 0, sl.ans, sl.out)}</div></div>`;
     }
     if (sl.t === 'solve') {
       // задача без программы: условие → «Показать решение» (шаги) → «Показать ответ»
@@ -547,9 +550,9 @@
     }
     if (sl.t === 'codes') {
       return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-blocks n${sl.blocks.length}">${sl.blocks.map((b, k) =>
-        `<div class="sl-block"><p>${safeHtml(b.cond)}</p>${codeBox(b.code, k, b.ans)}</div>`).join('')}</div></div>`;
+        `<div class="sl-block"><p>${safeHtml(b.cond)}</p>${codeBox(b.code, k, b.ans, b.out)}</div>`).join('')}</div></div>`;
     }
-    const code = sl.t === 'code' ? `<pre class="sl-code">${highlightPy(sl.code)}</pre>${runBtn(0, sl.ans)}` : '';
+    const code = sl.t === 'code' ? `<pre class="sl-code">${highlightPy(sl.code)}</pre>${runBtn(0, sl.ans, sl.out)}` : '';
     return `<div class="sl${sl.dark ? ' sl-dark' : ''}">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-body">${safeHtml(sl.html || '')}${code}</div></div>`;
   }
   function renderDeck() {
@@ -572,7 +575,7 @@
   // докуда долистал презентацию — учитель видит в прогрессе курса (отправляем только новый максимум)
   let seenT = 0;
   function deckSeen(k, total) {
-    if (!SERVER || !student || !DECK) return;
+    if (!SERVER || !student || !DECK || DECK.pyc) return;
     const key = `egeTrainer.seen.${student.sid}.${DECK.n}`;
     let max = 0;
     try { max = +localStorage.getItem(key) || 0; } catch (e) { /* нет доступа */ }
@@ -704,11 +707,15 @@
     const sl = DECK && DECK.slides[i];
     const code = sl && (sl.blocks ? (sl.blocks[k || 0] || {}).code : sl.code);
     if (!code) return;
-    togglePy(true);
+    if (DECK.pyc) {                       // пример курса программирования: его файлы — рядом с кодом
+      PYC_PY = { id: `pyc:${DECK.n}:${i}:${k || 0}`, n: 0, pyc: true, label: DECK.label + ' · пример',
+        att: (sl.files || []).map(f => ({ name: f.name, href: f.url })) };
+    }
+    if (DECK.pyc && pyOpen()) pySync(); else togglePy(true);
     const ta = $('#pyCode');
     ta.value = code;
     ta.dispatchEvent(new Event('input', { bubbles: true }));
-    $('#pyTask').textContent = `курс · №${DECK.n}`;
+    $('#pyTask').textContent = DECK.pyc ? DECK.label + ' · пример' : `курс · №${DECK.n}`;
   }
   document.addEventListener('keydown', e => {
     if (!courseShown || !DECK || !$('#crsDeck') || e.target.closest('input, textarea, select')) return;

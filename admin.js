@@ -706,6 +706,92 @@
   $('#cpFind').addEventListener('input', () => { if (CP.d) renderCourseProgress(); });
   $('#cpReload').addEventListener('click', loadCourseProgress);
 
+  // ------------------------------------------------------------ курс «Программирование для ЕГЭ»: доступ и прогресс
+  const PYA = { d: null, open: null, detail: {} };
+  async function loadPyc() {
+    try { PYA.d = await api('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    PYA.detail = {};
+    renderPyc();
+  }
+  const pycLbl = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : 'Старт');
+  function renderPyc() {
+    const d = PYA.d, q = ($('#pycFind').value || '').trim().toLowerCase();
+    if (!d.modules.length) { $('#pycBody').innerHTML = '<p class="adm-empty">Курс ещё не собран: на сервере нет папки pycourse/.</p>'; return; }
+    const total = d.modules.reduce((a, m) => a + m.tasks, 0);
+    const S = d.students.filter(s => !q || s.name.toLowerCase().includes(q))
+      .sort((a, b) => b.access - a.access || b.done - a.done || a.name.localeCompare(b.name, 'ru'));   // сначала те, кому курс открыт
+    const inCourse = d.students.filter(s => s.access);
+    const week = Date.now() / 1000 - 7 * 86400;
+    const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+    const heads = d.modules.map(m => `<th class="num pyc-mh" title="${esc(m.title)}">${m.icon}<small>${esc(pycLbl(m))}</small></th>`).join('');
+    const rows = S.map(s => {
+      const cls = d.classes.find(c => c.id === s.class_id);
+      const viaClass = cls && cls.pyc;
+      return `<tr class="cp-row${PYA.open === s.id ? ' on' : ''}" data-pya="${s.id}"><td class="name">${esc(s.name)}<small>${esc(s.class || 'без класса')}</small></td>
+        <td><label class="pyc-acc" title="${viaClass ? 'Открыт всему классу' : 'Открыть курс этому ученику'}"><input type="checkbox" data-pya-acc="${s.id}"
+          ${s.access ? 'checked' : ''} ${viaClass ? 'disabled' : ''}> ${viaClass ? 'через класс' : s.access ? 'открыт' : 'закрыт'}</label></td>
+        <td class="num"><b>${s.done}</b><small>/${total}</small> ${cpBar(s.done, total)}</td>
+        ${d.modules.map(m => { const v = s.mods[m.id] || 0; return `<td class="num"><b style="color:${pctColor(m.tasks ? v / m.tasks * 100 : 0)}">${v || '·'}</b></td>`; }).join('')}
+        <td class="muted">${s.last ? fmtWhen(s.last) : '—'}</td></tr>
+        ${PYA.open === s.id ? `<tr class="cp-detail"><td colspan="${4 + d.modules.length}">${pycDetailHtml(s.id)}</td></tr>` : ''}`;
+    }).join('');
+    $('#pycBody').innerHTML = `<div class="adm-cards">
+        ${card('Доступ открыт', inCourse.length, `из ${d.students.length} учеников`)}
+        ${card('В курсе', d.modules.length + ' тем', `${total} задач, ${d.modules.reduce((a, m) => a + m.levels.length, 0)} уровней`)}
+        ${card('Решено задач', inCourse.reduce((a, s) => a + s.done, 0), 'всеми учениками вместе')}
+        ${card('Занимались за неделю', d.students.filter(s => (s.last || 0) >= week).length, 'отправляли ответы')}
+      </div>
+      ${d.classes.length ? `<div class="pyc-cls"><b>Открыть всему классу:</b> ${d.classes.map(c => `<label class="pyc-acc pill"><input type="checkbox" data-pya-cls="${c.id}" ${c.pyc ? 'checked' : ''}> ${esc(c.name)}</label>`).join('')}</div>` : ''}
+      <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th><th>Доступ</th><th class="num">Решено</th>${heads}<th>Последний ответ</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="${4 + d.modules.length}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Учеников пока нет'}</td></tr>`}</tbody></table></div>`;
+  }
+  function pycDetailHtml(sid) {
+    const x = PYA.detail[sid];
+    if (!x) return '<p class="adm-hint">Загружаю…</p>';
+    return `<div class="pyc-det">${x.modules.map(m => `<div class="cp-lesson"><b>${m.icon} ${esc(pycLbl(m))} · ${esc(m.title)}</b>
+      <div class="cp-sets">${m.levels.map((lv, i) => `<div class="cp-set"><div class="cp-set-h"><b>${i + 1}. ${esc(lv.title)}</b>
+        <span>${lv.tasks.filter(t => t.ok).length}/${lv.tasks.length}</span></div>
+        <div class="cp-sqs">${lv.tasks.map((t, k) => `<button type="button" class="cp-sq ${t.ok ? 'ok' : t.tries ? 'bad' : ''}" data-pya-task="${esc(t.id)}"
+          title="${k + 1}. ${esc(t.h)}${t.tries ? ` · попыток: ${t.tries}` : ''}">${k + 1}</button>`).join('')}</div></div>`).join('')}</div></div>`).join('')}</div>`;
+  }
+  function pycShowTask(sid, tid) {
+    const x = PYA.detail[sid];
+    const t = x && x.modules.flatMap(m => m.levels.flatMap(lv => lv.tasks)).find(z => z.id === tid);
+    if (!t) return;
+    $('#taskBody').innerHTML = `<div class="adm-task-meta">${esc(x.name)} · задача «${esc(t.h)}» · ${t.ok ? '<b style="color:var(--good)">решена</b>' : t.tries ? 'не решена' : 'не начата'}
+      ${t.tries ? ` · попыток: ${t.tries}` : ''}${t.ts ? ` · ${fmtWhen(t.ts)}` : ''}</div>
+      <p>Правильный ответ: <b>${esc(t.ans)}</b></p>
+      ${t.code ? `<div class="adm-hint">Код ученика (последний отправленный с ответом):</div><pre class="tsol">${esc(t.code)}</pre>` : '<p class="adm-hint">Код ученик не отправлял — ответ вводил вручную.</p>'}`;
+    $('#taskModal').hidden = false;
+  }
+  $('#pycBody').addEventListener('change', async e => {
+    const a = e.target.closest('[data-pya-acc]'), c = e.target.closest('[data-pya-cls]');
+    if (!a && !c) return;
+    const on = e.target.checked;
+    if (c && !on && !confirm('Закрыть курс всему классу? Личный доступ ученикам этого класса тоже закроется.')) { e.target.checked = true; return; }
+    try {
+      await api('pyc/access', a ? { student_id: +a.dataset.pyaAcc, on } : { class_id: +c.dataset.pyaCls, on });
+      toast(on ? 'Курс открыт — ученик увидит его сразу' : 'Доступ к курсу закрыт');
+    } catch (err) { if (err.status !== 401) toast(err.message); }
+    loadPyc();
+  });
+  $('#pycBody').addEventListener('click', async e => {
+    if (e.target.closest('label, input')) return;
+    const sq = e.target.closest('[data-pya-task]');
+    if (sq) { pycShowTask(PYA.open, sq.dataset.pyaTask); return; }
+    const r = e.target.closest('[data-pya]');
+    if (!r) return;
+    const id = +r.dataset.pya;
+    PYA.open = PYA.open === id ? null : id;
+    renderPyc();
+    if (PYA.open && !PYA.detail[id]) {
+      try { PYA.detail[id] = await api('pyc/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      if (PYA.open === id) renderPyc();
+    }
+  });
+  $('#pycFind').addEventListener('input', () => { if (PYA.d) renderPyc(); });
+  $('#pycReload').addEventListener('click', loadPyc);
+
   // ------------------------------------------------------------ турниры и дуэли: архив
   let COMP = null;
   async function loadComp() {
@@ -863,8 +949,9 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     if (t === 'course') loadCourseProgress();
+    if (t === 'pyc') loadPyc();
     if (t === 'site') loadSite();
     if (t === 'build') openBuilder();
     if (t === 'teachers') loadTeachers();
@@ -2107,7 +2194,13 @@
     if (batchOpen && batchBox()) batchLoad();
     const jr = tab === 'classes' && curClass && (clsPane === 'journal' || clsPane === 'nums');
     if (jr && Date.now() - jrAt > 10000) { jrAt = Date.now(); loadGradebook(); }
+    if (tab === 'pyc' && PYA.d && Date.now() - pyaAt > 10000) {          // ученик решил задачу курса — обновить таблицу
+      pyaAt = Date.now();
+      const open = PYA.open;
+      loadPyc().then(() => { if (open && PYA.open === open) api('pyc/student?id=' + open).then(r => { PYA.detail[open] = r; renderPyc(); }).catch(() => {}); });
+    }
   }
+  let pyaAt = 0;
   // живые обновления: одно соединение на браузер (вкладки делят его через Web Locks и BroadcastChannel), как у учеников
   const LV = { up: false, upAt: 0, sentAt: 0, chan: null, started: false, lead: false, dirty: false };
   const liveOn = () => LV.up && Date.now() - LV.upAt < 70000;

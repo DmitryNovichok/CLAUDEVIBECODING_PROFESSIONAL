@@ -4,7 +4,8 @@
   const PY_BTN = '<button type="button" class="icon-btn py-btn" id="pyBtn" title="Решить на Python прямо здесь">Python</button>';
   const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null };
   const pyOpen = () => !$('#pyDock').hidden;
-  const pyTaskNow = () => (examShown && EX ? byId.get((EX.items[EX.cur] || {}).id) : cur && cur.task) || null;
+  const pyTaskNow = () => (courseShown && pageKind === 'pyc' ? PYC_PY
+    : (examShown && EX ? byId.get((EX.items[EX.cur] || {}).id) : cur && cur.task)) || null;
 
   // ------------------------------------------------------------ маркер поверх условия
   // Рисунки — штрихи в долях ширины условия (при смене ширины окна не съезжают); у каждого задания свои,
@@ -207,14 +208,14 @@
     if (PY.task) writeCode(PY.task.id, $('#pyCode').value);
     PY.task = t;
     const files = pyFilesOf(t);
-    $('#pyTask').textContent = `задание ${numLabel(t.n)}`;
+    $('#pyTask').textContent = t.pyc ? t.label : `задание ${numLabel(t.n)}`;
     $('#pyFiles').innerHTML = files.length
       ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ')
       : (t.att || []).length ? 'Файлы этого задания лежат на другом сайте — скачайте их кнопкой под условием.' : '';
     $('#pyAttach').textContent = 'Прикрепить решение';
-    $('#pyAttach').hidden = !SERVER || !student;
+    $('#pyAttach').hidden = !SERVER || !student || !!t.pyc;     // в курсе программирования код уходит вместе с ответом
     let code = readCode(t.id);
-    if (code == null && SERVER && student) {
+    if (code == null && SERVER && student && !t.pyc) {
       try { const r = await api('solution?task=' + encodeURIComponent(t.id)); if (r.code) { code = r.code; $('#pyAttach').textContent = 'Решение прикреплено ✓'; } } catch (e) { /* нет решения */ }
       if (!PY.task || PY.task.id !== t.id) return;   // пока ждали, ученик ушёл на другое задание
     }

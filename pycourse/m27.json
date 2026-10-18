@@ -1,0 +1,345 @@
+{
+ "id": "m27",
+ "n": 27,
+ "title": "Анализ данных: кластеры",
+ "icon": "📍",
+ "sub": "Точки на плоскости: центроиды, разделение кластеров, аномалии, быстрые алгоритмы",
+ "levels": [
+  {
+   "title": "База: точки и центроид",
+   "goal": "чтение дробей с запятой, разделение на кластеры по прямой, центроид как точка с наименьшей суммой расстояний",
+   "need": 2,
+   "slides": [
+    {
+     "t": "title",
+     "k": "Программирование для ЕГЭ",
+     "h": "Задание 27",
+     "sub": "Кластеры: точки на плоскости, их центры и аномалии",
+     "chips": [
+      "replace(',', '.')",
+      "math.dist",
+      "центроид",
+      "BFS"
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Читаем точки",
+     "ch": "Пример",
+     "cond": "<p>В файлах ЕГЭ дробная часть отделена запятой. float(\"1,5\") — ошибка, поэтому сначала replace(',', '.').</p>",
+     "nk": "secret",
+     "code": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\nprint(len(pts), pts[:2])",
+     "out": "3 [(1.5, 2.25), (-0.75, 3.0)]",
+     "wide": true,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/L1S2/27.txt?v=cc184264",
+       "size": 27
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Смотрим глазами",
+     "ch": "Пример",
+     "cond": "<p>Черепаха рисует все точки — сразу видно, сколько кластеров и где провести границу между ними. В редакторе на сайте точки появятся под кодом.</p>",
+     "note": "Сначала посмотрите на картинку, потом пишите условие разделения: «y &gt; 4», «x &lt; 5 и y &lt; 5» и т. п.",
+     "nk": "secret",
+     "code": "from turtle import *\ntracer(0)\nup()\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    goto(x * 30, y * 30)\n    dot(4)\nupdate()\ndone()",
+     "wide": true,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/L1S3/27.txt?v=afd0e25d",
+       "size": 38725
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Центроид",
+     "ch": "Пример",
+     "cond": "<p>Центр кластера по правилам задания — точка кластера, у которой сумма расстояний до всех остальных точек кластера наименьшая. math.dist(p, q) — расстояние между точками.</p>",
+     "note": "Это двойной цикл: на 3000 точек — 9 миллионов расстояний. Считайте центр каждого кластера отдельно, а не по всем точкам сразу.",
+     "nk": "secret",
+     "code": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\nprint(centr(pts))",
+     "out": "(1.5, 2.25)",
+     "wide": true,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/L1S4/27.txt?v=cc184264",
+       "size": 27
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m27.a2",
+     "h": "Два кластера",
+     "cond": "<p>В файле <b>27.txt</b> — координаты точек двух кластеров (дробная часть через запятую). Кластеры можно разделить прямой y = 4,5. Найдите центроид каждого кластера. В ответе запишите два числа: целую часть произведения среднего арифметического абсцисс центроидов на 10 000 и целую часть произведения среднего арифметического ординат центроидов на 10 000.</p>",
+     "stars": 1,
+     "ans": "45262 45706",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\ncl = [[p for p in pts if p[1] > 4.5], [p for p in pts if p[1] <= 4.5]]\nc = [centr(k) for k in cl]\nprint(int((c[0][0] + c[1][0]) / 2 * 10000), int((c[0][1] + c[1][1]) / 2 * 10000))",
+     "sec": 0.04,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/a2/27.txt?v=7b9fed36",
+       "size": 15305
+      }
+     ]
+    },
+    {
+     "id": "m27.a2n",
+     "h": "Размеры кластеров",
+     "cond": "<p>Файл <b>27.txt</b> (два кластера, граница y = 4,5). Сколько точек в каждом кластере? В ответе — сначала количество в верхнем, затем в нижнем.</p>",
+     "stars": 1,
+     "ans": "451 399",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\nprint(sum(1 for p in pts if p[1] > 4.5), sum(1 for p in pts if p[1] <= 4.5))",
+     "sec": 0.01,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/a2n/27.txt?v=5f6ee781",
+       "size": 15300
+      }
+     ]
+    },
+    {
+     "id": "m27.a2d",
+     "h": "Расстояние между центрами",
+     "cond": "<p>Файл <b>27.txt</b> (два кластера, граница y = 4,5). Найдите расстояние между центроидами кластеров, умножьте на 10 000 и запишите целую часть.</p>",
+     "stars": 1,
+     "ans": "58218",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\nc1 = centr([p for p in pts if p[1] > 4.5])\nc2 = centr([p for p in pts if p[1] <= 4.5])\nprint(int(dist(c1, c2) * 10000))",
+     "sec": 0.06,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/a2d/27.txt?v=73d40986",
+       "size": 15300
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Стандарт: три кластера",
+   "goal": "разделение по нескольким условиям, средние и расстояния до точки, количество в радиусе",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Три кластера",
+     "ch": "Пример",
+     "cond": "<p>Границу подбираем по картинке: сначала отделяем верхний кластер, потом оставшиеся два — по x.</p>",
+     "nk": "secret",
+     "code": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ncl = [[], [], []]\nfor x, y in pts:\n    if y > 5.5:\n        cl[2].append((x, y))\n    elif x < 5:\n        cl[0].append((x, y))\n    else:\n        cl[1].append((x, y))\nprint([len(k) for k in cl])",
+     "out": "[701, 799, 650]",
+     "wide": true,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/L2S1/27.txt?v=1c351adb",
+       "size": 38717
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Точки в радиусе",
+     "ch": "Пример",
+     "cond": "<p>«Сколько точек кластера на расстоянии не больше R от центроида» — фильтр по dist. Сам центроид обычно не считают.</p>",
+     "nk": "secret",
+     "code": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\ncl = [p for p in pts if p[1] > 5.5]\nc = centr(cl)\nprint(sum(1 for p in cl if p != c and dist(p, c) <= 1.2))",
+     "out": "442",
+     "wide": true,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/L2S2/27.txt?v=f8434f11",
+       "size": 38712
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m27.b3",
+     "h": "Три центроида",
+     "cond": "<p>В файле <b>27.txt</b> — три кластера (посмотрите на картинку: верхний отделяется прямой y = 5,5, нижние два — прямой x = 5). Найдите центроиды. В ответе — целые части величин 10 000·Px и 10 000·Py, где Px и Py — средние арифметические абсцисс и ординат центроидов.</p>",
+     "stars": 2,
+     "ans": "49994 43225",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\ncl = [[], [], []]\nfor x, y in pts:\n    if y > 5.5:\n        cl[2].append((x, y))\n    elif x < 5:\n        cl[0].append((x, y))\n    else:\n        cl[1].append((x, y))\nc = [centr(k) for k in cl]\nprint(int(sum(p[0] for p in c) / 3 * 10000), int(sum(p[1] for p in c) / 3 * 10000))",
+     "sec": 0.13,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/b3/27.txt?v=f62d0a21",
+       "size": 38722
+      }
+     ]
+    },
+    {
+     "id": "m27.b3o",
+     "h": "Ближе всех к началу координат",
+     "cond": "<p>Файл <b>27.txt</b> (те же три кластера). Найдите расстояния от начала координат до каждого центроида. В ответе — целые части величин 10 000·Q1 и 10 000·Q2, где Q1 — наименьшее, Q2 — наибольшее из этих расстояний.</p>",
+     "stars": 2,
+     "ans": "28788 93883",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\ncl = [[], [], []]\nfor x, y in pts:\n    cl[2 if y > 5.5 else 0 if x < 5 else 1].append((x, y))\nd = [dist(centr(k), (0, 0)) for k in cl]\nprint(int(min(d) * 10000), int(max(d) * 10000))",
+     "sec": 0.21,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/b3o/27.txt?v=9771f520",
+       "size": 38716
+      }
+     ]
+    },
+    {
+     "id": "m27.b3r",
+     "h": "Точки в радиусе",
+     "cond": "<p>Файл <b>27.txt</b> (три кластера). Для кластера с наименьшим количеством точек найдите количество точек (кроме центроида), лежащих на расстоянии не больше 1 от его центроида, и целую часть 10 000·d, где d — наименьшее расстояние от центроида до другой точки этого кластера.</p>",
+     "stars": 2,
+     "ans": "345 340",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\ncl = [[], [], []]\nfor x, y in pts:\n    cl[2 if y > 5.5 else 0 if x < 5 else 1].append((x, y))\nk = min(cl, key=len)\nc = centr(k)\nprint(sum(1 for p in k if p != c and dist(p, c) <= 1), int(min(dist(p, c) for p in k if p != c) * 10000))",
+     "sec": 0.05,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/b3r/27.txt?v=ea79b54e",
+       "size": 38714
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Профи: кластеры без прямой границы",
+   "goal": "автоматическая кластеризация: точки ближе ε — в одном кластере (обход в ширину); аномалии",
+   "need": 1,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Соседи на расстоянии ε",
+     "ch": "Пример",
+     "cond": "<p>Кластер — все точки, до которых можно «дошагать» шагами не длиннее ε. Берём любую точку и обходом в ширину собираем всех её соседей, соседей соседей и так далее. Повторяем, пока точки не кончатся.</p>",
+     "note": "Маленькие группы из 1–3 точек — аномалии: они далеко от всех кластеров. Обычно их отбрасывают.",
+     "nk": "secret",
+     "code": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\nfrom collections import deque\neps = 0.6\nleft = set(range(len(pts)))\ngroups = []\nwhile left:\n    s = left.pop()\n    g = [s]\n    q = deque([s])\n    while q:\n        i = q.popleft()\n        near = [j for j in left if dist(pts[i], pts[j]) <= eps]\n        for j in near:\n            left.remove(j)\n            g.append(j)\n            q.append(j)\n    groups.append(g)\nprint(sorted(len(g) for g in groups)[-6:])",
+     "out": "[2, 2, 452, 501, 553, 598]",
+     "wide": true,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/L3S1/27.txt?v=3355a012",
+       "size": 38340
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m27.c4",
+     "h": "Четыре кластера и аномалии",
+     "cond": "<p>В файле <b>27.txt</b> — точки четырёх кластеров и несколько аномалий (точек вдали от всех кластеров). Точки, между которыми можно пройти шагами не длиннее 0,6, относятся к одному кластеру; группы меньше 30 точек — аномалии. Сколько точек в самом большом кластере и сколько всего аномальных точек?</p>",
+     "stars": 3,
+     "ans": "600 21",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\nfrom collections import deque\neps = 0.6\nleft = set(range(len(pts)))\ngroups = []\nwhile left:\n    s = left.pop()\n    g, q = [s], deque([s])\n    while q:\n        i = q.popleft()\n        near = [j for j in left if dist(pts[i], pts[j]) <= eps]\n        for j in near:\n            left.remove(j)\n            g.append(j)\n            q.append(j)\n    groups.append(g)\nbig = [g for g in groups if len(g) >= 30]\nprint(max(len(g) for g in big), sum(len(g) for g in groups if len(g) < 30))",
+     "sec": 0.2,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/c4/27.txt?v=b17446df",
+       "size": 38339
+      }
+     ]
+    },
+    {
+     "id": "m27.c4c",
+     "h": "Центроиды без аномалий",
+     "cond": "<p>Файл <b>27.txt</b> (четыре кластера, аномалии — группы меньше 30 точек при шаге 0,6). Для каждого кластера найдите центроид. В ответе — целые части 10 000·Px и 10 000·Py (средние арифметические координат четырёх центроидов).</p>",
+     "stars": 3,
+     "ans": "47398 44437",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\nfrom collections import deque\neps = 0.6\nleft = set(range(len(pts)))\ngroups = []\nwhile left:\n    s = left.pop()\n    g, q = [s], deque([s])\n    while q:\n        i = q.popleft()\n        near = [j for j in left if dist(pts[i], pts[j]) <= eps]\n        for j in near:\n            left.remove(j)\n            g.append(j)\n            q.append(j)\n    groups.append(g)\ncs = [centr([pts[i] for i in g]) for g in groups if len(g) >= 30]\nprint(int(sum(c[0] for c in cs) / len(cs) * 10000), int(sum(c[1] for c in cs) / len(cs) * 10000))",
+     "sec": 0.31,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/c4c/27.txt?v=daebad09",
+       "size": 38342
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Максимум: скорость",
+   "goal": "центроид за разумное время, сетка-решётка для поиска соседей, проверка ответа",
+   "need": 1,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Быстрые соседи: решётка",
+     "ch": "Пример",
+     "cond": "<p>Разбиваем плоскость на клетки размером ε. Соседи точки — только в её клетке и восьми соседних. Вместо n² проверок — почти линейно.</p>",
+     "nk": "secret",
+     "code": "from collections import defaultdict\nfrom math import dist\npts = [(0.1, 0.2), (0.5, 0.4), (3.0, 3.1), (0.45, 0.1)]\neps = 0.6\ngrid = defaultdict(list)\nfor i, (x, y) in enumerate(pts):\n    grid[(int(x // eps), int(y // eps))].append(i)\n\ndef near(i):\n    x, y = pts[i]\n    gx, gy = int(x // eps), int(y // eps)\n    for dx in (-1, 0, 1):\n        for dy in (-1, 0, 1):\n            for j in grid[(gx + dx, gy + dy)]:\n                if j != i and dist(pts[i], pts[j]) <= eps:\n                    yield j\n\nprint(list(near(0)))",
+     "out": "[1, 3]",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m27.fast",
+     "h": "Большой файл",
+     "cond": "<p>В файле <b>27.txt</b> — 8000 точек нескольких кластеров и аномалии. Используя шаг 0,5 (точки ближе 0,5 — в одном кластере) и считая аномалиями группы меньше 30 точек, найдите количество кластеров и количество точек в самом маленьком кластере.</p>",
+     "stars": 3,
+     "ans": "5 1347",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\nfrom collections import defaultdict, deque\neps = 0.5\ngrid = defaultdict(list)\nfor i, (x, y) in enumerate(pts):\n    grid[(int(x // eps), int(y // eps))].append(i)\n\nseen = [False] * len(pts)\ngroups = []\nfor s in range(len(pts)):\n    if seen[s]:\n        continue\n    seen[s] = True\n    g, q = [s], deque([s])\n    while q:\n        i = q.popleft()\n        x, y = pts[i]\n        gx, gy = int(x // eps), int(y // eps)\n        for dx in (-1, 0, 1):\n            for dy in (-1, 0, 1):\n                for j in grid[(gx + dx, gy + dy)]:\n                    if not seen[j] and dist(pts[i], pts[j]) <= eps:\n                        seen[j] = True\n                        g.append(j)\n                        q.append(j)\n    groups.append(g)\nbig = [g for g in groups if len(g) >= 30]\nprint(len(big), min(len(g) for g in big))",
+     "sec": 0.27,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/fast/27.txt?v=b3ebd138",
+       "size": 147563
+      }
+     ]
+    },
+    {
+     "id": "m27.far",
+     "h": "Самая удалённая точка",
+     "cond": "<p>Файл <b>27.txt</b> (три кластера; граница — как в уровне 2: y = 5,5 и x = 5). Для каждого кластера найдите точку, наиболее удалённую от центроида. В ответе — целая часть 10 000·D, где D — наибольшее из этих трёх расстояний.</p>",
+     "stars": 2,
+     "ans": "41617",
+     "sol": "from math import dist\npts = []\nfor line in open('27.txt'):\n    x, y = map(float, line.replace(',', '.').split())\n    pts.append((x, y))\n\ndef centr(cl):\n    return min(cl, key=lambda p: sum(dist(p, q) for q in cl))\n\ncl = [[], [], []]\nfor x, y in pts:\n    cl[2 if y > 5.5 else 0 if x < 5 else 1].append((x, y))\nD = 0\nfor k in cl:\n    c = centr(k)\n    D = max(D, max(dist(p, c) for p in k))\nprint(int(D * 10000))",
+     "sec": 0.13,
+     "files": [
+      {
+       "name": "27.txt",
+       "url": "pyc-data/m27/far/27.txt?v=3ab65264",
+       "size": 38722
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1207,6 +1207,10 @@ class DB:
             CREATE TABLE IF NOT EXISTS support_msgs(
                 id INTEGER PRIMARY KEY, support_id INTEGER NOT NULL, ts REAL NOT NULL, who TEXT NOT NULL, text TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS support_msgs_s ON support_msgs(support_id, ts);
+            -- курс «Программирование для ЕГЭ»: решённые задачи и попытки
+            CREATE TABLE IF NOT EXISTS pyc_progress(
+                student_id INTEGER NOT NULL, task_id TEXT NOT NULL, ok INTEGER NOT NULL DEFAULT 0, tries INTEGER NOT NULL DEFAULT 0,
+                first_ts REAL, ok_ts REAL, last_ts REAL, code TEXT, PRIMARY KEY(student_id, task_id));
             """)
             # новые поля в старых базах
             for table, col, decl in (
@@ -1248,6 +1252,9 @@ class DB:
                     ("students", "consent_ip", "TEXT"),               # с какого адреса
                     ("students", "freezes", "INTEGER DEFAULT 0"),     # заморозки огонька в запасе (до FREEZE_MAX)
                     ("daily_starts", "task_id", "TEXT"),              # личное задание дня ученика; NULL — общее (до 1.53)
+                    ("students", "pyc", "INTEGER DEFAULT 0"),         # открыт ли курс программирования лично ученику
+                    ("students", "pyc_ts", "REAL"),
+                    ("classes", "pyc", "INTEGER DEFAULT 0"),          # курс программирования открыт всему классу
                     ("daily_results", "fast", "INTEGER DEFAULT 0"),   # решено нереально быстро — в рейтинг и корону не идёт
                     ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
                     ("teachers", "consent_ts", "REAL"),
@@ -1660,6 +1667,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_bank()
         if rel.startswith("files/"):
             return self.serve_task_file(rel)
+        if rel.startswith("pyc-data/"):           # файлы к задачам курса программирования (без ответов)
+            return self.serve_file(HERE / "pycourse" / "data", rel[len("pyc-data/"):])
         # файлы сайта
         if rel == "index.html":
             self.count_visit()
@@ -1998,7 +2007,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 prefs["notes"] = {conv(k): v for k, v in prefs["notes"].items()}
         return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
-                "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s),
+                "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s),
                 "teacher": bool(s["is_teacher"]),
                 "consent_needed": not s["is_teacher"] and s["consent_ver"] != LEGAL_VERSION,
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
@@ -2032,6 +2041,85 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         """Условие SQL на учеников этого учителя (без учительских аккаунтов) и его параметры."""
         return (f"COALESCE({alias}.teacher_id, ?) = ? AND COALESCE({alias}.is_teacher, 0) = 0",
                 (main_teacher()["id"], self.T["id"]))
+
+    def pyc_api(self, method, path, qs, data):
+        """Курс программирования для ученика: план, уровень (слайды и задачи без ответов), проверка ответа."""
+        db = APP.db
+        s = self.student(data)
+        if not s:
+            return self.err(401, "нужно войти")
+        if not pyc_access(s):
+            if path == "/api/pyc":
+                return self.send_json({"access": False})
+            return self.err(403, "Курс программирования открывает учитель")
+        teacher = bool(s["is_teacher"])
+        prog = pyc_solved(db, s["id"])
+        if path == "/api/pyc":
+            mods = []
+            for m in pyc_index():
+                mods.append({**m, "open": pyc_open_levels(m, prog, teacher)})
+            return self.send_json({"access": True, "teacher": teacher, "modules": mods,
+                                   "progress": {k: v for k, v in prog.items()}})
+        if path == "/api/pyc/level":
+            mod = pyc_module(qs.get("m"))
+            li = to_int(qs.get("l"))
+            if not mod or li is None or not 0 <= li < len(mod["levels"]):
+                return self.err(404, "нет такого уровня")
+            if li >= pyc_open_levels(mod, prog, teacher):
+                return self.err(403, "Уровень ещё закрыт: решите задачи предыдущего")
+            lv = mod["levels"][li]
+            tasks = []
+            for t in lv["tasks"]:
+                p = prog.get(t["id"]) or {}
+                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files") if k in t}
+                x.update(ok=bool(p.get("ok")), tries=p.get("tries", 0))
+                if p.get("ok") or p.get("tries", 0) >= 3 or teacher:
+                    x["sol"] = t["sol"]                 # разбор — после решения или трёх неудачных попыток
+                if p.get("ok") or teacher:
+                    x["ans"] = t["ans"]
+                tasks.append(x)
+            return self.send_json({"id": mod["id"], "n": mod["n"], "title": mod["title"], "icon": mod["icon"],
+                                   "levels": len(mod["levels"]), "l": li,
+                                   "level": {"title": lv["title"], "goal": lv["goal"], "need": lv["need"],
+                                             "slides": lv["slides"], "tasks": tasks}})
+        if path == "/api/pyc/check" and method == "POST":
+            tid = str(data.get("task") or "")[:40]
+            mod, li, t = pyc_task(tid)
+            if not t:
+                return self.err(404, "нет такой задачи")
+            if li >= pyc_open_levels(mod, prog, teacher):
+                return self.err(403, "Уровень ещё закрыт")
+            ans = str(data.get("answer") or "").strip()[:300]
+            if not ans:
+                return self.err(400, "Введите ответ")
+            now = time.time()
+            with _PYC_LOCK:
+                tries = [x for x in _PYC_TRIES.get(s["id"], []) if now - x < PYC_WINDOW]
+                if len(tries) >= PYC_CHECKS:
+                    return self.err(429, "Слишком много проверок подряд — подождите минуту")
+                tries.append(now)
+                _PYC_TRIES[s["id"]] = tries
+            ok = pyc_norm(ans) == pyc_norm(t["ans"])
+            code = str(data.get("code") or "")[:20000] or None
+            was = prog.get(tid) or {}
+            if was.get("ok"):
+                return self.send_json({"ok": ok, "already": True, "tries": was.get("tries", 0), "ans": t["ans"], "sol": t["sol"]})
+            db.x("""INSERT INTO pyc_progress(student_id, task_id, ok, tries, first_ts, ok_ts, last_ts, code) VALUES(?,?,?,?,?,?,?,?)
+                    ON CONFLICT(student_id, task_id) DO UPDATE SET ok=excluded.ok, tries=tries + 1, last_ts=excluded.last_ts,
+                      ok_ts=COALESCE(ok_ts, excluded.ok_ts), code=COALESCE(excluded.code, code)""",
+                 (s["id"], tid, int(ok), 1, now, now if ok else None, now, code))
+            prog = pyc_solved(db, s["id"])
+            n_tries = prog[tid]["tries"]
+            out = {"ok": ok, "tries": n_tries}
+            if ok or n_tries >= 3 or teacher:
+                out["sol"] = t["sol"]
+            if ok:
+                out["ans"] = t["ans"]
+                before = li + 1
+                out["opened"] = pyc_open_levels(mod, prog, teacher) > before and before < len(mod["levels"])
+                live_teacher(s)                 # у учителя обновится прогресс курса
+            return self.send_json(out)
+        return self.err(404, "нет такого метода")
 
     def api(self, method, path, qs, data):
         try:
@@ -2222,6 +2310,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(403, "Неверный пароль курса")
             db.x("UPDATE students SET course=1, course_ts=? WHERE id=?", (time.time(), s["id"]))
             return self.send_json({"ok": True})
+
+        if path.startswith("/api/pyc"):
+            return self.pyc_api(method, path, qs, data)
 
         if path == "/api/history":
             # Прогресс ученика страница восстанавливает из журнала попыток — один источник правды
@@ -3790,6 +3881,83 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             n = db.q("SELECT COUNT(*) c FROM students WHERE course=1", one=True)["c"]
             return self.send_json({"ok": True, "set": bool(db.setting("course_pw")), "students": n})
 
+        if path == "/api/admin/pyc":
+            # курс программирования: кому открыт и сколько решено по модулям (ученики этого учителя)
+            where, args = self.student_scope()
+            rows = db.q(f"""SELECT s.id, s.name, s.class_id, s.pyc, s.pyc_ts, s.last_seen, c.name AS cls, COALESCE(c.pyc, 0) AS cpyc
+                            FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where} ORDER BY s.name""", args)
+            mods = pyc_index()
+            owner = {t: m["id"] for m in mods for lv in m["levels"] for t in lv["tasks"]}
+            stats = {}
+            for r in db.q("""SELECT p.student_id, p.task_id, p.ok, p.tries, p.last_ts FROM pyc_progress p
+                             JOIN students s ON s.id = p.student_id WHERE """ + where, args):
+                st = stats.setdefault(r["student_id"], {"done": 0, "tries": 0, "last": None, "mods": {}})
+                st["tries"] += r["tries"]
+                st["last"] = max(st["last"] or 0, r["last_ts"] or 0) or None
+                if r["ok"] and r["task_id"] in owner:
+                    st["done"] += 1
+                    st["mods"][owner[r["task_id"]]] = st["mods"].get(owner[r["task_id"]], 0) + 1
+            cls = db.q("""SELECT id, name, COALESCE(pyc, 0) AS pyc FROM classes WHERE COALESCE(teacher_id, ?) = ? ORDER BY name""",
+                       (main_teacher()["id"], self.T["id"]))
+            out = []
+            for r in rows:
+                st = stats.get(r["id"], {})
+                out.append({"id": r["id"], "name": r["name"], "class_id": r["class_id"], "class": r["cls"], "own": bool(r["pyc"]),
+                            "access": bool(r["pyc"] or r["cpyc"]), "done": st.get("done", 0), "tries": st.get("tries", 0),
+                            "last": st.get("last"), "mods": st.get("mods", {})})
+            return self.send_json({"modules": [{"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"],
+                                                "tasks": sum(len(lv["tasks"]) for lv in m["levels"]),
+                                                "levels": [{"title": lv["title"], "tasks": len(lv["tasks"])} for lv in m["levels"]]}
+                                               for m in mods],
+                                   "classes": [{"id": c["id"], "name": c["name"], "pyc": bool(c["pyc"])} for c in cls],
+                                   "students": out})
+
+        if path == "/api/admin/pyc/access" and method == "POST":
+            on = 1 if data.get("on") else 0
+            where, args = self.student_scope()
+            if data.get("class_id") is not None:
+                cid = to_int(data.get("class_id"))
+                c = db.q("SELECT id FROM classes WHERE id=? AND COALESCE(teacher_id, ?) = ?",
+                         (cid, main_teacher()["id"], self.T["id"]), one=True)
+                if not c:
+                    return self.err(404, "нет такого класса")
+                db.x("UPDATE classes SET pyc=? WHERE id=?", (on, cid))
+                if not on:                      # закрыли классу — закрываем и тем, кому открывали лично
+                    db.x(f"UPDATE students SET pyc=0 WHERE class_id=? AND id IN (SELECT s.id FROM students s WHERE {where})",
+                         (cid,) + args)
+                sids = [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=?", (cid,))]
+            else:
+                sid = to_int(data.get("student_id"))
+                if not db.q(f"SELECT s.id FROM students s WHERE s.id=? AND {where}", (sid,) + args, one=True):
+                    return self.err(404, "нет такого ученика")
+                db.x("UPDATE students SET pyc=?, pyc_ts=COALESCE(pyc_ts, ?) WHERE id=?", (on, time.time(), sid))
+                sids = [sid]
+            LIVE.send(sids, "pyc")                # у ученика сразу появится (или пропадёт) курс
+            return self.send_json({"ok": True})
+
+        if path == "/api/admin/pyc/student":
+            # подробно: каждая задача курса — решена ли, сколько попыток, код решения
+            where, args = self.student_scope()
+            sid = to_int(qs.get("id"))
+            st = db.q(f"SELECT s.id, s.name FROM students s WHERE s.id=? AND {where}", (sid,) + args, one=True)
+            if not st:
+                return self.err(404, "нет такого ученика")
+            prog = {r["task_id"]: r for r in db.q("SELECT * FROM pyc_progress WHERE student_id=?", (sid,))}
+            mods = []
+            for m in pyc_index():
+                full = pyc_module(m["id"]) or {"levels": []}
+                levels = []
+                for lv in full["levels"]:
+                    tasks = []
+                    for t in lv["tasks"]:
+                        p = prog.get(t["id"])
+                        tasks.append({"id": t["id"], "h": t["h"], "stars": t["stars"], "ok": bool(p and p["ok"]),
+                                      "tries": p["tries"] if p else 0, "ts": (p["ok_ts"] or p["last_ts"]) if p else None,
+                                      "code": p["code"] if p else None, "ans": t["ans"]})
+                    levels.append({"title": lv["title"], "need": lv["need"], "tasks": tasks})
+                mods.append({"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"], "levels": levels})
+            return self.send_json({"name": st["name"], "modules": mods})
+
         if path == "/api/admin/me":
             out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")}
             row = db.q("SELECT consent_ver FROM teachers WHERE id=?", (self.T["id"],), one=True)
@@ -4732,6 +4900,94 @@ def course_open(s):
     if s["is_teacher"]:
         return True                      # учителю курс открыт без пароля
     return bool(s["course"]) and bool(APP.db.setting("course_pw"))
+
+
+# ---------- курс «Программирование для ЕГЭ» (закрытый: доступ выдаёт учитель ученику или всему классу)
+_PYC = {}                               # имя файла → (mtime, данные): курс пересобрали — перечитаем без перезапуска
+_PYC_LOCK = threading.Lock()
+PYC_CHECKS, PYC_WINDOW = 40, 60         # не больше 40 проверок ответа в минуту — перебор ответов не пройдёт
+_PYC_TRIES = {}
+
+
+def pyc_load(name):
+    f = HERE / "pycourse" / name
+    try:
+        mt = f.stat().st_mtime
+    except OSError:
+        return None
+    with _PYC_LOCK:
+        hit = _PYC.get(str(f))
+        if hit and hit[0] == mt:
+            return hit[1]
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    with _PYC_LOCK:
+        _PYC[str(f)] = (mt, data)
+    return data
+
+
+def pyc_index():
+    return pyc_load("index.json") or []
+
+
+def pyc_module(mid):
+    if not re.fullmatch(r"m\d{2}", mid or ""):
+        return None
+    return pyc_load(f"{mid}.json")
+
+
+def pyc_task(tid):
+    """Задача по её id («m05.bin2») → (модуль, номер уровня, задача)."""
+    mod = pyc_module(str(tid).split(".")[0])
+    for li, lv in enumerate((mod or {}).get("levels", [])):
+        for t in lv["tasks"]:
+            if t["id"] == tid:
+                return mod, li, t
+    return None, None, None
+
+
+def pyc_access(s):
+    if s["is_teacher"] or s["pyc"]:
+        return True
+    if s["class_id"]:
+        r = APP.db.q("SELECT pyc FROM classes WHERE id=?", (s["class_id"],), one=True)
+        return bool(r and r["pyc"])
+    return False
+
+
+def pyc_solved(db, sid):
+    return {r["task_id"]: {"ok": r["ok"], "tries": r["tries"]}
+            for r in db.q("SELECT task_id, ok, tries FROM pyc_progress WHERE student_id=?", (sid,))}
+
+
+def pyc_open_levels(mod, prog, teacher=False):
+    """Сколько уровней модуля открыто: следующий — когда в предыдущем решено need задач."""
+    lv = mod.get("levels", [])
+    if teacher:
+        return len(lv)
+    k = 1
+    while k < len(lv):
+        prev = lv[k - 1]
+        if sum(1 for t in prev["tasks"] if (prog.get(t if isinstance(t, str) else t["id"]) or {}).get("ok")) < prev["need"]:
+            break
+        k += 1
+    return k
+
+
+def pyc_norm(ans):
+    """Ответ к сравнению: регистр, запятые и лишние пробелы не важны («2, 5» = «2 5»), числа — по значению («44.00» = «44»)."""
+    from decimal import Decimal, InvalidOperation
+    out = []
+    for tok in str(ans).replace(",", " ").replace(";", " ").lower().split():
+        if re.fullmatch(r"[-+]?\d+\.\d+", tok):
+            try:
+                tok = format(Decimal(tok).normalize(), "f")
+            except InvalidOperation:
+                pass
+        out.append(tok)
+    return " ".join(out)
 
 
 _LB_PEOPLE = {}                         # учитель → (когда собран, строки рейтинга)

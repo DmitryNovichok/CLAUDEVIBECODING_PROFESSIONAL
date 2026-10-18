@@ -70,6 +70,7 @@
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
     document.body.classList.toggle('teacher-mode', TEACHER);
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
+    pycSetAccess(me.pyc);
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);
     writeJSON(prefsKey(), prefs);

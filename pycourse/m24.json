@@ -1,0 +1,464 @@
+{
+ "id": "m24",
+ "n": 24,
+ "title": "Обработка строк",
+ "icon": "🧵",
+ "sub": "Строка из файла: серии, подстроки с условием, окна, регулярные выражения",
+ "levels": [
+  {
+   "title": "База: строка из файла",
+   "goal": "readline и strip, самая длинная серия одинаковых символов, подсчёты",
+   "need": 2,
+   "slides": [
+    {
+     "t": "title",
+     "k": "Программирование для ЕГЭ",
+     "h": "Задание 24",
+     "sub": "Огромная строка из файла: серии, подстроки, окна и регулярные выражения",
+     "chips": [
+      "readline().strip()",
+      "cur / best",
+      "split",
+      "re"
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Читаем строку",
+     "ch": "Пример",
+     "cond": "<p>В файле одна строка. strip() убирает перевод строки в конце — иначе он попадёт в подсчёты.</p>",
+     "nk": "secret",
+     "code": "s = open('24.txt').readline().strip()\nprint(len(s), s[:20])\nprint(s.count('X'), s.count('XY'))",
+     "out": "12 XXYZZZXYXXXX\n7 2",
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/L1S2/24.txt?v=c46e6665",
+       "size": 13
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Самая длинная серия",
+     "ch": "Пример",
+     "cond": "<p>cur — длина текущей серии, best — рекорд. Символ совпал с предыдущим — серия растёт, иначе начинается заново с 1.</p>",
+     "nk": "secret",
+     "code": "s = open('24.txt').readline().strip()\nbest = cur = 1\nfor i in range(1, len(s)):\n    if s[i] == s[i - 1]:\n        cur += 1\n        best = max(best, cur)\n    else:\n        cur = 1\nprint(best)",
+     "out": "4",
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/L1S3/24.txt?v=c46e6665",
+       "size": 13
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Серия конкретного символа — через split",
+     "ch": "Пример",
+     "cond": "<p>Всё, что не X, заменяем пробелами и режем: кусочки — серии из X. Длиннейший кусок — ответ.</p>",
+     "nk": "secret",
+     "code": "s = open('24.txt').readline().strip()\nprint(max(len(part) for part in s.replace('Y', ' ').replace('Z', ' ').split()))",
+     "out": "4",
+     "wide": true,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/L1S4/24.txt?v=c46e6665",
+       "size": 13
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m24.run",
+     "h": "Длиннейшая серия",
+     "cond": "<p>В файле <b>24.txt</b> — строка из символов X, Y, Z. Найдите длину самой длинной последовательности одинаковых символов, идущих подряд.</p>",
+     "stars": 1,
+     "ans": "33",
+     "sol": "s = open('24.txt').readline().strip()\nbest = cur = 1\nfor i in range(1, len(s)):\n    cur = cur + 1 if s[i] == s[i - 1] else 1\n    best = max(best, cur)\nprint(best)",
+     "sec": 0.04,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/run/24.txt?v=d8dbd51d",
+       "size": 120001
+      }
+     ]
+    },
+    {
+     "id": "m24.runz",
+     "h": "Серия из Z",
+     "cond": "<p>Файл <b>24.txt</b> — строка из символов X, Y, Z. Найдите длину самой длинной последовательности, состоящей только из символов Z.</p>",
+     "stars": 1,
+     "ans": "37",
+     "sol": "s = open('24.txt').readline().strip()\nprint(max(len(p) for p in s.replace('X', ' ').replace('Y', ' ').split()))",
+     "sec": 0.04,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/runz/24.txt?v=7febaa19",
+       "size": 120001
+      }
+     ]
+    },
+    {
+     "id": "m24.count",
+     "h": "Сколько пар",
+     "cond": "<p>Файл <b>24.txt</b> — строка из букв A…F. Сколько раз встречается пара символов «AB» (подряд)? И сколько раз — «BB» с учётом перекрытий (в BBB две пары)? Запишите два числа через пробел.</p>",
+     "stars": 1,
+     "ans": "2779 2829",
+     "sol": "s = open('24.txt').readline().strip()\nab = s.count('AB')\nbb = sum(1 for i in range(len(s) - 1) if s[i] == s[i + 1] == 'B')\nprint(ab, bb)",
+     "sec": 0.04,
+     "hint": "count не считает перекрытия: 'BBB'.count('BB') == 1. Для перекрывающихся — цикл по позициям.",
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/count/24.txt?v=0152add3",
+       "size": 100001
+      }
+     ]
+    },
+    {
+     "id": "m24.most",
+     "h": "Чаще всего после",
+     "cond": "<p>Файл <b>24.txt</b> — строка из букв A…F. Определите, какая буква чаще всего встречается сразу после буквы A. Если таких несколько — укажите ближайшую к началу алфавита.</p>",
+     "stars": 1,
+     "ans": "A",
+     "sol": "s = open('24.txt').readline().strip()\ncnt = {}\nfor i in range(len(s) - 1):\n    if s[i] == 'A':\n        cnt[s[i + 1]] = cnt.get(s[i + 1], 0) + 1\nbest = max(cnt.values())\nprint(min(c for c in cnt if cnt[c] == best))",
+     "sec": 0.03,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/most/24.txt?v=4df96991",
+       "size": 100001
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Стандарт: подстроки с условием",
+   "goal": "без определённых символов, чередование, длина через split и замены",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Не содержит пары",
+     "ch": "Пример",
+     "cond": "<p>«Подстрока не содержит XZ»: идём по строке и рвём текущую подстроку ровно между X и Z — Z начинает новую с длиной 1.</p>",
+     "note": "Типичная ошибка: разорвать перед X. Тогда X потеряется у одной из подстрок и длина выйдет на 1 меньше.",
+     "nk": "warn",
+     "code": "s = open('24.txt').readline().strip()\nbest = cur = 1\nfor i in range(1, len(s)):\n    if s[i - 1:i + 1] == 'XZ':\n        cur = 1                # пара XZ — подстроку надо разорвать между X и Z\n    else:\n        cur += 1\n    best = max(best, cur)\nprint(best)",
+     "out": "5",
+     "wide": true,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/L2S1/24.txt?v=135b4773",
+       "size": 10
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
+     "h": "Чередование",
+     "ch": "Пример",
+     "cond": "<p>«Гласные и согласные чередуются» — соседи разного типа. Та же схема cur/best, меняется только условие продолжения.</p>",
+     "nk": "secret",
+     "code": "s = open('24.txt').readline().strip()\nbest = cur = 1\nfor i in range(1, len(s)):\n    ok = (s[i - 1] in 'AEIOU') != (s[i] in 'AEIOU')\n    cur = cur + 1 if ok else 1\n    best = max(best, cur)\nprint(best)",
+     "out": "7",
+     "wide": true,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/L2S2/24.txt?v=fb670cb2",
+       "size": 12
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m24.noxz",
+     "h": "Без XZ",
+     "cond": "<p>Файл <b>24.txt</b> — строка из X, Y, Z. Найдите максимальную длину подстроки, не содержащей подстроку XZ.</p>",
+     "stars": 1,
+     "ans": "673",
+     "sol": "s = open('24.txt').readline().strip()\nbest = cur = 1\nfor i in range(1, len(s)):\n    cur = 1 if s[i - 1:i + 1] == 'XZ' else cur + 1\n    best = max(best, cur)\nprint(best)",
+     "sec": 0.07,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/noxz/24.txt?v=056fb905",
+       "size": 120001
+      }
+     ]
+    },
+    {
+     "id": "m24.alt",
+     "h": "Чередование гласных",
+     "cond": "<p>Файл <b>24.txt</b> — строка из заглавных латинских букв. Найдите длину самой длинной подстроки, в которой гласные (A, E, I, O, U, Y) и согласные чередуются.</p>",
+     "stars": 1,
+     "ans": "13",
+     "sol": "s = open('24.txt').readline().strip()\nV = set('AEIOUY')\nbest = cur = 1\nfor i in range(1, len(s)):\n    cur = cur + 1 if (s[i - 1] in V) != (s[i] in V) else 1\n    best = max(best, cur)\nprint(best)",
+     "sec": 0.08,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/alt/24.txt?v=38f57411",
+       "size": 120001
+      }
+     ]
+    },
+    {
+     "id": "m24.nod",
+     "h": "Без буквы D",
+     "cond": "<p>Файл <b>24.txt</b> — строка из A…F. Найдите длину самой длинной подстроки, в которой нет буквы D, но есть хотя бы одна буква A.</p>",
+     "stars": 1,
+     "ans": "92",
+     "sol": "s = open('24.txt').readline().strip()\nprint(max(len(p) for p in s.split('D') if 'A' in p))",
+     "sec": 0.02,
+     "hint": "split('D') — куски без D. Отбираем куски с A.",
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/nod/24.txt?v=d365067e",
+       "size": 150001
+      }
+     ]
+    },
+    {
+     "id": "m24.xyz",
+     "h": "Повтор XYZ",
+     "cond": "<p>Файл <b>24.txt</b> — строка из X, Y, Z. Найдите длину самой длинной подстроки вида XYZXYZXYZ… — то есть подстроки, где за X всегда идёт Y, за Y — Z, за Z — X (начинаться она может с любого из трёх символов).</p>",
+     "stars": 2,
+     "ans": "11",
+     "sol": "s = open('24.txt').readline().strip()\nnxt = {'X': 'Y', 'Y': 'Z', 'Z': 'X'}\nbest = cur = 1\nfor i in range(1, len(s)):\n    cur = cur + 1 if s[i] == nxt[s[i - 1]] else 1\n    best = max(best, cur)\nprint(best)",
+     "sec": 0.07,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/xyz/24.txt?v=5e6347f7",
+       "size": 120001
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Профи: окно и позиции",
+   "goal": "два указателя: не больше K символов; ровно K вхождений; списки позиций",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Не больше K букв A — окно",
+     "ch": "Пример",
+     "cond": "<p>Окно [left; right] двигаем вправо. Стало слишком много A — сдвигаем левый край, пока снова не станет можно. Каждый символ входит и выходит из окна один раз — это быстро даже для миллиона символов.</p>",
+     "nk": "secret",
+     "code": "s = open('24.txt').readline().strip()\nK = 2\nleft = cnt = best = 0\nfor right, ch in enumerate(s):\n    cnt += ch == 'A'\n    while cnt > K:\n        cnt -= s[left] == 'A'\n        left += 1\n    best = max(best, right - left + 1)\nprint(best)",
+     "out": "7",
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/L3S1/24.txt?v=42aa148a",
+       "size": 13
+      }
+     ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 3",
+     "kc": "t1",
+     "h": "Через позиции символа",
+     "ch": "Пример",
+     "cond": "<p>Самая длинная подстрока ровно с K буквами A тянется от позиции после одной A до позиции перед (K + 1)-й следующей. Фиктивные позиции −1 и len(s) — края строки.</p>",
+     "nk": "secret",
+     "code": "s = open('24.txt').readline().strip()\npos = [-1] + [i for i, ch in enumerate(s) if ch == 'A'] + [len(s)]\nK = 2\nbest = max(pos[i + K + 1] - pos[i] - 1 for i in range(len(pos) - K - 1))\nprint(best)",
+     "out": "7",
+     "wide": true,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/L3S2/24.txt?v=42aa148a",
+       "size": 13
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m24.k3",
+     "h": "Не больше трёх",
+     "cond": "<p>Файл <b>24.txt</b> — строка из A…F. Найдите длину самой длинной подстроки, в которой буква E встречается не более 3 раз.</p>",
+     "stars": 1,
+     "ans": "96",
+     "sol": "s = open('24.txt').readline().strip()\nleft = cnt = best = 0\nfor right, ch in enumerate(s):\n    cnt += ch == 'E'\n    while cnt > 3:\n        cnt -= s[left] == 'E'\n        left += 1\n    best = max(best, right - left + 1)\nprint(best)",
+     "sec": 0.18,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/k3/24.txt?v=8f4b7918",
+       "size": 150001
+      }
+     ]
+    },
+    {
+     "id": "m24.exact",
+     "h": "Ровно 90",
+     "cond": "<p>Файл <b>24.txt</b> — строка из символов W, 2, 0, 5. Найдите длину самой длинной подстроки, которая содержит ровно 90 букв W.</p>",
+     "stars": 2,
+     "ans": "2341",
+     "sol": "s = open('24.txt').readline().strip()\npos = [-1] + [i for i, ch in enumerate(s) if ch == 'W'] + [len(s)]\nK = 90\nprint(max(pos[i + K + 1] - pos[i] - 1 for i in range(len(pos) - K - 1)))",
+     "sec": 0.02,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/exact/24.txt?v=0fe21540",
+       "size": 150001
+      }
+     ]
+    },
+    {
+     "id": "m24.two",
+     "h": "Два условия",
+     "cond": "<p>Файл <b>24.txt</b> — строка из символов W, 2, 0, 5. Найдите длину самой длинной подстроки, которая содержит ровно 20 букв W и не меньше 60 цифр 0.</p>",
+     "stars": 3,
+     "ans": "688",
+     "sol": "s = open('24.txt').readline().strip()\npos = [-1] + [i for i, ch in enumerate(s) if ch == 'W'] + [len(s)]\npre = [0]\nfor ch in s:\n    pre.append(pre[-1] + (ch == '0'))\nbest = 0\nK = 20\nfor i in range(len(pos) - K - 1):\n    l, r = pos[i] + 1, pos[i + K + 1] - 1      # самое длинное окно ровно с K буквами W\n    if pre[r + 1] - pre[l] >= 60:\n        best = max(best, r - l + 1)\nprint(best)",
+     "sec": 0.04,
+     "hint": "Префиксные суммы pre[i] — сколько нулей до позиции i. Количество нулей в s[l:r+1] = pre[r+1] − pre[l].",
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/two/24.txt?v=4d3a51fc",
+       "size": 150001
+      }
+     ]
+    },
+    {
+     "id": "m24.dist",
+     "h": "Далёкие одинаковые",
+     "cond": "<p>Файл <b>24.txt</b> — строка из A…Z. Для каждой буквы найдите расстояние между её первым и последним вхождением (разность позиций). Найдите наибольшее такое расстояние среди букв, которые встречаются в строке не больше 3 раз.</p>",
+     "stars": 2,
+     "ans": "16066",
+     "sol": "s = open('24.txt').readline().strip()\nfirst, last, cnt = {}, {}, {}\nfor i, ch in enumerate(s):\n    first.setdefault(ch, i)\n    last[ch] = i\n    cnt[ch] = cnt.get(ch, 0) + 1\nprint(max(last[c] - first[c] for c in cnt if cnt[c] <= 3))",
+     "sec": 0.03,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/dist/24.txt?v=65b08207",
+       "size": 50001
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Максимум: регулярные выражения",
+   "goal": "re: числа без ведущих нулей, арифметические выражения, сопоставление с каждой позиции",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Регулярное выражение",
+     "ch": "Пример",
+     "cond": "<ul class=\"sl-ul\"><li>[1-9]\\d* — число без ведущих нулей (или просто 0)</li><li>([+*]число)* — «знак и число» сколько угодно раз</li><li>fullmatch — строка целиком подходит под шаблон</li></ul>",
+     "nk": "secret",
+     "code": "import re\ns = '0045+12*7AA300'\nprint(re.findall(r'[1-9]\\d*|0', s))\nprint(re.fullmatch(r'([1-9]\\d*|0)([+*]([1-9]\\d*|0))*', '12*7+0'))",
+     "out": "['0', '0', '45', '12', '7', '300']\n<re.Match object; span=(0, 6), match='12*7+0'>",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Самое длинное корректное выражение",
+     "ch": "Пример",
+     "cond": "<p>findall находит не обязательно самые длинные куски: из «00012» он возьмёт «0», «0», «0», «12». Надёжнее — пробовать начало с каждой позиции: pat.match(s, i) жадно берёт самое длинное выражение от i.</p>",
+     "note": "Выражение заканчивается на число: «12+» без числа после знака — не выражение. Шаблон это учитывает.",
+     "nk": "warn",
+     "code": "import re\ns = open('24.txt').readline().strip()\nnum = r'(?:[1-9]\\d*|0)'\npat = re.compile(num + r'(?:[+*]' + num + r')*')\nbest = 0\nfor i in range(len(s)):\n    if s[i].isdigit():\n        m = pat.match(s, i)\n        if m:\n            best = max(best, m.end() - i)\nprint(best)",
+     "out": "7",
+     "wide": true,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/L4S2/24.txt?v=d2855ca9",
+       "size": 22
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m24.expr",
+     "h": "Арифметическое выражение",
+     "cond": "<p>Файл <b>24.txt</b> содержит строку из цифр, знаков + и * и латинских букв A…F. Найдите длину самой длинной подстроки, которая является корректным арифметическим выражением: натуральные числа без ведущих нулей или 0, между ними по одному знаку + или *, начинается и заканчивается числом.</p>",
+     "stars": 3,
+     "ans": "25",
+     "sol": "import re\ns = open('24.txt').readline().strip()\nnum = r'(?:[1-9]\\d*|0)'\npat = re.compile(num + r'(?:[+*]' + num + r')*')\nbest = 0\nfor i in range(len(s)):\n    if s[i].isdigit():\n        m = pat.match(s, i)\n        if m:\n            best = max(best, m.end() - i)\nprint(best)",
+     "sec": 0.09,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/expr/24.txt?v=5920462c",
+       "size": 100001
+      }
+     ]
+    },
+    {
+     "id": "m24.nums",
+     "h": "Наибольшее число",
+     "cond": "<p>Файл <b>24.txt</b> (тот же формат). Найдите наибольшее число без ведущих нулей, которое является подстрокой строки и делится на 5. В ответ запишите количество цифр в нём.</p>",
+     "stars": 3,
+     "ans": "18",
+     "sol": "s = open('24.txt').readline().strip()\nbest = 0\nfor block in ''.join(ch if ch.isdigit() else ' ' for ch in s).split():\n    i = 0\n    while i < len(block) and block[i] == '0':\n        i += 1\n    rest = block[i:]\n    for j in range(len(rest), 0, -1):          # самый длинный префикс, оканчивающийся на 0 или 5\n        if rest[j - 1] in '05':\n            best = max(best, j)\n            break\n    if '0' in block[:i + 1]:\n        best = max(best, 1)\nprint(best)",
+     "sec": 0.04,
+     "hint": "Внутри блока цифр число начинается с первой ненулевой цифры и должно кончаться на 0 или 5.",
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/nums/24.txt?v=26f5c7c1",
+       "size": 100001
+      }
+     ]
+    },
+    {
+     "id": "m24.evenexpr",
+     "h": "Только сложение",
+     "cond": "<p>Файл <b>24.txt</b> (тот же формат). Найдите длину самой длинной подстроки — корректного выражения, в котором есть только знаки +.</p>",
+     "stars": 2,
+     "ans": "23",
+     "sol": "import re\ns = open('24.txt').readline().strip()\nnum = r'(?:[1-9]\\d*|0)'\npat = re.compile(num + r'(?:\\+' + num + r')*')\nbest = 0\nfor i in range(len(s)):\n    if s[i].isdigit():\n        m = pat.match(s, i)\n        if m:\n            best = max(best, m.end() - i)\nprint(best)",
+     "sec": 0.06,
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m24/evenexpr/24.txt?v=a4138800",
+       "size": 100001
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

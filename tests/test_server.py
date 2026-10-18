@@ -90,6 +90,7 @@ class ServerTest(unittest.TestCase):
         server.THROTTLE.fails.clear()
         server.CHECKS.recent.clear()
         server.CHECKS.per_task.clear()
+        server._REG_LOG.clear()            # лимит регистраций с адреса считается для каждого теста заново
         server.APP.db.x("DELETE FROM reveal_log")
         server.APP.db.x("DELETE FROM exams")
 
@@ -834,6 +835,63 @@ class ServerTest(unittest.TestCase):
         tasks = [t for v in d["students"][0]["lessons"]["5"]["sets"].values() for t in v["tasks"]]
         self.assertEqual({t["st"] for t in tasks if t["id"] == "b:5"}, {"ok"})
         self.admin("POST", "/api/admin/course", {"off": True})
+
+    def test_pycourse_access_levels_check(self):
+        # курс программирования закрыт: открывает учитель; уровни по порядку; ответ проверяет сервер и не отдаёт заранее
+        d = server.HERE / "pycourse"
+        (d / "data" / "m90" / "t1").mkdir(parents=True, exist_ok=True)
+        (d / "data" / "m90" / "t1" / "a.txt").write_text("1\n2\n", encoding="utf-8")
+        lv = lambda i, ans: {"title": f"Уровень {i}", "goal": "", "need": 1, "slides": [{"t": "text", "h": "Слайд", "html": "<p>x</p>"}],
+                             "tasks": [{"id": f"m90.t{i}", "h": "Задача", "cond": "<p>?</p>", "stars": 1, "ans": ans, "sol": "print(42)"}]}
+        mod = {"id": "m90", "n": 5, "title": "Тест", "icon": "🐍", "sub": "", "levels": [lv(1, "2, 5"), lv(2, "abc")]}
+        (d / "m90.json").write_text(json.dumps(mod, ensure_ascii=False), encoding="utf-8")
+        (d / "index.json").write_text(json.dumps([{**{k: mod[k] for k in ("id", "n", "title", "icon", "sub")}, "group": "ege",
+                                                   "levels": [{"title": x["title"], "goal": "", "need": 1, "tasks": [t["id"] for t in x["tasks"]],
+                                                               "slides": 1} for x in mod["levels"]]}], ensure_ascii=False), encoding="utf-8")
+        tok = self.login("Кодов Константин")
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertFalse(me["pyc"])
+        self.assertEqual(self.req("GET", "/api/pyc", token=tok)[1], {"access": False})
+        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=0", token=tok)[0], 403)
+        self.assertEqual(self.admin("POST", "/api/admin/pyc/access", {"student_id": me["sid"], "on": True})[0], 200)
+        st, plan = self.req("GET", "/api/pyc", token=tok)
+        self.assertTrue(plan["access"])
+        self.assertEqual(plan["modules"][0]["open"], 1)                                          # открыт только первый уровень
+        st, L = self.req("GET", "/api/pyc/level?m=m90&l=0", token=tok)
+        self.assertEqual(st, 200, L)
+        self.assertNotIn("ans", L["level"]["tasks"][0])                                          # ответа и разбора заранее нет
+        self.assertNotIn("sol", L["level"]["tasks"][0])
+        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=1", token=tok)[0], 403)          # второй уровень закрыт
+        self.assertEqual(self.req("POST", "/api/pyc/check", {"task": "m90.t2", "answer": "abc"}, tok)[0], 403)
+        st, r = self.req("POST", "/api/pyc/check", {"task": "m90.t1", "answer": "7"}, tok)
+        self.assertEqual((r["ok"], r["tries"]), (False, 1))
+        self.assertNotIn("sol", r)
+        st, r = self.req("POST", "/api/pyc/check", {"task": "m90.t1", "answer": " 2 ;5 ", "code": "print(2, 5)"}, tok)
+        self.assertTrue(r["ok"])                                                                  # «2, 5» = «2 ;5»
+        self.assertTrue(r["opened"])                                                              # открылся следующий уровень
+        self.assertEqual(r["sol"], "print(42)")
+        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=1", token=tok)[0], 200)
+        self.assertEqual(self.req("GET", "/pyc-data/m90/t1/a.txt")[1], b"1\n2\n")              # файл задачи отдаётся как есть
+        self.assertEqual(self.req("GET", "/pycourse/m90.json")[0], 404)                         # а уроки с ответами — нет
+        st, a = self.admin("GET", "/api/admin/pyc")
+        row = next(x for x in a["students"] if x["id"] == me["sid"])
+        self.assertEqual((row["access"], row["done"], row["mods"]), (True, 1, {"m90": 1}))
+        st, det = self.admin("GET", f"/api/admin/pyc/student?id={me['sid']}")
+        t1 = det["modules"][0]["levels"][0]["tasks"][0]
+        self.assertEqual((t1["ok"], t1["tries"], t1["code"]), (True, 2, "print(2, 5)"))
+        # доступ всему классу
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "Кодеры"})[1]["id"]
+        tok2 = self.login("Классов Кодер")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid2]})
+        self.assertFalse(self.req("GET", "/api/pyc", token=tok2)[1]["access"])
+        self.admin("POST", "/api/admin/pyc/access", {"class_id": cid, "on": True})
+        self.assertTrue(self.req("GET", "/api/pyc", token=tok2)[1]["access"])
+        self.admin("POST", "/api/admin/pyc/access", {"class_id": cid, "on": False})
+        self.assertFalse(self.req("GET", "/api/me", token=tok2)[1]["pyc"])
+        self.admin("POST", "/api/admin/pyc/access", {"student_id": me["sid"], "on": False})
+        self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=0", token=tok)[0], 403)
+        shutil.rmtree(d)
 
     def test_funny_achievements(self):
         db = server.APP.db
