@@ -772,14 +772,33 @@
     const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="s">${sub}</div></div>`;
     const tierChips = (list, pre) => list.map(([k, t]) => `<span class="eco-chip"><span class="eco-rar r-${k}">${esc(t)}</span> <b>${d.tiers[pre + k] || 0}</b></span>`).join('');
     const kind = $('#econKind') ? $('#econKind').value : '';
-    $('#econBody').innerHTML = `<div class="adm-cards">
+    const S = d.site;
+    // весь сайт — главному учителю: подарки, биткоины, курс, популярное и самое редкое
+    const site = !S ? '' : `<div class="adm-box eco-site"><h3 class="adm-h3">🌍 Весь сайт</h3>
+      <div class="adm-cards">
+        ${card('Подарков на сайте', S.gifts.on_hand, `уникальных ${S.gifts.uniq_on_hand}, у ${S.gifts.owners} ${pluralRu(S.gifts.owners, 'ученика', 'учеников', 'учеников')} · в каталоге ${S.catalog}`)}
+        ${card('Куплено подарков', S.gifts.bought, `за 7 дней ${S.gifts.bought_week}, в подарок одноклассникам ${S.gifts.to_mates}`)}
+        ${card('Биткоинов на руках', S.coins.balance, `у ${S.coins.with_coins} из ${S.students} учеников`)}
+        ${card('Потрачено биткоинов', S.spent, 'на подарки и улучшения')}
+        ${card('Заработано трудом', S.coins.mined, 'за опыт по курсу на момент заработка')}
+        ${card('Курс сейчас', `1 ₿ = ${S.rate} XP`, `верно решают ${S.active}; обычно ${S.rate_base}, не дороже ${S.rate_max}`, S.rate > S.rate_base ? '#f57c00' : '')}
+        ${card('Продано · сгорело', `${S.gifts.sold} · ${S.gifts.burned}`, `получено за продажи ${S.ledger.sell || 0} ₿`)}
+        ${card('Учитель: начислил · снял', `${S.ledger.grant || 0} · ${-(S.ledger.take || 0)}`, `штрафы за спешку ${S.coins.fines} ₿ · операций ${S.deals}`)}
+        ${card('Выпущено уникальных', S.gifts.uniq_issued, `подарков за труд ${S.gifts.work}, от учителей ${S.gifts.from_teacher}`)}
+      </div>
+      <div class="eco-grid">
+        <div><h4 class="eco-h4">Самые популярные подарки</h4>${S.popular.length ? `<table class="adm-table">${S.popular.map((g, i) => `<tr><td class="muted">${i + 1}</td><td>${g.i} ${esc(g.t)}</td><td class="num"><b>${g.n}</b> ${pluralRu(g.n, 'покупка', 'покупки', 'покупок')}</td></tr>`).join('')}</table>` : '<p class="adm-empty">Пока ничего не покупали.</p>'}</div>
+        <div><h4 class="eco-h4">Самые редкие уникальные</h4>${S.rarest.length ? `<table class="adm-table">${S.rarest.map(g => `<tr><td>${g.i} ${esc(g.t)} <b>#${g.n}</b></td>
+          <td><span class="eco-rar r-${g.rar.k}">${esc(g.rar.t)}</span> <span class="muted">1 из ${g.rar.one_in.toLocaleString('ru-RU')}</span></td><td class="muted">${esc(g.who)}</td></tr>`).join('')}</table>` : '<p class="adm-empty">Уникальных пока нет.</p>'}</div>
+      </div></div>`;
+    $('#econBody').innerHTML = `${site}<h3 class="adm-h3" style="margin:6px 0 8px">${S ? 'Ваши ученики' : ''}</h3><div class="adm-cards">
         ${card('Инфляция', '×' + String(E.idx).replace('.', ','), `средний кошелёк активных учеников сайта — ${E.avg} ₿ при норме ${E.target} ₿`, E.idx > 1 ? '#f57c00' : '')}
         ${card('Биткоинов на руках', T.balance, `у ${d.with_coins} из ${d.students} ваших учеников`)}
-        ${card('Заработано трудом', T.mined, 'за опыт: 1 ₿ за 10 XP')}
+        ${card('Заработано трудом', T.mined, `за опыт; курс сейчас 1 ₿ = ${d.rate} XP`)}
         ${card('Штрафы за спешку', T.fines, 'решено быстрее 30 секунд — по −1 ₿')}
       </div>
       <div class="eco-grid">
-        ${ecoFlowHtml('Откуда пришли биткоины', [['⚒ За опыт (труд)', T.mined, null, 'Решённые задания: 1 ₿ за каждые 10 XP'],
+        ${ecoFlowHtml('Откуда пришли биткоины', [['⚒ За опыт (труд)', T.mined, null, 'Решённые задания: по курсу на момент заработка (обычно 1 ₿ за 10 XP)'],
           ['➕ Начислил учитель', T.grant, W.grant || 0], ['💰 Продажи подарков', T.sell, W.sell || 0]])}
         ${ecoFlowHtml('Куда ушли биткоины', [['🎁 Покупки подарков', T.gift, W.gift || 0], ['✨ Улучшения', T.upgrade, W.upgrade || 0],
           ['➖ Снял учитель', T.take, W.take || 0], ['⏱ Штрафы за спешку', T.fines, null]])}
