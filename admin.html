@@ -46,6 +46,7 @@
       <button type="button" data-tab="course" class="main-only">Курс</button>
       <button type="button" data-tab="pyc">Программирование</button>
       <button type="button" data-tab="gifts">Подарки</button>
+      <button type="button" data-tab="econ">Экономика</button>
       <button type="button" data-tab="site" class="main-only">Статистика сайта</button>
       <button type="button" data-tab="comp">Турниры и дуэли</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
@@ -184,10 +185,20 @@
         <p class="fm-note">Выберите ученика — увидите все его подарки. Лишний (например, подаренный не по правилам) можно удалить из профиля:
           подарок сгорает без возврата биткоинов, номер и сочетание уникального больше никому не выпадут.</p>
         <select class="inp" id="giftOwner" style="max-width:360px"><option value="">— выберите ученика —</option></select>
+        <div id="giftWallet" style="margin-top:10px"></div>
         <div id="giftOwned" style="margin-top:10px"></div>
+        <div id="giftHistory" style="margin-top:12px"></div>
       </div>
       <h3 class="adm-h3" style="margin-top:18px">Недавно подарено</h3>
       <div id="giftRecent"><p class="adm-hint">Загружаю…</p></div>
+    </section>
+
+    <section class="adm-view" id="view-econ" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Экономика: биткоины и подарки</h2>
+        <button type="button" class="btn ghost" id="econReload">Обновить</button></div>
+      <p class="adm-hint" style="margin:0 0 12px">Ваши ученики: откуда пришли биткоины и куда ушли, у кого больше всего, какие подарки на руках
+        и журнал всех изменений в профилях. Нажмите на имя — откроются кошелёк, подарки и история этого ученика.</p>
+      <div id="econBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
     <section class="adm-view" id="view-site" hidden>

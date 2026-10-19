@@ -1224,7 +1224,7 @@ class DB:
             -- потратил на подарок (gift, −) или улучшение (upgrade, −)
             CREATE TABLE IF NOT EXISTS coins(
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT,
-                note TEXT, seen INTEGER DEFAULT 1);
+                note TEXT, seen INTEGER DEFAULT 1, gift_id INTEGER);
             CREATE INDEX IF NOT EXISTS coins_student ON coins(student_id);
             -- переписка в обращении техподдержки: первое сообщение — support.text, дальше — здесь
             CREATE TABLE IF NOT EXISTS support_msgs(
@@ -1283,6 +1283,7 @@ class DB:
                     ("gifts", "sold", "REAL"),                        # продан или удалён учителем (сгорел): номер и сочетание больше не выдаются
                     ("coins", "note", "TEXT"),                        # причина начисления или снятия учителем
                     ("coins", "seen", "INTEGER DEFAULT 1"),           # 0 — ученик ещё не видел уведомление (учитель начислил или снял)
+                    ("coins", "gift_id", "INTEGER"),                  # какой подарок купили, улучшили или продали (журнал экономики)
                     ("daily_results", "fast", "INTEGER DEFAULT 0"),   # решено нереально быстро — в рейтинг и корону не идёт
                     ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
                     ("teachers", "consent_ts", "REAL"),
@@ -2308,9 +2309,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     have = game_summary(db, s["id"])["coins"]
                     if have < price:
                         return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
-                    db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'gift')", (s["id"], now, -price))
-                    db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen) VALUES(?,?,?,?,?)",
-                         (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0))
+                    gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen) VALUES(?,?,?,?,?)",
+                               (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0))
+                    db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'gift', ?)", (s["id"], now, -price, gid))
                 with _GS_LOCK:
                     _LB_PEOPLE.pop(teacher_of(s)["id"], None)    # в рейтинге подарок у ника виден сразу
                 if rcpt["id"] != s["id"]:
@@ -2334,13 +2335,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         have = game_summary(db, s["id"])["coins"]
                         if have < price:
                             return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
-                        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'upgrade')", (s["id"], now, -price))
+                        db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'upgrade', ?)", (s["id"], now, -price, r["id"]))
                         db.x("UPDATE gifts SET uniq=? WHERE id=?", (json.dumps(gift_uniq(db, r["gift"])), r["id"]))
                     else:
                         # продать: подарок сгорает (номер и сочетание уникального больше не выдаются), биткоины — на счёт
                         price = gift_sell_price(r["gift"], uniq_pub(r["uniq"]) if r["uniq"] else None, e, issued)
                         db.x("UPDATE gifts SET sold=? WHERE id=?", (now, r["id"]))
-                        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'sell')", (s["id"], now, price))
+                        db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'sell', ?)", (s["id"], now, price, r["id"]))
                 with _GS_LOCK:
                     _LB_PEOPLE.pop(teacher_of(s)["id"], None)
                 out = {"ok": True, "price": price, "game": game_summary(db, s["id"])}
@@ -4086,7 +4087,31 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             st = db.q(f"SELECT s.id, s.name FROM students s WHERE s.id=? AND {where}", (sid,) + args, one=True)
             if not st:
                 return self.err(404, "нет такого ученика")
-            return self.send_json({"id": st["id"], "name": st["name"], "gifts": gift_rows(db, sid)})
+            return self.send_json({"id": st["id"], "name": st["name"], "gifts": gift_rows(db, sid),
+                                   "wallet": econ_wallet(db, sid), "feed": econ_feed(db, where, args, sid=sid, limit=100)})
+
+        if path == "/api/admin/econ":
+            # экономика учеников этого учителя: откуда пришли биткоины и куда ушли, кошельки, подарки по редкости, журнал
+            where, args = self.student_scope()
+            studs = db.q(f"SELECT s.id, s.name, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where}", args)
+            wallets = [dict(econ_wallet(db, r["id"]), id=r["id"], name=r["name"], cls=r["cls"]) for r in studs]
+            keys = ("balance", "mined", "grant", "sell", "take", "gift", "upgrade", "fines")
+            tot = {k: sum(w[k] for w in wallets) for k in keys}
+            week = {r["reason"]: r["s"] for r in db.q(f"""SELECT c.reason, SUM(c.delta) s FROM coins c JOIN students s ON s.id = c.student_id
+                                                         WHERE c.ts > ? AND {where} GROUP BY c.reason""", (time.time() - 7 * 86400,) + args)}
+            tiers = {}
+            for r in db.q(f"""SELECT g.gift, g.uniq FROM gifts g JOIN students s ON s.id = g.student_id
+                              WHERE g.sold IS NULL AND {where}""", args):
+                if r["gift"] not in GIFT_BY:
+                    continue
+                u = uniq_pub(r["uniq"]) if r["uniq"] else None
+                k = ("u:" + u["rar"]["k"]) if u else gift_rarity(r["gift"])["k"]
+                tiers[k] = tiers.get(k, 0) + 1
+            rich = sorted((w for w in wallets if w["balance"] > 0), key=lambda w: -w["balance"])[:10]
+            return self.send_json({"econ": econ(db), "students": len(wallets), "with_coins": sum(1 for w in wallets if w["balance"] > 0),
+                                   "total": tot, "week": week, "tiers": tiers, "rich": rich,
+                                   "rarity": {"plain": [[k, t] for _, k, t in RARITY], "uniq": [[k, t] for _, k, t in UNIQ_RARITY]},
+                                   "feed": econ_feed(db, where, args, limit=150)})
 
         if path == "/api/admin/gifts/remove" and method == "POST":
             # удалить подарок из профиля ученика: он сгорает (как при продаже, но без биткоинов) — номер и сочетание
@@ -5389,6 +5414,49 @@ def work_gifts(db, sid, solved):
     return max(0, due - have)
 
 
+def econ_feed(db, where, args, sid=None, limit=150):
+    """Журнал экономики: движения биткоинов (покупки, улучшения, продажи, начисления и снятия учителем) и подарки
+    без денег (от учителя, за труд, удалённые учителем). where/args — ученики этого учителя (alias s)."""
+    one = " AND s.id = ?" if sid else ""
+    a = args + ((sid,) if sid else ())
+    pub = lambda gid, uq: {"i": GIFT_BY[gid][1], "t": GIFT_BY[gid][2], "uniq": uniq_pub(uq) if uq else None}
+    out = []
+    for r in db.q(f"""SELECT c.ts, c.delta, c.reason, c.note, s.id AS sid, s.name, g.gift, g.uniq, g.student_id AS to_sid, t.name AS to_name
+                      FROM coins c JOIN students s ON s.id = c.student_id LEFT JOIN gifts g ON g.id = c.gift_id
+                      LEFT JOIN students t ON t.id = g.student_id
+                      WHERE {where}{one} ORDER BY c.ts DESC LIMIT ?""", a + (limit,)):
+        e = {"ts": r["ts"], "sid": r["sid"], "name": r["name"], "kind": r["reason"], "delta": r["delta"], "note": r["note"] or ""}
+        if r["gift"] in GIFT_BY:
+            e["gift"] = pub(r["gift"], r["uniq"] if r["reason"] != "gift" else None)
+            if r["reason"] == "gift" and r["to_sid"] != r["sid"]:
+                e["to"] = short_name(r["to_name"])
+        out.append(e)
+    # подарки без денег: от учителя и за труд — когда получены; удалённые учителем (сгорели без продажи) — когда удалены
+    for r in db.q(f"""SELECT g.ts, g.sold, g.kind, g.gift, g.uniq, g.note, g.from_teacher, s.id AS sid, s.name,
+                             EXISTS(SELECT 1 FROM coins c WHERE c.gift_id = g.id AND c.reason = 'sell') AS paid
+                      FROM gifts g JOIN students s ON s.id = g.student_id
+                      WHERE (g.from_teacher IS NOT NULL OR g.kind IN ('work', 'removed') OR g.sold IS NOT NULL) AND {where}{one}
+                      ORDER BY g.ts DESC LIMIT ?""", a + (limit,)):
+        if r["gift"] not in GIFT_BY:
+            continue
+        base = {"sid": r["sid"], "name": r["name"], "delta": 0, "note": r["note"] or "", "gift": pub(r["gift"], r["uniq"])}
+        if r["from_teacher"] or r["kind"] == "work":
+            out.append(dict(base, ts=r["ts"], kind="teacher_gift" if r["from_teacher"] else "work"))
+        if r["sold"] and not r["paid"]:
+            out.append(dict(base, ts=r["sold"], kind="removed", note=""))
+    out.sort(key=lambda e: -e["ts"])
+    return out[:limit]
+
+
+def econ_wallet(db, sid):
+    """Кошелёк ученика: откуда пришли биткоины и куда ушли."""
+    g = game_summary(db, sid, brief=True)
+    led = {r["reason"]: r["s"] for r in db.q("SELECT reason, SUM(delta) s FROM coins WHERE student_id=? GROUP BY reason", (sid,))}
+    return {"balance": g["coins"], "mined": g["mined"], "grant": led.get("grant", 0), "sell": led.get("sell", 0),
+            "take": -led.get("take", 0), "gift": -led.get("gift", 0), "upgrade": -led.get("upgrade", 0),
+            "fines": g["btc_fast"] * BTC_FAST_FINE, "xp": g["xp"]}
+
+
 def gift_random(rng=None):
     """Случайный подарок: выпасть может любой, но чем дороже — тем реже (вес ∝ 1 / цена)."""
     return (rng or random).choices(GIFTS, weights=[1 / g[3] for g in GIFTS])[0]
@@ -5784,7 +5852,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     coins = max(0, (xp + fz_spent) // COIN_XP + extra - cnt["btc_fast"] * BTC_FAST_FINE)
     zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
-           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": max(0, (xp + fz_spent) // COIN_XP), "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}

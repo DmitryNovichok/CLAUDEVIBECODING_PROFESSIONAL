@@ -708,6 +708,7 @@
 
   // ------------------------------------------------------------ подарки и биткоины: подарить ученику, классу или всем
   let GFA = null;
+  let giftPick = null;                    // ученик, открытый из «Экономики»: показать его кошелёк, подарки и историю
   async function loadGifts() {
     try { GFA = await api('gifts'); } catch (err) { if (err.status !== 401) $('#giftRecent').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     const to = $('#giftTo').value, kind = $('#giftKind').value;
@@ -718,10 +719,15 @@
       + GFA.catalog.map(g => `<option value="${g.id}">${g.i} ${esc(g.t)} · ${g.price} ₿ · уникальных ${g.issued}/${GFA.cap}</option>`).join('');
     if (to) $('#giftTo').value = to;
     if (kind) $('#giftKind').value = kind;
-    const owner = $('#giftOwner').value;
+    const picked = giftPick, owner = picked || $('#giftOwner').value;
+    giftPick = null;
     $('#giftOwner').innerHTML = '<option value="">— выберите ученика —</option>'
       + GFA.students.map(s => `<option value="${s.id}">${esc(s.name)}${s.class ? ' · ' + esc(s.class) : ''}</option>`).join('');
-    if (owner) { $('#giftOwner').value = owner; loadOwnedGifts(); }
+    if (owner) {
+      $('#giftOwner').value = owner;
+      await loadOwnedGifts();
+      if (picked) $('#giftOwner').closest('.adm-box').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     const E = GFA.econ, card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="s">${sub}</div></div>`;
     $('#giftEcon').innerHTML = card('Инфляция', '×' + String(E.idx).replace('.', ','), `цены подарков и улучшения; средний кошелёк ${E.avg} ₿ при норме ${E.target} ₿`, E.idx > 1 ? '#f57c00' : '')
       + card('Биткоинов у учеников', E.total, `у ${E.active} ${pluralRu(E.active, 'активного', 'активных', 'активных')} за 30 дней`)
@@ -733,14 +739,90 @@
             <td class="muted">${esc(r.note || '—')}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="adm-empty">Вы ещё ничего не дарили.</p>';
   }
-  /** Подарки выбранного ученика — с кнопкой «Удалить». */
+  // ------------------------------------------------------------ экономика: обзор, журнал изменений, кошелёк ученика
+  const ECO_KIND = { gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа', grant: '➕ Начислил учитель', take: '➖ Снял учитель',
+    teacher_gift: '🎁 Подарок от учителя', work: '🏅 Подарок за труд', removed: '🗑 Удалён учителем' };
+  const ecoGift = g => g ? `${g.i} ${esc(g.t)}${g.uniq ? ` <b>#${g.uniq.n}</b> <span class="eco-rar r-${g.uniq.rar.k}">${esc(g.uniq.rar.t)}</span>` : ''}` : '';
+  /** Что произошло — одной строкой: событие, подарок, кому, причина. */
+  function ecoWhat(e) {
+    const g = ecoGift(e.gift);
+    const tail = e.kind === 'gift' ? (e.to ? ` → в подарок: ${esc(e.to)}` : ' — себе') : '';
+    return `<span class="eco-kind">${ECO_KIND[e.kind] || esc(e.kind)}</span> ${g}${tail}${e.note ? ` <span class="muted">«${esc(e.note)}»</span>` : ''}`;
+  }
+  const ecoDelta = d => d ? `<b class="${d > 0 ? 'eco-plus' : 'eco-minus'}">${d > 0 ? '+' : '−'}${Math.abs(d)} ₿</b>` : '<span class="muted">—</span>';
+  function ecoFeedHtml(list, withName) {
+    if (!list.length) return '<p class="adm-empty">Пока ничего не происходило.</p>';
+    return `<div class="adm-table-wrap"><table class="adm-table eco-feed"><thead><tr><th>Когда</th>${withName ? '<th>Ученик</th>' : ''}<th>Что произошло</th><th class="num">₿</th></tr></thead>
+      <tbody>${list.map(e => `<tr data-kind="${e.kind}"><td class="muted">${fmtWhen(e.ts)}</td>
+        ${withName ? `<td><button type="button" class="link-btn eco-name" data-eco-sid="${e.sid}">${esc(e.name)}</button></td>` : ''}
+        <td>${ecoWhat(e)}</td><td class="num">${ecoDelta(e.delta)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  /** Откуда пришли и куда ушли биткоины: строки со значением и долей (полоска одного цвета). */
+  function ecoFlowHtml(title, rows, week) {
+    const sum = rows.reduce((a, r) => a + r[1], 0) || 1;
+    return `<div class="adm-box eco-flow"><h3 class="adm-h3">${title}</h3><table class="eco-flow-t">${rows.map(([lbl, v, wk, hint]) => `<tr title="${esc(hint || '')}">
+        <td>${lbl}</td><td class="num"><b>${v}</b> ₿</td>
+        <td class="eco-bar"><i style="width:${Math.round(v / sum * 100)}%"></i></td><td class="num muted">${Math.round(v / sum * 100)}%</td>
+        <td class="num muted">${wk == null ? '' : `${wk ? (wk > 0 ? '+' : '') + wk : 0} за 7 дн.`}</td></tr>`).join('')}</table></div>`;
+  }
+  let ECO = null;
+  async function loadEcon() {
+    try { ECO = await api('econ'); } catch (err) { if (err.status !== 401) $('#econBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    const d = ECO, T = d.total, E = d.econ, W = d.week;
+    const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="s">${sub}</div></div>`;
+    const tierChips = (list, pre) => list.map(([k, t]) => `<span class="eco-chip"><span class="eco-rar r-${k}">${esc(t)}</span> <b>${d.tiers[pre + k] || 0}</b></span>`).join('');
+    const kind = $('#econKind') ? $('#econKind').value : '';
+    $('#econBody').innerHTML = `<div class="adm-cards">
+        ${card('Инфляция', '×' + String(E.idx).replace('.', ','), `средний кошелёк активных учеников сайта — ${E.avg} ₿ при норме ${E.target} ₿`, E.idx > 1 ? '#f57c00' : '')}
+        ${card('Биткоинов на руках', T.balance, `у ${d.with_coins} из ${d.students} ваших учеников`)}
+        ${card('Заработано трудом', T.mined, 'за опыт: 1 ₿ за 10 XP')}
+        ${card('Штрафы за спешку', T.fines, 'решено быстрее 30 секунд — по −1 ₿')}
+      </div>
+      <div class="eco-grid">
+        ${ecoFlowHtml('Откуда пришли биткоины', [['⚒ За опыт (труд)', T.mined, null, 'Решённые задания: 1 ₿ за каждые 10 XP'],
+          ['➕ Начислил учитель', T.grant, W.grant || 0], ['💰 Продажи подарков', T.sell, W.sell || 0]])}
+        ${ecoFlowHtml('Куда ушли биткоины', [['🎁 Покупки подарков', T.gift, W.gift || 0], ['✨ Улучшения', T.upgrade, W.upgrade || 0],
+          ['➖ Снял учитель', T.take, W.take || 0], ['⏱ Штрафы за спешку', T.fines, null]])}
+      </div>
+      <div class="adm-box"><h3 class="adm-h3">Подарки на руках по редкости</h3>
+        <div class="eco-tiers"><span class="muted">Обычные:</span> ${tierChips(d.rarity.plain, '')}</div>
+        <div class="eco-tiers"><span class="muted">Уникальные:</span> ${tierChips(d.rarity.uniq, 'u:')}</div></div>
+      ${d.rich.length ? `<div class="adm-box"><h3 class="adm-h3">Самые большие кошельки</h3><div class="adm-table-wrap"><table class="adm-table">
+        <thead><tr><th>Ученик</th><th class="num">На счёте</th><th class="num">Заработано трудом</th><th class="num">Потрачено</th><th class="num">Штрафы</th></tr></thead>
+        <tbody>${d.rich.map(w => `<tr><td><button type="button" class="link-btn eco-name" data-eco-sid="${w.id}">${esc(w.name)}</button><small class="muted"> ${esc(w.cls || '')}</small></td>
+          <td class="num"><b>${w.balance}</b> ₿</td><td class="num">${w.mined}</td><td class="num">${w.gift + w.upgrade}</td><td class="num">${w.fines || '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+      <div class="adm-box"><div class="adm-toolbar" style="margin:0 0 8px"><h3 class="adm-h3" style="margin:0">Журнал изменений в профилях</h3>
+        <select class="inp" id="econKind" style="max-width:260px"><option value="">Все события</option>${Object.entries(ECO_KIND).map(([k, t]) => `<option value="${k}"${k === kind ? ' selected' : ''}>${t}</option>`).join('')}</select></div>
+        <div id="econFeed">${ecoFeedHtml(d.feed.filter(e => !kind || e.kind === kind), true)}</div></div>`;
+  }
+  $('#econReload').addEventListener('click', loadEcon);
+  $('#econBody').addEventListener('change', e => {
+    if (e.target.id === 'econKind' && ECO) $('#econFeed').innerHTML = ecoFeedHtml(ECO.feed.filter(x => !e.target.value || x.kind === e.target.value), true);
+  });
+  /** Имя в экономике — кошелёк, подарки и история ученика (вкладка «Подарки»). */
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-eco-sid]');
+    if (!b) return;
+    giftPick = b.dataset.ecoSid;
+    go('gifts');
+  });
+
+  /** Подарки выбранного ученика — с кнопкой «Удалить»; его кошелёк и история изменений. */
   async function loadOwnedGifts() {
     const id = $('#giftOwner').value, box = $('#giftOwned');
+    $('#giftWallet').innerHTML = '';
+    $('#giftHistory').innerHTML = '';
     if (!id) { box.innerHTML = ''; return; }
     box.innerHTML = '<p class="adm-hint">Загружаю…</p>';
     let d;
     try { d = await api('gifts/student?id=' + id); } catch (err) { if (err.status !== 401) box.innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     if ($('#giftOwner').value !== id) return;
+    const w = d.wallet;
+    const wl = (k, v, cls) => `<span class="eco-w"><small>${k}</small><b class="${cls || ''}">${v}</b></span>`;
+    $('#giftWallet').innerHTML = `<div class="eco-wallet">${wl('На счёте', w.balance + ' ₿')}${wl('За опыт', '+' + w.mined, 'eco-plus')}
+      ${wl('Начислено', '+' + w.grant, 'eco-plus')}${wl('Продажи', '+' + w.sell, 'eco-plus')}${wl('Покупки', '−' + w.gift, 'eco-minus')}
+      ${wl('Улучшения', '−' + w.upgrade, 'eco-minus')}${wl('Снято', '−' + w.take, 'eco-minus')}${wl('Штрафы', '−' + w.fines, 'eco-minus')}</div>`;
+    $('#giftHistory').innerHTML = `<h4 class="eco-h4">История изменений</h4>${ecoFeedHtml(d.feed, false)}`;
     const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
     box.innerHTML = d.gifts.length ? `<div class="gift-owned">${d.gifts.map(g => `<div class="gift-own${g.uniq ? ' uniq' : ''}">
         <span class="gift-own-ic"${g.uniq ? ` style="background:radial-gradient(circle at 50% 38%, ${g.uniq.c1}, ${g.uniq.c2})"` : ''}>${g.i}</span>
@@ -1060,10 +1142,11 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     if (t === 'course') loadCourseProgress();
     if (t === 'pyc') loadPyc();
     if (t === 'gifts') loadGifts();
+    if (t === 'econ') loadEcon();
     if (t === 'site') loadSite();
     if (t === 'build') openBuilder();
     if (t === 'teachers') loadTeachers();
