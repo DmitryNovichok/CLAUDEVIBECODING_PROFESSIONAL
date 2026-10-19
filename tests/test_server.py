@@ -2613,6 +2613,42 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(w["balance"], w["mined"] + w["exam"] + w["task"] + w["grant"] + w["sell"] - w["gift"] - w["upgrade"] - w["take"] - w["fines"])
         self.assertTrue(all(e["sid"] == sid for e in s1["feed"]))
 
+    def test_hard_min_time(self):
+        db = server.APP.db
+        tok = self.login("Торопыгин Тимофей")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        now = time.time()
+        since = now - 3600                                                # правило и бонусы «вышли» час назад
+        for key in ("hard_min_since", "task_btc_since"):
+            self.addCleanup(db.setting, key, db.setting(key))
+            db.setting(key, str(since))
+        server._SINCE.clear()
+        self.addCleanup(server._SINCE.clear)
+        seq = iter(range(100))
+
+        def att(tid, n, minutes, ts=None):
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms, reason) VALUES(?,?,?,?,1,?,'')",
+                 (sid, ts or time.time() + next(seq) / 1000, tid, n, int(minutes * 60000)))
+        att("h:24a", 24, 9)                    # №24 быстрее 10 минут — −1 XP и −1 ₿, не засчитано
+        att("h:24b", 24, 11)                   # дольше 10 минут — опыт и бонус
+        att("h:25", 25, 6)                     # №25 — от 5 минут
+        att("h:26", 26, 19)                    # №26 быстрее 20 минут — штраф
+        att("h:27", 27, 5, ts=since - 60)      # до выхода правила — по-старому (от минуты), задним числом не отнимаем
+        g = server.game_summary(db, sid)
+        whys = [x["why"] for x in g["xplog"]]
+        self.assertIn("№24 — решено быстрее 10 минут", whys)
+        self.assertIn("№26 — решено быстрее 20 минут", whys)
+        self.assertNotIn("№27 — решено быстрее 25 минут", whys)
+        self.assertEqual((g["btc_fast"], g["task_coins"]), (2, 25 + 10))
+        att("h:24a", 24, 12)                   # то же задание потом вдумчиво — засчитано
+        self.assertEqual(server.game_summary(db, sid)["task_coins"], 25 + 10 + 25)
+        # ответ сразу после открытия — в ответе сервера «быстро» и сколько минут нужно
+        pid27 = server.APP.bank.pid("b:27")
+        self.req("POST", "/api/open", {"task": pid27}, tok)
+        st, r = self.check(tok, pid27, answer="10 20", spent_ms=120000)          # 2 минуты на №27
+        self.assertEqual((st, r["correct"], r["fast"], r["fast_min"]), (200, True, True, 25))
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["hard_min"], {"24": 10, "25": 5, "26": 20, "27": 25})
+
     def test_rank_score(self):
         # очки рейтинга: (XP + ₿) / 2 × доля заданий без ошибок
         self.assertEqual(server.rank_score(300, 40, 10, 1)["score"], 153)
@@ -2712,7 +2748,7 @@ class ServerTest(unittest.TestCase):
         self.addCleanup(db.setting, "task_btc_since", old)
         seq = iter(range(100))
 
-        def att(tid, n, score=1.0, spent=120000, reason="", grp=None, exam=None, ts=None):
+        def att(tid, n, score=1.0, spent=30 * 60000, reason="", grp=None, exam=None, ts=None):     # полчаса — дольше любого минимума
             db.x("""INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms, reason, grp, exam)
                     VALUES(?,?,?,?,?,?,?,?,?)""", (sid, ts or time.time() + next(seq) / 1000, tid, n, score, spent, reason, grp, exam))
         att("x:22", 22, ts=since - 60)                 # решено до обновления — без бонуса
