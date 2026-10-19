@@ -12,6 +12,12 @@
     $('#lvlXp').textContent = `${GAME.cur} / ${GAME.need} XP`;
     $('#xpBar').style.width = pct(GAME.cur / GAME.need) + '%';
     el.title = `Уровень ${GAME.level} · ${GAME.title} — опыт и достижения`;
+    const c = $('#coinCard');
+    if (c) {
+      c.hidden = TEACHER;                    // учитель дарит из панели — монеты ему не нужны
+      $('#coinNum').textContent = GAME.coins || 0;
+      c.title = `Монеты: ${GAME.coins || 0} — магазин подарков`;
+    }
   }
   function xpPop(v) {
     if (viewPrefs().focus || !viewPrefs().anim) return;
@@ -89,7 +95,9 @@
   /** Значок у ника: строка (старый формат) или {i, t, n} — у повторяемых наград маленькое число, сколько раз получена. */
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
-  const badgesHtml = r => (r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '';
+  /** Подарки у ника — маленькие значки после наград; одинаковые — числом. */
+  const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(badgeHtml).join('')}</span>` : '';
+  const badgesHtml = r => ((r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '') + giftsHtml(r);
   const nameHtml = r => (r.sid ? `<button type="button" class="lb-name" data-prof="${r.sid}" title="Открыть профиль">${esc(r.name)}</button>` : esc(r.name)) + admTag(r.sid);
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
   const daysLeft = endSec => Math.max(0, Math.ceil((endSec * 1000 - Date.now()) / 864e5));
@@ -217,7 +225,9 @@
       <div class="gm-head"><span class="gm-level">${P.level}</span>
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(P.name)}${admTag(P.sid)}${P.me ? ' <span class="chip good">это ты</span>' : ''}</h2>
           <span class="fm-muted">${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp} XP</span>
-          <div class="pf-nick">У ника: ${nick.length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>` : '<span class="fm-muted">пока ничего</span>'}</div></div></div>
+          <div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}</div>
+          ${P.gifts_total ? `<div class="fm-muted">🎁 Подарков: ${P.gifts_total}</div>` : ''}
+          ${!P.me && !TEACHER && SERVER ? `<p><button type="button" class="btn small" data-gift-to="${P.sid}">🎁 Подарить подарок</button></p>` : ''}</div></div>
       ${tools}
       <h3 class="fm-sub">Награды — можно получать много раз</h3>
       <div class="ach-grid">${P.awards.map(a => profItem(a, 'award')).join('')}${P.extra.map(a => profItem(a, 'extra')).join('')}</div>

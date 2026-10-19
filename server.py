@@ -1214,6 +1214,15 @@ class DB:
             -- дни, засчитанные огоньку без трёх заданий: freeze — сработала заморозка, restore — восстановил учитель
             CREATE TABLE IF NOT EXISTS fire_cover(
                 student_id INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, ts REAL, PRIMARY KEY(student_id, day));
+            -- подарки: от учителя (from_teacher) или купленные учеником за монеты (from_sid); seen — уведомление показано
+            CREATE TABLE IF NOT EXISTS gifts(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, gift TEXT NOT NULL, ts REAL NOT NULL,
+                from_sid INTEGER, from_teacher INTEGER, note TEXT, seen INTEGER DEFAULT 0);
+            CREATE INDEX IF NOT EXISTS gifts_student ON gifts(student_id, ts);
+            -- монеты сверх заработанных опытом: начислил учитель (grant, +) или потратил на подарок (gift, −)
+            CREATE TABLE IF NOT EXISTS coins(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT);
+            CREATE INDEX IF NOT EXISTS coins_student ON coins(student_id);
             -- переписка в обращении техподдержки: первое сообщение — support.text, дальше — здесь
             CREATE TABLE IF NOT EXISTS support_msgs(
                 id INTEGER PRIMARY KEY, support_id INTEGER NOT NULL, ts REAL NOT NULL, who TEXT NOT NULL, text TEXT NOT NULL);
@@ -2019,7 +2028,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s),
-                "pyc_pw": bool(APP.db.setting("pyc_pw")),
+                "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
                 "teacher": bool(s["is_teacher"]),
                 "consent_needed": not s["is_teacher"] and s["consent_ver"] != LEGAL_VERSION,
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
@@ -2250,6 +2259,54 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'freeze')", (s["id"], time.time(), -FREEZE_PRICE))
             db.x("UPDATE students SET freezes=COALESCE(freezes, 0) + 1 WHERE id=?", (s["id"],))
             return self.send_json({"ok": True, "game": game_summary(db, s["id"])})
+
+        if path in ("/api/gifts", "/api/gifts/buy", "/api/gifts/seen"):
+            # монеты и подарки: магазин, свои подарки, подарить себе или однокласснику (ученику того же учителя)
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            mates = [m for m in teacher_students(db, teacher_of(s)["id"]) if m["id"] != s["id"]]
+            if path == "/api/gifts/seen":
+                ids = [to_int(x) for x in (data.get("ids") or []) if to_int(x)][:50]
+                if ids:
+                    db.x(f"UPDATE gifts SET seen=1 WHERE student_id=? AND id IN ({','.join('?' * len(ids))})", (s["id"], *ids))
+                return self.send_json({"ok": True})
+            if path == "/api/gifts/buy":
+                if method != "POST":
+                    return self.err(405, "нужен POST")
+                if s["is_teacher"]:
+                    return self.err(403, "Учительскому аккаунту монеты не нужны — дарите из панели учителя")
+                g = GIFT_BY.get(str(data.get("gift") or ""))
+                if not g:
+                    return self.err(400, "Нет такого подарка")
+                to = to_int(data.get("to")) or s["id"]
+                rcpt = s if to == s["id"] else next((m for m in mates if m["id"] == to), None)
+                if not rcpt:
+                    return self.err(404, "Дарить можно только себе и ученикам своего учителя")
+                now = time.time()
+                with _GIFT_LOCK:
+                    day = db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], now - 86400), one=True)["c"]
+                    if day >= GIFTS_PER_DAY:
+                        return self.err(429, f"За сутки можно купить не больше {GIFTS_PER_DAY} подарков")
+                    have = game_summary(db, s["id"])["coins"]
+                    if have < g[3]:
+                        return self.err(400, f"Не хватает монет: нужно {g[3]}, у тебя {have}")
+                    db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'gift')", (s["id"], now, -g[3]))
+                    db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen) VALUES(?,?,?,?,?)",
+                         (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0))
+                with _GS_LOCK:
+                    _LB_PEOPLE.pop(teacher_of(s)["id"], None)    # в рейтинге подарок у ника виден сразу
+                if rcpt["id"] != s["id"]:
+                    LIVE.send([rcpt["id"]], "gift")
+                return self.send_json({"ok": True, "game": game_summary(db, s["id"])})
+            g = game_summary(db, s["id"])
+            return self.send_json({
+                "coins": g["coins"], "coin_xp": COIN_XP, "teacher": bool(s["is_teacher"]),
+                "catalog": [{"id": k, "i": i, "t": t, "price": pr} for k, i, t, pr in GIFTS],
+                "mine": gift_rows(db, s["id"]),
+                "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
+                "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
+                "per_day": GIFTS_PER_DAY, "show": GIFTS_SHOW})
 
         if path == "/api/password" and method == "POST":
             s = self.student(data)
@@ -2551,6 +2608,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "awards": awards, "ach": ach, "ach_total": len(ACHIEVEMENTS),
                 "extra": [dict(opts[k], k=k) for k in ("fire", "diamond") if k in opts],
                 "badges": nick_badges(db, m, game_summary(db, sid, brief=True), lg, daily_crown(db, ids), crowns),
+                "gifts": gift_icons(db, sid), "gifts_total": db.q("SELECT COUNT(*) c FROM gifts WHERE student_id=?", (sid,), one=True)["c"],
                 "chosen": chosen, "max": BADGES_MAX})
 
         if path == "/api/leaderboard":
@@ -2591,7 +2649,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             my_row = dict(mine, me=True)
             people = [dict(p, me=False) for p in base if p["sid"] != s["id"]] + ([] if spectator else [my_row])
             pub = lambda p, key, place: {"place": place, "sid": p["sid"], "name": p["name"], "me": p["me"], "level": p["level"],
-                                         "badges": p["badges"], "value": p[key]}
+                                         "badges": p["badges"], "gifts": p.get("gifts", []), "value": p[key]}
             boards = {}
             for key in ("day", "week", "month", "fire"):
                 ranked = sorted((p for p in people if p[key] > 0), key=lambda p: (-p[key], p["name"]))
@@ -3945,6 +4003,56 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                                for m in mods],
                                    "students": out, "pw_set": bool(db.setting("pyc_pw"))})
 
+        if path == "/api/admin/gifts":
+            # подарки и монеты: каталог, кому можно подарить (ученики этого учителя и классы), что дарили недавно
+            where, args = self.student_scope()
+            studs = db.q(f"""SELECT s.id, s.name, s.class_id, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id
+                             WHERE {where} ORDER BY s.name""", args)
+            cls = db.q("SELECT id, name FROM classes WHERE COALESCE(teacher_id, ?) = ? ORDER BY name", (main_teacher()["id"], self.T["id"]))
+            recent = db.q(f"""SELECT g.gift, g.ts, g.note, s.name FROM gifts g JOIN students s ON s.id = g.student_id
+                              WHERE g.from_teacher = ? AND {where} ORDER BY g.ts DESC LIMIT 60""", (self.T["id"],) + args)
+            return self.send_json({
+                "catalog": [{"id": k, "i": i, "t": t, "price": pr} for k, i, t, pr in GIFTS], "coin_xp": COIN_XP,
+                "students": [{"id": r["id"], "name": r["name"], "class_id": r["class_id"], "class": r["cls"]} for r in studs],
+                "classes": [{"id": c["id"], "name": c["name"]} for c in cls],
+                "recent": [{"i": GIFT_BY[r["gift"]][1], "t": GIFT_BY[r["gift"]][2], "ts": r["ts"], "note": r["note"] or "",
+                            "name": r["name"]} for r in recent if r["gift"] in GIFT_BY]})
+
+        if path == "/api/admin/gifts/give" and method == "POST":
+            # подарок (один на всех или «случайный» — каждому свой) и/или монеты: ученику, классу или всем своим ученикам
+            where, args = self.student_scope()
+            if data.get("student_id") is not None:
+                rows = db.q(f"SELECT s.id FROM students s WHERE s.id=? AND {where}", (to_int(data.get("student_id")),) + args)
+            elif data.get("class_id") is not None:
+                rows = db.q(f"SELECT s.id FROM students s WHERE s.class_id=? AND {where}", (to_int(data.get("class_id")),) + args)
+            elif data.get("all"):
+                rows = db.q(f"SELECT s.id FROM students s WHERE {where}", args)
+            else:
+                return self.err(400, "Кому дарить?")
+            sids = [r["id"] for r in rows]
+            if not sids:
+                return self.err(404, "Некому дарить: нет таких учеников")
+            gift = str(data.get("gift") or "")
+            if gift and gift != "random" and gift not in GIFT_BY:
+                return self.err(400, "Нет такого подарка")
+            coins = to_int(data.get("coins")) or 0
+            if not 0 <= coins <= COINS_GRANT_MAX:
+                return self.err(400, f"Монет за раз — от 0 до {COINS_GRANT_MAX}")
+            if not gift and not coins:
+                return self.err(400, "Выберите подарок или сколько монет начислить")
+            note = re.sub(r"\s+", " ", str(data.get("note") or "")).strip()[:GIFT_NOTE_MAX]
+            now, rnd = time.time(), random.Random()
+            for sid in sids:
+                if gift:
+                    gid = rnd.choice(GIFTS)[0] if gift == "random" else gift
+                    db.x("INSERT INTO gifts(student_id, gift, ts, from_teacher, note) VALUES(?,?,?,?,?)", (sid, gid, now, self.T["id"], note))
+                if coins:
+                    db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, now, coins))
+            with _GS_LOCK:
+                _LB_PEOPLE.clear()               # подарки у ников в рейтинге — сразу
+            LIVE.send(sids, "gift")              # ученикам — уведомление сразу
+            return self.send_json({"ok": True, "count": len(sids)})
+
         if path == "/api/admin/pyc/free" and method == "POST":
             # открыть ученику все уровни курса программирования сразу (без замков) — например, тестовому аккаунту
             where, args = self.student_scope()
@@ -4924,7 +5032,8 @@ def _gs_stamp(db, sid):
     e = db.q("SELECT COUNT(*) c FROM exams WHERE student_id=? AND finished IS NOT NULL", (sid,), one=True)
     f = db.q("SELECT COUNT(*) c FROM fire_cover WHERE student_id=?", (sid,), one=True)
     z = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
-    return (a["m"], a["c"], x["c"], x["s"], e["c"], f["c"], z["freezes"] if z else 0,
+    c = db.q("SELECT COUNT(*) c, COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)
+    return (a["m"], a["c"], x["c"], x["s"], e["c"], f["c"], z["freezes"] if z else 0, c["c"], c["s"],
             time.strftime("%Y-%m-%d"), int(time.time() // 300))
 
 
@@ -5037,9 +5146,51 @@ def lb_person(db, m, crown, crowns=None):
     g = game_summary(db, m["id"], brief=True)
     lg = league_row(db, m["id"])["league"]
     return {"sid": m["id"], "name": short_name(m["name"]), "level": g["level"],
-            "badges": nick_badges(db, m, g, lg, crown, crowns or {}), "league": lg,
+            "badges": nick_badges(db, m, g, lg, crown, crowns or {}), "gifts": gift_icons(db, m["id"]), "league": lg,
             "class_id": m["class_id"], "crown": crown if m["id"] == crown else None,
             "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"], "wk": g["wk"]}
+
+
+# ---------------------------------------------------------------- монеты и подарки
+COIN_XP = 10                           # 1 монета за каждые 10 XP заработанного опыта
+GIFTS = [                              # id, значок, название, цена в монетах
+    ("cookie", "🍪", "Печенька", 10), ("candy", "🍬", "Конфета", 15), ("tea", "☕", "Чай", 20), ("tulip", "🌷", "Тюльпан", 25),
+    ("balloon", "🎈", "Шарик", 30), ("pizza", "🍕", "Пицца", 40), ("cat", "🐱", "Котик", 50), ("dog", "🐶", "Пёсик", 50),
+    ("panda", "🐼", "Панда", 60), ("teddy", "🧸", "Мишка", 75), ("cake", "🎂", "Торт", 90), ("guitar", "🎸", "Гитара", 110),
+    ("gamepad", "🎮", "Геймпад", 130), ("robot", "🤖", "Робот", 160), ("python", "🐍", "Питон", 200), ("rocket", "🚀", "Ракета", 250),
+    ("rainbow", "🌈", "Радуга", 300), ("unicorn", "🦄", "Единорог", 400), ("planet", "🪐", "Планета", 500), ("dragon", "🐉", "Дракон", 700)]
+GIFT_BY = {g[0]: g for g in GIFTS}
+GIFTS_SHOW = 5                         # сколько разных подарков видно у ника
+GIFTS_PER_DAY = 20                     # подарков, которые ученик может купить за сутки
+GIFT_NOTE_MAX = 80
+COINS_GRANT_MAX = 1000                 # монет за одно начисление учителем
+_GIFT_LOCK = threading.Lock()          # проверка баланса и покупка — одним шагом: два запроса разом не потратят монеты дважды
+
+
+def gift_icons(db, sid):
+    """Подарки у ника: разные, последний полученный — первым; одинаковые — числом."""
+    out = []
+    for r in db.q("SELECT gift, COUNT(*) c, MAX(ts) t FROM gifts WHERE student_id=? GROUP BY gift ORDER BY t DESC", (sid,)):
+        g = GIFT_BY.get(r["gift"])
+        if g:
+            out.append({"i": g[1], "t": "Подарок: " + g[2], "n": r["c"] if r["c"] > 1 else 0})
+    return out[:GIFTS_SHOW]
+
+
+def gift_rows(db, sid, where="", limit=200):
+    """Подарки ученика для страницы: что, от кого, когда."""
+    rows = db.q(f"""SELECT g.id, g.gift, g.ts, g.note, g.seen, g.from_sid, g.from_teacher, s.name AS sname, t.name AS tname
+                    FROM gifts g LEFT JOIN students s ON s.id = g.from_sid LEFT JOIN teachers t ON t.id = g.from_teacher
+                    WHERE g.student_id=? {where} ORDER BY g.ts DESC LIMIT ?""", (sid, limit))
+    out = []
+    for r in rows:
+        g = GIFT_BY.get(r["gift"])
+        if not g:
+            continue
+        frm = ("учитель" if r["from_teacher"] else "сам себе" if r["from_sid"] == sid
+               else short_name(r["sname"]) if r["sname"] else "")
+        out.append({"id": r["id"], "gift": g[0], "i": g[1], "t": g[2], "ts": r["ts"], "note": r["note"] or "", "from": frm})
+    return out
 
 
 # ---------------------------------------------------------------- награды профиля
@@ -5327,9 +5478,11 @@ def _game_summary(db, sid, brief=False, windows=None):
     for aid, ts in got.items():
         gain(ACH_XP.get(aid, 0), ts, "достижение «" + next((t for a, _, t, _, _ in ACHIEVEMENTS if a == aid), aid) + "»")
     # поправки опыта: выигрыш и проигрыш в дуэлях
+    fz_spent = 0
     for a in db.q("SELECT ts, delta, reason FROM xp_adjust WHERE student_id=?", (sid,)):
         if (a["reason"] or "") == "freeze":
             xp += a["delta"]                       # купил заморозку огонька: опыт списан, лиги и рейтинги не трогаем
+            fz_spent -= a["delta"]
             xplog.append((a["ts"], a["delta"], "заморозка огонька"))
             continue
         why = (f"турнир — {(a['reason'] or '').split(':')[-1]}-е место" if (a["reason"] or "").startswith("tour:")
@@ -5343,9 +5496,12 @@ def _game_summary(db, sid, brief=False, windows=None):
     fire = fire_streak(fire_days, cover)
     xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
     lvl, title, cur_xp, need = level_of(xp)
+    # монеты: за каждые COIN_XP заработанного опыта (покупка заморозок монет не отнимает) + начисления − покупки
+    extra = db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)["s"]
+    coins = max(0, (xp + fz_spent) // COIN_XP + extra)
     zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
-           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}

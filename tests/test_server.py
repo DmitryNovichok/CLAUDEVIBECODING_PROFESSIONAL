@@ -2308,6 +2308,52 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.game_summary(db, sid2)["fire"], 5)
         self.assertEqual(self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 3})[1]["added"], 0)
 
+    def test_coins_and_gifts(self):
+        db = server.APP.db
+        tok = self.login("Монеткин Михаил")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        tok2 = self.login("Подарков Пётр")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        # монеты: 1 за каждые COIN_XP опыта; покупка заморозки монет не отнимает
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel:1')", (sid, time.time() - 86400, 1000))
+        st, d = self.req("GET", "/api/gifts", token=tok)
+        self.assertEqual(d["coins"], 1000 // server.COIN_XP)
+        self.assertIn(sid2, [m["sid"] for m in d["mates"]])
+        self.assertEqual(self.req("POST", "/api/freeze/buy", {}, tok)[0], 200)
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["coins"], 1000 // server.COIN_XP)
+        # купить подарок однокласснику: монеты списаны, у него — подарок у ника и уведомление
+        price = server.GIFT_BY["teddy"][3]
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": "teddy", "to": sid2}, tok)
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r["game"]["coins"], 1000 // server.COIN_XP - price)
+        me2 = self.req("GET", "/api/me", token=tok2)[1]
+        self.assertEqual([(g["gift"], g["from"]) for g in me2["gifts_new"]], [("teddy", "Монеткин М.")])
+        self.req("POST", "/api/gifts/seen", {"ids": [g["id"] for g in me2["gifts_new"]]}, tok2)
+        self.assertEqual(self.req("GET", "/api/me", token=tok2)[1]["gifts_new"], [])
+        self.assertEqual(server.gift_icons(db, sid2), [{"i": "🧸", "t": "Подарок: Мишка", "n": 0}])
+        # не хватает монет, нет такого подарка, чужой ученик
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "dragon"}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "nope"}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "cookie", "to": 999999}, tok)[0], 404)
+        # у второго монет нет — купить нельзя
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "cookie"}, tok2)[0], 400)
+        # учитель: монеты и случайный подарок всем; один подарок ученику с подписью
+        st, r = self.admin("POST", "/api/admin/gifts/give", {"all": True, "gift": "random", "coins": 50})
+        self.assertEqual(st, 200, r)
+        self.assertGreaterEqual(r["count"], 2)
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok2)[1]["coins"], 50)
+        st, r = self.admin("POST", "/api/admin/gifts/give", {"student_id": sid2, "gift": "rocket", "note": "За №27!"})
+        self.assertEqual((st, r["count"]), (200, 1))
+        mine = self.req("GET", "/api/gifts", token=tok2)[1]["mine"]
+        self.assertEqual((mine[0]["gift"], mine[0]["from"], mine[0]["note"]), ("rocket", "учитель", "За №27!"))
+        self.assertEqual(len(mine), 3)
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sid2})[0], 400)          # ни подарка, ни монет
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sid2, "coins": 5000})[0], 400)
+        self.assertEqual(self.admin("GET", "/api/admin/gifts")[1]["recent"][0]["t"], "Ракета")
+        # подарки видны у ника в рейтинге
+        rows = self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]["league"]["top"]
+        self.assertIn("🧸", [g["i"] for g in next(r for r in rows if r["sid"] == sid2)["gifts"]])
+
     def test_answer_fix(self):
         # исправленный вручную ответ банка подменяется при загрузке: верный засчитывается, ответ из банка — нет
         bank = server.APP.bank

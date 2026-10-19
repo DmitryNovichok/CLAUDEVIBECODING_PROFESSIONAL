@@ -494,3 +494,10 @@ tr.comp-void td { opacity: .55; }
 .pyc-det { display: flex; flex-direction: column; gap: 10px; }
 .pyc-free-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pyc-free { font-size: 13px; }
+
+/* подарки и монеты */
+.gift-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.gift-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.gift-form select { min-width: 220px; }
+.gift-form input[type=number] { width: 110px; }
+.gift-form .gift-note { flex: 1 1 260px; }

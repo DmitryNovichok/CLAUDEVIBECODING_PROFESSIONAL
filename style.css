@@ -2278,3 +2278,35 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
   .pyc-grid { grid-template-columns: 1fr; }
   .pyc-st { margin-left: 0; width: 100%; }
 }
+
+/* ---------- монеты и подарки */
+.coin-pill {
+  display: flex; align-items: center; gap: 5px; padding: 5px 11px; cursor: pointer; font: inherit; color: var(--text);
+  border: 2px solid var(--border); border-radius: 14px; background: var(--card); font-weight: 900; font-size: 15px; white-space: nowrap;
+}
+.coin-pill:hover { background: var(--card-hover); }
+.coin-pill[hidden] { display: none; }
+.coin-pill b { font-family: var(--font); font-weight: 900; }
+body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
+.lb-gifts { font-size: 12px; margin-left: 3px; white-space: nowrap; opacity: .95; }
+.lb-gifts .bdg { margin-left: 1px; }
+.pf-nick .lb-gifts { font-size: 16px; }
+.gf-coin { background: #ffd43b; text-shadow: none; font-size: 30px; }
+.gf-to { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.gf-to label { display: flex; align-items: center; gap: 8px; font-weight: 800; }
+.gf-to select { min-width: 180px; }
+.gf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.gf-item {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; cursor: pointer; font: inherit; color: var(--text);
+  border: 2px solid var(--border); border-bottom-width: 4px; border-radius: 14px; background: var(--card);
+}
+.gf-item:hover:not(:disabled) { background: var(--card-hover); transform: translateY(-1px); }
+.gf-item:disabled { opacity: .45; cursor: not-allowed; }
+.gf-item b { font-size: 13px; }
+.gf-item small { font-size: 12px; font-weight: 800; color: var(--muted); }
+.gf-ic { font-size: 30px; line-height: 1.1; }
+.gf-mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
+.gf-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.gf-row .gf-ic { font-size: 24px; }
+.gf-row small { display: block; color: var(--muted); font-size: 12px; }
+.gift-toast { cursor: pointer; bottom: 90px; }

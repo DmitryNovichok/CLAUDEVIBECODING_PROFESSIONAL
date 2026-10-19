@@ -45,6 +45,7 @@
       <button type="button" data-tab="teachers" class="main-only">Учителя</button>
       <button type="button" data-tab="course" class="main-only">Курс</button>
       <button type="button" data-tab="pyc">Программирование</button>
+      <button type="button" data-tab="gifts">Подарки</button>
       <button type="button" data-tab="site" class="main-only">Статистика сайта</button>
       <button type="button" data-tab="comp">Турниры и дуэли</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
@@ -155,6 +156,25 @@
         <div class="login-err" id="pycPwMsgAdm"></div>
       </form>
       <div id="pycBody"><p class="adm-hint">Загружаю…</p></div>
+    </section>
+
+    <section class="adm-view" id="view-gifts" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Подарки и монеты</h2></div>
+      <p class="adm-hint" style="margin:0 0 12px">Монеты ученики получают сами: 1 монета за каждые 10 XP опыта. На монеты покупают подарки — себе или однокласснику.
+        Подарки видны маленькими значками у ника в рейтинге и профиле. Здесь можно подарить подарок или начислить монеты — ученику, классу или всем сразу;
+        «🎲 Случайный» — каждому свой подарок. Ученик сразу увидит уведомление.</p>
+      <form class="adm-box" id="giftForm">
+        <div class="gift-form">
+          <label>Кому<select class="inp" id="giftTo"></select></label>
+          <label>Подарок<select class="inp" id="giftKind"></select></label>
+          <label>Монеты<input class="inp" id="giftCoins" type="number" min="0" max="1000" step="1" value="0"></label>
+          <label class="gift-note">Подпись (необязательно)<input class="inp" id="giftNote" maxlength="80" placeholder="Например: за победу в битве классов"></label>
+          <button class="btn primary" type="submit">🎁 Подарить</button>
+        </div>
+        <div class="login-err" id="giftMsg"></div>
+      </form>
+      <h3 class="adm-h3" style="margin-top:18px">Недавно подарено</h3>
+      <div id="giftRecent"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
     <section class="adm-view" id="view-site" hidden>
