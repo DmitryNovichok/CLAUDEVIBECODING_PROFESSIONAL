@@ -5540,8 +5540,11 @@
 
   // ------------------------------------------------------------ профиль: награды, достижения, значки у ника
   let PROF = null, profPick = null, profBack = null;
+  let profTab = 'gifts', profMore = false;      // вкладка профиля; показаны ли неполученные награды
   async function openProfile(sid, back) {
     profBack = back || null;
+    profTab = 'gifts';
+    profMore = false;
     $('#forecastBody').innerHTML = '<h2 class="fm-title">Профиль</h2><p class="fm-muted">Загружаю…</p>';
     $('#forecastModal').hidden = false;
     try { PROF = await api('profile' + (sid && sid !== 'me' ? '?sid=' + encodeURIComponent(sid) : '')); } catch (e) {
@@ -5559,6 +5562,8 @@
     return `<${tag} class="ach pf-item${has ? '' : ' locked'}${on ? ' on' : ''}"${profPick && has ? ` data-pick="${esc(a.k)}" aria-pressed="${on}"` : ''} title="${esc(a.d)}">
       <span class="ach-icon">${esc(a.i)}</span><span><b>${esc(a.t)}</b><small>${esc(a.d)}</small></span>${count}${on ? '<span class="pf-check">✓</span>' : ''}</${tag.split(' ')[0]}>`;
   }
+  /** 6,2к — коротко для плашки статистики. */
+  const shortNum = v => (v >= 10000 ? Math.round(v / 1000) + 'к' : v >= 1000 ? String(Math.round(v / 100) / 10).replace('.', ',') + 'к' : String(v));
   function renderProfile() {
     const P = PROF;
     if (!P) return;
@@ -5566,61 +5571,84 @@
     const pick = profPick;
     const nick = (pick ? pick.map(k => [...P.awards, ...P.extra, ...P.ach].find(a => a.k === k)).filter(Boolean)
       .map(a => ({ i: a.i, t: a.t, n: a.k === 'fire' || a.n > 1 ? a.n : 0 })) : P.badges);
-    const tools = !P.me ? '' : pick
-      ? `<div class="pf-tools"><span class="fm-muted">Выбрано ${pick.length} из ${P.max} — нажимай на полученные награды и достижения.</span>
+    const name = `${esc(P.name)}${admTag(P.sid)}${P.me ? ' <span class="chip good">это ты</span>' : ''}`;
+    const sub = `${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp.toLocaleString('ru-RU')} XP`;
+    const xpLine = P.need ? `<div class="ph-xp">${P.cur.toLocaleString('ru-RU')} / ${P.need.toLocaleString('ru-RU')} XP до ${P.level + 1}-го уровня</div>` : '';
+    const cnt = k => (P.awards.find(a => a.k === k) || {}).n || 0;
+    const stat = (v, t) => `<div class="pf-stat"><b>${v}</b><small>${t}</small></div>`;
+    const stats = `<div class="pf-stats">${stat('🔥 ' + (P.fire || 0), plural(P.fire || 0, 'день подряд', 'дня подряд', 'дней подряд'))}
+      ${stat('👑 ' + cnt('crown'), plural(cnt('crown'), 'корона', 'короны', 'корон'))}${stat('⚔️ ' + cnt('duel'), plural(cnt('duel'), 'победа', 'победы', 'побед'))}
+      ${stat('💎 ' + shortNum((P.gift_value || {}).sell || 0), '₿ подарки')}</div>`;
+    const acts = P.me ? `<button type="button" class="btn" id="profEdit">🏅 Значки у ника</button>${SERVER && !TEACHER ? '<button type="button" class="btn" data-gift-to="">🛍 Магазин</button>' : ''}`
+      : !TEACHER && SERVER ? `<button type="button" class="btn primary" data-gift-to="${P.sid}">🎁 Подарить подарок</button>` : '';
+    const nickLine = `<div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}
+      ${P.me && !pick ? `<small class="fm-muted" title="${P.chosen ? '' : 'Автоматически: огонёк 7+, корона дня, алмазная лига'}">· ${P.chosen ? 'выбраны тобой' : 'автоматически'}</small>` : ''}</div>`;
+    const earned = [...P.awards.filter(a => a.n > 0), ...P.extra];
+    let body;
+    if (pick) {                      // выбор значков у ника — все полученные награды и достижения сразу
+      body = `<div class="pf-tools"><span class="fm-muted">Выбрано ${pick.length} из ${P.max} — нажимай на полученные награды и достижения.</span>
           <button type="button" class="btn small" id="profSave">Сохранить</button>
           <button type="button" class="btn small ghost" id="profAuto">Автоматически</button>
-          <button type="button" class="btn small ghost" id="profCancel">Отмена</button></div>`
-      : `<div class="pf-tools"><button type="button" class="btn small" id="profEdit">Выбрать значки у ника</button>
-          <span class="fm-muted">${P.chosen ? 'Выбраны тобой.' : 'Сейчас — автоматически: огонёк 7+, корона дня, алмазная лига.'}</span></div>`;
-    const name = `${esc(P.name)}${admTag(P.sid)}${P.me ? ' <span class="chip good">это ты</span>' : ''}`;
-    const sub = `${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp} XP`;
-    const under = `<div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}</div>
-          ${!P.me && !TEACHER && SERVER ? `<p><button type="button" class="btn small" data-gift-to="${P.sid}">🎁 Подарить подарок</button></p>` : ''}`;
-    const fly = profFlyers(P);
+          <button type="button" class="btn small ghost" id="profCancel">Отмена</button></div>
+        ${earned.length || P.ach.length ? `<div class="ach-grid">${earned.map(a => profItem(a, a.k === 'fire' || a.k === 'diamond' ? 'extra' : 'award')).join('')}${P.ach.map(a => profItem(a, 'ach')).join('')}</div>`
+          : '<p class="fm-muted">Пока нечего выбрать — значками становятся полученные награды и достижения.</p>'}`;
+    } else {
+      const tab = (k, t) => `<button type="button" class="pf-tab${profTab === k ? ' on' : ''}" data-ptab="${k}">${t}</button>`;
+      const locked = P.awards.filter(a => !a.n);
+      const more = (n, w) => n ? `<p class="pf-more">${w}</p>` : '';
+      body = `<div class="pf-tabs" role="tablist">${tab('gifts', `🎁 Подарки ${P.gifts_total}`)}${tab('awards', `🏆 Награды ${earned.length}`)}${tab('ach', `⭐ ${P.ach.length}/${P.ach_total}`)}</div>
+        ${profTab === 'gifts' ? profGiftsHtml(P)
+          : profTab === 'awards' ? `${earned.length ? `<div class="ach-grid">${earned.map(a => profItem(a, a.k === 'fire' || a.k === 'diamond' ? 'extra' : 'award')).join('')}</div>` : '<p class="fm-muted">Пока ни одной — награды дают за корону дня, лиги, дуэли и турниры.</p>'}
+            ${locked.length ? (profMore ? `<div class="ach-grid pf-locked">${locked.map(a => profItem(a, 'award')).join('')}</div>`
+              : `<button type="button" class="pf-more" data-pmore>🔒 Ещё ${locked.length} ${plural(locked.length, 'награду', 'награды', 'наград')} можно получить — показать</button>`) : ''}`
+          : `${P.ach.length ? `<div class="ach-grid">${P.ach.map(a => profItem(a, 'ach')).join('')}</div>` : '<p class="fm-muted">Пока ни одного.</p>'}
+            ${more(P.ach_total - P.ach.length, `🔒 Ещё ${P.ach_total - P.ach.length} ${plural(P.ach_total - P.ach.length, 'достижение', 'достижения', 'достижений')} можно получить — каждое один раз`)}`}`;
+    }
     $('#forecastBody').innerHTML = `${back}
-      ${fly.length ? `${profHeroHtml(P, fly, `<h2 class="fm-title">${name}</h2><span>${sub}</span>`)}<div class="ph-under">${under}</div>`
-        : `<div class="gm-head"><span class="gm-level">${P.level}</span>
-        <div style="flex:1"><h2 class="fm-title" style="margin:0">${name}</h2>
-          <span class="fm-muted">${sub}</span>
-          ${under}</div></div>`}
-      ${tools}
-      ${profGiftsHtml(P)}
-      <h3 class="fm-sub">Награды — можно получать много раз</h3>
-      <div class="ach-grid">${P.awards.map(a => profItem(a, 'award')).join('')}${P.extra.map(a => profItem(a, 'extra')).join('')}</div>
-      <h3 class="fm-sub">Достижения · ${P.ach.length} из ${P.ach_total} — даются один раз</h3>
-      ${P.ach.length ? `<div class="ach-grid">${P.ach.map(a => profItem(a, 'ach')).join('')}</div>` : '<p class="fm-muted">Пока ни одного.</p>'}`;
+      ${profHeroHtml(P, profFlyers(P), `<h2 class="fm-title">${name}</h2><span>${sub}</span>${xpLine}`)}
+      ${stats}
+      ${acts ? `<div class="pf-acts">${acts}</div>` : ''}
+      ${nickLine}
+      ${body}`;
   }
   const FLY_RANK = { myth: 0, legend: 1, epic: 2, rare: 3 };
+  const byRank = (a, b) => (FLY_RANK[a.uniq.rar.k] ?? 9) - (FLY_RANK[b.uniq.rar.k] ?? 9) || a.uniq.n - b.uniq.n;
   /** Улучшенные подарки, которые летают в шапке профиля: сначала самые редкие (при равной редкости — меньший номер), до 6. */
-  const profFlyers = P => (P.gift_list || []).filter(g => g.uniq)
-    .sort((a, b) => (FLY_RANK[a.uniq.rar.k] ?? 9) - (FLY_RANK[b.uniq.rar.k] ?? 9) || a.uniq.n - b.uniq.n).slice(0, 6);
-  /** Шапка профиля в цветах и узоре самого редкого улучшенного подарка: уровень в круге, вокруг летают уникальные подарки. */
+  const profFlyers = P => (P.gift_list || []).filter(g => g.uniq).sort(byRank).slice(0, 6);
+  /** Кольцо прогресса до следующего уровня вокруг круга с уровнем. */
+  function xpRing(cur, need) {
+    const r = 56, c = 2 * Math.PI * r, part = need ? Math.min(1, cur / need) : 0;
+    return `<svg class="ph-ring" viewBox="0 0 118 118" aria-hidden="true"><circle cx="59" cy="59" r="${r}" class="ph-ring-bg"/>
+      ${part > 0 ? `<circle cx="59" cy="59" r="${r}" class="ph-ring-xp" stroke-dasharray="${(c * part).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 59 59)"/>` : ''}</svg>`;
+  }
+  /** Шапка профиля: цвет и узор самого редкого улучшенного подарка (без них — цвета сайта), уровень с кольцом XP,
+   *  вокруг летают уникальные подарки. */
   function profHeroHtml(P, fly, info) {
-    const u = fly[0].uniq;
-    const pat = Array.from({ length: 12 }, (_, k) => `<i class="ph-p p${k}">${esc(u.ch)}</i>`).join('');
+    const u = fly.length ? fly[0].uniq : null;
+    const pat = u ? Array.from({ length: 12 }, (_, k) => `<i class="ph-p p${k}">${esc(u.ch)}</i>`).join('') : '';
     const items = fly.map((g, k) => {
       const tip = `${g.t} #${g.uniq.n} · ${g.uniq.rar.t}`, pose = g.uniq.pose || 'stand';
       return `<button type="button" class="ph-fly f${k}" data-fly="${esc(tip)}" title="${esc(tip)}" aria-label="${esc(tip)}" style="--glow:${g.uniq.c1}">
         <span class="ug-ic gfx-${g.uniq.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span></button>`;
     }).join('');
-    return `<div class="pf-hero" style="--c1:${u.c1};--c2:${u.c2}">${pat}
-      <div class="ph-stage"><span class="ph-ava"><b>${P.level}</b><small>уровень</small></span>${items}</div>
+    return `<div class="pf-hero${u ? '' : ' plain'}"${u ? ` style="--c1:${u.c1};--c2:${u.c2}"` : ''}>${pat}
+      <div class="ph-stage">${xpRing(P.cur || 0, P.need || 0)}<span class="ph-ava"><b>${P.level}</b><small>уровень</small></span>${items}</div>
       <div class="ph-name">${info}</div></div>`;
   }
-  /** Витрина подарков в профиле: уникальные — плиткой со своим фоном, узором и номером, обычные — значком. */
+  /** Вкладка «Подарки»: оценка коллекции одной строкой и плитки — уникальные (сначала редкие), потом обычные. */
   function profGiftsHtml(P) {
     const list = P.gift_list || [];
-    if (!list.length) return P.me ? '<h3 class="fm-sub">🎁 Подарки</h3><p class="fm-muted">Пока ни одного — <button type="button" class="link-btn" data-gift-to="">открыть магазин подарков</button>.</p>' : '';
+    if (!list.length) return `<p class="fm-muted">Пока ни одного подарка${P.me && !TEACHER ? ' — <button type="button" class="link-btn" data-gift-to="">открыть магазин подарков</button>' : ''}.</p>`;
     const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
     const tip = g => [g.t + (g.uniq ? ' #' + g.uniq.n : ''), gfRar(g) ? `${gfRar(g).t}: ${rarWhy(g)}` : '',
       g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)].filter(Boolean).join(' · ');
-    const uniq = list.filter(g => g.uniq).length;
-    return `<h3 class="fm-sub">🎁 Подарки · ${P.gifts_total}${uniq ? ` <span class="fm-muted">· уникальных ${uniq}</span>` : ''}</h3>
-      ${giftValueHtml(P.gift_value, P.me)}
-      <div class="pf-gifts">${list.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
+    const V = P.gift_value;
+    const sorted = [...list.filter(g => g.uniq).sort(byRank), ...list.filter(g => !g.uniq)];
+    return `${V && V.n ? `<div class="pf-value" title="Столько дадут, если продать все подарки сейчас; в магазине такие стоят ${V.shop.toLocaleString('ru-RU')} ₿">
+        <span class="fm-muted">💎 Оценка коллекции</span><b>≈ ${V.sell.toLocaleString('ru-RU')} ₿</b></div>` : ''}
+      <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
         <small>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
-      ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху).</p>' : ''}`;
+      ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху): уникальные летают в шапке профиля.</p>' : ''}`;
   }
   async function saveBadges(keys) {
     try { await api('profile/badges', { keys }); } catch (e) { toast(e.message || 'Не получилось сохранить'); return; }
@@ -5633,6 +5661,9 @@
     const fl = e.target.closest('[data-fly]');
     if (fl) { toast(fl.dataset.fly, 2500); return; }      // летающий подарок: на телефоне подсказки нет — название всплывает
     if (!PROF || !e.target.closest('#forecastBody')) return;
+    const tb = e.target.closest('[data-ptab]');
+    if (tb) { profTab = tb.dataset.ptab; profMore = false; renderProfile(); return; }
+    if (e.target.closest('[data-pmore]')) { profMore = true; renderProfile(); return; }
     const t = e.target.closest('#profBack, #profEdit, #profSave, #profAuto, #profCancel, [data-pick]');
     if (!t) return;
     if (t.id === 'profBack') return openRating();
