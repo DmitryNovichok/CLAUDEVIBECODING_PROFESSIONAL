@@ -2372,6 +2372,39 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
 .pf-gift { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
 .pf-gift .ug { width: 60px; height: 60px; }
 .pf-gift .ug-ic { font-size: 32px; }
+/* шапка профиля в цветах самого редкого улучшенного подарка: уникальные подарки летают вокруг уровня, как в Telegram */
+.pf-hero { position: relative; overflow: hidden; margin: 0 0 10px; border-radius: 18px; color: #fff; text-align: center;
+  background: radial-gradient(circle at 50% 36%, var(--c1) 0%, var(--c2) 80%); }
+.pf-hero::after { content: ''; position: absolute; inset: auto 0 0; height: 45%; background: linear-gradient(transparent, rgba(0, 0, 0, .4)); pointer-events: none; }
+.ph-p { position: absolute; font-style: normal; font-weight: 900; font-size: 15px; line-height: 1; color: #fff; opacity: .22; }
+.ph-p.p0 { top: 6%; left: 4%; } .ph-p.p1 { top: 4%; left: 36%; } .ph-p.p2 { top: 8%; left: 61%; } .ph-p.p3 { top: 5%; left: 92%; }
+.ph-p.p4 { top: 30%; left: 33%; } .ph-p.p5 { top: 27%; left: 65%; } .ph-p.p6 { top: 47%; left: 3%; } .ph-p.p7 { top: 45%; left: 95%; }
+.ph-p.p8 { top: 61%; left: 24%; } .ph-p.p9 { top: 59%; left: 75%; } .ph-p.p10 { top: 80%; left: 9%; } .ph-p.p11 { top: 82%; left: 88%; }
+.ph-stage { position: relative; z-index: 1; height: 170px; }
+.ph-ava { position: absolute; left: 50%; top: 52%; display: grid; place-content: center; width: 96px; height: 96px; margin: -48px 0 0 -48px;
+  border: 3px solid rgba(255, 255, 255, .8); border-radius: 50%; background: rgba(255, 255, 255, .2); box-shadow: 0 6px 22px rgba(0, 0, 0, .25); }
+.ph-ava b { font-size: 38px; line-height: 1; text-shadow: 0 2px 6px rgba(0, 0, 0, .35); }
+.ph-ava small { font-size: 11px; font-weight: 800; text-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+.ph-fly { position: absolute; display: grid; place-items: center; width: 52px; height: 52px; margin: -26px 0 0 -26px; padding: 0; border: 0;
+  background: none; cursor: pointer; filter: drop-shadow(0 0 9px var(--glow)) drop-shadow(0 3px 4px rgba(0, 0, 0, .3));
+  animation: phFloat 4.4s ease-in-out infinite; }
+.ph-fly .ug-ic { font-size: 34px; }
+.ph-fly::before, .ph-fly::after { content: '✦'; position: absolute; color: #fff; line-height: 1; text-shadow: 0 0 6px #fff; animation: phTwinkle 2.2s ease-in-out infinite; }
+.ph-fly::before { top: -2px; left: -5px; font-size: 12px; }
+.ph-fly::after { right: -6px; bottom: 4px; font-size: 9px; animation-delay: -1.1s; }
+.ph-fly.f0 { left: 21%; top: 27%; } .ph-fly.f1 { left: 79%; top: 27%; animation-delay: -1.3s; animation-duration: 5s; }
+.ph-fly.f2 { left: 9%; top: 67%; animation-delay: -2.2s; animation-duration: 5.4s; } .ph-fly.f3 { left: 91%; top: 67%; animation-delay: -.6s; animation-duration: 4.8s; }
+.ph-fly.f4 { left: 33%; top: 86%; animation-delay: -3s; animation-duration: 5.2s; } .ph-fly.f5 { left: 67%; top: 86%; animation-delay: -1.8s; animation-duration: 4.6s; }
+.ph-fly.f1::before, .ph-fly.f3::before, .ph-fly.f5::before { animation-delay: -.7s; }
+@keyframes phFloat { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-9px) rotate(4deg); } }
+@keyframes phTwinkle { 0%, 100% { opacity: .15; transform: scale(.6); } 50% { opacity: 1; transform: scale(1.15); } }
+.ph-name { position: relative; z-index: 1; padding: 0 14px 14px; }
+.ph-name h2.fm-title { margin: 0; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
+.ph-name > span { font-size: 13px; text-shadow: 0 1px 3px rgba(0, 0, 0, .55); }
+.ph-name .chip { padding: 1px 8px; background: rgba(255, 255, 255, .92) !important; text-shadow: none; vertical-align: middle; }   /* у .chip фон снят через !important */
+.ph-under { margin: 0 0 10px; }
+.ph-under .pf-nick { margin-top: 0; }
+@media (max-width: 480px) { .ph-fly.f4, .ph-fly.f5 { display: none; } .ph-fly.f0 { left: 17%; } .ph-fly.f1 { left: 83%; } }
 .pf-gift small { font-size: 11.5px; color: var(--muted); font-weight: 700; line-height: 1.2; }
 /* редкость подарков: подпись и рамка */
 :root { --r-common: #9aa0a6; --r-uncommon: #43a047; --r-rare: #1e88e5; --r-epic: #8e24aa; --r-legend: #f57c00; --r-myth: #e91e63; }

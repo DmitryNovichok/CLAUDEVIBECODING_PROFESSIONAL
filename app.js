@@ -5573,18 +5573,40 @@
           <button type="button" class="btn small ghost" id="profCancel">Отмена</button></div>`
       : `<div class="pf-tools"><button type="button" class="btn small" id="profEdit">Выбрать значки у ника</button>
           <span class="fm-muted">${P.chosen ? 'Выбраны тобой.' : 'Сейчас — автоматически: огонёк 7+, корона дня, алмазная лига.'}</span></div>`;
+    const name = `${esc(P.name)}${admTag(P.sid)}${P.me ? ' <span class="chip good">это ты</span>' : ''}`;
+    const sub = `${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp} XP`;
+    const under = `<div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}</div>
+          ${!P.me && !TEACHER && SERVER ? `<p><button type="button" class="btn small" data-gift-to="${P.sid}">🎁 Подарить подарок</button></p>` : ''}`;
+    const fly = profFlyers(P);
     $('#forecastBody').innerHTML = `${back}
-      <div class="gm-head"><span class="gm-level">${P.level}</span>
-        <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(P.name)}${admTag(P.sid)}${P.me ? ' <span class="chip good">это ты</span>' : ''}</h2>
-          <span class="fm-muted">${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp} XP</span>
-          <div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}</div>
-          ${!P.me && !TEACHER && SERVER ? `<p><button type="button" class="btn small" data-gift-to="${P.sid}">🎁 Подарить подарок</button></p>` : ''}</div></div>
+      ${fly.length ? `${profHeroHtml(P, fly, `<h2 class="fm-title">${name}</h2><span>${sub}</span>`)}<div class="ph-under">${under}</div>`
+        : `<div class="gm-head"><span class="gm-level">${P.level}</span>
+        <div style="flex:1"><h2 class="fm-title" style="margin:0">${name}</h2>
+          <span class="fm-muted">${sub}</span>
+          ${under}</div></div>`}
       ${tools}
       ${profGiftsHtml(P)}
       <h3 class="fm-sub">Награды — можно получать много раз</h3>
       <div class="ach-grid">${P.awards.map(a => profItem(a, 'award')).join('')}${P.extra.map(a => profItem(a, 'extra')).join('')}</div>
       <h3 class="fm-sub">Достижения · ${P.ach.length} из ${P.ach_total} — даются один раз</h3>
       ${P.ach.length ? `<div class="ach-grid">${P.ach.map(a => profItem(a, 'ach')).join('')}</div>` : '<p class="fm-muted">Пока ни одного.</p>'}`;
+  }
+  const FLY_RANK = { myth: 0, legend: 1, epic: 2, rare: 3 };
+  /** Улучшенные подарки, которые летают в шапке профиля: сначала самые редкие (при равной редкости — меньший номер), до 6. */
+  const profFlyers = P => (P.gift_list || []).filter(g => g.uniq)
+    .sort((a, b) => (FLY_RANK[a.uniq.rar.k] ?? 9) - (FLY_RANK[b.uniq.rar.k] ?? 9) || a.uniq.n - b.uniq.n).slice(0, 6);
+  /** Шапка профиля в цветах и узоре самого редкого улучшенного подарка: уровень в круге, вокруг летают уникальные подарки. */
+  function profHeroHtml(P, fly, info) {
+    const u = fly[0].uniq;
+    const pat = Array.from({ length: 12 }, (_, k) => `<i class="ph-p p${k}">${esc(u.ch)}</i>`).join('');
+    const items = fly.map((g, k) => {
+      const tip = `${g.t} #${g.uniq.n} · ${g.uniq.rar.t}`, pose = g.uniq.pose || 'stand';
+      return `<button type="button" class="ph-fly f${k}" data-fly="${esc(tip)}" title="${esc(tip)}" aria-label="${esc(tip)}" style="--glow:${g.uniq.c1}">
+        <span class="ug-ic gfx-${g.uniq.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span></button>`;
+    }).join('');
+    return `<div class="pf-hero" style="--c1:${u.c1};--c2:${u.c2}">${pat}
+      <div class="ph-stage"><span class="ph-ava"><b>${P.level}</b><small>уровень</small></span>${items}</div>
+      <div class="ph-name">${info}</div></div>`;
   }
   /** Витрина подарков в профиле: уникальные — плиткой со своим фоном, узором и номером, обычные — значком. */
   function profGiftsHtml(P) {
@@ -5608,6 +5630,8 @@
   document.addEventListener('click', e => {
     const pr = e.target.closest('[data-prof]');
     if (pr) { openProfile(pr.dataset.prof, pr.closest('.lb-wrap') ? 'rating' : null); return; }
+    const fl = e.target.closest('[data-fly]');
+    if (fl) { toast(fl.dataset.fly, 2500); return; }      // летающий подарок: на телефоне подсказки нет — название всплывает
     if (!PROF || !e.target.closest('#forecastBody')) return;
     const t = e.target.closest('#profBack, #profEdit, #profSave, #profAuto, #profCancel, [data-pick]');
     if (!t) return;
