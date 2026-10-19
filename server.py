@@ -2672,7 +2672,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             ge, gdem = econ(db), gift_demand(db)            # оценка подарков — по нынешним ценам
             return self.send_json({
                 "sid": sid, "me": sid == s["id"], "name": short_name(m["name"]) if sid != s["id"] else m["name"],
-                "level": g["level"], "title": g["title"], "xp": g["xp"], "fire": g["fire"],
+                "level": g["level"], "title": g["title"], "xp": g["xp"], "fire": g["fire"], "cur": g["cur"], "need": g["need"],
                 "league": {"idx": lg, "name": LEAGUES[lg][0], "icon": LEAGUES[lg][1]},
                 "awards": awards, "ach": ach, "ach_total": len(ACHIEVEMENTS),
                 "extra": [dict(opts[k], k=k) for k in ("fire", "diamond") if k in opts],

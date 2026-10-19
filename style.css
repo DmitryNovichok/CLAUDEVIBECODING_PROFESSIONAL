@@ -2368,10 +2368,10 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
   .ugp-spin { animation: none; transform: rotate(25deg); }
   .ug.reveal { animation: none; }
 }
-.pf-gifts { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; margin-bottom: 6px; }
+.pf-gifts { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 10px 6px; margin-bottom: 6px; }
 .pf-gift { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
-.pf-gift .ug { width: 60px; height: 60px; }
-.pf-gift .ug-ic { font-size: 32px; }
+.pf-gift .ug { width: 64px; height: 64px; border-radius: 16px; }
+.pf-gift .ug-ic { font-size: 34px; }
 /* шапка профиля в цветах самого редкого улучшенного подарка: уникальные подарки летают вокруг уровня, как в Telegram */
 .pf-hero { position: relative; overflow: hidden; margin: 0 0 10px; border-radius: 18px; color: #fff; text-align: center;
   background: radial-gradient(circle at 50% 36%, var(--c1) 0%, var(--c2) 80%); }
@@ -2402,8 +2402,29 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
 .ph-name h2.fm-title { margin: 0; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
 .ph-name > span { font-size: 13px; text-shadow: 0 1px 3px rgba(0, 0, 0, .55); }
 .ph-name .chip { padding: 1px 8px; background: rgba(255, 255, 255, .92) !important; text-shadow: none; vertical-align: middle; }   /* у .chip фон снят через !important */
-.ph-under { margin: 0 0 10px; }
-.ph-under .pf-nick { margin-top: 0; }
+.pf-hero.plain { --c1: #6fd0ff; --c2: #0d47a1; }          /* без уникальных подарков — цвета сайта */
+.ph-ring { position: absolute; left: 50%; top: 52%; width: 118px; height: 118px; margin: -59px 0 0 -59px; fill: none; stroke-width: 6; }
+.ph-ring-bg { stroke: rgba(255, 255, 255, .25); }
+.ph-ring-xp { stroke: var(--mid); stroke-linecap: round; }
+.ph-xp { margin-top: 1px; font-size: 12px; opacity: .92; text-shadow: 0 1px 3px rgba(0, 0, 0, .55); }
+/* профиль «Коллекционер»: 4 цифры, кнопки, вкладки вместо длинной ленты */
+.pf-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0 0 10px; }
+.pf-stat { padding: 7px 2px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--card); text-align: center; }
+.pf-stat b { display: block; font-size: 16px; line-height: 1.25; white-space: nowrap; }
+.pf-stat small { display: block; font-size: 10.5px; font-weight: 800; line-height: 1.2; color: var(--muted); }
+.pf-acts { display: flex; gap: 8px; margin: 0 0 8px; }
+.pf-acts .btn { flex: 1; padding: 9px 10px; font-size: 13px; }
+.pf-nick small { font-size: 12px; }
+.pf-tabs { display: flex; gap: 4px; margin: 12px 0 10px; padding: 4px; border-radius: 14px; background: var(--card-hover); }
+.pf-tab { flex: 1; padding: 8px 2px; border: 0; border-radius: 10px; background: none; color: var(--muted); font: 900 13px var(--font); cursor: pointer; }
+.pf-tab.on { background: var(--card); color: var(--text); box-shadow: 0 1px 0 var(--border), 0 2px 6px rgba(0, 0, 0, .06); }
+.pf-value { display: flex; justify-content: space-between; align-items: baseline; margin: 0 2px 10px; font-size: 13px; }
+.pf-value b { font-size: 16px; }
+.pf-more { display: block; width: 100%; margin: 10px 0 0; padding: 9px 12px; border: 2px dashed var(--border); border-radius: 12px; background: none;
+  color: var(--muted); font: 800 13px var(--font); text-align: left; }
+button.pf-more { cursor: pointer; } button.pf-more:hover { color: var(--text); }
+.pf-locked { margin-top: 10px; }
+@media (max-width: 400px) { .pf-stat b { font-size: 14px; } .pf-tab { font-size: 12px; } }
 @media (max-width: 480px) { .ph-fly.f4, .ph-fly.f5 { display: none; } .ph-fly.f0 { left: 17%; } .ph-fly.f1 { left: 83%; } }
 .pf-gift small { font-size: 11.5px; color: var(--muted); font-weight: 700; line-height: 1.2; }
 /* редкость подарков: подпись и рамка */

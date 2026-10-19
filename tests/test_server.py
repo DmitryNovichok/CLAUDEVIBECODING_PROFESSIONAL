@@ -2623,8 +2623,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((V["n"], V["sell"]), (2, sum(g["sell"] for g in d["mine"])))
         self.assertEqual(V["shop"], price["cat"] + server.GIFT_UP_PRICE + price["cookie"])
         self.assertEqual([(g["gift"], bool(g["uniq"])) for g in V["top"]], [("cat", True), ("cookie", False)])
-        # та же оценка — в профиле, и своём, и у одноклассника
-        self.assertEqual(self.req("GET", "/api/profile", token=tok)[1]["gift_value"]["sell"], V["sell"])
+        # та же оценка — в профиле, и своём, и у одноклассника; там же прогресс до следующего уровня (кольцо в шапке)
+        me = self.req("GET", "/api/profile", token=tok)[1]
+        self.assertEqual(me["gift_value"]["sell"], V["sell"])
+        self.assertEqual((me["level"], me["cur"], me["need"]), server.level_of(me["xp"])[:1] + server.level_of(me["xp"])[2:])
         st, pr = self.req("GET", f"/api/profile?sid={sid}", token=self.login("Соседкин Савва"))
         self.assertEqual((st, pr["gift_value"]["n"], pr["gift_value"]["sell"]), (200, 2, V["sell"]))
 
