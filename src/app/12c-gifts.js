@@ -56,14 +56,27 @@
     $('#forecastBody').innerHTML = `
       <div class="gm-head"><span class="gm-level gf-coin">₿</span>
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${btcWord(coins)}</h2>
-          <span class="fm-muted">Только трудом: 1 ₿ за каждые ${G.coin_xp} XP опыта, а каждые ${G.work_every} решённых заданий — подарок в награду.</span></div></div>
+          <span class="fm-muted">Только трудом: 1 ₿ за каждые ${G.coin_xp} XP опыта, а каждые ${G.work_every} решённых заданий — подарок в награду.
+            Решено быстрее ${G.fine_sec} секунд — минус 1 ₿${G.fines ? ` (уже −${G.fines} ₿)` : ''}.</span></div></div>
       <div class="gf-econ${E.idx > 1 ? ' up' : ''}"><b>${E.idx > 1 ? `📈 Инфляция: цены ×${idxTxt(E.idx)}` : '📊 Цены по каталогу'}</b>
         <span>Средний кошелёк учеников — ${E.avg} ₿ (норма ${E.target} ₿). Копят все — цены растут, тратят — падают.</span></div>
       <h3 class="fm-sub">Магазин подарков${who ? ` — для ${esc(who)}` : ''}</h3>
       ${shop}
       <h3 class="fm-sub">Мои подарки · ${G.mine.length}</h3>
       ${mine}
+      ${ledgerHtml(G)}
       <p class="fm-note">Подарки видны маленькими значками у ника — в рейтинге и в профиле: сначала уникальные, всего до ${G.show}.</p>`;
+  }
+  /** История биткоинов, кроме опыта: начисления и снятия учителем, покупки, улучшения, продажи, штрафы за спешку. */
+  function ledgerHtml(G) {
+    const why = { grant: '➕ Начислил учитель', take: '➖ Снял учитель', gift: '🎁 Покупка подарка', upgrade: '✨ Улучшение', sell: '💰 Продажа' };
+    const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? ` <span class="fm-muted">«${esc(r.note)}»</span>` : ''}</td>
+      <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${Math.abs(r.delta)} ₿</td></tr>`).join('');
+    if (!rows && !G.fines) return '';
+    return `<details class="xp-log"><summary>История биткоинов</summary>
+      ${G.fines ? `<p class="fm-note">Штраф за ответы быстрее ${G.fine_sec} секунд: −${G.fines} ₿ (по 1 ₿ за задание).</p>` : ''}
+      ${rows ? `<table class="fm-table">${rows}</table>` : ''}
+      <p class="fm-note">Биткоины за опыт здесь не показаны — они приходят сами: 1 ₿ за каждые ${G.coin_xp} XP.</p></details>`;
   }
   /** Карточка подарка: свойства уникального или кнопка «Улучшить». */
   function renderGift(g, fresh) {
@@ -140,6 +153,12 @@
     document.body.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 5200);
   }
+  /** Учитель начислил или снял биткоины — короткое уведомление с причиной, один раз. */
+  function coinNotify(list) {
+    if (!list || !list.length || TEACHER) return;
+    list.forEach((c, i) => setTimeout(() => toast(`${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
+    api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
+  }
   /** Новые подарки (от учителя или одноклассника) — карточкой в углу, один раз. */
   function giftNotify(list) {
     if (!list || !list.length || TEACHER) return;
@@ -153,6 +172,7 @@
     try { me = await api('me'); } catch (e) { return; }
     if (me.game) onGame(me.game);
     giftNotify(me.gifts_new);
+    coinNotify(me.coin_news);
     if (GF && !gfOpen && !$('#forecastModal').hidden && $('#forecastBody .gf-grid, #forecastBody .gf-mine')) openGifts();
   }
   $('#coinCard')?.addEventListener('click', () => openGifts());

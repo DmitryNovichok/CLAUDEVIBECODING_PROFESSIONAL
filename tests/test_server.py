@@ -2459,6 +2459,40 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([(x["from"], x["note"]) for x in me2["gifts_new"]], [("труд", f"За труд: {server.WORK_GIFT_EVERY} решённых заданий")])
         self.assertEqual(server.game_summary(db, sid2)["gift_drop"], 0)
 
+    def test_btc_fine_take_and_remove(self):
+        db = server.APP.db
+        tok = self.login("Спешкин Семён")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        ids = [t["id"] for t in BANK["tasks"]]
+        # быстрее 30 секунд — минус биткоин (как «быстрее минуты — минус опыт»)
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time() - 600, 100))
+        g0 = server.game_summary(db, sid)
+        db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,5,1,?)", (sid, time.time(), ids[0] + "#f1", 9000))
+        g1 = server.game_summary(db, sid)
+        self.assertEqual((g1["btc_fast"], g1["coins"]), (1, g0["coins"] - 1))
+        db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,5,1,?)", (sid, time.time() + 0.001, ids[1] + "#f2", 45000))
+        self.assertEqual(server.game_summary(db, sid)["btc_fast"], 1)          # 45 секунд: минус опыт, но не биткоин
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["fines"], 1)
+        # учитель снимает: не больше, чем есть; ученик видит уведомление с причиной
+        have = server.game_summary(db, sid)["coins"]
+        st, r = self.admin("POST", "/api/admin/gifts/give", {"student_id": sid, "coins": -(have + 50), "note": "Нечестные ответы"})
+        self.assertEqual((st, r["taken"]), (200, have))
+        self.assertEqual(server.game_summary(db, sid)["coins"], 0)
+        news = self.req("GET", "/api/me", token=tok)[1]["coin_news"]
+        self.assertEqual([(c["delta"], c["note"]) for c in news], [(-have, "Нечестные ответы")])
+        self.req("POST", "/api/gifts/seen", {"coin_ids": [c["id"] for c in news]}, tok)
+        self.assertEqual(self.req("GET", "/api/me", token=tok)[1]["coin_news"], [])
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["ledger"][0]["reason"], "take")
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sid, "coins": -5, "gift": "cat"})[0], 400)
+        # учитель удаляет подарок из профиля: сгорает, у ника пропадает
+        self.admin("POST", "/api/admin/gifts/give", {"student_id": sid, "gift": "teddy"})
+        st, d = self.admin("GET", f"/api/admin/gifts/student?id={sid}")
+        gid = next(g["id"] for g in d["gifts"] if g["gift"] == "teddy")
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/remove", {"id": gid})[0], 200)
+        self.assertNotIn(gid, [g["id"] for g in self.admin("GET", f"/api/admin/gifts/student?id={sid}")[1]["gifts"]])
+        self.assertNotIn("🧸", [g["i"] for g in server.gift_icons(db, sid)])
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/remove", {"id": gid})[0], 404)
+
     def test_answer_fix(self):
         # исправленный вручную ответ банка подменяется при загрузке: верный засчитывается, ответ из банка — нет
         bank = server.APP.bank

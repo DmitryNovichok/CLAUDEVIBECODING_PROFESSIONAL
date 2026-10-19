@@ -51,6 +51,7 @@
     if (!old) return;
     if (g.froze) toast(`❄️ Заморозка спасла огонёк`, 5000);
     if (g.gift_drop) setTimeout(giftLive, 1500);           // решил очередные 25 — подарок за труд
+    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено быстрее 30 секунд — биткоины даются за труд', 5000);
     if (g.xp !== old.xp) xpPop(g.xp - old.xp);
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
