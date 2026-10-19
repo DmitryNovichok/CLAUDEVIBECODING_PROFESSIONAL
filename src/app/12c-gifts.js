@@ -2,6 +2,7 @@
   // Биткоины (₿) считает сервер (GAME.coins): 1 за каждые 10 XP опыта + начисления учителя − покупки. Подарок покупают
   // себе или однокласснику, «🎲 Случайный подарок» выпадает любой (дорогие — реже), учитель дарит из панели.
   // Свой подарок можно улучшить — он станет уникальным: номер и случайные фон, узор и эффект, у каждого своя редкость.
+  // Редкость считает сервер: у обычного — шанс выпасть в «🎲», у уникального — шанс сочетания («1 из N»); видна на подарке.
   let GF = null;                          // магазин и свои подарки с сервера
   let gfTo = '';                          // кому дарим: '' — себе, иначе sid одноклассника
   let gfOpen = null;                      // открытая карточка подарка (id) или null — магазин
@@ -9,12 +10,17 @@
   const gfMate = sid => (GF.mates.find(m => String(m.sid) === String(sid)) || {}).name || '';
   const btcWord = n => plural(n, 'биткоин', 'биткоина', 'биткоинов');
   const gfFrom = g => g.from === 'учитель' ? 'от учителя' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
-  /** Уникальный подарок: фон-градиент, узор из символов, эффект и номер. */
+  /** Уникальный подарок: фон-градиент, узор из символов, эффект и номер; рамка — цвета редкости. */
   function uniqTile(g, cls = '') {
     const u = g.uniq;
     const pat = Array.from({ length: 8 }, (_, k) => `<i class="ug-s s${k}">${esc(u.ch)}</i>`).join('');
-    return `<span class="ug ${cls}" style="--c1:${u.c1};--c2:${u.c2}">${pat}<span class="ug-ic gfx-${u.fx}">${g.i}</span><b class="ug-n">#${u.n}</b></span>`;
+    return `<span class="ug r-${u.rar.k} ${cls}" style="--c1:${u.c1};--c2:${u.c2}">${pat}<span class="ug-ic gfx-${u.fx}">${g.i}</span><b class="ug-n">#${u.n}</b></span>`;
   }
+  /** Редкость подарка: уровень (у уникального — его сочетания) и шанс. */
+  const gfRar = g => (g.uniq ? g.uniq.rar : g.rar);
+  const rarHtml = g => { const r = gfRar(g); return r ? `<span class="rar r-${r.k}">${esc(r.t)}</span>` : ''; };
+  const rarWhy = g => (g.uniq ? `шанс такого сочетания — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
+    : g.rar ? `шанс выпасть в 🎲 случайном подарке — ${String(g.rar.p).replace('.', ',')}%` : '');
 
   async function openGifts(to, open) {
     if (!SERVER) return;
@@ -29,18 +35,19 @@
     if (g) return renderGift(g);
     const G = GF, coins = G.coins, who = gfTo ? gfMate(gfTo) : '';
     const left = Math.max(0, G.per_day - G.bought_today);
-    const item = (id, i, t, price, cls = '') => `<button type="button" class="gf-item ${cls}" data-gift="${id}"${price > coins || !left ? ' disabled' : ''}
-        title="${esc(t)} — ${price} ₿"><span class="gf-ic">${i}</span><b>${esc(t)}</b><small>₿ ${price}</small></button>`;
+    const item = (id, i, t, price, cls = '', rar = null) => `<button type="button" class="gf-item ${cls}${rar ? ' r-' + rar.k : ''}" data-gift="${id}"${price > coins || !left ? ' disabled' : ''}
+        title="${esc(t)} — ${price} ₿${rar ? ` · ${rar.t}: ${rarWhy({ rar })}` : ''}"><span class="gf-ic">${i}</span><b>${esc(t)}</b><small>₿ ${price}</small>${rar ? rarHtml({ rar }) : ''}</button>`;
     const shop = G.teacher ? '<p class="fm-note">Учительский аккаунт дарит подарки из панели учителя — вкладка «Подарки».</p>'
       : `<div class="gf-to"><label>Кому <select class="inp" id="gfTo"><option value="">себе</option>${G.mates.map(m =>
           `<option value="${m.sid}"${String(m.sid) === gfTo ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
           <span class="fm-muted">${left ? `Сегодня можно купить ещё ${left}` : 'На сегодня подарков хватит — завтра снова можно'}</span></div>
-        <div class="gf-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'gf-box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price)).join('')}</div>
+        <div class="gf-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'gf-box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar)).join('')}</div>
         <p class="fm-note">🎲 Случайный подарок — может выпасть любой, даже Дракон; чем дороже подарок, тем реже он выпадает.</p>`;
-    const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(x => `<button type="button" class="gf-own${x.uniq ? ' uniq' : ''}" data-gift-open="${x.id}"
-          title="${esc(x.t)}${x.uniq ? ' #' + x.uniq.n : ''}">${x.uniq ? uniqTile(x) : `<span class="gf-ic">${x.i}</span>`}
-          <b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b><small>${esc(gfFrom(x))}</small></button>`).join('')}</div>
-        <p class="fm-note">Нажми на подарок, чтобы его улучшить: он станет уникальным — с номером, фоном, узором и эффектом.</p>`
+    const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(x => `<button type="button" class="gf-own${x.uniq ? ' uniq' : ''} r-${gfRar(x).k}" data-gift-open="${x.id}"
+          title="${esc(x.t)}${x.uniq ? ' #' + x.uniq.n : ''} · ${esc(gfRar(x).t)}: ${esc(rarWhy(x))}">${x.uniq ? uniqTile(x) : `<span class="gf-ic">${x.i}</span>`}
+          <b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b>${rarHtml(x)}<small>${esc(gfFrom(x))}</small></button>`).join('')}</div>
+        <p class="fm-note">Нажми на подарок, чтобы его улучшить за ₿ ${G.up_price}: он станет уникальным — с номером, фоном, узором и эффектом.
+          Редкость: у обычного подарка — шанс выпасть в 🎲, у уникального — шанс его сочетания.</p>`
       : '<p class="fm-muted">Пока ни одного — купи себе первый или дождись подарка от учителя.</p>';
     $('#forecastBody').innerHTML = `
       <div class="gm-head"><span class="gm-level gf-coin">₿</span>
@@ -55,19 +62,21 @@
   /** Карточка подарка: свойства уникального или кнопка «Улучшить». */
   function renderGift(g, fresh) {
     const u = g.uniq;
-    const big = u ? uniqTile(g, 'big' + (fresh ? ' reveal' : '')) : `<span class="ug plain big"><span class="ug-ic">${g.i}</span></span>`;
+    const big = u ? uniqTile(g, 'big' + (fresh ? ' reveal' : '')) : `<span class="ug plain big r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`;
+    const rarRow = `<div class="gf-rar">${rarHtml(g)} <span class="fm-muted">${esc(rarWhy(g))}</span></div>`;
     const meta = [gfFrom(g), gfDate(g.ts)].filter(Boolean).join(' · ');
     const body = u
       ? `<table class="fm-table gf-props">${u.props.map(p => `<tr><td class="fm-muted">${p.k}</td><td><b>${esc(p.t)}</b></td>
           <td class="num"><span class="chip">${String(p.p).replace('.', ',')}%</span></td></tr>`).join('')}</table>
-        <p class="fm-note">Уникальный подарок: такого сочетания фона, узора и эффекта больше нет ни у одного «${esc(g.t)}». Процент — как часто выпадает это свойство.</p>`
+        <p class="fm-note">Уникальный подарок: такого сочетания фона, узора и эффекта больше нет ни у одного «${esc(g.t)}». Процент — как часто выпадает
+          это свойство; редкость подарка — шанс всего сочетания (фон × узор × эффект): редкий, эпический (реже 1 из 1 200), легендарный (1 из 4 000), мифический (1 из 12 000).</p>`
       : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор и эффект. Чем реже свойство, тем ценнее подарок.</p>
         <p><button type="button" class="btn primary" data-gift-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}>✨ Улучшить за ₿ ${g.up}</button>
           ${GF.coins < g.up ? `<span class="fm-muted"> — нужно ещё ${g.up - GF.coins} ₿</span>` : ''}</p>`;
     $('#forecastBody').innerHTML = `<button type="button" class="btn small ghost" id="gfBack">← к подаркам</button>
       <div class="gf-card">${big}
         <div><h2 class="fm-title" style="margin:6px 0 2px">${esc(g.t)}${u ? ` <span class="ug-num">#${u.n}</span>` : ''}</h2>
-          <div class="fm-muted">${esc(meta)}</div>${g.note ? `<div class="gf-note">«${esc(g.note)}»</div>` : ''}</div></div>
+          ${rarRow}<div class="fm-muted">${esc(meta)}</div>${g.note ? `<div class="gf-note">«${esc(g.note)}»</div>` : ''}</div></div>
       ${body}`;
   }
   async function buyGift(id) {

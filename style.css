@@ -2352,3 +2352,22 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
 .pf-gift .ug { width: 60px; height: 60px; }
 .pf-gift .ug-ic { font-size: 32px; }
 .pf-gift small { font-size: 11.5px; color: var(--muted); font-weight: 700; line-height: 1.2; }
+/* редкость подарков: подпись и рамка */
+:root { --r-common: #9aa0a6; --r-uncommon: #43a047; --r-rare: #1e88e5; --r-epic: #8e24aa; --r-legend: #f57c00; --r-myth: #e91e63; }
+.rar { display: inline-block; margin-top: 2px; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 900; letter-spacing: .02em;
+  color: #fff; background: var(--r-common); white-space: nowrap; }
+.rar.r-uncommon { background: var(--r-uncommon); } .rar.r-rare { background: var(--r-rare); } .rar.r-epic { background: var(--r-epic); }
+.rar.r-legend { background: var(--r-legend); } .rar.r-myth { background: linear-gradient(90deg, var(--r-myth), #ff9800); }
+.gf-item.r-uncommon, .gf-own.r-uncommon { border-color: var(--r-uncommon); } .gf-item.r-rare, .gf-own.r-rare { border-color: var(--r-rare); }
+.gf-item.r-epic, .gf-own.r-epic { border-color: var(--r-epic); } .gf-item.r-legend, .gf-own.r-legend { border-color: var(--r-legend); }
+.gf-own.r-myth { border-color: var(--r-myth); }
+.ug.r-rare { box-shadow: 0 0 0 2px var(--r-rare); } .ug.r-epic { box-shadow: 0 0 0 2px var(--r-epic); }
+.ug.r-legend { box-shadow: 0 0 0 2px var(--r-legend), 0 0 10px var(--r-legend); } .ug.r-myth { box-shadow: 0 0 0 2px var(--r-myth), 0 0 14px var(--r-myth); }
+.ug.plain.r-common { box-shadow: none; } .ug.plain.r-uncommon { box-shadow: 0 0 0 2px var(--r-uncommon); }
+.ug.big.r-legend { box-shadow: 0 0 0 3px var(--r-legend), 0 0 24px var(--r-legend); } .ug.big.r-myth { box-shadow: 0 0 0 3px var(--r-myth), 0 0 30px var(--r-myth); }
+.ug.big.r-rare { box-shadow: 0 0 0 3px var(--r-rare), 0 6px 18px rgba(0, 0, 0, .18); } .ug.big.r-epic { box-shadow: 0 0 0 3px var(--r-epic), 0 0 18px var(--r-epic); }
+.ugb.r-rare { box-shadow: 0 0 0 1.5px var(--r-rare); } .ugb.r-epic { box-shadow: 0 0 0 1.5px var(--r-epic); }
+.ugb.r-legend { box-shadow: 0 0 0 1.5px var(--r-legend), 0 0 5px var(--r-legend); } .ugb.r-myth { box-shadow: 0 0 0 1.5px var(--r-myth), 0 0 6px var(--r-myth); }
+.gf-rar { margin: 2px 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gf-rar .rar { font-size: 12px; padding: 2px 9px; }
+.pf-gift .rar { font-size: 9.5px; padding: 0 6px; }

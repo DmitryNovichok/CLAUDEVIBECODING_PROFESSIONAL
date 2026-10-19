@@ -2330,7 +2330,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([(g["gift"], g["from"]) for g in me2["gifts_new"]], [("teddy", "Монеткин М.")])
         self.req("POST", "/api/gifts/seen", {"ids": [g["id"] for g in me2["gifts_new"]]}, tok2)
         self.assertEqual(self.req("GET", "/api/me", token=tok2)[1]["gifts_new"], [])
-        self.assertEqual(server.gift_icons(db, sid2), [{"i": "🧸", "t": "Подарок: Мишка", "n": 0}])
+        self.assertEqual(server.gift_icons(db, sid2), [{"i": "🧸", "t": "Подарок: Мишка · Редкий", "n": 0}])
         # не хватает монет, нет такого подарка, чужой ученик
         self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "dragon"}, tok)[0], 400)
         self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "nope"}, tok)[0], 400)
@@ -2363,13 +2363,23 @@ class ServerTest(unittest.TestCase):
         db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid2, time.time(), 500))
         teddy = next(g for g in self.req("GET", "/api/gifts", token=tok2)[1]["mine"] if g["gift"] == "teddy")
         self.assertIsNone(teddy["uniq"])
+        self.assertEqual(teddy["rar"]["t"], "Редкий")                                                   # шанс в 🎲 ~3%
+        have2 = self.req("GET", "/api/gifts", token=tok2)[1]["coins"]
         st, r = self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok2)
         self.assertEqual(st, 200, r)
+        self.assertEqual(r["game"]["coins"], have2 - server.GIFT_UP_PRICE)                              # улучшение — 500 ₿
         u = r["gift"]["uniq"]
         self.assertEqual(u["n"], 1)
+        self.assertIn(u["rar"]["t"], ["Редкий", "Эпический", "Легендарный", "Мифический"])
+        prod = 1
+        for x in u["props"]:
+            prod *= x["p"] / 100
+        self.assertAlmostEqual(u["rar"]["one_in"], 1 / prod, delta=1 / prod * 0.02)                    # 1 из N = фон × узор × эффект
         self.assertEqual([x["k"] for x in u["props"]], ["Фон", "Узор", "Эффект"])
         self.assertTrue(all(0 < x["p"] <= 100 for x in u["props"]))
         self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok2)[0], 409)
+        self.assertEqual([server.gift_rarity(k)["t"] for k in ("cookie", "tulip", "teddy", "robot", "dragon")],
+                         ["Обычный", "Необычный", "Редкий", "Эпический", "Легендарный"])
         self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok)[0], 404)       # чужой подарок
         self.assertTrue(server.gift_icons(db, sid2)[0]["u"])                                            # уникальный — первым у ника
         # учитель дарит сразу уникальные: номера идут подряд, сочетания свойств не повторяются

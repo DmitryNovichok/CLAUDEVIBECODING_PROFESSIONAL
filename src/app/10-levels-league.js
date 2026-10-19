@@ -96,7 +96,7 @@
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
   /** Подарки у ника — маленькие значки после наград: уникальный — на своём цветном фоне, одинаковые обычные — числом. */
-  const giftBadge = g => (g.u ? `<span class="bdg ugb" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
+  const giftBadge = g => (g.u ? `<span class="bdg ugb r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
     : badgeHtml(g));
   const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
   const badgesHtml = r => ((r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '') + giftsHtml(r);
@@ -241,12 +241,12 @@
     const list = P.gift_list || [];
     if (!list.length) return P.me ? '<h3 class="fm-sub">🎁 Подарки</h3><p class="fm-muted">Пока ни одного — <button type="button" class="link-btn" data-gift-to="">открыть магазин подарков</button>.</p>' : '';
     const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
-    const tip = g => [g.t + (g.uniq ? ' #' + g.uniq.n : ''), g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)]
-      .filter(Boolean).join(' · ');
+    const tip = g => [g.t + (g.uniq ? ' #' + g.uniq.n : ''), gfRar(g) ? `${gfRar(g).t}: ${rarWhy(g)}` : '',
+      g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)].filter(Boolean).join(' · ');
     const uniq = list.filter(g => g.uniq).length;
     return `<h3 class="fm-sub">🎁 Подарки · ${P.gifts_total}${uniq ? ` <span class="fm-muted">· уникальных ${uniq}</span>` : ''}</h3>
-      <div class="pf-gifts">${list.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain"><span class="ug-ic">${g.i}</span></span>`}
-        <small>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</small></div>`).join('')}</div>
+      <div class="pf-gifts">${list.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
+        <small>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
       ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху).</p>' : ''}`;
   }
   async function saveBadges(keys) {

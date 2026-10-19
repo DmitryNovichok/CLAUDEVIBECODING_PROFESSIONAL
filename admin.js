@@ -720,7 +720,7 @@
     if (kind) $('#giftKind').value = kind;
     $('#giftRecent').innerHTML = GFA.recent.length
       ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Кому</th><th>Подарок</th><th>Подпись</th></tr></thead><tbody>${GFA.recent.map(r =>
-          `<tr><td class="muted">${fmtWhen(r.ts)}</td><td>${esc(r.name)}</td><td>${r.i} ${esc(r.t)}${r.uniq ? ` <b>#${r.uniq.n}</b> <span class="muted">✨ ${esc(r.uniq.props.map(p => p.t).join(', '))}</span>` : ''}</td>
+          `<tr><td class="muted">${fmtWhen(r.ts)}</td><td>${esc(r.name)}</td><td>${r.i} ${esc(r.t)}${r.uniq ? ` <b>#${r.uniq.n}</b> <span class="muted">✨ ${esc(r.uniq.rar.t)} · ${esc(r.uniq.props.map(p => p.t).join(', '))}</span>` : ''}</td>
             <td class="muted">${esc(r.note || '—')}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="adm-empty">Вы ещё ничего не дарили.</p>';
   }

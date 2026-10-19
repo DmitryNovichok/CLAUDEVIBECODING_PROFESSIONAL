@@ -2327,7 +2327,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             g = game_summary(db, s["id"])
             return self.send_json({
                 "coins": g["coins"], "coin_xp": COIN_XP, "teacher": bool(s["is_teacher"]),
-                "catalog": [{"id": k, "i": i, "t": t, "price": pr} for k, i, t, pr in GIFTS], "box": GIFT_BOX_PRICE,
+                "catalog": [{"id": k, "i": i, "t": t, "price": pr, "rar": gift_rarity(k)} for k, i, t, pr in GIFTS], "box": GIFT_BOX_PRICE,
+                "up_price": GIFT_UP_PRICE,
                 "mine": gift_rows(db, s["id"]),
                 "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
                 "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
@@ -5215,11 +5216,32 @@ UNIQ_FX = [                            # id, название, вес (как в
     ("classic", "Классика", 30), ("shine", "Блеск", 16), ("mirror", "Зеркало", 12), ("ice", "Лёд", 10), ("acid", "Кислота", 8),
     ("neon", "Неон", 7), ("noir", "Нуар", 6), ("gold", "Золотой", 4), ("ghost", "Призрак", 3), ("rainbow", "Радужный", 2)]
 _UNIQ = {"bg": {x[0]: x for x in UNIQ_BG}, "sym": {x[0]: x for x in UNIQ_SYM}, "fx": {x[0]: x for x in UNIQ_FX}}
+GIFT_UP_PRICE = 500                    # улучшение до уникального, ₿
+
+# Редкость высчитывается из шансов. Обычный подарок — шанс выпасть в «🎲 Случайном подарке» (вес ∝ 1 / цена);
+# уникальный — шанс его сочетания: фон × узор × эффект («1 из N»). Порог — наименьший шанс уровня.
+_GIFT_W = sum(1 / g[3] for g in GIFTS)
+RARITY = [(0.10, "common", "Обычный"), (0.04, "uncommon", "Необычный"), (0.015, "rare", "Редкий"),
+          (0.006, "epic", "Эпический"), (0, "legend", "Легендарный")]
+# пороги уникальных подобраны так, чтобы при улучшении выпадало примерно: редкий 55%, эпический 33%, легендарный 10%, мифический 2%
+UNIQ_RARITY = [(1 / 1200, "rare", "Редкий"), (1 / 4000, "epic", "Эпический"), (1 / 12000, "legend", "Легендарный"),
+               (0, "myth", "Мифический")]
+
+
+def rarity_tier(chance, tiers):
+    return next((k, t) for low, k, t in tiers if chance >= low)
+
+
+def gift_rarity(gid):
+    """Редкость обычного подарка: шанс выпасть в «🎲 Случайном подарке» (в процентах) и уровень."""
+    ch = (1 / GIFT_BY[gid][3]) / _GIFT_W
+    k, t = rarity_tier(ch, RARITY)
+    return {"k": k, "t": t, "p": round(100 * ch, 2)}
 
 
 def gift_up_price(gid):
-    """Цена улучшения: половина цены подарка, но не меньше 25 ₿."""
-    return max(25, GIFT_BY[gid][3] // 2)
+    """Цена улучшения до уникального — одна для всех подарков."""
+    return GIFT_UP_PRICE
 
 
 def gift_random(rng=None):
@@ -5254,10 +5276,13 @@ def uniq_pub(raw):
         bg, sym, fx = _UNIQ["bg"][u["bg"]], _UNIQ["sym"][u["sym"]], _UNIQ["fx"][u["fx"]]
     except (ValueError, TypeError, KeyError):
         return None
-    pct = lambda w, xs, k: round(100 * w / sum(x[k] for x in xs), 1)
+    share = lambda w, xs, k: w / sum(x[k] for x in xs)
+    parts = [("Фон", bg[1], share(bg[4], UNIQ_BG, 4)), ("Узор", sym[1], share(sym[3], UNIQ_SYM, 3)), ("Эффект", fx[1], share(fx[2], UNIQ_FX, 2))]
+    chance = parts[0][2] * parts[1][2] * parts[2][2]       # шанс именно такого сочетания при улучшении
+    k, t = rarity_tier(chance, UNIQ_RARITY)
     return {"n": u["n"], "c1": bg[2], "c2": bg[3], "ch": sym[2], "fx": fx[0],
-            "props": [{"k": "Фон", "t": bg[1], "p": pct(bg[4], UNIQ_BG, 4)}, {"k": "Узор", "t": sym[1], "p": pct(sym[3], UNIQ_SYM, 3)},
-                      {"k": "Эффект", "t": fx[1], "p": pct(fx[2], UNIQ_FX, 2)}]}
+            "rar": {"k": k, "t": t, "one_in": round(1 / chance)},
+            "props": [{"k": a, "t": b, "p": round(100 * c, 1)} for a, b, c in parts]}
 
 
 def gift_icons(db, sid):
@@ -5267,13 +5292,13 @@ def gift_icons(db, sid):
     for r in db.q("SELECT gift, uniq FROM gifts WHERE student_id=? AND uniq IS NOT NULL ORDER BY ts DESC", (sid,)):
         g, u = GIFT_BY.get(r["gift"]), uniq_pub(r["uniq"])
         if g and u:
-            out.append({"i": g[1], "t": f"{g[2]} #{u['n']} · " + ", ".join(x["t"] for x in u["props"]), "n": 0,
-                        "u": {"c1": u["c1"], "c2": u["c2"], "fx": u["fx"]}})
+            out.append({"i": g[1], "t": f"{g[2]} #{u['n']} · {u['rar']['t']} · " + ", ".join(x["t"] for x in u["props"]), "n": 0,
+                        "u": {"c1": u["c1"], "c2": u["c2"], "fx": u["fx"], "r": u["rar"]["k"]}})
     for r in db.q("""SELECT gift, COUNT(*) c, MAX(ts) t FROM gifts WHERE student_id=? AND uniq IS NULL
                      GROUP BY gift ORDER BY t DESC""", (sid,)):
         g = GIFT_BY.get(r["gift"])
         if g:
-            out.append({"i": g[1], "t": "Подарок: " + g[2], "n": r["c"] if r["c"] > 1 else 0})
+            out.append({"i": g[1], "t": f"Подарок: {g[2]} · {gift_rarity(g[0])['t']}", "n": r["c"] if r["c"] > 1 else 0})
     return out[:GIFTS_SHOW]
 
 
@@ -5290,7 +5315,7 @@ def gift_rows(db, sid, where="", limit=200):
         frm = ("учитель" if r["from_teacher"] else "сам себе" if r["from_sid"] == sid
                else short_name(r["sname"]) if r["sname"] else "")
         out.append({"id": r["id"], "gift": g[0], "i": g[1], "t": g[2], "ts": r["ts"], "note": r["note"] or "", "from": frm,
-                    "uniq": uniq_pub(r["uniq"]) if r["uniq"] else None, "up": gift_up_price(g[0])})
+                    "uniq": uniq_pub(r["uniq"]) if r["uniq"] else None, "rar": gift_rarity(g[0]), "up": gift_up_price(g[0])})
     return out
 
 
