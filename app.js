@@ -1781,7 +1781,10 @@
 
     const streak = currentStreak();
     const noCount = res.nocount ? '<div class="fb-note fb-fast">Это задание уже решено или его ответ тебе уже показывали — решение засчитано для тренировки, но <b>без опыта, огонька, серии и достижений</b>.</div>' : '';
-    const fastNote = noCount || !res.fast ? noCount : '<div class="fb-note fb-fast">⏱ Решено быстрее чем за минуту — это похоже на подсмотренный ответ, поэтому <b>−1 XP</b> вместо опыта. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>';
+    const fastNote = noCount || !res.fast ? noCount : res.fast_min > 1
+      ? `<div class="fb-note fb-fast">⏱ Задание №${t.n} засчитывается, только если над ним работать не меньше <b>${res.fast_min} минут</b> — так быстро его не решают.
+          Поэтому <b>−1 XP и −1 ₿</b> вместо награды. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>`
+      : '<div class="fb-note fb-fast">⏱ Решено быстрее чем за минуту — это похоже на подсмотренный ответ, поэтому <b>−1 XP</b> вместо опыта. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>';
     if (score === 1) {
       setFeedback('ok', 'Верно!',
         `<div class="fb-note">${note || (streak >= 3 ? `Серия: ${streak} ${plural(streak, 'задание', 'задания', 'заданий')} подряд без ошибок.` : '')}</div>${fastNote}${extra}`);
@@ -5366,11 +5369,11 @@
       c.title = `Биткоины: ${GAME.coins || 0} ₿ — магазин подарков`;
     }
   }
-  function xpPop(v) {
+  function xpPop(v, unit = 'XP') {
     if (viewPrefs().focus || !viewPrefs().anim) return;
     const b = document.createElement('div');
-    b.className = 'xp-pop';
-    b.textContent = v < 0 ? `−${-v} XP` : `+${v} XP`;
+    b.className = 'xp-pop' + (unit === '₿' ? ' btc-pop' : '');
+    b.textContent = v < 0 ? `−${-v} ${unit}` : `+${v} ${unit}`;
     if (v < 0) b.classList.add('minus');
     document.body.appendChild(b);
     setTimeout(() => b.remove(), 1500);
@@ -5398,9 +5401,10 @@
     if (!old) return;
     if (g.froze) toast(`❄️ Заморозка спасла огонёк`, 5000);
     if (g.gift_drop) setTimeout(giftLive, 1500);           // решил очередные 25 — подарок за труд
-    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено быстрее 30 секунд — биткоины даются за труд', 5000);
+    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено слишком быстро — биткоины даются за труд', 5000);
     if (g.exam_coins > (old.exam_coins || 0)) toast(`🎓 +${g.exam_coins - (old.exam_coins || 0)} ₿ — бонус за вариант`, 5000);
     if (g.xp !== old.xp) xpPop(g.xp - old.xp);
+    if (g.xp !== old.xp && g.coins !== old.coins) setTimeout(() => xpPop(g.coins - old.coins, '₿'), 180);   // биткоины за труд — тоже всплывают
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
     (g.ach || []).filter(a => a.got && !had.has(a.id))
@@ -5422,7 +5426,8 @@
       <p class="fm-note">Опыт даётся за первое верное решение задания: №1–10 — 10 XP, №11–27 — столько, какой номер, и +5 XP за каждую ступень сложности выше первой (до +20); со второй попытки — половина; перерешать уже решённое (из истории) можно для тренировки, но без опыта, огонька, серии и достижений;
         вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.
         За достижения — от 5 до 300 XP: чем труднее получить, тем больше.
-        <b>Верный ответ быстрее чем за минуту</b> с открытия задания — <b>−1 XP</b>: так быстро задания обычно не решают, а подсматривают.</p>
+        <b>Верный ответ быстрее чем за минуту</b> с открытия задания — <b>−1 XP</b>: так быстро задания обычно не решают, а подсматривают.
+        На долгие задачи нужно не меньше: №24 — 10 минут, №25 — 5, №26 — 20, №27 — 25; быстрее — <b>−1 XP и −1 ₿</b>, и задание не засчитано.</p>
       <p><button type="button" class="btn small" data-prof="me">🏅 Мой профиль: награды и значки у ника</button></p>
       ${(g.xplog || []).length ? `<details class="xp-log"><summary>Откуда опыт: последние изменения</summary><table class="fm-table">${g.xplog.map(x => {
         const d = new Date(x.ts * 1000);
@@ -7485,7 +7490,8 @@
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${btcWord(coins)}</h2>
           <span class="fm-muted">Только трудом: сейчас 1 ₿ = ${G.coin_xp} XP опыта${G.coin_xp > G.rate_base ? ` (решает много людей — биткоин дороже обычных ${G.rate_base} XP)` : ''},
             а за каждое решённое задание — ещё биткоины сверху: чем сложнее задание, тем больше. Каждые ${G.work_every} решённых — подарок в награду.
-            Решено быстрее ${G.fine_sec} секунд — минус 1 ₿${G.fines ? ` (уже −${G.fines} ₿)` : ''}.
+            Решено слишком быстро — минус 1 ₿${G.fines ? ` (уже −${G.fines} ₿)` : ''}: быстрее ${G.fine_sec} секунд, а №24–27 — быстрее
+            ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.
             За вариант ЕГЭ — бонус по тестовому баллу: ${examBtcTxt(G)}; самостоятельные от учителя — так же, как вариант.</span></div></div>
       ${giftValueHtml(G.value, true, true)}
       <div class="pf-tabs gf-tabs"><button type="button" class="pf-tab${gfTab === 'shop' ? ' on' : ''}" data-gftab="shop">🛍 Магазин${who ? ` — для ${esc(who)}` : ''}</button>
@@ -7542,7 +7548,7 @@
     return `<details class="xp-log"><summary>История биткоинов</summary>
       ${G.task_coins ? `<p class="fm-note">🧩 Бонусы за решённые задания: <b class="xp-plus">+${G.task_coins} ₿</b> (чем сложнее задание, тем больше).</p>` : ''}
       ${G.exam_coins ? `<p class="fm-note">🎓 Бонусы за варианты ЕГЭ и самостоятельные: <b class="xp-plus">+${G.exam_coins} ₿</b> (${examBtcTxt(G)}).</p>` : ''}
-      ${G.fines ? `<p class="fm-note">Штраф за ответы быстрее ${G.fine_sec} секунд: −${G.fines} ₿ (по 1 ₿ за задание).</p>` : ''}
+      ${G.fines ? `<p class="fm-note">Штраф за слишком быстрые ответы: −${G.fines} ₿ (по 1 ₿ за задание).</p>` : ''}
       ${rows ? `<table class="fm-table">${rows}</table>` : ''}
       <p class="fm-note">Биткоины за опыт здесь не показаны — они приходят сами: 1 ₿ за каждые ${G.coin_xp} XP.</p></details>`;
   }

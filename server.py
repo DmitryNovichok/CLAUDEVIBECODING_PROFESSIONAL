@@ -1348,6 +1348,8 @@ class DB:
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('exam_btc_since', ?)", (str(time.time()),))
             # бонус ₿ за решённое задание и за самостоятельную — тоже с первого запуска версии (за прошлое разом не начисляем)
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('task_btc_since', ?)", (str(time.time()),))
+            # минимальное время на №24–27 — с первого запуска версии: раньше решённое не пересчитываем
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('hard_min_since', ?)", (str(time.time()),))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
             c.execute("DELETE FROM settings WHERE key='repeat_rule_since'")
             # лазейка «подборка по кругу» закрыта этой версией: опыт нарушителей срезается до этого момента
@@ -2421,7 +2423,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({
                 "coins": g["coins"], "coin_xp": rate, "rate_active": active, "rate_base": COIN_XP, "rate_max": BTC_RATE_MAX,
                 "rate_free": BTC_RATE_FREE, "rate_step": BTC_RATE_STEP, "teacher": bool(s["is_teacher"]),
-                "fines": g["btc_fast"], "fine_sec": BTC_FAST_MS // 1000,
+                "fines": g["btc_fast"], "fine_sec": BTC_FAST_MS // 1000, "hard_min": {n: ms // 60000 for n, ms in HARD_MIN_MS.items()},
                 "ledger": [dict(r) for r in db.q("""SELECT ts, delta, reason, note FROM coins WHERE student_id=?
                                                     ORDER BY ts DESC, id DESC LIMIT 40""", (s["id"],))],
                 "econ": e, "cap": UNIQ_CAP, "work_every": WORK_GIFT_EVERY,
@@ -3387,7 +3389,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
                                  revealed=1, spent=spent, away=st["away"], st=st)
                 st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"],
-                                                     "fast": spent is not None and spent < FAST_XP_MS,
+                                                     "fast": spent is not None and spent < answer_min_ms(n, time.time()),
+                                                     "fast_min": answer_min_ms(n, time.time()) // 60000,
                                                      "nocount": last_attempt_skipped(APP.db, s["id"])}, t)
                 if daily_fast:
                     st["final"]["daily_fast"] = True
@@ -5202,6 +5205,24 @@ FAST_XP_MS = 60000          # верный ответ быстрее минут�
 FAST_XP_PENALTY = -1        # …даёт −1 XP вместо опыта
 BTC_FAST_MS = 30000         # а быстрее 30 секунд — ещё и −1 ₿: биткоины не даются просто так
 BTC_FAST_FINE = 1
+# №24–27 — долгие задачи: верный ответ быстрее этого с открытия задания не засчитывается — −1 XP и −1 ₿
+HARD_MIN_MS = {24: 10 * 60000, 25: 5 * 60000, 26: 20 * 60000, 27: 25 * 60000}
+
+
+def answer_min_ms(n, ts):
+    """Сколько минимум нужно на задание, чтобы верный ответ засчитался: №24–27 — HARD_MIN_MS (для ответов после выхода
+    правила), остальные — минута."""
+    lim = HARD_MIN_MS.get(n or 0)
+    return lim if lim and ts >= setting_since(APP.db, "hard_min_since") else FAST_XP_MS
+
+
+def too_fast(r, fast_since):
+    """Верный ответ дан слишком быстро — похоже на подсмотренный: без опыта и не засчитан решённым."""
+    return r["spent_ms"] is not None and r["ts"] >= fast_since and r["spent_ms"] < answer_min_ms(r["n"], r["ts"])
+
+
+def min_text(ms):
+    return "минуты" if ms <= FAST_XP_MS else f"{ms // 60000} минут"
 _FAST_SINCE = []
 
 
@@ -5264,7 +5285,7 @@ def reward_skips(rows, fast_since):
         out.append(skip)
         if skip:
             continue
-        if sc > 0 and not (r["spent_ms"] is not None and r["spent_ms"] < FAST_XP_MS and r["ts"] >= fast_since):
+        if sc > 0 and not too_fast(r, fast_since):
             solved.add(tid)
         if sc < 1 and (r["revealed"] or r["reason"] in (WORK_REASON, "asg")):
             shown.add(tid)
@@ -5273,7 +5294,7 @@ def reward_skips(rows, fast_since):
 
 def last_attempt_skipped(db, sid):
     """Последний ответ ученика не засчитан (задание уже решено или ответ был показан)."""
-    rows = db.q("""SELECT task_id, score, ts, exam, reason, revealed, spent_ms FROM attempts WHERE student_id=?
+    rows = db.q("""SELECT task_id, n, score, ts, exam, reason, revealed, spent_ms FROM attempts WHERE student_id=?
                    ORDER BY ts, id""", (sid,))
     return bool(rows) and reward_skips(rows, fast_xp_since(db))[-1]
 
@@ -6218,12 +6239,14 @@ def _game_summary(db, sid, brief=False, windows=None):
                 cnt["pi"] = 1
             if (fun.tm_mon, fun.tm_mday) in ((12, 31), (1, 1)):
                 cnt["newyear"] = 1
-            # решено быстрее минуты — похоже на подсмотренный ответ: вместо опыта −1 XP, задание не считается решённым
-            fast = r["spent_ms"] is not None and r["spent_ms"] < FAST_XP_MS and ts >= fast_since
+            # решено слишком быстро (быстрее минуты, №24–27 — быстрее HARD_MIN_MS) — похоже на подсмотренный ответ:
+            # вместо опыта −1 XP, задание не считается решённым; быстрее 30 секунд, а у №24–27 — всегда, ещё и −1 ₿
+            lim = answer_min_ms(r["n"], ts)
+            fast = r["spent_ms"] is not None and r["spent_ms"] < lim and ts >= fast_since
             first_time = tid not in solved and not fast
             if fast:
-                gain(FAST_XP_PENALTY, ts, f"№{r['n']} — решено быстрее минуты")
-                if r["spent_ms"] < BTC_FAST_MS and ts >= btc_since:
+                gain(FAST_XP_PENALTY, ts, f"№{r['n']} — решено быстрее {min_text(lim)}")
+                if (r["spent_ms"] < BTC_FAST_MS or lim > FAST_XP_MS) and ts >= btc_since:
                     cnt["btc_fast"] += 1           # быстрее 30 секунд — ещё и −1 ₿
                     if ts >= day_cut:
                         fine_days[dkey(ts)] = fine_days.get(dkey(ts), 0) + BTC_FAST_FINE

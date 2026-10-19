@@ -19,11 +19,11 @@
       c.title = `Биткоины: ${GAME.coins || 0} ₿ — магазин подарков`;
     }
   }
-  function xpPop(v) {
+  function xpPop(v, unit = 'XP') {
     if (viewPrefs().focus || !viewPrefs().anim) return;
     const b = document.createElement('div');
-    b.className = 'xp-pop';
-    b.textContent = v < 0 ? `−${-v} XP` : `+${v} XP`;
+    b.className = 'xp-pop' + (unit === '₿' ? ' btc-pop' : '');
+    b.textContent = v < 0 ? `−${-v} ${unit}` : `+${v} ${unit}`;
     if (v < 0) b.classList.add('minus');
     document.body.appendChild(b);
     setTimeout(() => b.remove(), 1500);
@@ -51,9 +51,10 @@
     if (!old) return;
     if (g.froze) toast(`❄️ Заморозка спасла огонёк`, 5000);
     if (g.gift_drop) setTimeout(giftLive, 1500);           // решил очередные 25 — подарок за труд
-    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено быстрее 30 секунд — биткоины даются за труд', 5000);
+    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено слишком быстро — биткоины даются за труд', 5000);
     if (g.exam_coins > (old.exam_coins || 0)) toast(`🎓 +${g.exam_coins - (old.exam_coins || 0)} ₿ — бонус за вариант`, 5000);
     if (g.xp !== old.xp) xpPop(g.xp - old.xp);
+    if (g.xp !== old.xp && g.coins !== old.coins) setTimeout(() => xpPop(g.coins - old.coins, '₿'), 180);   // биткоины за труд — тоже всплывают
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
     (g.ach || []).filter(a => a.got && !had.has(a.id))
@@ -75,7 +76,8 @@
       <p class="fm-note">Опыт даётся за первое верное решение задания: №1–10 — 10 XP, №11–27 — столько, какой номер, и +5 XP за каждую ступень сложности выше первой (до +20); со второй попытки — половина; перерешать уже решённое (из истории) можно для тренировки, но без опыта, огонька, серии и достижений;
         вторая попытка — половина. Ещё +15 XP за пять решённых за день и за вариант ЕГЭ — 30 XP и по 3 XP за первичный балл.
         За достижения — от 5 до 300 XP: чем труднее получить, тем больше.
-        <b>Верный ответ быстрее чем за минуту</b> с открытия задания — <b>−1 XP</b>: так быстро задания обычно не решают, а подсматривают.</p>
+        <b>Верный ответ быстрее чем за минуту</b> с открытия задания — <b>−1 XP</b>: так быстро задания обычно не решают, а подсматривают.
+        На долгие задачи нужно не меньше: №24 — 10 минут, №25 — 5, №26 — 20, №27 — 25; быстрее — <b>−1 XP и −1 ₿</b>, и задание не засчитано.</p>
       <p><button type="button" class="btn small" data-prof="me">🏅 Мой профиль: награды и значки у ника</button></p>
       ${(g.xplog || []).length ? `<details class="xp-log"><summary>Откуда опыт: последние изменения</summary><table class="fm-table">${g.xplog.map(x => {
         const d = new Date(x.ts * 1000);
