@@ -2604,8 +2604,53 @@ class ServerTest(unittest.TestCase):
         st, s1 = self.admin("GET", f"/api/admin/gifts/student?id={sid}")
         w = s1["wallet"]
         self.assertEqual((w["mined"], w["grant"]), (1000, 30))
-        self.assertEqual(w["balance"], w["mined"] + w["exam"] + w["grant"] + w["sell"] - w["gift"] - w["upgrade"] - w["take"] - w["fines"])
+        self.assertEqual(w["balance"], w["mined"] + w["exam"] + w["task"] + w["grant"] + w["sell"] - w["gift"] - w["upgrade"] - w["take"] - w["fines"])
         self.assertTrue(all(e["sid"] == sid for e in s1["feed"]))
+
+    def test_task_and_work_btc(self):
+        db = server.APP.db
+        tok = self.login("Бонусный Борис")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        now = time.time()
+        since, old = now - 3600, db.setting("task_btc_since")     # «версия вышла» час назад
+        db.setting("task_btc_since", str(since))
+        server._SINCE.clear()
+        self.addCleanup(server._SINCE.clear)
+        self.addCleanup(db.setting, "task_btc_since", old)
+        seq = iter(range(100))
+
+        def att(tid, n, score=1.0, spent=120000, reason="", grp=None, exam=None, ts=None):
+            db.x("""INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms, reason, grp, exam)
+                    VALUES(?,?,?,?,?,?,?,?,?)""", (sid, ts or time.time() + next(seq) / 1000, tid, n, score, spent, reason, grp, exam))
+        att("x:22", 22, ts=since - 60)                 # решено до обновления — без бонуса
+        att("x:10", 10)                                # №10 — 25 % от номера: 2,5 ₿
+        att("x:10", 10)                                # повтор решённого — ничего
+        att("x:26", 26)                                # 50 ₿
+        att("x:27", 27, score=0.5)                     # со 2-й попытки — половина от 40
+        for k, n in ((1, 19), (2, 20), (3, 21)):       # игра 19–21 — 5 ₿ за все три вопроса
+            att(f"x:g{k}", n, grp="x:g")
+        att("x:24", 24, spent=5000)                    # быстрее минуты — не засчитано
+        att("x:25", 25, reason="work")                 # из самостоятельной — она считается целиком
+        att("x:23", 23, exam="e1")                     # из варианта — у варианта свой бонус
+        g = server.game_summary(db, sid)
+        self.assertEqual(g["task_coins"], math.floor(2.5 + 50 + 20 + 5))
+        self.assertEqual(g["btc_fast"], 1)                              # ответ быстрее 30 секунд — ещё и −1 ₿
+        self.assertEqual((g["coins"], g["exam_coins"]), (g["mined"] + g["task_coins"] - 1, 0))
+        # самостоятельная — как вариант: полный вариант по тестовому баллу, короче — по проценту и пропорционально
+        self.assertEqual(server.work_btc([(n, 1) for n in range(1, 28)]), 100)               # 29 первичных — 100 баллов
+        self.assertEqual(server.work_btc([(n, 1 if n <= 14 else 0) for n in range(1, 28)]), 30)   # 14 первичных — 62 балла
+        self.assertEqual(server.work_btc([(5, 1)] * 10), math.floor(100 * 10 / 27))
+        self.assertEqual(server.work_btc([]), 0)
+        aid = db.x("INSERT INTO assignments(class_id, title, tasks, created, kind, strict) VALUES(0, 'Самостоятельная', '[]', ?, 'self', 1)", (now,))
+        db.x("INSERT INTO asg_runs(asg_id, student_id, started, finished, result) VALUES(?,?,?,?,?)",
+             (aid, sid, now - 900, now, json.dumps({"b:5": 1, "fip:02143E": 1, "b:6": 0, "b:27": 0.5})))
+        g = server.game_summary(db, sid)
+        self.assertEqual(g["exam_coins"], math.floor(30 * 4 / 27))      # 62,5 % → уровень 60+, 4 задания из 27
+        w = self.admin("GET", f"/api/admin/gifts/student?id={sid}")[1]["wallet"]
+        self.assertEqual((w["task"], w["exam"]), (g["task_coins"], g["exam_coins"]))
+        d = self.req("GET", "/api/gifts", token=tok)[1]
+        self.assertEqual(d["task_coins"], 77)
+        self.assertNotIn("task_btc", json.dumps(d))                    # таблицу бонусов ученику не отдаём
 
     def test_gift_value(self):
         db = server.APP.db
@@ -2639,8 +2684,8 @@ class ServerTest(unittest.TestCase):
         now = time.time()
         since, old = now - 3600, db.setting("exam_btc_since")     # «версия вышла» час назад
         db.setting("exam_btc_since", str(since))
-        server._EXAM_BTC_SINCE.clear()
-        self.addCleanup(server._EXAM_BTC_SINCE.clear)
+        server._SINCE.clear()
+        self.addCleanup(server._SINCE.clear)
         self.addCleanup(db.setting, "exam_btc_since", old)
         self.assertEqual(server.exam_btc_since(db), since)
 

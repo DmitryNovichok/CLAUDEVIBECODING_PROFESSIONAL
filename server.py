@@ -1339,6 +1339,8 @@ class DB:
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('btc_fast_since', ?)", (str(time.time()),))
             # биткоины за вариант ЕГЭ по тестовому баллу — за варианты после этой версии (старые не начисляем разом)
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('exam_btc_since', ?)", (str(time.time()),))
+            # бонус ₿ за решённое задание и за самостоятельную — тоже с первого запуска версии (за прошлое разом не начисляем)
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('task_btc_since', ?)", (str(time.time()),))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
             c.execute("DELETE FROM settings WHERE key='repeat_rule_since'")
             # лазейка «подборка по кругу» закрыта этой версией: опыт нарушителей срезается до этого момента
@@ -2370,7 +2372,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "catalog": [{"id": k, "i": i, "t": t, "price": gift_price(k, e, dem), "base": pr, "rar": gift_rarity(k),
                              "demand": dem.get(k, 1.0), "issued": issued.get(k, 0)} for k, i, t, pr in sorted(GIFTS, key=lambda g: g[3])],
                 "box": gift_box_price(db, e), "up_base": GIFT_UP_PRICE,
-                "exam_btc": EXAM_BTC, "exam_coins": g["exam_coins"],
+                "exam_btc": EXAM_BTC, "exam_coins": g["exam_coins"], "task_coins": g["task_coins"],
                 "mine": mine, "value": gift_value(mine, e, dem),
                 "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
                 "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
@@ -4112,7 +4114,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             where, args = self.student_scope()
             studs = db.q(f"SELECT s.id, s.name, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where}", args)
             wallets = [dict(econ_wallet(db, r["id"]), id=r["id"], name=r["name"], cls=r["cls"]) for r in studs]
-            keys = ("balance", "mined", "exam", "grant", "sell", "take", "gift", "upgrade", "fines")
+            keys = ("balance", "mined", "exam", "task", "grant", "sell", "take", "gift", "upgrade", "fines")
             tot = {k: sum(w[k] for w in wallets) for k in keys}
             week = {r["reason"]: r["s"] for r in db.q(f"""SELECT c.reason, SUM(c.delta) s FROM coins c JOIN students s ON s.id = c.student_id
                                                          WHERE c.ts > ? AND {where} GROUP BY c.reason""", (time.time() - 7 * 86400,) + args)}
@@ -5088,14 +5090,41 @@ def exam_btc(test_score):
     return next((b for low, b in EXAM_BTC if (test_score or 0) >= low), 0)
 
 
-_EXAM_BTC_SINCE = []
+_SINCE = {}                  # настройка → (база, время): с какого момента действует правило
+
+
+def setting_since(db, key):
+    """С какого момента действует правило (время первого запуска версии в настройке key); раньше — не считаем."""
+    hit = _SINCE.get(key)
+    if not hit or hit[0] is not db:
+        hit = _SINCE[key] = (db, to_float(db.setting(key)) or 0)
+    return hit[1]
 
 
 def exam_btc_since(db):
-    """С какого момента варианты ЕГЭ дают биткоины (раньше сданные не считаем)."""
-    if not _EXAM_BTC_SINCE or _EXAM_BTC_SINCE[0][0] is not db:
-        _EXAM_BTC_SINCE[:] = [(db, to_float(db.setting("exam_btc_since")) or 0)]
-    return _EXAM_BTC_SINCE[0][1]
+    return setting_since(db, "exam_btc_since")
+
+
+# бонус ₿ за впервые решённое задание (сверх биткоинов за опыт) по номеру; со 2-й попытки — половина.
+# На сайте таблицу не показываем — ученику только «чем сложнее задание, тем больше».
+TASK_BTC = {**{n: Fraction(n, 4) for n in range(1, 11)},                 # №1–10 — 25 % от номера
+            **{n: Fraction(35 * n, 100) for n in range(11, 16)},          # №11–15 — 35 %
+            16: Fraction(4), 17: Fraction(17, 2), 18: Fraction(63, 10),   # 25 %, 50 %, 35 %
+            19: Fraction(5, 3), 20: Fraction(5, 3), 21: Fraction(5, 3),   # игра 19–21 — 5 ₿ за все три вопроса
+            22: Fraction(7), 23: Fraction(10), 24: Fraction(25), 25: Fraction(10), 26: Fraction(50), 27: Fraction(40)}
+
+
+def work_btc(items):
+    """Бонус за самостоятельную от учителя — как за вариант ЕГЭ. items — [(номер, зачёт 1 / 0.5 / 0)].
+    Полный вариант (по заданию на каждый номер 1–27) — по тестовому баллу; работа короче — по проценту решённого
+    и пропорционально размеру (10 заданий из 27 — 10/27 бонуса)."""
+    if not items:
+        return 0
+    if len(items) == 27 and {n for n, _ in items} == set(range(1, 28)):
+        primary = sum(ege_points(n) if c == 1 else 1 if c == 0.5 else 0 for n, c in items)
+        return exam_btc(EGE_SCALE[min(primary, len(EGE_SCALE) - 1)])
+    pct = 100 * sum(c for _, c in items) / len(items)
+    return math.floor(exam_btc(pct) * min(1, len(items) / 27))
 
 
 FAST_XP_MS = 60000          # верный ответ быстрее минуты с открытия задания…
@@ -5628,12 +5657,13 @@ def econ_site(db, fresh=False):
     if not fresh and _SITE_ECON["v"] and _SITE_ECON["db"] is db and now - _SITE_ECON["t"] < 300:
         return _SITE_ECON["v"]
     sids = [r["id"] for r in db.q("SELECT id FROM students WHERE COALESCE(is_teacher, 0) = 0")]
-    sums = {"balance": 0, "mined": 0, "exam": 0, "fines": 0, "with_coins": 0}
+    sums = {"balance": 0, "mined": 0, "exam": 0, "task": 0, "fines": 0, "with_coins": 0}
     for sid in sids:
         g = game_summary(db, sid, brief=True)
         sums["balance"] += g["coins"]
         sums["mined"] += g["mined"]
         sums["exam"] += g["exam_coins"]
+        sums["task"] += g["task_coins"]
         sums["fines"] += g["btc_fast"] * BTC_FAST_FINE
         sums["with_coins"] += g["coins"] > 0
     led = {r["reason"]: {"sum": r["s"], "n": r["c"]} for r in db.q("SELECT reason, SUM(delta) s, COUNT(*) c FROM coins GROUP BY reason")}
@@ -5675,7 +5705,8 @@ def econ_wallet(db, sid):
     """Кошелёк ученика: откуда пришли биткоины и куда ушли."""
     g = game_summary(db, sid, brief=True)
     led = {r["reason"]: r["s"] for r in db.q("SELECT reason, SUM(delta) s FROM coins WHERE student_id=? GROUP BY reason", (sid,))}
-    return {"balance": g["coins"], "mined": g["mined"], "exam": g["exam_coins"], "grant": led.get("grant", 0), "sell": led.get("sell", 0),
+    return {"balance": g["coins"], "mined": g["mined"], "exam": g["exam_coins"], "task": g["task_coins"],
+            "grant": led.get("grant", 0), "sell": led.get("sell", 0),
             "take": -led.get("take", 0), "gift": -led.get("gift", 0), "upgrade": -led.get("upgrade", 0),
             "fines": g["btc_fast"] * BTC_FAST_FINE, "xp": g["xp"]}
 
@@ -5931,6 +5962,7 @@ def _game_summary(db, sid, brief=False, windows=None):
 
     skips = reward_skips(rows, fast_since)
     cheat = exploit_window(db, rows, skips)
+    task_btc, task_since = Fraction(0), setting_since(db, "task_btc_since")
     for r, skip in zip(rows, skips):
         # уже решённое или с подсмотренным ответом — ни опыта, ни огонька, ни серий, ни достижений (см. reward_skips)
         if skip:
@@ -6000,6 +6032,9 @@ def _game_summary(db, sid, brief=False, windows=None):
                 if tid not in solved:              # опыт — только за первое решение задания, откуда бы ни пришёл ответ
                     gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
                          f"№{r['n']} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"))
+                    # и бонус ₿ по номеру; самостоятельная считается целиком, как вариант (ниже)
+                    if ts >= task_since and r["reason"] != WORK_REASON and not (cheat and cheat[0] <= ts < cheat[1]):
+                        task_btc += TASK_BTC.get(r["n"] or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2))
             if first_time:
                 cnt["solved"] += 1
                 solved.add(tid)
@@ -6055,6 +6090,17 @@ def _game_summary(db, sid, brief=False, windows=None):
             got.setdefault("exam67", e["finished"])
         if (e["finished"] - e["started"]) < 3600 and (e["test_score"] or 0) >= 60:
             got.setdefault("speedrun", e["finished"])
+    # самостоятельные от учителя — бонус как за вариант (по результату сдачи), вместо бонуса за каждое задание
+    for w in db.q("""SELECT r.finished, r.result FROM asg_runs r JOIN assignments a ON a.id = r.asg_id
+                     WHERE r.student_id=? AND r.finished>=? AND a.kind='self'""", (sid, task_since)):
+        if cheat and cheat[0] <= w["finished"] < cheat[1]:
+            continue
+        try:
+            res = json.loads(w["result"] or "{}")
+        except ValueError:
+            continue
+        exam_coins += work_btc([((APP.bank.tasks.get(k) or {}).get("n") or 0, c or 0) for k, c in res.items()
+                                if (APP.bank.tasks.get(k) or {}).get("n")])
     # дни подряд
     run = best = 0
     prev = None
@@ -6092,10 +6138,11 @@ def _game_summary(db, sid, brief=False, windows=None):
     # биткоины: заработанный опыт по курсу на момент заработка (покупка заморозок их не отнимает) + начисления − покупки
     mined = max(0, math.floor(sum((Fraction(v, k) for k, v in mined_xp.items()), Fraction(0))))
     extra = db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)["s"]
-    coins = max(0, mined + exam_coins + extra - cnt["btc_fast"] * BTC_FAST_FINE)
+    task_btc = math.floor(task_btc)
+    coins = max(0, mined + exam_coins + task_btc + extra - cnt["btc_fast"] * BTC_FAST_FINE)
     zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
-           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": mined, "exam_coins": exam_coins, "btc_rate": rate, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": mined, "exam_coins": exam_coins, "task_coins": task_btc, "btc_rate": rate, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}
