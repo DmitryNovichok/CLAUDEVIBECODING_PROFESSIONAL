@@ -64,6 +64,7 @@
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     pycSetAccess(me.pyc, me.pyc_pw);
     giftNotify(me.gifts_new);
+    coinNotify(me.coin_news);
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);
     writeJSON(prefsKey(), prefs);

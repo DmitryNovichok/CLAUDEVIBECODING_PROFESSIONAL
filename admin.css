@@ -502,3 +502,10 @@ tr.comp-void td { opacity: .55; }
 .gift-form input[type=number] { width: 110px; }
 .gift-form .gift-note { flex: 1 1 260px; }
 .gift-form .gift-uniq span { display: flex; align-items: center; gap: 6px; height: 42px; color: var(--text); font-weight: 700; white-space: nowrap; }
+.gift-form .gift-coins { display: flex; gap: 6px; }
+.gift-form .gift-coins select { min-width: 0; width: 140px; }
+.gift-owned { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.gift-own { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.gift-own-ic { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 10px; font-size: 24px; background: var(--card-hover, rgba(0,0,0,.05)); }
+.gift-own-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gift-own-t small { color: var(--muted); font-size: 12px; }

@@ -1220,10 +1220,11 @@ class DB:
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, gift TEXT NOT NULL, ts REAL NOT NULL,
                 from_sid INTEGER, from_teacher INTEGER, note TEXT, seen INTEGER DEFAULT 0, uniq TEXT, kind TEXT, sold REAL);
             CREATE INDEX IF NOT EXISTS gifts_student ON gifts(student_id, ts);
-            -- биткоины сверх заработанных опытом: начислил учитель (grant, +), продал подарок (sell, +),
+            -- биткоины сверх заработанных опытом: начислил учитель (grant, +), снял учитель (take, −), продал подарок (sell, +),
             -- потратил на подарок (gift, −) или улучшение (upgrade, −)
             CREATE TABLE IF NOT EXISTS coins(
-                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT);
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT,
+                note TEXT, seen INTEGER DEFAULT 1);
             CREATE INDEX IF NOT EXISTS coins_student ON coins(student_id);
             -- переписка в обращении техподдержки: первое сообщение — support.text, дальше — здесь
             CREATE TABLE IF NOT EXISTS support_msgs(
@@ -1279,7 +1280,9 @@ class DB:
                     ("students", "pyc_free", "INTEGER DEFAULT 0"),    # учитель открыл все уровни курса (без замков)
                     ("gifts", "uniq", "TEXT"),                        # улучшенный подарок: номер, фон, узор, эффект (JSON)
                     ("gifts", "kind", "TEXT"),                        # work — подарок за труд (каждые WORK_GIFT_EVERY решённых)
-                    ("gifts", "sold", "REAL"),                        # продан (сожжён): номер и сочетание больше не выдаются
+                    ("gifts", "sold", "REAL"),                        # продан или удалён учителем (сгорел): номер и сочетание больше не выдаются
+                    ("coins", "note", "TEXT"),                        # причина начисления или снятия учителем
+                    ("coins", "seen", "INTEGER DEFAULT 1"),           # 0 — ученик ещё не видел уведомление (учитель начислил или снял)
                     ("daily_results", "fast", "INTEGER DEFAULT 0"),   # решено нереально быстро — в рейтинг и корону не идёт
                     ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
                     ("teachers", "consent_ts", "REAL"),
@@ -1327,6 +1330,8 @@ class DB:
             c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
+            # «быстрее 30 секунд — минус биткоин» — тоже с первого запуска версии, задним числом не штрафуем
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('btc_fast_since', ?)", (str(time.time()),))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
             c.execute("DELETE FROM settings WHERE key='repeat_rule_since'")
             # лазейка «подборка по кругу» закрыта этой версией: опыт нарушителей срезается до этого момента
@@ -2034,6 +2039,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s),
                 "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
+                "coin_news": [dict(r) for r in APP.db.q("""SELECT id, delta, reason, note FROM coins
+                                                            WHERE student_id=? AND seen=0 ORDER BY ts LIMIT 10""", (s["id"],))],
                 "teacher": bool(s["is_teacher"]),
                 "consent_needed": not s["is_teacher"] and s["consent_ver"] != LEGAL_VERSION,
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
@@ -2273,9 +2280,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(401, "нужно войти")
             mates = [m for m in teacher_students(db, teacher_of(s)["id"]) if m["id"] != s["id"]]
             if path == "/api/gifts/seen":
-                ids = [to_int(x) for x in (data.get("ids") or []) if to_int(x)][:50]
-                if ids:
-                    db.x(f"UPDATE gifts SET seen=1 WHERE student_id=? AND id IN ({','.join('?' * len(ids))})", (s["id"], *ids))
+                for table, key in (("gifts", "ids"), ("coins", "coin_ids")):
+                    ids = [to_int(x) for x in (data.get(key) or []) if to_int(x)][:50]
+                    if ids:
+                        db.x(f"UPDATE {table} SET seen=1 WHERE student_id=? AND id IN ({','.join('?' * len(ids))})", (s["id"], *ids))
                 return self.send_json({"ok": True})
             if path != "/api/gifts" and method != "POST":
                 return self.err(405, "нужен POST")
@@ -2343,6 +2351,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             issued = uniq_issued(db)
             return self.send_json({
                 "coins": g["coins"], "coin_xp": COIN_XP, "teacher": bool(s["is_teacher"]),
+                "fines": g["btc_fast"], "fine_sec": BTC_FAST_MS // 1000,
+                "ledger": [dict(r) for r in db.q("""SELECT ts, delta, reason, note FROM coins WHERE student_id=?
+                                                    ORDER BY ts DESC, id DESC LIMIT 40""", (s["id"],))],
                 "econ": e, "cap": UNIQ_CAP, "work_every": WORK_GIFT_EVERY,
                 "catalog": [{"id": k, "i": i, "t": t, "price": price_now(pr, e), "base": pr, "rar": gift_rarity(k),
                              "issued": issued.get(k, 0)} for k, i, t, pr in GIFTS],
@@ -4068,6 +4079,29 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "recent": [{"i": GIFT_BY[r["gift"]][1], "t": GIFT_BY[r["gift"]][2], "ts": r["ts"], "note": r["note"] or "",
                             "uniq": uniq_pub(r["uniq"]) if r["uniq"] else None, "name": r["name"]} for r in recent if r["gift"] in GIFT_BY]})
 
+        if path == "/api/admin/gifts/student":
+            # подарки ученика — чтобы удалить лишние из его профиля
+            where, args = self.student_scope()
+            sid = to_int(qs.get("id"))
+            st = db.q(f"SELECT s.id, s.name FROM students s WHERE s.id=? AND {where}", (sid,) + args, one=True)
+            if not st:
+                return self.err(404, "нет такого ученика")
+            return self.send_json({"id": st["id"], "name": st["name"], "gifts": gift_rows(db, sid)})
+
+        if path == "/api/admin/gifts/remove" and method == "POST":
+            # удалить подарок из профиля ученика: он сгорает (как при продаже, но без биткоинов) — номер и сочетание
+            # уникального больше не выдаются
+            where, args = self.student_scope()
+            r = db.q(f"""SELECT g.id, g.student_id FROM gifts g JOIN students s ON s.id = g.student_id
+                         WHERE g.id=? AND g.sold IS NULL AND {where}""", (to_int(data.get("id")),) + args, one=True)
+            if not r:
+                return self.err(404, "Нет такого подарка")
+            db.x("UPDATE gifts SET sold=?, kind=COALESCE(kind, 'removed') WHERE id=?", (time.time(), r["id"]))
+            with _GS_LOCK:
+                _LB_PEOPLE.clear()               # у ника в рейтинге пропадёт сразу
+            LIVE.send([r["student_id"]], "gift")
+            return self.send_json({"ok": True})
+
         if path == "/api/admin/gifts/give" and method == "POST":
             # подарок (один на всех или «случайный» — каждому свой, можно сразу уникальный) и/или биткоины: ученику, классу или всем
             where, args = self.student_scope()
@@ -4085,14 +4119,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             gift = str(data.get("gift") or "")
             if gift and gift != "random" and gift not in GIFT_BY:
                 return self.err(400, "Нет такого подарка")
-            coins = to_int(data.get("coins")) or 0
-            if not 0 <= coins <= COINS_GRANT_MAX:
-                return self.err(400, f"Биткоинов за раз — от 0 до {COINS_GRANT_MAX}")
+            coins = to_int(data.get("coins")) or 0          # меньше нуля — снять (не больше, чем есть у ученика)
+            if not -COINS_GRANT_MAX <= coins <= COINS_GRANT_MAX:
+                return self.err(400, f"Биткоинов за раз — не больше {COINS_GRANT_MAX}")
             if not gift and not coins:
-                return self.err(400, "Выберите подарок или сколько биткоинов начислить")
+                return self.err(400, "Выберите подарок или сколько биткоинов начислить или снять")
+            if coins < 0 and gift:
+                return self.err(400, "Снимать биткоины — без подарка")
             uniq = bool(data.get("unique")) and bool(gift)
             note = re.sub(r"\s+", " ", str(data.get("note") or "")).strip()[:GIFT_NOTE_MAX]
-            now, rnd = time.time(), random.SystemRandom()
+            now, rnd, taken = time.time(), random.SystemRandom(), 0
             with _GIFT_LOCK:
                 issued = uniq_issued(db)
                 if uniq and gift != "random" and issued.get(gift, 0) + len(sids) > UNIQ_CAP:
@@ -4106,12 +4142,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             issued[gid] = issued.get(gid, 0) + 1
                         db.x("INSERT INTO gifts(student_id, gift, ts, from_teacher, note, uniq) VALUES(?,?,?,?,?,?)",
                              (sid, gid, now, self.T["id"], note, u))
-                    if coins:
-                        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, now, coins))
+                    if coins > 0:
+                        db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'grant', ?, 0)",
+                             (sid, now, coins, note))
+                    elif coins < 0:
+                        take = min(-coins, game_summary(db, sid)["coins"])
+                        if take:
+                            db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'take', ?, 0)",
+                                 (sid, now, -take, note))
+                            taken += take
             with _GS_LOCK:
                 _LB_PEOPLE.clear()               # подарки у ников в рейтинге — сразу
             LIVE.send(sids, "gift")              # ученикам — уведомление сразу
-            return self.send_json({"ok": True, "count": len(sids)})
+            return self.send_json({"ok": True, "count": len(sids), "taken": taken})
 
         if path == "/api/admin/pyc/free" and method == "POST":
             # открыть ученику все уровни курса программирования сразу (без замков) — например, тестовому аккаунту
@@ -4985,7 +5028,19 @@ EXAM_MIN_SEC_FOR_XP = 20 * 60          # вариант, сданный быст
 
 FAST_XP_MS = 60000          # верный ответ быстрее минуты с открытия задания…
 FAST_XP_PENALTY = -1        # …даёт −1 XP вместо опыта
+BTC_FAST_MS = 30000         # а быстрее 30 секунд — ещё и −1 ₿: биткоины не даются просто так
+BTC_FAST_FINE = 1
 _FAST_SINCE = []
+
+
+def btc_fast_since(db):
+    """С какого момента действует «быстрее 30 секунд — минус биткоин» (раньше решённое не штрафуем)."""
+    if not _BTC_SINCE:
+        _BTC_SINCE.append(to_float(db.setting("btc_fast_since")) or 0)
+    return _BTC_SINCE[0]
+
+
+_BTC_SINCE = []
 
 
 def fast_xp_since(db):
@@ -5531,7 +5586,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     solved, failed = set(), set()
     cnt = {k: 0 for k in ("solved", "row", "best_row", "hard", "fix", "night", "early",
                           "turtle", "flash", "fails", "bug", "phoenix", "cinderella", "fri13", "pi", "newyear",
-                          "stubborn", "peek", "snail", "perfect", "binge", "best_binge", "lucky", "dejavu")}
+                          "stubborn", "peek", "snail", "perfect", "binge", "best_binge", "lucky", "dejavu", "btc_fast")}
     prev_day = None
     fails_of, solves_of = {}, {}        # задание → сколько раз не вышло / решено
     lunch_of, nums_of, ans_of, bad_of = {}, {}, {}, {}   # по дням
@@ -5542,6 +5597,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     wk0 = week_start(now)
     xp_wk = 0
     fast_since = fast_xp_since(db)
+    btc_since = btc_fast_since(db)
 
     xplog = []                                     # последние изменения опыта с причиной — показываем ученику
 
@@ -5631,6 +5687,8 @@ def _game_summary(db, sid, brief=False, windows=None):
             first_time = tid not in solved and not fast
             if fast:
                 gain(FAST_XP_PENALTY, ts, f"№{r['n']} — решено быстрее минуты")
+                if r["spent_ms"] < BTC_FAST_MS and ts >= btc_since:
+                    cnt["btc_fast"] += 1           # быстрее 30 секунд — ещё и −1 ₿
             else:
                 if tid not in solved:              # опыт — только за первое решение задания, откуда бы ни пришёл ответ
                     gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
@@ -5723,10 +5781,10 @@ def _game_summary(db, sid, brief=False, windows=None):
     lvl, title, cur_xp, need = level_of(xp)
     # биткоины: за каждые COIN_XP заработанного опыта (покупка заморозок их не отнимает) + начисления − покупки
     extra = db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)["s"]
-    coins = max(0, (xp + fz_spent) // COIN_XP + extra)
+    coins = max(0, (xp + fz_spent) // COIN_XP + extra - cnt["btc_fast"] * BTC_FAST_FINE)
     zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
-           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "gift_drop": dropped,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}

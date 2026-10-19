@@ -172,12 +172,20 @@
           <label>Кому<select class="inp" id="giftTo"></select></label>
           <label>Подарок<select class="inp" id="giftKind"></select></label>
           <label class="gift-uniq"><span><input type="checkbox" id="giftUniq"> ✨ сразу уникальный</span></label>
-          <label>Биткоины ₿<input class="inp" id="giftCoins" type="number" min="0" max="1000" step="1" value="0"></label>
-          <label class="gift-note">Подпись (необязательно)<input class="inp" id="giftNote" maxlength="80" placeholder="Например: за победу в битве классов"></label>
-          <button class="btn primary" type="submit">🎁 Подарить</button>
+          <label>Биткоины ₿<span class="gift-coins"><select class="inp" id="giftCoinMode"><option value="add">➕ начислить</option><option value="take">➖ снять</option></select>
+            <input class="inp" id="giftCoins" type="number" min="0" max="1000" step="1" value="0"></span></label>
+          <label class="gift-note">Подпись или причина (необязательно)<input class="inp" id="giftNote" maxlength="80" placeholder="Например: за победу в битве классов"></label>
+          <button class="btn primary" type="submit" id="giftSubmit">🎁 Подарить</button>
         </div>
         <div class="login-err" id="giftMsg"></div>
       </form>
+      <div class="adm-box" style="margin-top:14px">
+        <h3 class="adm-h3">Подарки ученика</h3>
+        <p class="fm-note">Выберите ученика — увидите все его подарки. Лишний (например, подаренный не по правилам) можно удалить из профиля:
+          подарок сгорает без возврата биткоинов, номер и сочетание уникального больше никому не выпадут.</p>
+        <select class="inp" id="giftOwner" style="max-width:360px"><option value="">— выберите ученика —</option></select>
+        <div id="giftOwned" style="margin-top:10px"></div>
+      </div>
       <h3 class="adm-h3" style="margin-top:18px">Недавно подарено</h3>
       <div id="giftRecent"><p class="adm-hint">Загружаю…</p></div>
     </section>

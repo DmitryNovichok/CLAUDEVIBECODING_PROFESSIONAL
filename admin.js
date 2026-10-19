@@ -718,6 +718,10 @@
       + GFA.catalog.map(g => `<option value="${g.id}">${g.i} ${esc(g.t)} · ${g.price} ₿ · уникальных ${g.issued}/${GFA.cap}</option>`).join('');
     if (to) $('#giftTo').value = to;
     if (kind) $('#giftKind').value = kind;
+    const owner = $('#giftOwner').value;
+    $('#giftOwner').innerHTML = '<option value="">— выберите ученика —</option>'
+      + GFA.students.map(s => `<option value="${s.id}">${esc(s.name)}${s.class ? ' · ' + esc(s.class) : ''}</option>`).join('');
+    if (owner) { $('#giftOwner').value = owner; loadOwnedGifts(); }
     const E = GFA.econ, card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="s">${sub}</div></div>`;
     $('#giftEcon').innerHTML = card('Инфляция', '×' + String(E.idx).replace('.', ','), `цены подарков и улучшения; средний кошелёк ${E.avg} ₿ при норме ${E.target} ₿`, E.idx > 1 ? '#f57c00' : '')
       + card('Биткоинов у учеников', E.total, `у ${E.active} ${pluralRu(E.active, 'активного', 'активных', 'активных')} за 30 дней`)
@@ -729,20 +733,56 @@
             <td class="muted">${esc(r.note || '—')}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="adm-empty">Вы ещё ничего не дарили.</p>';
   }
+  /** Подарки выбранного ученика — с кнопкой «Удалить». */
+  async function loadOwnedGifts() {
+    const id = $('#giftOwner').value, box = $('#giftOwned');
+    if (!id) { box.innerHTML = ''; return; }
+    box.innerHTML = '<p class="adm-hint">Загружаю…</p>';
+    let d;
+    try { d = await api('gifts/student?id=' + id); } catch (err) { if (err.status !== 401) box.innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    if ($('#giftOwner').value !== id) return;
+    const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
+    box.innerHTML = d.gifts.length ? `<div class="gift-owned">${d.gifts.map(g => `<div class="gift-own${g.uniq ? ' uniq' : ''}">
+        <span class="gift-own-ic"${g.uniq ? ` style="background:radial-gradient(circle at 50% 38%, ${g.uniq.c1}, ${g.uniq.c2})"` : ''}>${g.i}</span>
+        <span class="gift-own-t"><b>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</b><small>${esc(g.uniq ? g.uniq.rar.t : g.rar.t)} · ${esc(from(g))} · ${fmtWhen(g.ts)}</small>
+          ${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>
+        <button type="button" class="btn ghost small" data-gift-del="${g.id}" title="Удалить из профиля">✕ Удалить</button></div>`).join('')}</div>`
+      : '<p class="adm-empty">У ученика пока нет подарков.</p>';
+  }
+  $('#giftOwner').addEventListener('change', loadOwnedGifts);
+  /** «➖ снять» — без подарка: выбор подарка гаснет, кнопка называется по делу. */
+  $('#giftCoinMode').addEventListener('change', () => {
+    const take = $('#giftCoinMode').value === 'take';
+    $('#giftKind').disabled = take;
+    $('#giftUniq').disabled = take;
+    $('#giftSubmit').textContent = take ? '➖ Снять биткоины' : '🎁 Подарить';
+    $('#giftSubmit').classList.toggle('danger', take);
+  });
+  $('#giftOwned').addEventListener('click', async e => {
+    const b = e.target.closest('[data-gift-del]');
+    if (!b) return;
+    const name = b.closest('.gift-own').querySelector('b').textContent;
+    if (!confirm(`Удалить «${name}» из профиля ученика? Подарок сгорит, биткоины не вернутся.`)) return;
+    try { await api('gifts/remove', { id: +b.dataset.giftDel }); toast('Подарок удалён'); } catch (err) { if (err.status !== 401) toast(err.message); }
+    loadOwnedGifts();
+  });
   $('#giftForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const msg = $('#giftMsg'), to = $('#giftTo').value, gift = $('#giftKind').value, coins = Math.max(0, Math.floor(+$('#giftCoins').value || 0));
+    const take = $('#giftCoinMode').value === 'take';
+    const msg = $('#giftMsg'), to = $('#giftTo').value, gift = take ? '' : $('#giftKind').value, n = Math.max(0, Math.floor(+$('#giftCoins').value || 0));
     msg.className = 'login-err';
     msg.textContent = '';
-    if (!gift && !coins) { msg.textContent = 'Выберите подарок или сколько биткоинов начислить'; return; }
-    const body = { gift, coins, note: $('#giftNote').value, unique: $('#giftUniq').checked };
+    if (!gift && !n) { msg.textContent = take ? 'Сколько биткоинов снять?' : 'Выберите подарок или сколько биткоинов начислить'; return; }
+    const body = { gift, coins: take ? -n : n, note: $('#giftNote').value, unique: $('#giftUniq').checked };
     if (to === 'all') body.all = true; else if (to.startsWith('c:')) body.class_id = +to.slice(2); else body.student_id = +to.slice(2);
     const label = $('#giftTo').selectedOptions[0].textContent;
-    if (to === 'all' || to.startsWith('c:')) { if (!confirm(`Подарить: ${label}?`)) return; }
+    if (take) { if (!confirm(`Снять до ${n} ₿: ${label}? Больше, чем есть на счёте, не снимется. Ученик увидит уведомление${body.note ? ' с причиной' : ''}.`)) return; }
+    else if (to === 'all' || to.startsWith('c:')) { if (!confirm(`Подарить: ${label}?`)) return; }
     try {
       const r = await api('gifts/give', body);
       msg.className = 'login-err ok';
-      msg.textContent = `Готово: ${r.count} ${pluralRu(r.count, 'ученик получил', 'ученика получили', 'учеников получили')} ${[gift ? ($('#giftUniq').checked ? 'уникальный подарок' : 'подарок') : '', coins ? coins + ' ₿' : ''].filter(Boolean).join(' и ')}`;
+      msg.textContent = take ? `Готово: снято ${r.taken} ₿${r.taken < n * r.count ? ' — у кого не хватало, сняли сколько было' : ''}`
+        : `Готово: ${r.count} ${pluralRu(r.count, 'ученик получил', 'ученика получили', 'учеников получили')} ${[gift ? ($('#giftUniq').checked ? 'уникальный подарок' : 'подарок') : '', n ? n + ' ₿' : ''].filter(Boolean).join(' и ')}`;
       $('#giftNote').value = '';
       loadGifts();
     } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
