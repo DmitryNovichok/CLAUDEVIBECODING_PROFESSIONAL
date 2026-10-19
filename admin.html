@@ -166,8 +166,19 @@
         Подарки видны маленькими значками у ника в рейтинге и профиле. Здесь можно подарить подарок или начислить биткоины — ученику, классу или всем сразу;
         «🎲 Случайный» — каждому свой (дорогие выпадают реже). Ученик сразу увидит уведомление.
         Экономика: цены растут с инфляцией (средний кошелёк учеников выше нормы), тираж уникальных каждого вида — 100, проданный подарок сгорает,
-        а за каждые 25 решённых заданий ученик сам получает подарок. Начисленные вами биткоины тоже разгоняют инфляцию — начисляйте за труд.</p>
+        а за каждые 25 решённых заданий ученик сам получает подарок. За вариант ЕГЭ (не быстрее 20 минут) — бонус по тестовому баллу:
+        40+ — 15 ₿, 60+ — 30 ₿, 80+ — 50 ₿, 90+ — 100 ₿. Начисленные вами биткоины тоже разгоняют инфляцию — начисляйте за труд.</p>
       <div class="adm-cards" id="giftEcon" style="margin-bottom:12px"></div>
+      <form class="adm-box" id="giftBoxForm" hidden>
+        <h3 class="adm-h3">🎲 Цена случайного подарка</h3>
+        <p class="fm-note" id="giftBoxNote"></p>
+        <div class="gift-box-row">
+          <label>Цена, ₿<input class="inp" id="giftBoxPrice" type="number" min="5" max="5000" step="1"></label>
+          <button class="btn primary" type="submit">Сохранить</button>
+          <button class="btn ghost" type="button" id="giftBoxReset">Сбросить</button>
+        </div>
+        <div class="login-err" id="giftBoxMsg"></div>
+      </form>
       <form class="adm-box" id="giftForm">
         <div class="gift-form">
           <label>Кому<select class="inp" id="giftTo"></select></label>

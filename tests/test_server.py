@@ -2604,8 +2604,64 @@ class ServerTest(unittest.TestCase):
         st, s1 = self.admin("GET", f"/api/admin/gifts/student?id={sid}")
         w = s1["wallet"]
         self.assertEqual((w["mined"], w["grant"]), (1000, 30))
-        self.assertEqual(w["balance"], w["mined"] + w["grant"] + w["sell"] - w["gift"] - w["upgrade"] - w["take"] - w["fines"])
+        self.assertEqual(w["balance"], w["mined"] + w["exam"] + w["grant"] + w["sell"] - w["gift"] - w["upgrade"] - w["take"] - w["fines"])
         self.assertTrue(all(e["sid"] == sid for e in s1["feed"]))
+
+    def test_exam_btc_and_box_price(self):
+        db = server.APP.db
+        tok = self.login("Бонусов Богдан")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        self.assertEqual([server.exam_btc(t) for t in (None, 0, 39, 40, 59, 60, 79, 80, 89, 90, 100)],
+                         [0, 0, 0, 15, 15, 30, 30, 50, 50, 100, 100])
+        now = time.time()
+        since, old = now - 3600, db.setting("exam_btc_since")     # «версия вышла» час назад
+        db.setting("exam_btc_since", str(since))
+        server._EXAM_BTC_SINCE.clear()
+        self.addCleanup(server._EXAM_BTC_SINCE.clear)
+        self.addCleanup(db.setting, "exam_btc_since", old)
+        self.assertEqual(server.exam_btc_since(db), since)
+
+        def exam(n, test, dur=25 * 60, fin=None):
+            fin = fin or now - 100 * n
+            db.x("""INSERT INTO exams(id, student_id, ip, started, finished, items, primary_score, test_score, result)
+                    VALUES(?,?,?,?,?,?,?,?,?)""", (f"exb{sid}-{n}", sid, "", fin - dur, fin, 27, 10, test, "{}"))
+        # бонус за вариант по тестовому баллу: 45 → 15, 65 → 30, 85 → 50, 95 → 100, 39 — ничего
+        for n, t in enumerate((45, 65, 85, 95, 39), 1):
+            exam(n, t)
+        exam(6, 99, dur=10 * 60)                 # быстрее 20 минут — ни опыта, ни бонуса
+        exam(7, 99, fin=since - 60)              # сдан до выхода версии — задним числом не начисляем
+        g = server.game_summary(db, sid, brief=True)
+        self.assertEqual(g["exam_coins"], 15 + 30 + 50 + 100)
+        self.assertEqual(g["coins"], g["mined"] + g["exam_coins"])
+        d = self.req("GET", "/api/gifts", token=tok)[1]
+        self.assertEqual((d["exam_coins"], d["coins"]), (195, g["coins"]))
+        self.assertEqual(d["exam_btc"][0], [90, 100])
+        w = self.admin("GET", f"/api/admin/gifts/student?id={sid}")[1]["wallet"]
+        self.assertEqual((w["exam"], w["balance"]), (195, g["coins"]))
+        # цена «🎲 Случайного подарка»: стандартная — 60 ₿ × инфляция; главный учитель задаёт свою
+        self.addCleanup(db.setting, "gift_box_price", "")
+        st, a = self.admin("GET", "/api/admin/gifts")
+        self.assertTrue(a["is_main"])
+        self.assertEqual((a["box"]["set"], a["box"]["default"]), (None, server.GIFT_BOX_PRICE))
+        self.assertEqual(a["box"]["now"], server.price_now(server.GIFT_BOX_PRICE, a["econ"]))
+        for bad in (0, 4, 5001, "x", None):
+            self.assertEqual(self.admin("POST", "/api/admin/gifts/box", {"price": bad})[0], 400)
+        st, r = self.admin("POST", "/api/admin/gifts/box", {"price": 7})
+        self.assertEqual((st, r["now"], r["set"]), (200, 7, 7))
+        self.assertEqual(self.admin("GET", "/api/admin/gifts")[1]["box"]["set"], 7)
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["box"], 7)
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": "box"}, tok)
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r["game"]["coins"], g["coins"] - 7)
+        # обычный учитель цену не меняет
+        self.admin("POST", "/api/admin/teacher/save", {"name": "Ольга Петровна", "login": "olga", "password": "secret77", "invite": "OLGA01"})
+        server.THROTTLE.fails.clear()
+        ck = self.teacher_req("", "POST", "/api/admin/login", {"login": "olga", "password": "secret77"})[2].split(";")[0]
+        self.assertFalse(self.teacher_req(ck, "GET", "/api/admin/gifts")[1]["is_main"])
+        self.assertEqual(self.teacher_req(ck, "POST", "/api/admin/gifts/box", {"price": 9})[0], 403)
+        st, r = self.admin("POST", "/api/admin/gifts/box", {"reset": True})
+        self.assertEqual((st, r["set"]), (200, None))
+        self.assertEqual(r["now"], server.price_now(server.GIFT_BOX_PRICE, server.econ(db)))
 
     def test_answer_fix(self):
         # исправленный вручную ответ банка подменяется при загрузке: верный засчитывается, ответ из банка — нет

@@ -1337,6 +1337,8 @@ class DB:
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
             # «быстрее 30 секунд — минус биткоин» — тоже с первого запуска версии, задним числом не штрафуем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('btc_fast_since', ?)", (str(time.time()),))
+            # биткоины за вариант ЕГЭ по тестовому баллу — за варианты после этой версии (старые не начисляем разом)
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('exam_btc_since', ?)", (str(time.time()),))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
             c.execute("DELETE FROM settings WHERE key='repeat_rule_since'")
             # лазейка «подборка по кругу» закрыта этой версией: опыт нарушителей срезается до этого момента
@@ -2300,7 +2302,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 g = gift_random(random.SystemRandom()) if box else GIFT_BY.get(str(data.get("gift") or ""))
                 if not g:
                     return self.err(400, "Нет такого подарка")
-                price = price_now(GIFT_BOX_PRICE, e) if box else gift_price(g[0], e, gift_demand(db))
+                price = gift_box_price(db, e) if box else gift_price(g[0], e, gift_demand(db))
                 to = to_int(data.get("to")) or s["id"]
                 rcpt = s if to == s["id"] else next((m for m in mates if m["id"] == to), None)
                 if not rcpt:
@@ -2366,7 +2368,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "uniq_tiers": [{"k": k, "t": t, "one_in": round(1 / low) if low else None} for low, k, t in UNIQ_RARITY],
                 "catalog": [{"id": k, "i": i, "t": t, "price": gift_price(k, e, dem), "base": pr, "rar": gift_rarity(k),
                              "demand": dem.get(k, 1.0), "issued": issued.get(k, 0)} for k, i, t, pr in sorted(GIFTS, key=lambda g: g[3])],
-                "box": price_now(GIFT_BOX_PRICE, e), "up_base": GIFT_UP_PRICE,
+                "box": gift_box_price(db, e), "up_base": GIFT_UP_PRICE,
+                "exam_btc": EXAM_BTC, "exam_coins": g["exam_coins"],
                 "mine": gift_rows(db, s["id"], prices=(e, issued, dem)),
                 "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
                 "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
@@ -4082,6 +4085,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({
                 "catalog": [{"id": k, "i": i, "t": t, "price": pr, "issued": issued.get(k, 0)} for k, i, t, pr in GIFTS],
                 "coin_xp": btc_rate_now(db)[0], "econ": econ(db, fresh=True), "cap": UNIQ_CAP, "work_every": WORK_GIFT_EVERY,
+                "box": {"set": to_int(db.setting("gift_box_price")) or None, "now": gift_box_price(db, econ(db)), "default": GIFT_BOX_PRICE,
+                        "value": gift_box_value(), "min": GIFT_BOX_MIN, "max": GIFT_BOX_MAX},
+                "is_main": bool(self.T["is_main"]), "exam_btc": EXAM_BTC,
                 "uniq_total": sum(issued.values()),
                 "students": [{"id": r["id"], "name": r["name"], "class_id": r["class_id"], "class": r["cls"]} for r in studs],
                 "classes": [{"id": c["id"], "name": c["name"]} for c in cls],
@@ -4103,7 +4109,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             where, args = self.student_scope()
             studs = db.q(f"SELECT s.id, s.name, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where}", args)
             wallets = [dict(econ_wallet(db, r["id"]), id=r["id"], name=r["name"], cls=r["cls"]) for r in studs]
-            keys = ("balance", "mined", "grant", "sell", "take", "gift", "upgrade", "fines")
+            keys = ("balance", "mined", "exam", "grant", "sell", "take", "gift", "upgrade", "fines")
             tot = {k: sum(w[k] for w in wallets) for k in keys}
             week = {r["reason"]: r["s"] for r in db.q(f"""SELECT c.reason, SUM(c.delta) s FROM coins c JOIN students s ON s.id = c.student_id
                                                          WHERE c.ts > ? AND {where} GROUP BY c.reason""", (time.time() - 7 * 86400,) + args)}
@@ -4121,6 +4127,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "rarity": {"plain": [[k, t] for _, k, t in RARITY], "uniq": [[k, t] for _, k, t in UNIQ_RARITY]},
                                    "feed": econ_feed(db, where, args, limit=150),
                                    "rate": btc_rate_now(db)[0], "site": econ_site(db) if self.T["is_main"] else None})
+
+        if path == "/api/admin/gifts/box" and method == "POST":
+            # цена «🎲 Случайного подарка» на весь сайт — главный учитель; reset — снова стандартная (60 ₿ × инфляция)
+            if not self.T["is_main"]:
+                return self.err(403, "Цену случайного подарка задаёт главный учитель")
+            if data.get("reset"):
+                db.setting("gift_box_price", "")
+            else:
+                v = to_int(data.get("price"))
+                if not v or not GIFT_BOX_MIN <= v <= GIFT_BOX_MAX:
+                    return self.err(400, f"Цена — от {GIFT_BOX_MIN} до {GIFT_BOX_MAX} ₿")
+                db.setting("gift_box_price", str(v))
+            return self.send_json({"ok": True, "now": gift_box_price(db, econ(db)), "set": to_int(db.setting("gift_box_price")) or None})
 
         if path == "/api/admin/gifts/remove" and method == "POST":
             # удалить подарок из профиля ученика: он сгорает (как при продаже, но без биткоинов) — номер и сочетание
@@ -5058,6 +5077,22 @@ ACH_XP = {
     "speedrun": 80, "lucky": 25, "dejavu": 10,
 }
 EXAM_MIN_SEC_FOR_XP = 20 * 60          # вариант, сданный быстрее, опыта не даёт (иначе его «фармят»)
+# биткоины за вариант ЕГЭ по тестовому баллу: (не меньше баллов, ₿) — засчитывается самый высокий уровень
+EXAM_BTC = [(90, 100), (80, 50), (60, 30), (40, 15)]
+
+
+def exam_btc(test_score):
+    return next((b for low, b in EXAM_BTC if (test_score or 0) >= low), 0)
+
+
+_EXAM_BTC_SINCE = []
+
+
+def exam_btc_since(db):
+    """С какого момента варианты ЕГЭ дают биткоины (раньше сданные не считаем)."""
+    if not _EXAM_BTC_SINCE or _EXAM_BTC_SINCE[0][0] is not db:
+        _EXAM_BTC_SINCE[:] = [(db, to_float(db.setting("exam_btc_since")) or 0)]
+    return _EXAM_BTC_SINCE[0][1]
 
 
 FAST_XP_MS = 60000          # верный ответ быстрее минуты с открытия задания…
@@ -5443,6 +5478,20 @@ def price_now(base, e):
     return max(1, math.ceil(base * e["idx"]))
 
 
+GIFT_BOX_MIN, GIFT_BOX_MAX = 5, 5000   # какую цену «🎲 Случайного подарка» может задать главный учитель
+
+
+def gift_box_price(db, e):
+    """Цена «🎲 Случайного подарка»: заданная главным учителем — ровно такая; не задана — GIFT_BOX_PRICE × инфляция."""
+    v = to_int(db.setting("gift_box_price"))
+    return v if v else price_now(GIFT_BOX_PRICE, e)
+
+
+def gift_box_value():
+    """Средняя цена выпадающего подарка по каталогу (без инфляции и спроса) — подсказка учителю, сколько брать за «🎲»."""
+    return round(len(GIFTS) / sum(1 / g[3] for g in GIFTS), 1)
+
+
 def _rates_load(db):
     if _BTC_RATES["db"] is not db:                 # другая база (тесты) — расписание курса читаем заново
         rows = db.q("SELECT ts, k FROM btc_rate ORDER BY ts")
@@ -5576,11 +5625,12 @@ def econ_site(db, fresh=False):
     if not fresh and _SITE_ECON["v"] and _SITE_ECON["db"] is db and now - _SITE_ECON["t"] < 300:
         return _SITE_ECON["v"]
     sids = [r["id"] for r in db.q("SELECT id FROM students WHERE COALESCE(is_teacher, 0) = 0")]
-    sums = {"balance": 0, "mined": 0, "fines": 0, "with_coins": 0}
+    sums = {"balance": 0, "mined": 0, "exam": 0, "fines": 0, "with_coins": 0}
     for sid in sids:
         g = game_summary(db, sid, brief=True)
         sums["balance"] += g["coins"]
         sums["mined"] += g["mined"]
+        sums["exam"] += g["exam_coins"]
         sums["fines"] += g["btc_fast"] * BTC_FAST_FINE
         sums["with_coins"] += g["coins"] > 0
     led = {r["reason"]: {"sum": r["s"], "n": r["c"]} for r in db.q("SELECT reason, SUM(delta) s, COUNT(*) c FROM coins GROUP BY reason")}
@@ -5612,7 +5662,8 @@ def econ_site(db, fresh=False):
     v = {"students": len(sids), "coins": sums, "gifts": gifts, "popular": popular, "rarest": rarest[:5],
          "spent": -(led.get("gift", {}).get("sum", 0) + led.get("upgrade", {}).get("sum", 0)),
          "ledger": {k: x["sum"] for k, x in led.items()}, "deals": sum(x["n"] for x in led.values()),
-         "rate": rate, "active": active, "rate_base": COIN_XP, "rate_max": BTC_RATE_MAX, "box": GIFT_BOX_PRICE, "catalog": len(GIFTS)}
+         "rate": rate, "active": active, "rate_base": COIN_XP, "rate_max": BTC_RATE_MAX, "box": gift_box_price(db, econ(db)),
+         "catalog": len(GIFTS)}
     _SITE_ECON.update(t=now, v=v, db=db)
     return v
 
@@ -5621,7 +5672,7 @@ def econ_wallet(db, sid):
     """Кошелёк ученика: откуда пришли биткоины и куда ушли."""
     g = game_summary(db, sid, brief=True)
     led = {r["reason"]: r["s"] for r in db.q("SELECT reason, SUM(delta) s FROM coins WHERE student_id=? GROUP BY reason", (sid,))}
-    return {"balance": g["coins"], "mined": g["mined"], "grant": led.get("grant", 0), "sell": led.get("sell", 0),
+    return {"balance": g["coins"], "mined": g["mined"], "exam": g["exam_coins"], "grant": led.get("grant", 0), "sell": led.get("sell", 0),
             "take": -led.get("take", 0), "gift": -led.get("gift", 0), "upgrade": -led.get("upgrade", 0),
             "fines": g["btc_fast"] * BTC_FAST_FINE, "xp": g["xp"]}
 
@@ -5976,9 +6027,12 @@ def _game_summary(db, sid, brief=False, windows=None):
             if aid not in got and val >= ACH_GOAL[aid]:
                 got[aid] = ts
     ex_best = 0
+    exam_coins, exam_since = 0, exam_btc_since(db)
     for e in exams:
         if (e["finished"] - e["started"]) >= EXAM_MIN_SEC_FOR_XP and (e["primary_score"] or 0) > 0:
             gain(30 + 3 * (e["primary_score"] or 0), e["finished"], "вариант ЕГЭ")
+            if e["finished"] >= exam_since and not (cheat and cheat[0] <= e["finished"] < cheat[1]):
+                exam_coins += exam_btc(e["test_score"])  # 40+ — 15 ₿, 60+ — 30, 80+ — 50, 90+ — 100
         got.setdefault("exam1", e["finished"])
         ex_best = max(ex_best, e["test_score"] or 0)
         if (e["test_score"] or 0) >= 80:
@@ -6026,10 +6080,10 @@ def _game_summary(db, sid, brief=False, windows=None):
     # биткоины: заработанный опыт по курсу на момент заработка (покупка заморозок их не отнимает) + начисления − покупки
     mined = max(0, math.floor(sum((Fraction(v, k) for k, v in mined_xp.items()), Fraction(0))))
     extra = db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)["s"]
-    coins = max(0, mined + extra - cnt["btc_fast"] * BTC_FAST_FINE)
+    coins = max(0, mined + exam_coins + extra - cnt["btc_fast"] * BTC_FAST_FINE)
     zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
-           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": mined, "btc_rate": rate, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": mined, "exam_coins": exam_coins, "btc_rate": rate, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}
