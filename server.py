@@ -18,6 +18,7 @@
 Если пересобрать банк, сервер подхватит его сам, перезапуск не нужен.
 """
 import argparse
+import bisect
 import base64
 import csv
 import gzip
@@ -41,6 +42,7 @@ import threading
 import time
 import zipfile
 from datetime import datetime, timedelta
+from fractions import Fraction
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1220,6 +1222,8 @@ class DB:
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, gift TEXT NOT NULL, ts REAL NOT NULL,
                 from_sid INTEGER, from_teacher INTEGER, note TEXT, seen INTEGER DEFAULT 0, uniq TEXT, kind TEXT, sold REAL);
             CREATE INDEX IF NOT EXISTS gifts_student ON gifts(student_id, ts);
+            -- курс биткоина: с какого момента 1 ₿ стоит k XP (меняется, когда одновременно занимается много учеников)
+            CREATE TABLE IF NOT EXISTS btc_rate(ts REAL PRIMARY KEY, k INTEGER NOT NULL, active INTEGER);
             -- биткоины сверх заработанных опытом: начислил учитель (grant, +), снял учитель (take, −), продал подарок (sell, +),
             -- потратил на подарок (gift, −) или улучшение (upgrade, −)
             CREATE TABLE IF NOT EXISTS coins(
@@ -2296,7 +2300,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 g = gift_random(random.SystemRandom()) if box else GIFT_BY.get(str(data.get("gift") or ""))
                 if not g:
                     return self.err(400, "Нет такого подарка")
-                price = price_now(GIFT_BOX_PRICE if box else g[3], e)
+                price = price_now(GIFT_BOX_PRICE, e) if box else gift_price(g[0], e, gift_demand(db))
                 to = to_int(data.get("to")) or s["id"]
                 rcpt = s if to == s["id"] else next((m for m in mates if m["id"] == to), None)
                 if not rcpt:
@@ -2314,6 +2318,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'gift', ?)", (s["id"], now, -price, gid))
                 with _GS_LOCK:
                     _LB_PEOPLE.pop(teacher_of(s)["id"], None)    # в рейтинге подарок у ника виден сразу
+                _DEMAND["t"] = 0.0                               # спрос изменился — цены пересчитаются
                 if rcpt["id"] != s["id"]:
                     LIVE.send([rcpt["id"]], "gift")
                 return self.send_json({"ok": True, "got": g[0], "game": game_summary(db, s["id"])})
@@ -2339,27 +2344,30 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         db.x("UPDATE gifts SET uniq=? WHERE id=?", (json.dumps(gift_uniq(db, r["gift"])), r["id"]))
                     else:
                         # продать: подарок сгорает (номер и сочетание уникального больше не выдаются), биткоины — на счёт
-                        price = gift_sell_price(r["gift"], uniq_pub(r["uniq"]) if r["uniq"] else None, e, issued)
+                        price = gift_sell_price(r["gift"], uniq_pub(r["uniq"]) if r["uniq"] else None, e, issued, gift_demand(db))
                         db.x("UPDATE gifts SET sold=? WHERE id=?", (now, r["id"]))
                         db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'sell', ?)", (s["id"], now, price, r["id"]))
                 with _GS_LOCK:
                     _LB_PEOPLE.pop(teacher_of(s)["id"], None)
                 out = {"ok": True, "price": price, "game": game_summary(db, s["id"])}
                 if path == "/api/gifts/upgrade":
-                    out["gift"] = gift_rows(db, s["id"], "AND g.id = %d" % r["id"], 1, (e, uniq_issued(db)))[0]
+                    out["gift"] = gift_rows(db, s["id"], "AND g.id = %d" % r["id"], 1, (e, uniq_issued(db), gift_demand(db)))[0]
                 return self.send_json(out)
             g = game_summary(db, s["id"])
-            issued = uniq_issued(db)
+            issued, dem = uniq_issued(db), gift_demand(db)
+            rate, active = btc_rate_now(db)
             return self.send_json({
-                "coins": g["coins"], "coin_xp": COIN_XP, "teacher": bool(s["is_teacher"]),
+                "coins": g["coins"], "coin_xp": rate, "rate_active": active, "rate_base": COIN_XP, "rate_max": BTC_RATE_MAX,
+                "rate_free": BTC_RATE_FREE, "rate_step": BTC_RATE_STEP, "teacher": bool(s["is_teacher"]),
                 "fines": g["btc_fast"], "fine_sec": BTC_FAST_MS // 1000,
                 "ledger": [dict(r) for r in db.q("""SELECT ts, delta, reason, note FROM coins WHERE student_id=?
                                                     ORDER BY ts DESC, id DESC LIMIT 40""", (s["id"],))],
                 "econ": e, "cap": UNIQ_CAP, "work_every": WORK_GIFT_EVERY,
-                "catalog": [{"id": k, "i": i, "t": t, "price": price_now(pr, e), "base": pr, "rar": gift_rarity(k),
-                             "issued": issued.get(k, 0)} for k, i, t, pr in GIFTS],
-                "box": price_now(GIFT_BOX_PRICE, e), "up_base": price_now(GIFT_UP_PRICE, e),
-                "mine": gift_rows(db, s["id"], prices=(e, issued)),
+                "uniq_tiers": [{"k": k, "t": t, "one_in": round(1 / low) if low else None} for low, k, t in UNIQ_RARITY],
+                "catalog": [{"id": k, "i": i, "t": t, "price": gift_price(k, e, dem), "base": pr, "rar": gift_rarity(k),
+                             "demand": dem.get(k, 1.0), "issued": issued.get(k, 0)} for k, i, t, pr in sorted(GIFTS, key=lambda g: g[3])],
+                "box": price_now(GIFT_BOX_PRICE, e), "up_base": GIFT_UP_PRICE,
+                "mine": gift_rows(db, s["id"], prices=(e, issued, dem)),
                 "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
                 "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
                 "per_day": GIFTS_PER_DAY, "show": GIFTS_SHOW})
@@ -4073,7 +4081,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             issued = uniq_issued(db)
             return self.send_json({
                 "catalog": [{"id": k, "i": i, "t": t, "price": pr, "issued": issued.get(k, 0)} for k, i, t, pr in GIFTS],
-                "coin_xp": COIN_XP, "econ": econ(db, fresh=True), "cap": UNIQ_CAP, "work_every": WORK_GIFT_EVERY,
+                "coin_xp": btc_rate_now(db)[0], "econ": econ(db, fresh=True), "cap": UNIQ_CAP, "work_every": WORK_GIFT_EVERY,
                 "uniq_total": sum(issued.values()),
                 "students": [{"id": r["id"], "name": r["name"], "class_id": r["class_id"], "class": r["cls"]} for r in studs],
                 "classes": [{"id": c["id"], "name": c["name"]} for c in cls],
@@ -4111,7 +4119,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"econ": econ(db), "students": len(wallets), "with_coins": sum(1 for w in wallets if w["balance"] > 0),
                                    "total": tot, "week": week, "tiers": tiers, "rich": rich,
                                    "rarity": {"plain": [[k, t] for _, k, t in RARITY], "uniq": [[k, t] for _, k, t in UNIQ_RARITY]},
-                                   "feed": econ_feed(db, where, args, limit=150)})
+                                   "feed": econ_feed(db, where, args, limit=150),
+                                   "rate": btc_rate_now(db)[0], "site": econ_site(db) if self.T["is_main"] else None})
 
         if path == "/api/admin/gifts/remove" and method == "POST":
             # удалить подарок из профиля ученика: он сгорает (как при продаже, но без биткоинов) — номер и сочетание
@@ -5292,15 +5301,40 @@ def lb_person(db, m, crown, crowns=None):
 
 
 # ---------------------------------------------------------------- биткоины и подарки
-COIN_XP = 10                           # 1 биткоин (₿) за каждые 10 XP заработанного опыта
+COIN_XP = 10                           # обычный курс: 1 биткоин (₿) за 10 XP заработанного опыта
+# Курс плавает: если верно решают сразу много учеников (за последние BTC_RATE_WINDOW), биткоин дорожает —
+# до BTC_RATE_FREE человек курс обычный, каждые следующие BTC_RATE_STEP — ещё +1 XP за биткоин, но не больше BTC_RATE_MAX.
+BTC_RATE_MAX = 20
+BTC_RATE_FREE, BTC_RATE_STEP = 10, 5
+BTC_RATE_WINDOW = 15 * 60
+_BTC_RATES = {"db": None, "ts": [], "k": [], "tick": 0.0, "active": 0}
 GIFTS = [                              # id, значок, название, цена в биткоинах
-    ("cookie", "🍪", "Печенька", 10), ("candy", "🍬", "Конфета", 15), ("tea", "☕", "Чай", 20), ("tulip", "🌷", "Тюльпан", 25),
-    ("balloon", "🎈", "Шарик", 30), ("pizza", "🍕", "Пицца", 40), ("cat", "🐱", "Котик", 50), ("dog", "🐶", "Пёсик", 50),
-    ("panda", "🐼", "Панда", 60), ("teddy", "🧸", "Мишка", 75), ("cake", "🎂", "Торт", 90), ("guitar", "🎸", "Гитара", 110),
-    ("gamepad", "🎮", "Геймпад", 130), ("robot", "🤖", "Робот", 160), ("python", "🐍", "Питон", 200), ("rocket", "🚀", "Ракета", 250),
-    ("rainbow", "🌈", "Радуга", 300), ("unicorn", "🦄", "Единорог", 400), ("planet", "🪐", "Планета", 500), ("dragon", "🐉", "Дракон", 700)]
+    ("cookie", "🍪", "Печенька", 11), ("candy", "🍬", "Конфета", 17), ("tea", "☕", "Чай", 22), ("tulip", "🌷", "Тюльпан", 28),
+    ("balloon", "🎈", "Шарик", 33), ("pizza", "🍕", "Пицца", 44), ("cat", "🐱", "Котик", 55), ("dog", "🐶", "Пёсик", 55),
+    ("panda", "🐼", "Панда", 66), ("teddy", "🧸", "Мишка", 83), ("cake", "🎂", "Торт", 99), ("guitar", "🎸", "Гитара", 121),
+    ("gamepad", "🎮", "Геймпад", 143), ("robot", "🤖", "Робот", 176), ("python", "🐍", "Питон", 220), ("rocket", "🚀", "Ракета", 275),
+    ("rainbow", "🌈", "Радуга", 330), ("unicorn", "🦄", "Единорог", 440), ("planet", "🪐", "Планета", 550), ("dragon", "🐉", "Дракон", 770),
+    # вкусное
+    ("donut", "🍩", "Пончик", 13), ("lollipop", "🍭", "Леденец", 13), ("strawberry", "🍓", "Клубника", 15), ("popcorn", "🍿", "Попкорн", 18),
+    ("icecream", "🍦", "Мороженое", 20), ("croissant", "🥐", "Круассан", 22), ("chocolate", "🍫", "Шоколадка", 24), ("cupcake", "🧁", "Капкейк", 29),
+    ("watermelon", "🍉", "Арбуз", 31), ("pastry", "🍰", "Пирожное", 35), ("burger", "🍔", "Бургер", 39), ("bubbletea", "🧋", "Бабл-ти", 50),
+    ("sushi", "🍣", "Суши", 61),
+    # школа и увлечения
+    ("pencil", "✏️", "Карандаш", 11), ("books", "📚", "Книги", 44), ("abacus", "🧮", "Счёты", 50), ("puzzle", "🧩", "Пазл", 39),
+    ("ball", "⚽", "Мяч", 44), ("kite", "🪁", "Воздушный змей", 64), ("palette", "🎨", "Палитра", 72), ("flask", "🧪", "Колба", 77),
+    ("skate", "🛹", "Скейтборд", 143), ("keyboard", "⌨️", "Клавиатура", 165), ("headphones", "🎧", "Наушники", 187),
+    ("camera", "📷", "Фотоаппарат", 209), ("laptop", "💻", "Ноутбук", 330), ("telescope", "🔭", "Телескоп", 385),
+    # звери
+    ("bee", "🐝", "Пчела", 33), ("frog", "🐸", "Лягушка", 39), ("bunny", "🐰", "Кролик", 50), ("butterfly", "🦋", "Бабочка", 61),
+    ("turtle", "🐢", "Черепашка", 66), ("fox", "🦊", "Лиса", 72), ("penguin", "🐧", "Пингвин", 77), ("koala", "🐨", "Коала", 88),
+    ("owl", "🦉", "Сова", 94), ("octopus", "🐙", "Осьминог", 105), ("flamingo", "🦩", "Фламинго", 132), ("lion", "🦁", "Лев", 154),
+    ("tiger", "🐯", "Тигр", 154), ("shark", "🦈", "Акула", 198), ("whale", "🐳", "Кит", 242), ("dino", "🦖", "Динозавр", 286),
+    ("peacock", "🦚", "Павлин", 418),
+    # космос и волшебство
+    ("moon", "🌙", "Луна", 308), ("comet", "☄️", "Комета", 495), ("crystal", "🔮", "Шар предсказаний", 605),
+    ("wand", "🪄", "Волшебная палочка", 715), ("ufo", "🛸", "НЛО", 880), ("castle", "🏰", "Замок", 1100)]
 GIFT_BY = {g[0]: g for g in GIFTS}
-GIFT_BOX_PRICE = 45                    # «🎲 Случайный подарок»: выпадает любой, дорогие — реже (вес ∝ 1 / цена)
+GIFT_BOX_PRICE = 60                    # «🎲 Случайный подарок»: выпадает любой, дорогие — реже (вес ∝ 1 / цена)
 GIFTS_SHOW = 5                         # сколько подарков видно у ника
 GIFTS_PER_DAY = 20                     # подарков, которые ученик может купить за сутки
 GIFT_NOTE_MAX = 80
@@ -5314,17 +5348,33 @@ UNIQ_BG = [                            # id, название, два цвета
     ("lilac", "Сирень", "#eadcff", "#9b6dff", 12), ("rose", "Роза", "#ffd9e6", "#ff5c8d", 12), ("lemon", "Лимон", "#fff6c2", "#f5c400", 12),
     ("ocean", "Океан", "#9be7ff", "#1565c0", 8), ("forest", "Лес", "#b9f6ca", "#2e7d32", 8), ("sunset", "Закат", "#ffcc80", "#d81b60", 6),
     ("night", "Полночь", "#5c6bc0", "#0d1137", 4), ("lava", "Лава", "#ff8a65", "#7f0000", 3), ("gold", "Золото", "#fff3b0", "#c99700", 2),
-    ("aurora", "Северное сияние", "#a7ffeb", "#7c4dff", 1.5), ("cosmos", "Космос", "#7e57c2", "#000000", 1)]
+    ("aurora", "Северное сияние", "#a7ffeb", "#7c4dff", 1.5), ("cosmos", "Космос", "#7e57c2", "#000000", 1),
+    ("sand", "Песок", "#fff3d6", "#d4a35a", 12), ("grass", "Луг", "#e6ffd0", "#7cb342", 12), ("candy", "Сахарная вата", "#ffd6f5", "#c86dd7", 10),
+    ("sea", "Морская волна", "#b2fef7", "#00897b", 10), ("coral", "Коралл", "#ffd0c2", "#ff6f61", 10), ("glacier", "Ледник", "#e3f9ff", "#5ab3d8", 9),
+    ("coffee", "Кофе", "#d7ccc8", "#5d4037", 9), ("cherry", "Вишня", "#ffc1c7", "#b0003a", 8), ("steel", "Сталь", "#cfd8dc", "#455a64", 8),
+    ("berry", "Ягоды", "#e1bee7", "#6a1b9a", 7), ("plum", "Слива", "#d1b3ff", "#4a148c", 5), ("emerald", "Изумруд", "#b9f6ca", "#00695c", 3),
+    ("silver", "Серебро", "#f5f5f5", "#9e9e9e", 3), ("ruby", "Рубин", "#ff8a80", "#880e4f", 2.5), ("sapphire", "Сапфир", "#82b1ff", "#0d47a1", 2.5),
+    ("neon", "Неоновый город", "#ff00e5", "#2b00ff", 1.2), ("void", "Бездна", "#424242", "#000000", 0.8)]
 UNIQ_SYM = [                           # id, название, символ, вес
     ("dot", "Точки", "•", 14), ("star", "Звёзды", "★", 12), ("heart", "Сердечки", "♥", 12), ("note", "Ноты", "♪", 10),
     ("plus", "Плюсы", "+", 10), ("code", "Код", "</>", 8), ("bit", "Биты", "01", 8), ("bolt", "Молнии", "⚡", 6),
     ("snow", "Снежинки", "❄", 6), ("leaf", "Клевер", "☘", 5), ("pi", "Пи", "π", 4), ("sigma", "Сигма", "Σ", 4),
-    ("inf", "Бесконечность", "∞", 3), ("crown", "Короны", "♛", 2), ("btc", "Биткоины", "₿", 1)]
+    ("inf", "Бесконечность", "∞", 3), ("crown", "Короны", "♛", 2), ("btc", "Биткоины", "₿", 1),
+    ("circle", "Кольца", "○", 10), ("square", "Квадраты", "■", 9), ("diamond", "Ромбы", "◆", 8), ("tri", "Треугольники", "▲", 8),
+    ("arrow", "Стрелки", "➜", 7), ("check", "Галочки", "✓", 7), ("hash", "Решётки", "#", 6), ("cloud", "Облака", "☁", 6),
+    ("flower", "Цветы", "✿", 6), ("brace", "Скобки", "{}", 5), ("sun", "Солнышки", "☀", 5), ("sqrt", "Корни", "√", 3),
+    ("anchor", "Якоря", "⚓", 3), ("atom", "Атомы", "⚛", 2.5), ("lambda", "Лямбда", "λ", 2), ("yinyang", "Инь-ян", "☯", 2)]
 UNIQ_FX = [                            # id, название, вес (как выглядит — класс gfx-<id> в style.css)
     ("classic", "Классика", 30), ("shine", "Блеск", 16), ("mirror", "Зеркало", 12), ("ice", "Лёд", 10), ("acid", "Кислота", 8),
-    ("neon", "Неон", 7), ("noir", "Нуар", 6), ("gold", "Золотой", 4), ("ghost", "Призрак", 3), ("rainbow", "Радужный", 2)]
-_UNIQ = {"bg": {x[0]: x for x in UNIQ_BG}, "sym": {x[0]: x for x in UNIQ_SYM}, "fx": {x[0]: x for x in UNIQ_FX}}
-GIFT_UP_PRICE = 500                    # улучшение до уникального, ₿ (без инфляции и пока тираж пуст)
+    ("neon", "Неон", 7), ("noir", "Нуар", 6), ("gold", "Золотой", 4), ("ghost", "Призрак", 3), ("rainbow", "Радужный", 2),
+    ("shadow", "Тень", 8), ("sepia", "Ретро", 8), ("pop", "Поп-арт", 5), ("fog", "Туман", 4), ("fire", "Пламя", 3),
+    ("invert", "Негатив", 2.5), ("pulse", "Пульс", 2), ("glitch", "Глитч", 1.5)]
+UNIQ_POSE = [                          # id, название, вес (как выглядит — класс ugp-<id> в style.css; twin — значок дважды)
+    ("stand", "Ровно", 30), ("tilt", "Наклон влево", 14), ("tiltr", "Наклон вправо", 14), ("big", "Великан", 8), ("small", "Малыш", 8),
+    ("jump", "Прыжок", 6), ("flip", "Вверх ногами", 3), ("twin", "Близнецы", 2), ("spin", "Вихрь", 1.5)]
+_UNIQ = {"bg": {x[0]: x for x in UNIQ_BG}, "sym": {x[0]: x for x in UNIQ_SYM}, "fx": {x[0]: x for x in UNIQ_FX},
+         "pose": {x[0]: x for x in UNIQ_POSE}}
+GIFT_UP_PRICE = 500                    # улучшение до уникального — ровно 500 ₿ (без инфляции и надбавки за тираж)
 UNIQ_CAP = 100                         # тираж: уникальных подарков одного вида — не больше; проданные не возвращаются
 WORK_GIFT_EVERY = 25                   # за каждые 25 впервые решённых заданий — случайный подарок «за труд»
 # Инфляция: средний кошелёк учеников, решавших что-то за 30 дней, против «нормального» ECON_TARGET. Копят все —
@@ -5332,7 +5382,7 @@ WORK_GIFT_EVERY = 25                   # за каждые 25 впервые р�
 ECON_TARGET = 500
 ECON_MAX = 10
 _ECON = {"t": 0.0, "v": None}
-# Продажа (подарок сгорает): обычный — за половину цены; уникальный — ещё и доля текущей цены улучшения по редкости.
+# Продажа (подарок сгорает): обычный — за половину нынешней цены; уникальный — ещё и доля цены улучшения (500 ₿) по редкости.
 # В среднем улучшение чуть убыточно (≈ 0.85 цены) — биткоины уходят из оборота; редкий — дешевле улучшения, мифический — в разы дороже.
 SELL_SHARE = 0.5
 SELL_UNIQ = {"rare": 0.45, "epic": 0.9, "legend": 2.2, "myth": 6.0}
@@ -5340,11 +5390,27 @@ SELL_UNIQ = {"rare": 0.45, "epic": 0.9, "legend": 2.2, "myth": 6.0}
 # Редкость высчитывается из шансов. Обычный подарок — шанс выпасть в «🎲 Случайном подарке» (вес ∝ 1 / цена);
 # уникальный — шанс его сочетания: фон × узор × эффект («1 из N»). Порог — наименьший шанс уровня.
 _GIFT_W = sum(1 / g[3] for g in GIFTS)
-RARITY = [(0.10, "common", "Обычный"), (0.04, "uncommon", "Необычный"), (0.015, "rare", "Редкий"),
-          (0.006, "epic", "Эпический"), (0, "legend", "Легендарный")]
-# пороги уникальных подобраны так, чтобы при улучшении выпадало примерно: редкий 55%, эпический 33%, легендарный 10%, мифический 2%
-UNIQ_RARITY = [(1 / 1200, "rare", "Редкий"), (1 / 4000, "epic", "Эпический"), (1 / 12000, "legend", "Легендарный"),
-               (0, "myth", "Мифический")]
+# уровень обычного — по шансу относительно среднего (1 / число подарков): в 2 раза чаще среднего и больше — обычный и т. д.
+RARITY = [(2.0, "common", "Обычный"), (1.0, "uncommon", "Необычный"), (0.45, "rare", "Редкий"),
+          (0.2, "epic", "Эпический"), (0, "legend", "Легендарный")]
+
+
+def _uniq_rarity():
+    """Пороги уникальных — по всем сочетаниям фон × узор × эффект × поза, чтобы при улучшении выпадало примерно:
+    редкий 58%, эпический 30%, легендарный 10%, мифический 2%. Считается один раз при запуске."""
+    tot = [sum(x[i] for x in xs) for xs, i in ((UNIQ_BG, 4), (UNIQ_SYM, 3), (UNIQ_FX, 2), (UNIQ_POSE, 2))]
+    ch = sorted(b[4] / tot[0] * s[3] / tot[1] * f[2] / tot[2] * p[2] / tot[3]
+                for b in UNIQ_BG for s in UNIQ_SYM for f in UNIQ_FX for p in UNIQ_POSE)
+    marks, cum, out = [0.02, 0.12, 0.42], 0.0, []
+    for c in ch:                              # от самых редких: где набирается 2%, 12%, 42% всех улучшений
+        cum += c
+        while marks and cum >= marks[0]:
+            out.append(c)
+            marks.pop(0)
+    return [(out[2], "rare", "Редкий"), (out[1], "epic", "Эпический"), (out[0], "legend", "Легендарный"), (0, "myth", "Мифический")]
+
+
+UNIQ_RARITY = _uniq_rarity()
 
 
 def rarity_tier(chance, tiers):
@@ -5354,7 +5420,7 @@ def rarity_tier(chance, tiers):
 def gift_rarity(gid):
     """Редкость обычного подарка: шанс выпасть в «🎲 Случайном подарке» (в процентах) и уровень."""
     ch = (1 / GIFT_BY[gid][3]) / _GIFT_W
-    k, t = rarity_tier(ch, RARITY)
+    k, t = rarity_tier(ch * len(GIFTS), RARITY)
     return {"k": k, "t": t, "p": round(100 * ch, 2)}
 
 
@@ -5377,24 +5443,77 @@ def price_now(base, e):
     return max(1, math.ceil(base * e["idx"]))
 
 
+def _rates_load(db):
+    if _BTC_RATES["db"] is not db:                 # другая база (тесты) — расписание курса читаем заново
+        rows = db.q("SELECT ts, k FROM btc_rate ORDER BY ts")
+        _BTC_RATES.update(db=db, ts=[r["ts"] for r in rows], k=[r["k"] for r in rows], tick=0.0)
+
+
+def btc_rate_at(db, ts):
+    """Сколько XP стоил 1 ₿ в момент ts (до первой записи курса — COIN_XP)."""
+    _rates_load(db)
+    i = bisect.bisect_right(_BTC_RATES["ts"], ts) - 1
+    return _BTC_RATES["k"][i] if i >= 0 else COIN_XP
+
+
+def btc_rate_now(db):
+    """Курс сейчас: раз в минуту считает, сколько учеников верно решали за последние BTC_RATE_WINDOW; изменился — записывает.
+    → (XP за 1 ₿, сколько занимается)."""
+    _rates_load(db)
+    now = time.time()
+    if now - _BTC_RATES["tick"] >= 60:
+        _BTC_RATES["tick"] = now
+        active = db.q("""SELECT COUNT(DISTINCT a.student_id) c FROM attempts a JOIN students s ON s.id = a.student_id
+                         WHERE a.ts > ? AND a.score > 0 AND COALESCE(s.is_teacher, 0) = 0""", (now - BTC_RATE_WINDOW,), one=True)["c"]
+        _BTC_RATES["active"] = active
+        k = min(BTC_RATE_MAX, COIN_XP + max(0, -(-(active - BTC_RATE_FREE) // BTC_RATE_STEP)))
+        if k != btc_rate_at(db, now):
+            db.x("INSERT OR REPLACE INTO btc_rate(ts, k, active) VALUES(?,?,?)", (now, k, active))
+            _BTC_RATES["ts"].append(now)
+            _BTC_RATES["k"].append(k)
+    return btc_rate_at(db, now), _BTC_RATES["active"]
+
+
+DEMAND_DAYS = 7
+DEMAND_STEP = 0.05                     # каждая покупка за неделю сверх средней по подаркам — +5 % к цене (меньше средней — дешевле)
+DEMAND_MIN, DEMAND_MAX = 0.8, 1.5
+_DEMAND = {"t": 0.0, "v": None, "db": None}
+
+
+def gift_demand(db):
+    """Спрос: множитель цены каждого подарка по покупкам за DEMAND_DAYS (пересчёт раз в 5 минут)."""
+    now = time.time()
+    if _DEMAND["v"] is not None and _DEMAND["db"] is db and now - _DEMAND["t"] < 300:
+        return _DEMAND["v"]
+    cnt = {r["gift"]: r["c"] for r in db.q("""SELECT gift, COUNT(*) c FROM gifts WHERE from_sid IS NOT NULL AND ts > ?
+                                              GROUP BY gift""", (now - DEMAND_DAYS * 86400,))}
+    avg = sum(cnt.values()) / len(GIFTS)
+    v = {g[0]: round(min(DEMAND_MAX, max(DEMAND_MIN, 1 + DEMAND_STEP * (cnt.get(g[0], 0) - avg))), 2) for g in GIFTS}
+    _DEMAND.update(t=now, v=v, db=db)
+    return v
+
+
+def gift_price(gid, e, dem):
+    """Цена подарка сейчас: каталог × инфляция × спрос."""
+    return max(1, math.ceil(GIFT_BY[gid][3] * e["idx"] * dem.get(gid, 1.0)))
+
+
 def uniq_issued(db):
     """Сколько уникальных выпущено каждого вида — вместе с проданными: тираж не возвращается."""
     return {r["gift"]: r["c"] for r in db.q("SELECT gift, COUNT(*) c FROM gifts WHERE uniq IS NOT NULL GROUP BY gift")}
 
 
 def gift_up_price(gid, e, issued):
-    """Цена улучшения сейчас: GIFT_UP_PRICE × инфляция × (1 + выпущено / тираж) — чем меньше осталось, тем дороже.
-    None — тираж закончился."""
-    n = issued.get(gid, 0)
-    return None if n >= UNIQ_CAP else price_now(GIFT_UP_PRICE * (1 + n / UNIQ_CAP), e)
+    """Цена улучшения — ровно GIFT_UP_PRICE (500 ₿); None — тираж уникальных этого вида закончился."""
+    return None if issued.get(gid, 0) >= UNIQ_CAP else GIFT_UP_PRICE
 
 
-def gift_sell_price(gid, uniq, e, issued):
-    """Цена продажи: половина нынешней цены подарка; у уникального — плюс доля нынешней цены улучшения по редкости."""
-    v = GIFT_BY[gid][3] * SELL_SHARE
+def gift_sell_price(gid, uniq, e, issued, dem=None):
+    """Цена продажи: половина нынешней цены подарка (с инфляцией и спросом); у уникального — плюс доля цены улучшения по редкости."""
+    v = GIFT_BY[gid][3] * SELL_SHARE * e["idx"] * (dem or {}).get(gid, 1.0)
     if uniq:
-        v += GIFT_UP_PRICE * (1 + min(issued.get(gid, 0), UNIQ_CAP) / UNIQ_CAP) * SELL_UNIQ.get(uniq["rar"]["k"], 0.45)
-    return max(1, math.floor(v * e["idx"]))
+        v += GIFT_UP_PRICE * SELL_UNIQ.get(uniq["rar"]["k"], 0.45)       # от тех же 500 ₿ — иначе улучшать и продавать стало бы выгодно
+    return max(1, math.floor(v))
 
 
 def work_gifts(db, sid, solved):
@@ -5448,6 +5567,56 @@ def econ_feed(db, where, args, sid=None, limit=150):
     return out[:limit]
 
 
+_SITE_ECON = {"t": 0.0, "v": None, "db": None}
+
+
+def econ_site(db, fresh=False):
+    """Экономика всего сайта (главному учителю): подарки, биткоины, курс, популярное и редкое. Пересчёт раз в 5 минут."""
+    now = time.time()
+    if not fresh and _SITE_ECON["v"] and _SITE_ECON["db"] is db and now - _SITE_ECON["t"] < 300:
+        return _SITE_ECON["v"]
+    sids = [r["id"] for r in db.q("SELECT id FROM students WHERE COALESCE(is_teacher, 0) = 0")]
+    sums = {"balance": 0, "mined": 0, "fines": 0, "with_coins": 0}
+    for sid in sids:
+        g = game_summary(db, sid, brief=True)
+        sums["balance"] += g["coins"]
+        sums["mined"] += g["mined"]
+        sums["fines"] += g["btc_fast"] * BTC_FAST_FINE
+        sums["with_coins"] += g["coins"] > 0
+    led = {r["reason"]: {"sum": r["s"], "n": r["c"]} for r in db.q("SELECT reason, SUM(delta) s, COUNT(*) c FROM coins GROUP BY reason")}
+    q1 = lambda sql, *a: db.q(sql, a, one=True)["c"]
+    week = now - 7 * 86400
+    gifts = {
+        "on_hand": q1("SELECT COUNT(*) c FROM gifts WHERE sold IS NULL"),
+        "uniq_on_hand": q1("SELECT COUNT(*) c FROM gifts WHERE sold IS NULL AND uniq IS NOT NULL"),
+        "owners": q1("SELECT COUNT(DISTINCT student_id) c FROM gifts WHERE sold IS NULL"),
+        "bought": q1("SELECT COUNT(*) c FROM gifts WHERE from_sid IS NOT NULL"),
+        "bought_week": q1("SELECT COUNT(*) c FROM gifts WHERE from_sid IS NOT NULL AND ts > ?", week),
+        "to_mates": q1("SELECT COUNT(*) c FROM gifts WHERE from_sid IS NOT NULL AND from_sid <> student_id"),
+        "from_teacher": q1("SELECT COUNT(*) c FROM gifts WHERE from_teacher IS NOT NULL"),
+        "work": q1("SELECT COUNT(*) c FROM gifts WHERE kind = 'work'"),
+        "sold": q1("SELECT COUNT(*) c FROM coins WHERE reason = 'sell'"),
+        "burned": q1("SELECT COUNT(*) c FROM gifts WHERE sold IS NOT NULL"),
+        "uniq_issued": q1("SELECT COUNT(*) c FROM gifts WHERE uniq IS NOT NULL"),
+    }
+    popular = [{"i": GIFT_BY[r["gift"]][1], "t": GIFT_BY[r["gift"]][2], "n": r["c"]} for r in db.q(
+        """SELECT gift, COUNT(*) c FROM gifts WHERE from_sid IS NOT NULL GROUP BY gift ORDER BY c DESC, gift LIMIT 5""") if r["gift"] in GIFT_BY]
+    rarest = []
+    for r in db.q("""SELECT g.gift, g.uniq, s.name FROM gifts g JOIN students s ON s.id = g.student_id
+                     WHERE g.sold IS NULL AND g.uniq IS NOT NULL"""):
+        u = uniq_pub(r["uniq"]) if r["gift"] in GIFT_BY else None
+        if u:
+            rarest.append({"i": GIFT_BY[r["gift"]][1], "t": GIFT_BY[r["gift"]][2], "n": u["n"], "rar": u["rar"], "who": short_name(r["name"])})
+    rarest.sort(key=lambda x: -x["rar"]["one_in"])
+    rate, active = btc_rate_now(db)
+    v = {"students": len(sids), "coins": sums, "gifts": gifts, "popular": popular, "rarest": rarest[:5],
+         "spent": -(led.get("gift", {}).get("sum", 0) + led.get("upgrade", {}).get("sum", 0)),
+         "ledger": {k: x["sum"] for k, x in led.items()}, "deals": sum(x["n"] for x in led.values()),
+         "rate": rate, "active": active, "rate_base": COIN_XP, "rate_max": BTC_RATE_MAX, "box": GIFT_BOX_PRICE, "catalog": len(GIFTS)}
+    _SITE_ECON.update(t=now, v=v, db=db)
+    return v
+
+
 def econ_wallet(db, sid):
     """Кошелёк ученика: откуда пришли биткоины и куда ушли."""
     g = game_summary(db, sid, brief=True)
@@ -5470,16 +5639,16 @@ def gift_uniq(db, gid, rng=None):
     for r in db.q("SELECT uniq FROM gifts WHERE gift=? AND uniq IS NOT NULL", (gid,)):
         try:
             u = json.loads(r["uniq"])
-            taken.add((u["bg"], u["sym"], u["fx"]))
+            taken.add((u["bg"], u["sym"], u["fx"], u.get("pose", "stand")))
             n = max(n, int(u["n"]))
         except (ValueError, TypeError, KeyError):
             continue
     pick = lambda xs, w: rng.choices(xs, weights=[x[w] for x in xs])[0][0]
     for _ in range(300):
-        combo = (pick(UNIQ_BG, 4), pick(UNIQ_SYM, 3), pick(UNIQ_FX, 2))
+        combo = (pick(UNIQ_BG, 4), pick(UNIQ_SYM, 3), pick(UNIQ_FX, 2), pick(UNIQ_POSE, 2))
         if combo not in taken:
             break
-    return {"n": n + 1, "bg": combo[0], "sym": combo[1], "fx": combo[2], "ts": time.time()}
+    return {"n": n + 1, "bg": combo[0], "sym": combo[1], "fx": combo[2], "pose": combo[3], "ts": time.time()}
 
 
 def uniq_pub(raw):
@@ -5487,13 +5656,15 @@ def uniq_pub(raw):
     try:
         u = json.loads(raw) if isinstance(raw, str) else raw
         bg, sym, fx = _UNIQ["bg"][u["bg"]], _UNIQ["sym"][u["sym"]], _UNIQ["fx"][u["fx"]]
+        pose = _UNIQ["pose"][u.get("pose", "stand")]          # у улучшенных до появления позы — классика
     except (ValueError, TypeError, KeyError):
         return None
     share = lambda w, xs, k: w / sum(x[k] for x in xs)
-    parts = [("Фон", bg[1], share(bg[4], UNIQ_BG, 4)), ("Узор", sym[1], share(sym[3], UNIQ_SYM, 3)), ("Эффект", fx[1], share(fx[2], UNIQ_FX, 2))]
-    chance = parts[0][2] * parts[1][2] * parts[2][2]       # шанс именно такого сочетания при улучшении
+    parts = [("Фон", bg[1], share(bg[4], UNIQ_BG, 4)), ("Узор", sym[1], share(sym[3], UNIQ_SYM, 3)),
+             ("Эффект", fx[1], share(fx[2], UNIQ_FX, 2)), ("Поза", pose[1], share(pose[2], UNIQ_POSE, 2))]
+    chance = math.prod(x[2] for x in parts)                  # шанс именно такого сочетания при улучшении
     k, t = rarity_tier(chance, UNIQ_RARITY)
-    return {"n": u["n"], "c1": bg[2], "c2": bg[3], "ch": sym[2], "fx": fx[0],
+    return {"n": u["n"], "c1": bg[2], "c2": bg[3], "ch": sym[2], "fx": fx[0], "pose": pose[0],
             "rar": {"k": k, "t": t, "one_in": round(1 / chance)},
             "props": [{"k": a, "t": b, "p": round(100 * c, 1)} for a, b, c in parts]}
 
@@ -5506,7 +5677,7 @@ def gift_icons(db, sid):
         g, u = GIFT_BY.get(r["gift"]), uniq_pub(r["uniq"])
         if g and u:
             out.append({"i": g[1], "t": f"{g[2]} #{u['n']} · {u['rar']['t']} · " + ", ".join(x["t"] for x in u["props"]), "n": 0,
-                        "u": {"c1": u["c1"], "c2": u["c2"], "fx": u["fx"], "r": u["rar"]["k"]}})
+                        "u": {"c1": u["c1"], "c2": u["c2"], "fx": u["fx"], "pose": u["pose"], "r": u["rar"]["k"]}})
     for r in db.q("""SELECT gift, COUNT(*) c, MAX(ts) t FROM gifts WHERE student_id=? AND uniq IS NULL AND sold IS NULL
                      GROUP BY gift ORDER BY t DESC""", (sid,)):
         g = GIFT_BY.get(r["gift"])
@@ -5532,9 +5703,9 @@ def gift_rows(db, sid, where="", limit=200, prices=None):
         row = {"id": r["id"], "gift": g[0], "i": g[1], "t": g[2], "ts": r["ts"], "note": r["note"] or "", "from": frm,
                "uniq": u, "rar": gift_rarity(g[0])}
         if prices:
-            e, issued = prices
+            e, issued, dem = prices
             up_now = gift_up_price(g[0], e, issued)          # сколько сейчас стоит улучшение такого подарка (None — тираж кончился)
-            row.update(up=None if u else up_now, up_now=up_now, sell=gift_sell_price(g[0], u, e, issued),
+            row.update(up=None if u else up_now, up_now=up_now, sell=gift_sell_price(g[0], u, e, issued, dem),
                        issued=issued.get(g[0], 0), cap=UNIQ_CAP)
         out.append(row)
     return out
@@ -5641,6 +5812,7 @@ def game_summary(db, sid, brief=False, windows=None):
 
 def _game_summary(db, sid, brief=False, windows=None):
     """Опыт, уровень и достижения. windows — {имя: (с, до)}: опыт за произвольные промежутки (лиги, прошлая неделя)."""
+    rate, _ = btc_rate_now(db)                     # курс биткоина: раз в минуту — сколько учеников занимается сейчас
     windows = windows or {}
     sums = {k: 0 for k in windows}
     rows = db.q("""SELECT task_id, grp, n, score, ts, exam, spent_ms, gave_up, reason, revealed FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
@@ -5669,6 +5841,8 @@ def _game_summary(db, sid, brief=False, windows=None):
 
     xplog = []                                     # последние изменения опыта с причиной — показываем ученику
 
+    mined_xp = {}                                  # курс биткоина (XP за 1 ₿) → опыт, заработанный по этому курсу
+
     def gain(v, ts, why=None):
         nonlocal xp, week, xp_day, xp_month, xp_wk
         if v > 0 and cheat and cheat[0] <= ts < cheat[1]:
@@ -5678,6 +5852,8 @@ def _game_summary(db, sid, brief=False, windows=None):
         if why:
             xplog.append((ts, v, why))
         xp += v
+        k = btc_rate_at(db, ts)                    # биткоины — по курсу на момент заработка: смена курса прошлое не трогает
+        mined_xp[k] = mined_xp.get(k, 0) + v
         if ts >= wk0:
             xp_wk += v
         for k, (a, b) in windows.items():
@@ -5847,12 +6023,13 @@ def _game_summary(db, sid, brief=False, windows=None):
     fire = fire_streak(fire_days, cover)
     xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
     lvl, title, cur_xp, need = level_of(xp)
-    # биткоины: за каждые COIN_XP заработанного опыта (покупка заморозок их не отнимает) + начисления − покупки
+    # биткоины: заработанный опыт по курсу на момент заработка (покупка заморозок их не отнимает) + начисления − покупки
+    mined = max(0, math.floor(sum((Fraction(v, k) for k, v in mined_xp.items()), Fraction(0))))
     extra = db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)["s"]
-    coins = max(0, (xp + fz_spent) // COIN_XP + extra - cnt["btc_fast"] * BTC_FAST_FINE)
+    coins = max(0, mined + extra - cnt["btc_fast"] * BTC_FAST_FINE)
     zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
-           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": max(0, (xp + fz_spent) // COIN_XP), "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": mined, "btc_rate": rate, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,
            "level": lvl, "title": title, "cur": cur_xp, "need": need}

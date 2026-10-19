@@ -7336,7 +7336,8 @@
   function uniqTile(g, cls = '') {
     const u = g.uniq;
     const pat = Array.from({ length: 8 }, (_, k) => `<i class="ug-s s${k}">${esc(u.ch)}</i>`).join('');
-    return `<span class="ug r-${u.rar.k} ${cls}" style="--c1:${u.c1};--c2:${u.c2}">${pat}<span class="ug-ic gfx-${u.fx}">${g.i}</span><b class="ug-n">#${u.n}</b></span>`;
+    const pose = u.pose || 'stand';         // поза: наклон, великан, вверх ногами, близнецы (значок дважды), вихрь…
+    return `<span class="ug r-${u.rar.k} ${cls}" style="--c1:${u.c1};--c2:${u.c2}">${pat}<span class="ug-ic gfx-${u.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span><b class="ug-n">#${u.n}</b></span>`;
   }
   /** Редкость подарка: уровень (у уникального — его сочетания) и шанс. */
   const gfRar = g => (g.uniq ? g.uniq.rar : g.rar);
@@ -7357,28 +7358,36 @@
     if (g) return renderGift(g);
     const G = GF, coins = G.coins, who = gfTo ? gfMate(gfTo) : '';
     const left = Math.max(0, G.per_day - G.bought_today);
-    const item = (id, i, t, price, cls = '', rar = null) => `<button type="button" class="gf-item ${cls}${rar ? ' r-' + rar.k : ''}" data-gift="${id}"${price > coins || !left ? ' disabled' : ''}
-        title="${esc(t)} — ${price} ₿${rar ? ` · ${rar.t}: ${rarWhy({ rar })}` : ''}"><span class="gf-ic">${i}</span><b>${esc(t)}</b><small>₿ ${price}</small>${rar ? rarHtml({ rar }) : ''}</button>`;
+    // спрос: подарок покупали за неделю заметно чаще среднего — дороже (▲), реже — дешевле (▼); мелкие колебания не показываем
+    const trend = d => (d >= 1.05 ? `<em class="gf-trend up" title="Спрос растёт — цена ×${idxTxt(d)}">▲</em>`
+      : d <= 0.95 ? `<em class="gf-trend down" title="Спрос падает — цена ×${idxTxt(d)}">▼</em>` : '');
+    const item = (id, i, t, price, cls = '', rar = null, dem = 1) => `<button type="button" class="gf-item ${cls}${rar ? ' r-' + rar.k : ''}" data-gift="${id}"${price > coins || !left ? ' disabled' : ''}
+        title="${esc(t)} — ${price} ₿${rar ? ` · ${rar.t}: ${rarWhy({ rar })}` : ''}"><span class="gf-ic">${i}</span><b>${esc(t)}</b><small>₿ ${price}${trend(dem)}</small>${rar ? rarHtml({ rar }) : ''}</button>`;
     const shop = G.teacher ? '<p class="fm-note">Учительский аккаунт дарит подарки из панели учителя — вкладка «Подарки».</p>'
       : `<div class="gf-to"><label>Кому <select class="inp" id="gfTo"><option value="">себе</option>${G.mates.map(m =>
           `<option value="${m.sid}"${String(m.sid) === gfTo ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
           <span class="fm-muted">${left ? `Сегодня можно купить ещё ${left}` : 'На сегодня подарков хватит — завтра снова можно'}</span></div>
-        <div class="gf-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'gf-box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar)).join('')}</div>
+        <div class="gf-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'gf-box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar, x.demand)).join('')}</div>
         <p class="fm-note">🎲 Случайный подарок — может выпасть любой, даже Дракон; чем дороже подарок, тем реже он выпадает.</p>`;
     const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(x => `<button type="button" class="gf-own${x.uniq ? ' uniq' : ''} r-${gfRar(x).k}" data-gift-open="${x.id}"
           title="${esc(x.t)}${x.uniq ? ' #' + x.uniq.n : ''} · ${esc(gfRar(x).t)}: ${esc(rarWhy(x))}">${x.uniq ? uniqTile(x) : `<span class="gf-ic">${x.i}</span>`}
           <b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b>${rarHtml(x)}<small>${esc(gfFrom(x))}</small></button>`).join('')}</div>
-        <p class="fm-note">Нажми на подарок — его можно улучшить до уникального (номер, фон, узор и эффект; тираж — ${G.cap} штук каждого вида)
+        <p class="fm-note">Нажми на подарок — его можно улучшить до уникального за ₿ ${G.up_base} (номер, фон, узор, эффект и поза; тираж — ${G.cap} штук каждого вида)
           или продать. Редкость: у обычного подарка — шанс выпасть в 🎲, у уникального — шанс его сочетания.</p>`
       : '<p class="fm-muted">Пока ни одного — купи себе первый или дождись подарка от учителя.</p>';
     const E = G.econ;
     $('#forecastBody').innerHTML = `
       <div class="gm-head"><span class="gm-level gf-coin">₿</span>
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${btcWord(coins)}</h2>
-          <span class="fm-muted">Только трудом: 1 ₿ за каждые ${G.coin_xp} XP опыта, а каждые ${G.work_every} решённых заданий — подарок в награду.
+          <span class="fm-muted">Только трудом: сейчас 1 ₿ = ${G.coin_xp} XP опыта, а каждые ${G.work_every} решённых заданий — подарок в награду.
             Решено быстрее ${G.fine_sec} секунд — минус 1 ₿${G.fines ? ` (уже −${G.fines} ₿)` : ''}.</span></div></div>
       <div class="gf-econ${E.idx > 1 ? ' up' : ''}"><b>${E.idx > 1 ? `📈 Инфляция: цены ×${idxTxt(E.idx)}` : '📊 Цены по каталогу'}</b>
-        <span>Средний кошелёк учеников — ${E.avg} ₿ (норма ${E.target} ₿). Копят все — цены растут, тратят — падают.</span></div>
+        <span>Средний кошелёк учеников — ${E.avg} ₿ (норма ${E.target} ₿). Копят все — цены растут, тратят — падают.
+          Подарки, которые покупают чаще, дорожают (▲), редко покупаемые — дешевеют (▼).</span></div>
+      <div class="gf-econ${G.coin_xp > G.rate_base ? ' up' : ''}"><b>⛏ Курс: 1 ₿ = ${G.coin_xp} XP</b>
+        <span>${G.coin_xp > G.rate_base ? `Сейчас верно решают ${G.rate_active} — биткоин дороже обычного (${G.rate_base} XP).`
+          : `Сейчас занимаются ${G.rate_active}.`} Когда одновременно решает больше ${G.rate_free}, каждые ${G.rate_step} человек добавляют +1 XP к цене биткоина
+          (не дороже ${G.rate_max} XP). Уже заработанное курс не меняет.</span></div>
       <h3 class="fm-sub">Магазин подарков${who ? ` — для ${esc(who)}` : ''}</h3>
       ${shop}
       <h3 class="fm-sub">Мои подарки · ${G.mine.length}</h3>
@@ -7413,15 +7422,16 @@
       ? `<table class="fm-table gf-props">${u.props.map(p => `<tr><td class="fm-muted">${p.k}</td><td><b>${esc(p.t)}</b></td>
           <td class="num"><span class="chip">${String(p.p).replace('.', ',')}%</span></td></tr>`).join('')}</table>
         ${sell}
-        <p class="fm-note">Уникальный подарок: такого сочетания фона, узора и эффекта больше нет ни у одного «${esc(g.t)}». Процент — как часто выпадает
-          это свойство; редкость подарка — шанс всего сочетания (фон × узор × эффект): редкий, эпический (реже 1 из 1 200), легендарный (1 из 4 000), мифический (1 из 12 000).
+        <p class="fm-note">Уникальный подарок: такого сочетания фона, узора, эффекта и позы больше нет ни у одного «${esc(g.t)}». Процент — как часто выпадает
+          это свойство; редкость подарка — шанс всего сочетания (фон × узор × эффект × поза): ${GF.uniq_tiers.map(r => r.one_in
+            ? `${r.t.toLowerCase()} — до 1 из ${r.one_in.toLocaleString('ru-RU')}` : `${r.t.toLowerCase()} — ещё реже`).join(', ')}.
           Выпущено уникальных «${esc(g.t)}»: ${g.issued} из ${g.cap}. Проданный подарок сгорает — его номер и сочетание больше никому не выпадут.</p>`
-      : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор и эффект. Чем реже сочетание, тем дороже его можно продать:
+      : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор, эффект и позу. Чем реже сочетание, тем дороже его можно продать:
           редкий — дешевле улучшения, легендарный и мифический — в разы дороже.</p>
         <p>${g.up == null ? `<b>Тираж уникальных «${esc(g.t)}» закончился</b> — выпущено ${g.cap} из ${g.cap}.`
           : `<button type="button" class="btn primary" data-gift-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}>✨ Улучшить за ₿ ${g.up}</button>
           ${GF.coins < g.up ? `<span class="fm-muted"> — нужно ещё ${g.up - GF.coins} ₿</span>` : ''}
-          <span class="fm-muted"> · выпущено уникальных: ${g.issued} из ${g.cap}, каждый следующий дороже</span>`}</p>
+          <span class="fm-muted"> · выпущено уникальных: ${g.issued} из ${g.cap}</span>`}</p>
         ${sell}`;
     $('#forecastBody').innerHTML = `<button type="button" class="btn small ghost" id="gfBack">← к подаркам</button>
       <div class="gf-card">${big}

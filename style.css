@@ -2343,8 +2343,29 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
 .gfx-ghost { opacity: .6; filter: drop-shadow(0 0 8px #fff); }
 .gfx-rainbow { animation: gfxRainbow 4s linear infinite; }
 @keyframes gfxRainbow { from { filter: hue-rotate(0deg) saturate(1.5); } to { filter: hue-rotate(360deg) saturate(1.5); } }
+.gfx-shadow { filter: drop-shadow(3px 4px 0 rgba(0, 0, 0, .35)); }
+.gfx-sepia { filter: sepia(.9) saturate(1.2); }
+.gfx-pop { filter: saturate(3) contrast(1.35); }
+.gfx-fog { opacity: .85; filter: blur(.6px) brightness(1.1); }
+.gfx-fire { filter: saturate(1.6) drop-shadow(0 0 3px #ff6d00) drop-shadow(0 -2px 8px #ff3d00); }
+.gfx-invert { filter: invert(1) hue-rotate(180deg); }
+.gfx-pulse { animation: gfxPulse 1.6s ease-in-out infinite; }
+@keyframes gfxPulse { 50% { transform: scale(1.12); } }
+.gfx-glitch { animation: gfxGlitch 2.4s steps(1) infinite; }
+@keyframes gfxGlitch { 0%, 100% { filter: none; transform: none; } 90% { filter: hue-rotate(90deg) saturate(3); transform: translate(2px, -1px); }
+  95% { filter: hue-rotate(-90deg); transform: translate(-2px, 1px); } }
+/* поза уникального подарка (UNIQ_POSE в server.py) — на значке внутри эффекта, чтобы не спорить с ним за transform */
+.ug-ic i { display: inline-block; font-style: normal; line-height: 1; }
+.ugp-tilt { transform: rotate(-14deg); } .ugp-tiltr { transform: rotate(14deg); }
+.ugp-big { transform: scale(1.22); } .ugp-small { transform: scale(.72); }
+.ugp-jump { transform: translateY(-14%); } .ugp-flip { transform: rotate(180deg); }
+.ugp-twin { font-size: .7em; letter-spacing: -.12em; }
+.ugp-spin { animation: ugpSpin 7s linear infinite; }
+@keyframes ugpSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .gfx-rainbow { animation: none; filter: hue-rotate(60deg) saturate(1.6); }
+  .gfx-pulse, .gfx-glitch { animation: none; }
+  .ugp-spin { animation: none; transform: rotate(25deg); }
   .ug.reveal { animation: none; }
 }
 .pf-gifts { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; margin-bottom: 6px; }
@@ -2377,3 +2398,5 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
 .gf-econ.up { border-color: var(--r-legend); background: color-mix(in srgb, var(--r-legend) 10%, var(--card)); }
 .gf-sell { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .gf-plus { color: var(--good); } .gf-minus { color: var(--weak); }
+.gf-trend { font-style: normal; font-size: 10px; margin-left: 3px; }
+.gf-trend.up { color: var(--r-legend); } .gf-trend.down { color: var(--r-rare); }

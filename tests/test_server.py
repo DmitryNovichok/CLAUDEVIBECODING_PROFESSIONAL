@@ -5,6 +5,7 @@
 import http.client
 import datetime
 import json
+import math
 import re
 import shutil
 import sys
@@ -62,7 +63,8 @@ class ServerTest(unittest.TestCase):
         (cls.tmp / "vendor").mkdir()
         (cls.tmp / "vendor" / "ok.css").write_text("body{}")
         cls.saved = {k: getattr(server, k) for k in ("HERE", "DB_PATH", "BANK_JS", "EXTRA_BANK", "THINK_SEC_DEFAULT", "THINK_SEC_HARD",
-                                                     "ACH_CLOCK")}
+                                                     "ACH_CLOCK", "BTC_RATE_FREE")}
+        server.BTC_RATE_FREE = 10 ** 9      # курс биткоина в тестах не плавает (кроме теста курса): учеников «онлайн» здесь много
         # «забавные» достижения (ночью, в обед, в выходные, 31 декабря…) зависят от часов — тесты идут в обычную среду, 10:00
         server.ACH_CLOCK = lambda ts: time.struct_time((2026, 3, 4, 10, 0, 0, 2, 63, -1))
         server.HERE = cls.tmp
@@ -2322,7 +2324,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/freeze/buy", {}, tok)[0], 200)
         self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["coins"], 1000 // server.COIN_XP)
         # купить подарок однокласснику: монеты списаны, у него — подарок у ника и уведомление
-        price = server.GIFT_BY["teddy"][3]
+        price = next(c["price"] for c in self.req("GET", "/api/gifts", token=tok)[1]["catalog"] if c["id"] == "teddy")   # со спросом
         st, r = self.req("POST", "/api/gifts/buy", {"gift": "teddy", "to": sid2}, tok)
         self.assertEqual(st, 200, r)
         self.assertEqual(r["game"]["coins"], 1000 // server.COIN_XP - price)
@@ -2371,11 +2373,12 @@ class ServerTest(unittest.TestCase):
         u = r["gift"]["uniq"]
         self.assertEqual(u["n"], 1)
         self.assertIn(u["rar"]["t"], ["Редкий", "Эпический", "Легендарный", "Мифический"])
-        prod = 1
-        for x in u["props"]:
-            prod *= x["p"] / 100
-        self.assertAlmostEqual(u["rar"]["one_in"], 1 / prod, delta=1 / prod * 0.02)                    # 1 из N = фон × узор × эффект
-        self.assertEqual([x["k"] for x in u["props"]], ["Фон", "Узор", "Эффект"])
+        raw = json.loads(db.q("SELECT uniq FROM gifts WHERE id=?", (teddy["id"],), one=True)["uniq"])
+        prod = 1                                                                                       # точный шанс: проценты на экране округлены
+        for key, xs, w in (("bg", server.UNIQ_BG, 4), ("sym", server.UNIQ_SYM, 3), ("fx", server.UNIQ_FX, 2), ("pose", server.UNIQ_POSE, 2)):
+            prod *= next(x[w] for x in xs if x[0] == raw[key]) / sum(x[w] for x in xs)
+        self.assertEqual(u["rar"]["one_in"], round(1 / prod))                                          # 1 из N = фон × узор × эффект × поза
+        self.assertEqual([x["k"] for x in u["props"]], ["Фон", "Узор", "Эффект", "Поза"])
         self.assertTrue(all(0 < x["p"] <= 100 for x in u["props"]))
         self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok2)[0], 409)
         self.assertEqual([server.gift_rarity(k)["t"] for k in ("cookie", "tulip", "teddy", "robot", "dragon")],
@@ -2388,6 +2391,76 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(sorted(c["n"] for c in combos), list(range(1, len(combos) + 1)))
         self.assertEqual(len({(c["bg"], c["sym"], c["fx"]) for c in combos}), len(combos))
 
+    def test_gift_catalog_and_rarity(self):
+        # 70 подарков: ключи и значки не повторяются и не путаются с наградами профиля
+        self.assertEqual(len(server.GIFTS), 70)
+        self.assertEqual(len({g[0] for g in server.GIFTS}), 70)
+        self.assertEqual(len({g[1] for g in server.GIFTS}), 70)
+        self.assertEqual({g[1] for g in server.GIFTS} & {a[1] for a in server.AWARDS}, {"🚀"})   # «Ракета» была раньше наград — оставлена
+        tiers = {}
+        for g in server.GIFTS:
+            k = server.gift_rarity(g[0])["k"]
+            tiers[k] = tiers.get(k, 0) + 1
+        self.assertEqual(set(tiers), {"common", "uncommon", "rare", "epic", "legend"})
+        self.assertTrue(all(n >= 8 for n in tiers.values()), tiers)
+        # уникальные: при улучшении примерно 58 / 30 / 10 / 2 %
+        import itertools
+        tot = [sum(x[i] for x in xs) for xs, i in ((server.UNIQ_BG, 4), (server.UNIQ_SYM, 3), (server.UNIQ_FX, 2), (server.UNIQ_POSE, 2))]
+        acc = {}
+        for b, sy, f, po in itertools.product(server.UNIQ_BG, server.UNIQ_SYM, server.UNIQ_FX, server.UNIQ_POSE):
+            c = b[4] / tot[0] * sy[3] / tot[1] * f[2] / tot[2] * po[2] / tot[3]
+            k = server.rarity_tier(c, server.UNIQ_RARITY)[0]
+            acc[k] = acc.get(k, 0) + c
+        self.assertAlmostEqual(acc["myth"], 0.02, delta=0.01)
+        self.assertAlmostEqual(acc["legend"], 0.10, delta=0.02)
+        self.assertAlmostEqual(acc["epic"], 0.30, delta=0.03)
+
+    def test_btc_rate_demand_site(self):
+        db = server.APP.db
+        # курс: много верно решающих сейчас — биткоин дороже (но не дороже BTC_RATE_MAX XP); прошлое не пересчитывается
+        tok = self.login("Курсов Кирилл")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel:1')", (sid, time.time() - 7200, 1000))
+        self.assertEqual(server.game_summary(db, sid)["mined"], 100)
+        free, step = server.BTC_RATE_FREE, server.BTC_RATE_STEP
+        try:
+            server.BTC_RATE_FREE, server.BTC_RATE_STEP = 0, 1
+            other = self.req("GET", "/api/me", token=self.login("Онлайнов Олег"))[1]["sid"]
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,5,1,?)",
+                 (other, time.time() - 600, BANK["tasks"][0]["id"] + "#rate", 120000))       # сейчас занимается хотя бы один
+            server._BTC_RATES["tick"] = 0
+            k, active = server.btc_rate_now(db)
+            self.assertEqual(k, min(server.BTC_RATE_MAX, server.COIN_XP + active))
+            self.assertGreater(k, server.COIN_XP)
+            time.sleep(0.01)
+            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel:1')", (sid, time.time(), 200))
+            self.assertEqual(server.game_summary(db, sid)["mined"], 100 + 200 // k)          # старые 1000 XP — по 10, новые — по k
+            server.BTC_RATE_FREE = 10 ** 9
+            server._BTC_RATES["tick"] = 0
+            self.assertEqual(server.btc_rate_now(db)[0], server.COIN_XP)                    # народ разошёлся — курс обычный
+            self.assertEqual(server.game_summary(db, sid)["mined"], 100 + 200 // k)
+        finally:
+            server.BTC_RATE_FREE, server.BTC_RATE_STEP = free, step
+            server._BTC_RATES["tick"] = 0
+        # спрос: покупают чаще других — дорожает; «случайный подарок» — 60 ₿; цены каталога выше на 10 %
+        self.assertEqual((server.GIFT_BOX_PRICE, server.GIFT_BY["cookie"][3], server.GIFT_BY["dragon"][3]), (60, 11, 770))
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 2000))
+        for _ in range(6):
+            self.req("POST", "/api/gifts/buy", {"gift": "donut"}, tok)
+        d = self.req("GET", "/api/gifts", token=tok)[1]
+        donut = next(c for c in d["catalog"] if c["id"] == "donut")
+        self.assertGreater(donut["demand"], 1)
+        self.assertGreater(donut["price"], donut["base"])
+        self.assertEqual(d["box"], 60)
+        self.assertEqual([c["base"] for c in d["catalog"]], sorted(c["base"] for c in d["catalog"]))   # витрина — по цене
+        # статистика всего сайта — главному учителю
+        st, e = self.admin("GET", "/api/admin/econ")
+        site = e["site"]
+        self.assertGreaterEqual(site["gifts"]["bought"], 6)
+        self.assertEqual(site["popular"][0]["t"], "Пончик") if site["popular"][0]["n"] >= 6 else None
+        self.assertGreater(site["spent"], 0)
+        self.assertGreaterEqual(site["coins"]["mined"], 100)
+
     def test_gift_economy(self):
         # инфляция, тираж уникальных, продажа (подарок сгорает), подарки за труд
         db = server.APP.db
@@ -2397,14 +2470,16 @@ class ServerTest(unittest.TestCase):
         db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 5000))
         d = self.req("GET", "/api/gifts", token=tok)[1]
         self.assertEqual(d["econ"]["idx"], 1.0)
-        self.assertEqual(next(c for c in d["catalog"] if c["id"] == "cookie")["price"], 10)
+        ck = next(c for c in d["catalog"] if c["id"] == "cookie")
+        self.assertEqual(ck["price"], math.ceil(11 * ck["demand"]))                               # каталог × инфляция (×1) × спрос
         # продажа обычного — за половину цены; второй раз — нельзя: подарок сгорел
         self.req("POST", "/api/gifts/buy", {"gift": "cat"}, tok)
         cat = next(g for g in self.req("GET", "/api/gifts", token=tok)[1]["mine"] if g["gift"] == "cat")
-        self.assertEqual((cat["sell"], cat["up"]), (25, server.gift_up_price("cat", {"idx": 1.0}, server.uniq_issued(db))))
+        half = math.floor(server.GIFT_BY["cat"][3] * 0.5 * server.gift_demand(db)["cat"])       # половина нынешней цены
+        self.assertEqual((cat["sell"], cat["up"]), (half, server.gift_up_price("cat", {"idx": 1.0}, server.uniq_issued(db))))
         coins = self.req("GET", "/api/gifts", token=tok)[1]["coins"]
         st, r = self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tok)
-        self.assertEqual((st, r["price"], r["game"]["coins"]), (200, 25, coins + 25))
+        self.assertEqual((st, r["price"], r["game"]["coins"]), (200, half, coins + half))
         self.assertEqual(self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tok)[0], 404)
         self.assertNotIn(cat["id"], [g["id"] for g in self.req("GET", "/api/gifts", token=tok)[1]["mine"]])
         # уникальный: цена продажи — по редкости, сочетание проданного больше не выдаётся
@@ -2414,8 +2489,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200, r)
         u = r["gift"]["uniq"]
         k = u["rar"]["k"]
-        n_robot = server.uniq_issued(db)["robot"]
-        self.assertEqual(r["gift"]["sell"], int(160 * 0.5 + server.GIFT_UP_PRICE * (1 + n_robot / server.UNIQ_CAP) * server.SELL_UNIQ[k]))
+        self.assertEqual(r["gift"]["sell"], math.floor(server.GIFT_BY["robot"][3] * 0.5 * server.gift_demand(db)["robot"]
+                                                       + server.GIFT_UP_PRICE * server.SELL_UNIQ[k]))          # уникальная часть — от ровных 500 ₿
         self.req("POST", "/api/gifts/sell", {"id": robot["id"]}, tok)
         burned = json.loads(db.q("SELECT uniq FROM gifts WHERE id=?", (robot["id"],), one=True)["uniq"])
         with server._GIFT_LOCK:
@@ -2433,8 +2508,9 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": robot2["id"]}, tok)[0], 409)
         finally:
             server.UNIQ_CAP = cap
-        e1 = {"idx": 1.0}
-        self.assertLess(server.gift_up_price("cake", e1, {}), server.gift_up_price("cake", e1, {"cake": 50}))
+        # улучшение — ровно 500 ₿: без надбавки за тираж и без инфляции
+        for issued, idx in (({}, 1.0), ({"cake": 50}, 1.0), ({}, 3.0)):
+            self.assertEqual(server.gift_up_price("cake", {"idx": idx}, issued), 500)
         # инфляция: копят все — цены выше
         target = server.ECON_TARGET
         try:
@@ -2442,7 +2518,8 @@ class ServerTest(unittest.TestCase):
             db.x("INSERT INTO attempts(student_id, ts, task_id, n, score) VALUES(?,?,?,5,1)", (sid, time.time() - 60, "econ:1"))
             e = server.econ(db, fresh=True)
             self.assertGreater(e["idx"], 1)
-            self.assertGreater(self.req("GET", "/api/gifts", token=tok)[1]["catalog"][0]["price"], 10)
+            c0 = self.req("GET", "/api/gifts", token=tok)[1]["catalog"][0]
+            self.assertGreater(c0["price"], math.ceil(c0["base"] * c0["demand"]))
         finally:
             server.ECON_TARGET = target
             server._ECON.update(t=0, v=None)
@@ -2501,6 +2578,7 @@ class ServerTest(unittest.TestCase):
         tok2 = self.login("Получаев Пётр")
         sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
         db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel:1')", (sid, time.time() - 3600, 10000))
+        teddy_price = next(c["price"] for c in self.req("GET", "/api/gifts", token=tok)[1]["catalog"] if c["id"] == "teddy")
         self.req("POST", "/api/gifts/buy", {"gift": "teddy", "to": sid2}, tok)                       # подарок однокласснику
         self.req("POST", "/api/gifts/buy", {"gift": "cat"}, tok)
         cat = next(g for g in self.req("GET", "/api/gifts", token=tok)[1]["mine"] if g["gift"] == "cat")
@@ -2517,7 +2595,7 @@ class ServerTest(unittest.TestCase):
         for k in ("gift", "upgrade", "sell", "grant", "teacher_gift", "removed"):
             self.assertIn(k, kinds)
         buy = next(e for e in mine if e["kind"] == "gift" and e["gift"]["t"] == "Мишка")
-        self.assertEqual((buy["to"], buy["delta"]), ("Получаев П.", -server.GIFT_BY["teddy"][3]))
+        self.assertEqual((buy["to"], buy["delta"]), ("Получаев П.", -teddy_price))
         up = next(e for e in mine if e["kind"] == "upgrade")
         self.assertTrue(up["gift"]["uniq"]["n"] >= 1)
         self.assertGreaterEqual(d["total"]["mined"], 1000)
