@@ -61,7 +61,8 @@
       <div class="gm-head"><span class="gm-level gf-coin">₿</span>
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${btcWord(coins)}</h2>
           <span class="fm-muted">Только трудом: сейчас 1 ₿ = ${G.coin_xp} XP опыта, а каждые ${G.work_every} решённых заданий — подарок в награду.
-            Решено быстрее ${G.fine_sec} секунд — минус 1 ₿${G.fines ? ` (уже −${G.fines} ₿)` : ''}.</span></div></div>
+            Решено быстрее ${G.fine_sec} секунд — минус 1 ₿${G.fines ? ` (уже −${G.fines} ₿)` : ''}.
+            За вариант ЕГЭ — бонус по тестовому баллу: ${examBtcTxt(G)}.</span></div></div>
       <div class="gf-econ${E.idx > 1 ? ' up' : ''}"><b>${E.idx > 1 ? `📈 Инфляция: цены ×${idxTxt(E.idx)}` : '📊 Цены по каталогу'}</b>
         <span>Средний кошелёк учеников — ${E.avg} ₿ (норма ${E.target} ₿). Копят все — цены растут, тратят — падают.
           Подарки, которые покупают чаще, дорожают (▲), редко покупаемые — дешевеют (▼).</span></div>
@@ -76,13 +77,16 @@
       ${ledgerHtml(G)}
       <p class="fm-note">Подарки видны маленькими значками у ника — в рейтинге и в профиле: сначала уникальные, всего до ${G.show}.</p>`;
   }
+  /** «40+ — 15 ₿, 60+ — 30 ₿…» — бонусы за вариант ЕГЭ от меньшего балла к большему. */
+  const examBtcTxt = G => G.exam_btc.slice().reverse().map(([low, b]) => `${low}+ — ${b} ₿`).join(', ');
   /** История биткоинов, кроме опыта: начисления и снятия учителем, покупки, улучшения, продажи, штрафы за спешку. */
   function ledgerHtml(G) {
     const why = { grant: '➕ Начислил учитель', take: '➖ Снял учитель', gift: '🎁 Покупка подарка', upgrade: '✨ Улучшение', sell: '💰 Продажа' };
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? ` <span class="fm-muted">«${esc(r.note)}»</span>` : ''}</td>
       <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${Math.abs(r.delta)} ₿</td></tr>`).join('');
-    if (!rows && !G.fines) return '';
+    if (!rows && !G.fines && !G.exam_coins) return '';
     return `<details class="xp-log"><summary>История биткоинов</summary>
+      ${G.exam_coins ? `<p class="fm-note">🎓 Бонусы за варианты ЕГЭ: <b class="xp-plus">+${G.exam_coins} ₿</b> (${examBtcTxt(G)}).</p>` : ''}
       ${G.fines ? `<p class="fm-note">Штраф за ответы быстрее ${G.fine_sec} секунд: −${G.fines} ₿ (по 1 ₿ за задание).</p>` : ''}
       ${rows ? `<table class="fm-table">${rows}</table>` : ''}
       <p class="fm-note">Биткоины за опыт здесь не показаны — они приходят сами: 1 ₿ за каждые ${G.coin_xp} XP.</p></details>`;

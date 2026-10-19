@@ -732,13 +732,40 @@
     $('#giftEcon').innerHTML = card('Инфляция', '×' + String(E.idx).replace('.', ','), `цены подарков и улучшения; средний кошелёк ${E.avg} ₿ при норме ${E.target} ₿`, E.idx > 1 ? '#f57c00' : '')
       + card('Биткоинов у учеников', E.total, `у ${E.active} ${pluralRu(E.active, 'активного', 'активных', 'активных')} за 30 дней`)
       + card('Уникальных выпущено', GFA.uniq_total, `тираж — ${GFA.cap} на каждый вид подарка`)
-      + card('За труд', '1 ₿ / ' + GFA.coin_xp + ' XP', `и подарок за каждые ${GFA.work_every} решённых`);
+      + card('За труд', '1 ₿ / ' + GFA.coin_xp + ' XP', `и подарок за каждые ${GFA.work_every} решённых`)
+      + card('🎲 Случайный подарок', GFA.box.now + ' ₿', GFA.box.set ? 'цену задал главный учитель' : `${GFA.box.default} ₿ × инфляция`);
+    renderGiftBox();
     $('#giftRecent').innerHTML = GFA.recent.length
       ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Кому</th><th>Подарок</th><th>Подпись</th></tr></thead><tbody>${GFA.recent.map(r =>
           `<tr><td class="muted">${fmtWhen(r.ts)}</td><td>${esc(r.name)}</td><td>${r.i} ${esc(r.t)}${r.uniq ? ` <b>#${r.uniq.n}</b> <span class="muted">✨ ${esc(r.uniq.rar.t)} · ${esc(r.uniq.props.map(p => p.t).join(', '))}</span>` : ''}</td>
             <td class="muted">${esc(r.note || '—')}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="adm-empty">Вы ещё ничего не дарили.</p>';
   }
+  /** Цена «🎲 Случайного подарка» на весь сайт — только главному учителю. */
+  function renderGiftBox() {
+    const B = GFA.box, f = $('#giftBoxForm');
+    f.hidden = !GFA.is_main;
+    if (!GFA.is_main) return;
+    $('#giftBoxNote').innerHTML = `Сейчас ученики платят <b>${B.now} ₿</b> — ${B.set ? 'эту цену задали вы, инфляция на неё не влияет'
+      : `стандартная цена ${B.default} ₿ × инфляция`}. Выпадающий подарок в среднем стоит около ${String(B.value).replace('.', ',')} ₿
+      (дорогие выпадают реже): цена ниже — «🎲» выгоднее покупки, выше — дороже. От ${B.min} до ${B.max} ₿.`;
+    if (document.activeElement !== $('#giftBoxPrice')) $('#giftBoxPrice').value = B.set || B.now;
+    $('#giftBoxReset').disabled = !B.set;
+    $('#giftBoxMsg').textContent = '';
+  }
+  async function saveGiftBox(body) {
+    $('#giftBoxMsg').textContent = '';
+    try {
+      const r = await api('gifts/box', body);
+      toast(r.set ? `🎲 Случайный подарок теперь стоит ${r.now} ₿` : `🎲 Цена снова стандартная: ${r.now} ₿`);
+      loadGifts();
+    } catch (err) { if (err.status !== 401) $('#giftBoxMsg').textContent = err.message; }
+  }
+  $('#giftBoxForm').addEventListener('submit', e => {
+    e.preventDefault();
+    saveGiftBox({ price: Number($('#giftBoxPrice').value) });
+  });
+  $('#giftBoxReset').addEventListener('click', () => saveGiftBox({ reset: true }));
   // ------------------------------------------------------------ экономика: обзор, журнал изменений, кошелёк ученика
   const ECO_KIND = { gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа', grant: '➕ Начислил учитель', take: '➖ Снял учитель',
     teacher_gift: '🎁 Подарок от учителя', work: '🏅 Подарок за труд', removed: '🗑 Удалён учителем' };
@@ -780,7 +807,7 @@
         ${card('Куплено подарков', S.gifts.bought, `за 7 дней ${S.gifts.bought_week}, в подарок одноклассникам ${S.gifts.to_mates}`)}
         ${card('Биткоинов на руках', S.coins.balance, `у ${S.coins.with_coins} из ${S.students} учеников`)}
         ${card('Потрачено биткоинов', S.spent, 'на подарки и улучшения')}
-        ${card('Заработано трудом', S.coins.mined, 'за опыт по курсу на момент заработка')}
+        ${card('Заработано трудом', S.coins.mined, `за опыт по курсу на момент заработка; за варианты ЕГЭ ещё ${S.coins.exam}`)}
         ${card('Курс сейчас', `1 ₿ = ${S.rate} XP`, `верно решают ${S.active}; обычно ${S.rate_base}, не дороже ${S.rate_max}`, S.rate > S.rate_base ? '#f57c00' : '')}
         ${card('Продано · сгорело', `${S.gifts.sold} · ${S.gifts.burned}`, `получено за продажи ${S.ledger.sell || 0} ₿`)}
         ${card('Учитель: начислил · снял', `${S.ledger.grant || 0} · ${-(S.ledger.take || 0)}`, `штрафы за спешку ${S.coins.fines} ₿ · операций ${S.deals}`)}
@@ -799,6 +826,7 @@
       </div>
       <div class="eco-grid">
         ${ecoFlowHtml('Откуда пришли биткоины', [['⚒ За опыт (труд)', T.mined, null, 'Решённые задания: по курсу на момент заработка (обычно 1 ₿ за 10 XP)'],
+          ['🎓 За варианты ЕГЭ', T.exam, null, 'Бонус по тестовому баллу: 40+ — 15 ₿, 60+ — 30, 80+ — 50, 90+ — 100'],
           ['➕ Начислил учитель', T.grant, W.grant || 0], ['💰 Продажи подарков', T.sell, W.sell || 0]])}
         ${ecoFlowHtml('Куда ушли биткоины', [['🎁 Покупки подарков', T.gift, W.gift || 0], ['✨ Улучшения', T.upgrade, W.upgrade || 0],
           ['➖ Снял учитель', T.take, W.take || 0], ['⏱ Штрафы за спешку', T.fines, null]])}
@@ -809,7 +837,7 @@
       ${d.rich.length ? `<div class="adm-box"><h3 class="adm-h3">Самые большие кошельки</h3><div class="adm-table-wrap"><table class="adm-table">
         <thead><tr><th>Ученик</th><th class="num">На счёте</th><th class="num">Заработано трудом</th><th class="num">Потрачено</th><th class="num">Штрафы</th></tr></thead>
         <tbody>${d.rich.map(w => `<tr><td><button type="button" class="link-btn eco-name" data-eco-sid="${w.id}">${esc(w.name)}</button><small class="muted"> ${esc(w.cls || '')}</small></td>
-          <td class="num"><b>${w.balance}</b> ₿</td><td class="num">${w.mined}</td><td class="num">${w.gift + w.upgrade}</td><td class="num">${w.fines || '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+          <td class="num"><b>${w.balance}</b> ₿</td><td class="num">${w.mined + w.exam}</td><td class="num">${w.gift + w.upgrade}</td><td class="num">${w.fines || '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
       <div class="adm-box"><div class="adm-toolbar" style="margin:0 0 8px"><h3 class="adm-h3" style="margin:0">Журнал изменений в профилях</h3>
         <select class="inp" id="econKind" style="max-width:260px"><option value="">Все события</option>${Object.entries(ECO_KIND).map(([k, t]) => `<option value="${k}"${k === kind ? ' selected' : ''}>${t}</option>`).join('')}</select></div>
         <div id="econFeed">${ecoFeedHtml(d.feed.filter(e => !kind || e.kind === kind), true)}</div></div>`;
@@ -839,7 +867,7 @@
     const w = d.wallet;
     const wl = (k, v, cls) => `<span class="eco-w"><small>${k}</small><b class="${cls || ''}">${v}</b></span>`;
     $('#giftWallet').innerHTML = `<div class="eco-wallet">${wl('На счёте', w.balance + ' ₿')}${wl('За опыт', '+' + w.mined, 'eco-plus')}
-      ${wl('Начислено', '+' + w.grant, 'eco-plus')}${wl('Продажи', '+' + w.sell, 'eco-plus')}${wl('Покупки', '−' + w.gift, 'eco-minus')}
+      ${wl('За варианты', '+' + w.exam, 'eco-plus')}${wl('Начислено', '+' + w.grant, 'eco-plus')}${wl('Продажи', '+' + w.sell, 'eco-plus')}${wl('Покупки', '−' + w.gift, 'eco-minus')}
       ${wl('Улучшения', '−' + w.upgrade, 'eco-minus')}${wl('Снято', '−' + w.take, 'eco-minus')}${wl('Штрафы', '−' + w.fines, 'eco-minus')}</div>`;
     $('#giftHistory').innerHTML = `<h4 class="eco-h4">История изменений</h4>${ecoFeedHtml(d.feed, false)}`;
     const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
