@@ -94,7 +94,9 @@
   const LEAGUE_ICONS = ['🥉', '🥈', '🥇', '💎'];
   const LEAGUE_NAMES = ['Бронзовая', 'Серебряная', 'Золотая', 'Алмазная'];
   const LEAGUE_TO = ['бронзовую', 'серебряную', 'золотую', 'алмазную'];      // «поднимутся в … лигу»
-  const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `+${v} XP`;
+  const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `${v} ${plural(v, 'очко', 'очка', 'очков')}`;
+  /** Из чего сложились очки: опыт, заработанные ₿ и доля заданий без ошибок за период. */
+  const lbParts = r => (r.xp == null ? '' : `${r.xp} XP · ${r.btc} ₿ · ${r.acc}%<span class="lp-noerr"> без ошибок</span>`);
   /** Значок у ника: строка (старый формат) или {i, t, n} — у повторяемых наград маленькое число, сколько раз получена. */
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
@@ -102,25 +104,65 @@
   const giftBadge = g => (g.u ? `<span class="bdg ugb r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
     : badgeHtml(g));
   const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
-  const badgesHtml = r => ((r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '') + giftsHtml(r);
-  const nameHtml = r => (r.sid ? `<button type="button" class="lb-name" data-prof="${r.sid}" title="Открыть профиль">${esc(r.name)}</button>` : esc(r.name)) + admTag(r.sid);
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
+  // ---- подиум + список: тройка лидеров крупно, остальные строкой; аватар — самый редкий уникальный подарок
+  const GIFT_RANK = { myth: 4, legend: 3, epic: 2, rare: 1 };
+  const topGift = r => (r.gifts || []).filter(g => g.u).sort((a, b) => (GIFT_RANK[b.u.r] || 0) - (GIFT_RANK[a.u.r] || 0))[0];
+  function lbAvatar(r, size) {
+    const g = topGift(r);
+    return g ? `<span class="lp-av r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2};--s:${size}px" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
+      : `<span class="lp-av plain" style="--s:${size}px" aria-hidden="true">${esc(((r.name || '?').trim()[0]) || '?')}</span>`;
+  }
+  /** Значки и подарки у ника: первые max — крупно, остальные — «+N» (все — в профиле). skip — подарок, который уже в аватаре. */
+  function lbItems(r, skip) {
+    return [...(r.badges || []).map(b => (typeof b === 'string' ? { i: b } : b)), ...(r.gifts || []).filter(g => g !== skip).map(g => Object.assign({ gift: 1 }, g))];
+  }
+  const lbIcon = x => {
+    const tip = esc((x.t || '') + (x.n ? ' × ' + x.n : '')), sup = x.n ? `<sup>${x.n}</sup>` : '';
+    if (x.gift && x.u) return `<span class="lp-ic lp-ug r-${x.u.r}" style="--c1:${x.u.c1};--c2:${x.u.c2}" title="${tip}"><i class="gfx-${x.u.fx}">${esc(x.i)}</i></span>`;
+    return `<span class="lp-ic${/^[\x20-\x7e]{2,}$/.test(x.i) ? ' lp-txt' : ''}" title="${tip}">${esc(x.i)}${sup}</span>`;
+  };
+  function lbIcons(items, max, cls = 'lp-icons') {
+    const rest = items.length - max;
+    return `<span class="${cls}">${items.slice(0, max).map(lbIcon).join('')}${rest > 0           // пустой — тоже: держит колонку в строке
+      ? `<span class="lp-more" title="${esc(items.slice(max).map(x => x.t || x.i).join(', '))}">+${rest}</span>` : ''}</span>`;
+  }
+  const lbNm = r => (r.sid ? `<button type="button" class="lb-name lp-nm" data-prof="${r.sid}" title="Открыть профиль">${esc(r.name)}</button>` : `<span class="lp-nm">${esc(r.name)}</span>`) + admTag(r.sid);
+  /** rows — места по порядку; zoneOf(r) → 'up' | 'down' | ''; lines(r) — разделитель зоны перед строкой; tail — строки «…» и «ты». */
+  function podiumHtml(rows, key, zoneOf = () => '', lines = () => '', tail = []) {
+    const top = rows.filter(r => r.place <= 3), rest = rows.filter(r => r.place > 3);
+    const pd = r => {
+      const z = zoneOf(r);
+      return `<div class="lp-pd lp-p${r.place}${r.me ? ' me' : ''}${z ? ' z-' + z : ''}">${r.place === 1 ? '<span class="lp-crown" aria-hidden="true">👑</span>' : ''}
+        ${lbAvatar(r, r.place === 1 ? 64 : 52)}${lbNm(r)}${r.level ? `<small class="fm-muted">ур. ${r.level}</small>` : ''}
+        <span class="lp-medal">${placeHtml(r.place)}</span><b class="lp-val">${lbValue(key, r.value)}</b>
+        ${lbParts(r) ? `<small class="lp-parts">${lbParts(r)}</small>` : ''}${lbIcons(lbItems(r, topGift(r)), 2, 'lp-chips')}
+        <i class="lp-step"></i></div>`;
+    };
+    const order = [top.find(r => r.place === 2), top.find(r => r.place === 1), top.find(r => r.place === 3)].filter(Boolean);
+    const row = r => {
+      const z = zoneOf(r);
+      return `${lines(r)}<div class="lp-row${r.me ? ' me' : ''}${z ? ' z-' + z : ''}"><span class="lp-place">${r.place}</span>${lbAvatar(r, 36)}
+        <span class="lp-who">${lbNm(r)}${r.level ? `<small>ур. ${r.level}</small>` : ''}</span>${lbIcons(lbItems(r), 3)}
+        <span class="lp-val"><b>${lbValue(key, r.value)}</b>${lbParts(r) ? `<small>${lbParts(r)}</small>` : ''}</span></div>`;
+    };
+    return `${order.length ? `<div class="lp-podium n${order.length}">${order.map(pd).join('')}</div>` : ''}
+      <div class="lp-list">${rest.map(row).join('')}${tail.length ? `<div class="lp-gap">…</div>${tail.map(row).join('')}` : ''}</div>`;
+  }
   const daysLeft = endSec => Math.max(0, Math.ceil((endSec * 1000 - Date.now()) / 864e5));
 
   function leagueHtml(L) {
-    const row = r => {
-      const zone = r.value > 0 && r.place <= L.up ? 'up' : L.down && r.place > L.total - L.down ? 'down' : '';
-      return `<tr class="${r.me ? 'me' : ''} ${zone ? 'z-' + zone : ''}"><td class="lb-place">${placeHtml(r.place)}</td>
-        <td>${nameHtml(r)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td>
-        <td class="num">${zone === 'up' ? '<span class="z-mark up" title="Поднимется в лигу выше">▲</span>' : zone === 'down' ? '<span class="z-mark down" title="Опустится в лигу ниже">▼</span>' : ''} +${r.value} XP</td></tr>`;
-    };
+    const zoneOf = r => (r.value > 0 && r.place <= L.up ? 'up' : L.down && r.place > L.total - L.down ? 'down' : '');
+    const lines = r => (L.up && r.place === L.up + 1 ? `<div class="lp-zone up">▲ ${L.up === 1 ? 'первый поднимется' : `топ-${L.up} поднимутся`}</div>` : '')
+      + (L.down && r.place === L.total - L.down + 1 ? '<div class="lp-zone down">▼ опустятся</div>' : '');
     const mineOut = L.me && L.me.place > L.top.length;              // я ниже 20-го места — покажу свою строку отдельно
     const left = daysLeft(L.ends);
     return `<div class="lg-head"><span class="lg-icon">${L.icon}</span><div><b>${esc(L.name)}</b>
         <div class="fm-muted">Итоги в понедельник — ${left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'сегодня ночью'}.
         ${L.up ? `Первые ${L.up} поднимутся в ${LEAGUE_TO[L.idx + 1]} лигу.` : 'Это высшая лига — удержись в ней!'}
         ${L.down ? ` Последние ${L.down} опустятся.` : ''}</div></div></div>
-      ${L.top.length ? `<table class="lb">${L.top.map(row).join('')}${mineOut ? `<tr class="lb-gap"><td colspan="4">…</td></tr>${row({ place: L.me.place, name: 'Ты', me: true, level: '', badges: [], value: L.me.value, sid: student && student.sid })}` : ''}</table>`
+      ${L.top.length ? podiumHtml(L.top, 'league', zoneOf, lines,
+          mineOut ? [{ place: L.me.place, name: 'Ты', me: true, level: '', badges: [], value: L.me.value, sid: student && student.sid }] : [])
         : '<p class="fm-muted lb-empty">В лиге пока никого — реши задание, и ты в игре.</p>'}
       ${L.total > L.top.length ? `<p class="fm-muted lb-mine">Показаны первые ${L.top.length} из ${L.total}.</p>` : ''}`;
   }
@@ -157,12 +199,10 @@
       return `<p class="fm-muted lb-empty">${key === 'day' ? 'Сегодня ещё никто не решал — стань первым!'
         : key === 'fire' ? 'Пока ни у кого не горит огонёк. Реши 3 задания за день, чтобы зажечь его.' : 'Пока пусто.'}</p>`;
     }
-    const rows = b.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td>
-      <td>${nameHtml(r)}${badgesHtml(r)}</td><td class="fm-muted">ур. ${r.level}</td><td class="num">${lbValue(key, r.value)}</td></tr>`).join('');
     const mine = b.me && b.me.place > 10
-      ? `<p class="lb-mine">Твоё место: <b>${b.me.place}</b> из ${b.total} · ${lbValue(key, b.me.value)}</p>`
+      ? `<p class="lb-mine">Твоё место: <b>${b.me.place}</b> из ${b.total} · ${lbValue(key, b.me.value)}${lbParts(b.me) ? ` (${lbParts(b.me).replace(/<[^>]+>/g, '')})` : ''}</p>`
       : (!b.me ? `<p class="lb-mine fm-muted">${key === 'fire' ? 'Зажги огонёк — и попадёшь в рейтинг' : 'Реши задание — и попадёшь в рейтинг'}</p>` : '');
-    return `<table class="lb">${rows}</table>${mine}`;
+    return `${podiumHtml(b.top, key)}${mine}`;
   }
   function boardsHtml(d, key) {
     const noClasses = !(d.boards && d.boards.classes && d.boards.classes.list.length);   // учитель не включил битву классов
@@ -170,6 +210,9 @@
     return `<div class="lb-wrap" data-lb='${esc(JSON.stringify(d))}'>
       <div class="lb-tabs" role="tablist">${tabs.map(([k, t]) => `<button type="button" data-lbtab="${k}" class="${k === key ? 'on' : ''}">${t}</button>`).join('')}</div>
       <div class="lb-body">${boardHtml(d, key)}</div>
+      <p class="fm-muted lb-legend"><b>Место — по очкам</b> за период: (XP + заработанные ₿) / 2 × доля заданий без ошибок. Например, 300 XP и 40 ₿,
+        а ошибки были в 10% заданий: (300 + 40) / 2 × 0,9 = 153 очка. Ошибка — неверный ответ, решение со второй попытки или «Показать ответ».
+        Огонёк — по дням подряд.</p>
       <p class="fm-muted lb-legend">Нажми на имя — откроется профиль с наградами. Значки у ника (до трёх) каждый выбирает сам в своём профиле;
         число у значка — сколько раз награда получена: 👑 — быстрее всех решил задание дня, 🏆 — 1-е место в лиге за неделю, 🚀 — повышение, ⚔️ — победа в дуэли.</p></div>`;
   }
@@ -355,7 +398,7 @@
     if (!LB) { $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Нет связи с сервером.</p>'; return; }
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг</h2>
       ${LB.spectator ? '<p class="daily-used">🎓 Вы учитель: рейтинг ваших учеников виден, но вы сами в нём не участвуете — ни в лиге, ни в ТОП-10, ни в дуэлях.</p>' : ''}
-      <p class="fm-note">${LB.spectator ? 'Ваши ученики' : 'Ученики твоего учителя'}. Лига — опыт с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
+      <p class="fm-note">${LB.spectator ? 'Ваши ученики' : 'Ученики твоего учителя'}. Лига — очки с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
   }
 
   // «Тебя обогнали!»: сравниваем лигу с тем, что видели в прошлый раз
@@ -375,18 +418,18 @@
       if (passer) {
         const gap = passer.value - me.value;
         const k = tasks(above ? above.value - me.value : 0);
-        return `<b>${esc(passer.name)}</b> обогнал тебя на ${gap} XP — до ${me.place - 1}-го места ${k} ${plural(k, 'задание', 'задания', 'заданий')}. Отыграйся!`;
+        return `<b>${esc(passer.name)}</b> обогнал тебя на ${gap} ${plural(gap, 'очко', 'очка', 'очков')} — до ${me.place - 1}-го места ${k} ${plural(k, 'задание', 'задания', 'заданий')}. Отыграйся!`;
       }
     }
     if (!me.value) {                                         // ещё без опыта на этой неделе
       const last = L.top.filter(r => r.value > 0 && !r.me).pop();
-      if (!last) return 'В лиге на этой неделе ещё никто не набрал опыт — реши задание и стань первым!';
+      if (!last) return 'В лиге на этой неделе ещё никто не набрал очков — реши задание и стань первым!';
       const k = tasks(last.value);
       return `Реши ${k} ${plural(k, 'задание', 'задания', 'заданий')} — и обгонишь ${esc(last.name)} (${last.place}-е место в лиге)`;
     }
     if (above) {
       const gap = above.value - me.value;
-      return `До ${me.place - 1}-го места ${gap + 1} XP — примерно ${tasks(gap)} ${plural(tasks(gap), 'задание', 'задания', 'заданий')}. Впереди — ${esc(above.name)}`;
+      return `До ${me.place - 1}-го места ${gap + 1} ${plural(gap + 1, 'очко', 'очка', 'очков')} — примерно ${tasks(gap)} ${plural(tasks(gap), 'задание', 'задания', 'заданий')}. Впереди — ${esc(above.name)}`;
     }
     return 'Ты первый в лиге — держи отрыв!';
   }
