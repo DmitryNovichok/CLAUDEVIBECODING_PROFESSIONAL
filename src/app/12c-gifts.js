@@ -3,13 +3,16 @@
   // себе или однокласснику, «🎲 Случайный подарок» выпадает любой (дорогие — реже), учитель дарит из панели.
   // Свой подарок можно улучшить — он станет уникальным: номер и случайные фон, узор и эффект, у каждого своя редкость.
   // Редкость считает сервер: у обычного — шанс выпасть в «🎲», у уникального — шанс сочетания («1 из N»); видна на подарке.
+  // Экономика: цены растут с инфляцией (средний кошелёк учеников), тираж уникальных каждого вида ограничен, проданный
+  // подарок сгорает; биткоины и подарки — за труд: 1 ₿ за 10 XP, каждые 25 решённых — подарок.
   let GF = null;                          // магазин и свои подарки с сервера
   let gfTo = '';                          // кому дарим: '' — себе, иначе sid одноклассника
   let gfOpen = null;                      // открытая карточка подарка (id) или null — магазин
   const gfDate = ts => { const d = new Date(ts * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`; };
   const gfMate = sid => (GF.mates.find(m => String(m.sid) === String(sid)) || {}).name || '';
   const btcWord = n => plural(n, 'биткоин', 'биткоина', 'биткоинов');
-  const gfFrom = g => g.from === 'учитель' ? 'от учителя' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
+  const gfFrom = g => g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
+  const idxTxt = x => String(x).replace('.', ',');
   /** Уникальный подарок: фон-градиент, узор из символов, эффект и номер; рамка — цвета редкости. */
   function uniqTile(g, cls = '') {
     const u = g.uniq;
@@ -46,13 +49,16 @@
     const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(x => `<button type="button" class="gf-own${x.uniq ? ' uniq' : ''} r-${gfRar(x).k}" data-gift-open="${x.id}"
           title="${esc(x.t)}${x.uniq ? ' #' + x.uniq.n : ''} · ${esc(gfRar(x).t)}: ${esc(rarWhy(x))}">${x.uniq ? uniqTile(x) : `<span class="gf-ic">${x.i}</span>`}
           <b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b>${rarHtml(x)}<small>${esc(gfFrom(x))}</small></button>`).join('')}</div>
-        <p class="fm-note">Нажми на подарок, чтобы его улучшить за ₿ ${G.up_price}: он станет уникальным — с номером, фоном, узором и эффектом.
-          Редкость: у обычного подарка — шанс выпасть в 🎲, у уникального — шанс его сочетания.</p>`
+        <p class="fm-note">Нажми на подарок — его можно улучшить до уникального (номер, фон, узор и эффект; тираж — ${G.cap} штук каждого вида)
+          или продать. Редкость: у обычного подарка — шанс выпасть в 🎲, у уникального — шанс его сочетания.</p>`
       : '<p class="fm-muted">Пока ни одного — купи себе первый или дождись подарка от учителя.</p>';
+    const E = G.econ;
     $('#forecastBody').innerHTML = `
       <div class="gm-head"><span class="gm-level gf-coin">₿</span>
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${btcWord(coins)}</h2>
-          <span class="fm-muted">1 биткоин за каждые ${G.coin_xp} XP опыта — решай задания, и биткоины придут сами. Учитель тоже может начислить биткоины.</span></div></div>
+          <span class="fm-muted">Только трудом: 1 ₿ за каждые ${G.coin_xp} XP опыта, а каждые ${G.work_every} решённых заданий — подарок в награду.</span></div></div>
+      <div class="gf-econ${E.idx > 1 ? ' up' : ''}"><b>${E.idx > 1 ? `📈 Инфляция: цены ×${idxTxt(E.idx)}` : '📊 Цены по каталогу'}</b>
+        <span>Средний кошелёк учеников — ${E.avg} ₿ (норма ${E.target} ₿). Копят все — цены растут, тратят — падают.</span></div>
       <h3 class="fm-sub">Магазин подарков${who ? ` — для ${esc(who)}` : ''}</h3>
       ${shop}
       <h3 class="fm-sub">Мои подарки · ${G.mine.length}</h3>
@@ -65,14 +71,26 @@
     const big = u ? uniqTile(g, 'big' + (fresh ? ' reveal' : '')) : `<span class="ug plain big r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`;
     const rarRow = `<div class="gf-rar">${rarHtml(g)} <span class="fm-muted">${esc(rarWhy(g))}</span></div>`;
     const meta = [gfFrom(g), gfDate(g.ts)].filter(Boolean).join(' · ');
+    // продажа: сравнение с нынешней ценой улучшения — уникальный бывает дешевле улучшения (редкий) и в разы дороже (мифический)
+    const diff = g.up_now ? g.sell - g.up_now : 0;
+    const vs = !u ? '' : g.up_now == null ? ' · тираж закончился — таких больше не будет'
+      : diff >= 0 ? ` · <b class="gf-plus">на ${diff} ₿ дороже</b> улучшения (₿ ${g.up_now})` : ` · <span class="gf-minus">на ${-diff} ₿ дешевле</span> улучшения (₿ ${g.up_now})`;
+    const sell = `<p class="gf-sell"><button type="button" class="btn" data-gift-sell="${g.id}">💰 Продать за ₿ ${g.sell}</button>
+        <span class="fm-muted">${vs ? vs.slice(3) : 'обычный подарок продаётся за половину цены'}</span></p>`;
     const body = u
       ? `<table class="fm-table gf-props">${u.props.map(p => `<tr><td class="fm-muted">${p.k}</td><td><b>${esc(p.t)}</b></td>
           <td class="num"><span class="chip">${String(p.p).replace('.', ',')}%</span></td></tr>`).join('')}</table>
+        ${sell}
         <p class="fm-note">Уникальный подарок: такого сочетания фона, узора и эффекта больше нет ни у одного «${esc(g.t)}». Процент — как часто выпадает
-          это свойство; редкость подарка — шанс всего сочетания (фон × узор × эффект): редкий, эпический (реже 1 из 1 200), легендарный (1 из 4 000), мифический (1 из 12 000).</p>`
-      : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор и эффект. Чем реже свойство, тем ценнее подарок.</p>
-        <p><button type="button" class="btn primary" data-gift-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}>✨ Улучшить за ₿ ${g.up}</button>
-          ${GF.coins < g.up ? `<span class="fm-muted"> — нужно ещё ${g.up - GF.coins} ₿</span>` : ''}</p>`;
+          это свойство; редкость подарка — шанс всего сочетания (фон × узор × эффект): редкий, эпический (реже 1 из 1 200), легендарный (1 из 4 000), мифический (1 из 12 000).
+          Выпущено уникальных «${esc(g.t)}»: ${g.issued} из ${g.cap}. Проданный подарок сгорает — его номер и сочетание больше никому не выпадут.</p>`
+      : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор и эффект. Чем реже сочетание, тем дороже его можно продать:
+          редкий — дешевле улучшения, легендарный и мифический — в разы дороже.</p>
+        <p>${g.up == null ? `<b>Тираж уникальных «${esc(g.t)}» закончился</b> — выпущено ${g.cap} из ${g.cap}.`
+          : `<button type="button" class="btn primary" data-gift-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}>✨ Улучшить за ₿ ${g.up}</button>
+          ${GF.coins < g.up ? `<span class="fm-muted"> — нужно ещё ${g.up - GF.coins} ₿</span>` : ''}
+          <span class="fm-muted"> · выпущено уникальных: ${g.issued} из ${g.cap}, каждый следующий дороже</span>`}</p>
+        ${sell}`;
     $('#forecastBody').innerHTML = `<button type="button" class="btn small ghost" id="gfBack">← к подаркам</button>
       <div class="gf-card">${big}
         <div><h2 class="fm-title" style="margin:6px 0 2px">${esc(g.t)}${u ? ` <span class="ug-num">#${u.n}</span>` : ''}</h2>
@@ -101,6 +119,16 @@
       GF.mine = GF.mine.map(x => (x.id === id ? r.gift : x));
       renderGift(r.gift, true);
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось улучшить'); }
+  }
+  async function sellGift(id) {
+    const g = GF.mine.find(x => x.id === id);
+    if (!g || !confirm(`Продать ${g.i} ${g.t}${g.uniq ? ' #' + g.uniq.n : ''} за ${g.sell} ₿? Подарок сгорит — вернуть его будет нельзя.`)) return;
+    try {
+      const r = await api('gifts/sell', { id });
+      if (r.game) onGame(r.game);
+      toast(`💰 Продано за ${r.price} ₿`, 4000);
+      await openGifts();
+    } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось продать'); }
   }
   function giftToast(g) {
     const t = document.createElement('div');
@@ -133,11 +161,12 @@
     const to = e.target.closest('[data-gift-to]');
     if (to) { openGifts(to.dataset.giftTo); return; }
     if (!GF || !e.target.closest('#forecastBody')) return;
-    const b = e.target.closest('[data-gift], [data-gift-open], [data-gift-up], #gfBack');
+    const b = e.target.closest('[data-gift], [data-gift-open], [data-gift-up], [data-gift-sell], #gfBack');
     if (!b || b.disabled) return;
     if (b.id === 'gfBack') { gfOpen = null; renderGifts(); return; }
     if (b.dataset.giftOpen) { gfOpen = +b.dataset.giftOpen; renderGifts(); return; }
     if (b.dataset.giftUp) { upgradeGift(+b.dataset.giftUp); return; }
+    if (b.dataset.giftSell) { sellGift(+b.dataset.giftSell); return; }
     buyGift(b.dataset.gift);
   });
   document.addEventListener('change', e => {

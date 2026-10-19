@@ -2371,3 +2371,9 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
 .gf-rar { margin: 2px 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gf-rar .rar { font-size: 12px; padding: 2px 9px; }
 .pf-gift .rar { font-size: 9.5px; padding: 0 6px; }
+.gf-econ { display: flex; flex-direction: column; gap: 2px; margin: -4px 0 12px; padding: 8px 12px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--card); font-size: 13px; }
+.gf-econ span { color: var(--muted); }
+.gf-econ.up { border-color: var(--r-legend); background: color-mix(in srgb, var(--r-legend) 10%, var(--card)); }
+.gf-sell { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gf-plus { color: var(--good); } .gf-minus { color: var(--weak); }

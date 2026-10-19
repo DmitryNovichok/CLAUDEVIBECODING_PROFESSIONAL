@@ -50,6 +50,7 @@
     renderLevel();
     if (!old) return;
     if (g.froze) toast(`❄️ Заморозка спасла огонёк`, 5000);
+    if (g.gift_drop) setTimeout(giftLive, 1500);           // решил очередные 25 — подарок за труд
     if (g.xp !== old.xp) xpPop(g.xp - old.xp);
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
@@ -240,7 +241,7 @@
   function profGiftsHtml(P) {
     const list = P.gift_list || [];
     if (!list.length) return P.me ? '<h3 class="fm-sub">🎁 Подарки</h3><p class="fm-muted">Пока ни одного — <button type="button" class="link-btn" data-gift-to="">открыть магазин подарков</button>.</p>' : '';
-    const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
+    const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
     const tip = g => [g.t + (g.uniq ? ' #' + g.uniq.n : ''), gfRar(g) ? `${gfRar(g).t}: ${rarWhy(g)}` : '',
       g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)].filter(Boolean).join(' · ');
     const uniq = list.filter(g => g.uniq).length;

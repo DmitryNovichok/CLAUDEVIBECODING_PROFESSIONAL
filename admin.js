@@ -715,9 +715,14 @@
       + (GFA.classes.length ? `<optgroup label="Класс">${GFA.classes.map(c => `<option value="c:${c.id}">${esc(c.name)}</option>`).join('')}</optgroup>` : '')
       + `<optgroup label="Ученик">${GFA.students.map(s => `<option value="s:${s.id}">${esc(s.name)}${s.class ? ' · ' + esc(s.class) : ''}</option>`).join('')}</optgroup>`;
     $('#giftKind').innerHTML = '<option value="">— без подарка —</option><option value="random">🎲 Случайный — каждому свой</option>'
-      + GFA.catalog.map(g => `<option value="${g.id}">${g.i} ${esc(g.t)} · ${g.price} ₿</option>`).join('');
+      + GFA.catalog.map(g => `<option value="${g.id}">${g.i} ${esc(g.t)} · ${g.price} ₿ · уникальных ${g.issued}/${GFA.cap}</option>`).join('');
     if (to) $('#giftTo').value = to;
     if (kind) $('#giftKind').value = kind;
+    const E = GFA.econ, card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="s">${sub}</div></div>`;
+    $('#giftEcon').innerHTML = card('Инфляция', '×' + String(E.idx).replace('.', ','), `цены подарков и улучшения; средний кошелёк ${E.avg} ₿ при норме ${E.target} ₿`, E.idx > 1 ? '#f57c00' : '')
+      + card('Биткоинов у учеников', E.total, `у ${E.active} ${pluralRu(E.active, 'активного', 'активных', 'активных')} за 30 дней`)
+      + card('Уникальных выпущено', GFA.uniq_total, `тираж — ${GFA.cap} на каждый вид подарка`)
+      + card('За труд', '1 ₿ / ' + GFA.coin_xp + ' XP', `и подарок за каждые ${GFA.work_every} решённых`);
     $('#giftRecent').innerHTML = GFA.recent.length
       ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Кому</th><th>Подарок</th><th>Подпись</th></tr></thead><tbody>${GFA.recent.map(r =>
           `<tr><td class="muted">${fmtWhen(r.ts)}</td><td>${esc(r.name)}</td><td>${r.i} ${esc(r.t)}${r.uniq ? ` <b>#${r.uniq.n}</b> <span class="muted">✨ ${esc(r.uniq.rar.t)} · ${esc(r.uniq.props.map(p => p.t).join(', '))}</span>` : ''}</td>
