@@ -768,12 +768,14 @@
   $('#giftBoxReset').addEventListener('click', () => saveGiftBox({ reset: true }));
   // ------------------------------------------------------------ экономика: обзор, журнал изменений, кошелёк ученика
   const ECO_KIND = { gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа', grant: '➕ Начислил учитель', take: '➖ Снял учитель',
-    teacher_gift: '🎁 Подарок от учителя', work: '🏅 Подарок за труд', removed: '🗑 Удалён учителем' };
+    teacher_gift: '🎁 Подарок от учителя', work: '🏅 Подарок за труд', removed: '🗑 Удалён учителем',
+    mbuy: '🏪 Купил на рынке', msell: '🏪 Продал на рынке' };
   const ecoGift = g => g ? `${g.i} ${esc(g.t)}${g.uniq ? ` <b>#${g.uniq.n}</b> <span class="eco-rar r-${g.uniq.rar.k}">${esc(g.uniq.rar.t)}</span>` : ''}` : '';
   /** Что произошло — одной строкой: событие, подарок, кому, причина. */
   function ecoWhat(e) {
     const g = ecoGift(e.gift);
-    const tail = e.kind === 'gift' ? (e.to ? ` → в подарок: ${esc(e.to)}` : ' — себе') : '';
+    const tail = e.kind === 'gift' ? (e.to ? ` → в подарок: ${esc(e.to)}` : ' — себе')
+      : e.kind === 'mbuy' ? ` у ${esc(e.to || '')}` : e.kind === 'msell' ? ` → ${esc(e.to || '')}` : '';
     return `<span class="eco-kind">${ECO_KIND[e.kind] || esc(e.kind)}</span> ${g}${tail}${e.note ? ` <span class="muted">«${esc(e.note)}»</span>` : ''}`;
   }
   const ecoDelta = d => d ? `<b class="${d > 0 ? 'eco-plus' : 'eco-minus'}">${d > 0 ? '+' : '−'}${Math.abs(d)} ₿</b>` : '<span class="muted">—</span>';
@@ -792,6 +794,134 @@
         <td class="eco-bar"><i style="width:${Math.round(v / sum * 100)}%"></i></td><td class="num muted">${Math.round(v / sum * 100)}%</td>
         <td class="num muted">${wk == null ? '' : `${wk ? (wk > 0 ? '+' : '') + wk : 0} за 7 дн.`}</td></tr>`).join('')}</table></div>`;
   }
+  // ------------------------------------------------------------ графики экономики: SVG по дням, подсказка при наведении, таблица
+  const CH = { W: 560, H: 190, l: 40, r: 10, t: 10, b: 24 };
+  const CHARTS = {};                                  // id графика → { n, tip(i) → [[ключ, подпись, значение]], line? }
+  const ddmm = d => d.slice(8, 10) + '.' + d.slice(5, 7);
+  const kfmt = v => (v < 0 ? '−' : '') + (Math.abs(v) >= 1000 ? String(Math.round(Math.abs(v) / 100) / 10).replace('.', ',') + 'к' : String(Math.round(Math.abs(v))));
+  const niceMax = v => { if (v <= 0) return 1; const p = 10 ** Math.floor(Math.log10(v)), m = v / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; };
+  /** Столбик: основание — квадратное, конец закруглён на 4px (вверх или вниз от нуля). */
+  function barPath(x, y0, y1, w, round = true) {
+    const h = Math.abs(y1 - y0), r = round ? Math.min(4, h, w / 2) : 0;
+    if (h < 0.5) return '';
+    const up = y1 < y0, k = up ? 1 : -1;
+    return `M${x},${y0}V${y1 + k * r}Q${x},${y1} ${x + r},${y1}H${x + w - r}Q${x + w},${y1} ${x + w},${y1 + k * r}V${y0}Z`;
+  }
+  const xAxis = (n, band, days) => days.map((d, i) => (i % 5 === (n - 1) % 5 ? `<text class="ch-ax" x="${CH.l + band * (i + 0.5)}" y="${CH.H - 6}" text-anchor="middle">${ddmm(d)}</text>` : '')).join('');
+  const yTick = (y, v) => `<line class="ch-gl" x1="${CH.l}" x2="${CH.W - CH.r}" y1="${y}" y2="${y}"/><text class="ch-ax" x="${CH.l - 6}" y="${y + 4}" text-anchor="end">${kfmt(v)}</text>`;
+  function chartBox(id, title, sub, body, legend) {
+    return `<div class="adm-box ch-box"><h3 class="adm-h3">${title}</h3>${sub ? `<p class="ch-sub">${sub}</p>` : ''}
+      ${legend ? `<div class="ch-legend">${legend}</div>` : ''}<div class="ch-wrap" data-ch="${id}">${body}<div class="ch-tip" hidden></div></div></div>`;
+  }
+  const keyHtml = (cls, t, kind = 'rect') => `<span><i class="ch-key ${kind} ${cls}"></i>${t}</span>`;
+  /** Столбики по дням: series — [{key, cls, label, sign}] (sign −1 — вниз от нуля), stack — друг на друге. */
+  function colsChart(id, rows, series, tipRows) {
+    const n = rows.length, band = (CH.W - CH.l - CH.r) / n, bw = Math.min(24, band - 3);
+    const up = niceMax(Math.max(0, ...rows.map(r => series.filter(s => s.sign > 0).reduce((a, s) => a + r[s.key], 0))));
+    const dn = series.some(s => s.sign < 0) ? niceMax(Math.max(0, ...rows.map(r => series.filter(s => s.sign < 0).reduce((a, s) => a + r[s.key], 0)))) : 0;
+    const ph = CH.H - CH.t - CH.b, y0 = CH.t + ph * up / (up + dn), py = v => y0 - v * ph / (up + dn);
+    let marks = '';
+    rows.forEach((r, i) => {
+      const x = CH.l + band * i + (band - bw) / 2;
+      for (const sign of [1, -1]) {
+        const ss = series.filter(s => s.sign === sign && r[s.key] > 0);
+        let acc = 0;
+        ss.forEach((s, j) => {                         // друг на друге; между сегментами — 2px фона, закруглён только конец
+          const a = py(sign * acc), b = py(sign * (acc + r[s.key])), last = j === ss.length - 1;
+          const gap = j ? 2 * -sign : 0;
+          marks += `<path class="ch-bar ${s.cls}" data-i="${i}" d="${barPath(x, a - gap, b, bw, last)}"/>`;
+          acc += r[s.key];
+        });
+      }
+    });
+    const hits = rows.map((r, i) => `<rect class="ch-hit" data-i="${i}" x="${CH.l + band * i}" y="${CH.t}" width="${band}" height="${ph}"/>`).join('');
+    CHARTS[id] = { n, tip: tipRows };
+    return `<svg class="ch" viewBox="0 0 ${CH.W} ${CH.H}" role="img" aria-label="график">${yTick(py(up), up)}${dn ? yTick(py(-dn), -dn) : ''}
+      <line class="ch-base" x1="${CH.l}" x2="${CH.W - CH.r}" y1="${y0}" y2="${y0}"/>${marks}${xAxis(n, band, rows.map(r => r.d))}${hits}</svg>`;
+  }
+  /** Линия по дням (одна величина): заливка 10%, точка и подпись на конце, перекрестие при наведении. */
+  function lineChart(id, rows, key, cls, tipRows, opt = {}) {
+    const n = rows.length, band = (CH.W - CH.l - CH.r) / n;
+    const vals = rows.map(r => r[key]), lo = opt.min != null ? opt.min : 0;
+    const hi = Math.max(opt.max || lo + 1, niceMax(Math.max(...vals) - lo) + lo);
+    const ph = CH.H - CH.t - CH.b, px = i => CH.l + band * (i + 0.5), py = v => CH.t + ph * (1 - (v - lo) / (hi - lo));
+    const pts = vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`);
+    const path = opt.step ? vals.map((v, i) => `${i ? 'H' + px(i).toFixed(1) + 'V' : 'M' + px(i).toFixed(1) + ','}${py(v).toFixed(1)}`).join('') : 'M' + pts.join('L');
+    const area = `${path}V${py(lo)}H${px(0)}Z`;
+    const last = vals.length - 1;
+    const hits = rows.map((r, i) => `<rect class="ch-hit" data-i="${i}" x="${CH.l + band * i}" y="${CH.t}" width="${band}" height="${ph}"/>`).join('');
+    CHARTS[id] = { n, tip: tipRows, line: true };
+    return `<svg class="ch" viewBox="0 0 ${CH.W} ${CH.H}" role="img" aria-label="график">${yTick(py(hi), hi)}${yTick(py(lo), lo)}
+      <path class="ch-area ${cls}" d="${area}"/><path class="ch-line ${cls}" d="${path}"/>
+      <circle class="ch-dot ${cls}" cx="${px(last)}" cy="${py(vals[last])}" r="4"/>
+      <text class="ch-end" x="${px(last) - 8}" y="${py(vals[last]) - 9}" text-anchor="end">${opt.fmt ? opt.fmt(vals[last]) : kfmt(vals[last])}</text>
+      <line class="ch-x off" x1="0" x2="0" y1="${CH.t}" y2="${CH.t + ph}"/>${xAxis(n, band, rows.map(r => r.d))}${hits}</svg>`;
+  }
+  /** Подсказка: значение — крупно, подпись — вторым; ключ — короткая черта цвета ряда. */
+  function chartHover(e) {
+    const wrap = e.target.closest('[data-ch]');
+    const spec = wrap && CHARTS[wrap.dataset.ch];
+    if (!spec) return;
+    const svg = wrap.querySelector('svg'), tip = wrap.querySelector('.ch-tip');
+    const box = svg.getBoundingClientRect();
+    const xs = (e.clientX - box.left) / box.width * CH.W;
+    const band = (CH.W - CH.l - CH.r) / spec.n, i = Math.floor((xs - CH.l) / band);
+    if (e.type === 'pointerleave' || i < 0 || i >= spec.n) {
+      tip.hidden = true;
+      wrap.querySelectorAll('.hot').forEach(x => x.classList.remove('hot'));
+      const cx = wrap.querySelector('.ch-x');
+      if (cx) cx.classList.add('off');
+      return;
+    }
+    wrap.querySelectorAll('.hot').forEach(x => x.classList.remove('hot'));
+    wrap.querySelectorAll(`.ch-bar[data-i="${i}"]`).forEach(x => x.classList.add('hot'));
+    const cx = wrap.querySelector('.ch-x');
+    if (cx) { const x = CH.l + band * (i + 0.5); cx.setAttribute('x1', x); cx.setAttribute('x2', x); cx.classList.remove('off'); }
+    const [head, rows] = spec.tip(i);
+    tip.replaceChildren();
+    const h = document.createElement('div'); h.className = 'ch-tip-h'; h.textContent = head; tip.append(h);
+    for (const [cls, label, val] of rows) {
+      const r = document.createElement('div'); r.className = 'ch-tip-r';
+      const k = document.createElement('i'); k.className = 'ch-key line ' + (cls || 'none');
+      const b = document.createElement('b'); b.textContent = val;
+      const t = document.createElement('span'); t.textContent = label;
+      r.append(k, b, t); tip.append(r);
+    }
+    tip.hidden = false;
+    const wb = wrap.getBoundingClientRect(), left = e.clientX - wb.left;
+    tip.style.left = Math.min(Math.max(0, left + 14), wb.width - tip.offsetWidth) + 'px';
+    tip.style.top = '6px';
+    if (left + 14 + tip.offsetWidth > wb.width) tip.style.left = Math.max(0, left - tip.offsetWidth - 14) + 'px';
+  }
+  /** Все графики «Экономики»: приход и расход, на руках, подарки, курс и индекс цен — и таблица по дням. */
+  function econChartsHtml(C) {
+    const D = C.days, day = i => { const d = D[i].d; return `${ddmm(d)}.${d.slice(0, 4)}`; };
+    const sgn = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+    const flow = colsChart('flow', D, [{ key: 'in', cls: 'c1', sign: 1 }, { key: 'out', cls: 'c2', sign: -1 }],
+      i => [day(i), [['c1', 'пришло', '+' + D[i].in + ' ₿'], ['c2', 'ушло', '−' + D[i].out + ' ₿'], ['', 'за день', sgn(D[i].in - D[i].out) + ' ₿']]]);
+    const bal = lineChart('bal', D, 'balance', 'c1', i => [day(i), [['c1', 'на руках к концу дня', D[i].balance + ' ₿']]]);
+    const gifts = colsChart('gifts', D, [{ key: 'n_gift', cls: 'c1', sign: 1 }, { key: 'n_upgrade', cls: 'c2', sign: 1 }, { key: 'n_market', cls: 'c3', sign: 1 }],
+      i => [day(i), [['c1', 'куплено', D[i].n_gift], ['c2', 'улучшено', D[i].n_upgrade], ['c3', 'сделок на рынке', D[i].n_market]]]);
+    const rate = lineChart('rate', D, 'rate', 'c1', i => [day(i), [['c1', 'XP за 1 ₿ (самый дорогой за день)', D[i].rate]]], { min: 10, max: 20, step: true, fmt: v => v + ' XP' });
+    const ix = C.idx;
+    const idxPart = ix.length >= 2
+      ? lineChart('idx', ix.map(([d, v, avg]) => ({ d, idx: v, avg })), 'idx', 'c2', i => [ddmm(ix[i][0]), [['c2', 'индекс цен', '×' + String(ix[i][1]).replace('.', ',')], ['', 'средний кошелёк', ix[i][2] + ' ₿']]], { min: 1, fmt: v => '×' + String(v).replace('.', ',') })
+      : `<p class="ch-sub">История индекса цен копится с ${ix.length ? ddmm(ix[0][0]) : 'сегодня'}: сейчас ×${String(ECO.econ.idx).replace('.', ',')} — цены растут, когда средний кошелёк активных учеников больше ${ECO.econ.target} ₿.</p>`;
+    const table = `<details class="ch-table"><summary>Таблица по дням</summary><div class="adm-table-wrap"><table class="adm-table">
+      <thead><tr><th>День</th><th class="num">Пришло</th><th class="num">Ушло</th><th class="num">На руках</th><th class="num">Куплено</th><th class="num">Улучшено</th><th class="num">Рынок</th><th class="num">Курс</th></tr></thead>
+      <tbody>${D.slice().reverse().map(x => `<tr><td>${ddmm(x.d)}</td><td class="num">+${x.in}</td><td class="num">−${x.out}</td><td class="num">${x.balance}</td>
+        <td class="num">${x.n_gift}</td><td class="num">${x.n_upgrade}</td><td class="num">${x.n_market}</td><td class="num">${x.rate}</td></tr>`).join('')}</tbody></table></div></details>`;
+    return `<div class="ch-grid">
+      ${chartBox('flow', 'Пришло и ушло по дням', 'Пришло — за опыт, бонусы за задания и варианты, начисления и продажи; ушло — покупки, улучшения, снятия и штрафы', flow,
+        keyHtml('c1', 'пришло') + keyHtml('c2', 'ушло'))}
+      ${chartBox('bal', 'Биткоинов на руках', 'Сумма кошельков ваших учеников к концу каждого дня', bal)}
+      ${chartBox('gifts', 'Подарки по дням', 'Сколько куплено в магазине, улучшено до уникальных и продано на рынке', gifts,
+        keyHtml('c1', 'куплено') + keyHtml('c2', 'улучшено') + keyHtml('c3', 'рынок'))}
+      ${chartBox('rate', 'Курс биткоина', 'Сколько XP стоил 1 ₿: 10 — обычно, дороже — когда одновременно решает много учеников', rate)}
+      ${ix.length >= 2 ? chartBox('idx', 'Индекс цен (инфляция)', '×1 — цены по каталогу; выше — средний кошелёк больше нормы', idxPart) : `<div class="adm-box ch-box"><h3 class="adm-h3">Индекс цен (инфляция)</h3>${idxPart}</div>`}
+    </div>${table}`;
+  }
+  ['pointermove', 'pointerleave'].forEach(t => document.addEventListener(t, e => { if (e.target.closest && e.target.closest('[data-ch]')) chartHover(e); }, true));
   let ECO = null;
   async function loadEcon() {
     try { ECO = await api('econ'); } catch (err) { if (err.status !== 401) $('#econBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
@@ -812,6 +942,7 @@
         ${card('Продано · сгорело', `${S.gifts.sold} · ${S.gifts.burned}`, `получено за продажи ${S.ledger.sell || 0} ₿`)}
         ${card('Учитель: начислил · снял', `${S.ledger.grant || 0} · ${-(S.ledger.take || 0)}`, `штрафы за спешку ${S.coins.fines} ₿ · операций ${S.deals}`)}
         ${card('Выпущено уникальных', S.gifts.uniq_issued, `подарков за труд ${S.gifts.work}, от учителей ${S.gifts.from_teacher}`)}
+        ${card('Рынок учеников', `${S.market.deals} ${pluralRu(S.market.deals, 'сделка', 'сделки', 'сделок')}`, `оборот ${S.market.volume} ₿, сгорело комиссией ${S.market.burned} ₿, сейчас выставлено ${S.market.listed}`)}
       </div>
       <div class="eco-grid">
         <div><h4 class="eco-h4">Самые популярные подарки</h4>${S.popular.length ? `<table class="adm-table">${S.popular.map((g, i) => `<tr><td class="muted">${i + 1}</td><td>${g.i} ${esc(g.t)}</td><td class="num"><b>${g.n}</b> ${pluralRu(g.n, 'покупка', 'покупки', 'покупок')}</td></tr>`).join('')}</table>` : '<p class="adm-empty">Пока ничего не покупали.</p>'}</div>
@@ -824,12 +955,15 @@
         ${card('Заработано трудом', T.mined + T.task + T.exam, `за опыт, задания и варианты; курс сейчас 1 ₿ = ${d.rate} XP`)}
         ${card('Штрафы за спешку', T.fines, 'решено быстрее 30 секунд — по −1 ₿')}
       </div>
+      ${d.charts ? econChartsHtml(d.charts) : ''}
       <div class="eco-grid">
         ${ecoFlowHtml('Откуда пришли биткоины', [['⚒ За опыт (труд)', T.mined, null, 'Решённые задания: по курсу на момент заработка (обычно 1 ₿ за 10 XP)'],
           ['🧩 Бонусы за задания', T.task, null, 'За каждое впервые решённое задание — сверх опыта, чем сложнее, тем больше'],
           ['🎓 За варианты и самостоятельные', T.exam, null, 'Бонус по тестовому баллу: 40+ — 15 ₿, 60+ — 30, 80+ — 50, 90+ — 100; самостоятельная — так же, короткая — пропорционально'],
-          ['➕ Начислил учитель', T.grant, W.grant || 0], ['💰 Продажи подарков', T.sell, W.sell || 0]])}
+          ['➕ Начислил учитель', T.grant, W.grant || 0], ['💰 Продажи подарков', T.sell, W.sell || 0],
+          ['🏪 Продажи на рынке', T.mkt_in, W.msell || 0, 'Одноклассник купил подарок: продавцу — цена минус 10% комиссии']])}
         ${ecoFlowHtml('Куда ушли биткоины', [['🎁 Покупки подарков', T.gift, W.gift || 0], ['✨ Улучшения', T.upgrade, W.upgrade || 0],
+          ['🏪 Покупки на рынке', T.mkt_out, W.mbuy || 0, 'Купил подарок у одноклассника; 10% цены сгорает комиссией'],
           ['➖ Снял учитель', T.take, W.take || 0], ['⏱ Штрафы за спешку', T.fines, null]])}
       </div>
       <div class="adm-box"><h3 class="adm-h3">Подарки на руках по редкости</h3>
@@ -868,10 +1002,12 @@
     const w = d.wallet;
     const wl = (k, v, cls) => `<span class="eco-w"><small>${k}</small><b class="${cls || ''}">${v}</b></span>`;
     $('#giftWallet').innerHTML = `<div class="eco-wallet">${wl('На счёте', w.balance + ' ₿')}${wl('За опыт', '+' + w.mined, 'eco-plus')}
-      ${wl('За задания', '+' + w.task, 'eco-plus')}${wl('За варианты', '+' + w.exam, 'eco-plus')}${wl('Начислено', '+' + w.grant, 'eco-plus')}${wl('Продажи', '+' + w.sell, 'eco-plus')}${wl('Покупки', '−' + w.gift, 'eco-minus')}
+      ${wl('За задания', '+' + w.task, 'eco-plus')}${wl('За варианты', '+' + w.exam, 'eco-plus')}${wl('Начислено', '+' + w.grant, 'eco-plus')}${wl('Продажи', '+' + w.sell, 'eco-plus')}
+      ${wl('Рынок: продал', '+' + w.mkt_in, 'eco-plus')}${wl('Покупки', '−' + w.gift, 'eco-minus')}${wl('Рынок: купил', '−' + w.mkt_out, 'eco-minus')}
       ${wl('Улучшения', '−' + w.upgrade, 'eco-minus')}${wl('Снято', '−' + w.take, 'eco-minus')}${wl('Штрафы', '−' + w.fines, 'eco-minus')}</div>`;
     $('#giftHistory').innerHTML = `<h4 class="eco-h4">История изменений</h4>${ecoFeedHtml(d.feed, false)}`;
-    const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
+    const from = g => g.market ? 'куплен на рынке у ' + g.market : g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд'
+      : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
     box.innerHTML = d.gifts.length ? `<div class="gift-owned">${d.gifts.map(g => `<div class="gift-own${g.uniq ? ' uniq' : ''}">
         <span class="gift-own-ic"${g.uniq ? ` style="background:radial-gradient(circle at 50% 38%, ${g.uniq.c1}, ${g.uniq.c2})"` : ''}>${g.i}</span>
         <span class="gift-own-t"><b>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</b><small>${esc(g.uniq ? g.uniq.rar.t : g.rar.t)} · ${esc(from(g))} · ${fmtWhen(g.ts)}</small>
