@@ -2782,17 +2782,28 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             spectator = bool(s["is_teacher"])          # учитель смотрит рейтинг, но сам в нём не участвует
             my_row = dict(mine, me=True)
             people = [dict(p, me=False) for p in base if p["sid"] != s["id"]] + ([] if spectator else [my_row])
-            pub = lambda p, key, place: {"place": place, "sid": p["sid"], "name": p["name"], "me": p["me"], "level": p["level"],
-                                         "badges": p["badges"], "gifts": p.get("gifts", []), "value": p[key]}
+            # место — по очкам за период: (XP + заработанные ₿) / 2 × доля заданий без ошибок (огонёк — по дням подряд)
+            score = lambda p, key: p["rank"][key]["score"] if key in p.get("rank", {}) else p[key]
+            order = lambda key: (lambda p: (-score(p, key), -p[key], p["name"]))
+
+            def stat(p, key, place):
+                r = {"place": place, "value": score(p, key)}
+                if key in p.get("rank", {}):
+                    rk = p["rank"][key]
+                    r.update(xp=rk["xp"], btc=rk["btc"], acc=rk["acc"], tasks=rk["tasks"], err=rk["err"])
+                return r
+
+            pub = lambda p, key, place: dict(stat(p, key, place), sid=p["sid"], name=p["name"], me=p["me"], level=p["level"],
+                                             badges=p["badges"], gifts=p.get("gifts", []))
             boards = {}
             for key in ("day", "week", "month", "fire"):
-                ranked = sorted((p for p in people if p[key] > 0), key=lambda p: (-p[key], p["name"]))
-                mine = next(({"place": i + 1, "value": p[key]} for i, p in enumerate(ranked) if p["me"]), None)
+                ranked = sorted((p for p in people if p[key] > 0 or score(p, key) > 0), key=order(key))
+                mine = next((stat(p, key, i + 1) for i, p in enumerate(ranked) if p["me"]), None)
                 boards[key] = {"top": [pub(p, key, i + 1) for i, p in enumerate(ranked[:10])], "me": mine, "total": len(ranked)}
             # лига: все из моей лиги, по опыту с понедельника
             me = next((p for p in people if p["me"]), dict(my_row, league=0))
             lr = league_row(db, s["id"])
-            members = sorted((p for p in people if p["league"] == me["league"]), key=lambda p: (-p["wk"], p["name"]))
+            members = sorted((p for p in people if p["league"] == me["league"]), key=order("wk"))
             n = len(members)
             result = None
             if lr["result"] and lr["result_week"] and lr["week"] == week_key():
@@ -2801,14 +2812,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             boards["league"] = {
                 "idx": me["league"], "name": LEAGUES[me["league"]][0], "icon": LEAGUES[me["league"]][1],
                 "top": [pub(p, "wk", i + 1) for i, p in enumerate(members[:LEAGUE_SHOW])],
-                "me": next(({"place": i + 1, "value": p["wk"]} for i, p in enumerate(members) if p["me"]), None),
+                "me": next((stat(p, "wk", i + 1) for i, p in enumerate(members) if p["me"]), None),
                 "total": n, "up": LEAGUE_UP[me["league"]],
                 "down": LEAGUE_DOWN if me["league"] > 0 and n >= league_min_demote(me["league"]) else 0,
                 "ends": week_start() + 7 * 86400, "result": result, "week": week_key()}
             # все лиги — посмотреть, кто в других и сколько опыта у лидеров (своя строка «me» — только в своей)
             others = []
             for i, (lname, licon) in enumerate(LEAGUES):
-                mem = sorted((p for p in people if p["league"] == i), key=lambda p: (-p["wk"], p["name"]))
+                mem = sorted((p for p in people if p["league"] == i), key=order("wk"))
                 others.append({"idx": i, "name": lname, "icon": licon, "total": len(mem),
                                "top": [pub(p, "wk", k + 1) for k, p in enumerate(mem[:LEAGUE_SHOW])],
                                "up": LEAGUE_UP[i],
@@ -5424,7 +5435,8 @@ def lb_person(db, m, crown, crowns=None):
     return {"sid": m["id"], "name": short_name(m["name"]), "level": g["level"],
             "badges": nick_badges(db, m, g, lg, crown, crowns or {}), "gifts": gift_icons(db, m["id"]), "league": lg,
             "class_id": m["class_id"], "crown": crown if m["id"] == crown else None,
-            "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"], "wk": g["wk"]}
+            "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"], "wk": g["wk"],
+            "rank": {k: g["rank"][k] for k in ("day", "week", "month", "wk")}}
 
 
 # ---------------------------------------------------------------- биткоины и подарки
@@ -6042,6 +6054,15 @@ def nick_badges(db, m, g, lg, crown, crowns):
     return [badge_pub(k, opts[k]) for k in keys]
 
 
+def rank_score(xp, btc, tasks, err):
+    """Очки рейтинга за период: (XP + заработанные ₿) / 2 × (1 − доля заданий с ошибками). Ошибка — неверный ответ,
+    решение со 2-й попытки или «Показать ответ» хотя бы раз в этом задании за период."""
+    btc = max(0, math.floor(btc))
+    acc = 1 - err / tasks if tasks else 1.0
+    return {"xp": max(0, xp), "btc": btc, "tasks": tasks, "err": err, "acc": round(100 * acc),
+            "score": max(0, round((max(0, xp) + btc) / 2 * acc))}
+
+
 def game_summary(db, sid, brief=False, windows=None):
     if not brief or windows:
         return _game_summary(db, sid, brief, windows)
@@ -6094,9 +6115,18 @@ def _game_summary(db, sid, brief=False, windows=None):
     btc_days, fine_days = {}, {}                   # день → заработано ₿ (дробно) и штрафов — для графиков учителя
     dkey = lambda ts: time.strftime("%Y-%m-%d", time.localtime(ts))
 
+    # рейтинг по периодам: заработанные ₿ и задания (всего и с ошибками) — очки = (XP + ₿) / 2 × доля заданий без ошибок
+    rank_win = dict({"day": (day0, float("inf")), "week": (week0, float("inf")), "month": (month0, float("inf")),
+                     "wk": (wk0, float("inf"))}, **windows)
+    rank_btc = {k: Fraction(0) for k in rank_win}
+    rank_seen, rank_err = {k: set() for k in rank_win}, {k: set() for k in rank_win}
+
     def earn(v, ts):
         if ts >= day_cut:
             btc_days[dkey(ts)] = btc_days.get(dkey(ts), 0) + v
+        for k, (a, b) in rank_win.items():
+            if a <= ts < b:
+                rank_btc[k] += v
 
     def gain(v, ts, why=None):
         nonlocal xp, week, xp_day, xp_month, xp_wk
@@ -6126,6 +6156,11 @@ def _game_summary(db, sid, brief=False, windows=None):
     cheat = exploit_window(db, rows, skips)
     task_btc, task_since = Fraction(0), setting_since(db, "task_btc_since")
     for r, skip in zip(rows, skips):
+        for k, (a, b) in rank_win.items():              # для рейтинга: каждое задание периода, ошибся ли в нём
+            if a <= r["ts"] < b:
+                rank_seen[k].add(r["task_id"])
+                if (r["score"] or 0) < 1:
+                    rank_err[k].add(r["task_id"])
         # уже решённое или с подсмотренным ответом — ни опыта, ни огонька, ни серий, ни достижений (см. reward_skips)
         if skip:
             if (r["score"] or 0) > 0 and not brief:
@@ -6192,6 +6227,9 @@ def _game_summary(db, sid, brief=False, windows=None):
                     cnt["btc_fast"] += 1           # быстрее 30 секунд — ещё и −1 ₿
                     if ts >= day_cut:
                         fine_days[dkey(ts)] = fine_days.get(dkey(ts), 0) + BTC_FAST_FINE
+                    for k, (a, b) in rank_win.items():
+                        if a <= ts < b:
+                            rank_btc[k] -= BTC_FAST_FINE
             else:
                 if tid not in solved:              # опыт — только за первое решение задания, откуда бы ни пришёл ответ
                     gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
@@ -6309,7 +6347,9 @@ def _game_summary(db, sid, brief=False, windows=None):
     task_btc = math.floor(task_btc)
     coins = max(0, mined + exam_coins + task_btc + extra - cnt["btc_fast"] * BTC_FAST_FINE)
     zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
-    out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums,
+    xp_of = dict({"day": xp_day, "week": week, "month": xp_month, "wk": xp_wk}, **sums)
+    rank = {k: rank_score(xp_of[k], rank_btc[k], len(rank_seen[k]), len(rank_err[k])) for k in rank_win}
+    out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums, "rank": rank,
            "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": mined, "exam_coins": exam_coins, "task_coins": task_btc, "btc_rate": rate,
            "btc_days": {d: [round(float(btc_days.get(d, 0)), 2), fine_days.get(d, 0)] for d in set(btc_days) | set(fine_days)}, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
@@ -6484,7 +6524,7 @@ def league_rollover(db):
         by_league = {}
         for sid in ids:
             lg = league_row(db, sid)["league"]
-            xpw = game_summary(db, sid, brief=True, windows={"prev": (w0, w1)})["win"]["prev"]
+            xpw = game_summary(db, sid, brief=True, windows={"prev": (w0, w1)})["rank"]["prev"]["score"]   # очки, как в таблице
             by_league.setdefault(lg, []).append((xpw, sid))
         for lg, members in by_league.items():
             members.sort(key=lambda x: -x[0])

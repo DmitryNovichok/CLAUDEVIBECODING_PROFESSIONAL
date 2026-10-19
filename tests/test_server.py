@@ -420,9 +420,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((g1["fire"], g1["day"]), (g0["fire"], g0["day"]))
         self.assertNotIn("dejavu", [a["id"] for a in g1["ach"]])            # «Дежавю» (решить одно задание трижды) убрано
         st, d = self.req("GET", "/api/leaderboard", token=tok)
-        me_row = next(r for r in d["boards"]["day"]["top"] if r["me"])          # рейтинг дня: опыт за сегодня
-        self.assertEqual((me_row["name"], me_row["value"]), ("Подборкин П.", server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + 5))
-        self.assertEqual(d["boards"]["day"]["me"]["value"], server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + 5)
+        me_row = next(r for r in d["boards"]["day"]["top"] if r["me"])          # рейтинг дня: опыт за сегодня и очки
+        self.assertEqual((me_row["name"], me_row["xp"]), ("Подборкин П.", server.task_xp(server.APP.bank.tasks["b:6"]["n"], server.APP.bank.tasks["b:6"].get("r")) + 5))
+        self.assertEqual(me_row["value"], round((me_row["xp"] + me_row["btc"]) / 2 * (1 - me_row["err"] / me_row["tasks"])))
+        self.assertEqual((d["boards"]["day"]["me"]["xp"], d["boards"]["day"]["me"]["value"]), (me_row["xp"], me_row["value"]))
         self.assertLessEqual(len(d["boards"]["week"]["top"]), 10)
         self.assertIn("fire", d["boards"])
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
@@ -2611,6 +2612,35 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((w["mined"], w["grant"]), (1000, 30))
         self.assertEqual(w["balance"], w["mined"] + w["exam"] + w["task"] + w["grant"] + w["sell"] - w["gift"] - w["upgrade"] - w["take"] - w["fines"])
         self.assertTrue(all(e["sid"] == sid for e in s1["feed"]))
+
+    def test_rank_score(self):
+        # очки рейтинга: (XP + ₿) / 2 × доля заданий без ошибок
+        self.assertEqual(server.rank_score(300, 40, 10, 1)["score"], 153)
+        self.assertEqual(server.rank_score(300, 40, 0, 0)["score"], 170)                 # заданий нет — без поправки
+        self.assertEqual(server.rank_score(-5, 0, 2, 2)["score"], 0)
+        self.assertEqual(server.rank_score(100, 12.7, 4, 1)["btc"], 12)                   # ₿ — целые
+        # больше опыта, но ошибки в половине заданий — ниже того, кто решает чисто
+        db = server.APP.db
+        toks = [self.login("Ляпсусов Лев"), self.login("Безупречнов Борис")]
+        sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
+        seq = iter(range(1000))
+
+        def att(sid, k, score):
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms, reason) VALUES(?,?,?,5,?,120000,'')",
+                 (sid, time.time() + next(seq) / 1000, f"rk:{sid}:{k}", score))
+        for k in range(10):
+            att(sids[0], k, 1.0)
+            att(sids[0], 100 + k, 0.0)
+        for k in range(7):
+            att(sids[1], k, 1.0)
+        da, db_ = (self.req("GET", "/api/leaderboard", token=t)[1]["boards"] for t in toks)   # своё место видно всегда
+        a, b = da["day"]["me"], db_["day"]["me"]
+        self.assertGreater(a["xp"], b["xp"])
+        self.assertEqual((a["tasks"], a["err"], a["acc"]), (20, 10, 50))
+        self.assertEqual((b["err"], b["acc"]), (0, 100))
+        self.assertLess(b["place"], a["place"])                                          # чистое решение — выше
+        self.assertEqual(a["value"], round((a["xp"] + a["btc"]) / 2 * 0.5))
+        self.assertLess(db_["league"]["me"]["place"], da["league"]["me"]["place"])       # и в лиге так же
 
     def test_gift_market_and_charts(self):
         db = server.APP.db

@@ -5441,7 +5441,9 @@
   const LEAGUE_ICONS = ['🥉', '🥈', '🥇', '💎'];
   const LEAGUE_NAMES = ['Бронзовая', 'Серебряная', 'Золотая', 'Алмазная'];
   const LEAGUE_TO = ['бронзовую', 'серебряную', 'золотую', 'алмазную'];      // «поднимутся в … лигу»
-  const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `+${v} XP`;
+  const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `${v} ${plural(v, 'очко', 'очка', 'очков')}`;
+  /** Из чего сложились очки: опыт, заработанные ₿ и доля заданий без ошибок за период. */
+  const lbParts = r => (r.xp == null ? '' : `${r.xp} XP · ${r.btc} ₿ · ${r.acc}%<span class="lp-noerr"> без ошибок</span>`);
   /** Значок у ника: строка (старый формат) или {i, t, n} — у повторяемых наград маленькое число, сколько раз получена. */
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
@@ -5480,7 +5482,8 @@
       const z = zoneOf(r);
       return `<div class="lp-pd lp-p${r.place}${r.me ? ' me' : ''}${z ? ' z-' + z : ''}">${r.place === 1 ? '<span class="lp-crown" aria-hidden="true">👑</span>' : ''}
         ${lbAvatar(r, r.place === 1 ? 64 : 52)}${lbNm(r)}${r.level ? `<small class="fm-muted">ур. ${r.level}</small>` : ''}
-        <span class="lp-medal">${placeHtml(r.place)}</span><b class="lp-val">${lbValue(key, r.value)}</b>${lbIcons(lbItems(r, topGift(r)), 2, 'lp-chips')}
+        <span class="lp-medal">${placeHtml(r.place)}</span><b class="lp-val">${lbValue(key, r.value)}</b>
+        ${lbParts(r) ? `<small class="lp-parts">${lbParts(r)}</small>` : ''}${lbIcons(lbItems(r, topGift(r)), 2, 'lp-chips')}
         <i class="lp-step"></i></div>`;
     };
     const order = [top.find(r => r.place === 2), top.find(r => r.place === 1), top.find(r => r.place === 3)].filter(Boolean);
@@ -5488,7 +5491,7 @@
       const z = zoneOf(r);
       return `${lines(r)}<div class="lp-row${r.me ? ' me' : ''}${z ? ' z-' + z : ''}"><span class="lp-place">${r.place}</span>${lbAvatar(r, 36)}
         <span class="lp-who">${lbNm(r)}${r.level ? `<small>ур. ${r.level}</small>` : ''}</span>${lbIcons(lbItems(r), 3)}
-        <b class="lp-val">${lbValue(key, r.value)}</b></div>`;
+        <span class="lp-val"><b>${lbValue(key, r.value)}</b>${lbParts(r) ? `<small>${lbParts(r)}</small>` : ''}</span></div>`;
     };
     return `${order.length ? `<div class="lp-podium n${order.length}">${order.map(pd).join('')}</div>` : ''}
       <div class="lp-list">${rest.map(row).join('')}${tail.length ? `<div class="lp-gap">…</div>${tail.map(row).join('')}` : ''}</div>`;
@@ -5544,7 +5547,7 @@
         : key === 'fire' ? 'Пока ни у кого не горит огонёк. Реши 3 задания за день, чтобы зажечь его.' : 'Пока пусто.'}</p>`;
     }
     const mine = b.me && b.me.place > 10
-      ? `<p class="lb-mine">Твоё место: <b>${b.me.place}</b> из ${b.total} · ${lbValue(key, b.me.value)}</p>`
+      ? `<p class="lb-mine">Твоё место: <b>${b.me.place}</b> из ${b.total} · ${lbValue(key, b.me.value)}${lbParts(b.me) ? ` (${lbParts(b.me).replace(/<[^>]+>/g, '')})` : ''}</p>`
       : (!b.me ? `<p class="lb-mine fm-muted">${key === 'fire' ? 'Зажги огонёк — и попадёшь в рейтинг' : 'Реши задание — и попадёшь в рейтинг'}</p>` : '');
     return `${podiumHtml(b.top, key)}${mine}`;
   }
@@ -5554,6 +5557,9 @@
     return `<div class="lb-wrap" data-lb='${esc(JSON.stringify(d))}'>
       <div class="lb-tabs" role="tablist">${tabs.map(([k, t]) => `<button type="button" data-lbtab="${k}" class="${k === key ? 'on' : ''}">${t}</button>`).join('')}</div>
       <div class="lb-body">${boardHtml(d, key)}</div>
+      <p class="fm-muted lb-legend"><b>Место — по очкам</b> за период: (XP + заработанные ₿) / 2 × доля заданий без ошибок. Например, 300 XP и 40 ₿,
+        а ошибки были в 10% заданий: (300 + 40) / 2 × 0,9 = 153 очка. Ошибка — неверный ответ, решение со второй попытки или «Показать ответ».
+        Огонёк — по дням подряд.</p>
       <p class="fm-muted lb-legend">Нажми на имя — откроется профиль с наградами. Значки у ника (до трёх) каждый выбирает сам в своём профиле;
         число у значка — сколько раз награда получена: 👑 — быстрее всех решил задание дня, 🏆 — 1-е место в лиге за неделю, 🚀 — повышение, ⚔️ — победа в дуэли.</p></div>`;
   }
@@ -5739,7 +5745,7 @@
     if (!LB) { $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Нет связи с сервером.</p>'; return; }
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг</h2>
       ${LB.spectator ? '<p class="daily-used">🎓 Вы учитель: рейтинг ваших учеников виден, но вы сами в нём не участвуете — ни в лиге, ни в ТОП-10, ни в дуэлях.</p>' : ''}
-      <p class="fm-note">${LB.spectator ? 'Ваши ученики' : 'Ученики твоего учителя'}. Лига — опыт с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
+      <p class="fm-note">${LB.spectator ? 'Ваши ученики' : 'Ученики твоего учителя'}. Лига — очки с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
   }
 
   // «Тебя обогнали!»: сравниваем лигу с тем, что видели в прошлый раз
@@ -5759,18 +5765,18 @@
       if (passer) {
         const gap = passer.value - me.value;
         const k = tasks(above ? above.value - me.value : 0);
-        return `<b>${esc(passer.name)}</b> обогнал тебя на ${gap} XP — до ${me.place - 1}-го места ${k} ${plural(k, 'задание', 'задания', 'заданий')}. Отыграйся!`;
+        return `<b>${esc(passer.name)}</b> обогнал тебя на ${gap} ${plural(gap, 'очко', 'очка', 'очков')} — до ${me.place - 1}-го места ${k} ${plural(k, 'задание', 'задания', 'заданий')}. Отыграйся!`;
       }
     }
     if (!me.value) {                                         // ещё без опыта на этой неделе
       const last = L.top.filter(r => r.value > 0 && !r.me).pop();
-      if (!last) return 'В лиге на этой неделе ещё никто не набрал опыт — реши задание и стань первым!';
+      if (!last) return 'В лиге на этой неделе ещё никто не набрал очков — реши задание и стань первым!';
       const k = tasks(last.value);
       return `Реши ${k} ${plural(k, 'задание', 'задания', 'заданий')} — и обгонишь ${esc(last.name)} (${last.place}-е место в лиге)`;
     }
     if (above) {
       const gap = above.value - me.value;
-      return `До ${me.place - 1}-го места ${gap + 1} XP — примерно ${tasks(gap)} ${plural(tasks(gap), 'задание', 'задания', 'заданий')}. Впереди — ${esc(above.name)}`;
+      return `До ${me.place - 1}-го места ${gap + 1} ${plural(gap + 1, 'очко', 'очка', 'очков')} — примерно ${tasks(gap)} ${plural(tasks(gap), 'задание', 'задания', 'заданий')}. Впереди — ${esc(above.name)}`;
     }
     return 'Ты первый в лиге — держи отрыв!';
   }
