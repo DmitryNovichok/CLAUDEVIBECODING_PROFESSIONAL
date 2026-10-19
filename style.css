@@ -1063,6 +1063,70 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .mode-row > .mode-card { min-width: 0; }
 .comp-card .mode-title, .comp-card .mode-sub { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lb tr.lb-gap td { text-align: center; color: var(--faint); padding: 2px; }
+/* рейтинги: подиум для тройки лидеров и список; аватар — самый редкий уникальный подарок, без него — первая буква */
+.lp-av { display: inline-grid; place-items: center; flex: none; width: var(--s); height: var(--s); border-radius: 50%; line-height: 1;
+  font-size: calc(var(--s) * .56); background: radial-gradient(circle at 50% 38%, var(--c1), var(--c2));
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-rare); }
+.lp-av i { font-style: normal; }
+.lp-av.r-epic { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-epic); }
+.lp-av.r-legend { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-legend), 0 0 10px var(--r-legend); }
+.lp-av.r-myth { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-myth), 0 0 12px var(--r-myth); }
+.lp-av.plain { background: var(--card-hover); color: var(--muted); font-weight: 900; font-size: calc(var(--s) * .4); box-shadow: 0 0 0 2px var(--border); }
+.lp-podium { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 8px; align-items: end; margin: 18px 0 12px; }
+.lp-podium.n1 { grid-template-columns: minmax(0, 220px); justify-content: center; }
+.lp-podium.n2 { grid-template-columns: 1fr 1.15fr; }
+.lp-pd { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding: 12px 6px 0; overflow: hidden;
+  border: 1.5px solid var(--border); border-radius: 18px 18px 10px 10px; background: var(--card); text-align: center; }
+.lp-pd.lp-p1 { padding-top: 20px; overflow: visible; border-color: var(--mid); background: linear-gradient(180deg, color-mix(in srgb, var(--mid) 20%, var(--card)), var(--card)); }
+.lp-pd.me { border-color: var(--sel-border); }
+.lp-crown { position: absolute; top: -17px; left: 50%; transform: translateX(-50%); font-size: 26px; line-height: 1; }
+.lp-pd .lp-av { margin-bottom: 6px; }
+.lp-pd .lp-nm { max-width: 100%; font-weight: 900; font-size: 13.5px; line-height: 1.2; text-align: center; overflow-wrap: anywhere; }
+.lp-pd small { font-size: 11px; }
+.lp-medal { font-size: 22px; line-height: 1.1; }
+.lp-pd .lp-val { font-size: 17px; font-weight: 900; }
+.lp-pd.z-up .lp-val, .lp-row.z-up .lp-val { color: var(--good-strong); }
+.lp-pd.z-down .lp-val, .lp-row.z-down .lp-val { color: var(--weak); }
+.lp-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 4px; }
+.lp-chips:empty { display: none; }
+.lp-chips .lp-ic { height: 24px; padding: 0 7px; border: 1.5px solid var(--border); border-radius: 999px; background: var(--card-hover); font-size: 14px; }
+.lp-step { align-self: stretch; height: 8px; margin: 8px -6px 0; background: var(--border); }
+.lp-pd.z-up .lp-step { background: color-mix(in srgb, var(--good) 35%, var(--card)); }
+.lp-pd.z-down .lp-step { background: color-mix(in srgb, var(--weak) 35%, var(--card)); }
+.lp-list { display: flex; flex-direction: column; gap: 3px; }
+.lp-row { display: grid; grid-template-columns: 26px auto minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 12px; }
+.lp-row:nth-child(odd of .lp-row) { background: var(--subtle); }
+.lp-row.me { background: var(--sel); }
+.lp-place { text-align: center; font-weight: 900; color: var(--muted); }
+.lp-who { min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.lp-who .lp-nm { font-weight: 900; font-size: 14px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-who small { color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.lp-row .lp-val { text-align: right; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lp-icons { display: flex; align-items: center; gap: 4px; }
+.lp-ic { position: relative; display: inline-flex; align-items: center; justify-content: center; font-size: 19px; line-height: 1; }
+.lp-ic sup { position: absolute; top: -6px; right: -8px; min-width: 14px; padding: 0 3px; border-radius: 999px; background: var(--accent); color: #fff;
+  font-size: 9px; font-weight: 900; line-height: 14px; text-align: center; }
+.lp-chips .lp-ic sup { position: static; margin-left: 3px; background: none; color: var(--muted); font-size: 11px; padding: 0; }
+.lp-ic.lp-txt { height: 22px; padding: 0 6px; border-radius: 999px; background: var(--card-hover); color: var(--accent-text); font-size: 10.5px; font-weight: 900; }
+.lp-ic.lp-ug { width: 24px; height: 24px; border-radius: 50%; font-size: 14px; background: radial-gradient(circle at 50% 38%, var(--c1), var(--c2)); }
+.lp-ic.lp-ug i { font-style: normal; }
+.lp-ic.lp-ug.r-epic { box-shadow: 0 0 0 1.5px var(--r-epic); } .lp-ic.lp-ug.r-rare { box-shadow: 0 0 0 1.5px var(--r-rare); }
+.lp-ic.lp-ug.r-legend { box-shadow: 0 0 0 1.5px var(--r-legend), 0 0 5px var(--r-legend); } .lp-ic.lp-ug.r-myth { box-shadow: 0 0 0 1.5px var(--r-myth), 0 0 6px var(--r-myth); }
+.lp-more { margin-left: 2px; color: var(--muted); font-size: 11.5px; font-weight: 900; }
+.lp-zone { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 11.5px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.lp-zone::before, .lp-zone::after { content: ''; flex: 1; border-top: 2px dashed currentColor; opacity: .5; }
+.lp-zone.up { color: var(--good-strong); } .lp-zone.down { color: var(--weak); }
+.lp-gap { text-align: center; color: var(--faint); line-height: 1; }
+@media (max-width: 420px) {
+  .lp-row { grid-template-columns: 22px auto minmax(0, 1fr) auto; }
+  .lp-row .lp-place, .lp-row .lp-av { grid-row: 1 / span 2; }
+  .lp-row .lp-who { grid-column: 3; grid-row: 1; }
+  .lp-row .lp-icons { grid-column: 3; grid-row: 2; margin-top: -2px; }
+  .lp-row .lp-val { grid-column: 4; grid-row: 1 / span 2; }
+  .lp-pd .lp-nm { font-size: 12.5px; }
+  .lp-pd .lp-val { font-size: 14px; white-space: nowrap; }
+  .lp-podium { gap: 6px; }
+}
 
 /* =====================================================================
    1.18: панель иконок слева (разделы) + номера с кольцами освоения;
