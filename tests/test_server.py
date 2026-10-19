@@ -2607,6 +2607,27 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(w["balance"], w["mined"] + w["exam"] + w["grant"] + w["sell"] - w["gift"] - w["upgrade"] - w["take"] - w["fines"])
         self.assertTrue(all(e["sid"] == sid for e in s1["feed"]))
 
+    def test_gift_value(self):
+        db = server.APP.db
+        tok = self.login("Ценников Цезарь")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["value"]["n"], 0)
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel:1')", (sid, time.time() - 3600, 10000))
+        for g in ("cat", "cookie"):
+            self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": g}, tok)[0], 200)
+        cat = next(g for g in self.req("GET", "/api/gifts", token=tok)[1]["mine"] if g["gift"] == "cat")
+        self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": cat["id"]}, tok)[0], 200)
+        # оценка: сколько дадут за всё при продаже, сколько такие стоят в магазине (уникальный — плюс улучшение), самые ценные
+        d = self.req("GET", "/api/gifts", token=tok)[1]
+        V, price = d["value"], {c["id"]: c["price"] for c in d["catalog"]}
+        self.assertEqual((V["n"], V["sell"]), (2, sum(g["sell"] for g in d["mine"])))
+        self.assertEqual(V["shop"], price["cat"] + server.GIFT_UP_PRICE + price["cookie"])
+        self.assertEqual([(g["gift"], bool(g["uniq"])) for g in V["top"]], [("cat", True), ("cookie", False)])
+        # та же оценка — в профиле, и своём, и у одноклассника
+        self.assertEqual(self.req("GET", "/api/profile", token=tok)[1]["gift_value"]["sell"], V["sell"])
+        st, pr = self.req("GET", f"/api/profile?sid={sid}", token=self.login("Соседкин Савва"))
+        self.assertEqual((st, pr["gift_value"]["n"], pr["gift_value"]["sell"]), (200, 2, V["sell"]))
+
     def test_exam_btc_and_box_price(self):
         db = server.APP.db
         tok = self.login("Бонусов Богдан")

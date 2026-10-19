@@ -248,6 +248,7 @@
       g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)].filter(Boolean).join(' · ');
     const uniq = list.filter(g => g.uniq).length;
     return `<h3 class="fm-sub">🎁 Подарки · ${P.gifts_total}${uniq ? ` <span class="fm-muted">· уникальных ${uniq}</span>` : ''}</h3>
+      ${giftValueHtml(P.gift_value, P.me)}
       <div class="pf-gifts">${list.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
         <small>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
       ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху).</p>' : ''}`;
