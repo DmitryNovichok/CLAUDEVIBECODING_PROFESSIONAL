@@ -159,15 +159,17 @@
     </section>
 
     <section class="adm-view" id="view-gifts" hidden>
-      <div class="adm-toolbar"><h2 class="adm-h">Подарки и монеты</h2></div>
-      <p class="adm-hint" style="margin:0 0 12px">Монеты ученики получают сами: 1 монета за каждые 10 XP опыта. На монеты покупают подарки — себе или однокласснику.
-        Подарки видны маленькими значками у ника в рейтинге и профиле. Здесь можно подарить подарок или начислить монеты — ученику, классу или всем сразу;
-        «🎲 Случайный» — каждому свой подарок. Ученик сразу увидит уведомление.</p>
+      <div class="adm-toolbar"><h2 class="adm-h">Подарки и биткоины</h2></div>
+      <p class="adm-hint" style="margin:0 0 12px">Биткоины (₿) ученики получают сами: 1 ₿ за каждые 10 XP опыта. На биткоины покупают подарки — себе или однокласснику,
+        «🎲 случайный подарок» и улучшение: улучшенный подарок становится уникальным — с номером и случайными фоном, узором и эффектом.
+        Подарки видны маленькими значками у ника в рейтинге и профиле. Здесь можно подарить подарок или начислить биткоины — ученику, классу или всем сразу;
+        «🎲 Случайный» — каждому свой (дорогие выпадают реже). Ученик сразу увидит уведомление.</p>
       <form class="adm-box" id="giftForm">
         <div class="gift-form">
           <label>Кому<select class="inp" id="giftTo"></select></label>
           <label>Подарок<select class="inp" id="giftKind"></select></label>
-          <label>Монеты<input class="inp" id="giftCoins" type="number" min="0" max="1000" step="1" value="0"></label>
+          <label class="gift-uniq"><span><input type="checkbox" id="giftUniq"> ✨ сразу уникальный</span></label>
+          <label>Биткоины ₿<input class="inp" id="giftCoins" type="number" min="0" max="1000" step="1" value="0"></label>
           <label class="gift-note">Подпись (необязательно)<input class="inp" id="giftNote" maxlength="80" placeholder="Например: за победу в битве классов"></label>
           <button class="btn primary" type="submit">🎁 Подарить</button>
         </div>

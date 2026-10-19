@@ -3925,13 +3925,6 @@
   }
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
-  /** Один раз после восстановления сайта (сбой хостинга, октябрь 2026) — тем, кто вошёл без окна входа. */
-  function restoredNote() {
-    const key = 'egeTrainer.restoredNote';
-    if (Date.now() > new Date('2026-10-28T00:00:00').getTime()) return;
-    try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch (e) { return; }
-    setTimeout(() => toast('✅ Сайт снова работает: после сбоя у хостинга все данные восстановлены — результаты, опыт, достижения и подборки на месте', 8000), 1200);
-  }
   function applyMe(me) {
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     writeStudent(student);
@@ -3939,7 +3932,6 @@
     ADMINS = new Set(me.admins || []);
     CONSENT_NEEDED = !!me.consent_needed;
     if (me.game) GAME = me.game;
-    restoredNote();
     if (GAME && GAME.froze) setTimeout(() => toast(`❄️ Ты пропустил ${GAME.froze === 1 ? 'день' : `${GAME.froze} ${plural(GAME.froze, 'день', 'дня', 'дней')}`} — заморозка спасла огонёк`, 6000), 1500);
     COURSE_OK = !!me.course;
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
@@ -5368,9 +5360,9 @@
     el.title = `Уровень ${GAME.level} · ${GAME.title} — опыт и достижения`;
     const c = $('#coinCard');
     if (c) {
-      c.hidden = TEACHER;                    // учитель дарит из панели — монеты ему не нужны
+      c.hidden = TEACHER;                    // учитель дарит из панели — биткоины ему не нужны
       $('#coinNum').textContent = GAME.coins || 0;
-      c.title = `Монеты: ${GAME.coins || 0} — магазин подарков`;
+      c.title = `Биткоины: ${GAME.coins || 0} ₿ — магазин подарков`;
     }
   }
   function xpPop(v) {
@@ -5449,8 +5441,10 @@
   /** Значок у ника: строка (старый формат) или {i, t, n} — у повторяемых наград маленькое число, сколько раз получена. */
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
-  /** Подарки у ника — маленькие значки после наград; одинаковые — числом. */
-  const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(badgeHtml).join('')}</span>` : '';
+  /** Подарки у ника — маленькие значки после наград: уникальный — на своём цветном фоне, одинаковые обычные — числом. */
+  const giftBadge = g => (g.u ? `<span class="bdg ugb" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
+    : badgeHtml(g));
+  const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
   const badgesHtml = r => ((r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '') + giftsHtml(r);
   const nameHtml = r => (r.sid ? `<button type="button" class="lb-name" data-prof="${r.sid}" title="Открыть профиль">${esc(r.name)}</button>` : esc(r.name)) + admTag(r.sid);
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
@@ -5580,13 +5574,26 @@
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(P.name)}${admTag(P.sid)}${P.me ? ' <span class="chip good">это ты</span>' : ''}</h2>
           <span class="fm-muted">${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp} XP</span>
           <div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}</div>
-          ${P.gifts_total ? `<div class="fm-muted">🎁 Подарков: ${P.gifts_total}</div>` : ''}
           ${!P.me && !TEACHER && SERVER ? `<p><button type="button" class="btn small" data-gift-to="${P.sid}">🎁 Подарить подарок</button></p>` : ''}</div></div>
       ${tools}
+      ${profGiftsHtml(P)}
       <h3 class="fm-sub">Награды — можно получать много раз</h3>
       <div class="ach-grid">${P.awards.map(a => profItem(a, 'award')).join('')}${P.extra.map(a => profItem(a, 'extra')).join('')}</div>
       <h3 class="fm-sub">Достижения · ${P.ach.length} из ${P.ach_total} — даются один раз</h3>
       ${P.ach.length ? `<div class="ach-grid">${P.ach.map(a => profItem(a, 'ach')).join('')}</div>` : '<p class="fm-muted">Пока ни одного.</p>'}`;
+  }
+  /** Витрина подарков в профиле: уникальные — плиткой со своим фоном, узором и номером, обычные — значком. */
+  function profGiftsHtml(P) {
+    const list = P.gift_list || [];
+    if (!list.length) return P.me ? '<h3 class="fm-sub">🎁 Подарки</h3><p class="fm-muted">Пока ни одного — <button type="button" class="link-btn" data-gift-to="">открыть магазин подарков</button>.</p>' : '';
+    const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
+    const tip = g => [g.t + (g.uniq ? ' #' + g.uniq.n : ''), g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)]
+      .filter(Boolean).join(' · ');
+    const uniq = list.filter(g => g.uniq).length;
+    return `<h3 class="fm-sub">🎁 Подарки · ${P.gifts_total}${uniq ? ` <span class="fm-muted">· уникальных ${uniq}</span>` : ''}</h3>
+      <div class="pf-gifts">${list.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain"><span class="ug-ic">${g.i}</span></span>`}
+        <small>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</small></div>`).join('')}</div>
+      ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху).</p>' : ''}`;
   }
   async function saveBadges(keys) {
     try { await api('profile/badges', { keys }); } catch (e) { toast(e.message || 'Не получилось сохранить'); return; }
@@ -7307,61 +7314,108 @@
     if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
   }
   // ═══════ src/app/12c-gifts.js
-  // ------------------------------------------------------------ монеты и подарки
-  // Монеты считает сервер (GAME.coins): 1 за каждые 10 XP опыта + начисления учителя − покупки. Подарок покупают
-  // себе или однокласснику, учитель дарит из панели. Подарки видны маленькими значками у ника (giftsHtml).
+  // ------------------------------------------------------------ биткоины и подарки
+  // Биткоины (₿) считает сервер (GAME.coins): 1 за каждые 10 XP опыта + начисления учителя − покупки. Подарок покупают
+  // себе или однокласснику, «🎲 Случайный подарок» выпадает любой (дорогие — реже), учитель дарит из панели.
+  // Свой подарок можно улучшить — он станет уникальным: номер и случайные фон, узор и эффект, у каждого своя редкость.
   let GF = null;                          // магазин и свои подарки с сервера
   let gfTo = '';                          // кому дарим: '' — себе, иначе sid одноклассника
-  const gfDate = ts => { const d = new Date(ts * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`; };
+  let gfOpen = null;                      // открытая карточка подарка (id) или null — магазин
+  const gfDate = ts => { const d = new Date(ts * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`; };
   const gfMate = sid => (GF.mates.find(m => String(m.sid) === String(sid)) || {}).name || '';
-  const coinWord = n => plural(n, 'монета', 'монеты', 'монет');
+  const btcWord = n => plural(n, 'биткоин', 'биткоина', 'биткоинов');
+  const gfFrom = g => g.from === 'учитель' ? 'от учителя' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
+  /** Уникальный подарок: фон-градиент, узор из символов, эффект и номер. */
+  function uniqTile(g, cls = '') {
+    const u = g.uniq;
+    const pat = Array.from({ length: 8 }, (_, k) => `<i class="ug-s s${k}">${esc(u.ch)}</i>`).join('');
+    return `<span class="ug ${cls}" style="--c1:${u.c1};--c2:${u.c2}">${pat}<span class="ug-ic gfx-${u.fx}">${g.i}</span><b class="ug-n">#${u.n}</b></span>`;
+  }
 
-  async function openGifts(to) {
+  async function openGifts(to, open) {
     if (!SERVER) return;
     try { GF = await api('gifts'); } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось открыть подарки'); return; }
-    gfTo = to && gfMate(to) ? String(to) : '';
+    if (to !== undefined) gfTo = to && gfMate(to) ? String(to) : '';
+    gfOpen = open || null;
     renderGifts();
     $('#forecastModal').hidden = false;
   }
   function renderGifts() {
+    const g = gfOpen && GF.mine.find(x => x.id === gfOpen);
+    if (g) return renderGift(g);
     const G = GF, coins = G.coins, who = gfTo ? gfMate(gfTo) : '';
     const left = Math.max(0, G.per_day - G.bought_today);
+    const item = (id, i, t, price, cls = '') => `<button type="button" class="gf-item ${cls}" data-gift="${id}"${price > coins || !left ? ' disabled' : ''}
+        title="${esc(t)} — ${price} ₿"><span class="gf-ic">${i}</span><b>${esc(t)}</b><small>₿ ${price}</small></button>`;
     const shop = G.teacher ? '<p class="fm-note">Учительский аккаунт дарит подарки из панели учителя — вкладка «Подарки».</p>'
       : `<div class="gf-to"><label>Кому <select class="inp" id="gfTo"><option value="">себе</option>${G.mates.map(m =>
           `<option value="${m.sid}"${String(m.sid) === gfTo ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
           <span class="fm-muted">${left ? `Сегодня можно купить ещё ${left}` : 'На сегодня подарков хватит — завтра снова можно'}</span></div>
-        <div class="gf-grid">${G.catalog.map(g => `<button type="button" class="gf-item" data-gift="${g.id}"${g.price > coins || !left ? ' disabled' : ''}
-            title="${esc(g.t)} — ${g.price} ${coinWord(g.price)}"><span class="gf-ic">${g.i}</span><b>${esc(g.t)}</b><small>🪙 ${g.price}</small></button>`).join('')}</div>`;
-    const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + esc(g.from) : '';
-    const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(g => `<div class="gf-row"><span class="gf-ic">${g.i}</span>
-        <span><b>${esc(g.t)}</b><small>${from(g)} · ${gfDate(g.ts)}${g.note ? ` · «${esc(g.note)}»` : ''}</small></span></div>`).join('')}</div>`
+        <div class="gf-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'gf-box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price)).join('')}</div>
+        <p class="fm-note">🎲 Случайный подарок — может выпасть любой, даже Дракон; чем дороже подарок, тем реже он выпадает.</p>`;
+    const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(x => `<button type="button" class="gf-own${x.uniq ? ' uniq' : ''}" data-gift-open="${x.id}"
+          title="${esc(x.t)}${x.uniq ? ' #' + x.uniq.n : ''}">${x.uniq ? uniqTile(x) : `<span class="gf-ic">${x.i}</span>`}
+          <b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b><small>${esc(gfFrom(x))}</small></button>`).join('')}</div>
+        <p class="fm-note">Нажми на подарок, чтобы его улучшить: он станет уникальным — с номером, фоном, узором и эффектом.</p>`
       : '<p class="fm-muted">Пока ни одного — купи себе первый или дождись подарка от учителя.</p>';
     $('#forecastBody').innerHTML = `
-      <div class="gm-head"><span class="gm-level gf-coin">🪙</span>
-        <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${coinWord(coins)}</h2>
-          <span class="fm-muted">1 монета за каждые ${G.coin_xp} XP опыта — решай задания, и монеты придут сами. Учитель тоже может начислить монеты.</span></div></div>
+      <div class="gm-head"><span class="gm-level gf-coin">₿</span>
+        <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${btcWord(coins)}</h2>
+          <span class="fm-muted">1 биткоин за каждые ${G.coin_xp} XP опыта — решай задания, и биткоины придут сами. Учитель тоже может начислить биткоины.</span></div></div>
       <h3 class="fm-sub">Магазин подарков${who ? ` — для ${esc(who)}` : ''}</h3>
       ${shop}
       <h3 class="fm-sub">Мои подарки · ${G.mine.length}</h3>
       ${mine}
-      <p class="fm-note">Подарки видны маленькими значками у ника — в рейтинге и в профиле: до ${G.show} разных, последние — первыми.</p>`;
+      <p class="fm-note">Подарки видны маленькими значками у ника — в рейтинге и в профиле: сначала уникальные, всего до ${G.show}.</p>`;
+  }
+  /** Карточка подарка: свойства уникального или кнопка «Улучшить». */
+  function renderGift(g, fresh) {
+    const u = g.uniq;
+    const big = u ? uniqTile(g, 'big' + (fresh ? ' reveal' : '')) : `<span class="ug plain big"><span class="ug-ic">${g.i}</span></span>`;
+    const meta = [gfFrom(g), gfDate(g.ts)].filter(Boolean).join(' · ');
+    const body = u
+      ? `<table class="fm-table gf-props">${u.props.map(p => `<tr><td class="fm-muted">${p.k}</td><td><b>${esc(p.t)}</b></td>
+          <td class="num"><span class="chip">${String(p.p).replace('.', ',')}%</span></td></tr>`).join('')}</table>
+        <p class="fm-note">Уникальный подарок: такого сочетания фона, узора и эффекта больше нет ни у одного «${esc(g.t)}». Процент — как часто выпадает это свойство.</p>`
+      : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор и эффект. Чем реже свойство, тем ценнее подарок.</p>
+        <p><button type="button" class="btn primary" data-gift-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}>✨ Улучшить за ₿ ${g.up}</button>
+          ${GF.coins < g.up ? `<span class="fm-muted"> — нужно ещё ${g.up - GF.coins} ₿</span>` : ''}</p>`;
+    $('#forecastBody').innerHTML = `<button type="button" class="btn small ghost" id="gfBack">← к подаркам</button>
+      <div class="gf-card">${big}
+        <div><h2 class="fm-title" style="margin:6px 0 2px">${esc(g.t)}${u ? ` <span class="ug-num">#${u.n}</span>` : ''}</h2>
+          <div class="fm-muted">${esc(meta)}</div>${g.note ? `<div class="gf-note">«${esc(g.note)}»</div>` : ''}</div></div>
+      ${body}`;
   }
   async function buyGift(id) {
-    const g = GF.catalog.find(x => x.id === id), who = gfTo ? gfMate(gfTo) : '';
-    if (!g || !confirm(`Купить ${g.i} ${g.t} за ${g.price} ${coinWord(g.price)} — ${who ? `в подарок: ${who}` : 'себе'}?`)) return;
+    const box = id === 'box', g = box ? { i: '🎲', t: 'Случайный подарок', price: GF.box } : GF.catalog.find(x => x.id === id);
+    const who = gfTo ? gfMate(gfTo) : '';
+    if (!g || !confirm(`Купить ${g.i} ${g.t} за ${g.price} ₿ — ${who ? `в подарок: ${who}` : 'себе'}?`)) return;
     try {
       const r = await api('gifts/buy', { gift: id, to: gfTo ? +gfTo : null });
       if (r.game) onGame(r.game);
-      toast(who ? `🎁 ${g.i} ${g.t} — подарено: ${who}` : `🎁 ${g.i} ${g.t} — теперь у тебя у ника`, 4000);
-      await openGifts(gfTo);
+      const got = GF.catalog.find(x => x.id === r.got) || g;
+      toast(box ? `🎲 Выпало: ${got.i} ${got.t}!${who ? ` — подарено: ${who}` : ''}` : who ? `🎁 ${got.i} ${got.t} — подарено: ${who}` : `🎁 ${got.i} ${got.t} — теперь у тебя`, 5000);
+      await openGifts();
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось купить'); }
+  }
+  async function upgradeGift(id) {
+    const g = GF.mine.find(x => x.id === id);
+    if (!g || !confirm(`Улучшить ${g.i} ${g.t} за ${g.up} ₿? Подарок станет уникальным.`)) return;
+    try {
+      const r = await api('gifts/upgrade', { id });
+      if (r.game) onGame(r.game);
+      GF.coins = r.game ? r.game.coins : GF.coins;
+      GF.mine = GF.mine.map(x => (x.id === id ? r.gift : x));
+      renderGift(r.gift, true);
+    } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось улучшить'); }
   }
   function giftToast(g) {
     const t = document.createElement('div');
     t.className = 'ach-toast gift-toast';
-    const from = g.from === 'учитель' ? 'от учителя' : g.from ? 'от ' + g.from : '';
-    t.innerHTML = `<span class="ach-icon">${esc(g.i)}</span><span><small>Тебе подарок${from ? ' ' + esc(from) : ''}</small><b>${esc(g.t)}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
-    t.addEventListener('click', () => openGifts());
+    const from = gfFrom(g);
+    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
+      <b>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
+    t.addEventListener('click', () => openGifts(undefined, g.id));
     document.body.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 5200);
   }
@@ -7369,24 +7423,29 @@
   function giftNotify(list) {
     if (!list || !list.length || TEACHER) return;
     list.slice(0, 3).forEach((g, i) => setTimeout(() => giftToast(g), 700 + i * 1700));
-    if (list.length > 3) setTimeout(() => toast(`🎁 И ещё ${list.length - 3} — в «Монеты и подарки»`, 5000), 700 + 3 * 1700);
+    if (list.length > 3) setTimeout(() => toast(`🎁 И ещё ${list.length - 3} — в «Биткоины и подарки»`, 5000), 700 + 3 * 1700);
     api('gifts/seen', { ids: list.map(g => g.id) }).catch(() => {});
   }
-  /** Подарили или начислили монеты — уведомление и новый счёт монет сразу. */
+  /** Подарили или начислили биткоины — уведомление и новый счёт сразу. */
   async function giftLive() {
     let me;
     try { me = await api('me'); } catch (e) { return; }
     if (me.game) onGame(me.game);
     giftNotify(me.gifts_new);
-    if (GF && !$('#forecastModal').hidden && $('#forecastBody .gf-mine, #forecastBody .gf-grid')) openGifts(gfTo);
+    if (GF && !gfOpen && !$('#forecastModal').hidden && $('#forecastBody .gf-grid, #forecastBody .gf-mine')) openGifts();
   }
   $('#coinCard')?.addEventListener('click', () => openGifts());
   $('#whoGifts')?.addEventListener('click', () => { setWhoMenu(false); openGifts(); });
   document.addEventListener('click', e => {
     const to = e.target.closest('[data-gift-to]');
     if (to) { openGifts(to.dataset.giftTo); return; }
-    const b = GF && e.target.closest('#forecastBody [data-gift]');
-    if (b && !b.disabled) buyGift(b.dataset.gift);
+    if (!GF || !e.target.closest('#forecastBody')) return;
+    const b = e.target.closest('[data-gift], [data-gift-open], [data-gift-up], #gfBack');
+    if (!b || b.disabled) return;
+    if (b.id === 'gfBack') { gfOpen = null; renderGifts(); return; }
+    if (b.dataset.giftOpen) { gfOpen = +b.dataset.giftOpen; renderGifts(); return; }
+    if (b.dataset.giftUp) { upgradeGift(+b.dataset.giftUp); return; }
+    buyGift(b.dataset.gift);
   });
   document.addEventListener('change', e => {
     if (e.target.id === 'gfTo') { gfTo = e.target.value; renderGifts(); }

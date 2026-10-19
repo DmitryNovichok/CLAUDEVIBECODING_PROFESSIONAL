@@ -50,13 +50,6 @@
   }
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
-  /** Один раз после восстановления сайта (сбой хостинга, октябрь 2026) — тем, кто вошёл без окна входа. */
-  function restoredNote() {
-    const key = 'egeTrainer.restoredNote';
-    if (Date.now() > new Date('2026-10-28T00:00:00').getTime()) return;
-    try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch (e) { return; }
-    setTimeout(() => toast('✅ Сайт снова работает: после сбоя у хостинга все данные восстановлены — результаты, опыт, достижения и подборки на месте', 8000), 1200);
-  }
   function applyMe(me) {
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     writeStudent(student);
@@ -64,7 +57,6 @@
     ADMINS = new Set(me.admins || []);
     CONSENT_NEEDED = !!me.consent_needed;
     if (me.game) GAME = me.game;
-    restoredNote();
     if (GAME && GAME.froze) setTimeout(() => toast(`❄️ Ты пропустил ${GAME.froze === 1 ? 'день' : `${GAME.froze} ${plural(GAME.froze, 'день', 'дня', 'дней')}`} — заморозка спасла огонёк`, 6000), 1500);
     COURSE_OK = !!me.course;
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует

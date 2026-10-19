@@ -706,7 +706,7 @@
   $('#cpFind').addEventListener('input', () => { if (CP.d) renderCourseProgress(); });
   $('#cpReload').addEventListener('click', loadCourseProgress);
 
-  // ------------------------------------------------------------ подарки и монеты: подарить ученику, классу или всем
+  // ------------------------------------------------------------ подарки и биткоины: подарить ученику, классу или всем
   let GFA = null;
   async function loadGifts() {
     try { GFA = await api('gifts'); } catch (err) { if (err.status !== 401) $('#giftRecent').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
@@ -715,12 +715,13 @@
       + (GFA.classes.length ? `<optgroup label="Класс">${GFA.classes.map(c => `<option value="c:${c.id}">${esc(c.name)}</option>`).join('')}</optgroup>` : '')
       + `<optgroup label="Ученик">${GFA.students.map(s => `<option value="s:${s.id}">${esc(s.name)}${s.class ? ' · ' + esc(s.class) : ''}</option>`).join('')}</optgroup>`;
     $('#giftKind').innerHTML = '<option value="">— без подарка —</option><option value="random">🎲 Случайный — каждому свой</option>'
-      + GFA.catalog.map(g => `<option value="${g.id}">${g.i} ${esc(g.t)} · ${g.price} мон.</option>`).join('');
+      + GFA.catalog.map(g => `<option value="${g.id}">${g.i} ${esc(g.t)} · ${g.price} ₿</option>`).join('');
     if (to) $('#giftTo').value = to;
     if (kind) $('#giftKind').value = kind;
     $('#giftRecent').innerHTML = GFA.recent.length
       ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Кому</th><th>Подарок</th><th>Подпись</th></tr></thead><tbody>${GFA.recent.map(r =>
-          `<tr><td class="muted">${fmtWhen(r.ts)}</td><td>${esc(r.name)}</td><td>${r.i} ${esc(r.t)}</td><td class="muted">${esc(r.note || '—')}</td></tr>`).join('')}</tbody></table></div>`
+          `<tr><td class="muted">${fmtWhen(r.ts)}</td><td>${esc(r.name)}</td><td>${r.i} ${esc(r.t)}${r.uniq ? ` <b>#${r.uniq.n}</b> <span class="muted">✨ ${esc(r.uniq.props.map(p => p.t).join(', '))}</span>` : ''}</td>
+            <td class="muted">${esc(r.note || '—')}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="adm-empty">Вы ещё ничего не дарили.</p>';
   }
   $('#giftForm').addEventListener('submit', async e => {
@@ -728,15 +729,15 @@
     const msg = $('#giftMsg'), to = $('#giftTo').value, gift = $('#giftKind').value, coins = Math.max(0, Math.floor(+$('#giftCoins').value || 0));
     msg.className = 'login-err';
     msg.textContent = '';
-    if (!gift && !coins) { msg.textContent = 'Выберите подарок или сколько монет начислить'; return; }
-    const body = { gift, coins, note: $('#giftNote').value };
+    if (!gift && !coins) { msg.textContent = 'Выберите подарок или сколько биткоинов начислить'; return; }
+    const body = { gift, coins, note: $('#giftNote').value, unique: $('#giftUniq').checked };
     if (to === 'all') body.all = true; else if (to.startsWith('c:')) body.class_id = +to.slice(2); else body.student_id = +to.slice(2);
     const label = $('#giftTo').selectedOptions[0].textContent;
     if (to === 'all' || to.startsWith('c:')) { if (!confirm(`Подарить: ${label}?`)) return; }
     try {
       const r = await api('gifts/give', body);
       msg.className = 'login-err ok';
-      msg.textContent = `Готово: ${r.count} ${pluralRu(r.count, 'ученик получил', 'ученика получили', 'учеников получили')} ${[gift ? 'подарок' : '', coins ? coins + ' мон.' : ''].filter(Boolean).join(' и ')}`;
+      msg.textContent = `Готово: ${r.count} ${pluralRu(r.count, 'ученик получил', 'ученика получили', 'учеников получили')} ${[gift ? ($('#giftUniq').checked ? 'уникальный подарок' : 'подарок') : '', coins ? coins + ' ₿' : ''].filter(Boolean).join(' и ')}`;
       $('#giftNote').value = '';
       loadGifts();
     } catch (err) { if (err.status !== 401) msg.textContent = err.message; }

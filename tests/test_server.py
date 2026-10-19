@@ -2353,6 +2353,30 @@ class ServerTest(unittest.TestCase):
         # подарки видны у ника в рейтинге
         rows = self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]["league"]["top"]
         self.assertIn("🧸", [g["i"] for g in next(r for r in rows if r["sid"] == sid2)["gifts"]])
+        # «случайный подарок» — выпадает подарок из каталога за GIFT_BOX_PRICE
+        have = self.req("GET", "/api/gifts", token=tok)[1]["coins"]
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": "box"}, tok)
+        self.assertEqual(st, 200, r)
+        self.assertIn(r["got"], server.GIFT_BY)
+        self.assertEqual(r["game"]["coins"], have - server.GIFT_BOX_PRICE)
+        # улучшение: подарок становится уникальным — номер, фон, узор, эффект с редкостью; второй раз нельзя
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid2, time.time(), 500))
+        teddy = next(g for g in self.req("GET", "/api/gifts", token=tok2)[1]["mine"] if g["gift"] == "teddy")
+        self.assertIsNone(teddy["uniq"])
+        st, r = self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok2)
+        self.assertEqual(st, 200, r)
+        u = r["gift"]["uniq"]
+        self.assertEqual(u["n"], 1)
+        self.assertEqual([x["k"] for x in u["props"]], ["Фон", "Узор", "Эффект"])
+        self.assertTrue(all(0 < x["p"] <= 100 for x in u["props"]))
+        self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok2)[0], 409)
+        self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok)[0], 404)       # чужой подарок
+        self.assertTrue(server.gift_icons(db, sid2)[0]["u"])                                            # уникальный — первым у ника
+        # учитель дарит сразу уникальные: номера идут подряд, сочетания свойств не повторяются
+        self.admin("POST", "/api/admin/gifts/give", {"all": True, "gift": "teddy", "unique": True})
+        combos = [json.loads(r["uniq"]) for r in db.q("SELECT uniq FROM gifts WHERE gift='teddy' AND uniq IS NOT NULL")]
+        self.assertEqual(sorted(c["n"] for c in combos), list(range(1, len(combos) + 1)))
+        self.assertEqual(len({(c["bg"], c["sym"], c["fx"]) for c in combos}), len(combos))
 
     def test_answer_fix(self):
         # исправленный вручную ответ банка подменяется при загрузке: верный засчитывается, ответ из банка — нет
