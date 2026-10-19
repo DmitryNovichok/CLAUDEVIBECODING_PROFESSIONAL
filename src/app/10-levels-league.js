@@ -12,6 +12,12 @@
     $('#lvlXp').textContent = `${GAME.cur} / ${GAME.need} XP`;
     $('#xpBar').style.width = pct(GAME.cur / GAME.need) + '%';
     el.title = `Уровень ${GAME.level} · ${GAME.title} — опыт и достижения`;
+    const c = $('#coinCard');
+    if (c) {
+      c.hidden = TEACHER;                    // учитель дарит из панели — биткоины ему не нужны
+      $('#coinNum').textContent = GAME.coins || 0;
+      c.title = `Биткоины: ${GAME.coins || 0} ₿ — магазин подарков`;
+    }
   }
   function xpPop(v) {
     if (viewPrefs().focus || !viewPrefs().anim) return;
@@ -44,6 +50,7 @@
     renderLevel();
     if (!old) return;
     if (g.froze) toast(`❄️ Заморозка спасла огонёк`, 5000);
+    if (g.gift_drop) setTimeout(giftLive, 1500);           // решил очередные 25 — подарок за труд
     if (g.xp !== old.xp) xpPop(g.xp - old.xp);
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
@@ -89,7 +96,11 @@
   /** Значок у ника: строка (старый формат) или {i, t, n} — у повторяемых наград маленькое число, сколько раз получена. */
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
-  const badgesHtml = r => (r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '';
+  /** Подарки у ника — маленькие значки после наград: уникальный — на своём цветном фоне, одинаковые обычные — числом. */
+  const giftBadge = g => (g.u ? `<span class="bdg ugb r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
+    : badgeHtml(g));
+  const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
+  const badgesHtml = r => ((r.badges || []).length ? ` <span class="lb-badges">${r.badges.map(badgeHtml).join('')}</span>` : '') + giftsHtml(r);
   const nameHtml = r => (r.sid ? `<button type="button" class="lb-name" data-prof="${r.sid}" title="Открыть профиль">${esc(r.name)}</button>` : esc(r.name)) + admTag(r.sid);
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
   const daysLeft = endSec => Math.max(0, Math.ceil((endSec * 1000 - Date.now()) / 864e5));
@@ -217,12 +228,27 @@
       <div class="gm-head"><span class="gm-level">${P.level}</span>
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${esc(P.name)}${admTag(P.sid)}${P.me ? ' <span class="chip good">это ты</span>' : ''}</h2>
           <span class="fm-muted">${esc(P.title)} · ${P.league.icon} ${esc(P.league.name)} · ${P.xp} XP</span>
-          <div class="pf-nick">У ника: ${nick.length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>` : '<span class="fm-muted">пока ничего</span>'}</div></div></div>
+          <div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}</div>
+          ${!P.me && !TEACHER && SERVER ? `<p><button type="button" class="btn small" data-gift-to="${P.sid}">🎁 Подарить подарок</button></p>` : ''}</div></div>
       ${tools}
+      ${profGiftsHtml(P)}
       <h3 class="fm-sub">Награды — можно получать много раз</h3>
       <div class="ach-grid">${P.awards.map(a => profItem(a, 'award')).join('')}${P.extra.map(a => profItem(a, 'extra')).join('')}</div>
       <h3 class="fm-sub">Достижения · ${P.ach.length} из ${P.ach_total} — даются один раз</h3>
       ${P.ach.length ? `<div class="ach-grid">${P.ach.map(a => profItem(a, 'ach')).join('')}</div>` : '<p class="fm-muted">Пока ни одного.</p>'}`;
+  }
+  /** Витрина подарков в профиле: уникальные — плиткой со своим фоном, узором и номером, обычные — значком. */
+  function profGiftsHtml(P) {
+    const list = P.gift_list || [];
+    if (!list.length) return P.me ? '<h3 class="fm-sub">🎁 Подарки</h3><p class="fm-muted">Пока ни одного — <button type="button" class="link-btn" data-gift-to="">открыть магазин подарков</button>.</p>' : '';
+    const from = g => g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд' : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
+    const tip = g => [g.t + (g.uniq ? ' #' + g.uniq.n : ''), gfRar(g) ? `${gfRar(g).t}: ${rarWhy(g)}` : '',
+      g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)].filter(Boolean).join(' · ');
+    const uniq = list.filter(g => g.uniq).length;
+    return `<h3 class="fm-sub">🎁 Подарки · ${P.gifts_total}${uniq ? ` <span class="fm-muted">· уникальных ${uniq}</span>` : ''}</h3>
+      <div class="pf-gifts">${list.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
+        <small>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
+      ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху).</p>' : ''}`;
   }
   async function saveBadges(keys) {
     try { await api('profile/badges', { keys }); } catch (e) { toast(e.message || 'Не получилось сохранить'); return; }

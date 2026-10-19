@@ -100,11 +100,13 @@
           <span class="lvl-info"><i class="xp-bar"><b id="xpBar"></b></i><small id="lvlXp">0 / 100 XP</small></span>
           <span id="lvlTitle" hidden>Новичок</span>
         </button>
+        <button type="button" class="coin-pill" id="coinCard" title="Биткоины и подарки" hidden><span class="btc" aria-hidden="true">₿</span><b id="coinNum">0</b></button>
         <div class="who" id="who" hidden>
           <button type="button" class="ava" id="avaBtn" aria-haspopup="true" aria-expanded="false" title="Профиль"><span id="avaTxt"></span></button>
           <div class="who-menu" id="whoMenu" hidden>
             <span class="who-label">Ученик</span><b id="whoName"></b>
             <button type="button" class="wm-item" id="whoLvl">🏅 Уровень и достижения</button>
+            <button type="button" class="wm-item" id="whoGifts">🎁 Биткоины и подарки</button>
             <button type="button" class="wm-item" id="whoTheme">🎨 Тема оформления</button>
             <button type="button" class="wm-item" id="pwBtn">🔑 Сменить пароль</button>
             <button type="button" class="wm-item danger" id="logoutBtn">↪ Выйти</button>
@@ -218,11 +220,6 @@
 <div class="modal login-modal" id="loginModal" hidden>
   <div class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
     <h2 class="fm-title login-brand" id="loginTitle"><span class="brand-mark" aria-hidden="true"><svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="4" y="9" width="56" height="51" rx="16" fill="#58a700"/><rect x="4" y="4" width="56" height="51" rx="16" fill="#58cc02"/><rect x="20" y="15" width="9" height="29" rx="4" fill="#fff"/><rect x="20" y="15" width="24" height="8.5" rx="4.25" fill="#fff"/><rect x="20" y="25.5" width="19" height="8" rx="4" fill="#fff"/><rect x="20" y="35.5" width="24" height="8.5" rx="4.25" fill="#fff"/><circle cx="48.5" cy="43" r="5" fill="#1cb0f6" stroke="#fff" stroke-width="2.5"/></svg></span><span class="brand-title"><b>Ege</b>shka<i class="brand-cursor" aria-hidden="true"></i></span><span class="brand-sub brand-by">by <b>Malevin</b></span></h2>
-    <!-- временное сообщение после восстановления сайта (октябрь 2026); убрать в конце месяца -->
-    <div class="login-notice ok" role="note">
-      <b class="ln-title">✅ Сайт снова работает</b>
-      <p>После технического сбоя у хостинга все данные восстановлены: аккаунты, результаты, опыт, достижения и подборки. Входите как обычно. Если в дни сбоя вы регистрировались заново — напишите учителю.</p>
-    </div>
     <div class="login-tabs" id="loginTabs" role="tablist">
       <button type="button" role="tab" data-tab="login">Вход</button>
       <button type="button" role="tab" data-tab="reg">Регистрация</button>
