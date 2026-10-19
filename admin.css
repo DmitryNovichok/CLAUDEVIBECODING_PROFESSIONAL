@@ -509,3 +509,24 @@ tr.comp-void td { opacity: .55; }
 .gift-own-ic { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 10px; font-size: 24px; background: var(--card-hover, rgba(0,0,0,.05)); }
 .gift-own-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .gift-own-t small { color: var(--muted); font-size: 12px; }
+/* экономика: биткоины и подарки */
+.eco-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; margin: 12px 0; }
+.eco-grid .adm-box { margin: 0; }
+.eco-flow-t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.eco-flow-t td { padding: 6px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
+.eco-flow-t tr:first-child td { border-top: 0; }
+.eco-bar { width: 38%; }
+.eco-bar i { display: block; height: 8px; min-width: 2px; border-radius: 4px; background: var(--accent, #1cb0f6); }
+.eco-plus { color: var(--good, #58a700); } .eco-minus { color: var(--weak, #e5484d); }
+.eco-tiers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
+.eco-chip { display: inline-flex; align-items: center; gap: 4px; }
+.eco-rar { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 800; color: #fff; background: #9aa0a6; white-space: nowrap; }
+.eco-rar.r-uncommon { background: #43a047; } .eco-rar.r-rare { background: #1e88e5; } .eco-rar.r-epic { background: #8e24aa; }
+.eco-rar.r-legend { background: #f57c00; } .eco-rar.r-myth { background: linear-gradient(90deg, #e91e63, #ff9800); }
+.eco-kind { font-weight: 700; }
+.eco-feed td { vertical-align: top; }
+.eco-name { color: var(--text); font-weight: 700; padding: 0; }
+.eco-wallet { display: flex; flex-wrap: wrap; gap: 8px; }
+.eco-w { display: flex; flex-direction: column; padding: 6px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); min-width: 90px; }
+.eco-w small { color: var(--muted); font-size: 11.5px; }
+.eco-h4 { margin: 4px 0 8px; font-size: 14px; }

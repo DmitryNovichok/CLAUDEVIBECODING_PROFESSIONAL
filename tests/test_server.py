@@ -2401,7 +2401,7 @@ class ServerTest(unittest.TestCase):
         # продажа обычного — за половину цены; второй раз — нельзя: подарок сгорел
         self.req("POST", "/api/gifts/buy", {"gift": "cat"}, tok)
         cat = next(g for g in self.req("GET", "/api/gifts", token=tok)[1]["mine"] if g["gift"] == "cat")
-        self.assertEqual((cat["sell"], cat["up"]), (25, server.GIFT_UP_PRICE))
+        self.assertEqual((cat["sell"], cat["up"]), (25, server.gift_up_price("cat", {"idx": 1.0}, server.uniq_issued(db))))
         coins = self.req("GET", "/api/gifts", token=tok)[1]["coins"]
         st, r = self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tok)
         self.assertEqual((st, r["price"], r["game"]["coins"]), (200, 25, coins + 25))
@@ -2414,7 +2414,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200, r)
         u = r["gift"]["uniq"]
         k = u["rar"]["k"]
-        self.assertEqual(r["gift"]["sell"], int(160 * 0.5 + server.GIFT_UP_PRICE * (1 + 1 / server.UNIQ_CAP) * server.SELL_UNIQ[k]))
+        n_robot = server.uniq_issued(db)["robot"]
+        self.assertEqual(r["gift"]["sell"], int(160 * 0.5 + server.GIFT_UP_PRICE * (1 + n_robot / server.UNIQ_CAP) * server.SELL_UNIQ[k]))
         self.req("POST", "/api/gifts/sell", {"id": robot["id"]}, tok)
         burned = json.loads(db.q("SELECT uniq FROM gifts WHERE id=?", (robot["id"],), one=True)["uniq"])
         with server._GIFT_LOCK:
@@ -2492,6 +2493,41 @@ class ServerTest(unittest.TestCase):
         self.assertNotIn(gid, [g["id"] for g in self.admin("GET", f"/api/admin/gifts/student?id={sid}")[1]["gifts"]])
         self.assertNotIn("🧸", [g["i"] for g in server.gift_icons(db, sid)])
         self.assertEqual(self.admin("POST", "/api/admin/gifts/remove", {"id": gid})[0], 404)
+
+    def test_econ_overview_and_feed(self):
+        db = server.APP.db
+        tok = self.login("Журналов Жора")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        tok2 = self.login("Получаев Пётр")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel:1')", (sid, time.time() - 3600, 10000))
+        self.req("POST", "/api/gifts/buy", {"gift": "teddy", "to": sid2}, tok)                       # подарок однокласснику
+        self.req("POST", "/api/gifts/buy", {"gift": "cat"}, tok)
+        cat = next(g for g in self.req("GET", "/api/gifts", token=tok)[1]["mine"] if g["gift"] == "cat")
+        self.req("POST", "/api/gifts/upgrade", {"id": cat["id"]}, tok)
+        self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tok)
+        self.admin("POST", "/api/admin/gifts/give", {"student_id": sid, "coins": 30, "note": "Молодец"})
+        self.admin("POST", "/api/admin/gifts/give", {"student_id": sid2, "gift": "rocket", "note": "Так держать"})
+        teddy = next(g["id"] for g in self.admin("GET", f"/api/admin/gifts/student?id={sid2}")[1]["gifts"] if g["gift"] == "teddy")
+        self.admin("POST", "/api/admin/gifts/remove", {"id": teddy})
+        st, d = self.admin("GET", "/api/admin/econ")
+        self.assertEqual(st, 200, d)
+        mine = [e for e in d["feed"] if e["sid"] in (sid, sid2)]
+        kinds = [e["kind"] for e in sorted(mine, key=lambda e: e["ts"])]
+        for k in ("gift", "upgrade", "sell", "grant", "teacher_gift", "removed"):
+            self.assertIn(k, kinds)
+        buy = next(e for e in mine if e["kind"] == "gift" and e["gift"]["t"] == "Мишка")
+        self.assertEqual((buy["to"], buy["delta"]), ("Получаев П.", -server.GIFT_BY["teddy"][3]))
+        up = next(e for e in mine if e["kind"] == "upgrade")
+        self.assertTrue(up["gift"]["uniq"]["n"] >= 1)
+        self.assertGreaterEqual(d["total"]["mined"], 1000)
+        self.assertGreater(d["total"]["upgrade"], 0)
+        # кошелёк и история одного ученика
+        st, s1 = self.admin("GET", f"/api/admin/gifts/student?id={sid}")
+        w = s1["wallet"]
+        self.assertEqual((w["mined"], w["grant"]), (1000, 30))
+        self.assertEqual(w["balance"], w["mined"] + w["grant"] + w["sell"] - w["gift"] - w["upgrade"] - w["take"] - w["fines"])
+        self.assertTrue(all(e["sid"] == sid for e in s1["feed"]))
 
     def test_answer_fix(self):
         # исправленный вручную ответ банка подменяется при загрузке: верный засчитывается, ответ из банка — нет
