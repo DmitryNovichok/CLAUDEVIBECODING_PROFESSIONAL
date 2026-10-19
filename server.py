@@ -2358,6 +2358,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             g = game_summary(db, s["id"])
             issued, dem = uniq_issued(db), gift_demand(db)
             rate, active = btc_rate_now(db)
+            mine = gift_rows(db, s["id"], prices=(e, issued, dem))
             return self.send_json({
                 "coins": g["coins"], "coin_xp": rate, "rate_active": active, "rate_base": COIN_XP, "rate_max": BTC_RATE_MAX,
                 "rate_free": BTC_RATE_FREE, "rate_step": BTC_RATE_STEP, "teacher": bool(s["is_teacher"]),
@@ -2370,7 +2371,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                              "demand": dem.get(k, 1.0), "issued": issued.get(k, 0)} for k, i, t, pr in sorted(GIFTS, key=lambda g: g[3])],
                 "box": gift_box_price(db, e), "up_base": GIFT_UP_PRICE,
                 "exam_btc": EXAM_BTC, "exam_coins": g["exam_coins"],
-                "mine": gift_rows(db, s["id"], prices=(e, issued, dem)),
+                "mine": mine, "value": gift_value(mine, e, dem),
                 "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
                 "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
                 "per_day": GIFTS_PER_DAY, "show": GIFTS_SHOW})
@@ -2668,6 +2669,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             awards = [{"k": k, "i": i, "t": t, "d": d, "n": cnt.get(k, 0)} for k, i, t, d in AWARDS]
             ach = [{"k": "a:" + a["id"], "i": a["icon"], "t": a["title"], "d": a["desc"]} for a in g["ach"] if a["got"]]
             chosen = chosen_badges(m)
+            ge, gdem = econ(db), gift_demand(db)            # оценка подарков — по нынешним ценам
             return self.send_json({
                 "sid": sid, "me": sid == s["id"], "name": short_name(m["name"]) if sid != s["id"] else m["name"],
                 "level": g["level"], "title": g["title"], "xp": g["xp"], "fire": g["fire"],
@@ -2676,6 +2678,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "extra": [dict(opts[k], k=k) for k in ("fire", "diamond") if k in opts],
                 "badges": nick_badges(db, m, game_summary(db, sid, brief=True), lg, daily_crown(db, ids), crowns),
                 "gifts": gift_icons(db, sid), "gifts_total": db.q("SELECT COUNT(*) c FROM gifts WHERE student_id=? AND sold IS NULL", (sid,), one=True)["c"],
+                "gift_value": gift_value(gift_rows(db, sid, limit=100000, prices=(ge, uniq_issued(db), gdem)), ge, gdem),
                 # все подарки — витриной в профиле: сначала уникальные; подпись учителя видит только сам ученик
                 "gift_list": sorted(({k: v for k, v in g.items() if sid == s["id"] or k != "note"} for g in gift_rows(db, sid, limit=120)),
                                     key=lambda g: (g["uniq"] is None, -g["ts"])),
@@ -5760,6 +5763,15 @@ def gift_rows(db, sid, where="", limit=200, prices=None):
                        issued=issued.get(g[0], 0), cap=UNIQ_CAP)
         out.append(row)
     return out
+
+
+def gift_value(rows, e, dem):
+    """Оценка подарков (строки gift_rows с ценами): sell — сколько дадут, если продать всё сейчас; shop — сколько такие
+    стоят в магазине (нынешняя цена, у уникального — плюс улучшение); top — три самых ценных."""
+    top = sorted(rows, key=lambda r: -r["sell"])[:3]
+    return {"n": len(rows), "sell": sum(r["sell"] for r in rows),
+            "shop": sum(gift_price(r["gift"], e, dem) + (GIFT_UP_PRICE if r["uniq"] else 0) for r in rows),
+            "top": [{k: r[k] for k in ("id", "gift", "i", "t", "uniq", "rar", "sell")} for r in top]}
 
 
 # ---------------------------------------------------------------- награды профиля
