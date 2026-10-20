@@ -1222,8 +1222,22 @@ class DB:
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, gift TEXT NOT NULL, ts REAL NOT NULL,
                 from_sid INTEGER, from_teacher INTEGER, note TEXT, seen INTEGER DEFAULT 0, uniq TEXT, kind TEXT, sold REAL);
             CREATE INDEX IF NOT EXISTS gifts_student ON gifts(student_id, ts);
-            -- индекс цен (инфляция) по дням — для графика в «Экономике»: последний пересчёт дня
+            -- экономика по дням — для графиков в «Экономике»: индекс цен, кошельки, рычаги термостата и банк на последний пересчёт дня
             CREATE TABLE IF NOT EXISTS econ_hist(day TEXT PRIMARY KEY, idx REAL, avg REAL, total INTEGER, active INTEGER);
+            -- банк рынка биткоинов: сюда — комиссия рынка, плата за хранение, снятое учителем; отсюда — начисления
+            -- учителей и стипендии; главный учитель может пополнить или изъять
+            CREATE TABLE IF NOT EXISTS bank(
+                id INTEGER PRIMARY KEY, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT NOT NULL, note TEXT,
+                student_id INTEGER, teacher_id INTEGER);
+            -- термостат экономики: с момента ts действуют такие рычаги — индекс цен, множитель заработка, комиссия рынка,
+            -- плата за хранение; r, avg, med, active — по каким кошелькам решено; who — auto, start или кто из учителей
+            CREATE TABLE IF NOT EXISTS thermo(
+                ts REAL PRIMARY KEY, idx REAL NOT NULL, earn REAL NOT NULL, fee REAL NOT NULL, tax REAL NOT NULL,
+                r REAL, avg REAL, med REAL, active INTEGER, who TEXT);
+            -- лимитированный подарок недели: продаётся с start до stop, тираж cap, цена price
+            CREATE TABLE IF NOT EXISTS limited(
+                id INTEGER PRIMARY KEY, gift TEXT NOT NULL, start REAL NOT NULL, stop REAL NOT NULL, cap INTEGER NOT NULL,
+                price INTEGER NOT NULL, who TEXT);
             -- курс биткоина: с какого момента 1 ₿ стоит k XP (меняется, когда одновременно занимается много учеников)
             CREATE TABLE IF NOT EXISTS btc_rate(ts REAL PRIMARY KEY, k INTEGER NOT NULL, active INTEGER);
             -- биткоины сверх заработанных опытом: начислил учитель (grant, +), снял учитель (take, −), продал подарок (sell, +),
@@ -1321,7 +1335,13 @@ class DB:
                     ("duels", "surrender", "INTEGER"),                # кто сдался — проиграл сразу
                     ("tour_matches", "surrender", "INTEGER"),
                     ("support", "img", "TEXT"),                       # картинка к обращению (файл в server_data/support_img)
-                    ("support_msgs", "img", "TEXT")):
+                    ("support_msgs", "img", "TEXT"),
+                    ("econ_hist", "med", "REAL"),                     # медиана кошельков, рычаги термостата и банк к концу дня
+                    ("econ_hist", "earn", "REAL"),
+                    ("econ_hist", "fee", "REAL"),
+                    ("econ_hist", "tax", "REAL"),
+                    ("econ_hist", "bank", "INTEGER"),
+                    ("econ_hist", "r", "REAL")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
@@ -1350,6 +1370,9 @@ class DB:
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('task_btc_since', ?)", (str(time.time()),))
             # минимальное время на №24–27 — с первого запуска версии: раньше решённое не пересчитываем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('hard_min_since', ?)", (str(time.time()),))
+            # банк рынка биткоинов открывается со стартовым капиталом (один раз)
+            c.execute("""INSERT INTO bank(ts, delta, reason, note) SELECT ?, ?, 'start', 'Стартовый капитал банка'
+                         WHERE NOT EXISTS (SELECT 1 FROM bank)""", (time.time(), BANK_START))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
             c.execute("DELETE FROM settings WHERE key='repeat_rule_since'")
             # лазейка «подборка по кругу» закрыта этой версией: опыт нарушителей срезается до этого момента
@@ -2292,9 +2315,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path in ("/api/gifts", "/api/gifts/buy", "/api/gifts/seen", "/api/gifts/upgrade", "/api/gifts/sell",
                     "/api/gifts/list", "/api/gifts/unlist", "/api/gifts/mbuy"):
-            # биткоины и подарки: магазин (цены с инфляцией), свои подарки, подарить себе или однокласснику (ученику того же
+            # биткоины и подарки: магазин (цены по индексу термостата), свои подарки, подарить себе или однокласснику (ученику того же
             # учителя), улучшить до уникального (тираж ограничен) и продать — подарок сгорает, биткоины возвращаются;
-            # рынок: выставить свой подарок за свою цену и купить у одноклассника (комиссия MARKET_FEE сгорает)
+            # рынок: выставить свой подарок за свою цену и купить у одноклассника (комиссия термостата — в банк рынка)
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
@@ -2316,6 +2339,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if not g:
                     return self.err(400, "Нет такого подарка")
                 price = gift_box_price(db, e) if box else gift_price(g[0], e, gift_demand(db))
+                lim = g[0] in LIMITED_BY                  # лимитка недели: своя цена и тираж
+                if lim:
+                    L = limited_now(db)
+                    if not L or L["gift"] != g[0]:
+                        return self.err(409, "Этот лимитированный подарок больше не продаётся")
+                    price = L["price"]
                 to = to_int(data.get("to")) or s["id"]
                 rcpt = s if to == s["id"] else next((m for m in mates if m["id"] == to), None)
                 if not rcpt:
@@ -2325,6 +2354,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     day = db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], now - 86400), one=True)["c"]
                     if day >= GIFTS_PER_DAY:
                         return self.err(429, f"За сутки можно купить не больше {GIFTS_PER_DAY} подарков")
+                    if lim and not (limited_now(db) or {}).get("left"):
+                        return self.err(409, f"Лимитку «{g[2]}» уже раскупили — все {LIMITED_CAP} штук")
                     have = game_summary(db, s["id"])["coins"]
                     if have < price:
                         return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
@@ -2351,6 +2382,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         # улучшить свой подарок: он станет уникальным — номер и случайные фон, узор и эффект
                         if r["uniq"]:
                             return self.err(409, "Этот подарок уже уникальный")
+                        if r["gift"] in LIMITED_BY:
+                            return self.err(409, "Лимитированный подарок не улучшается — он и так редкий")
                         price = gift_up_price(r["gift"], e, issued)
                         if price is None:
                             return self.err(409, f"Тираж уникальных «{GIFT_BY[r['gift']][2]}» закончился: выпущено {UNIQ_CAP} из {UNIQ_CAP}")
@@ -2386,10 +2419,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                                 (s["id"],), one=True)["c"] >= MARKET_MAX_LISTED:
                     return self.err(429, f"На рынке может быть не больше {MARKET_MAX_LISTED} твоих подарков — сними какой-нибудь")
                 db.x("UPDATE gifts SET listed=?, listed_ts=? WHERE id=?", (price, time.time(), r["id"]))
-                return self.send_json({"ok": True, "price": price, "get": price - math.ceil(price * MARKET_FEE)})
+                return self.send_json({"ok": True, "price": price, "get": price - math.ceil(price * e["fee"])})
             if path == "/api/gifts/mbuy":
                 # купить подарок у одноклассника: он переходит к покупателю (номер и свойства уникального сохраняются),
-                # продавцу — цена минус комиссия, комиссия сгорает
+                # продавцу — цена минус комиссия, комиссия — в банк рынка
                 with _GIFT_LOCK:
                     r = db.q("SELECT id, gift, listed, student_id FROM gifts WHERE id=? AND listed IS NOT NULL AND sold IS NULL",
                              (to_int(data.get("id")),), one=True)
@@ -2402,7 +2435,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     have = game_summary(db, s["id"])["coins"]
                     if have < price:
                         return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
-                    fee, now = math.ceil(price * MARKET_FEE), time.time()
+                    fee, now = math.ceil(price * e["fee"]), time.time()
                     if not db.xn("""UPDATE gifts SET student_id=?, listed=NULL, listed_ts=NULL, market_from=?, market_ts=?,
                                            first_sid=COALESCE(first_sid, ?), seen=1
                                     WHERE id=? AND student_id=? AND listed=? AND sold IS NULL""",
@@ -2412,6 +2445,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                          (s["id"], now, -price, r["id"], short_name(seller["name"])))
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id, note, seen) VALUES(?,?,?, 'msell', ?, ?, 0)",
                          (seller["id"], now, price - fee, r["id"], short_name(s["name"])))
+                    if fee:
+                        bank_move(db, fee, "fee", f"{GIFT_BY[r['gift']][1]} {GIFT_BY[r['gift']][2]} за {price} ₿", sid=seller["id"], ts=now)
                 with _GS_LOCK:
                     _LB_PEOPLE.pop(teacher_of(s)["id"], None)
                 LIVE.send([seller["id"]], "gift")               # продавцу — уведомление и новый счёт сразу
@@ -2430,11 +2465,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "uniq_tiers": [{"k": k, "t": t, "one_in": round(1 / low) if low else None} for low, k, t in UNIQ_RARITY],
                 "catalog": [{"id": k, "i": i, "t": t, "price": gift_price(k, e, dem), "base": pr, "rar": gift_rarity(k),
                              "demand": dem.get(k, 1.0), "issued": issued.get(k, 0)} for k, i, t, pr in sorted(GIFTS, key=lambda g: g[3])],
-                "box": gift_box_price(db, e), "up_min": min(gift_up_base(k, e) for k in GIFT_BY),
+                "box": gift_box_price(db, e), "up_min": min(gift_up_base(g[0], e) for g in GIFTS), "limited": limited_now(db),
                 "exam_btc": EXAM_BTC, "exam_coins": g["exam_coins"], "task_coins": g["task_coins"],
                 "mine": mine, "value": gift_value(mine, e, dem),
                 "market": market_rows(db, [s["id"]] + [m["id"] for m in mates], s["id"], e, issued, dem),
-                "market_fee": MARKET_FEE, "market_min": MARKET_MIN, "market_max": MARKET_MAX, "market_max_listed": MARKET_MAX_LISTED,
+                "market_fee": e["fee"], "market_min": MARKET_MIN, "market_max": MARKET_MAX, "market_max_listed": MARKET_MAX_LISTED,
                 "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
                 "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
                 "per_day": GIFTS_PER_DAY, "show": GIFTS_SHOW})
@@ -4187,7 +4222,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             where, args = self.student_scope()
             studs = db.q(f"SELECT s.id, s.name, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where}", args)
             wallets = [dict(econ_wallet(db, r["id"]), id=r["id"], name=r["name"], cls=r["cls"]) for r in studs]
-            keys = ("balance", "mined", "exam", "task", "grant", "sell", "mkt_in", "mkt_out", "take", "gift", "upgrade", "fines")
+            keys = ("balance", "mined", "exam", "task", "grant", "sell", "mkt_in", "mkt_out", "take", "gift", "upgrade", "fines",
+                    "stipend", "storage")
             tot = {k: sum(w[k] for w in wallets) for k in keys}
             week = {r["reason"]: r["s"] for r in db.q(f"""SELECT c.reason, SUM(c.delta) s FROM coins c JOIN students s ON s.id = c.student_id
                                                          WHERE c.ts > ? AND {where} GROUP BY c.reason""", (time.time() - 7 * 86400,) + args)}
@@ -4203,12 +4239,77 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"econ": econ(db), "students": len(wallets), "with_coins": sum(1 for w in wallets if w["balance"] > 0),
                                    "total": tot, "week": week, "tiers": tiers, "rich": rich,
                                    "charts": econ_charts(db, [r["id"] for r in studs], where, args, tot["balance"]),
-                                   "rarity": {"plain": [[k, t] for _, k, t in RARITY], "uniq": [[k, t] for _, k, t in UNIQ_RARITY]},
+                                   "rarity": {"plain": [[k, t] for _, k, t in RARITY] + [["limited", "Лимитка"]], "uniq": [[k, t] for _, k, t in UNIQ_RARITY]},
                                    "feed": econ_feed(db, where, args, limit=150),
-                                   "rate": btc_rate_now(db)[0], "site": econ_site(db) if self.T["is_main"] else None})
+                                   "rate": btc_rate_now(db)[0], "site": econ_site(db) if self.T["is_main"] else None,
+                                   "thermo": thermo_info(db, self.T), "market": market_hist(db)})
+
+        if path == "/api/admin/thermo" and method == "POST":
+            # термостат: режим (авто или ручной), норма кошелька, рычаги вручную, лимитка недели — главный учитель
+            if not self.T["is_main"]:
+                return self.err(403, "Термостат настраивает главный учитель")
+            econ(db)                                    # термостат запущен: первая запись рычагов есть
+            now, lv = time.time(), thermo_now(db)
+            if data.get("limited") in ("start", "stop"):
+                L = limited_now(db)
+                if data["limited"] == "stop":
+                    if L:
+                        db.x("UPDATE limited SET stop=? WHERE id=?", (now, L["id"]))
+                elif L:
+                    return self.err(409, f"Лимитка уже продаётся: {L['i']} {L['t']}, осталось {L['left']} из {L['cap']}")
+                else:
+                    with _ECON_LOCK:
+                        limited_start(db, now, lv["idx"], f"teacher:{self.T['id']}")
+                _ECON["t"] = _MKT["t"] = 0.0
+                return self.send_json({"ok": True, "thermo": thermo_info(db, self.T)})
+            if "target" in data:
+                v = to_int(data.get("target"))
+                lo, hi = THERMO_SET["target"]
+                if not v or not lo <= v <= hi:
+                    return self.err(400, f"Норма кошелька — от {lo} до {hi} ₿")
+                db.setting("econ_target", str(v))
+            mode = data.get("mode")
+            if mode not in (None, "auto", "manual"):
+                return self.err(400, "Режим — auto или manual")
+            if mode:
+                db.setting("thermo_mode", mode)
+            new = {}
+            for k in ("idx", "earn", "fee", "tax"):
+                if data.get(k) is None:
+                    continue
+                v = to_float(data.get(k))
+                lo, hi = THERMO_SET[k]
+                if v is None or not lo <= v <= hi:
+                    return self.err(400, f"{THERMO_NAMES[k]} — от {lo:g} до {hi:g}")
+                new[k] = round(v, 3)
+            if new:
+                if db.setting("thermo_mode") != "manual":
+                    return self.err(409, "Рычаги вручную — в ручном режиме термостата")
+                with _ECON_LOCK:                           # не одновременно с суточным пересчётом
+                    lv = thermo_now(db)
+                    if any(new[k] != lv[k] for k in new):
+                        thermo_add(db, now, f"teacher:{self.T['id']}", **{k: new.get(k, lv[k]) for k in ("idx", "earn", "fee", "tax")})
+            _ECON["t"] = _MKT["t"] = 0.0
+            return self.send_json({"ok": True, "thermo": thermo_info(db, self.T)})
+
+        if path == "/api/admin/bank" and method == "POST":
+            # пополнить банк рынка (новые биткоины в экономике) или изъять из него — главный учитель
+            if not self.T["is_main"]:
+                return self.err(403, "Пополнять банк и изымать из него может главный учитель")
+            v = to_int(data.get("delta")) or 0
+            note = re.sub(r"\s+", " ", str(data.get("note") or "")).strip()[:GIFT_NOTE_MAX]
+            if not v or abs(v) > BANK_MOVE_MAX:
+                return self.err(400, f"Сумма — от 1 до {BANK_MOVE_MAX} ₿ (минус — изъять)")
+            with _GIFT_LOCK:
+                have = bank_balance(db)
+                if v < 0 and -v > have:
+                    return self.err(409, f"В банке только {have} ₿")
+                bank_move(db, v, "mint" if v > 0 else "burn", note, tid=self.T["id"])
+            _ECON["t"] = _MKT["t"] = 0.0
+            return self.send_json({"ok": True, "thermo": thermo_info(db, self.T)})
 
         if path == "/api/admin/gifts/box" and method == "POST":
-            # цена «🎲 Случайного подарка» на весь сайт — главный учитель; reset — снова стандартная (60 ₿ × инфляция)
+            # цена «🎲 Случайного подарка» на весь сайт — главный учитель; reset — снова стандартная (60 ₿ × индекс цен)
             if not self.T["is_main"]:
                 return self.err(403, "Цену случайного подарка задаёт главный учитель")
             if data.get("reset"):
@@ -4249,7 +4350,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not sids:
                 return self.err(404, "Некому дарить: нет таких учеников")
             gift = str(data.get("gift") or "")
-            if gift and gift != "random" and gift not in GIFT_BY:
+            if gift and gift != "random" and (gift not in GIFT_BY or gift in LIMITED_BY):
                 return self.err(400, "Нет такого подарка")
             coins = to_int(data.get("coins")) or 0          # меньше нуля — снять (не больше, чем есть у ученика)
             if not -COINS_GRANT_MAX <= coins <= COINS_GRANT_MAX:
@@ -4265,6 +4366,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 issued = uniq_issued(db)
                 if uniq and gift != "random" and issued.get(gift, 0) + len(sids) > UNIQ_CAP:
                     return self.err(409, f"Тираж уникальных «{GIFT_BY[gift][2]}»: осталось {max(0, UNIQ_CAP - issued.get(gift, 0))} из {UNIQ_CAP}")
+                # начисление — из банка рынка: биткоины не берутся из воздуха; снятое — возвращается в банк
+                bank = bank_balance(db)
+                if coins > 0 and coins * len(sids) > bank:
+                    return self.err(409, f"В банке рынка {bank} ₿, а на начисление нужно {coins * len(sids)} ₿ "
+                                         f"({coins} ₿ × {len(sids)}). Пополнить банк может главный учитель")
                 for sid in sids:
                     if gift:
                         gid = gift_random(rnd)[0] if gift == "random" else gift
@@ -4283,6 +4389,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'take', ?, 0)",
                                  (sid, now, -take, note))
                             taken += take
+                one = sids[0] if len(sids) == 1 else None      # кому — имя покажет история банка (тем, кому видно ученика)
+                if coins > 0:
+                    bank_move(db, -coins * len(sids), "grant", f"по {coins} ₿ · учеников: {len(sids)}" + (f" — «{note}»" if note else ""),
+                              sid=one, tid=self.T["id"], ts=now)
+                if taken:
+                    bank_move(db, taken, "take", f"учеников: {len(sids)}" + (f" — «{note}»" if note else ""), sid=one, tid=self.T["id"], ts=now)
+            _ECON["t"] = 0.0                     # банк изменился — «Экономика» покажет сразу
             with _GS_LOCK:
                 _LB_PEOPLE.clear()               # подарки у ников в рейтинге — сразу
             LIVE.send(sids, "gift")              # ученикам — уведомление сразу
@@ -5494,6 +5607,14 @@ GIFTS = [                              # id, значок, название, ц�
     ("moon", "🌙", "Луна", 308), ("comet", "☄️", "Комета", 495), ("crystal", "🔮", "Шар предсказаний", 605),
     ("wand", "🪄", "Волшебная палочка", 715), ("ufo", "🛸", "НЛО", 880), ("castle", "🏰", "Замок", 1100)]
 GIFT_BY = {g[0]: g for g in GIFTS}
+# лимитированные подарки недели: в каталоге и в «🎲» их нет — продаются только неделю, тиражом LIMITED_CAP (цена в GIFT_BY —
+# базовая, без индекса); не улучшаются
+LIMITED_PRICE = 300
+LIMITED = [("lim_fireworks", "🎆", "Салют"), ("lim_shooting", "🌠", "Звездопад"), ("lim_volcano", "🌋", "Вулкан"),
+           ("lim_genie", "🧞", "Джинн"), ("lim_carousel", "🎠", "Карусель"), ("lim_pinata", "🪅", "Пиньята"),
+           ("lim_violin", "🎻", "Скрипка"), ("lim_wheel", "🎡", "Колесо обозрения")]
+LIMITED_BY = {k: (k, i, t, LIMITED_PRICE) for k, i, t in LIMITED}
+GIFT_BY.update(LIMITED_BY)
 GIFT_BOX_PRICE = 60                    # «🎲 Случайный подарок»: выпадает любой, дорогие — реже (вес ∝ 1 / цена)
 GIFTS_SHOW = 5                         # сколько подарков видно у ника
 GIFTS_PER_DAY = 20                     # подарков, которые ученик может купить за сутки
@@ -5535,24 +5656,45 @@ UNIQ_POSE = [                          # id, название, вес (как в
 _UNIQ = {"bg": {x[0]: x for x in UNIQ_BG}, "sym": {x[0]: x for x in UNIQ_SYM}, "fx": {x[0]: x for x in UNIQ_FX},
          "pose": {x[0]: x for x in UNIQ_POSE}}
 # Улучшение до уникального: (350 + 60 % каталожной цены подарка) × (1 + 1 % за каждый уже выпущенный уникальный этого вида)
-# × инфляция, с шагом 5 ₿. Печенька — от 355 ₿, Дракон — от 810 ₿, Замок — от 1010 ₿; последний из тиража — почти вдвое дороже первого.
+# × индекс цен, с шагом 5 ₿. Печенька — от 355 ₿, Дракон — от 810 ₿, Замок — от 1010 ₿; последний из тиража — почти вдвое дороже первого.
 UP_BASE, UP_SHARE, UP_PER_ISSUED = 350, 0.6, 0.01
 UNIQ_CAP = 100                         # тираж: уникальных подарков одного вида — не больше; проданные не возвращаются
 WORK_GIFT_EVERY = 25                   # за каждые 25 впервые решённых заданий — случайный подарок «за труд»
-# Инфляция: средний кошелёк учеников, решавших что-то за 30 дней, против «нормального» ECON_TARGET. Копят все —
-# цены растут (не выше ECON_MAX раз), тратят — падают до каталожных. Пересчёт — раз в 10 минут.
+# Термостат экономики. Раз в сутки сравнивает средний кошелёк учеников, решавших что-то за 30 дней, с нормой (ECON_TARGET,
+# главный учитель может поменять) и сдвигает рычаги на THERMO_STEP пути к цели — за неделю примерно наполовину:
+#   индекс цен — ×0,8…2,5 от каталога, по корню из (среднее + медиана) / 2 / норма: копят — дорожает, тратят — дешевеет;
+#   заработок — множитель биткоинов за опыт, задания и варианты ×0,5…1,3: денег много — платим меньше, мало — больше;
+#   комиссия рынка — 5…20 %, растёт вместе с кошельками; уходит в банк рынка.
+# Раз в неделю: плата за хранение — TAX_RATE с суммы сверх TAX_FROM нормы (в банк); стипендия из банка старательным,
+# когда денег у учеников мало; лимитированный подарок недели, когда много. В ручном режиме рычаги ставит главный учитель.
 ECON_TARGET = 500
-ECON_MAX = 10
-_ECON = {"t": 0.0, "v": None}
+ECON_MAX = 10                          # прежнее правило (до термостата): индекс не выше ×10 — с него термостат стартует
+THERMO_STEP = 0.1
+IDX_MIN, IDX_MAX = 0.8, 2.5
+EARN_MIN, EARN_MAX = 0.5, 1.3
+FEE_MIN, FEE_MAX = 0.05, 0.20
+TAX_RATE, TAX_FROM = 0.03, 1.6         # 3 % в неделю с суммы больше 800 ₿ (при норме 500)
+STIPEND_R, STIPEND_MAX, STIPEND_SHARE, STIPEND_TASKS = 0.6, 40, 0.1, 10   # средний кошелёк < 0,6 нормы: до 40 ₿ решившим 10+ за неделю
+LIMITED_R, LIMITED_CAP = 1.3, 30       # средний кошелёк > 1,3 нормы: лимитка недели — 30 штук по LIMITED_PRICE × индекс
+# пределы ручного режима главного учителя
+THERMO_SET = {"idx": (0.5, 5.0), "earn": (0.25, 2.0), "fee": (0.0, 0.5), "tax": (0.0, 0.1), "target": (100, 5000)}
+THERMO_NAMES = {"idx": "Индекс цен", "earn": "Множитель заработка", "fee": "Комиссия рынка", "tax": "Плата за хранение"}
+BANK_START = 10000                     # стартовый капитал банка рынка
+BANK_MOVE_MAX = 100000                 # пополнить или изъять за раз — не больше
+_ECON = {"t": 0.0, "v": None, "db": None}
+_ECON_LOCK = threading.Lock()
+_THERMO = {"db": None, "ts": [], "earn": [], "last": None}
 # Продажа (подарок сгорает): обычный — за половину нынешней цены; уникальный — ещё и доля базовой цены улучшения (без надбавки
 # за тираж) по редкости. В среднем улучшение чуть убыточно (≈ 0.87 цены) — биткоины уходят из оборота; редкий — дешевле
 # улучшения, мифический — в разы дороже.
 SELL_SHARE = 0.5
 SELL_UNIQ = {"rare": 0.45, "epic": 0.9, "legend": 2.2, "myth": 6.0}
 # Рынок: ученик выставляет свой подарок за свою цену, одноклассник (ученик того же учителя) покупает; подарок переходит
-# к покупателю вместе с номером и свойствами, продавец получает цену минус комиссия — комиссия сгорает (уходит из оборота).
+# к покупателю вместе с номером и свойствами, продавец получает цену минус комиссия — комиссия уходит в банк рынка.
+# Комиссию ставит термостат (5–20 %); MARKET_FEE — с неё он стартует.
 MARKET_FEE = 0.10
 ECON_DAYS = 30                         # графики экономики — за столько дней
+HIST_DAYS = 26 * 7                     # графики рынка «по неделям» — за 26 недель
 MARKET_MIN, MARKET_MAX = 5, 20000
 MARKET_MAX_LISTED = 10
 
@@ -5587,28 +5729,173 @@ def rarity_tier(chance, tiers):
 
 
 def gift_rarity(gid):
-    """Редкость обычного подарка: шанс выпасть в «🎲 Случайном подарке» (в процентах) и уровень."""
+    """Редкость обычного подарка: шанс выпасть в «🎲 Случайном подарке» (в процентах) и уровень; лимитка — своя редкость."""
+    if gid in LIMITED_BY:
+        return {"k": "limited", "t": "Лимитка", "p": 0}
     ch = (1 / GIFT_BY[gid][3]) / _GIFT_W
     k, t = rarity_tier(ch * len(GIFTS), RARITY)
     return {"k": k, "t": t, "p": round(100 * ch, 2)}
 
 
+def econ_target(db):
+    """Норма среднего кошелька: задал главный учитель — она, иначе ECON_TARGET."""
+    return to_int(db.setting("econ_target")) or ECON_TARGET
+
+
+def thermo_load(db):
+    if _THERMO["db"] is not db:                    # другая база (тесты) — историю рычагов читаем заново
+        rows = db.q("SELECT * FROM thermo ORDER BY ts")
+        _THERMO.update(db=db, ts=[r["ts"] for r in rows], earn=[Fraction(round(r["earn"] * 1000), 1000) for r in rows],
+                       last=dict(rows[-1]) if rows else None)
+
+
+def earn_at(db, ts):
+    """Множитель заработка в момент ts (до первого запуска термостата — ×1): смена рычага прошлое не трогает."""
+    thermo_load(db)
+    i = bisect.bisect_right(_THERMO["ts"], ts) - 1
+    return _THERMO["earn"][i] if i >= 0 else Fraction(1)
+
+
+def thermo_now(db):
+    """Рычаги, которые действуют сейчас (последняя запись термостата); None — термостат ещё не запускался."""
+    thermo_load(db)
+    return _THERMO["last"]
+
+
+def thermo_add(db, ts, who, **lv):
+    """Новые рычаги с момента ts: idx, earn, fee, tax (+ r, avg, med, active — по каким кошелькам решено)."""
+    thermo_load(db)
+    ts = max(ts, (_THERMO["ts"] or [0])[-1] + 0.001)  # строго после прежних — история не переписывается
+    row = {"ts": ts, "who": who, "r": None, "avg": None, "med": None, "active": None, **lv}
+    db.x("""INSERT INTO thermo(ts, idx, earn, fee, tax, r, avg, med, active, who) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+         tuple(row[k] for k in ("ts", "idx", "earn", "fee", "tax", "r", "avg", "med", "active", "who")))
+    _THERMO["ts"].append(ts)
+    _THERMO["earn"].append(Fraction(round(row["earn"] * 1000), 1000))
+    _THERMO["last"] = row
+    return row
+
+
+def thermo_goal(avg, med, target):
+    """Куда тянет термостат при таких кошельках: r — средний кошелёк к норме, m — полусумма среднего и медианы к норме
+    (медиана — чтобы пара «копилок» не делала дорого всем)."""
+    r, m = avg / target, (avg + med) / 2 / target
+    return {"idx": min(IDX_MAX, max(IDX_MIN, m ** 0.5 if m > 0 else IDX_MIN)),
+            "earn": min(EARN_MAX, max(EARN_MIN, r ** -0.7 if r > 0 else EARN_MAX)),
+            "fee": round(FEE_MIN + (FEE_MAX - FEE_MIN) * min(1, max(0, (r - 0.6) / 1.4)), 3)}
+
+
+def bank_balance(db):
+    return db.q("SELECT COALESCE(SUM(delta), 0) s FROM bank", one=True)["s"]
+
+
+def bank_move(db, delta, reason, note="", sid=None, tid=None, ts=None):
+    """Движение банка рынка: + пришло (комиссия, хранение, снято учителем, пополнение), − ушло (начисления, стипендии)."""
+    db.x("INSERT INTO bank(ts, delta, reason, note, student_id, teacher_id) VALUES(?,?,?,?,?,?)",
+         (ts or time.time(), int(delta), reason, note, sid, tid))
+
+
+def limited_now(db, now=None):
+    """Лимитированный подарок, который продаётся сейчас: что, почём, сколько осталось и до когда; None — нет."""
+    now = now or time.time()
+    r = db.q("SELECT * FROM limited WHERE start <= ? AND stop > ? ORDER BY id DESC LIMIT 1", (now, now), one=True)
+    if not r or r["gift"] not in GIFT_BY:
+        return None
+    sold = db.q("SELECT COUNT(*) c FROM gifts WHERE gift=? AND from_sid IS NOT NULL AND ts >= ?", (r["gift"], r["start"]), one=True)["c"]
+    g = GIFT_BY[r["gift"]]
+    return {"id": r["id"], "gift": g[0], "i": g[1], "t": g[2], "price": r["price"], "cap": r["cap"], "sold": sold,
+            "left": max(0, r["cap"] - sold), "start": r["start"], "stop": r["stop"]}
+
+
+def limited_start(db, now, idx, who):
+    """Выпустить лимитку на неделю: тот лимитированный подарок, что выходил реже всех."""
+    used = {r["gift"]: r["c"] for r in db.q("SELECT gift, COUNT(*) c FROM limited GROUP BY gift")}
+    gid = min(range(len(LIMITED)), key=lambda k: (used.get(LIMITED[k][0], 0), k))
+    db.x("INSERT INTO limited(gift, start, stop, cap, price, who) VALUES(?,?,?,?,?,?)",
+         (LIMITED[gid][0], now, now + 7 * 86400, LIMITED_CAP, round5(LIMITED_PRICE * idx), who))
+    return limited_now(db, now)
+
+
+def thermo_weekly(db, now, lv, r, target, auto):
+    """Раз в неделю: плата за хранение больших сумм — в банк; стипендия из банка старательным, когда денег у учеников мало
+    (авто-режим); лимитка недели, когда много (авто-режим). → кому изменился счёт."""
+    touched = []
+    with _GIFT_LOCK:
+        studs = [x["id"] for x in db.q("SELECT id FROM students WHERE COALESCE(is_teacher, 0) = 0")]
+        if lv["tax"] > 0:
+            free, got = round(TAX_FROM * target), 0
+            for sid in studs:
+                bal = game_summary(db, sid, brief=True)["coins"]
+                t = math.floor((bal - free) * lv["tax"]) if bal > free else 0
+                if t >= 1:
+                    db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'storage', ?, 0)",
+                         (sid, now, -t, f"{round(lv['tax'] * 100, 1):g}% с суммы больше {free} ₿"))
+                    got += t
+                    touched.append(sid)
+            if got:
+                bank_move(db, got, "storage", f"Плата за хранение · учеников: {len(touched)}", ts=now)
+        if auto and r < STIPEND_R:
+            busy = {x["student_id"] for x in db.q("""SELECT student_id FROM attempts WHERE ts > ? AND score > 0 AND COALESCE(exam, 0) = 0
+                                                     GROUP BY student_id HAVING COUNT(DISTINCT task_id) >= ?""",
+                                                  (now - 7 * 86400, STIPEND_TASKS))}
+            who = [sid for sid in studs if sid in busy and game_summary(db, sid, brief=True)["coins"] < target]
+            each = int(min(STIPEND_MAX, bank_balance(db) * STIPEND_SHARE // len(who))) if who else 0
+            if each >= 1:
+                for sid in who:
+                    db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'stipend', ?, 0)",
+                         (sid, now, each, f"за {STIPEND_TASKS}+ решённых заданий за неделю"))
+                bank_move(db, -each * len(who), "stipend", f"Стипендия по {each} ₿ · учеников: {len(who)}", ts=now)
+                touched += who
+    if auto and r > LIMITED_R and not limited_now(db, now):
+        limited_start(db, now, lv["idx"], "auto")
+    return touched
+
+
 def econ(db, fresh=False):
-    """Индекс цен (инфляция) и из чего он посчитан: средний кошелёк активных учеников / ECON_TARGET, от 1 до ECON_MAX."""
+    """Экономика сейчас: кошельки активных учеников (решали что-то за 30 дней), рычаги термостата, банк рынка и лимитка.
+    Раз в сутки (авто-режим) термостат сдвигает рычаги к цели, раз в неделю — плата за хранение, стипендия, лимитка.
+    Пересчёт — раз в 10 минут."""
     now = time.time()
-    if not fresh and _ECON["v"] and now - _ECON["t"] < 600:
+    if not fresh and _ECON["v"] and _ECON["db"] is db and now - _ECON["t"] < 600:
         return _ECON["v"]
-    sids = [r["student_id"] for r in db.q("""SELECT DISTINCT a.student_id FROM attempts a JOIN students s ON s.id = a.student_id
-                                              WHERE a.ts > ? AND COALESCE(s.is_teacher, 0) = 0""", (now - 30 * 86400,))]
-    total = sum(game_summary(db, sid, brief=True)["coins"] for sid in sids)
-    avg = total / len(sids) if sids else 0
-    idx = min(ECON_MAX, max(1.0, round(avg / ECON_TARGET * 20) / 20))      # шаг 0.05 — цены не дёргаются от каждого ответа
-    v = {"idx": idx, "avg": round(avg), "total": total, "active": len(sids), "target": ECON_TARGET}
-    _ECON.update(t=now, v=v)
-    db.x("""INSERT INTO econ_hist(day, idx, avg, total, active) VALUES(?,?,?,?,?)
-            ON CONFLICT(day) DO UPDATE SET idx=excluded.idx, avg=excluded.avg, total=excluded.total, active=excluded.active""",
-         (time.strftime("%Y-%m-%d", time.localtime(now)), idx, v["avg"], total, len(sids)))
-    return v
+    with _ECON_LOCK:
+        if not fresh and _ECON["v"] and _ECON["db"] is db and time.time() - _ECON["t"] < 600:
+            return _ECON["v"]                      # пока ждали, посчитал другой запрос
+        sids = [r["student_id"] for r in db.q("""SELECT DISTINCT a.student_id FROM attempts a JOIN students s ON s.id = a.student_id
+                                                  WHERE a.ts > ? AND COALESCE(s.is_teacher, 0) = 0""", (now - 30 * 86400,))]
+        wallets = sorted(game_summary(db, sid, brief=True)["coins"] for sid in sids)
+        total, n = sum(wallets), len(wallets)
+        avg = total / n if n else 0
+        med = (wallets[n // 2] + wallets[(n - 1) // 2]) / 2 if n else 0
+        target = econ_target(db)
+        r = avg / target
+        auto = db.setting("thermo_mode") != "manual"
+        lv, day = thermo_now(db), time.strftime("%Y-%m-%d", time.localtime(now))
+        seen = {"r": round(r, 3), "avg": round(avg), "med": round(med), "active": n}
+        if lv is None:
+            # первый запуск: от нынешнего индекса по прежнему правилу, заработок ×1, комиссия — прежние 10 %;
+            # недельные действия — со следующей недели
+            lv = thermo_add(db, now, "start", idx=min(ECON_MAX, max(1.0, round(r * 20) / 20)), earn=1.0, fee=MARKET_FEE,
+                            tax=TAX_RATE, **seen)
+            db.setting("thermo_week", str(week_start(now)))
+        elif auto and time.strftime("%Y-%m-%d", time.localtime(lv["ts"])) != day:
+            t = thermo_goal(avg, med, target)
+            lv = thermo_add(db, now, "auto", idx=round(lv["idx"] + THERMO_STEP * (t["idx"] - lv["idx"]), 2),
+                            earn=round(lv["earn"] + THERMO_STEP * (t["earn"] - lv["earn"]), 3), fee=t["fee"], tax=TAX_RATE, **seen)
+        if (to_float(db.setting("thermo_week")) or 0) < week_start(now):
+            db.setting("thermo_week", str(week_start(now)))
+            touched = thermo_weekly(db, now, lv, r, target, auto)
+            if touched:
+                LIVE.send(touched, "gift")         # плата за хранение и стипендия — уведомление сразу
+        bank = bank_balance(db)
+        v = {"idx": lv["idx"], "earn": lv["earn"], "fee": lv["fee"], "tax": lv["tax"], "since": lv["ts"], "who": lv["who"],
+             "avg": round(avg), "med": round(med), "total": total, "active": n, "target": target, "r": round(r, 2),
+             "mode": "auto" if auto else "manual", "bank": bank, "tax_from": round(TAX_FROM * target), "limited": limited_now(db, now)}
+        _ECON.update(t=now, v=v, db=db)
+        db.x("""INSERT INTO econ_hist(day, idx, avg, total, active, med, earn, fee, tax, bank, r) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(day) DO UPDATE SET idx=excluded.idx, avg=excluded.avg, total=excluded.total, active=excluded.active,
+                med=excluded.med, earn=excluded.earn, fee=excluded.fee, tax=excluded.tax, bank=excluded.bank, r=excluded.r""",
+             (day, lv["idx"], v["avg"], total, n, v["med"], lv["earn"], lv["fee"], lv["tax"], bank, v["r"]))
+        return v
 
 
 def price_now(base, e):
@@ -5619,13 +5906,13 @@ GIFT_BOX_MIN, GIFT_BOX_MAX = 5, 5000   # какую цену «🎲 Случай
 
 
 def gift_box_price(db, e):
-    """Цена «🎲 Случайного подарка»: заданная главным учителем — ровно такая; не задана — GIFT_BOX_PRICE × инфляция."""
+    """Цена «🎲 Случайного подарка»: заданная главным учителем — ровно такая; не задана — GIFT_BOX_PRICE × индекс цен."""
     v = to_int(db.setting("gift_box_price"))
     return v if v else price_now(GIFT_BOX_PRICE, e)
 
 
 def gift_box_value():
-    """Средняя цена выпадающего подарка по каталогу (без инфляции и спроса) — подсказка учителю, сколько брать за «🎲»."""
+    """Средняя цена выпадающего подарка по каталогу (без индекса цен и спроса) — подсказка учителю, сколько брать за «🎲»."""
     return round(len(GIFTS) / sum(1 / g[3] for g in GIFTS), 1)
 
 
@@ -5680,7 +5967,7 @@ def gift_demand(db):
 
 
 def gift_price(gid, e, dem):
-    """Цена подарка сейчас: каталог × инфляция × спрос."""
+    """Цена подарка сейчас: каталог × индекс цен × спрос."""
     return max(1, math.ceil(GIFT_BY[gid][3] * e["idx"] * dem.get(gid, 1.0)))
 
 
@@ -5694,20 +5981,20 @@ def round5(v):
 
 
 def gift_up_base(gid, e):
-    """Базовая цена улучшения подарка сейчас: 350 + 60 % его каталожной цены, × инфляция."""
+    """Базовая цена улучшения подарка сейчас: 350 + 60 % его каталожной цены, × индекс цен."""
     return round5((UP_BASE + UP_SHARE * GIFT_BY[gid][3]) * e["idx"])
 
 
 def gift_up_price(gid, e, issued):
     """Цена улучшения сейчас: базовая × (1 + 1 % за каждый уже выпущенный уникальный этого вида); None — тираж закончился."""
     n = issued.get(gid, 0)
-    if n >= UNIQ_CAP:
+    if n >= UNIQ_CAP or gid in LIMITED_BY:            # лимитку не улучшают
         return None
     return round5((UP_BASE + UP_SHARE * GIFT_BY[gid][3]) * (1 + UP_PER_ISSUED * n) * e["idx"])
 
 
 def gift_sell_price(gid, uniq, e, issued, dem=None):
-    """Цена продажи: половина нынешней цены подарка (с инфляцией и спросом); у уникального — плюс доля цены улучшения по редкости."""
+    """Цена продажи: половина нынешней цены подарка (с индексом цен и спросом); у уникального — плюс доля цены улучшения по редкости."""
     v = GIFT_BY[gid][3] * SELL_SHARE * e["idx"] * (dem or {}).get(gid, 1.0)
     if uniq:
         v += gift_up_base(gid, e) * SELL_UNIQ.get(uniq["rar"]["k"], 0.45)    # от базовой цены улучшения — иначе улучшать и продавать стало бы выгодно
@@ -5827,11 +6114,11 @@ def econ_site(db, fresh=False):
 def econ_charts(db, sids, where, args, balance):
     """Графики «Экономики» за ECON_DAYS дней: по дням — пришло (труд, бонусы, начисления, продажи) и ушло (покупки,
     улучшения, снятия, штрафы), биткоинов на руках (от нынешнего остатка назад), куплено и улучшено подарков, сделки
-    на рынке, самый дорогой курс за день; индекс цен — из econ_hist (копится с выхода версии)."""
+    на рынке, самый дорогой курс за день (индекс цен и кошельки всего сайта — в market_hist)."""
     now = time.time()
     days = [(datetime.now().date() - timedelta(days=i)).isoformat() for i in range(ECON_DAYS - 1, -1, -1)]
     row = {d: {"d": d, "work": 0.0, "fines": 0, "grant": 0, "sell": 0, "msell": 0, "gift": 0, "upgrade": 0, "take": 0, "mbuy": 0,
-               "n_gift": 0, "n_upgrade": 0, "n_market": 0} for d in days}
+               "stipend": 0, "storage": 0, "n_gift": 0, "n_upgrade": 0, "n_market": 0} for d in days}
     for sid in sids:
         for d, (v, f) in game_summary(db, sid, brief=True).get("btc_days", {}).items():
             if d in row:
@@ -5852,8 +6139,8 @@ def econ_charts(db, sids, where, args, balance):
     out = []
     for d in days:
         x = row[d]
-        x["in"] = round(x["work"] + x["grant"] + x["sell"] + x["msell"])
-        x["out"] = round(x["gift"] + x["upgrade"] + x["take"] + x["mbuy"] + x["fines"])
+        x["in"] = round(x["work"] + x["grant"] + x["sell"] + x["msell"] + x["stipend"])
+        x["out"] = round(x["gift"] + x["upgrade"] + x["take"] + x["mbuy"] + x["fines"] + x["storage"])
         t0 = time.mktime(datetime.strptime(d, "%Y-%m-%d").timetuple())
         x["rate"] = max(btc_rate_at(db, t0 + h * 3600) for h in range(24))
         out.append(x)
@@ -5861,8 +6148,163 @@ def econ_charts(db, sids, where, args, balance):
     for x in reversed(out):
         x["balance"] = max(0, round(bal))
         bal -= x["in"] - x["out"]
-    idx = [[r["day"], r["idx"], r["avg"]] for r in db.q("SELECT day, idx, avg FROM econ_hist WHERE day >= ? ORDER BY day", (days[0],))]
-    return {"days": out, "idx": idx}
+    return {"days": out}
+
+
+_MKT = {"t": 0.0, "v": None, "db": None}
+AVG_GIFT = sum(g[3] for g in GIFTS) / len(GIFTS)      # средняя каталожная цена подарка — «заданий на средний подарок»
+
+
+def market_hist(db, fresh=False):
+    """Графики рынка всего сайта (как в модели экономики): по дням за ECON_DAYS и по неделям за HIST_DAYS — средний и
+    медианный кошелёк активных учеников (решали что-то за 30 дней), индекс цен и множитель заработка, заданий на средний
+    подарок, покупки, комиссия рынка и банк; события — раздачи учителей, плата за хранение, стипендии, пополнения банка,
+    ручные настройки, лимитки. Кошельки прошлых дней восстанавливаются от нынешних назад по движениям. Раз в 10 минут."""
+    now = time.time()
+    if not fresh and _MKT["v"] and _MKT["db"] is db and now - _MKT["t"] < 600:
+        return _MKT["v"]
+    today = datetime.now().date()
+    days = [(today - timedelta(days=k)).isoformat() for k in range(HIST_DAYS - 1, -1, -1)]
+    pos = {d: k for k, d in enumerate(days)}
+    cut = time.mktime(datetime.strptime(days[0], "%Y-%m-%d").timetuple())
+    end_ts = lambda d: time.mktime(datetime.strptime(d, "%Y-%m-%d").timetuple()) + 86399
+    dq = lambda sql, *a: db.q(sql.replace("{D}", "date(ts, 'unixepoch', 'localtime')"), a)
+    studs = [r["id"] for r in db.q("SELECT id FROM students WHERE COALESCE(is_teacher, 0) = 0")]
+    teach = {r["id"] for r in db.q("SELECT id FROM students WHERE COALESCE(is_teacher, 0) = 1")}
+    led, act = {}, {}
+    for r in dq("SELECT student_id, {D} AS d, SUM(delta) AS s FROM coins WHERE ts >= ? GROUP BY student_id, d", cut):
+        led.setdefault(r["student_id"], {})[r["d"]] = r["s"]
+    for r in dq("SELECT student_id, {D} AS d FROM attempts WHERE ts >= ? GROUP BY student_id, d", cut - 30 * 86400):
+        act.setdefault(r["student_id"], set()).add(r["d"])
+    n = len(days)
+    wallets = [[] for _ in days]
+    earned = [0.0] * n
+    for sid in studs:
+        if sid not in act:
+            continue                                   # ни разу не решал за полгода — в средний кошелёк не входит
+        g = game_summary(db, sid, brief=True)
+        bd, ld, mine = g.get("btc_days", {}), led.get(sid, {}), act[sid]
+        bal = g.get("coins_raw", g["coins"])           # без обрезки нулём: штрафы могли увести счёт в минус
+        alive = sorted(mine)
+        for k in range(n - 1, -1, -1):
+            d = days[k]
+            e, f = bd.get(d, (0, 0))
+            earned[k] += e
+            # активен в день d: решал что-то за 30 дней по этот день включительно
+            lo = (today - timedelta(days=n - 1 - k + 29)).isoformat()
+            j = bisect.bisect_right(alive, d)
+            if j and alive[j - 1] >= lo:
+                wallets[k].append(max(0, bal))
+            bal -= e - f + ld.get(d, 0)                 # к концу прошлого дня: минус всё, что пришло и ушло за этот
+    tasks, buys, deals, ups = [0] * n, [0] * n, [0] * n, [0] * n
+    for r in dq("SELECT student_id, {D} AS d, COUNT(*) AS c FROM attempts WHERE ts >= ? AND score > 0 AND COALESCE(exam, 0) = 0 GROUP BY student_id, d", cut):
+        if r["d"] in pos and r["student_id"] not in teach:
+            tasks[pos[r["d"]]] += r["c"]
+    for r in dq("SELECT {D} AS d, COUNT(*) AS c FROM gifts WHERE ts >= ? AND from_sid IS NOT NULL GROUP BY d", cut):
+        if r["d"] in pos:
+            buys[pos[r["d"]]] = r["c"]
+    for r in dq("SELECT {D} AS d, reason, COUNT(*) AS c FROM coins WHERE ts >= ? AND reason IN ('mbuy', 'upgrade') GROUP BY d, reason", cut):
+        if r["d"] in pos:
+            (deals if r["reason"] == "mbuy" else ups)[pos[r["d"]]] = r["c"]
+    hist = {r["day"]: r for r in db.q("SELECT day, idx FROM econ_hist WHERE day >= ?", (days[0],))}
+    thermo_load(db)
+    th = db.q("SELECT ts, idx, earn, fee FROM thermo ORDER BY ts")
+    th_ts = [r["ts"] for r in th]
+    bank_rows = db.q("SELECT ts, delta FROM bank ORDER BY ts")
+    bank_ts, bank_sum, acc = [], [], 0
+    for r in bank_rows:
+        acc += r["delta"]
+        bank_ts.append(r["ts"])
+        bank_sum.append(acc)
+    # события по дням: раздачи, хранение, стипендии, пополнение и изъятие банка, ручные настройки
+    ev = {}
+    add_ev = lambda d, t: ev.setdefault(d, []).append(t) if d in pos else None
+    for r in dq("SELECT {D} AS d, SUM(delta) AS s, COUNT(DISTINCT student_id) AS c FROM coins WHERE ts >= ? AND reason='grant' GROUP BY d", cut):
+        add_ev(r["d"], f"раздача +{r['s']} ₿ ({r['c']} уч.)")
+    names = {"storage": "плата за хранение +{} ₿ в банк", "stipend": "стипендия −{} ₿ из банка", "mint": "банк пополнен на {} ₿",
+             "burn": "из банка изъято {} ₿"}
+    for r in dq("SELECT {D} AS d, reason, SUM(delta) AS s FROM bank WHERE ts >= ? AND reason IN ('storage', 'stipend', 'mint', 'burn') GROUP BY d, reason", cut):
+        add_ev(r["d"], names[r["reason"]].format(abs(r["s"])))
+    for r in dq("SELECT DISTINCT {D} AS d FROM thermo WHERE ts >= ? AND who LIKE 'teacher%'", cut):
+        add_ev(r["d"], "ручная настройка рычагов")
+    spans = []
+    for r in db.q("SELECT gift, start, stop FROM limited WHERE stop >= ? ORDER BY start", (cut,)):
+        if r["gift"] in GIFT_BY:
+            a = time.strftime("%Y-%m-%d", time.localtime(max(r["start"], cut)))
+            b = time.strftime("%Y-%m-%d", time.localtime(min(r["stop"], now)))
+            spans.append({"a": a, "b": b, "t": f"лимитка {GIFT_BY[r['gift']][1]}"})
+    rows = []
+    for k, d in enumerate(days):
+        w = sorted(wallets[k])
+        m = len(w)
+        avg = sum(w) / m if m else None
+        med = (w[m // 2] + w[(m - 1) // 2]) / 2 if m else None
+        t = end_ts(d)
+        j = bisect.bisect_right(th_ts, t) - 1
+        if d in hist and hist[d]["idx"] is not None:
+            idx = hist[d]["idx"]
+        elif j >= 0:
+            idx = th[j]["idx"]
+        else:                                          # до термостата и до истории индекса — по прежнему правилу
+            idx = min(ECON_MAX, max(1.0, round((avg or 0) / ECON_TARGET * 20) / 20)) if m else None
+        b = bisect.bisect_right(bank_ts, t) - 1
+        rows.append({"d": d, "avg": avg, "med": med, "n": m, "idx": idx, "earn": th[j]["earn"] if j >= 0 else 1.0,
+                     "fee": th[j]["fee"] if j >= 0 else MARKET_FEE, "bank": bank_sum[b] if b >= 0 else None,
+                     "tasks": tasks[k], "earned": earned[k], "buys": buys[k], "deals": deals[k], "ups": ups[k], "ev": ev.get(d, [])})
+
+    def pack(x, tasks_n, earned_n):
+        per = earned_n / tasks_n if tasks_n else 0
+        return {"d": x["d"], "avg": None if x["avg"] is None else round(x["avg"]), "med": None if x["med"] is None else round(x["med"]),
+                "n": x["n"], "idx": x["idx"], "earn": x["earn"], "fee": x["fee"], "bank": x["bank"],
+                "afford": round(AVG_GIFT * x["idx"] / per, 1) if per > 0 and x["idx"] else None,
+                "tasks": tasks_n, "earned": round(earned_n)}
+
+    day_rows = [dict(pack(x, x["tasks"], x["earned"]), buys=x["buys"], deals=x["deals"], ups=x["ups"], ev=x["ev"]) for x in rows[-ECON_DAYS:]]
+    week_rows = []
+    for k in range(0, n, 7):                          # недели — от сегодняшнего дня назад по 7 дней
+        part = rows[max(0, n - k - 7):n - k]
+        if not part:
+            continue
+        last = part[-1]
+        week_rows.append(dict(pack(dict(last, d=part[0]["d"]), sum(x["tasks"] for x in part), sum(x["earned"] for x in part)),
+                              to=last["d"], buys=sum(x["buys"] for x in part), deals=sum(x["deals"] for x in part),
+                              ups=sum(x["ups"] for x in part), ev=[e for x in part for e in x["ev"]]))
+    week_rows.reverse()
+    target = econ_target(db)
+    v = {"day": day_rows, "week": week_rows, "spans": spans, "target": target, "band": [round(0.8 * target), round(1.2 * target)],
+         "avg_gift": round(AVG_GIFT)}
+    _MKT.update(t=now, v=v, db=db)
+    return v
+
+
+BANK_WHY = {"start": "🏦 Стартовый капитал", "fee": "🏪 Комиссия рынка", "storage": "📦 Плата за хранение", "take": "➖ Снял учитель",
+            "mint": "➕ Пополнение банка", "grant": "🎁 Начислил учитель", "stipend": "🎓 Стипендия", "burn": "🔥 Изъято из банка"}
+
+
+def thermo_info(db, T):
+    """Термостат и банк для панели учителя: рычаги сейчас и куда их тянет, история настроек, банк и его журнал.
+    Имена учеников в журнале — только тех, кого учитель видит; другие учителя — без имён."""
+    e = econ(db)
+    main_id = main_teacher()["id"]
+    is_main = bool(T["is_main"])
+    bank_rows = []
+    for r in db.q("""SELECT b.ts, b.delta, b.reason, b.note, b.teacher_id, s.name AS sname, s.teacher_id AS stid, t.name AS tname
+                     FROM bank b LEFT JOIN students s ON s.id = b.student_id LEFT JOIN teachers t ON t.id = b.teacher_id
+                     ORDER BY b.ts DESC, b.id DESC LIMIT 80"""):
+        mine_st = r["sname"] and (is_main or (r["stid"] or main_id) == T["id"])
+        who = (r["tname"] if is_main else "вы" if r["teacher_id"] == T["id"] else "другой учитель") if r["teacher_id"] else ""
+        bank_rows.append({"ts": r["ts"], "delta": r["delta"], "kind": r["reason"], "t": BANK_WHY.get(r["reason"], r["reason"]),
+                          "note": r["note"] or "", "who": who, "student": short_name(r["sname"]) if mine_st else ""})
+    sums = {r["reason"]: r["s"] for r in db.q("SELECT reason, SUM(delta) s FROM bank GROUP BY reason")}
+    levers = [{"ts": r["ts"], "idx": r["idx"], "earn": r["earn"], "fee": r["fee"], "tax": r["tax"], "r": r["r"],
+               "who": "термостат" if r["who"] == "auto" else "запуск" if r["who"] == "start" else "главный учитель"}
+              for r in db.q("SELECT * FROM thermo ORDER BY ts DESC LIMIT 30")]
+    return {"econ": e, "goal": thermo_goal(e["avg"], e["med"], e["target"]) if e["target"] else None, "is_main": is_main,
+            "bank": {"balance": e["bank"], "sums": sums, "log": bank_rows}, "levers": levers, "set": THERMO_SET,
+            "rules": {"step": THERMO_STEP, "idx": [IDX_MIN, IDX_MAX], "earn": [EARN_MIN, EARN_MAX], "fee": [FEE_MIN, FEE_MAX],
+                      "tax": TAX_RATE, "tax_from": TAX_FROM, "stipend_r": STIPEND_R, "stipend_max": STIPEND_MAX,
+                      "stipend_tasks": STIPEND_TASKS, "limited_r": LIMITED_R, "limited_cap": LIMITED_CAP, "limited_price": LIMITED_PRICE},
+            "limited": limited_now(db), "limited_all": [{"id": k, "i": i, "t": t} for k, i, t in LIMITED]}
 
 
 def econ_wallet(db, sid):
@@ -5872,6 +6314,7 @@ def econ_wallet(db, sid):
     return {"balance": g["coins"], "mined": g["mined"], "exam": g["exam_coins"], "task": g["task_coins"],
             "grant": led.get("grant", 0), "sell": led.get("sell", 0), "mkt_in": led.get("msell", 0), "mkt_out": -led.get("mbuy", 0),
             "take": -led.get("take", 0), "gift": -led.get("gift", 0), "upgrade": -led.get("upgrade", 0),
+            "stipend": led.get("stipend", 0), "storage": -led.get("storage", 0),
             "fines": g["btc_fast"] * BTC_FAST_FINE, "xp": g["xp"]}
 
 
@@ -5951,7 +6394,7 @@ def gift_rows(db, sid, where="", limit=200, prices=None):
                else short_name(r["sname"]) if r["sname"] else "")
         u = uniq_pub(r["uniq"]) if r["uniq"] else None
         row = {"id": r["id"], "gift": g[0], "i": g[1], "t": g[2], "ts": r["ts"], "note": r["note"] or "", "from": frm,
-               "uniq": u, "rar": gift_rarity(g[0]), "listed": r["listed"],
+               "uniq": u, "rar": gift_rarity(g[0]), "listed": r["listed"], "limited": g[0] in LIMITED_BY,
                "market": short_name(r["mname"]) if r["market_from"] and r["mname"] else None}
         if prices:
             e, issued, dem = prices
@@ -6131,8 +6574,8 @@ def _game_summary(db, sid, brief=False, windows=None):
 
     xplog = []                                     # последние изменения опыта с причиной — показываем ученику
 
-    mined_xp = {}                                  # курс биткоина (XP за 1 ₿) → опыт, заработанный по этому курсу
-    day_cut = now - (ECON_DAYS + 1) * 86400
+    mined_xp = {}                                  # (курс биткоина — XP за 1 ₿, множитель заработка) → опыт, заработанный так
+    day_cut = now - (HIST_DAYS + 1) * 86400
     btc_days, fine_days = {}, {}                   # день → заработано ₿ (дробно) и штрафов — для графиков учителя
     dkey = lambda ts: time.strftime("%Y-%m-%d", time.localtime(ts))
 
@@ -6158,9 +6601,9 @@ def _game_summary(db, sid, brief=False, windows=None):
         if why:
             xplog.append((ts, v, why))
         xp += v
-        k = btc_rate_at(db, ts)                    # биткоины — по курсу на момент заработка: смена курса прошлое не трогает
-        mined_xp[k] = mined_xp.get(k, 0) + v
-        earn(Fraction(v, k), ts)
+        k, m = btc_rate_at(db, ts), earn_at(db, ts)   # биткоины — по курсу и множителю термостата на момент заработка:
+        mined_xp[(k, m)] = mined_xp.get((k, m), 0) + v  # их смена прошлое не трогает
+        earn(Fraction(v, k) * m, ts)
         if ts >= wk0:
             xp_wk += v
         for k, (a, b) in windows.items():
@@ -6259,7 +6702,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                          f"№{r['n']} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"))
                     # и бонус ₿ по номеру; самостоятельная считается целиком, как вариант (ниже)
                     if ts >= task_since and r["reason"] != WORK_REASON and not (cheat and cheat[0] <= ts < cheat[1]):
-                        bonus = TASK_BTC.get(r["n"] or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2))
+                        bonus = TASK_BTC.get(r["n"] or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2)) * earn_at(db, ts)
                         task_btc += bonus
                         earn(bonus, ts)
             if first_time:
@@ -6301,13 +6744,14 @@ def _game_summary(db, sid, brief=False, windows=None):
             if aid not in got and val >= ACH_GOAL[aid]:
                 got[aid] = ts
     ex_best = 0
-    exam_coins, exam_since = 0, exam_btc_since(db)
+    exam_coins, exam_since = Fraction(0), exam_btc_since(db)
     for e in exams:
         if (e["finished"] - e["started"]) >= EXAM_MIN_SEC_FOR_XP and (e["primary_score"] or 0) > 0:
             gain(30 + 3 * (e["primary_score"] or 0), e["finished"], "вариант ЕГЭ")
             if e["finished"] >= exam_since and not (cheat and cheat[0] <= e["finished"] < cheat[1]):
-                exam_coins += exam_btc(e["test_score"])  # 40+ — 15 ₿, 60+ — 30, 80+ — 50, 90+ — 100
-                earn(exam_btc(e["test_score"]), e["finished"])
+                eb = exam_btc(e["test_score"]) * earn_at(db, e["finished"])   # 40+ — 15 ₿, 60+ — 30, 80+ — 50, 90+ — 100
+                exam_coins += eb
+                earn(eb, e["finished"])
         got.setdefault("exam1", e["finished"])
         ex_best = max(ex_best, e["test_score"] or 0)
         if (e["test_score"] or 0) >= 80:
@@ -6327,7 +6771,8 @@ def _game_summary(db, sid, brief=False, windows=None):
             res = json.loads(w["result"] or "{}")
         except ValueError:
             continue
-        wb = work_btc([((APP.bank.tasks.get(k) or {}).get("n") or 0, c or 0) for k, c in res.items() if (APP.bank.tasks.get(k) or {}).get("n")])
+        wb = work_btc([((APP.bank.tasks.get(k) or {}).get("n") or 0, c or 0) for k, c in res.items()
+                       if (APP.bank.tasks.get(k) or {}).get("n")]) * earn_at(db, w["finished"])
         exam_coins += wb
         earn(wb, w["finished"])
     # дни подряд
@@ -6365,15 +6810,17 @@ def _game_summary(db, sid, brief=False, windows=None):
     xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
     lvl, title, cur_xp, need = level_of(xp)
     # биткоины: заработанный опыт по курсу на момент заработка (покупка заморозок их не отнимает) + начисления − покупки
-    mined = max(0, math.floor(sum((Fraction(v, k) for k, v in mined_xp.items()), Fraction(0))))
+    mined = max(0, math.floor(sum((Fraction(v, k) * m for (k, m), v in mined_xp.items()), Fraction(0))))
+    exam_coins = math.floor(exam_coins)
     extra = db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)["s"]
     task_btc = math.floor(task_btc)
-    coins = max(0, mined + exam_coins + task_btc + extra - cnt["btc_fast"] * BTC_FAST_FINE)
+    coins_raw = mined + exam_coins + task_btc + extra - cnt["btc_fast"] * BTC_FAST_FINE
+    coins = max(0, coins_raw)
     zr = db.q("SELECT freezes FROM students WHERE id=?", (sid,), one=True)
     xp_of = dict({"day": xp_day, "week": week, "month": xp_month, "wk": xp_wk}, **sums)
     rank = {k: rank_score(xp_of[k], rank_btc[k], len(rank_seen[k]), len(rank_err[k])) for k in rank_win}
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums, "rank": rank,
-           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "mined": mined, "exam_coins": exam_coins, "task_coins": task_btc, "btc_rate": rate,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "coins_raw": coins_raw, "mined": mined, "exam_coins": exam_coins, "task_coins": task_btc, "btc_rate": rate,
            "btc_days": {d: [round(float(btc_days.get(d, 0)), 2), fine_days.get(d, 0)] for d in set(btc_days) | set(fine_days)}, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,

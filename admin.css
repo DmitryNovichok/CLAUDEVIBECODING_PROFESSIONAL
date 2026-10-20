@@ -526,7 +526,7 @@ tr.comp-void td { opacity: .55; }
 .eco-chip { display: inline-flex; align-items: center; gap: 4px; }
 .eco-rar { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 800; color: #fff; background: #9aa0a6; white-space: nowrap; }
 .eco-rar.r-uncommon { background: #43a047; } .eco-rar.r-rare { background: #1e88e5; } .eco-rar.r-epic { background: #8e24aa; }
-.eco-rar.r-legend { background: #f57c00; } .eco-rar.r-myth { background: linear-gradient(90deg, #e91e63, #ff9800); }
+.eco-rar.r-legend { background: #f57c00; } .eco-rar.r-myth { background: linear-gradient(90deg, #e91e63, #ff9800); } .eco-rar.r-limited { background: linear-gradient(90deg, #ff6f00, #ffb300); }
 .eco-kind { font-weight: 700; }
 .eco-feed td { vertical-align: top; }
 .eco-name { color: var(--text); font-weight: 700; padding: 0; }
@@ -577,3 +577,19 @@ tr.comp-void td { opacity: .55; }
 .ch-tip-r span { color: var(--muted); }
 .ch-table { margin: 0 0 12px; }
 .ch-table summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+/* рынок всего сайта: линии по неделям или дням — норма, события, лимитки; термостат и банк */
+.ch-line.c3 { stroke: var(--ch-3); } .ch-dot.c3 { fill: var(--ch-3); }
+.tr-view { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 0; font-size: 12.5px; }
+.ch .tr-band { fill: var(--ch-3); opacity: .1; }
+.ch .tr-bandt { fill: var(--muted); font-size: 10px; font-weight: 700; }
+.ch .tr-span { fill: var(--text); opacity: .05; }
+.ch .tr-ev { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; opacity: .7; }
+.ch .tr-evt { fill: var(--muted); font-size: 10px; font-weight: 700; }
+.th-box .adm-cards { margin: 8px 0; }
+.th-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 10px 0 0; }
+.th-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.th-form .inp { width: 130px; }
+.th-form #thMode { width: 210px; }
+.th-form .th-note .inp { width: 260px; }
+.th-form .inp:disabled { opacity: .5; }
+.th-acts { padding-top: 10px; border-top: 1px dashed var(--border); }

@@ -208,6 +208,21 @@ class ServerTest(unittest.TestCase):
     def check(self, tok, task, **kw):
         return self.req("POST", "/api/check", dict(task=task, **kw), tok)
 
+    def thermo_day_passed(self, db, days=1):
+        """Рычаги термостата «поставлены» days суток назад — следующий пересчёт сдвинет их (как наутро)."""
+        db.x("UPDATE thermo SET ts = ts - ?", (days * 86400,))
+        server._THERMO["db"] = None
+
+    def thermo_reset(self, db):
+        """Термостат и недельные действия — как до первого запуска: другие тесты считают биткоины без множителя."""
+        db.x("DELETE FROM thermo")
+        db.x("DELETE FROM limited")
+        db.x("DELETE FROM coins WHERE reason IN ('storage', 'stipend')")
+        db.x("DELETE FROM settings WHERE key IN ('thermo_mode', 'thermo_week', 'econ_target')")
+        server._THERMO["db"] = None
+        server._ECON.update(t=0, v=None)
+        server._MKT.update(t=0, v=None)
+
     # ------------------------------------------------------------ файлы
     def test_extra_bank_merged(self):
         # авторский банк Egeshka лежит отдельным файлом и подмешивается к bank.js без пересборки
@@ -2517,18 +2532,20 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.gift_up_price("cookie", {"idx": 1.0}, {}), 355)
         self.assertLess(server.gift_up_price("cookie", {"idx": 1.0}, {}), server.gift_up_price("dragon", {"idx": 1.0}, {}))
         self.assertLess(server.gift_up_price("cake", {"idx": 1.0}, {}), server.gift_up_price("cake", {"idx": 1.0}, {"cake": 99}))
-        # инфляция: копят все — цены выше
+        # термостат: копят все (норма — 1 ₿) — через сутки цены выше, заработок ниже
         target = server.ECON_TARGET
         try:
             server.ECON_TARGET = 1
             db.x("INSERT INTO attempts(student_id, ts, task_id, n, score) VALUES(?,?,?,5,1)", (sid, time.time() - 60, "econ:1"))
+            idx0 = server.econ(db, fresh=True)["idx"]
+            self.thermo_day_passed(db)
             e = server.econ(db, fresh=True)
-            self.assertGreater(e["idx"], 1)
+            self.assertEqual((e["idx"], e["earn"], e["fee"]), (round(idx0 + 0.1 * (2.5 - idx0), 2), round(1 + 0.1 * (0.5 - 1), 3), 0.2))
             c0 = self.req("GET", "/api/gifts", token=tok)[1]["catalog"][0]
             self.assertGreater(c0["price"], math.ceil(c0["base"] * c0["demand"]))
         finally:
             server.ECON_TARGET = target
-            server._ECON.update(t=0, v=None)
+            self.thermo_reset(db)
         # за труд: каждые WORK_GIFT_EVERY впервые решённых — случайный подарок, один раз за рубеж
         tok2 = self.login("Трудов Тимур")
         sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
@@ -2726,7 +2743,7 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/gifts/list", {"id": wid, "price": 10}, tokA)
         self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": wid, "price": 10}, tokB)[0], 200)
         self.assertEqual(server.work_gifts(db, sidA, server.WORK_GIFT_EVERY), 0)
-        # графики «Экономики»: 30 дней, на руках к концу сегодня = сумма кошельков, индекс цен — из истории
+        # графики «Экономики»: 30 дней, на руках к концу сегодня = сумма кошельков
         st, d = self.admin("GET", "/api/admin/econ")
         C = d["charts"]
         self.assertEqual(len(C["days"]), server.ECON_DAYS)
@@ -2734,7 +2751,140 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(C["days"][-1]["balance"], d["total"]["balance"])
         self.assertGreaterEqual(C["days"][-1]["n_market"], 2)
         self.assertTrue(all(10 <= x["rate"] <= server.BTC_RATE_MAX for x in C["days"]))
-        self.assertIn(datetime.date.today().isoformat(), [x[0] for x in C["idx"]])
+
+    def test_thermostat_and_bank(self):
+        db = server.APP.db
+        self.thermo_reset(db)
+        try:
+            self._thermostat_and_bank(db)
+        finally:
+            self.thermo_reset(db)
+
+    def _thermostat_and_bank(self, db):
+        tokA, tokB = self.login("Банкиров Богдан"), self.login("Термостатов Тарас")
+        sidA = self.req("GET", "/api/me", token=tokA)[1]["sid"]
+        sidB = self.req("GET", "/api/me", token=tokB)[1]["sid"]
+        for sid in (sidA, sidB):
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time() - 30, 3000))
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score) VALUES(?,?,?,5,1)", (sid, time.time() - 30, f"bank:{sid}"))
+        e = server.econ(db, fresh=True)                                   # первый запуск: рычаги с прежних правил
+        self.assertEqual((e["earn"], e["fee"], e["tax"], e["mode"], e["who"]), (1.0, server.MARKET_FEE, server.TAX_RATE, "auto", "start"))
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM bank WHERE reason='start'", one=True)["c"], 1)
+        # комиссия рынка — в банк
+        b0 = server.bank_balance(db)
+        self.req("POST", "/api/gifts/buy", {"gift": "cat"}, tokA)
+        cat = next(g for g in self.req("GET", "/api/gifts", token=tokA)[1]["mine"] if g["gift"] == "cat")
+        self.req("POST", "/api/gifts/list", {"id": cat["id"], "price": 300}, tokA)
+        st, r = self.req("POST", "/api/gifts/mbuy", {"id": cat["id"], "price": 300}, tokB)
+        self.assertEqual((st, r["fee"]), (200, math.ceil(300 * e["fee"])))
+        self.assertEqual(server.bank_balance(db), b0 + r["fee"])
+        # начисление учителя — из банка; больше, чем в банке, — нельзя; снятое — в банк
+        b1 = server.bank_balance(db)
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sidA, "coins": 40, "note": "за олимпиаду"})[0], 200)
+        self.assertEqual(server.bank_balance(db), b1 - 40)
+        self.admin("POST", "/api/admin/gifts/give", {"student_id": sidA, "coins": -15})
+        self.assertEqual(server.bank_balance(db), b1 - 25)
+        st, d = self.admin("POST", "/api/admin/bank", {"delta": -(b1 - 25 - 10), "note": "тест"})       # оставим в банке 10 ₿
+        self.assertEqual((st, server.bank_balance(db)), (200, 10))
+        st, d = self.admin("POST", "/api/admin/gifts/give", {"student_id": sidA, "coins": 11})
+        self.assertEqual(st, 409)
+        self.assertIn("В банке рынка 10 ₿", d["error"])
+        self.assertEqual(self.admin("POST", "/api/admin/bank", {"delta": -11})[0], 409)
+        self.admin("POST", "/api/admin/bank", {"delta": b1 - 35})
+        self.assertEqual(server.bank_balance(db), b1 - 25)
+        st, d = self.admin("GET", "/api/admin/econ")
+        log = d["thermo"]["bank"]["log"]
+        self.assertEqual([x["kind"] for x in log[:5]], ["mint", "burn", "take", "grant", "fee"])
+        self.assertEqual((log[3]["delta"], log[3]["student"]), (-40, "Банкиров Б."))
+        # ручной режим: рычаги ставит главный учитель; заработок ×0,5 — опыт после этого приносит вдвое меньше
+        self.assertEqual(self.admin("POST", "/api/admin/thermo", {"earn": 0.5})[0], 409)            # в авто-режиме — нельзя
+        self.assertEqual(self.admin("POST", "/api/admin/thermo", {"mode": "manual", "earn": 9})[0], 400)
+        st, d = self.admin("POST", "/api/admin/thermo", {"mode": "manual", "earn": 0.5, "fee": 0.15, "idx": 1.2})
+        self.assertEqual(st, 200, d)
+        self.assertEqual((d["thermo"]["econ"]["earn"], d["thermo"]["econ"]["fee"], d["thermo"]["econ"]["mode"]), (0.5, 0.15, "manual"))
+        self.assertEqual(d["thermo"]["levers"][0]["who"], "главный учитель")
+        g0 = server.game_summary(db, sidA)
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel')", (sidA, time.time() + 1, 200))
+        g1 = server.game_summary(db, sidA)
+        rate = server.btc_rate_at(db, time.time() + 1)
+        self.assertAlmostEqual(g1["mined"] - g0["mined"], 200 / rate * 0.5, delta=1)
+        # в ручном режиме сутки ничего не меняют; авто — снова тянет к цели
+        self.thermo_day_passed(db)
+        self.assertEqual(server.econ(db, fresh=True)["earn"], 0.5)
+        e = self.admin("POST", "/api/admin/thermo", {"mode": "auto"})[1]["thermo"]["econ"]     # рычаги — суточной давности
+        goal = server.thermo_goal(e["avg"], e["med"], e["target"])
+        self.assertAlmostEqual(e["earn"], 0.5 + 0.1 * (goal["earn"] - 0.5), delta=0.002)
+        self.assertEqual(e["who"], "auto")
+        # раз в неделю: плата за хранение (3 % сверх 800 ₿) — в банк, и лимитка, когда денег у всех много
+        balA = server.game_summary(db, sidA)["coins"]
+        b2 = server.bank_balance(db)
+        db.setting("thermo_week", str(server.week_start() - 7 * 86400))
+        server.ECON_TARGET, target = 1, server.ECON_TARGET
+        try:
+            e = server.econ(db, fresh=True)
+        finally:
+            server.ECON_TARGET = target
+        tax = db.q("SELECT delta, note, seen FROM coins WHERE student_id=? AND reason='storage'", (sidA,), one=True)
+        self.assertEqual(tax["delta"], -math.floor((balA - 2) * server.TAX_RATE))      # норма 1 ₿ — хранение сверх 2 ₿
+        self.assertEqual(tax["seen"], 0)
+        self.assertGreater(server.bank_balance(db), b2)
+        self.assertEqual(server.econ(db, fresh=True)["bank"], server.bank_balance(db))
+        self.assertIn("storage", [c["reason"] for c in self.req("GET", "/api/me", token=tokA)[1]["coin_news"]])
+        L = e["limited"]
+        self.assertEqual((L["cap"], L["left"], L["gift"] in server.LIMITED_BY), (server.LIMITED_CAP, server.LIMITED_CAP, True))
+        # лимитка: в каталоге её нет, купить — по своей цене, тираж ограничен; улучшить нельзя
+        G = self.req("GET", "/api/gifts", token=tokB)[1]
+        self.assertNotIn(L["gift"], [c["id"] for c in G["catalog"]])
+        self.assertEqual(G["limited"]["gift"], L["gift"])
+        coins = G["coins"]
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": L["gift"]}, tokB)
+        self.assertEqual((st, r["game"]["coins"]), (200, coins - L["price"]))
+        mine = next(g for g in self.req("GET", "/api/gifts", token=tokB)[1]["mine"] if g["gift"] == L["gift"])
+        self.assertEqual((mine["rar"]["k"], mine["up"], mine["limited"]), ("limited", None, True))
+        self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": mine["id"]}, tokB)[0], 409)
+        self.assertEqual(self.req("GET", "/api/gifts", token=tokB)[1]["limited"]["left"], server.LIMITED_CAP - 1)
+        db.x("UPDATE limited SET cap=1")
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": L["gift"]}, tokB)[0], 409)              # раскупили
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "lim_nope"}, tokB)[0], 400)
+        other = next(k for k in server.LIMITED_BY if k != L["gift"])
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": other}, tokB)[0], 409)                 # не эта неделя
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sidA, "gift": other})[0], 400)
+        # учитель останавливает лимитку и запускает снова
+        st, d = self.admin("POST", "/api/admin/thermo", {"limited": "stop"})
+        self.assertIsNone(d["thermo"]["limited"])
+        st, d = self.admin("POST", "/api/admin/thermo", {"limited": "start"})
+        self.assertEqual(d["thermo"]["limited"]["gift"], other)                       # следующей — та, что выходила реже
+        self.assertEqual(self.admin("POST", "/api/admin/thermo", {"limited": "start"})[0], 409)
+        # стипендия: денег у учеников мало (норма огромная) — старательным из банка
+        for j in range(server.STIPEND_TASKS):
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score) VALUES(?,?,?,5,1)", (sidB, time.time() - 100 + j, f"stip:{j}"))
+        db.setting("thermo_week", str(server.week_start() - 7 * 86400))
+        server.ECON_TARGET = 10 ** 6
+        try:
+            b3 = server.bank_balance(db)
+            server.econ(db, fresh=True)
+        finally:
+            server.ECON_TARGET = target
+        st_rows = db.q("SELECT student_id, delta FROM coins WHERE reason='stipend'")
+        self.assertIn(sidB, [x["student_id"] for x in st_rows])
+        self.assertNotIn(sidA, [x["student_id"] for x in st_rows])                    # решал мало
+        each = st_rows[0]["delta"]
+        self.assertTrue(1 <= each <= server.STIPEND_MAX)
+        self.assertEqual(server.bank_balance(db), b3 - each * len(st_rows))
+        # норма кошелька — главный учитель; другим учителям — нельзя
+        self.assertEqual(self.admin("POST", "/api/admin/thermo", {"target": 50})[0], 400)
+        self.assertEqual(self.admin("POST", "/api/admin/thermo", {"target": 700})[0], 200)
+        self.assertEqual(server.econ(db, fresh=True)["target"], 700)
+        # графики рынка: по дням и по неделям, сегодня — средний кошелёк, банк и события
+        M = self.admin("GET", "/api/admin/econ")[1]["market"]
+        self.assertEqual((len(M["day"]), len(M["week"])), (server.ECON_DAYS, server.HIST_DAYS // 7))
+        today = M["day"][-1]
+        self.assertEqual(today["d"], datetime.date.today().isoformat())
+        self.assertEqual(today["bank"], server.bank_balance(db))
+        self.assertGreater(today["n"], 0)
+        self.assertTrue(any("стипендия" in x for x in today["ev"]))
+        self.assertEqual(M["week"][-1]["to"], today["d"])
+        self.assertEqual(M["band"], [560, 840])
 
     def test_task_and_work_btc(self):
         db = server.APP.db
