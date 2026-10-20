@@ -2886,6 +2886,38 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(M["week"][-1]["to"], today["d"])
         self.assertEqual(M["band"], [560, 840])
 
+    def test_box_gift_market_fee(self):
+        # выпавший в «🎲» подарок: первая продажа на рынке — комиссия 50 % (в банк), перепродажа — обычная
+        db = server.APP.db
+        tokA, tokB = self.login("Коробкин Кирилл"), self.login("Перекупов Пётр")
+        sidA = self.req("GET", "/api/me", token=tokA)[1]["sid"]
+        sidB = self.req("GET", "/api/me", token=tokB)[1]["sid"]
+        for sid in (sidA, sidB):
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 3000))
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": "box"}, tokA)
+        self.assertEqual(st, 200, r)
+        self.req("POST", "/api/gifts/buy", {"gift": "cake"}, tokA)
+        G = self.req("GET", "/api/gifts", token=tokA)[1]
+        box = next(g for g in G["mine"] if g["box"])
+        cake = next(g for g in G["mine"] if g["gift"] == "cake" and not g["box"])
+        self.assertEqual((box["fee"], cake["fee"], G["market_fee_box"]), (0.5, G["market_fee"], 0.5))
+        self.assertEqual(db.q("SELECT kind FROM gifts WHERE id=?", (box["id"],), one=True)["kind"], "box")
+        st, r = self.req("POST", "/api/gifts/list", {"id": box["id"], "price": 301}, tokA)
+        self.assertEqual((st, r["get"], r["fee"]), (200, 301 - 151, 0.5))
+        b0 = server.bank_balance(db)
+        st, r = self.req("POST", "/api/gifts/mbuy", {"id": box["id"], "price": 301}, tokB)
+        self.assertEqual((st, r["fee"]), (200, 151))
+        self.assertEqual(server.bank_balance(db), b0 + 151)
+        mineB = next(g for g in self.req("GET", "/api/gifts", token=tokB)[1]["mine"] if g["id"] == box["id"])
+        self.assertFalse(mineB["box"])
+        st, r = self.req("POST", "/api/gifts/list", {"id": box["id"], "price": 300}, tokB)
+        self.assertEqual(r["get"], 300 - math.ceil(300 * server.econ(db)["fee"]))
+        # «🎲 Случайный» от учителя — тоже из «🎲»; выбранный учителем — нет
+        self.admin("POST", "/api/admin/gifts/give", {"student_id": sidA, "gift": "random"})
+        self.admin("POST", "/api/admin/gifts/give", {"student_id": sidA, "gift": "tea"})
+        kinds = [r["kind"] for r in db.q("SELECT kind FROM gifts WHERE student_id=? AND from_teacher IS NOT NULL ORDER BY id", (sidA,))]
+        self.assertEqual(kinds, ["box", None])
+
     def test_task_and_work_btc(self):
         db = server.APP.db
         tok = self.login("Бонусный Борис")
