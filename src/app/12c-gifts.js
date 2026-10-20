@@ -3,8 +3,9 @@
   // себе или однокласснику, «🎲 Случайный подарок» выпадает любой (дорогие — реже), учитель дарит из панели.
   // Свой подарок можно улучшить — он станет уникальным: номер и случайные фон, узор и эффект, у каждого своя редкость.
   // Редкость считает сервер: у обычного — шанс выпасть в «🎲», у уникального — шанс сочетания («1 из N»); видна на подарке.
-  // Экономика: цены растут с инфляцией (средний кошелёк учеников), тираж уникальных каждого вида ограничен, проданный
-  // подарок сгорает; биткоины и подарки — за труд: 1 ₿ за 10 XP, каждые 25 решённых — подарок.
+  // Экономика саморегулируется: термостат на сервере раз в сутки двигает цены, заработок и комиссию рынка к норме среднего
+  // кошелька; комиссия и плата за хранение больших сумм уходят в банк рынка, из него — стипендии и начисления учителей.
+  // Тираж уникальных каждого вида ограничен, проданный подарок сгорает; каждые 25 решённых — подарок.
   let GF = null;                          // магазин и свои подарки с сервера
   let gfTo = '';                          // кому дарим: '' — себе, иначе sid одноклассника
   let gfOpen = null;                      // открытая карточка подарка (id) или null — магазин
@@ -14,7 +15,7 @@
   const btcWord = n => plural(n, 'биткоин', 'биткоина', 'биткоинов');
   const gfFrom = g => g.market ? 'с рынка · ' + g.market : g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд'
     : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '';
-  const fee = p => Math.ceil(p * GF.market_fee);           // комиссия рынка сгорает
+  const fee = p => Math.ceil(p * GF.market_fee);           // комиссия рынка — в банк
   const idxTxt = x => String(x).replace('.', ',');
   /** Уникальный подарок: фон-градиент, узор из символов, эффект и номер; рамка — цвета редкости. */
   function uniqTile(g, cls = '') {
@@ -27,7 +28,22 @@
   const gfRar = g => (g.uniq ? g.uniq.rar : g.rar);
   const rarHtml = g => { const r = gfRar(g); return r ? `<span class="rar r-${r.k}">${esc(r.t)}</span>` : ''; };
   const rarWhy = g => (g.uniq ? `шанс такого сочетания — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
+    : g.rar && g.rar.k === 'limited' ? 'продавался одну неделю ограниченным тиражом, в 🎲 не выпадает'
     : g.rar ? `шанс выпасть в 🎲 случайном подарке — ${String(g.rar.p).replace('.', ',')}%` : '');
+  const pctTxt = v => String(Math.round(v * 1000) / 10).replace('.', ',') + '%';
+  /** Экономика сейчас: множители термостата, комиссия рынка, банк и плата за хранение. */
+  function econNowHtml(G) {
+    const E = G.econ, near = G.coins > E.tax_from * 0.8;
+    const chip = (t, v, tip) => `<span class="gf-eco-c" title="${esc(tip)}">${t} <b>${v}</b></span>`;
+    return `<div class="gf-eco"><small>📊 Экономика сейчас</small>
+      ${chip('⚒ Заработок', '×' + idxTxt(E.earn), 'Множитель биткоинов за опыт, задания и варианты: денег у всех много — меньше, мало — больше')}
+      ${chip('🏷 Цены', '×' + idxTxt(E.idx), 'Во сколько раз подарки дороже каталога: копят все — дороже, тратят — дешевле')}
+      ${chip('🏪 Комиссия рынка', pctTxt(E.fee), 'Сколько от цены сделки на рынке уходит в банк рынка')}
+      ${chip('🏦 Банк рынка', E.bank.toLocaleString('ru-RU') + ' ₿', 'Сюда — комиссия рынка и плата за хранение; отсюда — стипендии старательным и награды учителей')}
+      ${E.tax ? chip('📦 Хранение', pctTxt(E.tax) + ' в неделю', `С суммы больше ${E.tax_from} ₿ — по понедельникам, в банк рынка`) : ''}
+      <span class="fm-muted">Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов у всех учеников.${near && E.tax
+        ? ` Копить больше ${E.tax_from} ₿ невыгодно: раз в неделю ${pctTxt(E.tax)} с лишнего уходит в банк.` : ''}</span></div>`;
+  }
 
   async function openGifts(to, open) {
     if (!SERVER) return;
@@ -40,7 +56,7 @@
   function renderGifts() {
     const g = gfOpen && GF.mine.find(x => x.id === gfOpen);
     if (g) return renderGift(g);
-    const G = GF, coins = G.coins, who = gfTo ? gfMate(gfTo) : '';
+    const G = GF, coins = G.coins, who = gfTo ? gfMate(gfTo) : '', lim = G.limited;
     const left = Math.max(0, G.per_day - G.bought_today);
     // спрос: подарок покупали за неделю заметно чаще среднего — дороже (▲), реже — дешевле (▼); мелкие колебания не показываем
     const trend = d => (d >= 1.05 ? `<em class="gf-trend up" title="Спрос растёт — цена ×${idxTxt(d)}">▲</em>`
@@ -51,9 +67,13 @@
       : `<div class="gf-to"><label>Кому <select class="inp" id="gfTo"><option value="">себе</option>${G.mates.map(m =>
           `<option value="${m.sid}"${String(m.sid) === gfTo ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
           <span class="fm-muted">${left ? `Сегодня можно купить ещё ${left}` : 'На сегодня подарков хватит — завтра снова можно'}</span></div>
+        ${lim ? `<div class="gf-lim"><button type="button" class="gf-item r-limited" data-gift="${lim.gift}"${lim.price > coins || !left || !lim.left ? ' disabled' : ''}
+            title="${esc(lim.t)} — ${lim.price} ₿"><span class="gf-ic">${lim.i}</span><b>${esc(lim.t)}</b><small>₿ ${lim.price}</small>${rarHtml({ rar: { k: 'limited', t: 'Лимитка' } })}</button>
+          <div><b>🎆 Лимитка недели</b><span class="fm-muted">${lim.left ? `Осталось ${lim.left} из ${lim.cap} — продаётся до ${gfDate(lim.stop)}. В каталог и в 🎲 не попадёт,
+            улучшить нельзя: такой подарок будет только у ${lim.cap} учеников.` : `Раскупили все ${lim.cap} штук.`}</span></div></div>` : ''}
         <div class="gf-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'gf-box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar, x.demand)).join('')}</div>
         <p class="fm-note">🎲 Случайный подарок — может выпасть любой, даже Дракон; чем дороже подарок, тем реже он выпадает.
-          ▲ — подарок покупают чаще других, он дорожает; ▼ — реже, он дешевеет.${G.econ.idx > 1 ? ` Сейчас инфляция: все цены ×${idxTxt(G.econ.idx)}.` : ''}</p>`;
+          ▲ — подарок покупают чаще других, он дорожает; ▼ — реже, он дешевеет.${G.econ.idx !== 1 ? ` Цены сейчас ×${idxTxt(G.econ.idx)} от каталога.` : ''}</p>`;
     const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(x => `<button type="button" class="gf-own${x.uniq ? ' uniq' : ''} r-${gfRar(x).k}" data-gift-open="${x.id}"
           title="${esc(x.t)}${x.uniq ? ' #' + x.uniq.n : ''} · ${esc(gfRar(x).t)}: ${esc(rarWhy(x))}">${x.uniq ? uniqTile(x) : `<span class="gf-ic">${x.i}</span>`}
           <b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b>${rarHtml(x)}<small>${x.listed != null ? `🏪 на рынке · ₿ ${x.listed}` : esc(gfFrom(x))}</small></button>`).join('')}</div>
@@ -64,11 +84,13 @@
     $('#forecastBody').innerHTML = `
       <div class="gm-head"><span class="gm-level gf-coin">₿</span>
         <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${btcWord(coins)}</h2>
-          <span class="fm-muted">Только трудом: сейчас 1 ₿ = ${G.coin_xp} XP опыта${G.coin_xp > G.rate_base ? ` (решает много людей — биткоин дороже обычных ${G.rate_base} XP)` : ''},
+          <span class="fm-muted">Только трудом: сейчас 1 ₿ = ${G.coin_xp} XP опыта${G.coin_xp > G.rate_base ? ` (решает много людей — биткоин дороже обычных ${G.rate_base} XP)` : ''}${
+            G.econ.earn !== 1 ? ` и весь заработок ×${idxTxt(G.econ.earn)}` : ''},
             а за каждое решённое задание — ещё биткоины сверху: чем сложнее задание, тем больше. Каждые ${G.work_every} решённых — подарок в награду.
             Решено слишком быстро — минус 1 ₿${G.fines ? ` (уже −${G.fines} ₿)` : ''}: быстрее ${G.fine_sec} секунд, а №24–27 — быстрее
             ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.
             За вариант ЕГЭ — бонус по тестовому баллу: ${examBtcTxt(G)}; самостоятельные от учителя — так же, как вариант.</span></div></div>
+      ${G.teacher ? '' : econNowHtml(G)}
       ${giftValueHtml(G.value, true, true)}
       <div class="pf-tabs gf-tabs"><button type="button" class="pf-tab${gfTab === 'shop' ? ' on' : ''}" data-gftab="shop">🛍 Магазин${who ? ` — для ${esc(who)}` : ''}</button>
         <button type="button" class="pf-tab${gfTab === 'market' ? ' on' : ''}" data-gftab="market">🏪 Рынок · ${G.market.filter(x => !x.mine).length}</button></div>
@@ -80,7 +102,7 @@
   }
   /** Рынок одноклассников: подарки, выставленные за свою цену; свои — с кнопкой «Снять». */
   function marketHtml(G) {
-    const pct = Math.round(G.market_fee * 100);
+    const pct = String(Math.round(G.market_fee * 1000) / 10).replace('.', ',');
     const list = G.market;
     const card = x => {
       const tile = x.uniq ? uniqTile(x) : `<span class="ug plain r-${x.rar.k}"><span class="ug-ic">${x.i}</span></span>`;
@@ -93,7 +115,8 @@
     };
     return `${list.length ? `<div class="mk-list">${list.map(card).join('')}</div>` : '<p class="fm-muted">Пока никто ничего не продаёт.</p>'}
       <p class="fm-note">🏪 Рынок — подарки одноклассников за их цену. Уникальный переходит к покупателю со своим номером и свойствами.
-        Чтобы продать свой — открой его в «Моих подарках» и нажми «Выставить на рынок»; продавец получает цену минус ${pct}% (комиссия сгорает).</p>`;
+        Чтобы продать свой — открой его в «Моих подарках» и нажми «Выставить на рынок»; продавец получает цену минус ${pct}% —
+        комиссия уходит в банк рынка, из которого платят стипендии и награды.</p>`;
   }
   /** Оценка подарков: сколько дадут, если продать всё сейчас, сколько такие стоят в магазине и три самых ценных.
    *  open — в окне подарков: по самому ценному можно открыть его карточку. */
@@ -117,7 +140,7 @@
   /** История биткоинов, кроме опыта: начисления и снятия учителем, покупки, улучшения, продажи, штрафы за спешку. */
   function ledgerHtml(G) {
     const why = { grant: '➕ Начислил учитель', take: '➖ Снял учитель', gift: '🎁 Покупка подарка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
-      mbuy: '🏪 Покупка на рынке у', msell: '🏪 Продажа на рынке —' };
+      mbuy: '🏪 Покупка на рынке у', msell: '🏪 Продажа на рынке —', storage: '📦 Плата за хранение', stipend: '🎓 Стипендия из банка' };
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (r.reason === 'mbuy' || r.reason === 'msell' ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
       <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${Math.abs(r.delta)} ₿</td></tr>`).join('');
     if (!rows && !G.fines && !G.exam_coins && !G.task_coins) return '';
@@ -144,7 +167,7 @@
           <button type="button" class="btn small ghost" data-gift-unlist="${g.id}">Снять с продажи</button></p>`
       : `<p class="gf-sell mk-sell"><label>🏪 Продать одноклассникам за <input class="inp" id="mkPrice" type="number" min="${GF.market_min}" max="${GF.market_max}" value="${suggest}"> ₿</label>
           <button type="button" class="btn" data-gift-list="${g.id}">Выставить на рынок</button>
-          <span class="fm-muted" id="mkGet">получишь ${suggest - fee(suggest)} ₿ (комиссия ${Math.round(GF.market_fee * 100)}% сгорает)</span></p>`;
+          <span class="fm-muted" id="mkGet">получишь ${suggest - fee(suggest)} ₿ (комиссия ${pctTxt(GF.market_fee)} — в банк рынка)</span></p>`;
     const sell = g.listed != null ? market : `<p class="gf-sell"><button type="button" class="btn" data-gift-sell="${g.id}">💰 Продать сразу за ₿ ${g.sell}</button>
         <span class="fm-muted">${vs ? vs.slice(3) : 'обычный подарок продаётся за половину цены'}</span></p>${market}`;
     const body = u
@@ -155,9 +178,11 @@
           это свойство; редкость подарка — шанс всего сочетания (фон × узор × эффект × поза): ${GF.uniq_tiers.map(r => r.one_in
             ? `${r.t.toLowerCase()} — до 1 из ${r.one_in.toLocaleString('ru-RU')}` : `${r.t.toLowerCase()} — ещё реже`).join(', ')}.
           Выпущено уникальных «${esc(g.t)}»: ${g.issued} из ${g.cap}. Проданный подарок сгорает — его номер и сочетание больше никому не выпадут.</p>`
-      : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор, эффект и позу. Чем реже сочетание, тем дороже его можно продать:
-          редкий — дешевле улучшения, легендарный и мифический — в разы дороже.</p>
-        <p>${g.listed != null ? '<span class="fm-muted">Пока подарок на рынке, улучшить его нельзя.</span>' : g.up == null ? `<b>Тираж уникальных «${esc(g.t)}» закончился</b> — выпущено ${g.cap} из ${g.cap}.`
+      : `${g.limited ? '' : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор, эффект и позу. Чем реже сочетание, тем дороже его можно продать:
+          редкий — дешевле улучшения, легендарный и мифический — в разы дороже.</p>`}
+        <p>${g.listed != null ? '<span class="fm-muted">Пока подарок на рынке, улучшить его нельзя.</span>'
+          : g.limited ? '<b>Лимитку не улучшают</b> — она и так редкая: продавалась одну неделю ограниченным тиражом.'
+          : g.up == null ? `<b>Тираж уникальных «${esc(g.t)}» закончился</b> — выпущено ${g.cap} из ${g.cap}.`
           : `<button type="button" class="btn primary" data-gift-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}>✨ Улучшить за ₿ ${g.up}</button>
           ${GF.coins < g.up ? `<span class="fm-muted"> — нужно ещё ${g.up - GF.coins} ₿</span>` : ''}
           <span class="fm-muted"> · выпущено уникальных: ${g.issued} из ${g.cap} — каждый следующий на 1% дороже</span>`}</p>
@@ -169,7 +194,8 @@
       ${body}`;
   }
   async function buyGift(id) {
-    const box = id === 'box', g = box ? { i: '🎲', t: 'Случайный подарок', price: GF.box } : GF.catalog.find(x => x.id === id);
+    const box = id === 'box', g = box ? { i: '🎲', t: 'Случайный подарок', price: GF.box }
+      : GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id);
     const who = gfTo ? gfMate(gfTo) : '';
     if (!g || !confirm(`Купить ${g.i} ${g.t} за ${g.price} ₿ — ${who ? `в подарок: ${who}` : 'себе'}?`)) return;
     try {
@@ -236,6 +262,8 @@
   function coinNotify(list) {
     if (!list || !list.length || TEACHER) return;
     list.forEach((c, i) => setTimeout(() => toast(c.reason === 'msell' ? `🏪 Твой подарок купили на рынке: +${c.delta} ₿ (покупатель — ${c.note})`
+      : c.reason === 'storage' ? `📦 Плата за хранение: −${-c.delta} ₿ в банк рынка (${c.note}). Биткоины выгоднее тратить, чем копить`
+      : c.reason === 'stipend' ? `🎓 Стипендия из банка рынка: +${c.delta} ₿ — ${c.note}`
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
   }
@@ -279,6 +307,6 @@
   document.addEventListener('input', e => {
     if (e.target.id !== 'mkPrice' || !GF) return;
     const p = Math.round(+e.target.value || 0), el = $('#mkGet');
-    if (el) el.textContent = p >= GF.market_min && p <= GF.market_max ? `получишь ${p - fee(p)} ₿ (комиссия ${Math.round(GF.market_fee * 100)}% сгорает)`
+    if (el) el.textContent = p >= GF.market_min && p <= GF.market_max ? `получишь ${p - fee(p)} ₿ (комиссия ${pctTxt(GF.market_fee)} — в банк рынка)`
       : `цена — от ${GF.market_min} до ${GF.market_max} ₿`;
   });

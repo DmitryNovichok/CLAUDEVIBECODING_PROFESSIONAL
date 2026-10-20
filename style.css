@@ -2517,6 +2517,21 @@ button.pf-more { cursor: pointer; } button.pf-more:hover { color: var(--text); }
 .ug.big.r-rare { box-shadow: 0 0 0 3px var(--r-rare), 0 6px 18px rgba(0, 0, 0, .18); } .ug.big.r-epic { box-shadow: 0 0 0 3px var(--r-epic), 0 0 18px var(--r-epic); }
 .ugb.r-rare { box-shadow: 0 0 0 1.5px var(--r-rare); } .ugb.r-epic { box-shadow: 0 0 0 1.5px var(--r-epic); }
 .ugb.r-legend { box-shadow: 0 0 0 1.5px var(--r-legend), 0 0 5px var(--r-legend); } .ugb.r-myth { box-shadow: 0 0 0 1.5px var(--r-myth), 0 0 6px var(--r-myth); }
+/* лимитка недели: своя редкость — золотая рамка */
+:root { --r-limited: #ffb300; }
+.rar.r-limited { background: linear-gradient(90deg, #ff6f00, #ffb300); }
+.gf-item.r-limited, .gf-own.r-limited { border-color: var(--r-limited); }
+.ug.plain.r-limited { box-shadow: 0 0 0 2px var(--r-limited), 0 0 10px var(--r-limited); }
+.ug.big.r-limited { box-shadow: 0 0 0 3px var(--r-limited), 0 0 22px var(--r-limited); }
+.gf-lim { display: flex; align-items: center; gap: 14px; margin: 0 0 12px; padding: 10px 12px; border: 2px dashed var(--r-limited); border-radius: 14px; }
+.gf-lim .gf-item { flex: none; width: 110px; }
+.gf-lim > div { display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+/* экономика сейчас: множители термостата, комиссия, банк */
+.gf-eco { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 0 12px; }
+.gf-eco > small { flex-basis: 100%; color: var(--muted); font-size: 12px; font-weight: 700; }
+.gf-eco-c { padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); font-size: 12.5px; cursor: help; }
+.gf-eco-c b { font-variant-numeric: tabular-nums; }
+.gf-eco .fm-muted { flex-basis: 100%; font-size: 12.5px; }
 .gf-rar { margin: 2px 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gf-rar .rar { font-size: 12px; padding: 2px 9px; }
 .pf-gift .rar { font-size: 9.5px; padding: 0 6px; }
