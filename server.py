@@ -1378,6 +1378,8 @@ class DB:
                     if gift in GIFT_BY and paid < 0.6 * GIFT_BY[gift][3]:
                         c.execute("UPDATE gifts SET kind='box' WHERE id=?", (gid,))
                 c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('box_kind_backfill', '1')")
+            # банку — половина заработка учеников: с первого запуска версии, за прошлое не начисляем
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('labor_bank_since', ?)", (str(time.time()),))
             # банк рынка биткоинов открывается со стартовым капиталом (один раз)
             c.execute("""INSERT INTO bank(ts, delta, reason, note) SELECT ?, ?, 'start', 'Стартовый капитал банка'
                          WHERE NOT EXISTS (SELECT 1 FROM bank)""", (time.time(), BANK_START))
@@ -5700,6 +5702,10 @@ LIMITED_R, LIMITED_CAP = 1.3, 30       # средний кошелёк > 1,3 н�
 THERMO_SET = {"idx": (0.5, 5.0), "earn": (0.25, 2.0), "fee": (0.0, 0.5), "tax": (0.0, 0.1), "target": (100, 5000)}
 THERMO_NAMES = {"idx": "Индекс цен", "earn": "Множитель заработка", "fee": "Комиссия рынка", "tax": "Плата за хранение"}
 BANK_START = 10000                     # стартовый капитал банка рынка
+# Банку — LABOR_BANK от заработка учеников трудом (опыт, бонусы за задания, варианты и самостоятельные — с множителем термостата),
+# у учеников при этом ничего не списывается. Считается по дням с запуска версии; последние LABOR_DAYS дней досчитываются
+# при каждом пересчёте экономики (поправки задним числом — срезанная накрутка), старше — окончательно.
+LABOR_BANK, LABOR_DAYS = 0.5, 7
 BANK_MOVE_MAX = 100000                 # пополнить или изъять за раз — не больше
 _ECON = {"t": 0.0, "v": None, "db": None}
 _ECON_LOCK = threading.Lock()
@@ -5858,7 +5864,7 @@ def thermo_weekly(db, now, lv, r, target, auto):
                 t = math.floor((bal - free) * lv["tax"]) if bal > free else 0
                 if t >= 1:
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'storage', ?, 0)",
-                         (sid, now, -t, f"{round(lv['tax'] * 100, 1):g}% с суммы больше {free} ₿"))
+                         (sid, now, -t, ""))
                     got += t
                     touched.append(sid)
             if got:
@@ -5878,6 +5884,32 @@ def thermo_weekly(db, now, lv, r, target, auto):
     if auto and r > LIMITED_R and not limited_now(db, now):
         limited_start(db, now, lv["idx"], "auto")
     return touched
+
+
+def labor_accrue(db, sids, now):
+    """Банку — LABOR_BANK от заработка учеников sids трудом по дням (btc_days): с запуска версии, последние LABOR_DAYS дней
+    досчитываются до нужной суммы. У учеников ничего не списывается. → сколько добавлено сейчас."""
+    since = setting_since(db, "labor_bank_since")
+    if not since:
+        return 0
+    first = time.strftime("%Y-%m-%d", time.localtime(since))
+    days = [d for d in ((datetime.fromtimestamp(now).date() - timedelta(days=k)).isoformat() for k in range(LABOR_DAYS - 1, -1, -1))
+            if d >= first]
+    if not days:
+        return 0
+    earned = dict.fromkeys(days, 0.0)
+    for sid in sids:
+        bd = game_summary(db, sid, brief=True).get("btc_days", {})
+        for d in days:
+            earned[d] += bd.get(d, (0, 0))[0]
+    have = {r["note"]: r["s"] for r in db.q("SELECT note, SUM(delta) s FROM bank WHERE reason='labor' AND note >= ? GROUP BY note", (days[0],))}
+    added = 0
+    for d in days:
+        diff = max(0, math.floor(earned[d] * LABOR_BANK)) - have.get(d, 0)
+        if diff:
+            bank_move(db, diff, "labor", d, ts=now)
+            added += diff
+    return added
 
 
 def econ(db, fresh=False):
@@ -5916,6 +5948,7 @@ def econ(db, fresh=False):
             touched = thermo_weekly(db, now, lv, r, target, auto)
             if touched:
                 LIVE.send(touched, "gift")         # плата за хранение и стипендия — уведомление сразу
+        labor_accrue(db, sids, now)               # банку — половина заработка учеников за последние дни
         bank = bank_balance(db)
         v = {"idx": lv["idx"], "earn": lv["earn"], "fee": lv["fee"], "tax": lv["tax"], "since": lv["ts"], "who": lv["who"],
              "avg": round(avg), "med": round(med), "total": total, "active": n, "target": target, "r": round(r, 2),
@@ -6330,7 +6363,8 @@ def market_hist(db, fresh=False):
     return v
 
 
-BANK_WHY = {"start": "🏦 Стартовый капитал", "fee": "🏪 Комиссия рынка", "ops": "🎁 Комиссия с подарков", "storage": "📦 Плата за хранение",
+BANK_WHY = {"start": "🏦 Стартовый капитал", "labor": "⚒ Половина заработка учеников", "fee": "🏪 Комиссия рынка",
+            "ops": "🎁 Комиссия с подарков", "storage": "📦 Плата за хранение",
             "take": "➖ Снял учитель",
             "mint": "➕ Пополнение банка", "grant": "🎁 Начислил учитель", "stipend": "🎓 Стипендия", "burn": "🔥 Изъято из банка"}
 
@@ -6344,7 +6378,7 @@ def thermo_info(db, T):
     bank_rows = []
     for r in db.q("""SELECT b.ts, b.delta, b.reason, b.note, b.teacher_id, s.name AS sname, s.teacher_id AS stid, t.name AS tname
                      FROM bank b LEFT JOIN students s ON s.id = b.student_id LEFT JOIN teachers t ON t.id = b.teacher_id
-                     WHERE b.reason <> 'ops' ORDER BY b.ts DESC, b.id DESC LIMIT 80"""):
+                     WHERE b.reason NOT IN ('ops', 'labor') ORDER BY b.ts DESC, b.id DESC LIMIT 80"""):
         mine_st = r["sname"] and (is_main or (r["stid"] or main_id) == T["id"])
         who = (r["tname"] if is_main else "вы" if r["teacher_id"] == T["id"] else "другой учитель") if r["teacher_id"] else ""
         bank_rows.append({"ts": r["ts"], "delta": r["delta"], "kind": r["reason"], "t": BANK_WHY.get(r["reason"], r["reason"]),
@@ -6354,6 +6388,13 @@ def thermo_info(db, T):
                      WHERE reason = 'ops' GROUP BY d ORDER BY d DESC LIMIT 60"""):
         bank_rows.append({"ts": r["ts"], "delta": r["s"], "kind": "ops", "t": BANK_WHY["ops"], "note": f"за день, операций: {r['c']}",
                           "who": "", "student": ""})
+    # половина заработка учеников — строкой за день (note — день, за который начислено)
+    for r in db.q("""SELECT note AS d, MAX(ts) AS ts, SUM(delta) AS s FROM bank WHERE reason = 'labor'
+                     GROUP BY note ORDER BY note DESC LIMIT 60"""):
+        if r["s"]:
+            bank_rows.append({"ts": r["ts"], "delta": r["s"], "kind": "labor", "t": BANK_WHY["labor"],
+                              "note": f"за {r['d'][8:10]}.{r['d'][5:7]}: ученики заработали ≈ {round(r['s'] / LABOR_BANK)} ₿",
+                              "who": "", "student": ""})
     bank_rows = sorted(bank_rows, key=lambda x: -x["ts"])[:80]
     sums = {r["reason"]: r["s"] for r in db.q("SELECT reason, SUM(delta) s FROM bank GROUP BY reason")}
     levers = [{"ts": r["ts"], "idx": r["idx"], "earn": r["earn"], "fee": r["fee"], "tax": r["tax"], "r": r["r"],
@@ -6362,7 +6403,7 @@ def thermo_info(db, T):
     return {"econ": e, "goal": thermo_goal(e["avg"], e["med"], e["target"]) if e["target"] else None, "is_main": is_main,
             "bank": {"balance": e["bank"], "sums": sums, "log": bank_rows}, "levers": levers, "set": THERMO_SET,
             "rules": {"step": THERMO_STEP, "idx": [IDX_MIN, IDX_MAX], "earn": [EARN_MIN, EARN_MAX], "fee": [FEE_MIN, FEE_MAX],
-                      "tax": TAX_RATE, "tax_from": TAX_FROM, "stipend_r": STIPEND_R, "stipend_max": STIPEND_MAX,
+                      "tax": TAX_RATE, "tax_from": TAX_FROM, "stipend_r": STIPEND_R, "stipend_max": STIPEND_MAX, "labor": LABOR_BANK,
                       "stipend_tasks": STIPEND_TASKS, "limited_r": LIMITED_R, "limited_cap": LIMITED_CAP, "limited_price": LIMITED_PRICE},
             "limited": limited_now(db), "limited_all": [{"id": k, "i": i, "t": t} for k, i, t in LIMITED]}
 

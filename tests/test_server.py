@@ -2867,16 +2867,17 @@ class ServerTest(unittest.TestCase):
         db.setting("thermo_week", str(server.week_start() - 7 * 86400))
         server.ECON_TARGET = 10 ** 6
         try:
-            b3 = server.bank_balance(db)
+            b3, t3 = server.bank_balance(db), time.time()
             server.econ(db, fresh=True)
         finally:
             server.ECON_TARGET = target
+        labor = db.q("SELECT COALESCE(SUM(delta), 0) s FROM bank WHERE reason='labor' AND ts >= ?", (t3,), one=True)["s"]
         st_rows = db.q("SELECT student_id, delta FROM coins WHERE reason='stipend'")
         self.assertIn(sidB, [x["student_id"] for x in st_rows])
         self.assertNotIn(sidA, [x["student_id"] for x in st_rows])                    # решал мало
         each = st_rows[0]["delta"]
         self.assertTrue(1 <= each <= server.STIPEND_MAX)
-        self.assertEqual(server.bank_balance(db), b3 - each * len(st_rows))
+        self.assertEqual(server.bank_balance(db), b3 - each * len(st_rows) + labor)        # + половина заработка за решённые
         # норма кошелька — главный учитель; другим учителям — нельзя
         self.assertEqual(self.admin("POST", "/api/admin/thermo", {"target": 50})[0], 400)
         self.assertEqual(self.admin("POST", "/api/admin/thermo", {"target": 700})[0], 200)
@@ -2891,6 +2892,39 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(any("стипендия" in x for x in today["ev"]))
         self.assertEqual(M["week"][-1]["to"], today["d"])
         self.assertEqual(M["band"], [560, 840])
+
+    def test_labor_bank(self):
+        # банку — половина заработка учеников трудом за день; у учеников ничего не списывается
+        db = server.APP.db
+        tok = self.login("Трудягин Тихон")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        ids = [t["id"] for t in BANK["tasks"]]
+        today = datetime.date.today().isoformat()
+
+        def labor_today():
+            return db.q("SELECT COALESCE(SUM(delta), 0) s FROM bank WHERE reason='labor' AND note=?", (today,), one=True)["s"]
+
+        def want():
+            sids = [r["student_id"] for r in db.q("""SELECT DISTINCT a.student_id FROM attempts a JOIN students s ON s.id = a.student_id
+                                                     WHERE a.ts > ? AND COALESCE(s.is_teacher, 0) = 0""", (time.time() - 30 * 86400,))]
+            return math.floor(0.5 * sum(server.game_summary(db, x, brief=True)["btc_days"].get(today, [0])[0] for x in sids))
+
+        server.econ(db, fresh=True)
+        self.assertEqual(labor_today(), want())
+        for j in range(6):
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,7,1,90000)",
+                 (sid, time.time() - 600 + j, f"{ids[j % len(ids)]}#lab{j}"))
+        coins = server.game_summary(db, sid)["coins"]
+        self.assertGreater(server.game_summary(db, sid, brief=True)["btc_days"][today][0], 0)
+        server.econ(db, fresh=True)
+        self.assertEqual(labor_today(), want())
+        self.assertEqual(server.game_summary(db, sid)["coins"], coins)                       # у ученика ничего не списано
+        t = time.time()
+        server.econ(db, fresh=True)                                                         # ничего нового — ничего не добавлено
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM bank WHERE reason='labor' AND ts >= ?", (t,), one=True)["c"], 0)
+        log = self.admin("GET", "/api/admin/econ")[1]["thermo"]["bank"]["log"]
+        row = next(x for x in log if x["kind"] == "labor" and x["note"].startswith(f"за {today[8:10]}.{today[5:7]}"))
+        self.assertEqual(row["delta"], labor_today())
 
     def test_gift_ops_fee(self):
         # с покупки, улучшения и продажи сразу — комиссия до 5 % в банк (четверть комиссии рынка, вниз до целого)
