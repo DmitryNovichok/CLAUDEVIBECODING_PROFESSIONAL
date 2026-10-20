@@ -7429,6 +7429,7 @@
   // Редкость считает сервер: у обычного — шанс выпасть в «🎲», у уникального — шанс сочетания («1 из N»); видна на подарке.
   // Экономика саморегулируется: термостат на сервере раз в сутки двигает цены, заработок и комиссию рынка к норме среднего
   // кошелька; комиссия и плата за хранение больших сумм уходят в банк рынка, из него — стипендии и начисления учителей.
+  // Комиссии и проценты ученику не показываем: только итоговые суммы («получишь N ₿», «продать сразу за N ₿»).
   // Тираж уникальных каждого вида ограничен, проданный подарок сгорает; каждые 25 решённых — подарок.
   let GF = null;                          // магазин и свои подарки с сервера
   let gfTo = '';                          // кому дарим: '' — себе, иначе sid одноклассника
@@ -7442,7 +7443,7 @@
   // комиссия рынка — в банк; у выпавшего в «🎲» (g.fee) при первой продаже — 50 %
   const feeRate = g => (g && g.fee != null ? g.fee : GF.market_fee);
   const fee = (p, g) => Math.ceil(p * feeRate(g));
-  const mkGetTxt = (p, g) => `получишь ${p - fee(p, g)} ₿ (комиссия ${pctTxt(feeRate(g))} — в банк рынка)`;
+  const mkGetTxt = (p, g) => `получишь ${p - fee(p, g)} ₿, когда купят`;
   const idxTxt = x => String(x).replace('.', ',');
   /** Уникальный подарок: фон-градиент, узор из символов, эффект и номер; рамка — цвета редкости. */
   function uniqTile(g, cls = '') {
@@ -7457,20 +7458,16 @@
   const rarWhy = g => (g.uniq ? `шанс такого сочетания — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
     : g.rar && g.rar.k === 'limited' ? 'продавался одну неделю ограниченным тиражом, в 🎲 не выпадает'
     : g.rar ? `шанс выпасть в 🎲 случайном подарке — ${String(g.rar.p).replace('.', ',')}%` : '');
-  const pctTxt = v => String(Math.round(v * 1000) / 10).replace('.', ',') + '%';
-  /** Экономика сейчас: множители термостата, комиссия рынка, банк и плата за хранение. */
+  /** Экономика сейчас: множители термостата и банк рынка (без комиссий и процентов). */
   function econNowHtml(G) {
-    const E = G.econ, near = G.coins > E.tax_from * 0.8;
+    const E = G.econ;
     const chip = (t, v, tip) => `<span class="gf-eco-c" title="${esc(tip)}">${t} <b>${v}</b></span>`;
     return `<div class="gf-eco"><small>📊 Экономика сейчас</small>
       ${chip('⚒ Заработок', '×' + idxTxt(E.earn), 'Множитель биткоинов за опыт, задания и варианты: денег у всех много — меньше, мало — больше')}
       ${chip('🏷 Цены', '×' + idxTxt(E.idx), 'Во сколько раз подарки дороже каталога: копят все — дороже, тратят — дешевле')}
-      ${chip('🏪 Комиссия рынка', pctTxt(E.fee), 'Сколько от цены сделки на рынке уходит в банк рынка')}
-      ${chip('🎁 С покупок и продаж', pctTxt(E.op_fee), 'С каждой покупки, «🎲», улучшения и продажи сразу эта доля цены уходит в банк рынка (с дешёвых подарков — 0). Цены в магазине от этого не выше: доля — из них')}
-      ${chip('🏦 Банк рынка', E.bank.toLocaleString('ru-RU') + ' ₿', 'Сюда — комиссии рынка и с подарков, плата за хранение; отсюда — стипендии старательным и награды учителей')}
-      ${E.tax ? chip('📦 Хранение', pctTxt(E.tax) + ' в неделю', `С суммы больше ${E.tax_from} ₿ — по понедельникам, в банк рынка`) : ''}
-      <span class="fm-muted">Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов у всех учеников.${near && E.tax
-        ? ` Копить больше ${E.tax_from} ₿ невыгодно: раз в неделю ${pctTxt(E.tax)} с лишнего уходит в банк.` : ''}</span></div>`;
+      ${chip('🏦 Банк рынка', E.bank.toLocaleString('ru-RU') + ' ₿', 'Из банка — стипендии старательным и награды учителей')}
+      <span class="fm-muted">Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов у всех учеников. Копить очень много невыгодно —
+        биткоины лучше тратить.</span></div>`;
   }
 
   async function openGifts(to, open) {
@@ -7501,13 +7498,12 @@
             улучшить нельзя: такой подарок будет только у ${lim.cap} учеников.` : `Раскупили все ${lim.cap} штук.`}</span></div></div>` : ''}
         <div class="gf-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'gf-box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar, x.demand)).join('')}</div>
         <p class="fm-note">🎲 Случайный подарок — может выпасть любой, даже Дракон; чем дороже подарок, тем реже он выпадает.
-          Выпавший подарок можно продать на рынке, но с комиссией ${pctTxt(G.market_fee_box)}.
           ▲ — подарок покупают чаще других, он дорожает; ▼ — реже, он дешевеет.${G.econ.idx !== 1 ? ` Цены сейчас ×${idxTxt(G.econ.idx)} от каталога.` : ''}</p>`;
     const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(x => `<button type="button" class="gf-own${x.uniq ? ' uniq' : ''} r-${gfRar(x).k}" data-gift-open="${x.id}"
           title="${esc(x.t)}${x.uniq ? ' #' + x.uniq.n : ''} · ${esc(gfRar(x).t)}: ${esc(rarWhy(x))}">${x.uniq ? uniqTile(x) : `<span class="gf-ic">${x.i}</span>`}
           <b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b>${rarHtml(x)}<small>${x.listed != null ? `🏪 на рынке · ₿ ${x.listed}` : esc(gfFrom(x))}</small></button>`).join('')}</div>
         <p class="fm-note">Нажми на подарок — его можно улучшить до уникального (номер, фон, узор, эффект и поза; тираж — ${G.cap} штук каждого вида).
-          Улучшение — от ₿ ${G.up_min}: чем дороже подарок, тем дороже, и +1% за каждый уже выпущенный уникальный этого вида.
+          Улучшение — от ₿ ${G.up_min}: чем дороже подарок и чем больше уже выпущено уникальных этого вида, тем дороже.
           Подарок можно и продать — сразу или на рынке одноклассникам за свою цену. Редкость: у обычного подарка — шанс выпасть в 🎲, у уникального — шанс его сочетания.</p>`
       : '<p class="fm-muted">Пока ни одного — купи себе первый или дождись подарка от учителя.</p>';
     $('#forecastBody').innerHTML = `
@@ -7531,7 +7527,6 @@
   }
   /** Рынок одноклассников: подарки, выставленные за свою цену; свои — с кнопкой «Снять». */
   function marketHtml(G) {
-    const pct = String(Math.round(G.market_fee * 1000) / 10).replace('.', ',');
     const list = G.market;
     const card = x => {
       const tile = x.uniq ? uniqTile(x) : `<span class="ug plain r-${x.rar.k}"><span class="ug-ic">${x.i}</span></span>`;
@@ -7544,8 +7539,7 @@
     };
     return `${list.length ? `<div class="mk-list">${list.map(card).join('')}</div>` : '<p class="fm-muted">Пока никто ничего не продаёт.</p>'}
       <p class="fm-note">🏪 Рынок — подарки одноклассников за их цену. Уникальный переходит к покупателю со своим номером и свойствами.
-        Чтобы продать свой — открой его в «Моих подарках» и нажми «Выставить на рынок»; продавец получает цену минус ${pct}% —
-        комиссия уходит в банк рынка, из которого платят стипендии и награды. Подарок, выпавший в 🎲, — минус ${pctTxt(G.market_fee_box)}.</p>`;
+        Чтобы продать свой — открой его в «Моих подарках» и нажми «Выставить на рынок»: там же видно, сколько ты получишь.</p>`;
   }
   /** Оценка подарков: сколько дадут, если продать всё сейчас, сколько такие стоят в магазине и три самых ценных.
    *  open — в окне подарков: по самому ценному можно открыть его карточку. */
@@ -7597,10 +7591,9 @@
       : `<p class="gf-sell mk-sell"><label>🏪 Продать одноклассникам за <input class="inp" id="mkPrice" type="number" min="${GF.market_min}" max="${GF.market_max}" value="${suggest}"> ₿</label>
           <button type="button" class="btn" data-gift-list="${g.id}">Выставить на рынок</button>
           <span class="fm-muted" id="mkGet">${mkGetTxt(suggest, g)}</span></p>
-          ${g.box ? `<p class="fm-note">🎲 Подарок выпал в «Случайном подарке»: на рынке с него комиссия ${pctTxt(GF.market_fee_box)} —
-            иначе было бы выгодно покупать «🎲» и перепродавать дорогие выпадения. Покупатель потом перепродаст с обычной комиссией.</p>` : ''}`;
+`;
     const sell = g.listed != null ? market : `<p class="gf-sell"><button type="button" class="btn" data-gift-sell="${g.id}">💰 Продать сразу за ₿ ${g.sell}</button>
-        <span class="fm-muted">${vs ? vs.slice(3) + ' · ' : ''}${u ? '' : 'обычный подарок продаётся за половину цены, '}${pctTxt(GF.econ.op_fee)} — в банк рынка</span></p>${market}`;
+        <span class="fm-muted">${vs ? vs.slice(3) : 'подарок сгорит, биткоины — сразу на счёт'}</span></p>${market}`;
     const body = u
       ? `<table class="fm-table gf-props">${u.props.map(p => `<tr><td class="fm-muted">${p.k}</td><td><b>${esc(p.t)}</b></td>
           <td class="num"><span class="chip">${String(p.p).replace('.', ',')}%</span></td></tr>`).join('')}</table>
@@ -7616,7 +7609,7 @@
           : g.up == null ? `<b>Тираж уникальных «${esc(g.t)}» закончился</b> — выпущено ${g.cap} из ${g.cap}.`
           : `<button type="button" class="btn primary" data-gift-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}>✨ Улучшить за ₿ ${g.up}</button>
           ${GF.coins < g.up ? `<span class="fm-muted"> — нужно ещё ${g.up - GF.coins} ₿</span>` : ''}
-          <span class="fm-muted"> · выпущено уникальных: ${g.issued} из ${g.cap} — каждый следующий на 1% дороже</span>`}</p>
+          <span class="fm-muted"> · выпущено уникальных: ${g.issued} из ${g.cap} — каждый следующий чуть дороже</span>`}</p>
         ${sell}`;
     $('#forecastBody').innerHTML = `<button type="button" class="btn small ghost" id="gfBack">← к подаркам</button>
       <div class="gf-card">${big}
@@ -7693,7 +7686,7 @@
   function coinNotify(list) {
     if (!list || !list.length || TEACHER) return;
     list.forEach((c, i) => setTimeout(() => toast(c.reason === 'msell' ? `🏪 Твой подарок купили на рынке: +${c.delta} ₿ (покупатель — ${c.note})`
-      : c.reason === 'storage' ? `📦 Плата за хранение: −${-c.delta} ₿ в банк рынка (${c.note}). Биткоины выгоднее тратить, чем копить`
+      : c.reason === 'storage' ? `📦 Плата за хранение большой суммы: −${-c.delta} ₿. Биткоины выгоднее тратить, чем копить`
       : c.reason === 'stipend' ? `🎓 Стипендия из банка рынка: +${c.delta} ₿ — ${c.note}`
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
