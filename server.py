@@ -6128,7 +6128,7 @@ LIMITED_BY = {k: (k, i, t, LIMITED_PRICE) for k, i, t in LIMITED}
 GIFT_BY.update(LIMITED_BY)
 GIFT_BOX_PRICE = 60                    # «🎲 Случайный подарок»: выпадает любой, дорогие — реже (вес ∝ 1 / цена)
 GIFTS_SHOW = 5                         # сколько подарков видно у ника
-GIFTS_PER_DAY = 20                     # подарков, которые ученик может купить за сутки
+GIFTS_PER_DAY = 40                     # подарков, которые ученик может купить за сутки
 GIFT_NOTE_MAX = 80
 COINS_GRANT_MAX = 1000                 # биткоинов за одно начисление учителем
 _GIFT_LOCK = threading.Lock()          # проверка баланса, покупка и номер уникального подарка — одним шагом
