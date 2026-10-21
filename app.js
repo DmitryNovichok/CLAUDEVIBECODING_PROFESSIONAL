@@ -5708,7 +5708,7 @@
   function renderProfile() {
     const P = PROF;
     if (!P) return;
-    const back = profBack === 'rating' ? '<button type="button" class="btn small ghost" id="profBack">← к рейтингу</button>' : '';
+    const back = profBack ? `<button type="button" class="btn small ghost" id="profBack">← ${profBack === 'forbes' ? 'к Forbes' : 'к рейтингу'}</button>` : '';
     const pick = profPick;
     const nick = (pick ? pick.map(k => [...P.awards, ...P.extra, ...P.ach].find(a => a.k === k)).filter(Boolean)
       .map(a => ({ i: a.i, t: a.t, n: a.k === 'fire' || a.n > 1 ? a.n : 0 })) : P.badges);
@@ -5798,7 +5798,7 @@
   }
   document.addEventListener('click', e => {
     const pr = e.target.closest('[data-prof]');
-    if (pr) { openProfile(pr.dataset.prof, pr.closest('.lb-wrap') ? 'rating' : null); return; }
+    if (pr) { openProfile(pr.dataset.prof, pr.closest('.lb-wrap') ? 'rating' : pr.closest('[data-fb-prof]') ? 'forbes' : null); return; }
     const fl = e.target.closest('[data-fly]');
     if (fl) { toast(fl.dataset.fly, 2500); return; }      // летающий подарок: на телефоне подсказки нет — название всплывает
     if (!PROF || !e.target.closest('#forecastBody')) return;
@@ -5807,7 +5807,7 @@
     if (e.target.closest('[data-pmore]')) { profMore = true; renderProfile(); return; }
     const t = e.target.closest('#profBack, #profEdit, #profSave, #profAuto, #profCancel, [data-pick]');
     if (!t) return;
-    if (t.id === 'profBack') return openRating();
+    if (t.id === 'profBack') return profBack === 'forbes' ? openForbes() : openRating();
     if (t.id === 'profEdit') { profPick = (PROF.chosen || PROF.badges.map(b => b.k)).slice(0, PROF.max); return renderProfile(); }
     if (t.id === 'profCancel') { profPick = null; return renderProfile(); }
     if (t.id === 'profSave') return saveBadges(profPick);
@@ -7526,8 +7526,7 @@
   // Тираж уникальных каждого вида ограничен, проданный подарок сгорает; каждые 25 решённых — подарок.
   let GF = null;                          // магазин и свои подарки с сервера
   let gfTo = '';                          // кому дарим: '' — себе, иначе sid одноклассника
-  let gfOpen = null;                      // открытая карточка подарка (id) или null — магазин
-  let gfTab = 'shop';                     // магазин или рынок одноклассников
+  let gfTab = 'shop';                     // вкладка окна: shop, market, mine, forbes, log
   const gfDate = ts => { const d = new Date(ts * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`; };
   const gfMate = sid => (GF.mates.find(m => String(m.sid) === String(sid)) || {}).name || '';
   const btcWord = n => plural(n, 'биткоин', 'биткоина', 'биткоинов');
@@ -7551,170 +7550,196 @@
   const rarWhy = g => (g.uniq ? `шанс такого сочетания — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
     : g.rar && g.rar.k === 'limited' ? 'продавался одну неделю ограниченным тиражом, в 🎲 не выпадает'
     : g.rar ? `шанс выпасть в 🎲 случайном подарке — ${String(g.rar.p).replace('.', ',')}%` : '');
-  /** Экономика сейчас: множители термостата и банк рынка (без комиссий и процентов). */
-  function econNowHtml(G) {
-    const E = G.econ;
-    const chip = (t, v, tip) => `<span class="gf-eco-c" title="${esc(tip)}">${t} <b>${v}</b></span>`;
-    return `<div class="gf-eco"><small>📊 Экономика сейчас</small>
-      ${chip('⚒ Заработок', '×' + idxTxt(E.earn), 'Множитель биткоинов за опыт, задания и варианты: денег у всех много — меньше, мало — больше')}
-      ${chip('🏷 Цены', '×' + idxTxt(E.idx), 'Во сколько раз подарки дороже каталога: копят все — дороже, тратят — дешевле')}
-      ${chip('🏦 Банк рынка', E.bank.toLocaleString('ru-RU') + ' ₿', 'Из банка — стипендии старательным и награды учителей')}
-      <span class="fm-muted">Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов у всех учеников. Копить очень много невыгодно —
-        биткоины лучше тратить.</span></div>`;
-  }
+  // Окно «Биткоины» как приложение: вкладки снизу (Магазин / Рынок / Мои / Forbes / История), нажал на подарок — снизу шторка
+  // с крупными кнопками; правила и экономика — под «?». Текста на экране — минимум: суммы и действия.
+  let gfSheet = null;                     // шторка: { k: 'mine' | 'shop' | 'mk' | 'help', id } или null
+  let gfMkOpen = false;                   // в шторке своего подарка открыта строка «выставить на рынок»
+  let gfFresh = 0;                        // только что улучшенный подарок — плитка «раскрывается»
+  let FB = null, fbTab = 'rich';          // Forbes класса и его вкладка
+  const num = v => Number(v || 0).toLocaleString('ru-RU');
+  const gfTile = (g, s = 52, extra = '') => `<span class="bx-t s${s}">${g.uniq ? uniqTile(g, extra) : `<span class="ug plain r-${g.rar.k} ${extra}"><span class="ug-ic">${g.i}</span></span>`}</span>`;
+  const gfName = g => esc(g.t) + (g.uniq ? ` <span class="ug-num">#${g.uniq.n}</span>` : '');
 
-  async function openGifts(to, open) {
+  async function openGifts(to, open, tab) {
     if (!SERVER) return;
     try { GF = await api('gifts'); } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось открыть подарки'); return; }
-    if (to !== undefined) gfTo = to && gfMate(to) ? String(to) : '';
-    gfOpen = open || null;
+    if (to !== undefined) { gfTo = to && gfMate(to) ? String(to) : ''; if (gfTo) gfTab = 'shop'; }
+    gfSheet = open ? { k: 'mine', id: open } : null;
+    if (open) gfTab = 'mine';
+    if (tab) gfTab = tab;
+    gfMkOpen = false;
+    if (gfTab === 'forbes') loadForbes();
+    const fresh = $('#forecastModal').hidden;
     renderGifts();
     $('#forecastModal').hidden = false;
+    if (fresh) {                                  // только что открыли — с начала (на телефоне окно само уезжало вниз)
+      const m = $('#forecastModal');
+      m.scrollTop = 0;
+      requestAnimationFrame(() => { m.scrollTop = 0; });
+    }
+  }
+  async function loadForbes() {
+    try { FB = await api('forbes'); } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось открыть Forbes'); return; }
+    if (gfTab === 'forbes' && GF && !$('#forecastModal').hidden) renderGifts();
   }
   function renderGifts() {
-    const g = gfOpen && GF.mine.find(x => x.id === gfOpen);
-    if (g) return renderGift(g);
-    const G = GF, coins = G.coins, who = gfTo ? gfMate(gfTo) : '', lim = G.limited;
+    if (gfSheet && gfSheet.k === 'mine' && !GF.mine.find(x => x.id === gfSheet.id)) gfSheet = null;
+    const G = GF, tabs = [['shop', '🛍', 'Магазин'], ['market', '🏪', 'Рынок', G.market.filter(x => !x.mine).length],
+      ['mine', '🎁', 'Мои', G.mine.length], ['forbes', '🏆', 'Forbes'], ['log', '📜', 'История']];
+    const body = { shop: shopTab, market: marketTab, mine: mineTab, forbes: forbesTab, log: logTab }[gfTab] || shopTab;
+    $('#forecastBody').innerHTML = `<div class="bx${gfSheet ? ' has-sheet' : ''}">
+      <div class="bx-top"><h2>Биткоины</h2><span class="bx-pill" title="${num(G.coins)} ${btcWord(G.coins)}">₿ ${num(G.coins)}</span>
+        <button type="button" class="bx-q" data-bx-help title="Как заработать и как всё устроено">?</button></div>
+      <div class="bx-body">${body(G)}</div>
+      ${gfSheet ? `<div class="bx-sheet" role="dialog"><button type="button" class="bx-grab" data-bx-close aria-label="Закрыть"></button>${sheetHtml(G)}</div>` : ''}
+      <nav class="bx-tabs">${tabs.map(([k, i, t, n]) => `<button type="button" class="${gfTab === k ? 'on' : ''}" data-bx-tab="${k}"><span>${i}</span>${t}${n ? `<b>${n}</b>` : ''}</button>`).join('')}</nav>
+    </div>`;
+  }
+  // ---- вкладки
+  function shopTab(G) {
+    const lim = G.limited, who = gfTo ? gfMate(gfTo) : '';
     const left = Math.max(0, G.per_day - G.bought_today);
-    // спрос: подарок покупали за неделю заметно чаще среднего — дороже (▲), реже — дешевле (▼); мелкие колебания не показываем
-    const trend = d => (d >= 1.05 ? `<em class="gf-trend up" title="Спрос растёт — цена ×${idxTxt(d)}">▲</em>`
-      : d <= 0.95 ? `<em class="gf-trend down" title="Спрос падает — цена ×${idxTxt(d)}">▼</em>` : '');
-    const item = (id, i, t, price, cls = '', rar = null, dem = 1) => `<button type="button" class="gf-item ${cls}${rar ? ' r-' + rar.k : ''}" data-gift="${id}"${price > coins || !left ? ' disabled' : ''}
-        title="${esc(t)} — ${price} ₿${rar ? ` · ${rar.t}: ${rarWhy({ rar })}` : ''}"><span class="gf-ic">${i}</span><b>${esc(t)}</b><small>₿ ${price}${trend(dem)}</small>${rar ? rarHtml({ rar }) : ''}</button>`;
-    const shop = G.teacher ? '<p class="fm-note">Учительский аккаунт дарит подарки из панели учителя — вкладка «Подарки».</p>'
-      : `<div class="gf-to"><label>Кому <select class="inp" id="gfTo"><option value="">себе</option>${G.mates.map(m =>
-          `<option value="${m.sid}"${String(m.sid) === gfTo ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
-          <span class="fm-muted">${left ? `Сегодня можно купить ещё ${left}` : 'На сегодня подарков хватит — завтра снова можно'}</span></div>
-        ${lim ? `<div class="gf-lim"><button type="button" class="gf-item r-limited" data-gift="${lim.gift}"${lim.price > coins || !left || !lim.left ? ' disabled' : ''}
-            title="${esc(lim.t)} — ${lim.price} ₿"><span class="gf-ic">${lim.i}</span><b>${esc(lim.t)}</b><small>₿ ${lim.price}</small>${rarHtml({ rar: { k: 'limited', t: 'Лимитка' } })}</button>
-          <div><b>🎆 Лимитка недели</b><span class="fm-muted">${lim.left ? `Осталось ${lim.left} из ${lim.cap} — продаётся до ${gfDate(lim.stop)}. В каталог и в 🎲 не попадёт,
-            улучшить нельзя: такой подарок будет только у ${lim.cap} учеников.` : `Раскупили все ${lim.cap} штук.`}</span></div></div>` : ''}
-        <div class="gf-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'gf-box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar, x.demand)).join('')}</div>
-        <p class="fm-note">🎲 Случайный подарок — может выпасть любой, даже Дракон; чем дороже подарок, тем реже он выпадает.
-          ▲ — подарок покупают чаще других, он дорожает; ▼ — реже, он дешевеет.${G.econ.idx !== 1 ? ` Цены сейчас ×${idxTxt(G.econ.idx)} от каталога.` : ''}</p>`;
-    const mine = G.mine.length ? `<div class="gf-mine">${G.mine.map(x => `<button type="button" class="gf-own${x.uniq ? ' uniq' : ''} r-${gfRar(x).k}" data-gift-open="${x.id}"
-          title="${esc(x.t)}${x.uniq ? ' #' + x.uniq.n : ''} · ${esc(gfRar(x).t)}: ${esc(rarWhy(x))}">${x.uniq ? uniqTile(x) : `<span class="gf-ic">${x.i}</span>`}
-          <b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b>${rarHtml(x)}<small>${x.listed != null ? `🏪 на рынке · ₿ ${x.listed}` : esc(gfFrom(x))}</small></button>`).join('')}</div>
-        <p class="fm-note">Нажми на подарок — его можно улучшить до уникального (номер, фон, узор, эффект и поза; тираж — ${G.cap} штук каждого вида).
-          Улучшение — от ₿ ${G.up_min}: чем дороже подарок и чем больше уже выпущено уникальных этого вида, тем дороже.
-          Подарок можно и продать — сразу или на рынке одноклассникам за свою цену. Редкость: у обычного подарка — шанс выпасть в 🎲, у уникального — шанс его сочетания.</p>`
-      : '<p class="fm-muted">Пока ни одного — купи себе первый или дождись подарка от учителя.</p>';
-    $('#forecastBody').innerHTML = `
-      <div class="gm-head"><span class="gm-level gf-coin">₿</span>
-        <div style="flex:1"><h2 class="fm-title" style="margin:0">${coins} ${btcWord(coins)}</h2>
-          <span class="fm-muted">Только трудом: сейчас 1 ₿ = ${G.coin_xp} XP опыта${G.coin_xp > G.rate_base ? ` (решает много людей — биткоин дороже обычных ${G.rate_base} XP)` : ''}${
-            G.econ.earn !== 1 ? ` и весь заработок ×${idxTxt(G.econ.earn)}` : ''},
-            а за каждое решённое задание — ещё биткоины сверху: чем сложнее задание, тем больше. Каждые ${G.work_every} решённых — подарок в награду.
-            Решено слишком быстро — минус 1 ₿${G.fines ? ` (уже −${G.fines} ₿)` : ''}: быстрее ${G.fine_sec} секунд, а №24–27 — быстрее
-            ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.
-            За вариант ЕГЭ — бонус по тестовому баллу: ${examBtcTxt(G)}; самостоятельные от учителя — так же, как вариант.</span></div></div>
-      ${G.teacher ? '' : econNowHtml(G)}
-      ${giftValueHtml(G.value, true, true)}
-      <div class="pf-tabs gf-tabs"><button type="button" class="pf-tab${gfTab === 'shop' ? ' on' : ''}" data-gftab="shop">🛍 Магазин${who ? ` — для ${esc(who)}` : ''}</button>
-        <button type="button" class="pf-tab${gfTab === 'market' ? ' on' : ''}" data-gftab="market">🏪 Рынок · ${G.market.filter(x => !x.mine).length}</button></div>
-      ${gfTab === 'market' ? marketHtml(G) : shop}
-      <h3 class="fm-sub">Мои подарки · ${G.mine.length}</h3>
-      ${mine}
-      ${ledgerHtml(G)}
-      <p class="fm-note">Подарки видны маленькими значками у ника — в рейтинге и в профиле: сначала уникальные, всего до ${G.show}.</p>`;
+    const trend = d => (d >= 1.05 ? '<em class="gf-trend up">▲</em>' : d <= 0.95 ? '<em class="gf-trend down">▼</em>' : '');
+    const item = (id, i, t, price, cls, rar, dem) => `<button type="button" class="bx-it ${cls || ''}${rar ? ' r-' + rar.k : ''}${price > G.coins ? ' dim' : ''}" data-bx-shop="${id}" title="${esc(t)}">
+      <span class="e">${i}</span><b>₿ ${num(price)}${trend(dem || 1)}</b>${cls === 'box' ? '<small>Случайный</small>' : ''}</button>`;
+    return `${who ? `<div class="bx-for">🎁 Подарок для <b>${esc(who)}</b><button type="button" class="bx-x" data-bx-to="" title="Покупать себе">✕</button></div>` : ''}
+      ${G.mine.length ? `<div class="bx-sec">🎁 Мои подарки <small>${G.mine.length}</small><button type="button" class="bx-more" data-bx-tab="mine">все →</button></div>
+        <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
+      ${lim && lim.left ? `<button type="button" class="bx-lim" data-bx-shop="${lim.gift}"><span class="e">${lim.i}</span><span><b>Лимитка недели · ${esc(lim.t)}</b>
+        <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
+      <div class="bx-sec">🛍 Магазин${left < 5 ? ` <small>${left ? `сегодня можно ещё ${left}` : 'на сегодня всё — завтра снова'}</small>` : ''}</div>
+      ${G.teacher ? '<p class="fm-muted">Учительский аккаунт дарит подарки из панели учителя.</p>' : ''}
+      <div class="bx-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar, x.demand)).join('')}</div>`;
   }
-  /** Рынок одноклассников: подарки, выставленные за свою цену; свои — с кнопкой «Снять». */
-  function marketHtml(G) {
-    const list = G.market;
-    const card = x => {
-      const tile = x.uniq ? uniqTile(x) : `<span class="ug plain r-${x.rar.k}"><span class="ug-ic">${x.i}</span></span>`;
-      const vs = x.price < x.shop ? `<span class="gf-plus">дешевле магазина (₿ ${x.shop})</span>` : `в магазине ₿ ${x.shop}`;
-      return `<div class="mk-item${x.mine ? ' mine' : ''}">${tile}
-        <div class="mk-t"><b>${esc(x.t)}${x.uniq ? ` <span class="ug-num">#${x.uniq.n}</span>` : ''}</b> ${rarHtml(x)}
-          <small>${x.mine ? 'твой' : 'продаёт ' + esc(x.seller)} · ${vs}</small></div>
-        ${x.mine ? `<button type="button" class="btn small ghost" data-gift-unlist="${x.id}">Снять</button>`
-          : `<button type="button" class="btn small primary" data-mk-buy="${x.id}"${G.teacher || G.coins < x.price ? ' disabled' : ''}>₿ ${x.price}</button>`}</div>`;
-    };
-    return `${list.length ? `<div class="mk-list">${list.map(card).join('')}</div>` : '<p class="fm-muted">Пока никто ничего не продаёт.</p>'}
-      <p class="fm-note">🏪 Рынок — подарки одноклассников за их цену. Уникальный переходит к покупателю со своим номером и свойствами.
-        Чтобы продать свой — открой его в «Моих подарках» и нажми «Выставить на рынок»: там же видно, сколько ты получишь.</p>`;
+  function marketTab(G) {
+    if (!G.market.length) return `<div class="bx-empty"><span>🏪</span><b>Пока никто ничего не продаёт</b><small>Свой подарок — во вкладке «Мои» → «На рынок»</small></div>`;
+    return `<div class="bx-list">${G.market.map(x => `<button type="button" class="bx-row${x.mine ? ' mine' : ''}" data-bx-mk="${x.id}">${gfTile(x, 52)}
+      <span class="bx-rt"><b>${gfName(x)}</b> ${rarHtml(x)}<small>${x.mine ? 'твой' : esc(x.seller)}${x.price < x.shop ? ' · дешевле магазина' : ''}</small></span>
+      <span class="bx-price${x.mine ? ' ghost' : ''}">₿ ${num(x.price)}</span></button>`).join('')}</div>`;
   }
-  /** Оценка подарков: сколько дадут, если продать всё сейчас, сколько такие стоят в магазине и три самых ценных.
-   *  open — в окне подарков: по самому ценному можно открыть его карточку. */
-  function giftValueHtml(V, me, open) {
-    if (!V || !V.n) return '';
-    const num = v => v.toLocaleString('ru-RU');
-    const top = V.top.map(g => {
-      const name = esc(g.t) + (g.uniq ? ' #' + g.uniq.n : '');
-      const tile = g.uniq ? uniqTile(g) : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`;
-      const tag = open ? 'button' : 'span';
-      return `<${tag}${open ? ` type="button" data-gift-open="${g.id}"` : ''} class="gv-top" title="${name} · ${esc(gfRar(g).t)} · при продаже ${num(g.sell)} ₿">
-        ${tile}<b>${name}</b><small>${num(g.sell)} ₿</small></${tag}>`;
-    }).join('');
-    return `<div class="gf-value">
-      <div class="gv-main"><small>💎 Оценка ${me ? 'твоих ' : ''}подарков</small><b>≈ ${num(V.sell)} ₿</b>
-        <span>столько дадут, если продать ${V.n === 1 ? 'его' : `все ${V.n}`} сейчас; в магазине такие стоят ${num(V.shop)} ₿</span></div>
-      ${top ? `<div class="gv-tops"><small>Самые ценные</small>${top}</div>` : ''}</div>`;
+  function mineTab(G) {
+    if (!G.mine.length) return `<div class="bx-empty"><span>🎁</span><b>Пока ни одного подарка</b><small>Купи себе первый в «Магазине»</small>
+      <button type="button" class="btn primary" data-bx-tab="shop">🛍 В магазин</button></div>`;
+    const V = G.value;
+    return `${V && V.n ? `<div class="bx-worth"><small>💎 Твои подарки стоят</small><b>≈ ₿ ${num(V.sell)}</b></div>` : ''}
+      <div class="bx-mine">${G.mine.map(x => `<button type="button" class="bx-card r-${gfRar(x).k}" data-bx-mine="${x.id}">${gfTile(x, 64)}
+        <b>${gfName(x)}</b><small>${x.listed != null ? `🏪 ₿ ${num(x.listed)}` : `≈ ₿ ${num(x.sell)}`}</small></button>`).join('')}</div>`;
   }
-  /** «40+ — 15 ₿, 60+ — 30 ₿…» — бонусы за вариант ЕГЭ от меньшего балла к большему. */
-  const examBtcTxt = G => G.exam_btc.slice().reverse().map(([low, b]) => `${low}+ — ${b} ₿`).join(', ');
-  /** История биткоинов, кроме опыта: начисления и снятия учителем, покупки, улучшения, продажи, штрафы за спешку. */
-  function ledgerHtml(G) {
-    const why = { grant: '➕ Начислил учитель', take: '➖ Снял учитель', gift: '🎁 Покупка подарка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
-      mbuy: '🏪 Покупка на рынке у', msell: '🏪 Продажа на рынке —', storage: '📦 Плата за хранение', stipend: '🎓 Стипендия из банка' };
-    const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (r.reason === 'mbuy' || r.reason === 'msell' ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
-      <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${Math.abs(r.delta)} ₿</td></tr>`).join('');
-    if (!rows && !G.fines && !G.exam_coins && !G.task_coins) return '';
-    return `<details class="xp-log"><summary>История биткоинов</summary>
-      ${G.task_coins ? `<p class="fm-note">🧩 Бонусы за решённые задания: <b class="xp-plus">+${G.task_coins} ₿</b> (чем сложнее задание, тем больше).</p>` : ''}
-      ${G.exam_coins ? `<p class="fm-note">🎓 Бонусы за варианты ЕГЭ и самостоятельные: <b class="xp-plus">+${G.exam_coins} ₿</b> (${examBtcTxt(G)}).</p>` : ''}
-      ${G.fines ? `<p class="fm-note">Штраф за слишком быстрые ответы: −${G.fines} ₿ (по 1 ₿ за задание).</p>` : ''}
-      ${rows ? `<table class="fm-table">${rows}</table>` : ''}
-      <p class="fm-note">Биткоины за опыт здесь не показаны — они приходят сами: 1 ₿ за каждые ${G.coin_xp} XP.</p></details>`;
+  function logTab(G) {
+    const why = { grant: '➕ Учитель', take: '➖ Учитель', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
+      mbuy: '🏪 Купил у', msell: '🏪 Продал —', storage: '📦 Хранение', stipend: '🎓 Стипендия' };
+    const sum = [G.task_coins ? `🧩 за задания <b class="xp-plus">+${num(G.task_coins)}</b>` : '', G.exam_coins ? `🎓 за варианты <b class="xp-plus">+${num(G.exam_coins)}</b>` : '',
+      G.fines ? `⏱ штрафы <b class="xp-minus">−${num(G.fines)}</b>` : ''].filter(Boolean);
+    const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts).slice(0, 5)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (r.reason === 'mbuy' || r.reason === 'msell' ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
+      <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${num(Math.abs(r.delta))}</td></tr>`).join('');
+    return `${sum.length ? `<div class="bx-sum">${sum.map(x => `<span>${x}</span>`).join('')}</div>` : ''}
+      ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Биткоины за опыт приходят сами — их здесь нет</small></div>'}`;
   }
-  /** Карточка подарка: свойства уникального или кнопка «Улучшить». */
-  function renderGift(g, fresh) {
-    const u = g.uniq;
-    const big = u ? uniqTile(g, 'big' + (fresh ? ' reveal' : '')) : `<span class="ug plain big r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`;
-    const rarRow = `<div class="gf-rar">${rarHtml(g)} <span class="fm-muted">${esc(rarWhy(g))}</span></div>`;
-    const meta = [gfFrom(g), gfDate(g.ts)].filter(Boolean).join(' · ');
-    // продажа: сравнение с нынешней ценой улучшения — уникальный бывает дешевле улучшения (редкий) и в разы дороже (мифический)
-    const diff = g.up_now ? g.sell - g.up_now : 0;
-    const vs = !u ? '' : g.up_now == null ? ' · тираж закончился — таких больше не будет'
-      : diff >= 0 ? ` · <b class="gf-plus">на ${diff} ₿ дороже</b> улучшения (₿ ${g.up_now})` : ` · <span class="gf-minus">на ${-diff} ₿ дешевле</span> улучшения (₿ ${g.up_now})`;
+  // ---- Forbes класса: обложка журнала, список и вкладки
+  const fbAv = (r, s) => (r.avatar ? `<span class="fb-av r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.i}</span>`
+    : `<span class="fb-av plain" style="--s:${s}px">${esc(r.name[0] || '?')}</span>`);
+  const fbDelta = w => (w == null ? '' : `<em class="fb-dl ${w > 0 ? 'up' : w < 0 ? 'dn' : ''}">${w > 0 ? '▲' : w < 0 ? '▼' : '='} ${w ? num(Math.abs(w)) : ''}</em>`);
+  const fbTags = r => [r.rocket ? '<span class="fb-tag rocket">🚀 рывок недели</span>' : '', r.new ? '<span class="fb-tag new">новичок</span>' : '',
+    r.me ? '<span class="fb-tag me">это ты</span>' : ''].join('');
+  const RK_T = { 'u:myth': 'мифич.', 'u:legend': 'легенд.', 'u:epic': 'эпич.', 'u:rare': 'редк.', limited: 'лимитка' };
+  function forbesTab() {
+    const subs = [['rich', '💰 Состояние'], ['gift', '🎁 Подарок'], ['coll', '🖼 Коллекция'], ['rare', '💎 Редкость']];
+    const head = `<div class="fb-head"><div class="fb-title">FORBES <i>Egeshka</i></div><small>Самые богатые в классе · ${FB ? FB.month : ''}</small></div>
+      <div class="fb-subs">${subs.map(([k, t]) => `<button type="button" class="${fbTab === k ? 'on' : ''}" data-fb-tab="${k}">${t}</button>`).join('')}</div>`;
+    if (!FB) return head + '<p class="fm-muted">Загружаю…</p>';
+    const gap = (list, i) => (i && list[i].rank > list[i - 1].rank + 1 ? '<div class="fb-gap">…</div>' : '');
+    const row = (r, i, list, val, sub) => `${gap(list, i)}<button type="button" class="fb-row${r.me ? ' me' : ''}" data-prof="${r.sid}" data-fb-prof>
+      <span class="fb-pl">${r.rank}</span>${fbAv(r, 40)}<span class="fb-who"><b>${esc(r.name)} ${fbTags(r)}</b>${sub}</span><span class="fb-val">${val}</span></button>`;
+    const shelf = r => `<span class="fb-shelf">${r.tops.slice(0, 4).map(g => gfTile(g, 24)).join('')}</span>`;
+    if (fbTab === 'gift') {
+      if (!FB.gifts.length) return head + '<div class="bx-empty"><span>🎁</span><b>Подарков пока нет</b></div>';
+      return head + `<div class="fb-list">${FB.gifts.map((g, i) => `<button type="button" class="fb-row${g.me ? ' me' : ''}" data-prof="${g.sid}" data-fb-prof>
+        <span class="fb-pl">${i + 1}</span>${gfTile(g, i ? 40 : 56)}<span class="fb-who"><b>${gfName(g)}</b><small>${rarHtml(g)} ${esc(g.owner)}${g.me ? ' · это ты' : ''}</small></span>
+        <span class="fb-val"><b><span class="coin">₿</span> ${num(g.sell)}</b></span></button>`).join('')}</div>`;
+    }
+    if (fbTab === 'coll') {
+      if (!FB.coll.length) return head + '<div class="bx-empty"><span>🖼</span><b>Коллекций пока нет</b></div>';
+      return head + `<div class="fb-list">${FB.coll.map((r, i, l) => row(r, i, l, `<b><span class="coin">₿</span> ${num(r.value)}</b><small>${r.n} ${plural(r.n, 'подарок', 'подарка', 'подарков')}</small>`, shelf(r))).join('')}</div>`;
+    }
+    if (fbTab === 'rare') {
+      if (!FB.rare.length) return head + '<div class="bx-empty"><span>💎</span><b>Коллекций пока нет</b></div>';
+      const tiers = r => Object.entries(r.tiers).filter(([k]) => RK_T[k]).sort((a, b) => Object.keys(RK_T).indexOf(a[0]) - Object.keys(RK_T).indexOf(b[0]))
+        .map(([k, c]) => `<span class="fb-tier r-${k.replace('u:', '')}">${c} ${RK_T[k]}</span>`).join('');
+      return head + `<div class="fb-list">${FB.rare.map((r, i, l) => row(r, i, l, `${r.rarest ? gfTile(r.rarest, 40) : ''}`,
+        `<span class="fb-tiers">${tiers(r) || '<small>обычные подарки</small>'}</span>`)).join('')}</div>`;
+    }
+    const L = FB.rich;
+    if (!L.length) return head + '<div class="bx-empty"><span>💰</span><b>Пока пусто</b><small>Решай задания — биткоины приходят сами</small></div>';
+    const h = L[0];
+    const hero = `<button type="button" class="fb-hero" data-prof="${h.sid}" data-fb-prof><span class="crown">👑</span>${fbAv(h, 64)}
+      <span class="fb-hm"><b class="nm">${esc(h.name)} ${fbTags(h)}</b><b class="big"><span>₿</span> ${num(h.total)}</b>
+        <small>кошелёк ${num(h.wallet)} · подарки ${num(h.value)}${h.week ? ` · за неделю ${h.week > 0 ? '+' : '−'}${num(Math.abs(h.week))}` : ''}</small>
+        <span class="fb-bar"><i style="width:${h.total ? Math.round(100 * h.wallet / h.total) : 0}%"></i></span></span>
+      <span class="fb-tops">${h.tops.slice(0, 2).map(g => gfTile(g, 46)).join('')}</span></button>`;
+    return head + hero + `<div class="fb-list">${L.slice(1).map((r, i, l) => row(r, i, l, `<b><span class="coin">₿</span> ${num(r.total)}</b>${fbDelta(r.week)}`, shelf(r))).join('')}</div>
+      <p class="fb-foot">Состояние — биткоины и подарки вместе · у всех вместе ₿ ${num(FB.sum)}</p>`;
+  }
+  // ---- шторки
+  function sheetHtml(G) {
+    const S = gfSheet;
+    if (S.k === 'help') return helpSheet(G);
+    if (S.k === 'shop') {
+      const box = S.id === 'box', lim = G.limited && G.limited.gift === S.id ? G.limited : null;
+      const g = box ? { i: '🎲', t: 'Случайный подарок', price: G.box, rar: null } : lim ? { ...lim, rar: { k: 'limited', t: 'Лимитка' } } : G.catalog.find(x => x.id === S.id);
+      if (!g) return '';
+      const short = Math.max(0, g.price - G.coins), who = gfTo ? gfMate(gfTo) : '';
+      return `<div class="bx-sh">${box ? '<span class="bx-t s76"><span class="ug plain gf-boxt"><span class="ug-ic">🎲</span></span></span>' : gfTile(g, 76)}
+          <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой — дорогие реже' : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small></div></div>
+        ${G.teacher ? '' : `<label class="bx-who">Кому <select class="inp" id="bxTo"><option value="">себе</option>${G.mates.map(m => `<option value="${m.sid}"${String(m.sid) === gfTo ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>`}
+        <div class="bx-acts one"><button type="button" class="bx-btn pri" data-bx-buy="${esc(S.id)}"${short || G.teacher ? ' disabled' : ''}>
+          <span>${who ? '🎁' : '🛍'}</span>${who ? 'Подарить' : 'Купить'}<small>${short ? `не хватает ₿ ${num(short)}` : `₿ ${num(g.price)}`}</small></button></div>`;
+    }
+    if (S.k === 'mk') {
+      const x = G.market.find(m => m.id === S.id);
+      if (!x) return '';
+      return `<div class="bx-sh">${gfTile(x, 76)}<div><b class="nm">${gfName(x)}</b>${rarHtml(x)}<small>${x.mine ? 'твой' : 'продаёт ' + esc(x.seller)} · в магазине ₿ ${num(x.shop)}</small></div></div>
+        <div class="bx-acts one">${x.mine ? `<button type="button" class="bx-btn" data-bx-unlist="${x.id}"><span>↩</span>Снять с продажи<small>₿ ${num(x.price)}</small></button>`
+          : `<button type="button" class="bx-btn org" data-bx-mbuy="${x.id}"${G.teacher || G.coins < x.price ? ' disabled' : ''}><span>🏪</span>Купить<small>${G.coins < x.price ? `не хватает ₿ ${num(x.price - G.coins)}` : `₿ ${num(x.price)}`}</small></button>`}</div>`;
+    }
+    const g = G.mine.find(x => x.id === S.id);
+    if (!g) return '';
+    const u = g.uniq, listed = g.listed != null;
+    const up = u ? `<button type="button" class="bx-btn pri" disabled><span>✨</span>Уникальный<small>1 из ${num(u.rar.one_in)}</small></button>`
+      : g.limited ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>лимитку нельзя</small></button>'
+      : g.up == null ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>тираж кончился</small></button>'
+      : listed ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>сначала сними с рынка</small></button>'
+      : `<button type="button" class="bx-btn pri" data-bx-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}><span>✨</span>Улучшить<small>${GF.coins < g.up ? `не хватает ₿ ${num(g.up - GF.coins)}` : `₿ ${num(g.up)}`}</small></button>`;
+    const sell = `<button type="button" class="bx-btn" data-bx-sell="${g.id}"${listed ? ' disabled' : ''}><span>💰</span>Продать<small>₿ ${num(g.sell)}</small></button>`;
+    const mk = listed ? `<button type="button" class="bx-btn org" data-bx-unlist="${g.id}"><span>↩</span>Снять с рынка<small>₿ ${num(g.listed)}</small></button>`
+      : `<button type="button" class="bx-btn org${gfMkOpen ? ' on' : ''}" data-bx-mkopen><span>🏪</span>На рынок<small>своя цена</small></button>`;
     const suggest = Math.max(GF.market_min, u ? Math.round(g.sell * 1.5 / 5) * 5 : ((GF.catalog.find(x => x.id === g.gift) || {}).price || g.sell));
-    const market = g.listed != null
-      ? `<p class="gf-sell"><b>🏪 На рынке за ₿ ${g.listed}</b> <span class="fm-muted">— получишь ${g.listed - fee(g.listed, g)} ₿, когда купят</span>
-          <button type="button" class="btn small ghost" data-gift-unlist="${g.id}">Снять с продажи</button></p>`
-      : `<p class="gf-sell mk-sell"><label>🏪 Продать одноклассникам за <input class="inp" id="mkPrice" type="number" min="${GF.market_min}" max="${GF.market_max}" value="${suggest}"> ₿</label>
-          <button type="button" class="btn" data-gift-list="${g.id}">Выставить на рынок</button>
-          <span class="fm-muted" id="mkGet">${mkGetTxt(suggest, g)}</span></p>
-`;
-    const sell = g.listed != null ? market : `<p class="gf-sell"><button type="button" class="btn" data-gift-sell="${g.id}">💰 Продать сразу за ₿ ${g.sell}</button>
-        <span class="fm-muted">${vs ? vs.slice(3) : 'подарок сгорит, биткоины — сразу на счёт'}</span></p>${market}`;
-    const body = u
-      ? `<table class="fm-table gf-props">${u.props.map(p => `<tr><td class="fm-muted">${p.k}</td><td><b>${esc(p.t)}</b></td>
-          <td class="num"><span class="chip">${String(p.p).replace('.', ',')}%</span></td></tr>`).join('')}</table>
-        ${sell}
-        <p class="fm-note">Уникальный подарок: такого сочетания фона, узора, эффекта и позы больше нет ни у одного «${esc(g.t)}». Процент — как часто выпадает
-          это свойство; редкость подарка — шанс всего сочетания (фон × узор × эффект × поза): ${GF.uniq_tiers.map(r => r.one_in
-            ? `${r.t.toLowerCase()} — до 1 из ${r.one_in.toLocaleString('ru-RU')}` : `${r.t.toLowerCase()} — ещё реже`).join(', ')}.
-          Выпущено уникальных «${esc(g.t)}»: ${g.issued} из ${g.cap}. Проданный подарок сгорает — его номер и сочетание больше никому не выпадут.</p>`
-      : `${g.limited ? '' : `<p>Улучши подарок — он станет <b>уникальным</b>: получит номер и случайные фон, узор, эффект и позу. Чем реже сочетание, тем дороже его можно продать:
-          редкий — дешевле улучшения, легендарный и мифический — в разы дороже.</p>`}
-        <p>${g.listed != null ? '<span class="fm-muted">Пока подарок на рынке, улучшить его нельзя.</span>'
-          : g.limited ? '<b>Лимитку не улучшают</b> — она и так редкая: продавалась одну неделю ограниченным тиражом.'
-          : g.up == null ? `<b>Тираж уникальных «${esc(g.t)}» закончился</b> — выпущено ${g.cap} из ${g.cap}.`
-          : `<button type="button" class="btn primary" data-gift-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}>✨ Улучшить за ₿ ${g.up}</button>
-          ${GF.coins < g.up ? `<span class="fm-muted"> — нужно ещё ${g.up - GF.coins} ₿</span>` : ''}
-          <span class="fm-muted"> · выпущено уникальных: ${g.issued} из ${g.cap} — каждый следующий чуть дороже</span>`}</p>
-        ${sell}`;
-    $('#forecastBody').innerHTML = `<button type="button" class="btn small ghost" id="gfBack">← к подаркам</button>
-      <div class="gf-card">${big}
-        <div><h2 class="fm-title" style="margin:6px 0 2px">${esc(g.t)}${u ? ` <span class="ug-num">#${u.n}</span>` : ''}</h2>
-          ${rarRow}<div class="fm-muted">${esc(meta)}</div>${g.note ? `<div class="gf-note">«${esc(g.note)}»</div>` : ''}</div></div>
-      ${body}`;
+    const props = u ? `<div class="bx-props">${u.props.map(p => `<span><small>${p.k}</small>${esc(p.t)}</span>`).join('')}</div>` : '';
+    return `<div class="bx-sh">${gfTile(g, 76, gfFresh === g.id ? 'reveal' : '')}<div><b class="nm">${gfName(g)}</b>${rarHtml(g)}
+        <small>${esc([gfFrom(g), gfDate(g.ts).slice(0, 5)].filter(Boolean).join(' · '))}</small>${g.note ? `<small class="bx-note">«${esc(g.note)}»</small>` : ''}</div></div>
+      ${props}
+      <div class="bx-acts">${up}${sell}${mk}</div>
+      ${gfMkOpen && !listed ? `<div class="bx-mkrow"><label>₿ <input class="inp" id="mkPrice" type="number" min="${GF.market_min}" max="${GF.market_max}" value="${suggest}"></label>
+        <button type="button" class="btn primary" data-bx-list="${g.id}">Выставить</button><span class="fm-muted" id="mkGet">${mkGetTxt(suggest, g)}</span></div>` : ''}`;
   }
+  function helpSheet(G) {
+    return `<h3 class="bx-h">Как это устроено</h3>
+      <ul class="bx-help">
+        <li>⚒ Биткоины — только трудом: 1 ₿ за ${G.coin_xp} XP опыта${G.econ.earn !== 1 ? ` (сейчас весь заработок ×${idxTxt(G.econ.earn)})` : ''} и ещё сверху за каждое решённое задание — чем сложнее, тем больше.</li>
+        <li>🎓 Вариант ЕГЭ — бонус по тестовому баллу: ${examBtcTxt(G)}. Самостоятельные от учителя — так же.</li>
+        <li>🎁 Каждые ${G.work_every} решённых заданий — подарок в награду.</li>
+        <li>⏱ Решено слишком быстро — минус 1 ₿: быстрее ${G.fine_sec} секунд, №24–27 — быстрее ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.</li>
+        <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
+        <li>🏪 Свой подарок можно продать сразу или выставить на рынок одноклассникам за свою цену.</li>
+        <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов у всех. Копить очень много невыгодно.</li>
+      </ul>
+      <div class="bx-sum"><span>⚒ заработок <b>×${idxTxt(G.econ.earn)}</b></span><span>🏷 цены <b>×${idxTxt(G.econ.idx)}</b></span><span>🏦 банк <b>₿ ${num(G.econ.bank)}</b></span></div>`;
+  }
+  // ---- действия
   async function buyGift(id) {
     const box = id === 'box', g = box ? { i: '🎲', t: 'Случайный подарок', price: GF.box }
       : GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id);
     const who = gfTo ? gfMate(gfTo) : '';
-    if (!g || !confirm(`Купить ${g.i} ${g.t} за ${g.price} ₿ — ${who ? `в подарок: ${who}` : 'себе'}?`)) return;
+    if (!g) return;
     try {
       const r = await api('gifts/buy', { gift: id, to: gfTo ? +gfTo : null });
       if (r.game) onGame(r.game);
@@ -7729,9 +7754,9 @@
     try {
       const r = await api('gifts/upgrade', { id });
       if (r.game) onGame(r.game);
-      GF.coins = r.game ? r.game.coins : GF.coins;
-      GF.mine = GF.mine.map(x => (x.id === id ? r.gift : x));
-      renderGift(r.gift, true);
+      gfFresh = id;
+      await openGifts(undefined, id);
+      setTimeout(() => { gfFresh = 0; }, 2500);
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось улучшить'); }
   }
   async function sellGift(id) {
@@ -7741,30 +7766,34 @@
       const r = await api('gifts/sell', { id });
       if (r.game) onGame(r.game);
       toast(`💰 Продано за ${r.price} ₿`, 4000);
-      await openGifts();
+      await openGifts(undefined, undefined, 'mine');
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось продать'); }
   }
   async function listGift(id) {
     const price = Math.round(+($('#mkPrice') || {}).value || 0);
     try {
       const r = await api('gifts/list', { id, price });
-      toast(`🏪 Выставлено на рынок за ${r.price} ₿ — получишь ${r.get} ₿, когда купят`, 4500);
+      toast(`🏪 На рынке за ${r.price} ₿ — получишь ${r.get} ₿, когда купят`, 4500);
       await openGifts(undefined, id);
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось выставить'); }
   }
   async function unlistGift(id) {
-    try { await api('gifts/unlist', { id }); toast('Снято с продажи', 3000); await openGifts(undefined, gfOpen); } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось снять'); }
+    const tab = gfTab;
+    try { await api('gifts/unlist', { id }); toast('Снято с продажи', 3000); await openGifts(undefined, tab === 'mine' ? id : undefined, tab); }
+    catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось снять'); }
   }
   async function marketBuy(id) {
     const x = GF.market.find(m => m.id === id);
-    if (!x || !confirm(`Купить ${x.i} ${x.t}${x.uniq ? ' #' + x.uniq.n : ''} у ${x.seller} за ${x.price} ₿?`)) return;
+    if (!x) return;
     try {
       const r = await api('gifts/mbuy', { id, price: x.price });
       if (r.game) onGame(r.game);
       toast(`🏪 ${x.i} ${x.t}${x.uniq ? ' #' + x.uniq.n : ''} — теперь у тебя`, 5000);
-      await openGifts();
-    } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось купить'); await openGifts(); }
+      await openGifts(undefined, undefined, 'mine');
+    } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось купить'); await openGifts(undefined, undefined, 'market'); }
   }
+  /** «40+ — 15 ₿, 60+ — 30 ₿…» — бонусы за вариант ЕГЭ от меньшего балла к большему. */
+  const examBtcTxt = G => G.exam_btc.slice().reverse().map(([low, b]) => `${low}+ — ${b} ₿`).join(', ');
   function giftToast(g) {
     const t = document.createElement('div');
     t.className = 'ach-toast gift-toast';
@@ -7798,33 +7827,57 @@
     if (me.game) onGame(me.game);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
-    if (GF && !gfOpen && !$('#forecastModal').hidden && $('#forecastBody .gf-grid, #forecastBody .gf-mine')) openGifts();
+    if (GF && !gfSheet && !$('#forecastModal').hidden && $('#forecastBody .bx')) openGifts(undefined, undefined, gfTab);
   }
-  $('#coinCard')?.addEventListener('click', () => openGifts());
-  $('#whoGifts')?.addEventListener('click', () => { setWhoMenu(false); openGifts(); });
+  $('#coinCard')?.addEventListener('click', () => openGifts(undefined, undefined, 'shop'));
+  $('#whoGifts')?.addEventListener('click', () => { setWhoMenu(false); openGifts(undefined, undefined, 'shop'); });
+  /** Forbes класса — вкладка окна «Биткоины» (и возврат к ней из профиля). */
+  const openForbes = () => openGifts(undefined, undefined, 'forbes');
   document.addEventListener('click', e => {
     const to = e.target.closest('[data-gift-to]');
-    if (to) { openGifts(to.dataset.giftTo); return; }
-    if (!GF || !e.target.closest('#forecastBody')) return;
-    const b = e.target.closest('[data-gift], [data-gift-open], [data-gift-up], [data-gift-sell], [data-gftab], [data-gift-list], [data-gift-unlist], [data-mk-buy], #gfBack');
+    if (to) { openGifts(to.dataset.giftTo, undefined, 'shop'); return; }
+    if (!GF || !e.target.closest('#forecastBody .bx')) return;
+    const b = e.target.closest(`[data-bx-tab], [data-bx-help], [data-bx-close], [data-bx-shop], [data-bx-mine], [data-bx-mk], [data-bx-to], [data-bx-buy],
+      [data-bx-up], [data-bx-sell], [data-bx-mkopen], [data-bx-list], [data-bx-unlist], [data-bx-mbuy], [data-fb-tab]`);
+    if (gfSheet && !e.target.closest('.bx-sheet')) {      // нажал мимо шторки — закрыть (вкладка снизу и «?» — ещё и сработать)
+      gfSheet = null;
+      gfMkOpen = false;
+      if (!b || (b.dataset.bxTab == null && b.dataset.bxHelp == null)) { renderGifts(); return; }
+    }
     if (!b || b.disabled) return;
-    if (b.id === 'gfBack') { gfOpen = null; renderGifts(); return; }
-    if (b.dataset.gftab) { gfTab = b.dataset.gftab; renderGifts(); return; }
-    if (b.dataset.giftList) { listGift(+b.dataset.giftList); return; }
-    if (b.dataset.giftUnlist) { unlistGift(+b.dataset.giftUnlist); return; }
-    if (b.dataset.mkBuy) { marketBuy(+b.dataset.mkBuy); return; }
-    if (b.dataset.giftOpen) { gfOpen = +b.dataset.giftOpen; renderGifts(); return; }
-    if (b.dataset.giftUp) { upgradeGift(+b.dataset.giftUp); return; }
-    if (b.dataset.giftSell) { sellGift(+b.dataset.giftSell); return; }
-    buyGift(b.dataset.gift);
+    const d = b.dataset;
+    if (d.bxClose != null) { gfSheet = null; gfMkOpen = false; renderGifts(); return; }
+    if (d.bxHelp != null) { gfSheet = { k: 'help' }; renderGifts(); return; }
+    if (d.bxTab != null) {
+      gfTab = d.bxTab;
+      if (gfTab === 'forbes') loadForbes();
+      renderGifts();
+      $('#forecastModal').scrollTop = 0;
+      return;
+    }
+    if (d.fbTab) { fbTab = d.fbTab; renderGifts(); return; }
+    if (d.bxShop) { gfSheet = { k: 'shop', id: d.bxShop }; renderGifts(); return; }
+    if (d.bxMine) { gfSheet = { k: 'mine', id: +d.bxMine }; gfMkOpen = false; renderGifts(); return; }
+    if (d.bxMk) { gfSheet = { k: 'mk', id: +d.bxMk }; renderGifts(); return; }
+    if (d.bxTo != null) { gfTo = ''; renderGifts(); return; }
+    if (d.bxMkopen != null) { gfMkOpen = !gfMkOpen; renderGifts(); if (gfMkOpen) { const i = $('#mkPrice'); if (i) { i.focus(); i.select(); } } return; }
+    if (d.bxBuy) { buyGift(d.bxBuy); return; }
+    if (d.bxUp) { upgradeGift(+d.bxUp); return; }
+    if (d.bxSell) { sellGift(+d.bxSell); return; }
+    if (d.bxList) { listGift(+d.bxList); return; }
+    if (d.bxUnlist) { unlistGift(+d.bxUnlist); return; }
+    if (d.bxMbuy) { marketBuy(+d.bxMbuy); }
   });
   document.addEventListener('change', e => {
-    if (e.target.id === 'gfTo') { gfTo = e.target.value; renderGifts(); }
+    if (e.target.id === 'bxTo') { gfTo = e.target.value; renderGifts(); }
   });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && gfSheet && !$('#forecastModal').hidden && $('#forecastBody .bx')) { e.stopPropagation(); gfSheet = null; gfMkOpen = false; renderGifts(); }
+  }, true);
   document.addEventListener('input', e => {
     if (e.target.id !== 'mkPrice' || !GF) return;
     const p = Math.round(+e.target.value || 0), el = $('#mkGet');
-    if (el) el.textContent = p >= GF.market_min && p <= GF.market_max ? mkGetTxt(p, GF.mine.find(x => x.id === gfOpen))
+    if (el) el.textContent = p >= GF.market_min && p <= GF.market_max ? mkGetTxt(p, GF.mine.find(x => x.id === (gfSheet || {}).id))
       : `цена — от ${GF.market_min} до ${GF.market_max} ₿`;
   });
   // ═══════ src/app/13-live.js

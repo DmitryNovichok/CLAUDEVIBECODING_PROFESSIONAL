@@ -2486,7 +2486,7 @@ class ServerTest(unittest.TestCase):
         self.admin("POST", "/api/admin/gifts/give", {"all": True, "gift": "teddy", "unique": True})
         combos = [json.loads(r["uniq"]) for r in db.q("SELECT uniq FROM gifts WHERE gift='teddy' AND uniq IS NOT NULL")]
         self.assertEqual(sorted(c["n"] for c in combos), list(range(1, len(combos) + 1)))
-        self.assertEqual(len({(c["bg"], c["sym"], c["fx"]) for c in combos}), len(combos))
+        self.assertEqual(len({(c["bg"], c["sym"], c["fx"], c.get("pose", "stand")) for c in combos}), len(combos))   # с позой — как в gift_uniq
 
     def test_gift_catalog_and_rarity(self):
         # 70 подарков: ключи и значки не повторяются и не путаются с наградами профиля
@@ -3002,6 +3002,48 @@ class ServerTest(unittest.TestCase):
         log = self.admin("GET", "/api/admin/econ")[1]["thermo"]["bank"]["log"]
         row = next(x for x in log if x["kind"] == "labor" and x["note"].startswith(f"за {today[8:10]}.{today[5:7]}"))
         self.assertEqual(row["delta"], labor_today())
+
+    def test_forbes(self):
+        # Forbes класса: состояние = биткоины + оценка подарков; дорогой подарок, коллекция, редкость, рост за неделю
+        db = server.APP.db
+        tokA, tokB = self.login("Форбсов Филипп"), self.login("Богатеева Белла")
+        sidA = self.req("GET", "/api/me", token=tokA)[1]["sid"]
+        sidB = self.req("GET", "/api/me", token=tokB)[1]["sid"]
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sidA, time.time(), 90000))
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sidB, time.time(), 80000))
+        self.req("POST", "/api/gifts/buy", {"gift": "castle"}, tokB)          # у Беллы — дорогой Замок
+        self.req("POST", "/api/gifts/buy", {"gift": "cookie"}, tokA)
+        cookie = next(g for g in self.req("GET", "/api/gifts", token=tokA)[1]["mine"] if g["gift"] == "cookie")
+        self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": cookie["id"]}, tokA)[0], 200)   # у Филиппа — уникальная Печенька
+        today = datetime.date.today()
+        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total) VALUES(?,?,?)", ((today - datetime.timedelta(days=7)).isoformat(), sidA, 1000))
+        server._FORBES.clear()
+        st, F = self.req("GET", "/api/forbes", token=tokA)
+        self.assertEqual(st, 200)
+        rich = {r["sid"]: r for r in F["rich"]}
+        A, B = rich[sidA], rich[sidB]
+        gA = server.game_summary(db, sidA)["coins"]
+        self.assertEqual((A["wallet"], A["total"]), (gA, gA + A["value"]))
+        self.assertTrue(A["me"] and not B["me"])
+        self.assertTrue(A["new"])                                              # только что зарегистрировался
+        self.assertEqual(A["week"], A["total"] - 1000)                          # снимок недельной давности
+        self.assertIsNone(B["week"])
+        self.assertTrue(A["rocket"])
+        self.assertLess(F["rich"].index(A), F["rich"].index(B))                  # 90 000 + ... больше 80 000 − Замок + Замок/2
+        self.assertEqual(A["avatar"]["gift"], "cookie")                         # аватар — уникальный подарок
+        # самый дорогой подарок — тот, что дороже при продаже (Замок Беллы или уникальная Печенька — смотря какая выпала редкость);
+        # коллекция дороже — у кого подарки дороже; редкость выше у Филиппа (уникальный)
+        mine = {sid: self.req("GET", "/api/gifts", token=t)[1]["mine"] for sid, t in ((sidA, tokA), (sidB, tokB))}
+        best = max(((g["sell"], g["gift"], sid) for sid, gs in mine.items() for g in gs))
+        top = next(g for g in F["gifts"] if g["sid"] in (sidA, sidB))
+        self.assertEqual((top["sell"], top["gift"], top["sid"]), best)
+        coll = [r["sid"] for r in F["coll"] if r["sid"] in (sidA, sidB)]
+        rare = [r["sid"] for r in F["rare"] if r["sid"] in (sidA, sidB)]
+        self.assertEqual(coll, [sidB, sidA] if B["value"] > A["value"] else [sidA, sidB])
+        self.assertEqual(rare[0], sidA)
+        self.assertGreaterEqual(next(r for r in F["rare"] if r["sid"] == sidA)["score"], 4)
+        self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE day=? AND student_id=?", (today.isoformat(), sidA), one=True)["total"], A["total"])
+        self.assertEqual(self.req("GET", "/api/forbes")[0], 401)
 
     def test_gift_ops_fee(self):
         # с покупки, улучшения и продажи сразу — комиссия до 5 % в банк (четверть комиссии рынка, вниз до целого)
