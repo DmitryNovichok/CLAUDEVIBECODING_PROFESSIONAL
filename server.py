@@ -1517,6 +1517,7 @@ class DB:
                     ("exams", "tasks", "TEXT"),                       # задания варианта, выданные сервером
                     ("assignments", "student_id", "INTEGER"),         # личная подборка ученика; NULL — всему классу
                     ("students", "role", "TEXT"),                     # admin — золотая плашка 👑 admin рядом с именем
+                    ("students", "no_rank", "INTEGER DEFAULT 0"),     # учитель убрал из рейтингов: лига, ТОПы, корона, Forbes, Эло, сезоны
                     ("students", "consent_ver", "TEXT"),              # какую редакцию документов принял
                     ("students", "consent_ts", "REAL"),               # когда принял
                     ("students", "consent_ip", "TEXT"),               # с какого адреса
@@ -3151,7 +3152,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if hit2 and time.time() - hit2[0] < LB_TTL:
                         base = hit2[1]
                     else:
-                        mates = teacher_students(db, tid)
+                        mates = rank_students(db, tid)
                         crown = daily_crown(db, [m["id"] for m in mates])
                         crowns = crown_counts(db, [m["id"] for m in mates])
                         base = [lb_person(db, m, crown, crowns) for m in mates]
@@ -3161,7 +3162,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     _LB_BUILD.release()
             ids = [p["sid"] for p in base if p["sid"] != s["id"]] + [s["id"]]
             mine = lb_person(db, s, daily_crown(db, ids), crown_counts(db, ids))
-            spectator = bool(s["is_teacher"])          # учитель смотрит рейтинг, но сам в нём не участвует
+            spectator = bool(s["is_teacher"] or s["no_rank"])   # учитель (и убранный из рейтингов) смотрит, но не участвует
             my_row = dict(mine, me=True)
             people = [dict(p, me=False) for p in base if p["sid"] != s["id"]] + ([] if spectator else [my_row])
             # место — по очкам за период: (XP + заработанные ₿) / 2 × доля заданий без ошибок (огонёк — по дням подряд)
@@ -3242,7 +3243,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                      (day, s["id"], time.time(), mine_tid))
                 row = db.q("SELECT ts, task_id FROM daily_starts WHERE day=? AND student_id=?", (day, s["id"]), one=True)
                 return self.send_json({"task": APP.bank.pid(row["task_id"] or tid), "started": row["ts"]})
-            mates = teacher_students(db, teacher_of(s)["id"])
+            mates = rank_students(db, teacher_of(s)["id"])
             names = {m["id"]: short_name(m["name"]) for m in mates}
             ids = list(names)
             rows = db.q(f"SELECT student_id, ms FROM daily_results WHERE day=? AND COALESCE(fast, 0)=0 "
@@ -4077,7 +4078,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/admin/students":
             rows = db.q("""
-              SELECT s.id, s.name, s.created, s.last_seen, s.forecast,
+              SELECT s.id, s.name, s.created, s.last_seen, s.forecast, COALESCE(s.no_rank, 0) AS no_rank,
                      COUNT(a.id) AS total,
                      SUM(a.score = 1) AS ok1, SUM(a.score = 0.5) AS ok2, SUM(a.score = 0) AS bad,
                      SUM(a.ts >= ?) AS today, SUM(a.ts >= ?) AS week,
@@ -4152,8 +4153,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
                                                      (s["last_ip"], sid))]
             student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
-            extra_row = db.q("SELECT role, consent_ver, consent_ts, consent_ip FROM students WHERE id=?", (sid,), one=True)
-            student.update({k: extra_row[k] for k in ("role", "consent_ver", "consent_ts", "consent_ip")} if extra_row else {})
+            extra_row = db.q("SELECT role, consent_ver, consent_ts, consent_ip, no_rank FROM students WHERE id=?", (sid,), one=True)
+            student.update({k: extra_row[k] for k in ("role", "consent_ver", "consent_ts", "consent_ip", "no_rank")} if extra_row else {})
             student["consent_ok"] = bool(extra_row and extra_row["consent_ver"] == LEGAL_VERSION)
             student["has_password"] = bool(db.q("SELECT pw FROM students WHERE id=?", (sid,), one=True)["pw"])
             coded = {r["task_id"] for r in db.q("SELECT task_id FROM solutions WHERE student_id=?", (sid,))}
@@ -4426,6 +4427,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x(f"UPDATE students SET token=lower(hex(randomblob(18))) WHERE last_ip=? AND id IN ({','.join('?' * len(part))})", (ip, *part))
             LIVE.send(sids, "logout")
             return self.send_json({"ok": True, "ended": n, "ip": ip})
+
+        if path == "/api/admin/student/norank" and method == "POST":
+            # убрать ученика из рейтингов (лига, ТОПы дня/недели/месяца, корона, битва классов, Forbes, Эло, сезоны) или вернуть
+            sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
+            db.x("UPDATE students SET no_rank=? WHERE id=?", (1 if data.get("on") else 0, sid))
+            with _GS_LOCK:
+                _LB_PEOPLE.clear()
+            _FORBES.clear()
+            return self.send_json({"ok": True, "no_rank": bool(data.get("on"))})
 
         if path == "/api/admin/student/role" and method == "POST":
             # плашка 👑 admin рядом с именем ученика — выдаёт и снимает только главный учитель
@@ -7180,7 +7192,7 @@ def forbes_data(db, tid, e=None):
         return hit[2]
     e = e or econ(db)
     issued, dem = uniq_issued(db), gift_demand(db)
-    studs = teacher_students(db, tid)
+    studs = rank_students(db, tid)
     created = {r["id"]: r["created"] or 0 for r in db.q("SELECT id, created FROM students WHERE COALESCE(is_teacher, 0) = 0")}
     rows = []
     for m in studs:
@@ -7784,8 +7796,14 @@ def short_name(name):
 def teacher_students(db, tid):
     """Ученики учителя — без учительских аккаунтов: учитель решает тренажёр, но в рейтингах, лигах и дуэлях не участвует."""
     main_id = main_teacher()["id"]
-    return [r for r in db.q("SELECT id, name, teacher_id, class_id, badges, dev FROM students WHERE COALESCE(is_teacher, 0) = 0")
+    return [r for r in db.q("SELECT id, name, teacher_id, class_id, badges, dev, no_rank FROM students WHERE COALESCE(is_teacher, 0) = 0")
             if (r["teacher_id"] or main_id) == tid]
+
+
+def rank_students(db, tid):
+    """Ученики учителя, которые есть в рейтингах (лига, ТОПы, корона, битва классов, Forbes, Эло, сезоны): без тех, кого
+    учитель убрал из рейтингов (students.no_rank) — они занимаются, дарят и торгуют как все, но мест не занимают."""
+    return [r for r in teacher_students(db, tid) if not r["no_rank"]]
 
 
 def league_row(db, sid):
@@ -7810,7 +7828,7 @@ def league_rollover(db):
     w0 = week_start(w1 - 3 * 86400)    # начало прошлой недели (с учётом перевода часов)
     main_id = main_teacher()["id"]
     groups = {}
-    for r in db.q("SELECT id, teacher_id FROM students WHERE COALESCE(is_teacher, 0) = 0"):
+    for r in db.q("SELECT id, teacher_id FROM students WHERE COALESCE(is_teacher, 0) = 0 AND COALESCE(no_rank, 0) = 0"):
         groups.setdefault(r["teacher_id"] or main_id, []).append(r["id"])
     for ids in groups.values():
         by_league = {}
@@ -7953,7 +7971,7 @@ def elo_apply(db, a, b, score_a):
 
 def elo_board(db, tid, sid):
     """Рейтинг Эло учеников учителя: десятка лучших (сыгравшие хотя бы одну дуэль) и своя строка."""
-    ids = [m["id"] for m in teacher_students(db, tid)]
+    ids = [m["id"] for m in rank_students(db, tid)]
     if not ids:
         return {"top": [], "me": None}
     rows = db.q(f"""SELECT e.student_id, e.elo, e.games, s.name FROM duel_elo e JOIN students s ON s.id=e.student_id
@@ -8164,9 +8182,9 @@ def season_table(db, tid, key):
 
 def season_view(db, tid, sid):
     key = season_key()
-    names = {m["id"]: short_name(m["name"]) for m in teacher_students(db, tid)}
-    rows = [{"place": i + 1, "sid": k, "name": names.get(k, "?"), **v, "me": k == sid}
-            for i, (k, v) in enumerate(season_table(db, tid, key))]
+    names = {m["id"]: short_name(m["name"]) for m in rank_students(db, tid)}
+    rows = [{"place": i + 1, "sid": k, "name": names[k], **v, "me": k == sid}
+            for i, (k, v) in enumerate((k, v) for k, v in season_table(db, tid, key) if k in names)]
     y, m = map(int, key.split("-"))
     return {"key": key, "name": f"{MONTHS[m - 1]} {y}", "ends": season_bounds(key)[1], "top": rows[:10],
             "me": next((r for r in rows if r["me"]), None)}

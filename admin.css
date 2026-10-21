@@ -432,6 +432,7 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
   border-radius: 999px; font: 900 11px/1.5 inherit; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
   color: #5b3a00; background: linear-gradient(135deg, #ffe27a, #ffb800 55%, #ffd34d);
   box-shadow: 0 2px 0 #c98a00, inset 0 1px 0 rgba(255, 255, 255, .6); }
+.adm-tag.norank { color: var(--muted); background: var(--card-hover); box-shadow: none; }
 
 /* варианты ЕГЭ у учителя */
 .exs { display: inline-grid; place-items: center; min-width: 34px; height: 26px; padding: 0 6px; border-radius: 8px; color: #fff; }
