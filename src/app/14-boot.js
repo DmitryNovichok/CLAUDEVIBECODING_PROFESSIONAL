@@ -35,12 +35,14 @@
     } else {
       next();
     }
-    if (!P.log.length && !tourSeen()) setTimeout(openTour, 400);      // новичку — коротко о том, как всё устроено
+    const fresh = !P.log.length && !tourSeen();
+    if (fresh) { setTimeout(openTour, 400); promoNext = true; }       // новичку — коротко о том, как всё устроено (потом — акция)
+    const promo = !fresh && SERVER && student && promoAuto();         // акция — объявление при входе (раз в день), сводка — завтра
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
-      if (P.log.length || tourSeen()) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
+      if (!fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
     }
   }
@@ -222,7 +224,12 @@
         ${(changed || []).length ? `<div class="cl-kind cl-chg">🔧 Изменено</div><ul>${changed.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>`).join('')}</div>`;
     $('#forecastModal').hidden = false;
   });
-  $('#forecastBody').addEventListener('click', e => { if (e.target.closest('#tourGo')) closeForecast(); });
+  let promoNext = false;                                              // после знакомства с сайтом — объявление об акции
+  $('#forecastBody').addEventListener('click', e => {
+    if (!e.target.closest('#tourGo')) return;
+    if (promoNext) { promoNext = false; if (promoAuto()) return; }
+    closeForecast();
+  });
 
   async function boot() {
     try { sessionStorage.removeItem('egeTrainer.relogin'); } catch (e) { /* нет доступа */ }

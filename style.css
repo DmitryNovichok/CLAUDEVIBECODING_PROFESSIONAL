@@ -2367,6 +2367,32 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
   border: 2px solid var(--border); border-radius: 14px; background: var(--card); font-weight: 900; font-size: 15px; white-space: nowrap;
 }
 .coin-pill:hover { background: var(--card-hover); }
+/* акция: значок вверху, объявление, полоска в «Биткоинах» */
+.promo-pill { display: flex; align-items: center; gap: 4px; padding: 5px 10px; border: 0; border-radius: 14px; cursor: pointer; font: inherit;
+  font-weight: 900; font-size: 14px; color: #fff; white-space: nowrap; background: linear-gradient(135deg, #ff9600, #ff4b4b);
+  box-shadow: 0 3px 0 #c43c3c; animation: promoGlow 2.4s ease-in-out infinite; }
+.promo-pill[hidden] { display: none; }
+@keyframes promoGlow { 50% { filter: brightness(1.12); transform: translateY(-1px); } }
+@media (prefers-reduced-motion: reduce) { .promo-pill { animation: none; } }
+body:is(.py-open, .bd-open) .promo-pill { padding: 3px 8px; font-size: 12.5px; }
+.promo { text-align: center; }
+.promo-hero { margin: -4px -4px 14px; padding: 20px 14px 16px; border-radius: 18px; color: #fff;
+  background: radial-gradient(circle at 20% 10%, rgba(255, 255, 255, .25), transparent 40%), linear-gradient(135deg, #ff9600, #ff4b4b 60%, #ce3d8f); }
+.promo-hero h2 { margin: 4px 0 4px; font-size: 26px; line-height: 1.15; }
+.promo-hero p { margin: 0; font-weight: 800; opacity: .95; }
+.promo-bolt { display: block; font-size: 44px; line-height: 1; animation: promoGlow 1.6s ease-in-out infinite; }
+.promo-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.promo-tile { display: grid; justify-items: center; gap: 2px; padding: 14px 10px; border: 2px solid var(--border); border-radius: 16px;
+  background: var(--card); box-shadow: 0 3px 0 var(--border); }
+.promo-tile span { font-size: 30px; } .promo-tile b { font-size: 34px; line-height: 1.1; color: #ff9600; }
+.promo-tile.hot { border-color: #ff9600; } .promo-tile.hot b { color: #ff4b4b; }
+.promo-tile small { color: var(--muted); font-weight: 800; font-size: 13px; }
+.promo-note { margin: 12px 0 0; color: var(--muted); font-weight: 700; font-size: 14px; }
+.promo-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 16px; }
+.bx-promo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; width: 100%; margin: 0 0 10px; padding: 9px 12px; border: 0;
+  border-radius: 12px; cursor: pointer; font: inherit; font-size: 13.5px; text-align: left; color: #fff;
+  background: linear-gradient(135deg, #ff9600, #ff4b4b); }
+.bx-promo span { opacity: .95; font-weight: 800; }
 .coin-pill[hidden] { display: none; }
 .coin-pill b { font-family: var(--font); font-weight: 900; }
 .btc { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #f7931a; color: #fff; font-size: 13px; font-weight: 900; line-height: 1; }

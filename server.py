@@ -1504,6 +1504,11 @@ class DB:
             # входы по устройствам: прежний общий токен ещё LEGACY_DAYS дней превращается во вход устройства (вне школы)
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('sessions_since', ?)", (str(time.time()),))
             c.execute("CREATE INDEX IF NOT EXISTS attempts_ip ON attempts(ip, ts)")
+            # акция перед пробником — включается сама при первом запуске версии (дальше её меняет главный учитель)
+            if not c.execute("SELECT 1 FROM settings WHERE key='promo_seeded'").fetchone():
+                P = dict(PROMO_SEED, **{"from": time.time(), "to": day_end(PROMO_SEED["to"])})
+                c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('promo', ?)", (json.dumps(P, ensure_ascii=False),))
+                c.execute("INSERT INTO settings(key, value) VALUES('promo_seeded', '1')")
             # банку — половина заработка учеников: с первого запуска версии, за прошлое не начисляем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('labor_bank_since', ?)", (str(time.time()),))
             # банк рынка биткоинов открывается со стартовым капиталом (один раз)
@@ -2223,7 +2228,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
                 "coin_news": [dict(r) for r in APP.db.q("""SELECT id, delta, reason, note FROM coins
                                                             WHERE student_id=? AND seen=0 ORDER BY ts LIMIT 10""", (s["id"],))],
-                "teacher": bool(s["is_teacher"]),
+                "teacher": bool(s["is_teacher"]), "promo": promo_now(APP.db),
                 "consent_needed": not s["is_teacher"] and s["consent_ver"] != LEGAL_VERSION,
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
@@ -2650,7 +2655,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "mine": mine, "value": gift_value(mine, e, dem),
                 "market": market_rows(db, [s["id"]] + [m["id"] for m in mates], s["id"], e, issued, dem),
                 "market_fee": e["fee"], "market_fee_box": MARKET_FEE_BOX, "market_min": MARKET_MIN, "market_max": MARKET_MAX, "market_max_listed": MARKET_MAX_LISTED,
-                "market_days": MARKET_DAYS,
+                "market_days": MARKET_DAYS, "promo": promo_now(db),
                 "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
                 "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
                 "per_day": GIFTS_PER_DAY, "show": GIFTS_SHOW})
@@ -4477,6 +4482,31 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "rate": btc_rate_now(db)[0], "site": econ_site(db) if self.T["is_main"] else None,
                                    "thermo": thermo_info(db, self.T), "market": market_hist(db)})
 
+        if path == "/api/admin/promo" and method == "POST":
+            # акция: биткоины за задания и варианты в N раз больше до дня to включительно — главный учитель; stop — закончить
+            if not self.T["is_main"]:
+                return self.err(403, "Акции запускает главный учитель")
+            now, P = time.time(), promo_get(db)
+            if data.get("stop"):
+                if P and P["to"] > now:
+                    promo_set(db, dict(P, to=now))
+            else:
+                try:
+                    task, exam = float(data.get("task") or 1), float(data.get("exam") or 1)
+                    to = day_end(str(data.get("to") or ""))
+                except ValueError:
+                    return self.err(400, "Нужны множители и день окончания (ГГГГ-ММ-ДД)")
+                if not (1 <= task <= PROMO_MAX and 1 <= exam <= PROMO_MAX) or task == exam == 1:
+                    return self.err(400, f"Множители — от 1 до {PROMO_MAX:g}, хотя бы один больше 1")
+                if to <= now:
+                    return self.err(400, "День окончания уже прошёл")
+                title = str(data.get("title") or "").strip()[:60] or "Бонус"
+                start = P["from"] if P and P["from"] <= now <= P["to"] else now       # идёт — продлеваем, нет — с этой минуты
+                promo_set(db, {"title": title, "task": round(task, 2), "exam": round(exam, 2), "from": start, "to": to})
+            with _GS_LOCK:
+                _GS_CACHE.clear()
+            return self.send_json({"ok": True, "thermo": thermo_info(db, self.T)})
+
         if path == "/api/admin/thermo" and method == "POST":
             # термостат: режим (авто или ручной), норма кошелька, рычаги вручную, лимитка недели — главный учитель
             if not self.T["is_main"]:
@@ -5526,6 +5556,52 @@ def exam_btc_since(db):
     return setting_since(db, "exam_btc_since")
 
 
+# Акция (например, перед пробником): с from по to биткоины за задания (опыт за решение, бонус за задание, самостоятельные) —
+# × task, за вариант ЕГЭ (опыт и бонус за балл) — × exam. Хранится в настройке promo (JSON: title, task, exam, from, to — время),
+# меняет главный учитель («Экономика»). PROMO_SEED включается сам при первом запуске версии — с этого момента и до конца дня to.
+PROMO_SEED = {"title": "Бонус перед пробником", "task": 1.5, "exam": 2.0, "to": "2026-10-24"}
+PROMO_MAX = 3.0
+_PROMO = {"db": None, "v": None, "n": 0}
+
+
+def promo_get(db):
+    """Акция из настройки promo (кэш до promo_set) или None."""
+    if _PROMO["db"] is not db:
+        try:
+            v = json.loads(db.setting("promo") or "null")
+        except ValueError:
+            v = None
+        _PROMO.update(db=db, v=v if isinstance(v, dict) else None, n=_PROMO["n"] + 1)
+    return _PROMO["v"]
+
+
+def promo_set(db, v):
+    db.setting("promo", json.dumps(v, ensure_ascii=False) if v else "")
+    _PROMO.update(db=db, v=v, n=_PROMO["n"] + 1)
+
+
+def promo_mult(db, ts, kind):
+    """Множитель акции для заработка kind ('task' или 'exam') в момент ts; вне акции — 1."""
+    P = promo_get(db)
+    if not P or not P["from"] <= ts <= P["to"]:
+        return 1
+    return Fraction(round(float(P.get(kind) or 1) * 100), 100)
+
+
+def promo_now(db, now=None):
+    """Акция, которая идёт сейчас: название, множители, до какого дня (включительно); None — нет."""
+    P, now = promo_get(db), now or time.time()
+    if not P or not P["from"] <= now <= P["to"]:
+        return None
+    return {"title": P.get("title") or "Бонус", "task": P.get("task") or 1, "exam": P.get("exam") or 1, "from": P["from"], "to": P["to"],
+            "day": time.strftime("%Y-%m-%d", time.localtime(P["to"]))}
+
+
+def day_end(day):
+    """Конец дня day ('ГГГГ-ММ-ДД') по времени сервера — 23:59:59."""
+    return time.mktime(datetime.strptime(day, "%Y-%m-%d").timetuple()) + 86399
+
+
 # бонус ₿ за впервые решённое задание (сверх биткоинов за опыт) по номеру; со 2-й попытки — половина.
 # На сайте таблицу не показываем — ученику только «чем сложнее задание, тем больше».
 TASK_BTC = {**{n: Fraction(n, 4) for n in range(1, 11)},                 # №1–10 — 25 % от номера
@@ -5690,7 +5766,7 @@ def _gs_stamp(db, sid):
     c = db.q("SELECT COUNT(*) c, COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)
     thermo_load(db)                                # новые рычаги термостата — заработок с этого момента считается по-другому
     return (a["m"], a["c"], x["c"], x["s"], e["c"], f["c"], z["freezes"] if z else 0, c["c"], c["s"],
-            time.strftime("%Y-%m-%d"), int(time.time() // 300), len(_THERMO["ts"]))
+            time.strftime("%Y-%m-%d"), int(time.time() // 300), len(_THERMO["ts"]), promo_get(db) is not None and _PROMO["n"])
 
 
 COURSE_TRIES, COURSE_WINDOW = 8, 15 * 60  # попыток ввести пароль курса за 15 минут
@@ -6748,7 +6824,8 @@ def thermo_info(db, T):
             "rules": {"step": THERMO_STEP, "idx": [IDX_MIN, IDX_MAX], "earn": [EARN_MIN, EARN_MAX], "fee": [FEE_MIN, FEE_MAX],
                       "tax": TAX_RATE, "tax_from": TAX_FROM, "stipend_r": STIPEND_R, "stipend_max": STIPEND_MAX, "labor": LABOR_BANK,
                       "stipend_tasks": STIPEND_TASKS, "limited_r": LIMITED_R, "limited_cap": LIMITED_CAP, "limited_price": LIMITED_PRICE},
-            "limited": limited_now(db), "limited_all": [{"id": k, "i": i, "t": t} for k, i, t in LIMITED]}
+            "limited": limited_now(db), "limited_all": [{"id": k, "i": i, "t": t} for k, i, t in LIMITED],
+            "promo": promo_get(db), "promo_now": promo_now(db), "promo_max": PROMO_MAX}
 
 
 def econ_wallet(db, sid):
@@ -7130,7 +7207,7 @@ def _game_summary(db, sid, brief=False, windows=None):
             if a <= ts < b:
                 rank_btc[k] += v
 
-    def gain(v, ts, why=None):
+    def gain(v, ts, why=None, boost=None):
         nonlocal xp, week, xp_day, xp_month, xp_wk
         if v > 0 and cheat and cheat[0] <= ts < cheat[1]:
             if why:
@@ -7139,7 +7216,9 @@ def _game_summary(db, sid, brief=False, windows=None):
         if why:
             xplog.append((ts, v, why))
         xp += v
-        k, m = btc_rate_at(db, ts), earn_at(db, ts)   # биткоины — по курсу и множителю термостата на момент заработка:
+        k, m = btc_rate_at(db, ts), earn_at(db, ts)   # биткоины — по курсу и множителю термостата на момент заработка
+        if boost and v > 0:
+            m *= promo_mult(db, ts, boost)              # (и акции — за задания или вариант):
         mined_xp[(k, m)] = mined_xp.get((k, m), 0) + v  # их смена прошлое не трогает
         earn(Fraction(v, k) * m, ts)
         if ts >= wk0:
@@ -7237,10 +7316,11 @@ def _game_summary(db, sid, brief=False, windows=None):
             else:
                 if tid not in solved:              # опыт — только за первое решение задания, откуда бы ни пришёл ответ
                     gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
-                         f"№{r['n']} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"))
+                         f"№{r['n']} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"), "task")
                     # и бонус ₿ по номеру; самостоятельная считается целиком, как вариант (ниже)
                     if ts >= task_since and r["reason"] != WORK_REASON and not (cheat and cheat[0] <= ts < cheat[1]):
-                        bonus = TASK_BTC.get(r["n"] or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2)) * earn_at(db, ts)
+                        bonus = (TASK_BTC.get(r["n"] or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2)) * earn_at(db, ts)
+                                 * promo_mult(db, ts, "task"))
                         task_btc += bonus
                         earn(bonus, ts)
             if first_time:
@@ -7254,7 +7334,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                 nums.add(r["n"])
             per_day[day] = per_day.get(day, 0) + (0 if fast else 1)
             if per_day[day] == 5 and not fast:
-                gain(15, ts, "5 заданий за день")  # бонус за день: 5 решённых
+                gain(15, ts, "5 заданий за день", "task")  # бонус за день: 5 решённых
             if fun.tm_hour >= 23:
                 cnt["night"] = 1
             if fun.tm_hour < 7:
@@ -7285,9 +7365,9 @@ def _game_summary(db, sid, brief=False, windows=None):
     exam_coins, exam_since = Fraction(0), exam_btc_since(db)
     for e in exams:
         if (e["finished"] - e["started"]) >= EXAM_MIN_SEC_FOR_XP and (e["primary_score"] or 0) > 0:
-            gain(30 + 3 * (e["primary_score"] or 0), e["finished"], "вариант ЕГЭ")
+            gain(30 + 3 * (e["primary_score"] or 0), e["finished"], "вариант ЕГЭ", "exam")
             if e["finished"] >= exam_since and not (cheat and cheat[0] <= e["finished"] < cheat[1]):
-                eb = exam_btc(e["test_score"]) * earn_at(db, e["finished"])   # 40+ — 15 ₿, 60+ — 30, 80+ — 50, 90+ — 100
+                eb = exam_btc(e["test_score"]) * earn_at(db, e["finished"]) * promo_mult(db, e["finished"], "exam")   # 40+ — 15 ₿, 60+ — 30…
                 exam_coins += eb
                 earn(eb, e["finished"])
         got.setdefault("exam1", e["finished"])
@@ -7310,7 +7390,7 @@ def _game_summary(db, sid, brief=False, windows=None):
         except ValueError:
             continue
         wb = work_btc([((APP.bank.tasks.get(k) or {}).get("n") or 0, c or 0) for k, c in res.items()
-                       if (APP.bank.tasks.get(k) or {}).get("n")]) * earn_at(db, w["finished"])
+                       if (APP.bank.tasks.get(k) or {}).get("n")]) * earn_at(db, w["finished"]) * promo_mult(db, w["finished"], "task")
         exam_coins += wb
         earn(wb, w["finished"])
     # дни подряд
