@@ -1338,6 +1338,8 @@ class DB:
             CREATE TABLE IF NOT EXISTS thermo(
                 ts REAL PRIMARY KEY, idx REAL NOT NULL, earn REAL NOT NULL, fee REAL NOT NULL, tax REAL NOT NULL,
                 r REAL, avg REAL, med REAL, active INTEGER, who TEXT);
+            -- Forbes класса: состояние ученика (кошелёк + оценка подарков) на конец дня — для роста за неделю
+            CREATE TABLE IF NOT EXISTS forbes_hist(day TEXT NOT NULL, student_id INTEGER NOT NULL, total INTEGER, PRIMARY KEY(day, student_id));
             -- лимитированный подарок недели: продаётся с start до stop, тираж cap, цена price
             CREATE TABLE IF NOT EXISTS limited(
                 id INTEGER PRIMARY KEY, gift TEXT NOT NULL, start REAL NOT NULL, stop REAL NOT NULL, cap INTEGER NOT NULL,
@@ -2439,6 +2441,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'freeze')", (s["id"], time.time(), -FREEZE_PRICE))
             db.x("UPDATE students SET freezes=COALESCE(freezes, 0) + 1 WHERE id=?", (s["id"],))
             return self.send_json({"ok": True, "game": game_summary(db, s["id"])})
+
+        if path == "/api/forbes":
+            # Forbes класса: самые богатые (кошелёк + подарки), самый дорогой подарок, самая дорогая и самая редкая коллекция
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            return self.send_json(forbes_view(forbes_data(db, teacher_of(s)["id"]), s["id"]))
 
         if path in ("/api/gifts", "/api/gifts/buy", "/api/gifts/seen", "/api/gifts/upgrade", "/api/gifts/sell",
                     "/api/gifts/list", "/api/gifts/unlist", "/api/gifts/mbuy"):
@@ -6125,6 +6134,10 @@ def econ(db, fresh=False):
              "mode": "auto" if auto else "manual", "bank": bank, "tax_from": round(TAX_FROM * target), "limited": limited_now(db, now),
              "op_fee": op_fee({"fee": lv["fee"]})}
         _ECON.update(t=now, v=v, db=db)
+        if db.setting("forbes_day") != day:          # раз в день — снимок Forbes всех классов (для роста за неделю)
+            db.setting("forbes_day", day)
+            for t in db.q("SELECT id FROM teachers"):
+                forbes_data(db, t["id"], e=v)
         db.x("""INSERT INTO econ_hist(day, idx, avg, total, active, med, earn, fee, tax, bank, r) VALUES(?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(day) DO UPDATE SET idx=excluded.idx, avg=excluded.avg, total=excluded.total, active=excluded.active,
                 med=excluded.med, earn=excluded.earn, fee=excluded.fee, tax=excluded.tax, bank=excluded.bank, r=excluded.r""",
@@ -6684,6 +6697,89 @@ def gift_value(rows, e, dem):
     return {"n": len(rows), "sell": sum(r["sell"] for r in rows),
             "shop": sum(gift_price(r["gift"], e, dem) + (gift_up_base(r["gift"], e) if r["uniq"] else 0) for r in rows),
             "top": [{k: r[k] for k in ("id", "gift", "i", "t", "uniq", "rar", "sell")} for r in top]}
+
+
+# Forbes класса: среди учеников одного учителя. Состояние = биткоины + оценка подарков (сколько дадут, если продать все сейчас);
+# вкладки — самый дорогой подарок, самая дорогая коллекция (только подарки) и самая редкая коллекция (очки редкости).
+FORBES_TOP = 10
+FORBES_NEW_DAYS = 14                    # «новичок» — в тренажёре меньше двух недель
+RARE_SCORE = {"common": 0, "uncommon": 0.5, "rare": 1, "epic": 2, "legend": 3, "limited": 8,
+              "u:rare": 4, "u:epic": 10, "u:legend": 30, "u:myth": 100}
+_FORBES = {}                            # учитель → (когда, база, данные)
+
+
+def gift_rk(g):
+    """Ключ редкости подарка: уникальный — «u:уровень», лимитка — limited, обычный — его уровень."""
+    return ("u:" + g["uniq"]["rar"]["k"]) if g.get("uniq") else g["rar"]["k"]
+
+
+def gift_tile(g):
+    """Подарок для плитки (без свойств уникального — их видно в профиле): значок, название, номер, фон, редкость, оценка."""
+    u = g.get("uniq")
+    return {"gift": g["gift"], "i": g["i"], "t": g["t"], "rar": g["rar"], "sell": g.get("sell", 0),
+            "uniq": {k: u[k] for k in ("n", "c1", "c2", "ch", "fx", "pose", "rar")} if u else None}
+
+
+def forbes_data(db, tid, e=None):
+    """Forbes учеников учителя tid (пересчёт раз в 10 минут): все с биткоинами или подарками — состояние, рост за неделю (по снимкам
+    forbes_hist), лучшие подарки, редкость коллекции; сегодняшний снимок записывается."""
+    now = time.time()
+    hit = _FORBES.get(tid)
+    if hit and hit[1] is db and now - hit[0] < 600:
+        return hit[2]
+    e = e or econ(db)
+    issued, dem = uniq_issued(db), gift_demand(db)
+    studs = teacher_students(db, tid)
+    created = {r["id"]: r["created"] or 0 for r in db.q("SELECT id, created FROM students WHERE COALESCE(is_teacher, 0) = 0")}
+    rows = []
+    for m in studs:
+        wallet = game_summary(db, m["id"], brief=True)["coins"]
+        gifts = gift_rows(db, m["id"], prices=(e, issued, dem))
+        if not wallet and not gifts:
+            continue
+        gifts.sort(key=lambda g: -g["sell"])
+        rarest = max(gifts, key=lambda g: (RARE_SCORE.get(gift_rk(g), 0), (g["uniq"] or {}).get("rar", {}).get("one_in", 0)), default=None)
+        tiers = {}
+        for g in gifts:
+            tiers[gift_rk(g)] = tiers.get(gift_rk(g), 0) + 1
+        value = sum(g["sell"] for g in gifts)
+        rows.append({"sid": m["id"], "name": short_name(m["name"]), "wallet": wallet, "value": value, "total": wallet + value,
+                     "n": len(gifts), "tops": [gift_tile(g) for g in gifts[:4]], "best": gift_tile(gifts[0]) if gifts else None,
+                     "avatar": gift_tile(rarest) if rarest and rarest["uniq"] else None, "rarest": gift_tile(rarest) if rarest else None,
+                     "score": round(sum(RARE_SCORE.get(k, 0) * c for k, c in tiers.items()), 1), "tiers": tiers,
+                     "new": now - created.get(m["id"], 0) < FORBES_NEW_DAYS * 86400, "_gifts": gifts})
+    # снимок сегодня и рост за неделю: от самого раннего снимка за последние 7 дней (без сегодняшнего)
+    today = datetime.fromtimestamp(now).date()
+    for r in rows:
+        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total) VALUES(?,?,?)", (today.isoformat(), r["sid"], r["total"]))
+    then = {}
+    for h in db.q("SELECT day, student_id, total FROM forbes_hist WHERE day >= ? AND day < ? ORDER BY day DESC",
+                  ((today - timedelta(days=7)).isoformat(), today.isoformat())):
+        then[h["student_id"]] = h["total"]           # по убыванию дня — останется самый ранний
+    for r in rows:
+        r["week"] = r["total"] - then[r["sid"]] if r["sid"] in then else None
+    rocket = max((r for r in rows if (r["week"] or 0) > 0), key=lambda r: r["week"], default=None)
+    for r in rows:
+        r["rocket"] = r is rocket
+    gifts = sorted(({**gift_tile(g), "sid": r["sid"], "owner": r["name"]} for r in rows for g in r["_gifts"]), key=lambda g: -g["sell"])
+    for r in rows:
+        del r["_gifts"]
+    v = {"rows": rows, "gifts": gifts[:FORBES_TOP], "sum": sum(r["total"] for r in rows), "count": len(rows),
+         "month": ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"][today.month - 1]}
+    _FORBES[tid] = (now, db, v)
+    return v
+
+
+def forbes_view(data, me):
+    """Списки для ученика me: по состоянию, коллекции и редкости — первые FORBES_TOP и он сам, если ниже."""
+    def top(key):
+        ordered = sorted(data["rows"], key=lambda r: (-r[key], r["name"]))
+        out = [dict(r, rank=k + 1, me=r["sid"] == me) for k, r in enumerate(ordered)]
+        return out[:FORBES_TOP] + [r for r in out[FORBES_TOP:] if r["me"]]
+    coll = [r for r in top("value") if r["n"]]
+    rare = [r for r in top("score") if r["n"]]
+    return {"rich": top("total"), "coll": coll, "rare": rare, "gifts": [dict(g, me=g["sid"] == me) for g in data["gifts"]],
+            "sum": data["sum"], "count": data["count"], "month": data["month"]}
 
 
 def market_rows(db, sids, me, e, issued, dem):

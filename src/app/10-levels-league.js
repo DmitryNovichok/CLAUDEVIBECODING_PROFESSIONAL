@@ -265,7 +265,7 @@
   function renderProfile() {
     const P = PROF;
     if (!P) return;
-    const back = profBack === 'rating' ? '<button type="button" class="btn small ghost" id="profBack">← к рейтингу</button>' : '';
+    const back = profBack ? `<button type="button" class="btn small ghost" id="profBack">← ${profBack === 'forbes' ? 'к Forbes' : 'к рейтингу'}</button>` : '';
     const pick = profPick;
     const nick = (pick ? pick.map(k => [...P.awards, ...P.extra, ...P.ach].find(a => a.k === k)).filter(Boolean)
       .map(a => ({ i: a.i, t: a.t, n: a.k === 'fire' || a.n > 1 ? a.n : 0 })) : P.badges);
@@ -355,7 +355,7 @@
   }
   document.addEventListener('click', e => {
     const pr = e.target.closest('[data-prof]');
-    if (pr) { openProfile(pr.dataset.prof, pr.closest('.lb-wrap') ? 'rating' : null); return; }
+    if (pr) { openProfile(pr.dataset.prof, pr.closest('.lb-wrap') ? 'rating' : pr.closest('[data-fb-prof]') ? 'forbes' : null); return; }
     const fl = e.target.closest('[data-fly]');
     if (fl) { toast(fl.dataset.fly, 2500); return; }      // летающий подарок: на телефоне подсказки нет — название всплывает
     if (!PROF || !e.target.closest('#forecastBody')) return;
@@ -364,7 +364,7 @@
     if (e.target.closest('[data-pmore]')) { profMore = true; renderProfile(); return; }
     const t = e.target.closest('#profBack, #profEdit, #profSave, #profAuto, #profCancel, [data-pick]');
     if (!t) return;
-    if (t.id === 'profBack') return openRating();
+    if (t.id === 'profBack') return profBack === 'forbes' ? openForbes() : openRating();
     if (t.id === 'profEdit') { profPick = (PROF.chosen || PROF.badges.map(b => b.k)).slice(0, PROF.max); return renderProfile(); }
     if (t.id === 'profCancel') { profPick = null; return renderProfile(); }
     if (t.id === 'profSave') return saveBadges(profPick);
