@@ -37,7 +37,8 @@
     }
     const fresh = !P.log.length && !tourSeen();
     if (fresh) { setTimeout(openTour, 400); promoNext = true; }       // новичку — коротко о том, как всё устроено (потом — акция)
-    const promo = !fresh && SERVER && student && promoAuto();         // акция — объявление при входе (раз в день), сводка — завтра
+    // после обновления — истории «Что нового» (один раз), иначе — объявление об акции (раз в день); сводка дня — в другой раз
+    const promo = !fresh && SERVER && student && (storiesAuto() || promoAuto());
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
       liveStart();                                                     // живые обновления: одно соединение на браузер
@@ -218,6 +219,8 @@
   versionBtn?.addEventListener('click', () => {
     if (isNarrow()) setSideOpen(false);
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Что нового</h2>
+      ${SERVER && student ? `<button type="button" class="st-launch" id="storiesGo"><span class="st-l-ic">▶</span><span><b>Истории: что нового</b>
+        <small>${storySlides().length} слайдов · 30 секунд</small></span></button>` : ''}
       <div class="changelog">${CHANGELOG.map(([v, d, added, changed], i) => `<section class="cl-ver${i ? '' : ' cl-now'}">
         <h3><span class="cl-num">${v}</span><span class="fm-muted">${d}</span>${i ? '' : '<span class="chip good">сейчас</span>'}</h3>
         ${(added || []).length ? `<div class="cl-kind cl-add">✨ Добавлено</div><ul>${added.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
@@ -227,7 +230,7 @@
   let promoNext = false;                                              // после знакомства с сайтом — объявление об акции
   $('#forecastBody').addEventListener('click', e => {
     if (!e.target.closest('#tourGo')) return;
-    if (promoNext) { promoNext = false; if (promoAuto()) return; }
+    if (promoNext) { promoNext = false; if (storiesAuto()) { closeForecast(); return; } if (promoAuto()) return; }
     closeForecast();
   });
 

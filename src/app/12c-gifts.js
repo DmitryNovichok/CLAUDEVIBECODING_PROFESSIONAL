@@ -433,12 +433,17 @@
     setTimeout(() => { const b = $('#tourGo'); if (b) b.focus(); }, 50);
   }
   /** Объявление при входе — раз в день на устройстве (на компьютере в классе — при каждом входе: там всё стирается). */
+  const promoKey = () => `egeshka.promo.${student ? student.sid : ''}`;
   function promoAuto() {
     if (!PROMO || TEACHER) return false;
-    const key = `egeshka.promo.${student ? student.sid : ''}`, today = dayKey(Date.now());
-    try { if (localStorage.getItem(key) === today + PROMO.day) return false; localStorage.setItem(key, today + PROMO.day); } catch (e) { /* не страшно */ }
+    try { if (localStorage.getItem(promoKey()) === dayKey(Date.now()) + PROMO.day) return false; } catch (e) { /* не страшно */ }
+    promoMarkSeen();
     openPromo();
     return true;
+  }
+  /** Объявление сегодня уже показано (или акция была в историях). */
+  function promoMarkSeen() {
+    if (PROMO) try { localStorage.setItem(promoKey(), dayKey(Date.now()) + PROMO.day); } catch (e) { /* не страшно */ }
   }
   $('#promoBtn')?.addEventListener('click', openPromo);
   document.addEventListener('click', e => {
