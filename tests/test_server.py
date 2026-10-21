@@ -101,11 +101,13 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("DELETE FROM exams")
 
     # ------------------------------------------------------------ помощники
-    def req(self, method, path, body=None, token=None, raw_path=False):
+    def req(self, method, path, body=None, token=None, raw_path=False, ip=None, hdrs=False):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         headers = {"Content-Type": "application/json"}
         if token:
             headers["X-Token"] = token
+        if ip:
+            headers["X-Forwarded-For"] = ip                # адрес ученика (сервер за прокси)
         c.request(method, path, body=json.dumps(body) if body is not None else None, headers=headers)
         r = c.getresponse()
         data = r.read()
@@ -114,7 +116,7 @@ class ServerTest(unittest.TestCase):
             data = json.loads(data)
         except ValueError:
             pass
-        return r.status, data
+        return (r.status, data, r.getheader("Set-Cookie") or "") if hdrs else (r.status, data)
 
     def login(self, name="Иванов Иван"):
         st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": name,
@@ -127,7 +129,9 @@ class ServerTest(unittest.TestCase):
         tok = self.login("Паролев Павел")
         st, d = self.req("POST", "/api/login", {"mode": "login", "name": "паролев  павел", "password": "secret1"})
         self.assertEqual(st, 200, d)                       # регистр и пробелы в ФИО не важны
-        self.assertEqual(d["token"], tok)
+        self.assertNotEqual(d["token"], tok)               # второй вход — своё устройство, свой токен; первый тоже действует
+        self.assertEqual((self.req("GET", "/api/me", token=tok)[0], self.req("GET", "/api/me", token=d["token"])[1]["name"]),
+                         (200, "Паролев Павел"))
         self.assertTrue(d["has_password"])
         st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Паролев Павел", "password": "wrong"})
         self.assertEqual(st, 403)
@@ -182,14 +186,87 @@ class ServerTest(unittest.TestCase):
 
     def test_change_password_logs_out_other_devices(self):
         tok = self.login("Сменов Сергей")
+        other = self.req("POST", "/api/login", {"mode": "login", "name": "Сменов Сергей", "password": "secret1"})[1]["token"]
         st, d = self.req("POST", "/api/password", {"old": "wrong", "new": "newpass1"}, tok)
         self.assertEqual(st, 403)
         st, d = self.req("POST", "/api/password", {"old": "secret1", "new": "newpass1"}, tok)
         self.assertEqual(st, 200)
-        self.assertEqual(self.req("GET", "/api/me", token=tok)[0], 401)       # старый вход больше не действует
-        self.assertEqual(self.req("GET", "/api/me", token=d["token"])[0], 200)
+        self.assertEqual(self.req("GET", "/api/me", token=other)[0], 401)     # вход на другом устройстве больше не действует
+        self.assertEqual(d["token"], tok)                                       # а на этом — остаётся
+        self.assertEqual(self.req("GET", "/api/me", token=tok)[0], 200)
         st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Сменов Сергей", "password": "newpass1"})
         self.assertEqual(st, 200)
+
+    def test_device_sessions_and_school_network(self):
+        db = server.APP.db
+        school, home = "10.20.30.40", "10.99.0.7"
+        logins = {}
+        for name in ("Школьнов Андрей", "Школьнов Борис", "Школьнов Виктор"):
+            st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": name,
+                                                    "new_password": "secret1"}, ip=school)
+            self.assertEqual(st, 200, d)
+            logins[name] = d
+        self.assertFalse(logins["Школьнов Андрей"]["shared"])                     # пока один ученик с адреса — не школа
+        self.assertTrue(self.req("GET", "/api/net", ip=school)[1]["shared"])        # трое — школьная сеть
+        self.assertFalse(self.req("GET", "/api/net", ip=home)[1]["shared"])
+        # в школе вход временный: cookie до закрытия браузера, в ответе shared
+        st, d, ck = self.req("POST", "/api/login", {"mode": "login", "name": "Школьнов Андрей", "password": "secret1"}, ip=school, hdrs=True)
+        self.assertTrue(d["shared"])
+        self.assertIn("egest=", ck)
+        self.assertNotIn("Max-Age", ck)
+        t_school = d["token"]
+        st, d, ck = self.req("POST", "/api/login", {"mode": "login", "name": "Школьнов Андрей", "password": "secret1"}, ip=home, hdrs=True)
+        self.assertFalse(d["shared"])
+        self.assertIn("Max-Age", ck)
+        t_home = d["token"]
+        # входы ученика: дома видно и школьный; выйти на других устройствах — школьный перестаёт действовать
+        S = self.req("GET", "/api/sessions", token=t_home, ip=home)[1]["sessions"]
+        self.assertEqual(len(S), 3)
+        self.assertEqual([x["current"] for x in S].count(True), 1)
+        self.assertTrue(any(x["shared"] and x["ip"] == school for x in S))
+        self.assertEqual(self.req("POST", "/api/sessions/end", {}, t_home, ip=home)[1]["ended"], 2)
+        self.assertEqual(self.req("GET", "/api/me", token=t_school, ip=school)[0], 401)
+        self.assertEqual(self.req("GET", "/api/me", token=t_home, ip=home)[0], 200)
+        # «Выйти» отзывает вход на сервере
+        self.req("POST", "/api/logout", {}, t_home, ip=home)
+        self.assertEqual(self.req("GET", "/api/me", token=t_home, ip=home)[0], 401)
+        # школьный вход кончается на следующий день и после долгого бездействия
+        t1 = self.req("POST", "/api/login", {"mode": "login", "name": "Школьнов Борис", "password": "secret1"}, ip=school)[1]["token"]
+        db.x("UPDATE student_sessions SET created=created-86400 WHERE token=?", (t1,))
+        self.assertEqual(self.req("GET", "/api/me", token=t1, ip=school)[0], 401)
+        t2 = self.req("POST", "/api/login", {"mode": "login", "name": "Школьнов Борис", "password": "secret1"}, ip=school)[1]["token"]
+        db.x("UPDATE student_sessions SET last_seen=last_seen-?, created=? WHERE token=?",
+             (server.SHARED_IDLE + 60, time.time() - 5, t2))
+        self.assertEqual(self.req("GET", "/api/me", token=t2, ip=school)[0], 401)
+        # прежний общий токен: в школе не пускает, дома — становится входом устройства со своим токеном
+        sid_v = logins["Школьнов Виктор"]["sid"]
+        db.x("UPDATE students SET token='legacy-viktor' WHERE id=?", (sid_v,))
+        self.assertEqual(self.req("GET", "/api/me", token="legacy-viktor", ip=school)[0], 401)
+        st, d = self.req("GET", "/api/me", token="legacy-viktor", ip=home)
+        self.assertEqual((st, d["sid"]), (200, sid_v))
+        self.assertNotEqual(d["token"], "legacy-viktor")
+        self.assertEqual(self.req("GET", "/api/me", token=d["token"], ip=home)[0], 200)
+        since = db.setting("sessions_since")
+        try:
+            db.setting("sessions_since", str(time.time() - (server.LEGACY_DAYS + 1) * 86400))
+            self.assertEqual(self.req("GET", "/api/me", token="legacy-viktor", ip=home)[0], 401)   # переходный срок кончился
+        finally:
+            db.setting("sessions_since", since)
+        # учитель: выйти у ученика везде; конец урока — выйти всем на компьютерах этой сети
+        tv = self.req("POST", "/api/login", {"mode": "login", "name": "Школьнов Виктор", "password": "secret1"}, ip=home)[1]["token"]
+        self.assertEqual(self.admin("POST", "/api/admin/student/logout", {"id": sid_v})[1]["ended"], 3)   # регистрация, дом ×2
+        self.assertEqual(self.req("GET", "/api/me", token=tv, ip=home)[0], 401)
+        ta = self.req("POST", "/api/login", {"mode": "login", "name": "Школьнов Андрей", "password": "secret1"}, ip=school)[1]["token"]
+        tb = self.req("POST", "/api/login", {"mode": "login", "name": "Школьнов Борис", "password": "secret1"}, ip=school)[1]["token"]
+        th = self.req("POST", "/api/login", {"mode": "login", "name": "Школьнов Андрей", "password": "secret1"}, ip=home)[1]["token"]
+        st, d = self.admin("POST", "/api/admin/logout-here", {}, ip=school)
+        self.assertEqual((st, d["ended"], d["ip"]), (200, 3, school))      # Андрей, Борис и вход Бориса с регистрации
+        self.assertEqual([self.req("GET", "/api/me", token=t, ip=ip)[0] for t, ip in ((ta, school), (tb, school), (th, home))], [401, 401, 200])
+        # банк заданий — только с действующим входом
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/data/bank.js", headers={"Cookie": f"egest={ta}", "X-Forwarded-For": school})
+        self.assertIn(b"locked", c.getresponse().read())
+        c.close()
 
     def test_password_guessing_is_limited(self):
         self.login("Подбиров Пётр")
@@ -198,12 +275,12 @@ class ServerTest(unittest.TestCase):
         st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Подбиров Пётр", "password": "secret1"})
         self.assertEqual(st, 429)
 
-    def admin(self, method, path, body=None):
+    def admin(self, method, path, body=None, ip=None):
         """Запрос учителя: сессию кладём прямо в базу."""
         server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         c.request(method, path, body=json.dumps(body) if body is not None else None,
-                  headers={"Content-Type": "application/json", "Cookie": "egeadm=admtest"})
+                  headers={"Content-Type": "application/json", "Cookie": "egeadm=admtest", **({"X-Forwarded-For": ip} if ip else {})})
         r = c.getresponse()
         data = json.loads(r.read() or b"null")
         c.close()
@@ -1137,7 +1214,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/live")[0], 401)
         server.APP.db.x("DELETE FROM duel_queue")
         ta, tb = self.login("Живой Андрей"), self.login("Живой Борис")
-        sid_a = server.APP.db.q("SELECT id FROM students WHERE token=?", (ta,), one=True)["id"]
+        sid_a = self.req("GET", "/api/me", token=ta)[1]["sid"]
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         c.request("GET", "/api/live", headers={"X-Token": ta})
         r = c.getresponse()

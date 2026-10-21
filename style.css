@@ -954,6 +954,18 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 /* «Чужой компьютер» в окне входа */
 .login-temp { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13.5px; color: var(--muted); cursor: pointer; }
 .login-temp input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+.login-temp[hidden] { display: none; }
+/* компьютер в классе: пароль — текст со звёздочками (браузер не сохраняет и не подставляет) */
+.pw-mask { -webkit-text-security: disc; }
+.login-school { margin: 12px 0 0; padding: 8px 12px; border-radius: 10px; background: var(--card-hover); color: var(--muted); font-size: 13px; line-height: 1.45; }
+/* где выполнен вход */
+.sess-box:empty { display: none; }
+.sess-box { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.sess-list { list-style: none; margin: 6px 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sess-list li { padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; font-size: 13.5px; }
+.sess-list li.cur { border-color: var(--accent); }
+.sess-list li em { color: var(--accent); font-style: normal; font-weight: 700; }
+.sess-list small { display: block; color: var(--muted); font-size: 12px; }
 
 /* сворачиваемое меню (только на компьютере; на телефоне меню и так складывается) */
 .side-min-btn { flex: none; }

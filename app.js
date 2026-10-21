@@ -366,10 +366,29 @@
 
   const LAST_NAME_STORE = 'egeTrainer.lastName';
   const cleanName = v => String(v || '').replace(/\s+/g, ' ').trim();
+  // Компьютер в классе (сервер узнаёт школьную сеть) или «Чужой компьютер»: браузер не должен сохранять и подставлять пароль.
+  // Поле пароля — обычный текст со звёздочками (-webkit-text-security): для браузера это не пароль, он его не запоминает
+  // и сохранённый раньше не подставит. Где так нельзя (Firefox, телефон) — type=password с autocomplete="new-password".
+  const PW_FIELDS = ['#loginPass', '#regPass', '#regPass2', '#pwOld', '#pwNew', '#pwNew2'];
+  const PW_MASK_OK = (() => { try { return CSS.supports('-webkit-text-security', 'disc') && matchMedia('(pointer: fine)').matches; } catch (e) { return false; } })();
+  let SCHOOL_NET = false;
+  function pwNoSave(on) {
+    PW_FIELDS.forEach(sel => {
+      const el = $(sel);
+      if (!el) return;
+      const mask = on && PW_MASK_OK;
+      el.type = mask ? 'text' : 'password';
+      el.classList.toggle('pw-mask', mask);
+      el.setAttribute('autocomplete', on && !mask ? 'new-password' : 'off');
+      el.setAttribute('spellcheck', 'false');
+      el.setAttribute('autocapitalize', 'off');
+      if (mask) el.name = 'f' + Math.random().toString(36).slice(2, 9);    // без «password» в имени — менеджер паролей не узнает поле
+    });
+  }
 
   /**
    * Окно входа: вкладки «Вход» (ФИО + пароль) и «Регистрация» (код + ФИО + пароль).
-   * Поля размечены autocomplete — браузер предложит сохранить пароль и потом подставит его.
+   * В школьной сети (сервер узнаёт её по адресу) вход временный, ФИО не подставляется, а пароль браузер не сохраняет.
    * Возвращает ответ сервера после успешного входа.
    */
   function loginDialog(note) {
@@ -390,6 +409,20 @@
       tabs.forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
       const last = readJSON(LAST_NAME_STORE);
       if (last) $('#loginName').value = last;
+      const tempBox = $('#loginTemp');
+      tempBox.onchange = () => pwNoSave(SCHOOL_NET || tempBox.checked);
+      pwNoSave(SCHOOL_NET || tempBox.checked);
+      fetch('api/net', { cache: 'no-store' }).then(r => r.json()).then(n => {
+        SCHOOL_NET = !!n.shared;
+        $('#loginSchool').hidden = !SCHOOL_NET;
+        tempBox.closest('label').hidden = SCHOOL_NET;
+        pwNoSave(SCHOOL_NET || tempBox.checked);
+        if (SCHOOL_NET && $('#loginName').value === last) {        // ФИО прошлого ученика за этим компьютером не показываем
+          $('#loginName').value = '';
+          try { localStorage.removeItem(LAST_NAME_STORE); } catch (e) { /* нет доступа */ }
+          if (!forms.login.hidden) $('#loginName').focus();
+        }
+      }).catch(() => { /* нет связи — как обычно */ });
       m.hidden = false;
       setTab(last ? 'login' : 'reg', note || '');
 
@@ -402,7 +435,8 @@
           forgetStudent();                               // прежний вход на этом компьютере больше не нужен
           try { if (temp) sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
           const r = await loginRequest(body);
-          if (!temp) writeJSON(LAST_NAME_STORE, r.name);
+          if (r.shared) { try { sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ } }   // компьютер в классе
+          if (!temp && !r.shared) writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
           ['#loginPass', '#regPass', '#regPass2', '#regCode'].forEach(sel => { $(sel).value = ''; });
           resolve(r);
@@ -446,7 +480,8 @@
     try { tried = sessionStorage.getItem('egeTrainer.relogin'); } catch (e) { /* нет доступа */ }
     if (saved && saved.token && !tried) {
       try {
-        await loginRequest(null, saved.token);         // сервер снова поставит cookie
+        const r0 = await loginRequest(null, saved.token);   // сервер снова поставит cookie (прежний общий вход — новый токен устройства)
+        writeStudent({ sid: r0.sid, name: r0.name, token: r0.token || saved.token });
         try { sessionStorage.setItem('egeTrainer.relogin', '1'); } catch (e) { /* нет доступа */ }
         location.reload();
         return;
@@ -3930,7 +3965,11 @@
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
+    if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
+      try { localStorage.removeItem(STUDENT_STORE); sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
+    }
     writeStudent(student);
+    schoolWatch(!!me.shared);
     if (me.rules) Object.assign(RULES, me.rules);
     ADMINS = new Set(me.admins || []);
     CONSENT_NEEDED = !!me.consent_needed;
@@ -4017,6 +4056,56 @@
     });
   }
 
+  // ---- компьютер в классе: 40 минут без действий — выход сам (кроме идущего варианта ЕГЭ), за 5 минут — предупреждение
+  const SCHOOL_IDLE = 40 * 60000;
+  let schoolTimer = null, schoolLast = Date.now(), schoolWarned = false;
+  function schoolWatch(on) {
+    clearInterval(schoolTimer);
+    schoolTimer = null;
+    if (!on) return;
+    schoolLast = Date.now();
+    let told = false;
+    try { told = sessionStorage.getItem('egeTrainer.schoolTold') === '1'; sessionStorage.setItem('egeTrainer.schoolTold', '1'); } catch (e) { /* нет доступа */ }
+    if (!told) setTimeout(() => toast('🏫 Компьютер в классе: вход — до закрытия браузера. Уходишь — нажми «Выйти» в меню с твоим именем', 7000), 1500);
+    schoolTimer = setInterval(() => {
+      if (!student || EX) { schoolLast = Date.now(); return; }
+      const idle = Date.now() - schoolLast;
+      if (idle >= SCHOOL_IDLE) {
+        clearInterval(schoolTimer);
+        schoolTimer = null;
+        toast('🏫 Долго ничего не происходило — вышли из аккаунта, чтобы за этим компьютером никто не зашёл под тобой', 9000);
+        logout();
+      } else if (idle >= SCHOOL_IDLE - 5 * 60000 && !schoolWarned) {
+        schoolWarned = true;
+        toast('🏫 Ты здесь? Через 5 минут без действий выйдем из аккаунта', 8000);
+      }
+    }, 20000);
+  }
+  ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'].forEach(t => document.addEventListener(t, () => {
+    schoolLast = Date.now();
+    schoolWarned = false;
+  }, { passive: true, capture: true }));
+
+  // ---- где выполнен вход: свои устройства, «Выйти на всех других устройствах»
+  async function loadSessions() {
+    const box = $('#sessBox');
+    if (!box) return;
+    let d;
+    try { d = await api('sessions'); } catch (e) { box.innerHTML = ''; return; }
+    const S = d.sessions, when = ts => { const t = new Date(ts * 1000); return `${ago(ts * 1000)} в ${pad2(t.getHours())}:${pad2(t.getMinutes())}`; };
+    box.innerHTML = `<h3 class="fm-sub">Где ты вошёл · ${S.length}</h3>
+      <ul class="sess-list">${S.map(x => `<li class="${x.current ? 'cur' : ''}"><b>${esc(x.device)}</b>${x.shared ? ' · 🏫 компьютер в классе' : ''}${x.current ? ' · <em>это устройство</em>' : ''}
+        <small>был(а) ${esc(when(x.last_seen))} · вошёл ${esc(when(x.created))}</small></li>`).join('')}</ul>
+      ${S.length > 1 ? '<button type="button" class="btn ghost btn-block" id="sessEnd">Выйти на всех других устройствах</button>' : ''}
+      <p class="fm-note">Видишь компьютер, где ты не входил, или забыл выйти в классе — нажми «Выйти на всех других устройствах», а лучше ещё и смени пароль.</p>`;
+    const btn = $('#sessEnd');
+    if (btn) btn.onclick = async () => {
+      btn.disabled = true;
+      try { const r = await api('sessions/end', {}); toast(r.ended ? `Вышли на других устройствах: ${r.ended}` : 'Других входов нет', 4000); } catch (e) { toast(e.message || 'Не получилось'); }
+      loadSessions();
+    };
+  }
+
   // ---- пароль ученика: смена, а у старых учеников без пароля — задать его
   function openPasswordDialog(mustSet) {
     const m = $('#pwModal'), errEl = $('#pwErr');
@@ -4026,7 +4115,10 @@
       : 'После смены пароля вход на других устройствах сбросится — там нужно будет войти заново.';
     $('#pwOldField').hidden = !!mustSet;
     ['#pwOld', '#pwNew', '#pwNew2'].forEach(sel => { $(sel).value = ''; });
+    pwNoSave(isTemp());                          // на компьютере в классе браузер новый пароль не запомнит
     errEl.textContent = '';
+    $('#sessBox').innerHTML = '';
+    if (!mustSet) loadSessions();
     m.hidden = false;
     setTimeout(() => $(mustSet ? '#pwNew' : '#pwOld').focus(), 30);
     $('#pwForm').onsubmit = async e => {
@@ -4041,7 +4133,7 @@
         student.token = r.token;
         writeStudent(student);
         m.hidden = true;
-        toast('Пароль сохранён', 2500);
+        toast('Пароль сохранён — на других устройствах нужно войти заново', 3500);
       } catch (err) {
         errEl.textContent = err.status ? err.message : 'Нет связи с сервером.';
       } finally {
@@ -4054,6 +4146,7 @@
   });
 
   async function logout() {
+    schoolWatch(false);
     if (examShown) saveExamInputs();
     abandonCurrent();
     flushSync(false);
@@ -7844,6 +7937,10 @@
     else if (topic === 'support') liveSupport();
     else if (topic === 'pyc') pycLive();
     else if (topic === 'gift') giftLive();
+    else if (topic === 'logout') {
+      // учитель завершил вход на компьютерах класса — если и этот вход закрыт, выходим
+      api('me').catch(e => { if (e.status === 401 && student) { toast('🏫 Учитель завершил вход на компьютерах класса', 6000); logout(); } });
+    }
   }
   /** Ученик ответил в другой вкладке или на телефоне — здесь подтянуть опыт, уровень и плитки номеров.
       Вкладка, где ответили, свои данные уже знает — её не трогаем. */

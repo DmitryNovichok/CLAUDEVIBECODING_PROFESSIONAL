@@ -75,6 +75,13 @@ MAX_BODY = 4_000_000
 ADMIN_SESSION_DAYS = 14
 DEFAULT_INVITE = "16082001"        # пригласительный код для учеников (меняется в панели учителя)
 STUDENT_COOKIE_DAYS = 30                 # вход живёт месяц с последнего захода
+# Вход — свой на каждом устройстве (student_sessions): «Выйти» отзывает его на сервере, «Выйти везде» — все сразу.
+# Школьная сеть: с адреса за SHARED_DAYS дней входили или решали SHARED_MIN+ разных учеников — компьютеры общие.
+# Там вход временный: до закрытия браузера, не дольше конца дня и SHARED_IDLE без действий; пароль браузер не сохраняет.
+SHARED_MIN, SHARED_DAYS = 3, 30
+SHARED_IDLE = 3 * 3600
+LEGACY_DAYS = 30                         # прежний общий вход (students.token) — вне школы ещё столько дней становится входом устройства
+SESSION_KEEP_DAYS = 60                   # закрытые входы хранятся столько дней
 REG_PER_HOUR_IP = 60                     # регистраций в час с одного адреса (класс за одним школьным IP — влезает)
 # защита от перебора: столько неудачных попыток с одного адреса за окно — и пауза
 FAIL_WINDOW = 15 * 60
@@ -265,6 +272,97 @@ def reg_allowed(ip, add=False):
             arr.append(now)
         _REG_LOG[ip] = arr
         return len(arr) < REG_PER_HOUR_IP or add
+
+
+_SHARED = {}                               # ip -> (когда проверено, школьная ли сеть)
+
+
+def shared_ip(db, ip, fresh=False):
+    """Школьная сеть: с адреса за SHARED_DAYS дней решали или входили SHARED_MIN+ разных учеников. Локальный адрес —
+    не школа (запросы с самого сервера). Проверка — раз в 10 минут на адрес."""
+    if not ip or ip in ("127.0.0.1", "::1"):
+        return False
+    now = time.time()
+    hit = _SHARED.get(ip)
+    if hit and not fresh and now - hit[0] < 600:
+        return hit[1]
+    since = now - SHARED_DAYS * 86400
+    who = {r["student_id"] for r in db.q("""SELECT DISTINCT a.student_id FROM attempts a JOIN students s ON s.id = a.student_id
+                                           WHERE a.ip=? AND a.ts>? AND COALESCE(s.is_teacher, 0) = 0""", (ip, since))}
+    who |= {r["student_id"] for r in db.q("""SELECT DISTINCT x.student_id FROM student_sessions x JOIN students s ON s.id = x.student_id
+                                            WHERE x.ip=? AND x.created>? AND COALESCE(s.is_teacher, 0) = 0""", (ip, since))}
+    v = len(who) >= SHARED_MIN
+    if len(_SHARED) > 20000:
+        _SHARED.clear()
+    _SHARED[ip] = (now, v)
+    return v
+
+
+def session_new(db, sid, ip, ua, shared):
+    """Новый вход на устройстве → токен. Заодно — уборка давно закрытых."""
+    tok = secrets.token_urlsafe(24)
+    now = time.time()
+    db.x("DELETE FROM student_sessions WHERE COALESCE(ended, last_seen, created) < ?", (now - SESSION_KEEP_DAYS * 86400,))
+    db.x("INSERT INTO student_sessions(token, student_id, created, last_seen, ip, ua, shared) VALUES(?,?,?,?,?,?,?)",
+         (tok, sid, now, now, ip, (ua or "")[:300], 1 if shared else 0))
+    return tok
+
+
+def session_alive(r, now):
+    """Вход ещё действует: обычный — STUDENT_COOKIE_DAYS с последнего захода; в школе — тот же день и SHARED_IDLE без действий."""
+    if r["ended"]:
+        return False
+    if r["shared"]:
+        return (time.localtime(r["created"])[:3] == time.localtime(now)[:3]) and now - (r["last_seen"] or r["created"]) < SHARED_IDLE
+    return now - (r["last_seen"] or r["created"]) < STUDENT_COOKIE_DAYS * 86400
+
+
+def student_by_token(db, tok, ip):
+    """Ученик по токену входа → (ученик, вход устройства или None для прежнего общего токена) или (None, None).
+    Прежний общий токен (students.token) действует только вне школьной сети и LEGACY_DAYS дней после обновления."""
+    if not tok:
+        return None, None
+    now = time.time()
+    r = db.q("SELECT * FROM student_sessions WHERE token=?", (tok,), one=True)
+    if r:
+        if not session_alive(r, now):
+            if not r["ended"]:
+                db.x("UPDATE student_sessions SET ended=? WHERE id=?", (now, r["id"]))
+            return None, None
+        return db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True), r
+    s = db.q("SELECT * FROM students WHERE token=?", (tok,), one=True)
+    if s and now < (to_float(db.setting("sessions_since")) or now) + LEGACY_DAYS * 86400 and not shared_ip(db, ip):
+        return s, None
+    return None, None
+
+
+def sessions_end(db, sid, keep=None):
+    """Выйти на всех устройствах ученика (кроме входа keep); прежний общий токен — тоже. → сколько входов закрыто."""
+    n = db.xn("UPDATE student_sessions SET ended=? WHERE student_id=? AND id<>? AND ended IS NULL", (time.time(), sid, keep or 0))
+    db.x("UPDATE students SET token=? WHERE id=?", (secrets.token_urlsafe(24), sid))
+    return n
+
+
+def ua_label(ua):
+    """«Chrome · Windows» из User-Agent — чтобы ученик узнал свой компьютер в списке входов."""
+    ua = ua or ""
+    br = next((t for k, t in (("YaBrowser", "Яндекс Браузер"), ("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox", "Firefox"),
+                              ("Chrome", "Chrome"), ("Safari", "Safari")) if k in ua), "браузер")
+    os_ = next((t for k, t in (("Android", "Android"), ("iPhone", "iPhone"), ("iPad", "iPad"), ("Windows", "Windows"),
+                               ("Mac OS", "Mac"), ("CrOS", "Chromebook"), ("Linux", "Linux")) if k in ua), "")
+    return f"{br} · {os_}" if os_ else br
+
+
+def sessions_list(db, sid, cur=None):
+    """Входы ученика (действующие), новые сверху: устройство, адрес, когда вошёл и был, школьный ли, этот ли."""
+    now = time.time()
+    out = []
+    for r in db.q("SELECT * FROM student_sessions WHERE student_id=? AND ended IS NULL ORDER BY COALESCE(last_seen, created) DESC", (sid,)):
+        if not session_alive(r, now):
+            continue
+        out.append({"id": r["id"], "device": ua_label(r["ua"]), "ip": r["ip"] or "", "created": r["created"],
+                    "last_seen": r["last_seen"] or r["created"], "shared": bool(r["shared"]), "current": r["id"] == cur})
+    return out
 
 
 class Opened:
@@ -1135,6 +1233,12 @@ class DB:
             CREATE INDEX IF NOT EXISTS att_ts ON attempts(ts);
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS admin_sessions(token TEXT PRIMARY KEY, expires REAL);
+            -- входы учеников: свой на каждом устройстве; shared — в школьной сети (временный); ended — когда вышли
+            -- (закрытые хранятся SESSION_KEEP_DAYS: по ним видно школьную сеть и историю входов)
+            CREATE TABLE IF NOT EXISTS student_sessions(
+                id INTEGER PRIMARY KEY, token TEXT NOT NULL UNIQUE, student_id INTEGER NOT NULL, created REAL NOT NULL,
+                last_seen REAL, ip TEXT, ua TEXT, shared INTEGER DEFAULT 0, ended REAL);
+            CREATE INDEX IF NOT EXISTS student_sessions_s ON student_sessions(student_id);
             CREATE TABLE IF NOT EXISTS reveal_log(
                 id INTEGER PRIMARY KEY, student_id INTEGER, ip TEXT, ts REAL, task_id TEXT,
                 granted INTEGER, why TEXT);
@@ -1378,6 +1482,9 @@ class DB:
                     if gift in GIFT_BY and paid < 0.6 * GIFT_BY[gift][3]:
                         c.execute("UPDATE gifts SET kind='box' WHERE id=?", (gid,))
                 c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('box_kind_backfill', '1')")
+            # входы по устройствам: прежний общий токен ещё LEGACY_DAYS дней превращается во вход устройства (вне школы)
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('sessions_since', ?)", (str(time.time()),))
+            c.execute("CREATE INDEX IF NOT EXISTS attempts_ip ON attempts(ip, ts)")
             # банку — половина заработка учеников: с первого запуска версии, за прошлое не начисляем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('labor_bank_since', ?)", (str(time.time()),))
             # банк рынка биткоинов открывается со стартовым капиталом (один раз)
@@ -1879,8 +1986,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 self.wfile.write(chunk)
 
     def serve_bank(self):
-        tok = self.cookie("egest")
-        if not tok or not APP.db.q("SELECT 1 FROM students WHERE token=?", (tok,), one=True):
+        if not student_by_token(APP.db, self.cookie("egest"), self.client_ip())[0]:
             # без входа (код приглашения + ФИО) задания не отдаём
             return self.send_bytes(200, LOCKED_BANK, "application/javascript; charset=utf-8", {"Cache-Control": "no-store"})
         if not APP.bank.ensure():
@@ -1965,9 +2071,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
         return c[name].value if name in c else None
 
-    def student_cookie(self, token):
-        # «Чужой компьютер» (заголовок X-Temp): cookie без срока — сотрётся, когда закроют браузер
-        life = "" if self.headers.get("X-Temp") == "1" else f"; Max-Age={STUDENT_COOKIE_DAYS * 86400}"
+    def student_cookie(self, token, temp=False):
+        # «Чужой компьютер» (заголовок X-Temp) и школьная сеть: cookie без срока — сотрётся, когда закроют браузер
+        life = "" if temp or self.headers.get("X-Temp") == "1" else f"; Max-Age={STUDENT_COOKIE_DAYS * 86400}"
         return f"egest={token}; Path=/; HttpOnly; SameSite=Lax{life}{self.cookie_attrs()}"
 
     def wait_msg(self, sec):
@@ -1975,12 +2081,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return f"Слишком много неверных попыток. Подождите {m} мин."
 
     def student(self, data=None):
+        """Ученик по токену входа (заголовок, тело запроса или cookie); self.sess — вход этого устройства (None — прежний
+        общий токен), self.tok — токен, которым вошли."""
         tok = self.headers.get("X-Token") or (data or {}).get("token") or self.cookie("egest")
-        if not tok:
-            return None
-        s = APP.db.q("SELECT * FROM students WHERE token=?", (tok,), one=True)
+        ip = self.client_ip()
+        s, sess = student_by_token(APP.db, tok, ip)
+        self.sess, self.tok = sess, (tok if s else None)
         if s:
-            APP.db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (time.time(), self.client_ip(), s["id"]))
+            now = time.time()
+            APP.db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
+            if sess and (now - (sess["last_seen"] or 0) > 60 or sess["ip"] != ip):
+                APP.db.x("UPDATE student_sessions SET last_seen=?, ip=? WHERE id=?", (now, ip, sess["id"]))
         return s
 
     # ---------- журнал и показ ответов
@@ -2086,7 +2197,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 prefs["fav"] = [conv(i) for i in prefs["fav"] if isinstance(i, str)]
             if isinstance(prefs.get("notes"), dict):
                 prefs["notes"] = {conv(k): v for k, v in prefs["notes"].items()}
-        return {"sid": s["id"], "name": s["name"], "token": s["token"], "prefs": prefs,
+        return {"sid": s["id"], "name": s["name"], "token": getattr(self, "tok", None) or s["token"], "prefs": prefs,
+                "shared": bool(getattr(self, "sess", None) and self.sess["shared"]),
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s),
                 "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
@@ -2294,7 +2406,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE students SET consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?", (LEGAL_VERSION, now, ip, s["id"]))
                 s = db.q("SELECT * FROM students WHERE id=?", (s["id"],), one=True)
             db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
-            return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(s["token"])})
+            # вход — свой на этом устройстве; в школьной сети (и «Чужой компьютер») — временный
+            shared = shared_ip(db, ip) or self.headers.get("X-Temp") == "1"
+            self.tok = session_new(db, s["id"], ip, self.headers.get("User-Agent"), shared)
+            self.sess = db.q("SELECT * FROM student_sessions WHERE token=?", (self.tok,), one=True)
+            _SHARED.pop(ip, None)                      # новый ученик с этого адреса — школьную сеть проверим заново
+            return self.send_json(self.me_payload(s), extra={"Set-Cookie": self.student_cookie(self.tok, temp=shared)})
 
         if path == "/api/consent" and method == "POST":
             # уже зарегистрированный ученик принимает (новую редакцию) документов
@@ -2511,9 +2628,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             new = str(data.get("new") or "")
             if len(new) < 6:
                 return self.err(400, "Пароль — не короче 6 символов")
-            tok = secrets.token_urlsafe(24)            # вход на других устройствах сбрасывается
-            db.x("UPDATE students SET pw=?, token=? WHERE id=?", (hash_pw(new), tok, s["id"]))
-            return self.send_json({"ok": True, "token": tok}, extra={"Set-Cookie": self.student_cookie(tok)})
+            db.x("UPDATE students SET pw=? WHERE id=?", (hash_pw(new), s["id"]))
+            # вход на других устройствах сбрасывается; это устройство остаётся (прежний общий токен — становится входом устройства)
+            tok = self.tok if self.sess else session_new(db, s["id"], ip, self.headers.get("User-Agent"), False)
+            sess = self.sess or db.q("SELECT * FROM student_sessions WHERE token=?", (tok,), one=True)
+            sessions_end(db, s["id"], keep=sess["id"])
+            return self.send_json({"ok": True, "token": tok}, extra={"Set-Cookie": self.student_cookie(tok, temp=bool(sess["shared"]))})
 
         if path == "/api/me":
             s = self.student(data)
@@ -2521,7 +2641,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(401, "нужно войти")
             # вход по сохранённому в браузере токену продлевает cookie; вход по одной cookie её срок не трогает
             # (иначе вкладка без «Чужого компьютера» сделала бы временный вход постоянным)
-            extra = {"Set-Cookie": self.student_cookie(s["token"])} if self.headers.get("X-Token") else None
+            extra = {"Set-Cookie": self.student_cookie(self.tok, temp=bool(self.sess["shared"]))} if self.headers.get("X-Token") and self.sess else None
+            if not self.sess:                          # прежний общий токен — теперь вход этого устройства, со своим токеном
+                self.tok = session_new(db, s["id"], self.client_ip(), self.headers.get("User-Agent"), False)
+                self.sess = db.q("SELECT * FROM student_sessions WHERE token=?", (self.tok,), one=True)
+                extra = {"Set-Cookie": self.student_cookie(self.tok)}
             return self.send_json(self.me_payload(s), extra=extra)
 
         if path == "/api/course/lesson":
@@ -2612,7 +2736,29 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"h": h})
 
         if path == "/api/logout" and method == "POST":
+            # выйти: вход этого устройства отзывается на сервере (токен, оставшийся в браузере, больше не пустит)
+            if self.student(data) and self.sess:
+                db.x("UPDATE student_sessions SET ended=? WHERE id=?", (time.time(), self.sess["id"]))
             return self.send_json({"ok": True}, extra={"Set-Cookie": "egest=; Path=/; Max-Age=0" + self.cookie_attrs()})
+
+        if path == "/api/net":
+            # школьная ли сеть — окно входа не запоминает ФИО и не даёт браузеру сохранить пароль
+            return self.send_json({"shared": shared_ip(db, self.client_ip())})
+
+        if path in ("/api/sessions", "/api/sessions/end"):
+            # где выполнен вход: свои устройства; «Выйти на других устройствах» — все, кроме этого
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if path == "/api/sessions/end" and method == "POST":
+                keep = self.sess["id"] if self.sess else None
+                if data.get("id"):
+                    n = db.xn("UPDATE student_sessions SET ended=? WHERE id=? AND student_id=? AND id<>? AND ended IS NULL",
+                              (time.time(), to_int(data.get("id")), s["id"], keep or 0))
+                else:
+                    n = sessions_end(db, s["id"], keep=keep)
+                return self.send_json({"ok": True, "ended": n, "sessions": sessions_list(db, s["id"], keep)})
+            return self.send_json({"sessions": sessions_list(db, s["id"], self.sess["id"] if self.sess else None)})
 
         if path == "/api/progress" and method == "POST":
             s = self.student(data)
@@ -3850,7 +3996,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             student["teacher_id"] = row["teacher_id"] or main_teacher()["id"]
             return self.send_json({"student": student, "attempts": out, "forecast_history": fc_hist,
                                    "reveals": {k: rev[k] or 0 for k in ("granted", "blocked", "early")},
-                                   "exams": [exam_brief(r) for r in exams], "same_ip": same_ip,
+                                   "exams": [exam_brief(r) for r in exams], "same_ip": same_ip, "sessions": sessions_list(db, sid),
                                    "activity": {r["kind"]: {"count": r["c"], "sec": round(r["dur"] or 0), "exam": r["in_exam"] or 0} for r in act},
                                    "away_log": away_log,
                                    "game": game_summary(db, sid), "rules": self.rules()})
@@ -4034,8 +4180,31 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not db.q("SELECT 1 FROM students WHERE id=?", (sid,), one=True):
                 return self.err(404, "ученик не найден")
             # пароль стирается, вход на всех устройствах сбрасывается; ученик задаст новый с кодом приглашения
-            db.x("UPDATE students SET pw=NULL, token=? WHERE id=?", (secrets.token_urlsafe(24), sid))
+            db.x("UPDATE students SET pw=NULL WHERE id=?", (sid,))
+            sessions_end(db, sid)
             return self.send_json({"ok": True})
+
+        if path == "/api/admin/student/logout" and method == "POST":
+            # выйти у ученика на всех устройствах (например, вошёл на чужом компьютере)
+            sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
+            return self.send_json({"ok": True, "ended": sessions_end(db, sid)})
+
+        if path == "/api/admin/logout-here" and method == "POST":
+            # конец урока: выйти всем вашим ученикам на компьютерах этой сети (адрес — как у учителя сейчас)
+            ip = self.client_ip()
+            where, args = self.student_scope()
+            sids = [r["id"] for r in db.q(f"SELECT s.id FROM students s WHERE {where}", args)]
+            n = 0
+            for i in range(0, len(sids), 500):
+                part = sids[i:i + 500]
+                n += db.xn(f"""UPDATE student_sessions SET ended=? WHERE ip=? AND ended IS NULL
+                                AND student_id IN ({','.join('?' * len(part))})""", (time.time(), ip, *part))
+                # прежний общий токен у тех, кто заходил с этого адреса, — тоже
+                db.x(f"UPDATE students SET token=lower(hex(randomblob(18))) WHERE last_ip=? AND id IN ({','.join('?' * len(part))})", (ip, *part))
+            LIVE.send(sids, "logout")
+            return self.send_json({"ok": True, "ended": n, "ip": ip})
 
         if path == "/api/admin/student/role" and method == "POST":
             # плашка 👑 admin рядом с именем ученика — выдаёт и снимает только главный учитель
@@ -4496,8 +4665,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         VALUES(?,?,?,?,?,?,1)""", (t["name"] or "Учитель", f"teacher:{t['id']}", secrets.token_urlsafe(24),
                                                   time.time(), time.time(), t["id"]))
                 s = db.q("SELECT * FROM students WHERE is_teacher=1 AND teacher_id=?", (t["id"],), one=True)
-            return self.send_json({"ok": True, "sid": s["id"], "name": s["name"], "token": s["token"]},
-                                  extra={"Set-Cookie": self.student_cookie(s["token"])})
+            tok = session_new(db, s["id"], self.client_ip(), self.headers.get("User-Agent"), False)
+            return self.send_json({"ok": True, "sid": s["id"], "name": s["name"], "token": tok},
+                                  extra={"Set-Cookie": self.student_cookie(tok)})
 
         if path == "/api/admin/site-stats":
             # главный учитель: количественные метрики всего сайта (без имён учеников других учителей)

@@ -2471,6 +2471,13 @@
         : ''}` : '');
     }
 
+    // где ученик сейчас вошёл: устройства, адреса, школьный ли компьютер
+    const SS = st.sessions || [];
+    $('#stSessions').innerHTML = SS.length ? `<details class="adm-sess"><summary>Где выполнен вход · ${SS.length}${SS.some(x => x.shared) ? ' · есть компьютер в классе' : ''}</summary>
+      <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Устройство</th><th>Адрес</th><th>Вошёл</th><th>Был(а)</th></tr></thead>
+      <tbody>${SS.map(x => `<tr><td>${esc(x.device)}${x.shared ? ' · 🏫 класс' : ''}</td><td><code>${esc(x.ip)}</code></td>
+        <td class="muted">${fmtWhen(x.created)}</td><td class="muted">${fmtWhen(x.last_seen)}</td></tr>`).join('')}</tbody></table></div></details>` : '';
+
     // по номерам
     const per = {};
     for (const a of A) {
@@ -2658,6 +2665,22 @@
       toast(r.added ? `Огонёк восстановлен: ${r.fire} дн.` : `Огонёк уже ${r.fire} дн. — восстанавливать нечего`);
       openStudent(s.id);
     } catch (x) { if (x.status !== 401) toast(x.message); }
+  });
+  $('#stLogout').addEventListener('click', async () => {
+    const s = st.student;
+    if (!confirm(`Выйти у «${s.name}» на всех устройствах?\n\nНапример, если он забыл выйти на компьютере в классе. Войти можно снова по ФИО и паролю; если под ним заходил кто-то другой, лучше ещё и сбросить пароль.`)) return;
+    try {
+      const r = await api('student/logout', { id: s.id });
+      toast(r.ended ? `Вход закрыт на устройствах: ${r.ended}` : 'Открытых входов не было');
+      openStudent(s.id);
+    } catch (e) { if (e.status !== 401) toast(e.message); }
+  });
+  $('#logoutHere').addEventListener('click', async () => {
+    if (!confirm('Конец урока: выйти всем вашим ученикам на компьютерах этой сети?\n\nЗакроются входы с того же адреса, что у вас сейчас (компьютеры класса). Вход дома и на телефонах с мобильным интернетом не тронется.')) return;
+    try {
+      const r = await api('logout-here', {});
+      toast(r.ended ? `Вышли на компьютерах класса: ${r.ended} ${pluralRu(r.ended, 'вход', 'входа', 'входов')}` : 'С этого адреса сейчас никто не вошёл');
+    } catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#stPwReset').addEventListener('click', async () => {
     const s = st.student;

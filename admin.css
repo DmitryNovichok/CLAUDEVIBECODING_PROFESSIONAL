@@ -593,3 +593,6 @@ tr.comp-void td { opacity: .55; }
 .th-form .th-note .inp { width: 260px; }
 .th-form .inp:disabled { opacity: .5; }
 .th-acts { padding-top: 10px; border-top: 1px dashed var(--border); }
+/* где ученик вошёл */
+.adm-sess { margin: 6px 0 10px; }
+.adm-sess summary { cursor: pointer; color: var(--muted); font-size: 13px; }

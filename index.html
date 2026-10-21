@@ -108,7 +108,7 @@
             <button type="button" class="wm-item" id="whoLvl">🏅 Уровень и достижения</button>
             <button type="button" class="wm-item" id="whoGifts">🎁 Биткоины и подарки</button>
             <button type="button" class="wm-item" id="whoTheme">🎨 Тема оформления</button>
-            <button type="button" class="wm-item" id="pwBtn">🔑 Сменить пароль</button>
+            <button type="button" class="wm-item" id="pwBtn">🔑 Пароль и входы</button>
             <button type="button" class="wm-item danger" id="logoutBtn">↪ Выйти</button>
           </div>
         </div>
@@ -258,6 +258,8 @@
       <button class="btn primary btn-block" type="submit">Зарегистрироваться</button>
     </form>
     <label class="login-temp"><input type="checkbox" id="loginTemp"> Чужой компьютер — не запоминать вход</label>
+    <p class="login-school" id="loginSchool" hidden>🏫 Похоже, это компьютер в классе: вход продлится только до закрытия браузера,
+      а пароль браузер не запомнит. Закончил — нажми «Выйти».</p>
     <div class="login-err" id="loginErr" role="alert"></div>
     <p class="login-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика обработки данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></p>
   </div>
@@ -297,6 +299,7 @@
       <button class="btn primary btn-block" type="submit">Сохранить пароль</button>
     </form>
     <div class="login-err" id="pwErr" role="alert"></div>
+    <div class="sess-box" id="sessBox"></div>
   </div>
 </div>
 

@@ -52,7 +52,11 @@
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
+    if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
+      try { localStorage.removeItem(STUDENT_STORE); sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
+    }
     writeStudent(student);
+    schoolWatch(!!me.shared);
     if (me.rules) Object.assign(RULES, me.rules);
     ADMINS = new Set(me.admins || []);
     CONSENT_NEEDED = !!me.consent_needed;
@@ -139,6 +143,56 @@
     });
   }
 
+  // ---- компьютер в классе: 40 минут без действий — выход сам (кроме идущего варианта ЕГЭ), за 5 минут — предупреждение
+  const SCHOOL_IDLE = 40 * 60000;
+  let schoolTimer = null, schoolLast = Date.now(), schoolWarned = false;
+  function schoolWatch(on) {
+    clearInterval(schoolTimer);
+    schoolTimer = null;
+    if (!on) return;
+    schoolLast = Date.now();
+    let told = false;
+    try { told = sessionStorage.getItem('egeTrainer.schoolTold') === '1'; sessionStorage.setItem('egeTrainer.schoolTold', '1'); } catch (e) { /* нет доступа */ }
+    if (!told) setTimeout(() => toast('🏫 Компьютер в классе: вход — до закрытия браузера. Уходишь — нажми «Выйти» в меню с твоим именем', 7000), 1500);
+    schoolTimer = setInterval(() => {
+      if (!student || EX) { schoolLast = Date.now(); return; }
+      const idle = Date.now() - schoolLast;
+      if (idle >= SCHOOL_IDLE) {
+        clearInterval(schoolTimer);
+        schoolTimer = null;
+        toast('🏫 Долго ничего не происходило — вышли из аккаунта, чтобы за этим компьютером никто не зашёл под тобой', 9000);
+        logout();
+      } else if (idle >= SCHOOL_IDLE - 5 * 60000 && !schoolWarned) {
+        schoolWarned = true;
+        toast('🏫 Ты здесь? Через 5 минут без действий выйдем из аккаунта', 8000);
+      }
+    }, 20000);
+  }
+  ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'].forEach(t => document.addEventListener(t, () => {
+    schoolLast = Date.now();
+    schoolWarned = false;
+  }, { passive: true, capture: true }));
+
+  // ---- где выполнен вход: свои устройства, «Выйти на всех других устройствах»
+  async function loadSessions() {
+    const box = $('#sessBox');
+    if (!box) return;
+    let d;
+    try { d = await api('sessions'); } catch (e) { box.innerHTML = ''; return; }
+    const S = d.sessions, when = ts => { const t = new Date(ts * 1000); return `${ago(ts * 1000)} в ${pad2(t.getHours())}:${pad2(t.getMinutes())}`; };
+    box.innerHTML = `<h3 class="fm-sub">Где ты вошёл · ${S.length}</h3>
+      <ul class="sess-list">${S.map(x => `<li class="${x.current ? 'cur' : ''}"><b>${esc(x.device)}</b>${x.shared ? ' · 🏫 компьютер в классе' : ''}${x.current ? ' · <em>это устройство</em>' : ''}
+        <small>был(а) ${esc(when(x.last_seen))} · вошёл ${esc(when(x.created))}</small></li>`).join('')}</ul>
+      ${S.length > 1 ? '<button type="button" class="btn ghost btn-block" id="sessEnd">Выйти на всех других устройствах</button>' : ''}
+      <p class="fm-note">Видишь компьютер, где ты не входил, или забыл выйти в классе — нажми «Выйти на всех других устройствах», а лучше ещё и смени пароль.</p>`;
+    const btn = $('#sessEnd');
+    if (btn) btn.onclick = async () => {
+      btn.disabled = true;
+      try { const r = await api('sessions/end', {}); toast(r.ended ? `Вышли на других устройствах: ${r.ended}` : 'Других входов нет', 4000); } catch (e) { toast(e.message || 'Не получилось'); }
+      loadSessions();
+    };
+  }
+
   // ---- пароль ученика: смена, а у старых учеников без пароля — задать его
   function openPasswordDialog(mustSet) {
     const m = $('#pwModal'), errEl = $('#pwErr');
@@ -148,7 +202,10 @@
       : 'После смены пароля вход на других устройствах сбросится — там нужно будет войти заново.';
     $('#pwOldField').hidden = !!mustSet;
     ['#pwOld', '#pwNew', '#pwNew2'].forEach(sel => { $(sel).value = ''; });
+    pwNoSave(isTemp());                          // на компьютере в классе браузер новый пароль не запомнит
     errEl.textContent = '';
+    $('#sessBox').innerHTML = '';
+    if (!mustSet) loadSessions();
     m.hidden = false;
     setTimeout(() => $(mustSet ? '#pwNew' : '#pwOld').focus(), 30);
     $('#pwForm').onsubmit = async e => {
@@ -163,7 +220,7 @@
         student.token = r.token;
         writeStudent(student);
         m.hidden = true;
-        toast('Пароль сохранён', 2500);
+        toast('Пароль сохранён — на других устройствах нужно войти заново', 3500);
       } catch (err) {
         errEl.textContent = err.status ? err.message : 'Нет связи с сервером.';
       } finally {
@@ -176,6 +233,7 @@
   });
 
   async function logout() {
+    schoolWatch(false);
     if (examShown) saveExamInputs();
     abandonCurrent();
     flushSync(false);

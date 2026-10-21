@@ -78,6 +78,7 @@
           <option value="all">Все ученики</option>
         </select>
         <a class="btn" id="exportAll" href="api/admin/export.csv">Скачать журнал всех (CSV)</a>
+        <button type="button" class="btn ghost" id="logoutHere" title="Конец урока: ваши ученики выйдут на компьютерах этой сети (как у вас сейчас). Вход дома не тронется">🏫 Выйти всем на компьютерах класса</button>
       </div>
       <div class="adm-bulk" id="bulkBar" hidden>
         <span id="bulkCount"></span>
@@ -279,6 +280,7 @@
           <a class="btn" id="stExport" href="#">CSV</a>
           <button type="button" class="btn ghost" id="stRename">Переименовать</button>
           <button type="button" class="btn ghost main-only" id="stRole" title="Золотая плашка «👑 admin» рядом с именем ученика на сайте">👑 Плашка admin</button>
+          <button type="button" class="btn ghost" id="stLogout" title="Ученик забыл выйти на чужом компьютере: вход закроется на всех устройствах, войти можно снова по паролю">Выйти везде</button>
           <button type="button" class="btn ghost" id="stPwReset" title="Ученик забыл пароль: он зарегистрируется заново с тем же ФИО и кодом приглашения, прогресс сохранится">Сбросить пароль</button>
           <button type="button" class="btn ghost danger" id="stDelete">Удалить</button>
         </div>
@@ -286,6 +288,7 @@
       <div class="adm-cards" id="stCards"></div>
       <div id="stExams"></div>
       <p class="adm-hint adm-ip" id="stIp" hidden></p>
+      <div id="stSessions"></div>
 
       <h3 class="adm-h3">Вне тренажёра <span class="adm-hint">уходы со страницы во время заданий и варианта: когда, насколько и на каком задании</span></h3>
       <div class="adm-away" id="stAway"></div>
