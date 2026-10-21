@@ -3127,6 +3127,49 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 1.5}, None), math.floor(1100 * 0.9))
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 0.8}, None), math.floor(880 * 0.9))
 
+    def test_void_attempts(self):
+        # в аккаунт зашёл кто-то другой: учитель отменяет ответы за промежуток (предпросмотр → в корзину), статистика
+        # пересчитывается; «Вернуть» — всё как было; чужого ученика — нельзя
+        db = server.APP.db
+        tok = self.login("Взломов Валентин")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        now = time.time()
+        def att(tid, n, score, ts):
+            return db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms, answers) VALUES(?,?,?,?,?,?,?)",
+                        (sid, ts, tid, n, score, 30 * 60000, json.dumps(["42"])))
+        att("v:5", 5, 1, now - 7200)                                                    # сам решил раньше
+        bad = [att(f"v:x{k}", 7, 0, now - 1500 + k * 30) for k in range(6)]            # чужие ошибки за 3 минуты
+        att("v:8", 8, 1, now - 600)                                                     # снова сам
+        g0 = server.game_summary(db, sid)
+        st, P = self.admin("POST", "/api/admin/student/void", {"id": sid, "from": now - 1600, "to": now - 1300, "preview": True})
+        self.assertEqual(st, 200, P)
+        self.assertEqual((P["n"], P["ok"], P["bad"], P["nums"]), (6, 0, 6, [7]))
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM attempts WHERE student_id=?", (sid,), one=True)["c"], 8)  # предпросмотр ничего не трогает
+        st, r = self.admin("POST", "/api/admin/student/void", {"id": sid, "from": now - 1600, "to": now - 1300})
+        self.assertEqual((st, r["voided"]), (200, 6))
+        left = [x["task_id"] for x in db.q("SELECT task_id FROM attempts WHERE student_id=? ORDER BY ts", (sid,))]
+        self.assertEqual(left, ["v:5", "v:8"])
+        d = self.admin("GET", f"/api/admin/student?id={sid}&from=0")[1]
+        self.assertEqual([(v["n"], v["batch"]) for v in d["voids"]], [(6, r["batch"])])
+        self.assertEqual(len(d["attempts"]), 2)
+        self.assertEqual(len(self.req("GET", "/api/history", token=tok)[1]["h"]), 2)     # у ученика — тоже без них
+        g1 = server.game_summary(db, sid)
+        # пересчитано по журналу: «5 ошибок подряд, потом верно» было из-за чужих ошибок — достижение и его опыт ушли
+        got = lambda g: {a["id"] for a in g["ach"] if a["got"]}
+        self.assertIn("bug", got(g0))
+        self.assertNotIn("bug", got(g1))
+        self.assertLess(g1["xp"], g0["xp"])
+        # вернуть — всё как было, с теми же id
+        self.assertEqual(self.admin("POST", "/api/admin/student/void-undo", {"id": sid, "batch": r["batch"]})[1]["restored"], 6)
+        self.assertEqual(sorted(x["id"] for x in db.q("SELECT id FROM attempts WHERE student_id=? AND n=7", (sid,))), sorted(bad))
+        self.assertEqual(self.admin("GET", f"/api/admin/student?id={sid}&from=0")[1]["voids"], [])
+        self.assertEqual(self.admin("POST", "/api/admin/student/void-undo", {"id": sid, "batch": r["batch"]})[0], 404)
+        # ошибки ввода и чужой ученик
+        self.assertEqual(self.admin("POST", "/api/admin/student/void", {"id": sid, "from": now, "to": now - 10})[0], 400)
+        self.assertEqual(self.admin("POST", "/api/admin/student/void", {"id": sid, "from": now - 30 * 86400, "to": now})[0], 400)
+        self.assertEqual(self.admin("POST", "/api/admin/student/void", {"id": sid, "from": now - 60, "to": now})[0], 400)  # пусто
+        self.assertEqual(self.admin("POST", "/api/admin/student/void", {"id": 999999, "from": now - 60, "to": now})[0], 404)
+
     def test_js_errors(self):
         # ошибки JavaScript из браузера: без входа тоже; одна строка на ошибку, случаи — кто и на каком устройстве;
         # строка app.js — модулем src/app; лимит с адреса; главный учитель видит, отмечает «исправлено», повтор — «снова»
