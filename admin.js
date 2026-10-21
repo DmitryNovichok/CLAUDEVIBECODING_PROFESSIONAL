@@ -2426,13 +2426,14 @@
   let st = null;          // { student, attempts, forecast_history }
   let jFilter = 'all', jNum = null;
   async function openStudent(id) {
-    const days = +$('#stPeriod').value;
+    const days = +$('#stPeriod').value, prev = st && st.student ? st.student.id : null;
     let from = 0;
     if (days) { const d = new Date(); d.setHours(0, 0, 0, 0); from = d.getTime() / 1000 - (days - 1) * 86400; }
     try {
       st = await api(`student?id=${id}&from=${from}`);
     } catch (e) { if (e.status !== 401) toast(e.message); return; }
     jNum = null;
+    if (String(prev) !== String(id)) { voidOpen = false; voidPrev = null; }         // другой ученик — панель отмены закрыта
     go('student');
     renderStudent();
   }
@@ -2537,6 +2538,7 @@
         : ''}` : '');
     }
 
+    stVoidRender();
     // где ученик сейчас вошёл: устройства, адреса, школьный ли компьютер
     const SS = st.sessions || [];
     $('#stSessions').innerHTML = SS.length ? `<details class="adm-sess"><summary>Где выполнен вход · ${SS.length}${SS.some(x => x.shared) ? ' · есть компьютер в классе' : ''}</summary>
@@ -2731,6 +2733,64 @@
       toast(r.added ? `Огонёк восстановлен: ${r.fire} дн.` : `Огонёк уже ${r.fire} дн. — восстанавливать нечего`);
       openStudent(s.id);
     } catch (x) { if (x.status !== 401) toast(x.message); }
+  });
+  // ---- отменить ответы за промежуток: в аккаунт зашёл кто-то другой. Сначала — что попадёт, потом — в корзину (можно вернуть)
+  let voidOpen = false, voidPrev = null;
+  const dtLocal = ts => { const d = new Date(ts * 1000); d.setSeconds(0, 0); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const dtTs = v => (v ? new Date(v).getTime() / 1000 : 0);
+  function stVoidRender() {
+    const V = (st && st.voids) || [], box = $('#stVoid');
+    if (!box) return;
+    const past = V.length ? `<div class="void-past">${V.map(v => `<div><span>🧹 ${fmtWhen(v.ts)} отменено ${v.n} ${pluralRu(v.n, 'ответ', 'ответа', 'ответов')}
+      <span class="muted">(ответы ${new Date(v.t_from * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+        — ${new Date(v.t_to * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })})</span></span>
+      <button type="button" class="btn ghost" data-void-undo="${esc(v.batch)}">↺ Вернуть</button></div>`).join('')}</div>` : '';
+    if (!voidOpen) { box.innerHTML = past ? `<div class="adm-box void-box">${past}</div>` : ''; return; }
+    const now = Date.now() / 1000, P = voidPrev;
+    box.innerHTML = `<div class="adm-box void-box"><h3 class="adm-h3" style="margin-top:0">🧹 Отменить ответы за промежуток</h3>
+      <p class="adm-hint">Если в аккаунт зашёл кто-то другой: его ответы уберутся из журнала, а опыт, биткоины за задания, точность, огонёк,
+        прогноз и место в рейтингах пересчитаются сами. Отменённое хранится — его можно вернуть. Время — по журналу ниже (с точностью до минуты, конец включительно).</p>
+      <div class="th-form"><label>С<input class="inp" type="datetime-local" id="voidFrom" value="${esc(P ? P.from_v : dtLocal(now - 3600))}"></label>
+        <label>По<input class="inp" type="datetime-local" id="voidTo" value="${esc(P ? P.to_v : dtLocal(now))}"></label>
+        <button type="button" class="btn" id="voidPreview">Показать, что попадёт</button>
+        <button type="button" class="btn ghost" id="voidClose">Закрыть</button></div>
+      ${P ? (P.n ? `<div class="void-sum"><b>${P.n} ${pluralRu(P.n, 'ответ', 'ответа', 'ответов')}</b>: верно ${P.ok}, неверно ${P.bad}${P.exam ? `, из варианта ${P.exam}` : ''}
+          · номера ${P.nums.join(', ') || '—'}${P.gift_ops ? ` · <span class="void-warn">в это время ещё ${P.gift_ops} ${pluralRu(P.gift_ops, 'операция', 'операции', 'операций')} с подарками — их отмена не затронет</span>` : ''}</div>
+        <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th class="num">№</th><th>Ответ</th><th>Итог</th></tr></thead>
+          <tbody>${P.list.map(a => `<tr><td class="muted">${new Date(a.ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+            <td class="num">${a.n || ''}</td><td><code>${esc(a.answer)}</code>${a.exam ? ' <span class="muted">· вариант</span>' : ''}</td>
+            <td>${a.score >= 1 ? '✅' : a.score > 0 ? '½' : '❌'}</td></tr>`).join('')}${P.n > P.list.length ? `<tr><td colspan="4" class="muted">и ещё ${P.n - P.list.length}…</td></tr>` : ''}</tbody></table></div>
+        <div class="th-form"><button type="button" class="btn danger" id="voidGo">🧹 Отменить ${P.n} ${pluralRu(P.n, 'ответ', 'ответа', 'ответов')}</button></div>`
+        : '<p class="adm-empty">За этот промежуток ответов нет.</p>') : ''}
+      ${past}</div>`;
+  }
+  $('#stVoidBtn')?.addEventListener('click', () => { voidOpen = !voidOpen; voidPrev = null; stVoidRender(); if (voidOpen) $('#stVoid').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  $('#stVoid')?.addEventListener('click', async e => {
+    if (!st) return;
+    const sid = st.student.id;
+    if (e.target.closest('#voidClose')) { voidOpen = false; voidPrev = null; stVoidRender(); return; }
+    if (e.target.closest('#voidPreview')) {
+      const fv = $('#voidFrom').value, tv = $('#voidTo').value, from = dtTs(fv), to = dtTs(tv) + 59.999;   // конец минуты — включительно
+      try { voidPrev = Object.assign(await api('student/void', { id: sid, from, to, preview: true }), { from, to, from_v: fv, to_v: tv }); }
+      catch (err) { if (err.status !== 401) toast(err.message); return; }
+      stVoidRender();
+      return;
+    }
+    if (e.target.closest('#voidGo') && voidPrev) {
+      if (!confirm(`Отменить ${voidPrev.n} ${pluralRu(voidPrev.n, 'ответ', 'ответа', 'ответов')} у «${st.student.name}»?\n\nОни уберутся из журнала, статистика пересчитается. Вернуть можно здесь же.`)) return;
+      try { const r = await api('student/void', { id: sid, from: voidPrev.from, to: voidPrev.to }); toast(`🧹 Отменено: ${r.voided}`); }
+      catch (err) { if (err.status !== 401) toast(err.message); return; }
+      voidOpen = false; voidPrev = null;
+      openStudent(sid);
+      return;
+    }
+    const u = e.target.closest('[data-void-undo]');
+    if (u) {
+      if (!confirm('Вернуть отменённые ответы в журнал?')) return;
+      try { const r = await api('student/void-undo', { id: sid, batch: u.dataset.voidUndo }); toast(`↺ Возвращено: ${r.restored}`); }
+      catch (err) { if (err.status !== 401) toast(err.message); return; }
+      openStudent(sid);
+    }
   });
   $('#stLogout').addEventListener('click', async () => {
     const s = st.student;

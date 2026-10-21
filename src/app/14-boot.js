@@ -219,7 +219,7 @@
   versionBtn?.addEventListener('click', () => {
     if (isNarrow()) setSideOpen(false);
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Что нового</h2>
-      ${SERVER && student ? `<button type="button" class="st-launch" id="storiesGo"><span class="st-l-ic">▶</span><span><b>Истории: что нового</b>
+      ${SERVER && student ? `<button type="button" class="sto-launch" id="storiesGo"><span class="sto-l-ic">▶</span><span><b>Истории: что нового</b>
         <small>${storySlides().length} слайдов · 30 секунд</small></span></button>` : ''}
       <div class="changelog">${CHANGELOG.map(([v, d, added, changed], i) => `<section class="cl-ver${i ? '' : ' cl-now'}">
         <h3><span class="cl-num">${v}</span><span class="fm-muted">${d}</span>${i ? '' : '<span class="chip good">сейчас</span>'}</h3>

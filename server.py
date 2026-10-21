@@ -439,6 +439,15 @@ def jserr_new(db):
     return db.q("SELECT COUNT(*) c FROM js_errors WHERE last_ts > ? AND (fixed_ts IS NULL OR fixed_ts < last_ts)", (seen,), one=True)["c"]
 
 
+def attempts_changed(sid):
+    """Журнал ответов ученика sid изменили задним числом (учитель отменил или вернул ответы) — сбросить то, что посчитано по нему."""
+    with _GS_LOCK:
+        _GS_CACHE.pop(sid, None)
+        _LB_PEOPLE.clear()                          # рейтинги и лиги — пересоберутся
+    _FORBES.clear()
+    _ECON["t"] = 0.0
+
+
 def ua_label(ua):
     """«Chrome · Windows» из User-Agent — чтобы ученик узнал свой компьютер в списке входов."""
     ua = ua or ""
@@ -1445,6 +1454,12 @@ class DB:
                 id INTEGER PRIMARY KEY, error_id INTEGER NOT NULL, ts REAL NOT NULL, student_id INTEGER, teacher_id INTEGER,
                 device TEXT, ver TEXT, page TEXT);
             CREATE INDEX IF NOT EXISTS js_error_hits_e ON js_error_hits(error_id, ts);
+            -- отменённые учителем ответы (кто-то зашёл в чужой аккаунт): строка попытки целиком (JSON) — чтобы вернуть;
+            -- batch — одна отмена (промежуток), teacher_id — кто отменил
+            CREATE TABLE IF NOT EXISTS attempts_void(
+                id INTEGER PRIMARY KEY, batch TEXT NOT NULL, student_id INTEGER NOT NULL, ts REAL, row TEXT NOT NULL,
+                void_ts REAL NOT NULL, teacher_id INTEGER, t_from REAL, t_to REAL);
+            CREATE INDEX IF NOT EXISTS attempts_void_s ON attempts_void(student_id, batch);
             -- лимитированный подарок недели: продаётся с start до stop, тираж cap, цена price
             CREATE TABLE IF NOT EXISTS limited(
                 id INTEGER PRIMARY KEY, gift TEXT NOT NULL, start REAL NOT NULL, stop REAL NOT NULL, cap INTEGER NOT NULL,
@@ -4104,6 +4119,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(404, "ученик не найден")
             frm = to_float(qs.get("from"))
+            voids = [dict(r) for r in db.q("""SELECT batch, MIN(void_ts) AS ts, COUNT(*) AS n, MIN(t_from) AS t_from, MAX(t_to) AS t_to
+                                               FROM attempts_void WHERE student_id=? GROUP BY batch ORDER BY ts DESC LIMIT 20""", (sid,))]
             att = db.q("SELECT * FROM attempts WHERE student_id=? AND ts>=? ORDER BY ts DESC LIMIT 5000", (sid, frm))
             APP.bank.ensure()
             out = []
@@ -4159,6 +4176,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"student": student, "attempts": out, "forecast_history": fc_hist,
                                    "reveals": {k: rev[k] or 0 for k in ("granted", "blocked", "early")},
                                    "exams": [exam_brief(r) for r in exams], "same_ip": same_ip, "sessions": sessions_list(db, sid),
+                                   "voids": voids,
                                    "activity": {r["kind"]: {"count": r["c"], "sec": round(r["dur"] or 0), "exam": r["in_exam"] or 0} for r in act},
                                    "away_log": away_log,
                                    "game": game_summary(db, sid), "rules": self.rules()})
@@ -4345,6 +4363,47 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET pw=NULL WHERE id=?", (sid,))
             sessions_end(db, sid)
             return self.send_json({"ok": True})
+
+        if path in ("/api/admin/student/void", "/api/admin/student/void-undo") and method == "POST":
+            # отменить ответы ученика за промежуток (в аккаунт зашёл кто-то другой): предпросмотр, затем — в корзину attempts_void;
+            # опыт, биткоины за труд, точность, огонёк, прогноз и рейтинги пересчитываются сами — они считаются по журналу ответов
+            sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
+            if path == "/api/admin/student/void-undo":
+                rows = db.q("SELECT * FROM attempts_void WHERE student_id=? AND batch=?", (sid, str(data.get("batch") or "")))
+                if not rows:
+                    return self.err(404, "Эта отмена уже возвращена")
+                cols = {r[1] for r in db.q("PRAGMA table_info(attempts)")}
+                for r in rows:
+                    a = {k: v for k, v in json.loads(r["row"]).items() if k in cols}
+                    db.x(f"INSERT OR IGNORE INTO attempts({','.join(a)}) VALUES({','.join('?' * len(a))})", tuple(a.values()))
+                db.x("DELETE FROM attempts_void WHERE student_id=? AND batch=?", (sid, rows[0]["batch"]))
+                attempts_changed(sid)
+                return self.send_json({"ok": True, "restored": len(rows)})
+            t_from, t_to = to_float(data.get("from")), to_float(data.get("to"))
+            if not t_from or not t_to or t_to <= t_from or t_to - t_from > 7 * 86400:
+                return self.err(400, "Укажите промежуток — не длиннее недели")
+            att = db.q("SELECT * FROM attempts WHERE student_id=? AND ts>=? AND ts<=? ORDER BY ts", (sid, t_from, t_to))
+            if data.get("preview"):
+                APP.bank.ensure()
+                coins = db.q("SELECT COUNT(*) c FROM coins WHERE student_id=? AND ts>=? AND ts<=? AND reason IN ('gift','upgrade','sell','mbuy')",
+                             (sid, t_from, t_to), one=True)["c"]
+                return self.send_json({"n": len(att), "ok": sum(1 for a in att if (a["score"] or 0) >= 1),
+                                       "bad": sum(1 for a in att if (a["score"] or 0) <= 0), "exam": sum(1 for a in att if a["exam"]),
+                                       "nums": sorted({a["n"] for a in att if a["n"]}), "gift_ops": coins,
+                                       "list": [{"ts": a["ts"], "n": a["n"], "score": a["score"], "exam": bool(a["exam"]),
+                                                 "answer": (json.loads(a["answers"] or "[]") or [""])[-1] if a["answers"] else ""}
+                                                for a in att[:60]]})
+            if not att:
+                return self.err(400, "За этот промежуток ответов нет")
+            batch, now = secrets.token_hex(6), time.time()
+            for a in att:
+                db.x("INSERT INTO attempts_void(batch, student_id, ts, row, void_ts, teacher_id, t_from, t_to) VALUES(?,?,?,?,?,?,?,?)",
+                     (batch, sid, a["ts"], json.dumps(dict(a), ensure_ascii=False), now, self.T["id"], t_from, t_to))
+            db.x(f"DELETE FROM attempts WHERE id IN ({','.join('?' * len(att))})", tuple(a["id"] for a in att))
+            attempts_changed(sid)
+            return self.send_json({"ok": True, "voided": len(att), "batch": batch})
 
         if path == "/api/admin/student/logout" and method == "POST":
             # выйти у ученика на всех устройствах (например, вошёл на чужом компьютере)
