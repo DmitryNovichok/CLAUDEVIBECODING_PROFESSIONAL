@@ -2675,6 +2675,7 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .bx-btn:disabled { opacity: .45; cursor: default; }
 .bx-mkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .bx-mkrow label { display: inline-flex; align-items: center; gap: 6px; font-weight: 900; } .bx-mkrow .inp { width: 110px; }
+.bx-mkhint { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .bx-who { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-weight: 800; }
 .bx-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 0; border-radius: 99px; background: var(--accent-soft);
   color: var(--text); font: inherit; font-weight: 900; cursor: pointer; }

@@ -730,7 +730,7 @@
     }
     const E = GFA.econ, card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="s">${sub}</div></div>`;
     $('#giftEcon').innerHTML = card('Цены и заработок', `×${String(E.idx).replace('.', ',')} · ×${String(E.earn).replace('.', ',')}`,
-        `термостат: средний кошелёк ${E.avg} ₿ при норме ${E.target} ₿ — подробно во вкладке «Экономика»`)
+        `термостат: среднее состояние (кошелёк + подарки) ${E.avg} ₿ при норме ${E.target} ₿ — подробно во вкладке «Экономика»`)
       + card('🏦 Банк рынка', E.bank + ' ₿', 'ваши начисления — из банка, снятое — в банк')
       + card('Биткоинов у учеников', E.total, `у ${E.active} ${pluralRu(E.active, 'активного', 'активных', 'активных')} за 30 дней`)
       + card('Уникальных выпущено', GFA.uniq_total, `тираж — ${GFA.cap} на каждый вид подарка`)
@@ -988,8 +988,8 @@
     const evRows = i => [...R[i].ev.map(t => ['', t, '⚑']), ...inSpan(i)];
     const x = v => '×' + xfmt(v);
     const charts = [
-      ['m-wal', 'Средний кошелёк, ₿', `Сколько биткоинов у активного ученика (решал что-то за 30 дней). Полоса — норма ${M.band[0]}–${M.band[1]} ₿.`,
-        [{ key: 'avg', cls: 'c1', t: 'средний' }, { key: 'med', cls: 'c3', t: 'медиана' }], numFmt, { band: M.band }],
+      ['m-wal', 'Кошелёк и состояние, ₿', `Сколько биткоинов у активного ученика (решал что-то за 30 дней) и его состояние — кошелёк + подарки по цене продажи (с 2.7.1): его термостат сравнивает с нормой, полоса — норма ${M.band[0]}–${M.band[1]} ₿.`,
+        [{ key: 'savg', cls: 'c2', t: 'состояние' }, { key: 'avg', cls: 'c1', t: 'кошелёк средний' }, { key: 'med', cls: 'c3', t: 'кошелёк медиана' }], numFmt, { band: M.band }],
       ['m-idx', 'Цены и заработок', 'Индекс цен — во сколько раз подарки дороже каталога; заработок — множитель биткоинов за труд.',
         [{ key: 'idx', cls: 'c1', t: 'цены' }, { key: 'earn', cls: 'c2', t: 'заработок' }], x, { min: 0.5, span: 1 }],
       ['m-aff', 'Заданий на средний подарок', `Сколько заданий решить, чтобы купить подарок средней цены (${M.avg_gift} ₿ по каталогу) — то, что чувствует ученик.`,
@@ -1006,9 +1006,9 @@
         Object.assign({ fmt, spans: M.spans }, opt)),
       series.length > 1 ? series.map(s => keyHtml(s.cls, s.t, 'line')).join('') : '')).join('');
     const table = `<details class="ch-table"><summary>Таблица ${wk ? 'по неделям' : 'по дням'}</summary><div class="adm-table-wrap"><table class="adm-table">
-      <thead><tr><th>${wk ? 'Неделя' : 'День'}</th><th class="num">Кошелёк: средний · медиана</th><th class="num">Цены</th><th class="num">Заработок</th>
+      <thead><tr><th>${wk ? 'Неделя' : 'День'}</th><th class="num">Состояние: среднее · медиана</th><th class="num">Кошелёк: средний · медиана</th><th class="num">Цены</th><th class="num">Заработок</th>
         <th class="num">Заданий на подарок</th><th class="num">Покупок</th><th class="num">Сделок</th><th class="num">Комиссия</th><th class="num">Банк</th><th>События</th></tr></thead>
-      <tbody>${R.slice().reverse().map(r => `<tr><td>${ddmm(r.d)}${wk ? '–' + ddmm(r.to) : ''}</td><td class="num">${numFmt(r.avg)} · ${numFmt(r.med)}</td>
+      <tbody>${R.slice().reverse().map(r => `<tr><td>${ddmm(r.d)}${wk ? '–' + ddmm(r.to) : ''}</td><td class="num">${r.savg == null ? '—' : `${numFmt(r.savg)} · ${numFmt(r.smed)}`}</td><td class="num">${numFmt(r.avg)} · ${numFmt(r.med)}</td>
         <td class="num">${r.idx == null ? '—' : x(r.idx)}</td><td class="num">${x(r.earn)}</td><td class="num">${numFmt(r.afford)}</td>
         <td class="num">${r.buys}</td><td class="num">${r.deals}</td><td class="num">${pctFmt(r.fee)}</td><td class="num">${numFmt(r.bank)}</td>
         <td class="muted">${esc(r.ev.join('; '))}</td></tr>`).join('')}</tbody></table></div></details>`;
@@ -1025,19 +1025,22 @@
     const state = E.r > R.limited_r ? 'денег у учеников много' : E.r < R.stipend_r ? 'денег у учеников мало' : 'в норме';
     const S = T.bank.sums, inSum = (S.labor || 0) + (S.fee || 0) + (S.ops || 0) + (S.storage || 0) + (S.take || 0), outSum = Math.abs((S.grant || 0) + (S.stipend || 0));
     const day = ts => new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-    const cards = card('Средний кошелёк', `${E.avg} ₿`, `медиана ${E.med} ₿ при норме ${E.target} ₿ — ${state}; активных ${E.active}`)
+    const cards = card('Среднее состояние', `${E.avg} ₿`, `кошелёк + подарки; медиана ${E.med} ₿ при норме ${E.target} ₿ — ${state}. `
+        + `Кошельки: средний ${E.w_avg} ₿, медиана ${E.w_med} ₿; подарков на ${numFmt(E.worth)} ₿; активных ${E.active}`)
       + card('Цены', '×' + xfmt(E.idx), `подарки, «🎲» и улучшение${toGoal(E.idx, G && G.idx, v => '×' + xfmt(Math.round(v * 100) / 100))}`)
       + card('Заработок', '×' + xfmt(E.earn), `биткоины за опыт, задания и варианты${toGoal(E.earn, G && G.earn, v => '×' + xfmt(Math.round(v * 100) / 100))}`)
-      + card('Комиссия рынка', pctFmt(E.fee), `с каждой сделки — в банк${toGoal(E.fee, G && G.fee, pctFmt)}; с покупок, улучшений и продаж сразу — ${pctFmt(E.op_fee)}`)
+      + card('Комиссия рынка', pctFmt(E.fee), `с каждой сделки — в банк${toGoal(E.fee, G && G.fee, pctFmt)}; с покупок и улучшений — ${pctFmt(E.op_fee)}, с продаж сразу — 10%`)
       + card('Плата за хранение', E.tax ? pctFmt(E.tax) + ' в неделю' : 'нет', `с суммы больше ${E.tax_from} ₿ — в банк, по понедельникам`)
       + card('🏦 Банк рынка', `${numFmt(E.bank)} ₿`, `пришло ${numFmt(inSum)} ₿ (от заработка ${numFmt(S.labor || 0)}, рынок ${numFmt(S.fee || 0)}, с подарков ${numFmt(S.ops || 0)}, хранение ${numFmt(S.storage || 0)}), ушло ${numFmt(outSum)} ₿`)
       + card('Лимитка недели', L ? `${L.i} ${esc(L.t)}` : '—', L ? `${L.price} ₿ · осталось ${L.left} из ${L.cap} · до ${day(L.stop)}`
-        : `выйдет, когда средний кошелёк больше ${xfmt(R.limited_r)} нормы, или запустите сами`);
+        : `выйдет, когда среднее состояние больше ${xfmt(R.limited_r)} нормы, или запустите сами`);
     const how = `<p class="fm-note">${auto ? '🌡 <b>Авто.</b>' : '✋ <b>Ручной режим</b> — рычаги стоят, как вы их поставили. В авто:'}
-      раз в сутки термостат сравнивает средний кошелёк активных учеников с нормой и сдвигает рычаги на ${Math.round(R.step * 100)}% пути к цели
+      раз в сутки термостат сравнивает среднее состояние активных учеников (кошелёк + подарки по цене продажи: подарок продаётся
+      почти за цену — почти деньги; медиана тоже в счёт) с нормой и сдвигает рычаги на ${Math.round(R.step * 100)}% пути к цели
       (за неделю — примерно наполовину): копят — цены (×${xfmt(R.idx[0])}…${xfmt(R.idx[1])}) и комиссия (${pctFmt(R.fee[0])}…${pctFmt(R.fee[1])}) растут,
-      заработок (×${xfmt(R.earn[0])}…${xfmt(R.earn[1])}) падает; тратят — наоборот. С покупок, «🎲», лимиток, улучшений и продаж сразу — четверть
-      комиссии рынка, не больше 5% (с дешёвых — 0): цены от этого не выше, часть потраченного уходит в банк, а не сгорает. Раз в неделю: плата за хранение ${pctFmt(R.tax)} с суммы больше
+      заработок (×${xfmt(R.earn[0])}…${xfmt(R.earn[1])}) падает; тратят — наоборот. С покупок, «🎲», лимиток и улучшений — четверть
+      комиссии рынка, не больше 5% (с дешёвых — 0): цены от этого не выше, часть потраченного уходит в банк, а не сгорает; с продажи
+      сразу — 10% (ученику — 90% цены, за которую подарок достался, но не дороже нынешней). Раз в неделю: плата за хранение ${pctFmt(R.tax)} с суммы больше
       ${xfmt(R.tax_from)} нормы — в банк; когда денег мало (меньше ${xfmt(R.stipend_r)} нормы) — стипендия из банка, до ${R.stipend_max} ₿ решившим
       ${R.stipend_tasks}+ заданий за неделю; когда много — лимитированный подарок недели (${R.limited_cap} штук). Банк получает ${Math.round(R.labor * 100)}%
       от заработка учеников трудом (у учеников ничего не списывается). Ваши начисления ученикам — из банка, снятое — в банк.
@@ -1046,7 +1049,7 @@
       <form class="th-form" id="thermoForm">
         <label>Режим<select class="inp" id="thMode"><option value="auto"${auto ? ' selected' : ''}>🌡 Авто — термостат</option>
           <option value="manual"${auto ? '' : ' selected'}>✋ Ручной — ставлю сам</option></select></label>
-        <label>Норма кошелька, ₿<input class="inp" id="thTarget" type="number" min="${T.set.target[0]}" max="${T.set.target[1]}" value="${E.target}"></label>
+        <label>Норма состояния, ₿<input class="inp" id="thTarget" type="number" min="${T.set.target[0]}" max="${T.set.target[1]}" value="${E.target}"></label>
         <label>Цены ×<input class="inp th-lv"${auto ? ' disabled' : ''} id="thIdx" type="number" step="0.05" min="${T.set.idx[0]}" max="${T.set.idx[1]}" value="${E.idx}"></label>
         <label>Заработок ×<input class="inp th-lv"${auto ? ' disabled' : ''} id="thEarn" type="number" step="0.05" min="${T.set.earn[0]}" max="${T.set.earn[1]}" value="${E.earn}"></label>
         <label>Комиссия, %<input class="inp th-lv"${auto ? ' disabled' : ''} id="thFee" type="number" step="1" min="0" max="${T.set.fee[1] * 100}" value="${Math.round(E.fee * 1000) / 10}"></label>
@@ -1108,7 +1111,7 @@
     $('#econBody').innerHTML = `<div id="thermoBox">${thermoHtml(d.thermo)}</div>
       <h3 class="adm-h3" style="margin:14px 0 4px">📈 Рынок всего сайта</h3><div id="mktCharts">${marketChartsHtml(d.market)}</div>
       ${site}<h3 class="adm-h3" style="margin:6px 0 8px">Ваши ученики</h3><div class="adm-cards">
-        ${card('Цены и заработок', `×${xfmt(E.idx)} · ×${xfmt(E.earn)}`, `термостат: средний кошелёк активных учеников сайта — ${E.avg} ₿ при норме ${E.target} ₿`)}
+        ${card('Цены и заработок', `×${xfmt(E.idx)} · ×${xfmt(E.earn)}`, `термостат: среднее состояние (кошелёк + подарки) активных учеников сайта — ${E.avg} ₿ при норме ${E.target} ₿`)}
         ${card('Биткоинов на руках', T.balance, `у ${d.with_coins} из ${d.students} ваших учеников`)}
         ${card('Заработано трудом', T.mined + T.task + T.exam, `за опыт, задания и варианты; курс сейчас 1 ₿ = ${d.rate} XP`)}
         ${card('Штрафы за спешку', T.fines, 'решено слишком быстро (быстрее 30 секунд, №24–27 — быстрее 10/5/20/25 минут) — по −1 ₿')}

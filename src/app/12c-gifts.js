@@ -4,7 +4,7 @@
   // Свой подарок можно улучшить — он станет уникальным: номер и случайные фон, узор и эффект, у каждого своя редкость.
   // Редкость считает сервер: у обычного — шанс выпасть в «🎲», у уникального — шанс сочетания («1 из N»); видна на подарке.
   // Экономика саморегулируется: термостат на сервере раз в сутки двигает цены, заработок и комиссию рынка к норме среднего
-  // кошелька; комиссия и плата за хранение больших сумм уходят в банк рынка, из него — стипендии и начисления учителей.
+  // состояния (кошелёк + подарки); комиссия и плата за хранение больших сумм уходят в банк рынка, из него — стипендии и начисления учителей.
   // Комиссии и проценты ученику не показываем: только итоговые суммы («получишь N ₿», «продать сразу за N ₿»).
   // Тираж уникальных каждого вида ограничен, проданный подарок сгорает; каждые 25 решённых — подарок.
   let GF = null;                          // магазин и свои подарки с сервера
@@ -184,7 +184,8 @@
     if (S.k === 'mk') {
       const x = G.market.find(m => m.id === S.id);
       if (!x) return '';
-      return `<div class="bx-sh">${gfTile(x, 76)}<div><b class="nm">${gfName(x)}</b>${rarHtml(x)}<small>${x.mine ? 'твой' : 'продаёт ' + esc(x.seller)} · в магазине ₿ ${num(x.shop)}</small></div></div>
+      return `<div class="bx-sh">${gfTile(x, 76)}<div><b class="nm">${gfName(x)}</b>${rarHtml(x)}<small>${x.mine ? `твой · снимется ${gfDate(x.until).slice(0, 5)}` : 'продаёт ' + esc(x.seller)}</small>
+          <small>в магазине ₿ ${num(x.shop)}${x.typ ? ` · обычно продают за ₿ ${num(x.typ)}` : ''}</small></div></div>
         ${x.rar && x.rar.k === 'limited' ? '' : priceBox(x.gift)}
         <div class="bx-acts one">${x.mine ? `<button type="button" class="bx-btn" data-bx-unlist="${x.id}"><span>↩</span>Снять с продажи<small>₿ ${num(x.price)}</small></button>`
           : `<button type="button" class="bx-btn org" data-bx-mbuy="${x.id}"${G.teacher || G.coins < x.price ? ' disabled' : ''}><span>🏪</span>Купить<small>${G.coins < x.price ? `не хватает ₿ ${num(x.price - G.coins)}` : `₿ ${num(x.price)}`}</small></button>`}</div>`;
@@ -200,15 +201,17 @@
     const sell = `<button type="button" class="bx-btn" data-bx-sell="${g.id}"${listed ? ' disabled' : ''}><span>💰</span>Продать<small>₿ ${num(g.sell)}</small></button>`;
     const mk = listed ? `<button type="button" class="bx-btn org" data-bx-unlist="${g.id}"><span>↩</span>Снять с рынка<small>₿ ${num(g.listed)}</small></button>`
       : `<button type="button" class="bx-btn org${gfMkOpen ? ' on' : ''}" data-bx-mkopen><span>🏪</span>На рынок<small>своя цена</small></button>`;
-    const suggest = Math.max(GF.market_min, u ? Math.round(g.sell * 1.5 / 5) * 5 : ((GF.catalog.find(x => x.id === g.gift) || {}).price || g.sell));
+    const suggest = Math.min(g.mk_max, Math.max(GF.market_min, g.mk_typ || (u ? Math.round(g.sell * 1.5 / 5) * 5 : ((GF.catalog.find(x => x.id === g.gift) || {}).price || g.sell))));
     const props = u ? `<div class="bx-props">${u.props.map(p => `<span><small>${p.k}</small>${esc(p.t)}</span>`).join('')}</div>` : '';
     return `<div class="bx-sh">${gfTile(g, 76, gfFresh === g.id ? 'reveal' : '')}<div><b class="nm">${gfName(g)}</b>${rarHtml(g)}
-        <small>${esc([gfFrom(g), gfDate(g.ts).slice(0, 5)].filter(Boolean).join(' · '))}</small>${g.note ? `<small class="bx-note">«${esc(g.note)}»</small>` : ''}</div></div>
+        <small>${esc([gfFrom(g), gfDate(g.ts).slice(0, 5)].filter(Boolean).join(' · '))}</small>${g.note ? `<small class="bx-note">«${esc(g.note)}»</small>` : ''}
+        ${listed && g.mk_until ? `<small>🏪 на рынке до ${gfDate(g.mk_until).slice(0, 5)}</small>` : ''}</div></div>
       ${props}
       ${g.limited ? '' : priceBox(g.gift)}
       <div class="bx-acts">${up}${sell}${mk}</div>
-      ${gfMkOpen && !listed ? `<div class="bx-mkrow"><label>₿ <input class="inp" id="mkPrice" type="number" min="${GF.market_min}" max="${GF.market_max}" value="${suggest}"></label>
-        <button type="button" class="btn primary" data-bx-list="${g.id}">Выставить</button><span class="fm-muted" id="mkGet">${mkGetTxt(suggest, g)}</span></div>` : ''}`;
+      ${gfMkOpen && !listed ? `<div class="bx-mkrow"><label>₿ <input class="inp" id="mkPrice" type="number" min="${GF.market_min}" max="${g.mk_max}" value="${suggest}"></label>
+        <button type="button" class="btn primary" data-bx-list="${g.id}">Выставить</button><span class="fm-muted" id="mkGet">${mkGetTxt(suggest, g)}</span></div>
+        <small class="bx-mkhint">${g.mk_typ ? `обычно продают за ₿ ${num(g.mk_typ)} · ` : ''}не дороже ₿ ${num(g.mk_max)} · через ${GF.market_days} дней снимется сам</small>` : ''}`;
   }
   /** «Кому»: себе или одноклассник, найденный поиском по имени. */
   function whoHtml(G) {
@@ -295,8 +298,8 @@
         <li>⏱ Решено слишком быстро — минус 1 ₿: быстрее ${G.fine_sec} секунд, №24–27 — быстрее ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.</li>
         <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
         <li>💰 Продать сразу — почти за ту цену, за которую подарок тебе достался (если в магазине он подешевел — от нынешней). Подарок сгорит.</li>
-        <li>🏪 Или выставь его на рынок одноклассникам за свою цену.</li>
-        <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов у всех. Копить очень много невыгодно.</li>
+        <li>🏪 Или выставь его на рынок одноклассникам за свою цену — через ${G.market_days} дней он снимется сам.</li>
+        <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов и подарков у всех. Копить очень много невыгодно.</li>
       </ul>
       <div class="bx-sum"><span>⚒ заработок <b>×${idxTxt(G.econ.earn)}</b></span><span>🏷 цены <b>×${idxTxt(G.econ.idx)}</b></span><span>🏦 банк <b>₿ ${num(G.econ.bank)}</b></span></div>`;
   }
@@ -448,6 +451,6 @@
     if (e.target.id === 'bxFind' && GF) { gfFind = e.target.value; $('#bxFound').innerHTML = foundHtml(GF); return; }
     if (e.target.id !== 'mkPrice' || !GF) return;
     const p = Math.round(+e.target.value || 0), el = $('#mkGet');
-    if (el) el.textContent = p >= GF.market_min && p <= GF.market_max ? mkGetTxt(p, GF.mine.find(x => x.id === (gfSheet || {}).id))
-      : `цена — от ${GF.market_min} до ${GF.market_max} ₿`;
+    const g = GF.mine.find(x => x.id === (gfSheet || {}).id), hi = g && g.mk_max ? g.mk_max : GF.market_max;
+    if (el) el.textContent = p >= GF.market_min && p <= hi ? mkGetTxt(p, g) : `цена — от ${GF.market_min} до ${hi} ₿`;
   });
