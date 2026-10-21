@@ -77,6 +77,8 @@ class ServerTest(unittest.TestCase):
         server.EXTRA_BANK = cls.tmp / "data" / "egeshka_bank.json"   # своего авторского банка у тестов нет
         server.APP = server.App()
         server.APP.db.x("UPDATE teachers SET invite=? WHERE is_main=1", ("1234",))
+        cls.seeded_promo = server.promo_get(server.APP.db)
+        server.promo_set(server.APP.db, None)         # акция, засеянная при запуске, — только в своём тесте
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
@@ -3259,6 +3261,53 @@ class ServerTest(unittest.TestCase):
         d = self.req("GET", "/api/gifts", token=tok)[1]
         self.assertEqual(d["task_coins"], 77)
         self.assertNotIn("task_btc", json.dumps(d))                    # таблицу бонусов ученику не отдаём
+
+    def test_promo(self):
+        # акция: биткоины за задания ×1,5, за вариант ×2 — за заработанное во время акции; ученик видит акцию, учитель меняет
+        P = self.seeded_promo                                                   # при первом запуске — сама, до конца 24 октября
+        self.assertEqual((P["task"], P["exam"], P["to"]), (1.5, 2.0, server.day_end("2026-10-24")))
+        self.assertEqual(time.strftime("%H:%M:%S", time.localtime(P["to"])), "23:59:59")
+        db = server.APP.db
+        self.addCleanup(server.promo_set, db, None)
+        tok = self.login("Акционный Аркадий")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        now = time.time()
+        since = now - 7200                                                      # бонусы за задания и вариант — с «выхода версии»
+        for key in ("task_btc_since", "exam_btc_since"):
+            self.addCleanup(db.setting, key, db.setting(key))
+            db.setting(key, str(since))
+        server._SINCE.clear()
+        self.addCleanup(server._SINCE.clear)
+        for k, (tid, n, ts) in enumerate((("p:26", 26, now - 5000), ("p:25", 25, now - 600))):   # до акции и во время
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,?,1,?)", (sid, ts, tid, n, 30 * 60000))
+        db.x("INSERT INTO exams(student_id, started, finished, primary_score, test_score) VALUES(?,?,?,?,?)",
+             (sid, now - 3 * 3600, now - 300, 20, 76))
+        g0 = server.game_summary(db, sid)
+        self.assertIsNone(self.req("GET", "/api/me", token=tok)[1]["promo"])
+        st, d = self.admin("POST", "/api/admin/promo", {"task": 1.5, "exam": 2, "to": "2099-01-01", "title": "Перед пробником"})
+        self.assertEqual(st, 200, d)
+        promo = server.promo_get(db)
+        promo["from"] = now - 1800                                              # акция началась полчаса назад
+        server.promo_set(db, promo)
+        g1 = server.game_summary(db, sid)
+        bonus = {n: server.TASK_BTC[n] for n in (25, 26)}
+        self.assertEqual(g1["task_coins"], math.floor(bonus[26] + bonus[25] * 1.5))   # до акции — как обычно
+        self.assertGreater(g0["exam_coins"], 0)
+        self.assertEqual(g1["exam_coins"], 2 * g0["exam_coins"])
+        self.assertGreater(g1["mined"], g0["mined"])
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertEqual((me["promo"]["title"], me["promo"]["task"], me["promo"]["exam"], me["promo"]["day"]), ("Перед пробником", 1.5, 2, "2099-01-01"))
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["promo"]["exam"], 2)
+        self.assertEqual(self.admin("GET", "/api/admin/econ")[1]["thermo"]["promo_now"]["task"], 1.5)
+        # ошибки ввода; закончить — заработанное во время акции остаётся с бонусом
+        for bad in ({"task": 5, "exam": 1, "to": "2099-01-01"}, {"task": 1, "exam": 1, "to": "2099-01-01"},
+                    {"task": 2, "exam": 2, "to": "2001-01-01"}, {"task": 2, "exam": 2, "to": "завтра"}):
+            self.assertEqual(self.admin("POST", "/api/admin/promo", bad)[0], 400, bad)
+        self.assertEqual(self.admin("POST", "/api/admin/promo", {"stop": True})[0], 200)
+        self.assertIsNone(self.req("GET", "/api/me", token=tok)[1]["promo"])
+        db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,?,1,?)", (sid, time.time() + 1, "p:24", 24, 30 * 60000))
+        g2 = server.game_summary(db, sid)
+        self.assertEqual(g2["task_coins"], math.floor(bonus[26] + bonus[25] * 1.5 + server.TASK_BTC[24]))
 
     def test_gift_value(self):
         db = server.APP.db

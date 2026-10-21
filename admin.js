@@ -1072,7 +1072,22 @@
       <thead><tr><th>Когда</th><th>Что</th><th>Подробно</th><th class="num">₿</th></tr></thead>
       <tbody>${T.bank.log.map(b => `<tr><td class="muted">${fmtWhen(b.ts)}</td><td>${esc(b.t)}</td>
         <td class="muted">${esc([b.student, b.note, b.who].filter(Boolean).join(' · '))}</td><td class="num">${ecoDelta(b.delta)}</td></tr>`).join('')}</tbody></table></div></details>`;
-    return `<div class="adm-box th-box"><h3 class="adm-h3">🌡 Термостат экономики и банк рынка</h3>
+    const PN = T.promo_now, PS = T.promo || PN;
+    const pday = ts => new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    const iso = ts => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    const promo = `<div class="adm-box th-promo"><h3 class="adm-h3">⚡ Акция ${PN ? `идёт: «${esc(PN.title)}»` : '— сейчас нет'}</h3>
+      <p class="fm-note">${PN ? `Биткоины за задания ×${xfmt(PN.task)}, за вариант ЕГЭ ×${xfmt(PN.exam)} — до ${pday(PN.to)} включительно. `
+        + 'Ученик видит объявление при входе (раз в день) и значок ⚡ вверху; бонус — только за заработанное во время акции.'
+        : 'Во время акции биткоины за задания (опыт за решение, бонус за задание, самостоятельные) и за вариант ЕГЭ — в N раз больше.'}</p>
+      ${T.is_main ? `<form class="th-form" id="promoForm">
+        <label class="th-note">Название<input class="inp" id="prTitle" maxlength="60" value="${esc(PS ? PS.title : 'Бонус перед пробником')}"></label>
+        <label>Задания ×<input class="inp" id="prTask" type="number" step="0.1" min="1" max="${T.promo_max}" value="${PS ? PS.task : 1.5}"></label>
+        <label>Варианты ×<input class="inp" id="prExam" type="number" step="0.1" min="1" max="${T.promo_max}" value="${PS ? PS.exam : 2}"></label>
+        <label>До (включительно)<input class="inp" id="prTo" type="date" value="${PS ? iso(PS.to) : ''}"></label>
+        <button class="btn primary" type="submit">${PN ? 'Сохранить' : '⚡ Запустить'}</button>
+        ${PN ? '<button class="btn ghost" type="button" id="promoStop">⏹ Закончить сейчас</button>' : ''}</form>`
+        : '<p class="fm-note">Акции запускает главный учитель.</p>'}</div>`;
+    return `${promo}<div class="adm-box th-box"><h3 class="adm-h3">🌡 Термостат экономики и банк рынка</h3>
       <div class="adm-cards">${cards}</div>${how}${ctl}${levers}${bank}</div>`;
   }
   async function thermoSend(path, body, ok) {
@@ -1148,6 +1163,10 @@
   $('#econBody').addEventListener('click', e => {
     const v = e.target.closest('[data-mkview]');
     if (v && ECO) { mktView = v.dataset.mkview; $('#mktCharts').innerHTML = marketChartsHtml(ECO.market); return; }
+    if (e.target.closest('#promoStop')) {
+      if (confirm('Закончить акцию сейчас? Уже заработанное с бонусом останется.')) thermoSend('promo', { stop: true }, 'Акция закончена');
+      return;
+    }
     const lim = e.target.closest('#thLimited');
     if (lim) {
       if (lim.dataset.lim === 'stop' && !confirm('Остановить лимитку? Нераскупленные больше не продадутся.')) return;
@@ -1163,6 +1182,11 @@
     }
   });
   $('#econBody').addEventListener('submit', e => {
+    if (e.target.id === 'promoForm') {
+      e.preventDefault();
+      thermoSend('promo', { title: $('#prTitle').value, task: +$('#prTask').value, exam: +$('#prExam').value, to: $('#prTo').value }, '⚡ Акция сохранена');
+      return;
+    }
     if (e.target.id !== 'thermoForm') return;
     e.preventDefault();
     const manual = $('#thMode').value === 'manual', body = { mode: $('#thMode').value, target: +$('#thTarget').value };

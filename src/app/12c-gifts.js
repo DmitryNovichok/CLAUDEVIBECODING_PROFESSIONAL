@@ -75,6 +75,8 @@
     $('#forecastBody').innerHTML = `<div class="bx${gfSheet ? ' has-sheet' : ''}">
       <div class="bx-top"><h2>Биткоины</h2><span class="bx-pill" title="${num(G.coins)} ${btcWord(G.coins)}">₿ ${num(G.coins)}</span>
         <button type="button" class="bx-q" data-bx-help title="Как заработать и как всё устроено">?</button></div>
+      ${G.promo && !G.teacher ? `<button type="button" class="bx-promo" id="promoOpen">⚡ <b>${esc(G.promo.title)}</b>
+        <span>задания ${xTxt(G.promo.task)} · варианты ${xTxt(G.promo.exam)} · до ${G.promo.day.slice(8, 10)}.${G.promo.day.slice(5, 7)} включительно</span></button>` : ''}
       <div class="bx-body">${body(G)}</div>
       ${gfSheet ? `<div class="bx-sheet" role="dialog"><button type="button" class="bx-grab" data-bx-close aria-label="Закрыть"></button>${sheetHtml(G)}</div>` : ''}
       <nav class="bx-tabs">${tabs.map(([k, i, t, n]) => `<button type="button" class="${gfTab === k ? 'on' : ''}" data-bx-tab="${k}"><span>${i}</span>${t}${n ? `<b>${n}</b>` : ''}</button>`).join('')}</nav>
@@ -398,6 +400,51 @@
     coinNotify(me.coin_news);
     if (GF && !gfSheet && !$('#forecastModal').hidden && $('#forecastBody .bx')) openGifts(undefined, undefined, gfTab);
   }
+  // ---- акция (например, перед пробником): значок вверху, объявление при входе раз в день, полоска в «Биткоинах»
+  let PROMO = null;                       // { title, task, exam, day } с сервера или null
+  const xTxt = v => '×' + String(Math.round(v * 100) / 100).replace('.', ',');
+  const promoDay = P => new Date(P.day + 'T12:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const promoLeft = P => Math.max(0, Math.round((new Date(P.day + 'T00:00') - new Date(new Date().toDateString())) / 86400000));
+  function promoUpdate(p) {
+    PROMO = p || null;
+    const b = $('#promoBtn');
+    if (!b) return;
+    b.hidden = !PROMO || TEACHER;
+    if (PROMO) {
+      $('#promoTxt').textContent = `${xTxt(Math.max(PROMO.task, PROMO.exam))} ₿`;
+      b.title = `${PROMO.title}: биткоины за задания ${xTxt(PROMO.task)}, за вариант ЕГЭ ${xTxt(PROMO.exam)} — до ${promoDay(PROMO)} включительно`;
+    }
+  }
+  function openPromo() {
+    const P = PROMO;
+    if (!P) return;
+    const left = promoLeft(P);
+    $('#forecastBody').innerHTML = `<div class="promo">
+      <div class="promo-hero"><span class="promo-bolt" aria-hidden="true">⚡</span><h2>${esc(P.title)}</h2>
+        <p>до ${promoDay(P)} включительно · ${left ? `осталось ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'сегодня последний день'}</p></div>
+      <div class="promo-tiles">
+        ${P.task > 1 ? `<div class="promo-tile"><span aria-hidden="true">🧩</span><b>${xTxt(P.task)}</b><small>биткоинов за каждое решённое задание</small></div>` : ''}
+        ${P.exam > 1 ? `<div class="promo-tile hot"><span aria-hidden="true">📝</span><b>${xTxt(P.exam)}</b><small>биткоинов за вариант ЕГЭ</small></div>` : ''}
+      </div>
+      <p class="promo-note">Решай и пиши варианты — бонус начисляется сразу. Биткоины тратятся в магазине подарков 🎁</p>
+      <div class="promo-acts"><button type="button" class="btn primary" id="tourGo">🧩 Решать задания</button>
+        ${P.exam > 1 ? '<button type="button" class="btn" id="promoExam">📝 Написать вариант</button>' : ''}</div></div>`;
+    $('#forecastModal').hidden = false;
+    setTimeout(() => { const b = $('#tourGo'); if (b) b.focus(); }, 50);
+  }
+  /** Объявление при входе — раз в день на устройстве (на компьютере в классе — при каждом входе: там всё стирается). */
+  function promoAuto() {
+    if (!PROMO || TEACHER) return false;
+    const key = `egeshka.promo.${student ? student.sid : ''}`, today = dayKey(Date.now());
+    try { if (localStorage.getItem(key) === today + PROMO.day) return false; localStorage.setItem(key, today + PROMO.day); } catch (e) { /* не страшно */ }
+    openPromo();
+    return true;
+  }
+  $('#promoBtn')?.addEventListener('click', openPromo);
+  document.addEventListener('click', e => {
+    if (e.target.closest('#promoOpen')) { openPromo(); return; }
+    if (e.target.closest('#promoExam')) { closeForecast(); $('#examCard').click(); }
+  });
   $('#coinCard')?.addEventListener('click', () => openGifts(undefined, undefined, 'shop'));
   $('#whoGifts')?.addEventListener('click', () => { setWhoMenu(false); openGifts(undefined, undefined, 'shop'); });
   /** Forbes класса — вкладка окна «Биткоины» (и возврат к ней из профиля). */
