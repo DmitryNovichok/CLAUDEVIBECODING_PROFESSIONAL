@@ -3116,6 +3116,30 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 1.5}, None), math.floor(1100 * 0.9))
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 0.8}, None), math.floor(880 * 0.9))
 
+    def test_gift_price_chart(self):
+        # график цены подарка: 30 точек (по дням и сейчас), в точке — цена на конец дня и покупки за неделю до неё
+        db = server.APP.db
+        tok = self.login("Графиков Гордей")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        self.assertEqual(self.req("GET", "/api/gifts/price?gift=ufo")[0], 401)
+        self.assertEqual(self.req("GET", "/api/gifts/price?gift=nope", token=tok)[0], 404)
+        self.assertEqual(self.req("GET", "/api/gifts/price?gift=" + server.LIMITED[0][0], token=tok)[0], 404)
+        ago = time.time() - 10 * 86400                                                  # 5 НЛО куплены 10 дней назад
+        for _ in range(5):
+            db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'ufo', ?, ?)", (sid, ago, sid))
+        server._PRICE_HIST.update(t=0)
+        st, r = self.req("GET", "/api/gifts/price?gift=ufo", token=tok)
+        self.assertEqual(st, 200, r)
+        pts = r["pts"]
+        self.assertEqual(len(pts), server.PRICE_DAYS)
+        shop = next(c["price"] for c in self.req("GET", "/api/gifts", token=tok)[1]["catalog"] if c["id"] == "ufo")
+        self.assertEqual(pts[-1]["p"], shop)                                            # последняя точка — цена сейчас
+        k = len(pts) - 1 - 10                                                           # день покупки…
+        self.assertEqual(pts[k]["n"] - pts[k - 1]["n"], 5)
+        self.assertGreater(pts[k]["p"], pts[k - 1]["p"])                                # …с него НЛО дороже
+        self.assertEqual(pts[k + 6]["n"], pts[k]["n"])                                  # неделю считаются в спросе
+        self.assertEqual(pts[k + 7]["n"], pts[k]["n"] - 5)                              # потом выпадают
+
     def test_box_gift_market_fee(self):
         # выпавший в «🎲» подарок: первая продажа на рынке — комиссия 50 % (в банк), перепродажа — обычная
         db = server.APP.db

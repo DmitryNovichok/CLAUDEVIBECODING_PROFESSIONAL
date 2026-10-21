@@ -2458,6 +2458,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(401, "нужно войти")
             return self.send_json(forbes_view(forbes_data(db, teacher_of(s)["id"]), s["id"]))
 
+        if path == "/api/gifts/price":
+            # график цены подарка в магазине за PRICE_DAYS дней: по дням и сейчас, с числом покупок за неделю
+            if not self.student(data):
+                return self.err(401, "нужно войти")
+            gid = str(qs.get("gift") or data.get("gift") or "")
+            if gid not in GIFT_BY or gid in LIMITED_BY:
+                return self.err(404, "У этого подарка нет цены в магазине")
+            return self.send_json({"gift": gid, "pts": gift_price_points(db, gid, econ(db)), "week": DEMAND_DAYS})
+
         if path in ("/api/gifts", "/api/gifts/buy", "/api/gifts/seen", "/api/gifts/upgrade", "/api/gifts/sell",
                     "/api/gifts/list", "/api/gifts/unlist", "/api/gifts/mbuy"):
             # биткоины и подарки: магазин (цены по индексу термостата), свои подарки, подарить себе или однокласснику (ученику того же
@@ -6210,6 +6219,8 @@ def btc_rate_now(db):
 DEMAND_DAYS = 7
 DEMAND_STEP = 0.05                     # каждая покупка за неделю сверх средней по подаркам — +5 % к цене (меньше средней — дешевле)
 DEMAND_MIN, DEMAND_MAX = 0.8, 1.5
+PRICE_DAYS = 30                        # график цены подарка — за столько дней (последняя точка — сейчас)
+_PRICE_HIST = {"t": 0.0, "v": None, "db": None}
 _DEMAND = {"t": 0.0, "v": None, "db": None}
 
 
@@ -6220,10 +6231,50 @@ def gift_demand(db):
         return _DEMAND["v"]
     cnt = {r["gift"]: r["c"] for r in db.q("""SELECT gift, COUNT(*) c FROM gifts WHERE from_sid IS NOT NULL AND ts > ?
                                               GROUP BY gift""", (now - DEMAND_DAYS * 86400,))}
-    avg = sum(cnt.values()) / len(GIFTS)
-    v = {g[0]: round(min(DEMAND_MAX, max(DEMAND_MIN, 1 + DEMAND_STEP * (cnt.get(g[0], 0) - avg))), 2) for g in GIFTS}
+    v = demand_of(cnt)
     _DEMAND.update(t=now, v=v, db=db)
     return v
+
+
+def demand_of(cnt):
+    """Множители спроса по числу покупок каждого подарка за DEMAND_DAYS: каждая сверх средней по подаркам — +DEMAND_STEP."""
+    avg = sum(cnt.values()) / len(GIFTS)
+    return {g[0]: round(min(DEMAND_MAX, max(DEMAND_MIN, 1 + DEMAND_STEP * (cnt.get(g[0], 0) - avg))), 2) for g in GIFTS}
+
+
+def gift_price_hist(db):
+    """Цены подарков на конец каждого из PRICE_DAYS − 1 прошедших дней: индекс цен термостата в тот момент (до термостата —
+    из econ_hist) × спрос по покупкам за DEMAND_DAYS до него; и сколько каждого купили за эти дни. Пересчёт — раз в 5 минут."""
+    now = time.time()
+    if _PRICE_HIST["v"] is not None and _PRICE_HIST["db"] is db and now - _PRICE_HIST["t"] < 300:
+        return _PRICE_HIST["v"]
+    today = datetime.now().date()
+    ends = [(today - timedelta(days=k), datetime.combine(today - timedelta(days=k - 1), datetime.min.time()).timestamp())
+            for k in range(PRICE_DAYS - 1, 0, -1)]
+    buys = db.q("SELECT gift, ts FROM gifts WHERE from_sid IS NOT NULL AND ts > ? ORDER BY ts", (ends[0][1] - DEMAND_DAYS * 86400,))
+    bts = [r["ts"] for r in buys]
+    th = db.q("SELECT ts, idx FROM thermo ORDER BY ts")
+    tts = [r["ts"] for r in th]
+    old = {r["day"]: r["idx"] for r in db.q("SELECT day, idx FROM econ_hist WHERE idx IS NOT NULL")}
+    out = []
+    for d, t in ends:
+        i = bisect.bisect_right(tts, t) - 1
+        lo, hi = bisect.bisect_right(bts, t - DEMAND_DAYS * 86400), bisect.bisect_right(bts, t)
+        cnt = {}
+        for r in buys[lo:hi]:
+            cnt[r["gift"]] = cnt.get(r["gift"], 0) + 1
+        out.append({"d": d.isoformat(), "idx": th[i]["idx"] if i >= 0 else old.get(d.isoformat(), 1.0), "cnt": cnt, "dem": demand_of(cnt)})
+    _PRICE_HIST.update(t=now, v=out, db=db)
+    return out
+
+
+def gift_price_points(db, gid, e):
+    """График цены подарка gid: по дню — цена в магазине на конец дня и сколько его купили за DEMAND_DAYS; последняя точка — сейчас."""
+    base = GIFT_BY[gid][3]
+    pts = [{"d": h["d"], "p": max(1, math.ceil(base * h["idx"] * h["dem"][gid])), "n": h["cnt"].get(gid, 0)} for h in gift_price_hist(db)]
+    n = db.q("SELECT COUNT(*) c FROM gifts WHERE gift=? AND from_sid IS NOT NULL AND ts > ?",
+             (gid, time.time() - DEMAND_DAYS * 86400), one=True)["c"]
+    return pts + [{"d": datetime.now().date().isoformat(), "p": gift_price(gid, e, gift_demand(db)), "n": n}]
 
 
 def gift_price(gid, e, dem):
