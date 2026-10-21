@@ -256,7 +256,8 @@
   const pcDay = d => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
   function drawPrice(el, D) {
     const pts = D.pts, box = el.querySelector('.bx-pc-c');
-    if (!pts || pts.length < 2 || !box) return;
+    if (!box) return;
+    if (!pts || pts.length < 2) { box.innerHTML = '<small class="fm-muted">Магазин открылся недавно — график появится завтра</small>'; return; }
     const W = Math.max(200, box.clientWidth), H = 92, T = 10, B = 6, X0 = 6, X1 = W - 6;
     const ps = pts.map(p => p.p), lo = Math.min(...ps), hi = Math.max(...ps), pad = Math.max(1, (hi - lo) * 0.2);
     const x = i => X0 + i / (pts.length - 1) * (X1 - X0);

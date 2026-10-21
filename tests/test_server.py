@@ -103,9 +103,11 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("DELETE FROM exams")
 
     # ------------------------------------------------------------ помощники
-    def req(self, method, path, body=None, token=None, raw_path=False, ip=None, hdrs=False):
+    def req(self, method, path, body=None, token=None, raw_path=False, ip=None, hdrs=False, ua=None):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         headers = {"Content-Type": "application/json"}
+        if ua:
+            headers["User-Agent"] = ua
         if token:
             headers["X-Token"] = token
         if ip:
@@ -3125,6 +3127,63 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 1.5}, None), math.floor(1100 * 0.9))
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 0.8}, None), math.floor(880 * 0.9))
 
+    def test_js_errors(self):
+        # ошибки JavaScript из браузера: без входа тоже; одна строка на ошибку, случаи — кто и на каком устройстве;
+        # строка app.js — модулем src/app; лимит с адреса; главный учитель видит, отмечает «исправлено», повтор — «снова»
+        db = server.APP.db
+        server._JSERR_IP.clear()
+        self.addCleanup(server._JSERR_IP.clear)
+        appjs = server.HERE / "app.js"                                                  # сервер в тестах — во временной папке
+        if not appjs.exists():
+            shutil.copy(Path(__file__).resolve().parent.parent / "app.js", appjs)
+            self.addCleanup(appjs.unlink)
+        lines = appjs.read_text(encoding="utf-8").splitlines()
+        mark = next(k for k, l in enumerate(lines, 1) if l.endswith("src/app/12c-gifts.js"))
+        iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Version/17.0 Mobile Safari/604.1"
+        err = {"app": "site", "msg": "TypeError: x is undefined", "src": f"https://egeshka.ru/app.js?v=7:{mark + 10}:5",
+               "stack": "TypeError\n at f (app.js:1:1)", "page": "/", "ver": "2.7.1"}
+        self.assertEqual(self.req("POST", "/api/jserr", err, ua=iphone)[0], 200)
+        tok = self.login("Сбойкин Степан")
+        self.assertEqual(self.req("POST", "/api/jserr", err, tok)[1], {"ok": True})
+        self.req("POST", "/api/jserr", {"app": "site", "msg": "Promise: boom", "stack": "Error: boom\n    at g (https://egeshka.ru/app.js?v=7:5:9)"})
+        st, d = self.admin("GET", "/api/admin/jserr")
+        self.assertEqual(st, 200, d)
+        e = next(x for x in d["errors"] if x["msg"] == "TypeError: x is undefined")
+        self.assertEqual((e["n"], e["src"], e["people"], e["fixed"]), (2, "src/app/12c-gifts.js:10", 1, False))
+        self.assertIn(("Safari · iPhone", 1), [tuple(x) for x in e["devices"]])
+        self.assertEqual([h["who"] for h in e["hits"]], ["Сбойкин С.", "не вошёл"])
+        self.assertEqual(next(x for x in d["errors"] if x["msg"] == "Promise: boom")["src"], "src/app/01-core.js:4")
+        self.assertEqual(self.admin("GET", "/api/admin/me")[1]["jserr_new"], 2)
+        # просмотрел — новых нет; «исправлено», а потом снова — вернулась с пометкой
+        self.assertEqual(self.admin("POST", "/api/admin/jserr", {"seen": True})[1]["new"], 0)
+        d = self.admin("POST", "/api/admin/jserr", {"id": e["id"], "fixed": True})[1]
+        self.assertTrue(next(x for x in d["errors"] if x["id"] == e["id"])["fixed"])
+        self.req("POST", "/api/jserr", err)
+        d = self.admin("GET", "/api/admin/jserr")[1]
+        again = next(x for x in d["errors"] if x["id"] == e["id"])
+        self.assertEqual((again["fixed"], again["again"], again["n"], d["new"]), (False, True, 3, 1))
+        # не больше JSERR_PER_IP с одного адреса за 10 минут
+        for k in range(server.JSERR_PER_IP):
+            self.req("POST", "/api/jserr", dict(err, msg=f"spam {k}"), ip="10.9.9.9")
+        self.assertEqual(self.req("POST", "/api/jserr", dict(err, msg="spam last"), ip="10.9.9.9")[1], {"ok": False})
+        self.assertIsNone(db.q("SELECT id FROM js_errors WHERE msg='spam last'", one=True))
+
+    def test_demand_by_rarity(self):
+        # спрос — к среднему по своей редкости: Замок, который не покупают, когда покупают печеньки, почти по каталогу;
+        # подарок, который берут чаще ровесников по редкости, — дороже, реже — дешевле
+        self.assertEqual(set(server.demand_of({}).values()), {1.0})
+        cnt = {"cookie": 6, "candy": 4}
+        d = server.demand_of(cnt)
+        self.assertEqual((d["castle"], d["rocket"], d["robot"]), (1.0, 1.0, 1.0))      # среди легендарных и эпических — никто
+        self.assertGreater(d["cookie"], 1.0)
+        self.assertLess(d["tea"], 1.0)
+        common = [g[0] for g in server.GIFTS if server.gift_rarity(g[0])["k"] == "common"]
+        avg = sum(cnt.get(k, 0) for k in common) / len(common)
+        self.assertAlmostEqual(d["cookie"], round(((6 + 2) / (avg + 2)) ** 0.3, 2))
+        d2 = server.demand_of({"rocket": 1})
+        self.assertLess(d2["rocket"], 1.15)                                           # одна покупка не взвинчивает цену
+        self.assertLess(d2["castle"], 1.0)
+
     def test_gift_price_chart(self):
         # график цены подарка: 30 точек (по дням и сейчас), в точке — цена на конец дня и покупки за неделю до неё
         db = server.APP.db
@@ -3133,6 +3192,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/gifts/price?gift=ufo")[0], 401)
         self.assertEqual(self.req("GET", "/api/gifts/price?gift=nope", token=tok)[0], 404)
         self.assertEqual(self.req("GET", "/api/gifts/price?gift=" + server.LIMITED[0][0], token=tok)[0], 404)
+        db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'cookie', ?, ?)", (sid, time.time() - 20 * 86400, sid))
         ago = time.time() - 10 * 86400                                                  # 5 НЛО куплены 10 дней назад
         for _ in range(5):
             db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'ufo', ?, ?)", (sid, ago, sid))
@@ -3140,7 +3200,11 @@ class ServerTest(unittest.TestCase):
         st, r = self.req("GET", "/api/gifts/price?gift=ufo", token=tok)
         self.assertEqual(st, 200, r)
         pts = r["pts"]
-        self.assertEqual(len(pts), server.PRICE_DAYS)
+        # график — с открытия магазина (первой покупки), не дольше PRICE_DAYS дней
+        opened = db.q("SELECT MIN(ts) t FROM gifts WHERE from_sid IS NOT NULL", one=True)["t"]
+        self.assertLessEqual(len(pts), server.PRICE_DAYS)
+        self.assertEqual(pts[0]["d"], max(time.strftime("%Y-%m-%d", time.localtime(opened)),
+                                          (datetime.date.today() - datetime.timedelta(days=server.PRICE_DAYS - 1)).isoformat()))
         shop = next(c["price"] for c in self.req("GET", "/api/gifts", token=tok)[1]["catalog"] if c["id"] == "ufo")
         self.assertEqual(pts[-1]["p"], shop)                                            # последняя точка — цена сейчас
         k = len(pts) - 1 - 10                                                           # день покупки…

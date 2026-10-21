@@ -343,6 +343,102 @@ def sessions_end(db, sid, keep=None):
     return n
 
 
+# Ошибки JavaScript в браузерах (POST /api/jserr — без входа, но не больше JSERR_PER_IP с адреса за 10 минут): одна строка
+# на ошибку, JSERR_HITS последних случаев; ошибки, которых не было JSERR_DAYS дней, удаляются. Видит главный учитель («Ошибки»).
+JSERR_PER_IP, JSERR_HITS, JSERR_DAYS = 30, 50, 60
+_JSERR_IP = {}
+_JSERR_LOCK = threading.Lock()
+_APPJS = {"mtime": None, "marks": []}
+
+
+def jserr_where(src):
+    """Где ошибка: без адреса сайта и ?v=…; строка собранного app.js — модулем src/app (по меткам сборки)."""
+    s = re.sub(r"^[a-z-]+://[^/]+/", "", str(src or "")).strip()
+    s = re.sub(r"\?[^:]*", "", s)[:200]
+    m = re.match(r"^(?:.*/)?app\.js:(\d+)(?::\d+)?$", s)
+    if not m:
+        return s
+    try:
+        p = HERE / "app.js"
+        mt = p.stat().st_mtime
+        if _APPJS["mtime"] != mt:
+            marks = [(1, "src/app/01-core.js")]                    # первый модуль — сразу после заголовка (строка 1)
+            for k, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                mm = re.match(r"^  // ═══════ (src/app/[\w.-]+\.js)$", line)
+                if mm:
+                    marks.append((k, mm.group(1)))
+            _APPJS.update(mtime=mt, marks=marks)
+    except OSError:
+        return s
+    line = int(m.group(1))
+    start, name = max((x for x in _APPJS["marks"] if x[0] < line), default=(0, "app.js"))
+    return f"{name}:{line - start}"
+
+
+def jserr_add(db, d, ip, sid=None, tid=None, ua=""):
+    """Записать ошибку из браузера (d — что прислал браузер). → False — с этого адреса уже слишком много."""
+    now = time.time()
+    with _JSERR_LOCK:
+        arr = [t for t in _JSERR_IP.get(ip, []) if now - t < 600]
+        if len(arr) >= JSERR_PER_IP:
+            return False
+        _JSERR_IP[ip] = arr + [now]
+        if len(_JSERR_IP) > 5000:
+            _JSERR_IP.clear()
+    app = "admin" if d.get("app") == "admin" else "site"
+    msg = re.sub(r"\s+", " ", str(d.get("msg") or "")).strip()[:300]
+    if not msg:
+        return True
+    src = d.get("src")
+    if not src:                                                   # ошибка в обещании — место берём из первой строки стека
+        m = re.search(r"([\w./:-]+\.js(?:\?[^:\s)]*)?:\d+:\d+)", str(d.get("stack") or ""))
+        src = m.group(1) if m else ""
+    src = jserr_where(src)
+    key = hashlib.sha1(f"{app}|{msg}|{src}".encode()).hexdigest()
+    ver, page = str(d.get("ver") or "")[:20], str(d.get("page") or "")[:120]
+    row = db.q("SELECT id FROM js_errors WHERE key=?", (key,), one=True)
+    if row:
+        eid = row["id"]
+        db.x("UPDATE js_errors SET n = n + 1, last_ts=?, ver=? WHERE id=?", (now, ver, eid))
+    else:
+        eid = db.x("""INSERT INTO js_errors(key, app, msg, src, stack, first_ts, last_ts, n, ver) VALUES(?,?,?,?,?,?,?,1,?)""",
+                   (key, app, msg, src, str(d.get("stack") or "")[:2000], now, now, ver))
+    db.x("INSERT INTO js_error_hits(error_id, ts, student_id, teacher_id, device, ver, page) VALUES(?,?,?,?,?,?,?)",
+         (eid, now, sid, tid, ua_label(ua), ver, page))
+    db.x("""DELETE FROM js_error_hits WHERE error_id=? AND id NOT IN
+            (SELECT id FROM js_error_hits WHERE error_id=? ORDER BY id DESC LIMIT ?)""", (eid, eid, JSERR_HITS))
+    return True
+
+
+def jserr_list(db):
+    """Ошибки для главного учителя: новые сверху; у каждой — сколько раз, у скольких, на каких устройствах, последние случаи."""
+    cut = time.time() - JSERR_DAYS * 86400
+    db.x("DELETE FROM js_error_hits WHERE error_id IN (SELECT id FROM js_errors WHERE last_ts < ?)", (cut,))
+    db.x("DELETE FROM js_errors WHERE last_ts < ?", (cut,))
+    names = {r["id"]: short_name(r["name"]) for r in db.q("SELECT id, name FROM students")}
+    tnames = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM teachers")}
+    out = []
+    for e in db.q("SELECT * FROM js_errors ORDER BY last_ts DESC LIMIT 100"):
+        hits = db.q("SELECT * FROM js_error_hits WHERE error_id=? ORDER BY id DESC", (e["id"],))
+        dev = {}
+        for h in hits:
+            dev[h["device"] or "?"] = dev.get(h["device"] or "?", 0) + 1
+        who = {(h["student_id"], h["teacher_id"]) for h in hits if h["student_id"] or h["teacher_id"]}
+        out.append({"id": e["id"], "app": e["app"], "msg": e["msg"], "src": e["src"], "stack": e["stack"], "n": e["n"],
+                    "first": e["first_ts"], "last": e["last_ts"], "ver": e["ver"], "fixed": bool(e["fixed_ts"] and e["fixed_ts"] >= e["last_ts"]),
+                    "again": bool(e["fixed_ts"] and e["fixed_ts"] < e["last_ts"]), "people": len(who),
+                    "devices": sorted(dev.items(), key=lambda x: -x[1]),
+                    "hits": [{"ts": h["ts"], "who": names.get(h["student_id"]) or tnames.get(h["teacher_id"]) or "не вошёл",
+                              "teacher": bool(h["teacher_id"]), "device": h["device"], "ver": h["ver"], "page": h["page"]} for h in hits[:10]]})
+    return out
+
+
+def jserr_new(db):
+    """Сколько ошибок появилось или повторилось после того, как главный учитель смотрел список (и не отмечены исправленными)."""
+    seen = to_float(db.setting("jserr_seen")) or 0
+    return db.q("SELECT COUNT(*) c FROM js_errors WHERE last_ts > ? AND (fixed_ts IS NULL OR fixed_ts < last_ts)", (seen,), one=True)["c"]
+
+
 def ua_label(ua):
     """«Chrome · Windows» из User-Agent — чтобы ученик узнал свой компьютер в списке входов."""
     ua = ua or ""
@@ -1340,6 +1436,15 @@ class DB:
                 r REAL, avg REAL, med REAL, active INTEGER, who TEXT);
             -- Forbes класса: состояние ученика (кошелёк + оценка подарков) на конец дня — для роста за неделю
             CREATE TABLE IF NOT EXISTS forbes_hist(day TEXT NOT NULL, student_id INTEGER NOT NULL, total INTEGER, PRIMARY KEY(day, student_id));
+            -- ошибки JavaScript у учеников и учителей: одна строка на ошибку (что и где), сколько раз; последние случаи —
+            -- кто, когда, на каком устройстве и версии; fixed_ts — главный учитель отметил «исправлено» (повторится — снова в списке)
+            CREATE TABLE IF NOT EXISTS js_errors(
+                id INTEGER PRIMARY KEY, key TEXT UNIQUE NOT NULL, app TEXT, msg TEXT, src TEXT, stack TEXT,
+                first_ts REAL, last_ts REAL, n INTEGER DEFAULT 0, ver TEXT, fixed_ts REAL);
+            CREATE TABLE IF NOT EXISTS js_error_hits(
+                id INTEGER PRIMARY KEY, error_id INTEGER NOT NULL, ts REAL NOT NULL, student_id INTEGER, teacher_id INTEGER,
+                device TEXT, ver TEXT, page TEXT);
+            CREATE INDEX IF NOT EXISTS js_error_hits_e ON js_error_hits(error_id, ts);
             -- лимитированный подарок недели: продаётся с start до stop, тираж cap, цена price
             CREATE TABLE IF NOT EXISTS limited(
                 id INTEGER PRIMARY KEY, gift TEXT NOT NULL, start REAL NOT NULL, stop REAL NOT NULL, cap INTEGER NOT NULL,
@@ -2373,6 +2478,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         # ----- ученик
         if path == "/api/ping":
             return self.send_json({"ok": True, "server": True})
+
+        if path == "/api/jserr" and method == "POST":
+            # ошибка JavaScript в браузере — для вкладки «Ошибки» главного учителя; вход не нужен (ошибка могла быть до входа)
+            s = self.student(data) if data.get("app") != "admin" else None
+            tid = self.T["id"] if data.get("app") == "admin" and self.is_admin() else None
+            ok = jserr_add(db, data, self.client_ip(), s["id"] if s else None, tid, self.headers.get("User-Agent") or "")
+            return self.send_json({"ok": ok})
 
         if path == "/api/login" and method == "POST":
             # Вход: ФИО + пароль. Регистрация (и старый ученик без пароля): код приглашения + ФИО + новый пароль.
@@ -4715,8 +4827,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 mods.append({"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"], "levels": levels})
             return self.send_json({"name": st["name"], "modules": mods})
 
+        if path == "/api/admin/jserr":
+            # ошибки JavaScript у учеников и учителей — только главному учителю
+            if not self.T["is_main"]:
+                return self.err(403, "Ошибки сайта видит главный учитель")
+            seen = to_float(db.setting("jserr_seen")) or 0             # «новые» — с прошлого просмотра (до этого)
+            if method == "POST":
+                if data.get("seen"):
+                    db.setting("jserr_seen", str(time.time()))
+                elif to_int(data.get("id")):
+                    db.x("UPDATE js_errors SET fixed_ts=? WHERE id=?", (time.time() if data.get("fixed") else None, to_int(data.get("id"))))
+            return self.send_json({"errors": jserr_list(db), "new": jserr_new(db), "seen": seen})
+
         if path == "/api/admin/me":
             out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")}
+            if self.T["is_main"]:
+                out["jserr_new"] = jserr_new(db)
             row = db.q("SELECT consent_ver FROM teachers WHERE id=?", (self.T["id"],), one=True)
             out["consent_needed"] = not row or row["consent_ver"] != LEGAL_VERSION
             return self.send_json(out)
@@ -6337,7 +6463,11 @@ def btc_rate_now(db):
 
 
 DEMAND_DAYS = 7
-DEMAND_STEP = 0.05                     # каждая покупка за неделю сверх средней по подаркам — +5 % к цене (меньше средней — дешевле)
+# Спрос — с поправкой на цену: подарок сравнивается только с подарками своей редкости (обычные с обычными, легендарные
+# с легендарными) — дорогие покупают реже, и это нормально. Ожидаемо за неделю — среднее по его редкости; множитель =
+# ((куплено + DEMAND_PRIOR) / (в среднем + DEMAND_PRIOR)) ^ DEMAND_POW — одна-две покупки редкого подарка цену не взвинчивают.
+# Замок дешевеет, только если его берут реже других легендарных.
+DEMAND_POW, DEMAND_PRIOR = 0.3, 2
 DEMAND_MIN, DEMAND_MAX = 0.8, 1.5
 PRICE_DAYS = 30                        # график цены подарка — за столько дней (последняя точка — сейчас)
 _PRICE_HIST = {"t": 0.0, "v": None, "db": None}
@@ -6357,20 +6487,32 @@ def gift_demand(db):
 
 
 def demand_of(cnt):
-    """Множители спроса по числу покупок каждого подарка за DEMAND_DAYS: каждая сверх средней по подаркам — +DEMAND_STEP."""
-    avg = sum(cnt.values()) / len(GIFTS)
-    return {g[0]: round(min(DEMAND_MAX, max(DEMAND_MIN, 1 + DEMAND_STEP * (cnt.get(g[0], 0) - avg))), 2) for g in GIFTS}
+    """Множители спроса по числу покупок каждого подарка за DEMAND_DAYS — к среднему по его редкости (см. DEMAND_POW)."""
+    tier = {g[0]: gift_rarity(g[0])["k"] for g in GIFTS}           # лимитки — не в счёт: у них своя цена
+    tot, size = {}, {}
+    for g in GIFTS:
+        tot[tier[g[0]]] = tot.get(tier[g[0]], 0) + cnt.get(g[0], 0)
+        size[tier[g[0]]] = size.get(tier[g[0]], 0) + 1
+    return {g[0]: round(min(DEMAND_MAX, max(DEMAND_MIN, ((cnt.get(g[0], 0) + DEMAND_PRIOR)
+                                                       / (tot[tier[g[0]]] / size[tier[g[0]]] + DEMAND_PRIOR)) ** DEMAND_POW)), 2)
+            for g in GIFTS}
 
 
 def gift_price_hist(db):
-    """Цены подарков на конец каждого из PRICE_DAYS − 1 прошедших дней: индекс цен термостата в тот момент (до термостата —
-    из econ_hist) × спрос по покупкам за DEMAND_DAYS до него; и сколько каждого купили за эти дни. Пересчёт — раз в 5 минут."""
+    """Цены подарков на конец каждого из PRICE_DAYS − 1 прошедших дней (но не раньше открытия магазина — первой покупки):
+    индекс цен термостата в тот момент (до термостата — из econ_hist) × спрос по покупкам за DEMAND_DAYS до него; и сколько
+    каждого купили за эти дни. Пересчёт — раз в 5 минут."""
     now = time.time()
     if _PRICE_HIST["v"] is not None and _PRICE_HIST["db"] is db and now - _PRICE_HIST["t"] < 300:
         return _PRICE_HIST["v"]
     today = datetime.now().date()
     ends = [(today - timedelta(days=k), datetime.combine(today - timedelta(days=k - 1), datetime.min.time()).timestamp())
             for k in range(PRICE_DAYS - 1, 0, -1)]
+    opened = db.q("SELECT MIN(ts) t FROM gifts WHERE from_sid IS NOT NULL", one=True)["t"]   # первая покупка — магазин открылся
+    ends = [(d, t) for d, t in ends if opened and t >= opened]
+    if not ends:
+        _PRICE_HIST.update(t=now, v=[], db=db)
+        return []
     buys = db.q("SELECT gift, ts FROM gifts WHERE from_sid IS NOT NULL AND ts > ? ORDER BY ts", (ends[0][1] - DEMAND_DAYS * 86400,))
     bts = [r["ts"] for r in buys]
     th = db.q("SELECT ts, idx FROM thermo ORDER BY ts")
