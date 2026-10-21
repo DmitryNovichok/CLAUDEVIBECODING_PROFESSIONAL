@@ -2652,7 +2652,8 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .bx-log td { padding: 6px 4px; }
 /* шторка снизу */
 .bx-sheet { position: sticky; bottom: 62px; z-index: 3; margin: 12px -26px 0; padding: 14px 20px 16px; background: var(--panel);
-  border-radius: 22px 22px 0 0; border-top: 1px solid var(--border); box-shadow: 0 -12px 30px rgba(0, 0, 0, .18); animation: bxUp .16s ease-out; }
+  border-radius: 22px 22px 0 0; border-top: 1px solid var(--border); box-shadow: 0 -12px 30px rgba(0, 0, 0, .18); animation: bxUp .16s ease-out;
+  max-height: calc(100vh - 140px); max-height: calc(100dvh - 140px); overflow-y: auto; overscroll-behavior: contain; }
 @keyframes bxUp { from { transform: translateY(24px); opacity: 0; } }
 .bx-grab { display: block; width: 44px; height: 5px; margin: -4px auto 12px; padding: 0; border: 0; border-radius: 99px; background: var(--border-strong); cursor: pointer; }
 .bx-sh { display: flex; gap: 12px; align-items: center; }
@@ -2674,7 +2675,23 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .bx-btn:disabled { opacity: .45; cursor: default; }
 .bx-mkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .bx-mkrow label { display: inline-flex; align-items: center; gap: 6px; font-weight: 900; } .bx-mkrow .inp { width: 110px; }
-.bx-who { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-weight: 800; } .bx-who .inp { flex: 1; }
+.bx-who { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-weight: 800; }
+.bx-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 0; border-radius: 99px; background: var(--accent-soft);
+  color: var(--text); font: inherit; font-weight: 900; cursor: pointer; }
+.bx-chip.me { background: var(--card-hover); cursor: default; }
+.bx-chip i { font-style: normal; color: var(--muted); }
+.bx-find { margin-top: 8px; } .bx-find .inp { width: 100%; box-sizing: border-box; }
+.bx-found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .bx-found:empty { display: none; }
+.bx-found button { padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 99px; background: var(--card); color: var(--text);
+  font: inherit; font-size: 13.5px; font-weight: 800; cursor: pointer; }
+.bx-found button.on { border-color: var(--accent); } .bx-found small { color: var(--muted); font-weight: 700; }
+/* график цены подарка в шторке */
+.bx-pc { margin-top: 12px; }
+.bx-pc-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
+.bx-pc-h small { color: var(--muted); font-weight: 800; white-space: nowrap; }
+.bx-pc-c { position: relative; height: 92px; margin-top: 6px; }
+.bx-pc-c svg { display: block; overflow: visible; touch-action: pan-y; }
+.bx-pc-f { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font-size: 11.5px; font-weight: 700; }
 .bx-h { margin: 0 0 8px; font-size: 17px; }
 .bx-help { margin: 0 0 10px; padding: 0; list-style: none; display: grid; gap: 7px; font-size: 13.5px; line-height: 1.45; }
 /* вкладки снизу */

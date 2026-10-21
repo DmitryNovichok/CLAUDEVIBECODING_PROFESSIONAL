@@ -39,6 +39,8 @@
   let gfMkOpen = false;                   // в шторке своего подарка открыта строка «выставить на рынок»
   let gfFresh = 0;                        // только что улучшенный подарок — плитка «раскрывается»
   let FB = null, fbTab = 'rich';          // Forbes класса и его вкладка
+  let gfFind = '';                        // поиск одноклассника в шторке «Купить» (список длинный — выпадающий не листается)
+  const PH = {};                          // графики цены подарков: gift → { pts, at } (с сервера, на 5 минут)
   const num = v => Number(v || 0).toLocaleString('ru-RU');
   const gfTile = (g, s = 52, extra = '') => `<span class="bx-t s${s}">${g.uniq ? uniqTile(g, extra) : `<span class="ug plain r-${g.rar.k} ${extra}"><span class="ug-ic">${g.i}</span></span>`}</span>`;
   const gfName = g => esc(g.t) + (g.uniq ? ` <span class="ug-num">#${g.uniq.n}</span>` : '');
@@ -77,6 +79,7 @@
       ${gfSheet ? `<div class="bx-sheet" role="dialog"><button type="button" class="bx-grab" data-bx-close aria-label="Закрыть"></button>${sheetHtml(G)}</div>` : ''}
       <nav class="bx-tabs">${tabs.map(([k, i, t, n]) => `<button type="button" class="${gfTab === k ? 'on' : ''}" data-bx-tab="${k}"><span>${i}</span>${t}${n ? `<b>${n}</b>` : ''}</button>`).join('')}</nav>
     </div>`;
+    drawPrices();
   }
   // ---- вкладки
   function shopTab(G) {
@@ -173,7 +176,8 @@
       const short = Math.max(0, g.price - G.coins), who = gfTo ? gfMate(gfTo) : '';
       return `<div class="bx-sh">${box ? '<span class="bx-t s76"><span class="ug plain gf-boxt"><span class="ug-ic">🎲</span></span></span>' : gfTile(g, 76)}
           <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой — дорогие реже' : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small></div></div>
-        ${G.teacher ? '' : `<label class="bx-who">Кому <select class="inp" id="bxTo"><option value="">себе</option>${G.mates.map(m => `<option value="${m.sid}"${String(m.sid) === gfTo ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>`}
+        ${box || lim ? '' : priceBox(S.id)}
+        ${G.teacher ? '' : whoHtml(G)}
         <div class="bx-acts one"><button type="button" class="bx-btn pri" data-bx-buy="${esc(S.id)}"${short || G.teacher ? ' disabled' : ''}>
           <span>${who ? '🎁' : '🛍'}</span>${who ? 'Подарить' : 'Купить'}<small>${short ? `не хватает ₿ ${num(short)}` : `₿ ${num(g.price)}`}</small></button></div>`;
     }
@@ -181,6 +185,7 @@
       const x = G.market.find(m => m.id === S.id);
       if (!x) return '';
       return `<div class="bx-sh">${gfTile(x, 76)}<div><b class="nm">${gfName(x)}</b>${rarHtml(x)}<small>${x.mine ? 'твой' : 'продаёт ' + esc(x.seller)} · в магазине ₿ ${num(x.shop)}</small></div></div>
+        ${x.rar && x.rar.k === 'limited' ? '' : priceBox(x.gift)}
         <div class="bx-acts one">${x.mine ? `<button type="button" class="bx-btn" data-bx-unlist="${x.id}"><span>↩</span>Снять с продажи<small>₿ ${num(x.price)}</small></button>`
           : `<button type="button" class="bx-btn org" data-bx-mbuy="${x.id}"${G.teacher || G.coins < x.price ? ' disabled' : ''}><span>🏪</span>Купить<small>${G.coins < x.price ? `не хватает ₿ ${num(x.price - G.coins)}` : `₿ ${num(x.price)}`}</small></button>`}</div>`;
     }
@@ -200,9 +205,86 @@
     return `<div class="bx-sh">${gfTile(g, 76, gfFresh === g.id ? 'reveal' : '')}<div><b class="nm">${gfName(g)}</b>${rarHtml(g)}
         <small>${esc([gfFrom(g), gfDate(g.ts).slice(0, 5)].filter(Boolean).join(' · '))}</small>${g.note ? `<small class="bx-note">«${esc(g.note)}»</small>` : ''}</div></div>
       ${props}
+      ${g.limited ? '' : priceBox(g.gift)}
       <div class="bx-acts">${up}${sell}${mk}</div>
       ${gfMkOpen && !listed ? `<div class="bx-mkrow"><label>₿ <input class="inp" id="mkPrice" type="number" min="${GF.market_min}" max="${GF.market_max}" value="${suggest}"></label>
         <button type="button" class="btn primary" data-bx-list="${g.id}">Выставить</button><span class="fm-muted" id="mkGet">${mkGetTxt(suggest, g)}</span></div>` : ''}`;
+  }
+  /** «Кому»: себе или одноклассник, найденный поиском по имени. */
+  function whoHtml(G) {
+    const who = gfTo ? gfMate(gfTo) : '';
+    return `<div class="bx-who"><span>Кому</span>${who ? `<button type="button" class="bx-chip" data-bx-to="" title="Покупать себе">🎁 ${esc(who)} <i>✕</i></button>`
+      : '<span class="bx-chip me">себе</span>'}</div>
+      <div class="bx-find"><input class="inp" id="bxFind" type="search" placeholder="🔍 Найти одноклассника" autocomplete="off"
+        enterkeyhint="done" value="${esc(gfFind)}"><div class="bx-found" id="bxFound">${foundHtml(G)}</div></div>`;
+  }
+  const normName = t => String(t).toLowerCase().replace(/ё/g, 'е');
+  /** Одноклассники, у которых в имени есть набранное (ё = е): сначала те, у кого с него начинается фамилия или имя. */
+  function foundList(G) {
+    const q = normName(gfFind.trim());
+    if (!q) return [];
+    const starts = m => normName(m.name).split(/\s+/).some(w => w.startsWith(q));
+    return G.mates.filter(m => normName(m.name).includes(q)).sort((a, b) => starts(b) - starts(a)).slice(0, 8);
+  }
+  function foundHtml(G) {
+    if (!gfFind.trim()) return '';
+    const hit = foundList(G);
+    return hit.length ? hit.map(m => `<button type="button" data-bx-pick="${m.sid}"${String(m.sid) === gfTo ? ' class="on"' : ''}>${esc(m.name)}</button>`).join('')
+      : '<small>никого не нашлось</small>';
+  }
+  // ---- график цены подарка в магазине за месяц: место — в шторке, данные — с сервера, рисуем по ширине шторки
+  const priceBox = gid => `<div class="bx-pc" data-pc="${esc(gid)}"><div class="bx-pc-h"><b>📈 Цена в магазине за месяц</b><small></small></div>
+    <div class="bx-pc-c"></div><div class="bx-pc-f"><span></span><span></span></div></div>`;
+  function drawPrices() {
+    document.querySelectorAll('#forecastBody .bx-pc[data-pc]').forEach(el => {
+      const gid = el.dataset.pc, D = PH[gid];
+      if (D) drawPrice(el, D);
+      if ((D && Date.now() - D.at < 5 * 60000) || PH['…' + gid]) return;
+      PH['…' + gid] = 1;                                          // уже загружается
+      api('gifts/price?gift=' + encodeURIComponent(gid)).finally(() => { delete PH['…' + gid]; }).then(r => {
+        PH[gid] = { pts: r.pts, at: Date.now() };
+        const now = document.querySelector(`#forecastBody .bx-pc[data-pc="${CSS.escape(gid)}"]`);
+        if (now) drawPrice(now, PH[gid]);
+      }).catch(() => { el.querySelector('.bx-pc-c').innerHTML = '<small class="fm-muted">график не загрузился</small>'; });
+    });
+  }
+  const pcDay = d => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
+  function drawPrice(el, D) {
+    const pts = D.pts, box = el.querySelector('.bx-pc-c');
+    if (!pts || pts.length < 2 || !box) return;
+    const W = Math.max(200, box.clientWidth), H = 92, T = 10, B = 6, X0 = 6, X1 = W - 6;
+    const ps = pts.map(p => p.p), lo = Math.min(...ps), hi = Math.max(...ps), pad = Math.max(1, (hi - lo) * 0.2);
+    const x = i => X0 + i / (pts.length - 1) * (X1 - X0);
+    const y = v => T + (hi + pad - v) / (hi - lo + 2 * pad) * (H - T - B);
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.p).toFixed(1)}`).join('');
+    const last = pts[pts.length - 1], wk = pts[Math.max(0, pts.length - 8)], dl = last.p - wk.p;
+    el.querySelector('.bx-pc-h small').innerHTML = dl > 0 ? `<em class="gf-trend up">▲</em> +${num(dl)} ₿ за неделю`
+      : dl < 0 ? `<em class="gf-trend down">▼</em> −${num(-dl)} ₿ за неделю` : 'за неделю не менялась';
+    const [f1, f2] = el.querySelectorAll('.bx-pc-f span');
+    f1.textContent = lo === hi ? `₿ ${num(lo)} весь месяц` : `от ₿ ${num(lo)} до ₿ ${num(hi)}`;
+    f2.textContent = `${pcDay(pts[0].d)} — сейчас`;
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Цена за месяц: от ${lo} до ${hi} ₿, сейчас ${last.p} ₿">
+        <path d="${line}L${x(pts.length - 1).toFixed(1)},${H}L${X0},${H}Z" class="fc-area"/><path d="${line}" class="fc-line"/>
+        <circle cx="${x(pts.length - 1)}" cy="${y(last.p)}" r="4.5" class="fc-dot"/>
+        <line class="fc-cross" y1="0" y2="${H}" x1="0" x2="0" visibility="hidden"/><circle class="fc-hover" r="4.5" cx="0" cy="0" visibility="hidden"/>
+        <rect x="0" y="0" width="${W}" height="${H}" fill="transparent"/></svg><div class="fc-tip" hidden></div>`;
+    const svg = box.querySelector('svg'), tip = box.querySelector('.fc-tip');
+    const cross = svg.querySelector('.fc-cross'), dot = svg.querySelector('.fc-hover');
+    const hide = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); };
+    const move = ev => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.max(0, Math.min(pts.length - 1, Math.round(((ev.clientX - r.left) / r.width * W - X0) / (X1 - X0) * (pts.length - 1))));
+      const p = pts[i], cx = x(i), cy = y(p.p);
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+      dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('visibility', 'visible');
+      tip.innerHTML = `<b>₿ ${num(p.p)}</b><span>${i === pts.length - 1 ? 'сейчас' : pcDay(p.d)} · куплено за неделю: ${p.n}</span>`;
+      tip.hidden = false;
+      tip.style.left = Math.min(Math.max(cx, 90), W - 90) + 'px';
+      tip.style.top = cy + 'px';
+    };
+    svg.addEventListener('pointermove', move);
+    svg.addEventListener('pointerdown', move);
+    svg.addEventListener('pointerleave', hide);
   }
   function helpSheet(G) {
     return `<h3 class="bx-h">Как это устроено</h3>
@@ -212,7 +294,8 @@
         <li>🎁 Каждые ${G.work_every} решённых заданий — подарок в награду.</li>
         <li>⏱ Решено слишком быстро — минус 1 ₿: быстрее ${G.fine_sec} секунд, №24–27 — быстрее ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.</li>
         <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
-        <li>🏪 Свой подарок можно продать сразу или выставить на рынок одноклассникам за свою цену.</li>
+        <li>💰 Продать сразу — почти за ту цену, за которую подарок тебе достался (если в магазине он подешевел — от нынешней). Подарок сгорит.</li>
+        <li>🏪 Или выставь его на рынок одноклассникам за свою цену.</li>
         <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов у всех. Копить очень много невыгодно.</li>
       </ul>
       <div class="bx-sum"><span>⚒ заработок <b>×${idxTxt(G.econ.earn)}</b></span><span>🏷 цены <b>×${idxTxt(G.econ.idx)}</b></span><span>🏦 банк <b>₿ ${num(G.econ.bank)}</b></span></div>`;
@@ -321,7 +404,7 @@
     if (to) { openGifts(to.dataset.giftTo, undefined, 'shop'); return; }
     if (!GF || !e.target.closest('#forecastBody .bx')) return;
     const b = e.target.closest(`[data-bx-tab], [data-bx-help], [data-bx-close], [data-bx-shop], [data-bx-mine], [data-bx-mk], [data-bx-to], [data-bx-buy],
-      [data-bx-up], [data-bx-sell], [data-bx-mkopen], [data-bx-list], [data-bx-unlist], [data-bx-mbuy], [data-fb-tab]`);
+      [data-bx-up], [data-bx-sell], [data-bx-mkopen], [data-bx-list], [data-bx-unlist], [data-bx-mbuy], [data-fb-tab], [data-bx-pick]`);
     if (gfSheet && !e.target.closest('.bx-sheet')) {      // нажал мимо шторки — закрыть (вкладка снизу и «?» — ещё и сработать)
       gfSheet = null;
       gfMkOpen = false;
@@ -339,10 +422,11 @@
       return;
     }
     if (d.fbTab) { fbTab = d.fbTab; renderGifts(); return; }
-    if (d.bxShop) { gfSheet = { k: 'shop', id: d.bxShop }; renderGifts(); return; }
+    if (d.bxShop) { gfSheet = { k: 'shop', id: d.bxShop }; gfFind = ''; renderGifts(); return; }
     if (d.bxMine) { gfSheet = { k: 'mine', id: +d.bxMine }; gfMkOpen = false; renderGifts(); return; }
     if (d.bxMk) { gfSheet = { k: 'mk', id: +d.bxMk }; renderGifts(); return; }
     if (d.bxTo != null) { gfTo = ''; renderGifts(); return; }
+    if (d.bxPick) { gfTo = d.bxPick; gfFind = ''; renderGifts(); return; }
     if (d.bxMkopen != null) { gfMkOpen = !gfMkOpen; renderGifts(); if (gfMkOpen) { const i = $('#mkPrice'); if (i) { i.focus(); i.select(); } } return; }
     if (d.bxBuy) { buyGift(d.bxBuy); return; }
     if (d.bxUp) { upgradeGift(+d.bxUp); return; }
@@ -351,13 +435,17 @@
     if (d.bxUnlist) { unlistGift(+d.bxUnlist); return; }
     if (d.bxMbuy) { marketBuy(+d.bxMbuy); }
   });
-  document.addEventListener('change', e => {
-    if (e.target.id === 'bxTo') { gfTo = e.target.value; renderGifts(); }
-  });
+  window.addEventListener('resize', () => { if (gfSheet && GF && !$('#forecastModal').hidden) drawPrices(); });
   document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.id === 'bxFind' && GF) {     // Enter — первый найденный
+      const m = foundList(GF)[0];
+      if (m) { e.preventDefault(); gfTo = String(m.sid); gfFind = ''; renderGifts(); }
+      return;
+    }
     if (e.key === 'Escape' && gfSheet && !$('#forecastModal').hidden && $('#forecastBody .bx')) { e.stopPropagation(); gfSheet = null; gfMkOpen = false; renderGifts(); }
   }, true);
   document.addEventListener('input', e => {
+    if (e.target.id === 'bxFind' && GF) { gfFind = e.target.value; $('#bxFound').innerHTML = foundHtml(GF); return; }
     if (e.target.id !== 'mkPrice' || !GF) return;
     const p = Math.round(+e.target.value || 0), el = $('#mkGet');
     if (el) el.textContent = p >= GF.market_min && p <= GF.market_max ? mkGetTxt(p, GF.mine.find(x => x.id === (gfSheet || {}).id))

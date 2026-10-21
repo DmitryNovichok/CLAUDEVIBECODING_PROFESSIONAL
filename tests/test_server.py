@@ -2569,11 +2569,15 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["econ"]["idx"], 1.0)
         ck = next(c for c in d["catalog"] if c["id"] == "cookie")
         self.assertEqual(ck["price"], math.ceil(11 * ck["demand"]))                               # каталог × инфляция (×1) × спрос
-        # продажа обычного — за половину цены; второй раз — нельзя: подарок сгорел
+        # продажа обычного — за 90 % цены покупки (10 % — в банк); спрос после покупки вырос, но дороже купленного не продать;
+        # второй раз — нельзя: подарок сгорел
+        paid = next(c["price"] for c in d["catalog"] if c["id"] == "cat")
         self.req("POST", "/api/gifts/buy", {"gift": "cat"}, tok)
         cat = next(g for g in self.req("GET", "/api/gifts", token=tok)[1]["mine"] if g["gift"] == "cat")
-        half = math.floor(server.GIFT_BY["cat"][3] * 0.5 * server.gift_demand(db)["cat"])       # половина нынешней цены…
-        half -= server.op_cut(half, server.econ(db))                                            # …минус комиссия с операций
+        self.assertEqual(db.q("SELECT paid FROM gifts WHERE id=?", (cat["id"],), one=True)["paid"], paid)
+        shop = next(c["price"] for c in self.req("GET", "/api/gifts", token=tok)[1]["catalog"] if c["id"] == "cat")
+        self.assertGreaterEqual(shop, paid)
+        half = math.floor(paid * 0.9)
         self.assertEqual((cat["sell"], cat["up"]), (half, server.gift_up_price("cat", {"idx": 1.0}, server.uniq_issued(db))))
         coins = self.req("GET", "/api/gifts", token=tok)[1]["coins"]
         st, r = self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tok)
@@ -2587,9 +2591,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200, r)
         u = r["gift"]["uniq"]
         k = u["rar"]["k"]
-        gross = math.floor(server.GIFT_BY["robot"][3] * 0.5 * server.gift_demand(db)["robot"]
-                           + server.gift_up_base("robot", {"idx": 1.0}) * server.SELL_UNIQ[k])     # уникальная часть — от базовой цены улучшения
-        self.assertEqual(r["gift"]["sell"], gross - server.op_cut(gross, server.econ(db)))
+        paid = db.q("SELECT paid FROM gifts WHERE id=?", (robot["id"],), one=True)["paid"]
+        gross = (min(paid, server.gift_price("robot", {"idx": 1.0}, server.gift_demand(db)))
+                 + math.floor(server.gift_up_base("robot", {"idx": 1.0}) * server.SELL_UNIQ[k]))   # уникальная часть — от базовой цены улучшения
+        self.assertEqual(r["gift"]["sell"], math.floor(gross * 0.9))
         self.req("POST", "/api/gifts/sell", {"id": robot["id"]}, tok)
         burned = json.loads(db.q("SELECT uniq FROM gifts WHERE id=?", (robot["id"],), one=True)["uniq"])
         with server._GIFT_LOCK:
@@ -3063,7 +3068,7 @@ class ServerTest(unittest.TestCase):
         dragon = next(g for g in self.req("GET", "/api/gifts", token=tok)[1]["mine"] if g["gift"] == "dragon")
         b1 = server.bank_balance(db)
         st, r = self.req("POST", "/api/gifts/upgrade", {"id": dragon["id"]}, tok)
-        self.assertEqual((st, r["fee"]), (200, server.op_cut(dragon["up"], e)))
+        self.assertEqual((st, r.get("fee")), (200, server.op_cut(dragon["up"], e)), r)
         self.assertEqual(server.bank_balance(db), b1 + r["fee"])
         sell = r["gift"]["sell"]
         coins, b2 = r["game"]["coins"], server.bank_balance(db)
@@ -3075,6 +3080,65 @@ class ServerTest(unittest.TestCase):
         log = self.admin("GET", "/api/admin/econ")[1]["thermo"]["bank"]["log"]
         ops = [x for x in log if x["kind"] == "ops"]
         self.assertEqual(len([x for x in ops if fmt_day(x["ts"]) == fmt_day(time.time())]), 1)
+
+    def test_sell_not_above_paid(self):
+        # продажа сразу — не дороже, чем подарок достался: скупить одинаковые, поднять спрос и сдать дороже нельзя;
+        # купленный на рынке дёшево — тоже от цены покупки; подешевел в магазине — от нынешней
+        db = server.APP.db
+        tokA, tokB = self.login("Скупов Семён"), self.login("Дешёвкин Данила")
+        for t in (tokA, tokB):
+            sid = self.req("GET", "/api/me", token=t)[1]["sid"]
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 3000))
+        spent, seen = 0, []
+        for _ in range(8):
+            price = next(c["price"] for c in self.req("GET", "/api/gifts", token=tokA)[1]["catalog"] if c["id"] == "tea")
+            self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "tea"}, tokA)[0], 200)
+            spent += price
+            seen.append(price)
+        self.assertGreater(seen[-1], seen[0])                                                   # спрос поднял цену
+        teas = [g for g in self.req("GET", "/api/gifts", token=tokA)[1]["mine"] if g["gift"] == "tea"]
+        paid = {r["id"]: r["paid"] for r in db.q("SELECT id, paid FROM gifts WHERE gift='tea' AND id IN (%s)" % ",".join(str(g["id"]) for g in teas))}
+        self.assertEqual(sorted(paid.values()), sorted(seen))
+        for g in teas:
+            self.assertEqual(g["sell"], math.floor(paid[g["id"]] * 0.9))
+        self.assertLess(sum(g["sell"] for g in teas), spent)
+        # на рынке за 5 ₿ — продать сразу можно только за 4 ₿
+        cheap = teas[0]["id"]
+        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": cheap, "price": 5}, tokA)[0], 200)
+        self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": cheap, "price": 5}, tokB)[0], 200)
+        mine = next(g for g in self.req("GET", "/api/gifts", token=tokB)[1]["mine"] if g["id"] == cheap)
+        self.assertEqual(mine["sell"], 4)
+        st, r = self.req("POST", "/api/gifts/sell", {"id": cheap}, tokB)
+        self.assertEqual((st, r["price"], r["fee"]), (200, 4, 1))
+        # подешевел в магазине — от нынешней цены; без цены покупки (от учителя, за труд) — не выше цены без спроса
+        e1 = {"idx": 1.0}
+        self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 0.8}, 1100), math.floor(880 * 0.9))
+        self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 1.5}, None), math.floor(1100 * 0.9))
+        self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 0.8}, None), math.floor(880 * 0.9))
+
+    def test_gift_price_chart(self):
+        # график цены подарка: 30 точек (по дням и сейчас), в точке — цена на конец дня и покупки за неделю до неё
+        db = server.APP.db
+        tok = self.login("Графиков Гордей")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        self.assertEqual(self.req("GET", "/api/gifts/price?gift=ufo")[0], 401)
+        self.assertEqual(self.req("GET", "/api/gifts/price?gift=nope", token=tok)[0], 404)
+        self.assertEqual(self.req("GET", "/api/gifts/price?gift=" + server.LIMITED[0][0], token=tok)[0], 404)
+        ago = time.time() - 10 * 86400                                                  # 5 НЛО куплены 10 дней назад
+        for _ in range(5):
+            db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'ufo', ?, ?)", (sid, ago, sid))
+        server._PRICE_HIST.update(t=0)
+        st, r = self.req("GET", "/api/gifts/price?gift=ufo", token=tok)
+        self.assertEqual(st, 200, r)
+        pts = r["pts"]
+        self.assertEqual(len(pts), server.PRICE_DAYS)
+        shop = next(c["price"] for c in self.req("GET", "/api/gifts", token=tok)[1]["catalog"] if c["id"] == "ufo")
+        self.assertEqual(pts[-1]["p"], shop)                                            # последняя точка — цена сейчас
+        k = len(pts) - 1 - 10                                                           # день покупки…
+        self.assertEqual(pts[k]["n"] - pts[k - 1]["n"], 5)
+        self.assertGreater(pts[k]["p"], pts[k - 1]["p"])                                # …с него НЛО дороже
+        self.assertEqual(pts[k + 6]["n"], pts[k]["n"])                                  # неделю считаются в спросе
+        self.assertEqual(pts[k + 7]["n"], pts[k]["n"] - 5)                              # потом выпадают
 
     def test_box_gift_market_fee(self):
         # выпавший в «🎲» подарок: первая продажа на рынке — комиссия 50 % (в банк), перепродажа — обычная
