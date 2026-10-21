@@ -3127,6 +3127,47 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 1.5}, None), math.floor(1100 * 0.9))
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 0.8}, None), math.floor(880 * 0.9))
 
+    def test_no_rank(self):
+        # учитель убирает ученика из рейтингов: нет его в ТОПах, лиге, Forbes и Эло, сам он смотрит как зритель;
+        # вернуть — снова везде
+        db = server.APP.db
+        tokA, tokB = self.login("Рейтингов Рустам"), self.login("Невидимов Назар")
+        sidA = self.req("GET", "/api/me", token=tokA)[1]["sid"]
+        sidB = self.req("GET", "/api/me", token=tokB)[1]["sid"]
+        now = time.time()
+        for sid, k in ((sidA, 1), (sidB, 2)):
+            for j in range(3):
+                db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,?,1,?)",
+                     (sid, now - 600 + j, f"nr:{sid}:{j}", 5 + k, 30 * 60000))
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, now, 500 * k))
+            db.x("INSERT OR REPLACE INTO duel_elo(student_id, elo, games) VALUES(?,?,?)", (sid, 1000 + 50 * k, 3))
+        server._LB_PEOPLE.clear()
+        server._FORBES.clear()
+
+        def seen(tok):                                         # сколько людей в рейтингах и есть ли у меня место
+            lb = self.req("GET", "/api/leaderboard", token=tok)[1]
+            fb = self.req("GET", "/api/forbes", token=tok)[1]
+            B = lb["boards"]
+            return {"week": B["week"]["total"], "league": B["league"]["total"], "forbes": len(fb["rich"]) if len(fb["rich"]) < 10 else None,
+                    "me": B["week"]["me"] is not None, "spectator": lb["spectator"],
+                    "ids": {p["sid"] for k in ("day", "week", "month") for p in B[k]["top"]} | {r["sid"] for r in fb["rich"]}}
+        a0, b0 = seen(tokA), seen(tokB)
+        self.assertTrue(b0["me"] and not b0["spectator"])
+        st, d = self.admin("POST", "/api/admin/student/norank", {"id": sidB, "on": True})
+        self.assertEqual((st, d["no_rank"]), (200, True))
+        self.assertEqual(self.admin("GET", f"/api/admin/student?id={sidB}&from=0")[1]["student"]["no_rank"], 1)
+        a1, b1 = seen(tokA), seen(tokB)
+        self.assertEqual((a1["week"], a1["league"]), (a0["week"] - 1, a0["league"] - 1))   # в ТОПах и лиге — на одного меньше
+        self.assertNotIn(sidB, a1["ids"] | b1["ids"])
+        self.assertTrue(b1["spectator"] and not b1["me"])                               # сам — зритель: видит, но мест не занимает
+        self.assertNotIn(sidB, [r["sid"] for r in server.forbes_data(db, server.main_teacher()["id"])["rows"]])   # и в Forbes
+        self.assertNotIn(sidB, [r["sid"] for r in server.elo_board(db, server.main_teacher()["id"], sidA)["top"]])   # и в Эло
+        self.assertEqual(self.admin("POST", "/api/admin/student/norank", {"id": sidB, "on": False})[0], 200)
+        a2, b2 = seen(tokA), seen(tokB)
+        self.assertEqual((a2["week"], b2["me"], b2["spectator"]), (a0["week"], True, False))
+        self.assertIn(sidB, [r["sid"] for r in server.forbes_data(db, server.main_teacher()["id"])["rows"]])
+        self.assertEqual(self.admin("POST", "/api/admin/student/norank", {"id": 999999, "on": True})[0], 404)
+
     def test_void_attempts(self):
         # в аккаунт зашёл кто-то другой: учитель отменяет ответы за промежуток (предпросмотр → в корзину), статистика
         # пересчитывается; «Вернуть» — всё как было; чужого ученика — нельзя

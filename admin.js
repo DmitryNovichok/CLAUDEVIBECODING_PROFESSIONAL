@@ -1643,7 +1643,7 @@
       const cls = classes.find(c => c.id === s.class_id);
       return `<tr class="click${susp.length ? ' susp-row' : ''}" data-id="${s.id}">
         <td class="chk"><input type="checkbox" data-pick="${s.id}" ${picked.has(s.id) ? 'checked' : ''}></td>
-        <td class="name">${esc(s.name)}${cls ? ` <span class="chip">${esc(cls.name)}</span>` : ''}</td>
+        <td class="name">${esc(s.name)}${cls ? ` <span class="chip">${esc(cls.name)}</span>` : ''}${s.no_rank ? ' <span class="chip" title="Убран из рейтингов">🚫 вне рейтингов</span>' : ''}</td>
         <td class="num"><span class="lvl-mini" title="${s.xp || 0} XP">${s.level || 1}</span>${s.cheat ? `<span class="chip weak cheat-chip" title="Перерешивал подборку по кругу ради опыта (лазейка, закрыта). Опыт, набранный с ${fmtWhen(s.cheat[0])} по ${fmtWhen(s.cheat[1])}, срезан.">накрутка</span>` : ''}</td>
         <td class="adm-off muted">${esc(s.teacher || '')}</td>
         <td class="muted">${fmtWhen(s.last)}</td>
@@ -2462,7 +2462,9 @@
 
   function renderStudent() {
     const s = st.student, A = st.attempts;
-    $('#stName').innerHTML = esc(s.name) + (s.role === 'admin' ? ' <span class="adm-tag">👑 admin</span>' : '');
+    $('#stName').innerHTML = esc(s.name) + (s.role === 'admin' ? ' <span class="adm-tag">👑 admin</span>' : '')
+      + (s.no_rank ? ' <span class="adm-tag norank" title="Не участвует в рейтингах: лига, ТОПы, корона, битва классов, Forbes, Эло, сезоны">🚫 вне рейтингов</span>' : '');
+    $('#stNoRank').textContent = s.no_rank ? '↺ Вернуть в рейтинги' : '🚫 Убрать из рейтингов';
     $('#stRole').textContent = s.role === 'admin' ? 'Снять плашку admin' : '👑 Плашка admin';
     const periodDays = +$('#stPeriod').value;
     let from = 0;
@@ -2791,6 +2793,14 @@
       catch (err) { if (err.status !== 401) toast(err.message); return; }
       openStudent(sid);
     }
+  });
+  $('#stNoRank').addEventListener('click', async () => {
+    const s = st.student, on = !s.no_rank;
+    if (!confirm(on ? `Убрать «${s.name}» из всех рейтингов?\n\nЛига, ТОПы дня, недели и месяца, корона задания дня, битва классов, Forbes, Эло и сезоны — его там не будет, `
+        + 'и места других сдвинутся. Заниматься, получать биткоины, дарить и торговать он сможет как раньше. Вернуть можно здесь же.'
+      : `Вернуть «${s.name}» в рейтинги?`)) return;
+    try { await api('student/norank', { id: s.id, on }); toast(on ? '🚫 Убран из рейтингов' : '↺ Снова в рейтингах'); openStudent(s.id); }
+    catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#stLogout').addEventListener('click', async () => {
     const s = st.student;
