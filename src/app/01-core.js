@@ -365,10 +365,29 @@
 
   const LAST_NAME_STORE = 'egeTrainer.lastName';
   const cleanName = v => String(v || '').replace(/\s+/g, ' ').trim();
+  // Компьютер в классе (сервер узнаёт школьную сеть) или «Чужой компьютер»: браузер не должен сохранять и подставлять пароль.
+  // Поле пароля — обычный текст со звёздочками (-webkit-text-security): для браузера это не пароль, он его не запоминает
+  // и сохранённый раньше не подставит. Где так нельзя (Firefox, телефон) — type=password с autocomplete="new-password".
+  const PW_FIELDS = ['#loginPass', '#regPass', '#regPass2', '#pwOld', '#pwNew', '#pwNew2'];
+  const PW_MASK_OK = (() => { try { return CSS.supports('-webkit-text-security', 'disc') && matchMedia('(pointer: fine)').matches; } catch (e) { return false; } })();
+  let SCHOOL_NET = false;
+  function pwNoSave(on) {
+    PW_FIELDS.forEach(sel => {
+      const el = $(sel);
+      if (!el) return;
+      const mask = on && PW_MASK_OK;
+      el.type = mask ? 'text' : 'password';
+      el.classList.toggle('pw-mask', mask);
+      el.setAttribute('autocomplete', on && !mask ? 'new-password' : 'off');
+      el.setAttribute('spellcheck', 'false');
+      el.setAttribute('autocapitalize', 'off');
+      if (mask) el.name = 'f' + Math.random().toString(36).slice(2, 9);    // без «password» в имени — менеджер паролей не узнает поле
+    });
+  }
 
   /**
    * Окно входа: вкладки «Вход» (ФИО + пароль) и «Регистрация» (код + ФИО + пароль).
-   * Поля размечены autocomplete — браузер предложит сохранить пароль и потом подставит его.
+   * В школьной сети (сервер узнаёт её по адресу) вход временный, ФИО не подставляется, а пароль браузер не сохраняет.
    * Возвращает ответ сервера после успешного входа.
    */
   function loginDialog(note) {
@@ -389,6 +408,20 @@
       tabs.forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
       const last = readJSON(LAST_NAME_STORE);
       if (last) $('#loginName').value = last;
+      const tempBox = $('#loginTemp');
+      tempBox.onchange = () => pwNoSave(SCHOOL_NET || tempBox.checked);
+      pwNoSave(SCHOOL_NET || tempBox.checked);
+      fetch('api/net', { cache: 'no-store' }).then(r => r.json()).then(n => {
+        SCHOOL_NET = !!n.shared;
+        $('#loginSchool').hidden = !SCHOOL_NET;
+        tempBox.closest('label').hidden = SCHOOL_NET;
+        pwNoSave(SCHOOL_NET || tempBox.checked);
+        if (SCHOOL_NET && $('#loginName').value === last) {        // ФИО прошлого ученика за этим компьютером не показываем
+          $('#loginName').value = '';
+          try { localStorage.removeItem(LAST_NAME_STORE); } catch (e) { /* нет доступа */ }
+          if (!forms.login.hidden) $('#loginName').focus();
+        }
+      }).catch(() => { /* нет связи — как обычно */ });
       m.hidden = false;
       setTab(last ? 'login' : 'reg', note || '');
 
@@ -401,7 +434,8 @@
           forgetStudent();                               // прежний вход на этом компьютере больше не нужен
           try { if (temp) sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
           const r = await loginRequest(body);
-          if (!temp) writeJSON(LAST_NAME_STORE, r.name);
+          if (r.shared) { try { sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ } }   // компьютер в классе
+          if (!temp && !r.shared) writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
           ['#loginPass', '#regPass', '#regPass2', '#regCode'].forEach(sel => { $(sel).value = ''; });
           resolve(r);
@@ -445,7 +479,8 @@
     try { tried = sessionStorage.getItem('egeTrainer.relogin'); } catch (e) { /* нет доступа */ }
     if (saved && saved.token && !tried) {
       try {
-        await loginRequest(null, saved.token);         // сервер снова поставит cookie
+        const r0 = await loginRequest(null, saved.token);   // сервер снова поставит cookie (прежний общий вход — новый токен устройства)
+        writeStudent({ sid: r0.sid, name: r0.name, token: r0.token || saved.token });
         try { sessionStorage.setItem('egeTrainer.relogin', '1'); } catch (e) { /* нет доступа */ }
         location.reload();
         return;
