@@ -3254,8 +3254,11 @@ class ServerTest(unittest.TestCase):
         sidB = self.req("GET", "/api/me", token=tokB)[1]["sid"]
         for sid in (sidA, sidB):
             db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 3000))
+        price, b00 = self.req("GET", "/api/gifts", token=tokA)[1]["box"], server.bank_balance(db)
         st, r = self.req("POST", "/api/gifts/buy", {"gift": "box"}, tokA)
         self.assertEqual(st, 200, r)
+        self.assertEqual(server.bank_balance(db), b00 + price)                     # «🎲» — вся цена в банк
+        self.assertEqual(db.q("SELECT delta FROM bank WHERE reason='box' ORDER BY id DESC LIMIT 1", one=True)["delta"], price)
         self.req("POST", "/api/gifts/buy", {"gift": "cake"}, tokA)
         G = self.req("GET", "/api/gifts", token=tokA)[1]
         box = next(g for g in G["mine"] if g["box"])

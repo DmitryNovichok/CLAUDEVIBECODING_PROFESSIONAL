@@ -2645,9 +2645,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen, kind, paid) VALUES(?,?,?,?,?,?,?)",
                                (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0, "box" if box else None, paid))
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'gift', ?)", (s["id"], now, -price, gid))
-                    cut = op_cut(price, e)
-                    if cut:
-                        bank_move(db, cut, "ops", f"{g[1]} {g[2]}: {'«🎲» ' if box else ''}покупка за {price} ₿", sid=s["id"], ts=now)
+                    if box:                                       # «🎲»: вся цена — в банк рынка (не сгорает)
+                        bank_move(db, price, "box", f"выпал {g[1]} {g[2]} за {price} ₿", sid=s["id"], ts=now)
+                    else:
+                        cut = op_cut(price, e)
+                        if cut:
+                            bank_move(db, cut, "ops", f"{g[1]} {g[2]}: покупка за {price} ₿", sid=s["id"], ts=now)
                 with _GS_LOCK:
                     _LB_PEOPLE.pop(teacher_of(s)["id"], None)    # в рейтинге подарок у ника виден сразу
                 _DEMAND["t"] = 0.0                               # спрос изменился — цены пересчитаются
@@ -6147,7 +6150,7 @@ MARKET_CAP = 3
 MARKET_DAYS = 7
 MARKET_TYP_DAYS = 30
 _MKT_TYP = {"t": 0.0, "v": None, "db": None}
-# Комиссия с покупки, «🎲», лимитки и улучшения — в банк рынка: четверть комиссии рынка, не больше OP_FEE_MAX (при комиссии
+# «🎲 Случайный подарок» — вся цена в банк рынка (bank.reason = 'box'). Комиссия с покупки, лимитки и улучшения — в банк рынка: четверть комиссии рынка, не больше OP_FEE_MAX (при комиссии
 # 5–20 % — 1,25–5 %), с округлением вниз — с дешёвых подарков 0; для ученика они не дорожают (часть цены уходит в банк, а не
 # сгорает). Продажа сразу — своя доля банка: 10 % цены (SELL_SHARE).
 OP_FEE_MAX = 0.05
@@ -6925,7 +6928,7 @@ def market_hist(db, fresh=False):
 
 
 BANK_WHY = {"start": "🏦 Стартовый капитал", "labor": "⚒ Половина заработка учеников", "fee": "🏪 Комиссия рынка",
-            "ops": "🎁 Комиссия с подарков", "storage": "📦 Плата за хранение",
+            "ops": "🎁 Комиссия с подарков", "box": "🎲 Случайные подарки", "storage": "📦 Плата за хранение",
             "take": "➖ Снял учитель",
             "mint": "➕ Пополнение банка", "grant": "🎁 Начислил учитель", "stipend": "🎓 Стипендия", "burn": "🔥 Изъято из банка"}
 
@@ -6939,16 +6942,16 @@ def thermo_info(db, T):
     bank_rows = []
     for r in db.q("""SELECT b.ts, b.delta, b.reason, b.note, b.teacher_id, s.name AS sname, s.teacher_id AS stid, t.name AS tname
                      FROM bank b LEFT JOIN students s ON s.id = b.student_id LEFT JOIN teachers t ON t.id = b.teacher_id
-                     WHERE b.reason NOT IN ('ops', 'labor') ORDER BY b.ts DESC, b.id DESC LIMIT 80"""):
+                     WHERE b.reason NOT IN ('ops', 'box', 'labor') ORDER BY b.ts DESC, b.id DESC LIMIT 80"""):
         mine_st = r["sname"] and (is_main or (r["stid"] or main_id) == T["id"])
         who = (r["tname"] if is_main else "вы" if r["teacher_id"] == T["id"] else "другой учитель") if r["teacher_id"] else ""
         bank_rows.append({"ts": r["ts"], "delta": r["delta"], "kind": r["reason"], "t": BANK_WHY.get(r["reason"], r["reason"]),
                           "note": r["note"] or "", "who": who, "student": short_name(r["sname"]) if mine_st else ""})
-    # комиссия с подарков — мелкие суммы с каждой покупки: в журнале одной строкой за день
-    for r in db.q("""SELECT date(ts, 'unixepoch', 'localtime') AS d, MAX(ts) AS ts, SUM(delta) AS s, COUNT(*) AS c FROM bank
-                     WHERE reason = 'ops' GROUP BY d ORDER BY d DESC LIMIT 60"""):
-        bank_rows.append({"ts": r["ts"], "delta": r["s"], "kind": "ops", "t": BANK_WHY["ops"], "note": f"за день, операций: {r['c']}",
-                          "who": "", "student": ""})
+    # комиссия с подарков и «🎲» — с каждой покупки: в журнале одной строкой за день
+    for r in db.q("""SELECT date(ts, 'unixepoch', 'localtime') AS d, reason, MAX(ts) AS ts, SUM(delta) AS s, COUNT(*) AS c FROM bank
+                     WHERE reason IN ('ops', 'box') GROUP BY d, reason ORDER BY d DESC LIMIT 120"""):
+        bank_rows.append({"ts": r["ts"], "delta": r["s"], "kind": r["reason"], "t": BANK_WHY[r["reason"]],
+                          "note": f"за день, {'покупок' if r['reason'] == 'box' else 'операций'}: {r['c']}", "who": "", "student": ""})
     # половина заработка учеников — строкой за день (note — день, за который начислено)
     for r in db.q("""SELECT note AS d, MAX(ts) AS ts, SUM(delta) AS s FROM bank WHERE reason = 'labor'
                      GROUP BY note ORDER BY note DESC LIMIT 60"""):
