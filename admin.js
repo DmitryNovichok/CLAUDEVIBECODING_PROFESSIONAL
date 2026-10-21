@@ -152,6 +152,7 @@
     ME = await api('me');
     document.body.classList.toggle('is-main', !!ME.is_main);
     $('#admWho').textContent = ME.name + (ME.is_main ? ' · главный' : '');
+    errBadge(ME.jserr_new || 0);
     if (ME.is_main) { try { teachers = (await api('teachers')).teachers; } catch (e) { teachers = []; } }
     await askConsent();
   }
@@ -225,6 +226,43 @@
   });
 
   // ------------------------------------------------------------ статистика всего сайта (главный учитель)
+  // ------------------------------------------------------------ ошибки JavaScript у учеников и учителей (главному учителю)
+  function errBadge(n) {
+    const b = $('#errN');
+    if (!b) return;
+    b.hidden = !n;
+    b.textContent = n > 99 ? '99+' : n;
+  }
+  async function loadErrors(seen) {
+    let d;
+    try { d = await api('jserr', seen ? { seen: true } : null); } catch (err) { if (err.status !== 401) $('#errBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    errBadge(0);
+    if (!d.errors.length) { $('#errBody').innerHTML = '<p class="adm-empty">Ошибок нет — у всех всё работает 🎉</p>'; return; }
+    const when = ts => new Date(ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const list = d.errors.slice().sort((a, b) => (a.fixed - b.fixed) || (b.last - a.last));
+    $('#errBody').innerHTML = list.map(e => `<div class="adm-box err-box${e.fixed ? ' fixed' : ''}">
+      <div class="err-head"><span class="err-n" title="сколько раз">${e.n}×</span>
+        <div class="err-main"><b class="err-msg">${esc(e.msg)}</b>
+          <div class="muted">${e.app === 'admin' ? 'панель учителя' : 'сайт'} · <code>${esc(e.src || 'место неизвестно')}</code> · версия ${esc(e.ver || '?')}</div>
+          <div class="err-tags">${e.again ? '<span class="hot">снова после «исправлено»</span>' : ''}${e.last > d.seen && !e.fixed ? '<span class="new">новая</span>' : ''}
+            <span>👤 ${e.people ? `${e.people} ${pluralRu(e.people, 'человек', 'человека', 'человек')}` : 'без входа'}</span>
+            ${e.devices.slice(0, 4).map(([k, c]) => `<span>${esc(k)} · ${c}×</span>`).join('')}</div>
+          <div class="muted">впервые ${when(e.first)} · последний раз ${when(e.last)}</div></div>
+        <button type="button" class="btn ${e.fixed ? 'ghost' : ''}" data-err-fix="${e.id}" data-fixed="${e.fixed ? 0 : 1}">${e.fixed ? '↺ Вернуть' : '✓ Исправлено'}</button></div>
+      <details><summary>Подробнее: последние случаи${e.stack ? ' и стек' : ''}</summary>
+        <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Кто</th><th>Устройство</th><th>Версия</th><th>Страница</th></tr></thead>
+          <tbody>${e.hits.map(h => `<tr><td class="muted">${when(h.ts)}</td><td>${esc(h.who)}${h.teacher ? ' <span class="muted">· учитель</span>' : ''}</td>
+            <td>${esc(h.device || '')}</td><td>${esc(h.ver || '')}</td><td class="muted">${esc(h.page || '')}</td></tr>`).join('')}</tbody></table></div>
+        ${e.stack ? `<pre class="err-stack">${esc(e.stack)}</pre>` : ''}</details></div>`).join('');
+  }
+  $('#errReload')?.addEventListener('click', () => loadErrors(true));
+  $('#errBody')?.addEventListener('click', async e => {
+    const b = e.target.closest('[data-err-fix]');
+    if (!b) return;
+    try { await api('jserr', { id: +b.dataset.errFix, fixed: b.dataset.fixed === '1' }); } catch (err) { toast(err.message); return; }
+    loadErrors(false);
+  });
+
   async function loadSite() {
     let d;
     try { d = await api('site-stats'); } catch (err) { if (err.status !== 401) $('#siteBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
@@ -996,7 +1034,7 @@
         [{ key: 'afford', cls: 'c1', t: 'заданий' }], numFmt, {}],
       ['m-buy', `Покупок ${per}`, 'Подарки из магазина, сделки между учениками и улучшения — живость рынка.',
         [{ key: 'buys', cls: 'c1', t: 'в магазине' }, { key: 'deals', cls: 'c2', t: 'на рынке' }, { key: 'ups', cls: 'c3', t: 'улучшений' }], numFmt, {}],
-      ['m-bank', 'Банк рынка, ₿', 'Приходят половина заработка учеников, комиссии рынка и с подарков, плата за хранение и снятое учителями; уходят начисления учителей и стипендии.',
+      ['m-bank', 'Банк рынка, ₿', 'Приходят половина заработка учеников, комиссии рынка и с подарков, вся цена «🎲», плата за хранение и снятое учителями; уходят начисления учителей и стипендии.',
         [{ key: 'bank', cls: 'c1', t: 'в банке' }], numFmt, {}],
       ['m-fee', 'Комиссия рынка', 'Сколько процентов от цены сделки уходит в банк — растёт, когда у учеников много денег.',
         [{ key: 'fee', cls: 'c2', t: 'комиссия' }], pctFmt, { step: true, span: 0.2, hi: 0.25 }],
@@ -1023,7 +1061,7 @@
     const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
     const toGoal = (now, goal, f) => (!auto || goal == null ? '' : Math.abs(goal - now) < 0.005 ? ' · у цели' : ` · тянет к ${f(goal)} ${goal > now ? '↗' : '↘'}`);
     const state = E.r > R.limited_r ? 'денег у учеников много' : E.r < R.stipend_r ? 'денег у учеников мало' : 'в норме';
-    const S = T.bank.sums, inSum = (S.labor || 0) + (S.fee || 0) + (S.ops || 0) + (S.storage || 0) + (S.take || 0), outSum = Math.abs((S.grant || 0) + (S.stipend || 0));
+    const S = T.bank.sums, inSum = (S.labor || 0) + (S.fee || 0) + (S.ops || 0) + (S.box || 0) + (S.storage || 0) + (S.take || 0), outSum = Math.abs((S.grant || 0) + (S.stipend || 0));
     const day = ts => new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const cards = card('Среднее состояние', `${E.avg} ₿`, `кошелёк + подарки; медиана ${E.med} ₿ при норме ${E.target} ₿ — ${state}. `
         + `Кошельки: средний ${E.w_avg} ₿, медиана ${E.w_med} ₿; подарков на ${numFmt(E.worth)} ₿; активных ${E.active}`)
@@ -1031,15 +1069,15 @@
       + card('Заработок', '×' + xfmt(E.earn), `биткоины за опыт, задания и варианты${toGoal(E.earn, G && G.earn, v => '×' + xfmt(Math.round(v * 100) / 100))}`)
       + card('Комиссия рынка', pctFmt(E.fee), `с каждой сделки — в банк${toGoal(E.fee, G && G.fee, pctFmt)}; с покупок и улучшений — ${pctFmt(E.op_fee)}, с продаж сразу — 10%`)
       + card('Плата за хранение', E.tax ? pctFmt(E.tax) + ' в неделю' : 'нет', `с суммы больше ${E.tax_from} ₿ — в банк, по понедельникам`)
-      + card('🏦 Банк рынка', `${numFmt(E.bank)} ₿`, `пришло ${numFmt(inSum)} ₿ (от заработка ${numFmt(S.labor || 0)}, рынок ${numFmt(S.fee || 0)}, с подарков ${numFmt(S.ops || 0)}, хранение ${numFmt(S.storage || 0)}), ушло ${numFmt(outSum)} ₿`)
+      + card('🏦 Банк рынка', `${numFmt(E.bank)} ₿`, `пришло ${numFmt(inSum)} ₿ (от заработка ${numFmt(S.labor || 0)}, рынок ${numFmt(S.fee || 0)}, с подарков ${numFmt(S.ops || 0)}, 🎲 ${numFmt(S.box || 0)}, хранение ${numFmt(S.storage || 0)}), ушло ${numFmt(outSum)} ₿`)
       + card('Лимитка недели', L ? `${L.i} ${esc(L.t)}` : '—', L ? `${L.price} ₿ · осталось ${L.left} из ${L.cap} · до ${day(L.stop)}`
         : `выйдет, когда среднее состояние больше ${xfmt(R.limited_r)} нормы, или запустите сами`);
     const how = `<p class="fm-note">${auto ? '🌡 <b>Авто.</b>' : '✋ <b>Ручной режим</b> — рычаги стоят, как вы их поставили. В авто:'}
       раз в сутки термостат сравнивает среднее состояние активных учеников (кошелёк + подарки по цене продажи: подарок продаётся
       почти за цену — почти деньги; медиана тоже в счёт) с нормой и сдвигает рычаги на ${Math.round(R.step * 100)}% пути к цели
       (за неделю — примерно наполовину): копят — цены (×${xfmt(R.idx[0])}…${xfmt(R.idx[1])}) и комиссия (${pctFmt(R.fee[0])}…${pctFmt(R.fee[1])}) растут,
-      заработок (×${xfmt(R.earn[0])}…${xfmt(R.earn[1])}) падает; тратят — наоборот. С покупок, «🎲», лимиток и улучшений — четверть
-      комиссии рынка, не больше 5% (с дешёвых — 0): цены от этого не выше, часть потраченного уходит в банк, а не сгорает; с продажи
+      заработок (×${xfmt(R.earn[0])}…${xfmt(R.earn[1])}) падает; тратят — наоборот. С покупок, лимиток и улучшений — четверть
+      комиссии рынка, не больше 5% (с дешёвых — 0): цены от этого не выше, часть потраченного уходит в банк, а не сгорает; «🎲» — вся цена в банк; с продажи
       сразу — 10% (ученику — 90% цены, за которую подарок достался, но не дороже нынешней). Раз в неделю: плата за хранение ${pctFmt(R.tax)} с суммы больше
       ${xfmt(R.tax_from)} нормы — в банк; когда денег мало (меньше ${xfmt(R.stipend_r)} нормы) — стипендия из банка, до ${R.stipend_max} ₿ решившим
       ${R.stipend_tasks}+ заданий за неделю; когда много — лимитированный подарок недели (${R.limited_cap} штук). Банк получает ${Math.round(R.labor * 100)}%
@@ -1538,7 +1576,8 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'errors'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    if (t === 'errors') loadErrors(true);
     if (t === 'course') loadCourseProgress();
     if (t === 'pyc') loadPyc();
     if (t === 'gifts') loadGifts();

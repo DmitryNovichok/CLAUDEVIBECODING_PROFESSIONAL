@@ -11,6 +11,13 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#58cc02">
+<script>/* ошибки JavaScript — на сервер: главный учитель видит их во вкладке «Ошибки» (каждая разная — раз за загрузку, не больше 10) */
+(function(){var sent={},n=0;function rep(m,s,st){try{m=String(m||'').slice(0,300);s=String(s||'');
+if(!m||n>=10||(/^Script error\.?$/.test(m)&&!s)||/extension:\/\/|ResizeObserver loop|Failed to fetch|NetworkError|Load failed|aborted/i.test(m+' '+s))return;
+var k=m+'|'+s;if(sent[k])return;sent[k]=1;n++;var v='',h={'Content-Type':'application/json'};try{v=window.EGE_CHANGELOG.teacher[0][0];}catch(e){}
+fetch('api/jserr',{method:'POST',keepalive:true,headers:h,body:JSON.stringify({app:'admin',msg:m,src:s,stack:String(st||'').slice(0,2000),page:location.pathname+location.hash,ver:v})}).catch(function(){});}catch(e){}}
+addEventListener('error',function(e){if(e.target&&e.target!==window)return;rep(e.message,e.filename?e.filename+':'+e.lineno+':'+e.colno:'',e.error&&e.error.stack);},true);
+addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)return;rep('Promise: '+(r&&r.message||r),'',r&&r.stack);});})();</script>
 <script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
@@ -50,6 +57,7 @@
       <button type="button" data-tab="site" class="main-only">Статистика сайта</button>
       <button type="button" data-tab="comp">Турниры и дуэли</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
+      <button type="button" data-tab="errors" class="main-only">Ошибки <b class="tab-n" id="errN" hidden></b></button>
       <button type="button" data-tab="settings">Настройки</button>
     </nav>
     <div class="adm-top-right">
@@ -220,6 +228,15 @@
       <p class="adm-hint" style="margin:0 0 12px">Цифры по всему тренажёру, у всех учителей. Имён чужих учеников здесь нет — только количество.
         Посетители считаются обезличенно: адреса не хранятся. Учительские аккаунты в цифры учеников не входят.</p>
       <div id="siteBody"><p class="adm-hint">Загружаю…</p></div>
+    </section>
+
+    <section class="adm-view" id="view-errors" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Ошибки на сайте</h2>
+        <button type="button" class="btn ghost" id="errReload">Обновить</button></div>
+      <p class="adm-hint" style="margin:0 0 12px">Ошибки JavaScript, которые случились у учеников и учителей прямо в браузере: что сломалось, где в коде,
+        сколько раз и у скольких, на каких устройствах и версии сайта. Каждая разная ошибка приходит с одной загрузки страницы один раз.
+        «Исправлено» убирает ошибку вниз списка — если она случится снова, вернётся с пометкой «снова». Хранятся 60 дней.</p>
+      <div id="errBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
     <section class="adm-view" id="view-teachers" hidden>

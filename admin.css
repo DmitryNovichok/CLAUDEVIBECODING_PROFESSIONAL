@@ -596,3 +596,22 @@ tr.comp-void td { opacity: .55; }
 /* где ученик вошёл */
 .adm-sess { margin: 6px 0 10px; }
 .adm-sess summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+
+/* ошибки JavaScript на сайте (главному учителю) */
+.tab-n { display: inline-block; min-width: 17px; height: 17px; margin-left: 4px; padding: 0 5px; border-radius: 99px; background: var(--weak);
+  color: #fff; font-size: 11px; line-height: 17px; text-align: center; vertical-align: 1px; }
+.tab-n[hidden] { display: none; }
+.err-box { margin-bottom: 10px; }
+.err-box.fixed { opacity: .6; }
+.err-head { display: flex; gap: 12px; align-items: flex-start; }
+.err-n { flex: none; min-width: 46px; padding: 6px 8px; border-radius: 10px; background: var(--weak-soft); color: var(--weak); font-weight: 900; text-align: center; }
+.err-box.fixed .err-n { background: var(--card-hover); color: var(--muted); }
+.err-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.err-msg { font-size: 15px; overflow-wrap: anywhere; }
+.err-main code { font-size: 12.5px; overflow-wrap: anywhere; }
+.err-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.err-tags span { padding: 2px 9px; border-radius: 99px; background: var(--card-hover); font-size: 12px; font-weight: 700; }
+.err-tags .hot { background: var(--weak-soft); color: var(--weak); } .err-tags .new { background: var(--accent-soft); color: var(--accent-text); }
+.err-box details { margin-top: 8px; } .err-box summary { cursor: pointer; color: var(--muted); font-weight: 700; font-size: 13px; }
+.err-stack { margin: 8px 0 0; padding: 10px; border-radius: 10px; background: var(--code-bg, var(--card-hover)); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+@media (max-width: 700px) { .err-head { flex-wrap: wrap; } }
