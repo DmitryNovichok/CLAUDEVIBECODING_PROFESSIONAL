@@ -54,6 +54,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
       <button type="button" data-tab="pyc">Программирование</button>
       <button type="button" data-tab="gifts">Подарки</button>
       <button type="button" data-tab="econ">Экономика</button>
+      <button type="button" data-tab="supply">📦 Тиражи</button>
       <button type="button" data-tab="site" class="main-only">Статистика сайта</button>
       <button type="button" data-tab="comp">Турниры и дуэли</button>
       <button type="button" data-tab="feed">Лента <span class="tab-dot" id="feedDot" hidden></span></button>
@@ -215,6 +216,15 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
       <div id="giftRecent"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
+    <section class="adm-view" id="view-supply" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">📦 Тиражи подарков</h2>
+        <select class="inp" id="supGift" title="График — по всем подаркам или по одному"><option value="">Все подарки</option></select>
+        <button type="button" class="btn ghost" id="supReload">Обновить</button></div>
+      <p class="adm-hint" style="margin:0 0 12px">У каждого подарка — свой тираж на весь сайт. Проданные сразу, удалённые и улучшенные в тираж не
+        возвращаются: живой тираж уменьшается — вид становится реже (редкость — по живому тиражу) и дороже. Цена = каталог × индекс цен ×
+        дефицит (√ тираж / живой) × распроданность (1 + ½ × выпущено / живой). Одному ученику — не больше 10% тиража вида.</p>
+      <div id="supplyBody"><p class="adm-hint">Загружаю…</p></div>
+    </section>
     <section class="adm-view" id="view-econ" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Экономика: биткоины и подарки</h2>
         <button type="button" class="btn ghost" id="econReload">Обновить</button></div>

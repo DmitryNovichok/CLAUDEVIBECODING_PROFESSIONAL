@@ -1461,6 +1461,12 @@ class DB:
             CREATE INDEX IF NOT EXISTS market_deals_ts ON market_deals(ts);
             -- оценка рынка по ключу (вид, у уникального — и редкость): доля опорной цены, сглаженная — не больше ±VAL_STEP в сутки
             CREATE TABLE IF NOT EXISTS market_vals(mkey TEXT PRIMARY KEY, ratio REAL, day TEXT);
+            -- тиражи: сколько всего может быть выпущено подарков вида (на весь сайт)
+            CREATE TABLE IF NOT EXISTS gift_supply(gift TEXT PRIMARY KEY, cap INTEGER NOT NULL);
+            -- журнал тиражей: выпуск (source — shop, box, work, teacher, limited), улучшение, продажа сразу, удаление, сделка на рынке
+            CREATE TABLE IF NOT EXISTS gift_log(id INTEGER PRIMARY KEY, ts REAL NOT NULL, gift_id INTEGER, gift TEXT, event TEXT NOT NULL,
+                source TEXT, sid INTEGER, price INTEGER);
+            CREATE INDEX IF NOT EXISTS gift_log_gift ON gift_log(gift, ts);
             CREATE TABLE IF NOT EXISTS class_prizes(
                 week TEXT NOT NULL, class_id INTEGER NOT NULL, teacher_id INTEGER, name TEXT, place INTEGER, xp INTEGER,
                 pool INTEGER, each_btc INTEGER, members INTEGER, ts REAL, PRIMARY KEY(week, class_id));
@@ -1707,6 +1713,27 @@ class DB:
                 P = dict(PROMO_SEED, **{"from": time.time(), "to": day_end(PROMO_SEED["to"])})
                 c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('promo', ?)", (json.dumps(P, ensure_ascii=False),))
                 c.execute("INSERT INTO settings(key, value) VALUES('promo_seeded', '1')")
+            # журнал тиражей — один раз восстановить прошлое: выпуск — по подаркам, улучшения, продажи сразу и сделки — по журналу
+            # биткоинов, удалённые учителем — по отметке sold без продажи
+            if not c.execute("SELECT 1 FROM settings WHERE key='gift_log_backfill'").fetchone():
+                rows = []
+                for gid, gift, ts, frm, tch, kind, owner, price in c.execute(
+                        """SELECT g.id, g.gift, g.ts, g.from_sid, g.from_teacher, g.kind, COALESCE(g.first_sid, g.student_id),
+                                  (SELECT -k.delta FROM coins k WHERE k.gift_id = g.id AND k.reason = 'gift' LIMIT 1)
+                           FROM gifts g""").fetchall():
+                    src = ("teacher" if tch else "work" if kind == "work" else "box" if kind == "box" else
+                           "limited" if gift in LIMITED_BY else "shop")
+                    rows.append((ts, gid, gift, "issue", src, frm or owner, price))
+                for ts, gid, gift, why, sid, delta in c.execute(
+                        """SELECT k.ts, k.gift_id, g.gift, k.reason, k.student_id, k.delta FROM coins k JOIN gifts g ON g.id = k.gift_id
+                           WHERE k.reason IN ('upgrade', 'sell', 'mbuy')""").fetchall():
+                    rows.append((ts, gid, gift, {"mbuy": "trade"}.get(why, why), None, sid, abs(delta)))
+                for ts, gid, gift, sid in c.execute(
+                        """SELECT g.sold, g.id, g.gift, g.student_id FROM gifts g WHERE g.sold IS NOT NULL
+                           AND NOT EXISTS (SELECT 1 FROM coins k WHERE k.gift_id = g.id AND k.reason = 'sell')""").fetchall():
+                    rows.append((ts, gid, gift, "remove", None, sid, None))
+                c.executemany("INSERT INTO gift_log(ts, gift_id, gift, event, source, sid, price) VALUES(?,?,?,?,?,?,?)", sorted(rows, key=lambda r: r[0]))
+                c.execute("INSERT INTO settings(key, value) VALUES('gift_log_backfill', '1')")
             # банку — половина заработка учеников: с первого запуска версии, за прошлое не начисляем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('labor_bank_since', ?)", (str(time.time()),))
             # банк рынка биткоинов открывается со стартовым капиталом (один раз)
@@ -2714,9 +2741,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if path != "/api/gifts" and s["is_teacher"]:
                 return self.err(403, "Учительскому аккаунту биткоины не нужны — дарите из панели учителя")
             e = econ(db)
+            sup_all = gift_supply(db)                     # тиражи: множители цены, улучшения и редкость — по ним
             if path == "/api/gifts/buy":
                 box = data.get("gift") == "box"           # «случайный подарок»: что выпадет — решает gift_random
-                g = gift_random(random.SystemRandom()) if box else GIFT_BY.get(str(data.get("gift") or ""))
+                g = gift_random(random.SystemRandom(), db) if box else GIFT_BY.get(str(data.get("gift") or ""))
                 if not g:
                     return self.err(400, "Нет такого подарка")
                 price = gift_box_price(db, e) if box else gift_price(g[0], e, gift_demand(db))
@@ -2737,6 +2765,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         return self.err(429, f"За сутки можно купить не больше {GIFTS_PER_DAY} подарков")
                     if lim and not (limited_now(db) or {}).get("left"):
                         return self.err(409, f"Лимитку «{g[2]}» уже раскупили — все {LIMITED_CAP} штук")
+                    sup = gift_supply(db, fresh=True)[g[0]]
+                    if not lim and not box and sup["left"] <= 0:
+                        return self.err(409, f"«{g[2]}» распродан: все {sup['cap']} штук выпущены — купить можно только на рынке")
+                    if not box and own_count(db, rcpt["id"], g[0]) >= sup["own_max"]:
+                        return self.err(409, f"У {'тебя' if rcpt['id'] == s['id'] else short_name(rcpt['name'])} уже {sup['own_max']} «{g[2]}» — "
+                                             f"больше одному ученику нельзя (это {round(OWN_SHARE * 100)}% тиража)")
                     have = game_summary(db, s["id"])["coins"]
                     if have < price:
                         return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
@@ -2745,6 +2779,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen, kind, paid) VALUES(?,?,?,?,?,?,?)",
                                (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0, "box" if box else None, paid))
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'gift', ?)", (s["id"], now, -price, gid))
+                    glog(db, "issue", gid, g[0], s["id"], price, "box" if box else "limited" if lim else "shop", now)
                     if box:                                       # «🎲»: вся цена — в банк рынка (не сгорает)
                         bank_move(db, price, "box", f"выпал {g[1]} {g[2]} за {price} ₿", sid=s["id"], ts=now)
                     else:
@@ -2753,7 +2788,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             bank_move(db, cut, "ops", f"{g[1]} {g[2]}: покупка за {price} ₿", sid=s["id"], ts=now)
                 with _GS_LOCK:
                     _LB_PEOPLE.pop(teacher_of(s)["id"], None)    # в рейтинге подарок у ника виден сразу
-                _DEMAND["t"] = 0.0                               # спрос изменился — цены пересчитаются
                 if rcpt["id"] != s["id"]:
                     LIVE.send([rcpt["id"]], "gift")
                 return self.send_json({"ok": True, "got": g[0], "game": game_summary(db, s["id"])})
@@ -2781,6 +2815,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
                         db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'upgrade', ?)", (s["id"], now, -price, r["id"]))
                         db.x("UPDATE gifts SET uniq=?, up_base=? WHERE id=?", (json.dumps(gift_uniq(db, r["gift"])), gift_up_raw(r["gift"]), r["id"]))
+                        glog(db, "upgrade", r["id"], r["gift"], s["id"], price, ts=now)
                         cut = op_cut(price, e)
                     else:
                         # продать: подарок сгорает (номер и сочетание уникального больше не выдаются), ученику — 90 % цены,
@@ -2791,6 +2826,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         cut = gross - price
                         db.x("UPDATE gifts SET sold=? WHERE id=?", (now, r["id"]))
                         db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'sell', ?)", (s["id"], now, price, r["id"]))
+                        glog(db, "sell", r["id"], r["gift"], s["id"], price, ts=now)
                     if cut:
                         what = "улучшение за" if path == "/api/gifts/upgrade" else "продажа сразу, выплачено"
                         bank_move(db, cut, "ops", f"{GIFT_BY[r['gift']][1]} {GIFT_BY[r['gift']][2]}: {what} {price} ₿", sid=s["id"], ts=now)
@@ -2864,6 +2900,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                             else "Ставки дошли до самой высокой цены этого подарка — перебить уже нельзя")
                         if r["buy_now"] and (r["bid_amt"] or 0) < r["buy_now"] <= amount:
                             amount = int(r["buy_now"])              # не дороже «купить сразу»: это покупка
+                    om = gift_supply(db)[r["gift"]]["own_max"]
+                    if own_count(db, s["id"], r["gift"]) >= om:
+                        return self.err(409, f"У тебя уже {om} «{GIFT_BY[r['gift']][2]}» — больше одному ученику нельзя "
+                                             f"(это {round(OWN_SHARE * 100)}% тиража)")
                     have = game_summary(db, s["id"])["coins"]
                     if have < amount:
                         return self.err(400, f"Не хватает биткоинов: нужно {amount} ₿, у тебя {have} ₿")
@@ -2896,6 +2936,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "box": gift_box_price(db, e), "up_min": min(gift_up_base(g[0], e) for g in GIFTS), "limited": limited_now(db),
                 "exam_btc": EXAM_BTC, "exam_coins": g["exam_coins"], "task_coins": g["task_coins"],
                 "mine": mine, "value": gift_value(mine, e, dem),
+                "supply": {k: {f: x[f] for f in ("cap", "left", "alive", "burned", "up", "live", "own_max")} for k, x in sup_all.items()},
                 "market": market_rows(db, [s["id"]] + [m["id"] for m in mates], s["id"], e, issued, dem),
                 "market_fee": e["fee"], "market_fee_box": MARKET_FEE_BOX, "market_min": MARKET_MIN, "market_max": MARKET_MAX, "market_max_listed": MARKET_MAX_LISTED,
                 "auc_hours": AUC_HOURS, "auc_step": AUC_STEP, "auc_snipe": AUC_SNIPE, "over_k": OVER_K, "over_fee": OVER_FEE, "relist_h": RELIST_H, "buyback_days": BUYBACK_DAYS, "promo": promo_now(db),
@@ -4756,6 +4797,55 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "recent": [{"i": GIFT_BY[r["gift"]][1], "t": GIFT_BY[r["gift"]][2], "ts": r["ts"], "note": r["note"] or "",
                             "uniq": uniq_pub(r["uniq"]) if r["uniq"] else None, "name": r["name"]} for r in recent if r["gift"] in GIFT_BY]})
 
+        if path == "/api/admin/supply":
+            # тиражи подарков на всём сайте: по видам — тираж, выпущено (по источникам), в магазине, в обороте, сгорело, улучшено,
+            # сделки на рынке, владельцы; по дням за PRICE_DAYS — выпуск, сгоревшие, улучшения, сделки (всё или один вид)
+            e, sup = econ(db), gift_supply(db, fresh=True)
+            dem = {k: x["mult"] for k, x in sup.items()}
+            ev = {}
+            for r in db.q("SELECT gift, event, COALESCE(source, '') src, COUNT(*) c, COALESCE(SUM(price), 0) p FROM gift_log GROUP BY gift, event, src"):
+                ev.setdefault(r["gift"], {})[r["event"] + (":" + r["src"] if r["src"] else "")] = (r["c"], r["p"])
+            where, args = self.student_scope()
+            mine = {r["id"] for r in db.q(f"SELECT s.id FROM students s WHERE {where}", args)}
+            own = {}
+            for r in db.q("""SELECT g.gift, g.student_id, s.name, COUNT(*) c FROM gifts g JOIN students s ON s.id = g.student_id
+                             WHERE g.sold IS NULL GROUP BY g.gift, g.student_id"""):
+                o = own.setdefault(r["gift"], {"n": 0, "top": None})
+                o["n"] += 1
+                if not o["top"] or r["c"] > o["top"]["c"]:
+                    o["top"] = {"c": r["c"], "name": r["name"] if r["student_id"] in mine else None}
+            rows = []
+            for gid, x in sup.items():
+                g, E = GIFT_BY[gid], ev.get(gid, {})
+                rar = gift_rarity(gid)
+                rows.append(dict({k: x[k] for k in ("cap", "issued", "left", "regular", "uniq", "burned", "up", "live", "own_max")},
+                                 id=gid, i=g[1], t=g[2], base=g[3], limited=gid in LIMITED_BY, mult=x["mult"],
+                                 price=LIMITED_PRICE if gid in LIMITED_BY else gift_price(gid, e, dem), rar=rar,
+                                 src={k: E.get("issue:" + k, (0, 0))[0] for k in ("shop", "box", "work", "teacher", "limited")},
+                                 sold=E.get("sell", (0, 0))[0], removed=E.get("remove", (0, 0))[0],
+                                 deals=E.get("trade", (0, 0))[0], volume=E.get("trade", (0, 0))[1],
+                                 owners=own.get(gid, {}).get("n", 0), top=own.get(gid, {}).get("top")))
+            rows.sort(key=lambda r: (r["limited"], -r["base"]))
+            one = str(qs.get("gift") or "")
+            one = one if one in GIFT_BY else None
+            today = datetime.now().date()
+            days = [(today - timedelta(days=k)).isoformat() for k in range(PRICE_DAYS - 1, -1, -1)]
+            daily = {d: {"d": d, "issue": 0, "burn": 0, "upgrade": 0, "trade": 0} for d in days}
+            for r in db.q(f"""SELECT date(ts, 'unixepoch', 'localtime') d, event, COUNT(*) c FROM gift_log WHERE ts > ?{' AND gift = ?' if one else ''}
+                              GROUP BY d, event""", (time.time() - (PRICE_DAYS + 1) * 86400,) + ((one,) if one else ())):
+                x = daily.get(r["d"])
+                if x is not None:
+                    x["burn" if r["event"] in ("sell", "remove") else r["event"]] += r["c"]
+            out = {"rows": rows, "daily": [daily[d] for d in days], "gift": one,
+                   "tiers": [[low, k, t] for low, k, t in SUPPLY_TIERS], "own_share": OWN_SHARE,
+                   "total": {k: sum(r[k] for r in rows if not r["limited"]) for k in ("cap", "issued", "left", "regular", "uniq", "burned", "up", "deals", "volume")},
+                   "sold_out": sum(1 for r in rows if not r["limited"] and r["left"] <= 0)}
+            if one and one not in LIMITED_BY:
+                pts = {p["d"]: p["p"] for p in gift_price_points(db, one, e)}
+                for x in out["daily"]:
+                    x["price"] = pts.get(x["d"])
+            return self.send_json(out)
+
         if path == "/api/admin/gifts/student":
             # подарки ученика — чтобы удалить лишние из его профиля
             where, args = self.student_scope()
@@ -4788,7 +4878,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"econ": econ(db), "students": len(wallets), "with_coins": sum(1 for w in wallets if w["balance"] > 0),
                                    "total": tot, "week": week, "tiers": tiers, "rich": rich,
                                    "charts": econ_charts(db, [r["id"] for r in studs], where, args, tot["balance"]),
-                                   "rarity": {"plain": [[k, t] for _, k, t in RARITY] + [["limited", "Лимитка"]], "uniq": [[k, t] for _, k, t in UNIQ_RARITY]},
+                                   "rarity": {"plain": [[k, t] for _, k, t in SUPPLY_TIERS] + [["limited", "Лимитка"]], "uniq": [[k, t] for _, k, t in UNIQ_RARITY]},
                                    "feed": econ_feed(db, where, args, limit=150),
                                    "rate": btc_rate_now(db)[0], "site": econ_site(db) if self.T["is_main"] else None,
                                    "thermo": thermo_info(db, self.T), "market": market_hist(db)})
@@ -4908,6 +4998,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 auc_refund(db, lot, time.time(), "подарок снят с торгов")       # был на торгах — лидеру вернуть ставку
                 db.x("""UPDATE gifts SET sold=?, kind=COALESCE(kind, 'removed'), listed=NULL, listed_ts=NULL, auc_end=NULL, buy_now=NULL,
                                bid_sid=NULL, bid_amt=NULL WHERE id=?""", (time.time(), r["id"]))
+                glog(db, "remove", r["id"], lot["gift"], r["student_id"])
             with _GS_LOCK:
                 _LB_PEOPLE.clear()               # у ника в рейтинге пропадёт сразу
             LIVE.send([r["student_id"]], "gift")
@@ -4949,15 +5040,21 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if coins > 0 and coins * len(sids) > bank:
                     return self.err(409, f"В банке рынка {bank} ₿, а на начисление нужно {coins * len(sids)} ₿ "
                                          f"({coins} ₿ × {len(sids)}). Пополнить банк может главный учитель")
+                if gift and gift != "random":
+                    sup = gift_supply(db, fresh=True)[gift]
+                    if sup["left"] < len(sids):
+                        return self.err(409, f"Тираж «{GIFT_BY[gift][2]}»: в магазине осталось {sup['left']} из {sup['cap']}, "
+                                             f"а учеников — {len(sids)}")
                 for sid in sids:
                     if gift:
-                        gid = gift_random(rnd)[0] if gift == "random" else gift
+                        gid = gift_random(rnd, db)[0] if gift == "random" else gift
                         u = None
                         if uniq and issued.get(gid, 0) < UNIQ_CAP:       # случайный, у которого тираж кончился, — обычным
                             u = json.dumps(gift_uniq(db, gid, rnd))
                             issued[gid] = issued.get(gid, 0) + 1
-                        db.x("INSERT INTO gifts(student_id, gift, ts, from_teacher, note, uniq, kind, up_base) VALUES(?,?,?,?,?,?,?,?)",
-                             (sid, gid, now, self.T["id"], note, u, "box" if gift == "random" else None, gift_up_raw(gid) if u else None))
+                        new = db.x("INSERT INTO gifts(student_id, gift, ts, from_teacher, note, uniq, kind, up_base) VALUES(?,?,?,?,?,?,?,?)",
+                                   (sid, gid, now, self.T["id"], note, u, "box" if gift == "random" else None, gift_up_raw(gid) if u else None))
+                        glog(db, "issue", new, gid, sid, None, "teacher", now)
                     if coins > 0:
                         db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'grant', ?, 0)",
                              (sid, now, coins, note))
@@ -6393,12 +6490,9 @@ HIST_DAYS = 26 * 7                     # графики рынка «по нед
 MARKET_MIN, MARKET_MAX = 5, 20000
 MARKET_MAX_LISTED = 25                 # своих подарков на рынке сразу
 
-# Редкость высчитывается из шансов. Обычный подарок — шанс выпасть в «🎲 Случайном подарке» (вес ∝ 1 / цена);
-# уникальный — шанс его сочетания: фон × узор × эффект («1 из N»). Порог — наименьший шанс уровня.
+# Редкость обычного подарка — по живому тиражу вида (SUPPLY_TIERS, см. gift_supply); уникального — шанс его сочетания:
+# фон × узор × эффект («1 из N»), порог — наименьший шанс уровня. В «🎲» дорогие выпадают реже (вес ∝ 1 / цена).
 _GIFT_W = sum(1 / g[3] for g in GIFTS)
-# уровень обычного — по шансу относительно среднего (1 / число подарков): в 2 раза чаще среднего и больше — обычный и т. д.
-RARITY = [(2.0, "common", "Обычный"), (1.0, "uncommon", "Необычный"), (0.45, "rare", "Редкий"),
-          (0.2, "epic", "Эпический"), (0, "legend", "Легендарный")]
 
 
 def _uniq_rarity():
@@ -6424,12 +6518,15 @@ def rarity_tier(chance, tiers):
 
 
 def gift_rarity(gid):
-    """Редкость обычного подарка: шанс выпасть в «🎲 Случайном подарке» (в процентах) и уровень; лимитка — своя редкость."""
+    """Редкость обычного подарка — по живому тиражу (SUPPLY_TIERS): сгорают и улучшаются — вид становится реже; p — шанс
+    выпасть в «🎲» (в процентах); лимитка — своя редкость."""
     if gid in LIMITED_BY:
         return {"k": "limited", "t": "Лимитка", "p": 0}
-    ch = (1 / GIFT_BY[gid][3]) / _GIFT_W
-    k, t = rarity_tier(ch * len(GIFTS), RARITY)
-    return {"k": k, "t": t, "p": round(100 * ch, 2)}
+    sup = (_SUPPLY["v"] or {}).get(gid)
+    cap = sup["cap"] if sup else supply_cap0(gid)
+    live = sup["live"] if sup else cap
+    k, t = rarity_tier(live, SUPPLY_TIERS)
+    return {"k": k, "t": t, "p": round(100 * (1 / GIFT_BY[gid][3]) / _GIFT_W, 2), "live": live, "cap": cap}
 
 
 def econ_target(db):
@@ -6699,92 +6796,134 @@ def btc_rate_now(db):
     return btc_rate_at(db, now), _BTC_RATES["active"]
 
 
-DEMAND_DAYS = 7
-# Спрос — с поправкой на цену: подарок сравнивается только с подарками своей редкости (обычные с обычными, легендарные
-# с легендарными) — дорогие покупают реже, и это нормально. Ожидаемо за неделю — среднее по его редкости; множитель =
-# ((куплено + DEMAND_PRIOR) / (в среднем + DEMAND_PRIOR)) ^ DEMAND_POW — одна-две покупки редкого подарка цену не взвинчивают.
-# Замок дешевеет, только если его берут реже других легендарных.
-DEMAND_POW, DEMAND_PRIOR = 0.3, 2
-DEMAND_MIN, DEMAND_MAX = 0.8, 1.5
+# Тиражи: у каждого вида — свой тираж на весь сайт (gift_supply.cap; по умолчанию SUPPLY_K / каталожная цена, от SUPPLY_MIN
+# до SUPPLY_MAX, круглым шагом; для уже выпущенных — не меньше выпущенного × 1,25). Сгоревшие (продано сразу, удалено
+# учителем) и улучшенные в тираж не возвращаются: живой тираж = тираж − сгорело − улучшено, по нему — редкость (SUPPLY_TIERS).
+# Цена = каталог × индекс × дефицит × распроданность: дефицит = √(тираж / живой), распроданность = 1 + SUPPLY_SELL × выпущено /
+# живой (не больше SUPPLY_MULT). Распродан — купить можно только на рынке; одному ученику — не больше OWN_SHARE тиража вида.
+SUPPLY_K = 22000
+SUPPLY_MIN, SUPPLY_MAX = 20, 2000
+SUPPLY_TIERS = [(1000, "common", "Обычный"), (300, "uncommon", "Необычный"), (100, "rare", "Редкий"),
+                (40, "epic", "Эпический"), (0, "legend", "Легендарный")]
+SUPPLY_SELL = 0.5
+SUPPLY_MULT = 4.0
+OWN_SHARE, OWN_MIN = 0.10, 2
+DEMAND_DAYS = 7                        # график цены: «куплено за неделю» — за столько дней
 PRICE_DAYS = 30                        # график цены подарка — за столько дней (последняя точка — сейчас)
 _PRICE_HIST = {"t": 0.0, "v": None, "db": None}
-_DEMAND = {"t": 0.0, "v": None, "db": None}
+_SUPPLY = {"t": 0.0, "v": None, "db": None}
 
 
-def gift_demand(db):
-    """Спрос: множитель цены каждого подарка по покупкам за DEMAND_DAYS (пересчёт раз в 5 минут)."""
+def supply_cap0(gid):
+    """Тираж по умолчанию: SUPPLY_K / каталожная цена — замок 20, дракон 30, торт 220, печенька 2000."""
+    v = SUPPLY_K / GIFT_BY[gid][3]
+    step = 5 if v < 100 else 10 if v < 500 else 50
+    return int(min(SUPPLY_MAX, max(SUPPLY_MIN, step * round(v / step))))
+
+
+def supply_mult(cap, issued, live):
+    """Множитель цены от тиража: дефицит × распроданность."""
+    live = max(1, live)
+    return round(min(SUPPLY_MULT, math.sqrt(cap / live) * (1 + SUPPLY_SELL * issued / live)), 4)
+
+
+def own_max(cap):
+    """Сколько подарков одного вида может быть у одного ученика: OWN_SHARE тиража, не меньше OWN_MIN."""
+    return max(OWN_MIN, math.ceil(cap * OWN_SHARE))
+
+
+def own_count(db, sid, gid):
+    """Сколько подарков вида gid сейчас у ученика sid (обычных и уникальных)."""
+    return db.q("SELECT COUNT(*) c FROM gifts WHERE student_id=? AND gift=? AND sold IS NULL", (sid, gid), one=True)["c"]
+
+
+def gift_supply(db, fresh=False):
+    """Тиражи по видам: тираж, выпущено, сгорело, улучшено, живой тираж, в обороте, в магазине осталось, множитель цены
+    (пересчёт раз в минуту или сразу после выпуска, продажи и улучшения — _SUPPLY["t"] = 0)."""
     now = time.time()
-    if _DEMAND["v"] is not None and _DEMAND["db"] is db and now - _DEMAND["t"] < 300:
-        return _DEMAND["v"]
-    cnt, base = {}, {}
-    for r in db.q("""SELECT gift, COUNT(*) c, SUM(COALESCE(kind, '') <> 'box') b FROM gifts WHERE from_sid IS NOT NULL AND ts > ?
-                     GROUP BY gift""", (now - DEMAND_DAYS * 86400,)):
-        cnt[r["gift"]], base[r["gift"]] = r["c"], r["b"]
-    v = demand_of(cnt, base)
-    _DEMAND.update(t=now, v=v, db=db)
+    if not fresh and _SUPPLY["v"] is not None and _SUPPLY["db"] is db and now - _SUPPLY["t"] < 60:
+        return _SUPPLY["v"]
+    cnt = {r["gift"]: r for r in db.q("""SELECT gift, COUNT(*) issued, SUM(sold IS NOT NULL) burned, SUM(uniq IS NOT NULL) up,
+                                                SUM(sold IS NOT NULL OR uniq IS NOT NULL) gone, SUM(uniq IS NOT NULL AND sold IS NULL) ualive
+                                         FROM gifts GROUP BY gift""")}
+    caps = {r["gift"]: r["cap"] for r in db.q("SELECT gift, cap FROM gift_supply")}
+    for g in GIFTS:
+        if g[0] not in caps:                     # новый вид (или первый запуск): по формуле, но не меньше выпущенного × 1,25
+            caps[g[0]] = max(supply_cap0(g[0]), math.ceil((cnt[g[0]]["issued"] if g[0] in cnt else 0) * 1.25))
+            db.x("INSERT OR IGNORE INTO gift_supply(gift, cap) VALUES(?,?)", (g[0], caps[g[0]]))
+    v = {}
+    for gid in list(GIFT_BY):
+        r = cnt.get(gid)
+        issued, burned, up, gone, ualive = ((r["issued"], r["burned"] or 0, r["up"] or 0, r["gone"] or 0, r["ualive"] or 0)
+                                            if r else (0, 0, 0, 0, 0))
+        cap = LIMITED_CAP if gid in LIMITED_BY else caps[gid]
+        live = max(0, cap - gone)
+        v[gid] = {"cap": cap, "issued": issued, "burned": burned, "up": up, "live": live, "alive": issued - burned,
+                  "regular": issued - gone, "uniq": ualive,
+                  "left": max(0, cap - issued), "own_max": own_max(cap),
+                  "mult": 1.0 if gid in LIMITED_BY else supply_mult(cap, issued, live)}
+    _SUPPLY.update(t=now, v=v, db=db)
     return v
 
 
-def demand_of(cnt, base=None):
-    """Множители спроса по числу покупок каждого подарка за DEMAND_DAYS — к среднему по его редкости (см. DEMAND_POW).
-    base — покупки без выпавших в «🎲»: среднее по редкости — по ним, а выпадение прибавляет спрос только своему подарку
-    (иначе каждое выпадение поднимало бы среднее, и остальные подарки той же редкости дешевели бы)."""
-    base = cnt if base is None else base
-    tier = {g[0]: gift_rarity(g[0])["k"] for g in GIFTS}           # лимитки — не в счёт: у них своя цена
-    tot, size = {}, {}
-    for g in GIFTS:
-        tot[tier[g[0]]] = tot.get(tier[g[0]], 0) + base.get(g[0], 0)
-        size[tier[g[0]]] = size.get(tier[g[0]], 0) + 1
-    return {g[0]: round(min(DEMAND_MAX, max(DEMAND_MIN, ((cnt.get(g[0], 0) + DEMAND_PRIOR)
-                                                       / (tot[tier[g[0]]] / size[tier[g[0]]] + DEMAND_PRIOR)) ** DEMAND_POW)), 2)
-            for g in GIFTS}
+def gift_demand(db):
+    """Множитель цены каждого подарка от его тиража (см. gift_supply): дефицит × распроданность."""
+    return {k: x["mult"] for k, x in gift_supply(db).items()}
+
+
+def glog(db, event, gift_id, gift, sid=None, price=None, source=None, ts=None):
+    """Журнал тиражей: issue (source — shop, box, work, teacher, limited), upgrade, sell, remove, trade."""
+    db.x("INSERT INTO gift_log(ts, gift_id, gift, event, source, sid, price) VALUES(?,?,?,?,?,?,?)",
+         (ts or time.time(), gift_id, gift, event, source, sid, price))
+    _SUPPLY["t"] = 0.0
+    _PRICE_HIST["t"] = 0.0
 
 
 def gift_price_hist(db):
-    """Цены подарков на конец каждого из PRICE_DAYS − 1 прошедших дней (но не раньше открытия магазина — первой покупки):
-    индекс цен термостата в тот момент (до термостата — из econ_hist) × спрос по покупкам за DEMAND_DAYS до него; и сколько
-    каждого купили за эти дни. Пересчёт — раз в 5 минут."""
+    """По дням (PRICE_DAYS − 1 прошедших, не раньше первого выпуска): индекс цен термостата в тот момент (до термостата —
+    из econ_hist), выпущено и выбыло (сгорело или улучшено) каждого вида к концу дня — по журналу gift_log. Раз в 5 минут."""
     now = time.time()
     if _PRICE_HIST["v"] is not None and _PRICE_HIST["db"] is db and now - _PRICE_HIST["t"] < 300:
         return _PRICE_HIST["v"]
     today = datetime.now().date()
     ends = [(today - timedelta(days=k), datetime.combine(today - timedelta(days=k - 1), datetime.min.time()).timestamp())
             for k in range(PRICE_DAYS - 1, 0, -1)]
-    opened = db.q("SELECT MIN(ts) t FROM gifts WHERE from_sid IS NOT NULL", one=True)["t"]   # первая покупка — магазин открылся
+    opened = db.q("SELECT MIN(ts) t FROM gift_log WHERE event='issue'", one=True)["t"]
     ends = [(d, t) for d, t in ends if opened and t >= opened]
     if not ends:
         _PRICE_HIST.update(t=now, v=[], db=db)
         return []
-    buys = db.q("SELECT gift, ts, kind FROM gifts WHERE from_sid IS NOT NULL AND ts > ? ORDER BY ts", (ends[0][1] - DEMAND_DAYS * 86400,))
-    bts = [r["ts"] for r in buys]
+    ev = db.q("SELECT ts, gift_id, gift, event FROM gift_log WHERE event IN ('issue', 'sell', 'remove', 'upgrade') ORDER BY ts, id")
     th = db.q("SELECT ts, idx FROM thermo ORDER BY ts")
     tts = [r["ts"] for r in th]
     old = {r["day"]: r["idx"] for r in db.q("SELECT day, idx FROM econ_hist WHERE idx IS NOT NULL")}
-    out = []
+    issued, gone, out, k = {}, {}, [], 0
     for d, t in ends:
+        while k < len(ev) and ev[k]["ts"] < t:
+            e = ev[k]
+            if e["event"] == "issue":
+                issued[e["gift"]] = issued.get(e["gift"], 0) + 1
+            else:
+                gone.setdefault(e["gift"], set()).add(e["gift_id"])
+            k += 1
         i = bisect.bisect_right(tts, t) - 1
-        lo, hi = bisect.bisect_right(bts, t - DEMAND_DAYS * 86400), bisect.bisect_right(bts, t)
-        cnt, base = {}, {}
-        for r in buys[lo:hi]:
-            cnt[r["gift"]] = cnt.get(r["gift"], 0) + 1
-            if r["kind"] != "box":
-                base[r["gift"]] = base.get(r["gift"], 0) + 1
-        out.append({"d": d.isoformat(), "idx": th[i]["idx"] if i >= 0 else old.get(d.isoformat(), 1.0), "cnt": cnt, "dem": demand_of(cnt, base)})
+        out.append({"d": d.isoformat(), "idx": th[i]["idx"] if i >= 0 else old.get(d.isoformat(), 1.0),
+                    "issued": dict(issued), "gone": {g: len(x) for g, x in gone.items()}})
     _PRICE_HIST.update(t=now, v=out, db=db)
     return out
 
 
 def gift_price_points(db, gid, e):
-    """График цены подарка gid: по дню — цена в магазине на конец дня и сколько его купили за DEMAND_DAYS; последняя точка — сейчас."""
-    base = GIFT_BY[gid][3]
-    pts = [{"d": h["d"], "p": max(1, math.ceil(base * h["idx"] * h["dem"][gid])), "n": h["cnt"].get(gid, 0)} for h in gift_price_hist(db)]
-    n = db.q("SELECT COUNT(*) c FROM gifts WHERE gift=? AND from_sid IS NOT NULL AND ts > ?",
-             (gid, time.time() - DEMAND_DAYS * 86400), one=True)["c"]
-    return pts + [{"d": datetime.now().date().isoformat(), "p": gift_price(gid, e, gift_demand(db)), "n": n}]
+    """График цены подарка gid: по дню — цена в магазине на конец дня и сколько выпущено к тому дню; последняя точка — сейчас."""
+    base, sup = GIFT_BY[gid][3], gift_supply(db)[gid]
+    pts = [{"d": h["d"], "p": max(1, math.ceil(base * h["idx"] * supply_mult(sup["cap"], h["issued"].get(gid, 0),
+                                                                              sup["cap"] - h["gone"].get(gid, 0)))),
+            "n": h["issued"].get(gid, 0)} for h in gift_price_hist(db)]
+    return pts + [{"d": datetime.now().date().isoformat(), "p": gift_price(gid, e, gift_demand(db)), "n": sup["issued"]}]
 
 
 def gift_price(gid, e, dem):
-    """Цена подарка сейчас: каталог × индекс цен × спрос."""
+    """Цена подарка сейчас: каталог × индекс цен × множитель тиража."""
     return max(1, math.ceil(GIFT_BY[gid][3] * e["idx"] * dem.get(gid, 1.0)))
 
 
@@ -6955,6 +7094,7 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
     second = max((a for sid, a in top.items() if sid != buyer), default=0)
     start = int(r["listed"] or amount)
     signal = min(amount, max(start, math.ceil(second * (1 + AUC_STEP)))) if second else min(amount, start)
+    glog(db, "trade", r["id"], r["gift"], buyer, amount, ts=now)
     db.x("""INSERT INTO market_deals(gift_id, ts, gift, mkey, tier, price, signal, ref, seller, buyer, bidders)
             VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (r["id"], now, r["gift"], market_key(r["gift"], u), market_tier(r["gift"], u), amount,
                                                signal, ref, r["student_id"], buyer, len(set(top) | {buyer})))
@@ -7002,9 +7142,15 @@ def gift_up_raw(gid):
     return max(UP_MIN, GIFT_BY[gid][3])
 
 
+def up_mult(gid):
+    """Множитель тиража вида (как у цены в магазине): цена улучшения меняется вместе с ценой подарка."""
+    return ((_SUPPLY["v"] or {}).get(gid) or {}).get("mult", 1.0)
+
+
 def gift_up_base(gid, e, base=None):
-    """Базовая цена улучшения сейчас: база × индекс цен; base — с какой базы улучшен уже уникальный подарок (gifts.up_base)."""
-    return round5((base or gift_up_raw(gid)) * e["idx"])
+    """Базовая цена улучшения сейчас: база × индекс цен × множитель тиража; base — с какой базы улучшен уже уникальный
+    подарок (gifts.up_base)."""
+    return round5((base or gift_up_raw(gid)) * e["idx"] * up_mult(gid))
 
 
 def gift_up_price(gid, e, issued):
@@ -7012,7 +7158,7 @@ def gift_up_price(gid, e, issued):
     n = issued.get(gid, 0)
     if n >= UNIQ_CAP or gid in LIMITED_BY:            # лимитку не улучшают
         return None
-    return round5(gift_up_raw(gid) * (1 + UP_PER_ISSUED * n) * e["idx"])
+    return round5(gift_up_raw(gid) * (1 + UP_PER_ISSUED * n) * e["idx"] * up_mult(gid))
 
 
 def op_fee(e):
@@ -7052,8 +7198,10 @@ def work_gifts(db, sid, solved):
     have = db.q("SELECT COUNT(*) c FROM gifts WHERE COALESCE(first_sid, student_id)=? AND kind='work'", (sid,), one=True)["c"]
     rnd, now = random.SystemRandom(), time.time()
     for k in range(have + 1, due + 1):
-        db.x("INSERT INTO gifts(student_id, gift, ts, note, kind) VALUES(?,?,?,?, 'work')",
-             (sid, gift_random(rnd)[0], now, f"За труд: {k * WORK_GIFT_EVERY} решённых заданий"))
+        gid = gift_random(rnd, db)[0]
+        new = db.x("INSERT INTO gifts(student_id, gift, ts, note, kind) VALUES(?,?,?,?, 'work')",
+                   (sid, gid, now, f"За труд: {k * WORK_GIFT_EVERY} решённых заданий"))
+        glog(db, "issue", new, gid, sid, None, "work", now)
     return max(0, due - have)
 
 
@@ -7376,9 +7524,14 @@ def econ_wallet(db, sid):
             "fines": g["btc_fast"] * BTC_FAST_FINE, "xp": g["xp"]}
 
 
-def gift_random(rng=None):
-    """Случайный подарок: выпасть может любой, но чем дороже — тем реже (вес ∝ 1 / цена)."""
-    return (rng or random).choices(GIFTS, weights=[1 / g[3] for g in GIFTS])[0]
+def gift_random(rng=None, db=None):
+    """Случайный подарок: выпасть может любой, но чем дороже — тем реже (вес ∝ 1 / цена); с db — только те, что остались
+    в магазине (тираж не кончился)."""
+    pool = GIFTS
+    if db is not None:
+        sup = gift_supply(db, fresh=True)
+        pool = [g for g in GIFTS if sup[g[0]]["left"] > 0] or GIFTS
+    return (rng or random).choices(pool, weights=[1 / g[3] for g in pool])[0]
 
 
 def gift_uniq(db, gid, rng=None):

@@ -2620,7 +2620,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([x["k"] for x in u["props"]], ["Фон", "Узор", "Эффект", "Поза"])
         self.assertTrue(all(0 < x["p"] <= 100 for x in u["props"]))
         self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok2)[0], 409)
-        self.assertEqual([server.gift_rarity(k)["t"] for k in ("cookie", "tulip", "teddy", "robot", "dragon")],
+        self.assertEqual([server.gift_rarity(k)["t"] for k in ("cookie", "tulip", "teddy", "dino", "dragon")],
                          ["Обычный", "Необычный", "Редкий", "Эпический", "Легендарный"])
         self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": teddy["id"]}, tok)[0], 404)       # чужой подарок
         self.assertTrue(server.gift_icons(db, sid2)[0]["u"])                                            # уникальный — первым у ника
@@ -2641,7 +2641,7 @@ class ServerTest(unittest.TestCase):
             k = server.gift_rarity(g[0])["k"]
             tiers[k] = tiers.get(k, 0) + 1
         self.assertEqual(set(tiers), {"common", "uncommon", "rare", "epic", "legend"})
-        self.assertTrue(all(n >= 8 for n in tiers.values()), tiers)
+        self.assertTrue(all(n >= 5 for n in tiers.values()), tiers)
         # уникальные: при улучшении примерно 58 / 30 / 10 / 2 %
         import itertools
         tot = [sum(x[i] for x in xs) for xs, i in ((server.UNIQ_BG, 4), (server.UNIQ_SYM, 3), (server.UNIQ_FX, 2), (server.UNIQ_POSE, 2))]
@@ -2756,14 +2756,17 @@ class ServerTest(unittest.TestCase):
             server.UNIQ_CAP = cap
         # улучшение: как сам подарок по каталогу, но не меньше 100 ₿; +1 % за каждый уже выпущенный уникальный этого вида,
         # × индекс цен, шаг 5 ₿
+        # × множитель тиража — цена улучшения меняется вместе с ценой подарка
         for gid in ("cake", "rocket"):
             base = max(100, server.GIFT_BY[gid][3])
-            for issued, idx in (({}, 1.0), ({gid: 50}, 1.0), ({}, 3.0)):
-                want = max(5, 5 * round(base * (1 + 0.01 * issued.get(gid, 0)) * idx / 5))
-                self.assertEqual(server.gift_up_price(gid, {"idx": idx}, issued), want)
-        self.assertEqual((server.gift_up_price("cookie", {"idx": 1.0}, {}), server.gift_up_price("castle", {"idx": 1.0}, {})), (100, 1100))
-        self.assertLess(server.gift_up_price("cookie", {"idx": 1.0}, {}), server.gift_up_price("dragon", {"idx": 1.0}, {}))
-        self.assertLess(server.gift_up_price("cake", {"idx": 1.0}, {}), server.gift_up_price("cake", {"idx": 1.0}, {"cake": 99}))
+            for issued, idx, m in (({}, 1.0, 1.0), ({gid: 50}, 1.0, 1.0), ({}, 3.0, 1.0), ({}, 1.0, 1.4)):
+                want = max(5, 5 * round(base * (1 + 0.01 * issued.get(gid, 0)) * idx * m / 5))
+                with mock.patch.object(server, "up_mult", return_value=m):
+                    self.assertEqual(server.gift_up_price(gid, {"idx": idx}, issued), want)
+        with mock.patch.object(server, "up_mult", return_value=1.0):
+            self.assertEqual((server.gift_up_price("cookie", {"idx": 1.0}, {}), server.gift_up_price("castle", {"idx": 1.0}, {})), (100, 1100))
+            self.assertLess(server.gift_up_price("cookie", {"idx": 1.0}, {}), server.gift_up_price("dragon", {"idx": 1.0}, {}))
+            self.assertLess(server.gift_up_price("cake", {"idx": 1.0}, {}), server.gift_up_price("cake", {"idx": 1.0}, {"cake": 99}))
         # термостат: копят все (норма — 1 ₿) — через сутки цены выше, заработок ниже
         target = server.ECON_TARGET
         try:
@@ -3247,7 +3250,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "tea"}, tokA)[0], 200)
             spent += price
             seen.append(price)
-        self.assertGreater(seen[-1], seen[0])                                                   # спрос поднял цену
+        self.assertGreaterEqual(seen[-1], seen[0])                                              # распроданность не дешевит
         teas = [g for g in self.req("GET", "/api/gifts", token=tokA)[1]["mine"] if g["gift"] == "tea"]
         paid = {r["id"]: r["paid"] for r in db.q("SELECT id, paid FROM gifts WHERE gift='tea' AND id IN (%s)" % ",".join(str(g["id"]) for g in teas))}
         self.assertEqual(sorted(paid.values()), sorted(seen))
@@ -3395,26 +3398,71 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/jserr", dict(err, msg="spam last"), ip="10.9.9.9")[1], {"ok": False})
         self.assertIsNone(db.q("SELECT id FROM js_errors WHERE msg='spam last'", one=True))
 
-    def test_demand_by_rarity(self):
-        # спрос — к среднему по своей редкости: Замок, который не покупают, когда покупают печеньки, почти по каталогу;
-        # подарок, который берут чаще ровесников по редкости, — дороже, реже — дешевле
-        self.assertEqual(set(server.demand_of({}).values()), {1.0})
-        cnt = {"cookie": 6, "candy": 4}
-        d = server.demand_of(cnt)
-        self.assertEqual((d["castle"], d["rocket"], d["robot"]), (1.0, 1.0, 1.0))      # среди легендарных и эпических — никто
-        self.assertGreater(d["cookie"], 1.0)
-        self.assertLess(d["tea"], 1.0)
-        common = [g[0] for g in server.GIFTS if server.gift_rarity(g[0])["k"] == "common"]
-        avg = sum(cnt.get(k, 0) for k in common) / len(common)
-        self.assertAlmostEqual(d["cookie"], round(((6 + 2) / (avg + 2)) ** 0.3, 2))
-        d2 = server.demand_of({"rocket": 1})
-        self.assertLess(d2["rocket"], 1.15)                                           # одна покупка не взвинчивает цену
-        self.assertLess(d2["castle"], 1.0)
-        # выпавшие в «🎲» поднимают цену только своему подарку — остальные той же редкости не дешевеют
-        d3 = server.demand_of({"cookie": 6, "candy": 4, "tea": 5}, {"cookie": 6, "candy": 4})   # 5 чаёв — выпали в «🎲»
-        self.assertGreater(d3["tea"], d["tea"])
-        self.assertGreater(d3["tea"], 1.0)
-        self.assertEqual((d3["cookie"], d3["candy"]), (d["cookie"], d["candy"]))
+    def test_supply_model(self):
+        # тиражи: по умолчанию 22000 / цена (круглым шагом); цена × дефицит × распроданность; редкость — по живому тиражу;
+        # одному ученику — не больше 10 % тиража (не меньше 2)
+        self.assertEqual([server.supply_cap0(k) for k in ("castle", "ufo", "dragon", "unicorn", "cake", "tea", "cookie")],
+                         [20, 25, 30, 50, 220, 1000, 2000])
+        self.assertEqual(server.supply_mult(20, 0, 20), 1.0)
+        self.assertAlmostEqual(server.supply_mult(20, 10, 17), math.sqrt(20 / 17) * (1 + 0.5 * 10 / 17), places=3)   # замок ≈ ×1,4
+        self.assertEqual(round(1100 * server.supply_mult(20, 10, 17)), 1544)
+        self.assertEqual(server.supply_mult(20, 20, 1), server.SUPPLY_MULT)                                      # не больше ×4
+        self.assertEqual([server.rarity_tier(v, server.SUPPLY_TIERS)[1] for v in (2000, 1000, 999, 220, 90, 39)],
+                         ["Обычный", "Обычный", "Необычный", "Редкий", "Эпический", "Легендарный"])
+        self.assertEqual((server.own_max(20), server.own_max(30), server.own_max(220), server.own_max(2000)), (2, 3, 22, 200))
+
+    def test_supply_limits(self):
+        # тираж кончился — в магазине не купить, в «🎲» не выпадает; одному ученику — не больше own_max; проданный сразу
+        # сгорает: живой тираж меньше — цена выше; всё — в журнале и во вкладке «Тиражи»
+        db = server.APP.db
+        tokA, tokB = self.login("Тиражов Тимофей"), self.login("Лимитов Лука")
+        sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in (tokA, tokB)]
+        self.addCleanup(lambda: [db.x("UPDATE students SET no_rank=1 WHERE id=?", (x,)) for x in sids])
+        for sid in sids:
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 20000))
+        gid = "telescope"
+        before = server.gift_supply(db, fresh=True)[gid]
+        old_cap = before["cap"]
+        self.addCleanup(lambda: (db.x("UPDATE gift_supply SET cap=? WHERE gift=?", (old_cap, gid)), server._SUPPLY.update(t=0)))
+        db.x("UPDATE gift_supply SET cap=? WHERE gift=?", (before["issued"] + 3, gid))
+        sup = server.gift_supply(db, fresh=True)[gid]
+        self.assertEqual((sup["left"], sup["own_max"]), (3, 2))
+        p1 = next(c["price"] for c in self.req("GET", "/api/gifts", token=tokA)[1]["catalog"] if c["id"] == gid)
+        for _ in range(2):
+            self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": gid}, tokA)[0], 200)
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": gid}, tokA)
+        self.assertEqual(st, 409)
+        self.assertIn("больше одному ученику нельзя", r["error"])
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": gid, "to": sids[0]}, tokB)       # и подарить ему — тоже
+        self.assertEqual(st, 409)
+        p2 = next(c["price"] for c in self.req("GET", "/api/gifts", token=tokA)[1]["catalog"] if c["id"] == gid)
+        self.assertGreater(p2, p1)                                                            # распроданность — дороже
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": gid}, tokB)[0], 200)
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": gid}, tokB)
+        self.assertEqual(st, 409)
+        self.assertIn("распродан", r["error"])
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sids[1], "gift": gid})[0], 409)
+        self.assertNotIn(gid, {server.gift_random(None, db)[0] for _ in range(400)})          # в «🎲» не выпадает
+        # продал сразу — сгорел: живой тираж меньше, цена выше
+        G = self.req("GET", "/api/gifts", token=tokA)[1]
+        p3 = next(c["price"] for c in G["catalog"] if c["id"] == gid)
+        self.assertEqual(G["supply"][gid]["left"], 0)
+        mine = next(g for g in G["mine"] if g["gift"] == gid)
+        self.assertEqual(self.req("POST", "/api/gifts/sell", {"id": mine["id"]}, tokA)[0], 200)
+        G = self.req("GET", "/api/gifts", token=tokA)[1]
+        self.assertGreater(next(c["price"] for c in G["catalog"] if c["id"] == gid), p3)
+        self.assertEqual(G["supply"][gid]["live"], sup["live"] - 1)
+        ev = [r["event"] for r in db.q("SELECT event FROM gift_log WHERE gift=? AND sid IN (?, ?) ORDER BY id", (gid, *sids))]
+        self.assertEqual(ev, ["issue", "issue", "issue", "sell"])
+        # вкладка «Тиражи»: по виду и по дням
+        st, d = self.admin("GET", "/api/admin/supply?gift=" + gid)
+        self.assertEqual(st, 200, d)
+        row = next(x for x in d["rows"] if x["id"] == gid)
+        self.assertEqual((row["cap"], row["left"], row["issued"] - before["issued"], row["burned"] - before["burned"]), (before["issued"] + 3, 0, 3, 1))
+        self.assertGreaterEqual(row["sold"], 1)
+        self.assertEqual(row["top"]["c"] >= 1, True)
+        self.assertEqual(d["daily"][-1]["issue"] >= 3 and d["daily"][-1]["burn"] >= 1, True)
+        self.assertIsNotNone(d["daily"][-1]["price"])
 
     def test_gift_price_chart(self):
         # график цены подарка: 30 точек (по дням и сейчас), в точке — цена на конец дня и покупки за неделю до неё
@@ -3424,16 +3472,18 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/gifts/price?gift=ufo")[0], 401)
         self.assertEqual(self.req("GET", "/api/gifts/price?gift=nope", token=tok)[0], 404)
         self.assertEqual(self.req("GET", "/api/gifts/price?gift=" + server.LIMITED[0][0], token=tok)[0], 404)
-        db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'cookie', ?, ?)", (sid, time.time() - 20 * 86400, sid))
+        gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'cookie', ?, ?)", (sid, time.time() - 20 * 86400, sid))
+        server.glog(db, "issue", gid, "cookie", sid, 11, "shop", time.time() - 20 * 86400)
         ago = time.time() - 10 * 86400                                                  # 5 НЛО куплены 10 дней назад
         for _ in range(5):
-            db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'ufo', ?, ?)", (sid, ago, sid))
+            gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'ufo', ?, ?)", (sid, ago, sid))
+            server.glog(db, "issue", gid, "ufo", sid, 880, "shop", ago)
         server._PRICE_HIST.update(t=0)
         st, r = self.req("GET", "/api/gifts/price?gift=ufo", token=tok)
         self.assertEqual(st, 200, r)
         pts = r["pts"]
         # график — с открытия магазина (первой покупки), не дольше PRICE_DAYS дней
-        opened = db.q("SELECT MIN(ts) t FROM gifts WHERE from_sid IS NOT NULL", one=True)["t"]
+        opened = db.q("SELECT MIN(ts) t FROM gift_log WHERE event='issue'", one=True)["t"]
         self.assertLessEqual(len(pts), server.PRICE_DAYS)
         self.assertEqual(pts[0]["d"], max(time.strftime("%Y-%m-%d", time.localtime(opened)),
                                           (datetime.date.today() - datetime.timedelta(days=server.PRICE_DAYS - 1)).isoformat()))
@@ -3442,8 +3492,8 @@ class ServerTest(unittest.TestCase):
         k = len(pts) - 1 - 10                                                           # день покупки…
         self.assertEqual(pts[k]["n"] - pts[k - 1]["n"], 5)
         self.assertGreater(pts[k]["p"], pts[k - 1]["p"])                                # …с него НЛО дороже
-        self.assertEqual(pts[k + 6]["n"], pts[k]["n"])                                  # неделю считаются в спросе
-        self.assertEqual(pts[k + 7]["n"], pts[k]["n"] - 5)                              # потом выпадают
+        self.assertEqual(pts[k + 7]["n"], pts[k]["n"])                                  # выпущенные считаются навсегда
+        self.assertGreaterEqual(pts[k + 7]["p"], pts[k]["p"])
 
     def test_market_rules(self):
         # «купить сразу» — не дороже 3 оценок подарка; торги — сутки, без ставок лот снимается; «обычно продают за» — медиана сделок (от двух)

@@ -1164,6 +1164,52 @@
     try { await api(path, body); toast(ok); loadEcon(); } catch (err) { if (err.status !== 401) { if (msg) msg.textContent = err.message; else toast(err.message); } }
   }
   ['pointermove', 'pointerleave'].forEach(t => document.addEventListener(t, e => { if (e.target.closest && e.target.closest('[data-ch]')) chartHover(e); }, true));
+  // ---- тиражи: по видам и по дням (весь сайт)
+  async function loadSupply() {
+    const sel = $('#supGift'), one = sel.value;
+    let d;
+    try { d = await api('supply' + (one ? '?gift=' + encodeURIComponent(one) : '')); }
+    catch (err) { if (err.status !== 401) $('#supplyBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    if (sel.options.length < 2) sel.insertAdjacentHTML('beforeend', d.rows.filter(r => !r.limited).map(r => `<option value="${r.id}">${r.i} ${esc(r.t)}</option>`).join(''));
+    const T = d.total, n = v => numFmt(v);
+    const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
+    const R = d.daily, g = one ? d.rows.find(r => r.id === one) : null;
+    const series = [{ key: 'issue', cls: 'c1', label: 'выпущено', sign: 1 }, { key: 'upgrade', cls: 'c2', label: 'улучшено', sign: -1 },
+      { key: 'burn', cls: 'c3', label: 'сгорело', sign: -1 }];
+    const tip = i => [`${ddmm(R[i].d)}.${R[i].d.slice(0, 4)}`, [...series.map(s => [s.cls, s.label, n(R[i][s.key])]), ['', 'сделок на рынке', n(R[i].trade)],
+      ...(R[i].price != null ? [['', 'цена в магазине', n(R[i].price) + ' ₿']] : [])]];
+    const chart = chartBox('sup-d', `${g ? g.i + ' ' + esc(g.t) + ': ' : ''}выпуск и выбытие по дням`,
+      'Вверх — выпущено (магазин, 🎲, за труд, от учителя); вниз — улучшено и сгорело (продано сразу или удалено). Наведите — ещё сделки на рынке.',
+      colsChart('sup-d', R, series, tip), series.map(s => keyHtml(s.cls, s.label)).join(''));
+    const price = g && R.some(r => r.price != null) ? chartBox('sup-p', `${g.i} ${esc(g.t)}: цена в магазине, ₿`, 'На конец дня — по тиражу на тот день и индексу цен.',
+      lineChart('sup-p', R.map(r => ({ ...r, price: r.price == null ? 0 : r.price })), 'price', 'c1', i => [`${ddmm(R[i].d)}.${R[i].d.slice(0, 4)}`, [['c1', 'цена', n(R[i].price) + ' ₿']]], { fmt: v => n(v) + ' ₿' }), '') : '';
+    const src = r => [['🛍', r.src.shop], ['🎲', r.src.box], ['⚒', r.src.work], ['👩‍🏫', r.src.teacher], ['⭐', r.src.limited]].filter(x => x[1]).map(x => `${x[0]} ${x[1]}`).join(' · ');
+    const rows = d.rows.map(r => `<tr${one === r.id ? ' class="on"' : ''}><td>${r.i} ${esc(r.t)}</td>
+      <td class="num"><b>${n(r.cap)}</b></td><td class="num">${n(r.issued)}<div class="muted sup-src">${src(r) || '—'}</div></td>
+      <td class="num">${r.left ? n(r.left) : '<b class="sup-out">распродан</b>'}</td>
+      <td class="num">${n(r.regular)} · ${n(r.uniq)}</td>
+      <td class="num">${n(r.burned)}${r.burned ? `<div class="muted sup-src">продано ${r.sold} · удалено ${r.removed}</div>` : ''}</td>
+      <td class="num">${n(r.up)}</td><td class="num">${n(r.live)}</td>
+      <td class="num">${r.deals ? `${n(r.deals)} · ${n(r.volume)} ₿` : '—'}</td>
+      <td class="num">${n(r.owners)}${r.top ? `<div class="muted sup-src">макс. ${r.top.c} из ${r.own_max}${r.top.name ? ' — ' + esc(r.top.name) : ''}</div>` : ''}</td>
+      <td class="num"><b>${n(r.price)} ₿</b>${r.mult >= 1.005 ? `<div class="muted sup-src">×${xfmt(r.mult)} к каталогу</div>` : ''}</td>
+      <td>${r.rar ? `<span class="eco-rar r-${r.rar.k}">${esc(r.rar.t)}</span>` : ''}</td></tr>`).join('');
+    $('#supplyBody').innerHTML = `<div class="adm-cards">
+        ${card('Видов подарков', d.rows.filter(r => !r.limited).length, d.sold_out ? `распродано ${d.sold_out}` : 'ни один не распродан')}
+        ${card('Тираж всего', n(T.cap), `выпущено ${n(T.issued)}, в магазине осталось ${n(T.left)}`)}
+        ${card('В обороте', n(T.regular + T.uniq), `обычных ${n(T.regular)}, уникальных ${n(T.uniq)}`)}
+        ${card('Сгорело · улучшено', `${n(T.burned)} · ${n(T.up)}`, 'в тираж не возвращаются — оставшиеся реже и дороже')}
+        ${card('Рынок учеников', `${n(T.deals)} ${pluralRu(T.deals, 'сделка', 'сделки', 'сделок')}`, `на ${n(T.volume)} ₿`)}
+      </div>${chart}${price}
+      <div class="adm-box"><h3 class="adm-h3">По видам</h3><div class="adm-table-wrap"><table class="adm-table sup-table">
+        <thead><tr><th>Подарок</th><th class="num">Тираж</th><th class="num">Выпущено</th><th class="num">В магазине</th><th class="num">В обороте: обычн. · уник.</th>
+          <th class="num">Сгорело</th><th class="num">Улучшено</th><th class="num">Живой тираж</th><th class="num">Рынок: сделок · ₿</th>
+          <th class="num">Владельцев</th><th class="num">Цена</th><th>Редкость</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <p class="adm-hint">Редкость по живому тиражу: ${d.tiers.map(([low, , t]) => `${esc(t)} — от ${n(low)}`).join(', ')}. Источники выпуска: 🛍 магазин, 🎲 случайный,
+          ⚒ за труд, 👩‍🏫 от учителя, ⭐ лимитка. Имя самого крупного владельца видно, если это ваш ученик.</p></div>`;
+  }
+  $('#supGift').addEventListener('change', loadSupply);
+  $('#supReload').addEventListener('click', loadSupply);
   let ECO = null;
   async function loadEcon() {
     try { ECO = await api('econ'); } catch (err) { if (err.status !== 401) $('#econBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
@@ -1606,12 +1652,13 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'errors'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     if (t === 'errors') loadErrors(true);
     if (t === 'course') loadCourseProgress();
     if (t === 'pyc') loadPyc();
     if (t === 'gifts') loadGifts();
     if (t === 'econ') loadEcon();
+    if (t === 'supply') loadSupply();
     if (t === 'site') loadSite();
     if (t === 'build') openBuilder();
     if (t === 'teachers') loadTeachers();
