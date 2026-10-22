@@ -114,13 +114,15 @@
     return { cls: 'res-bad', text: 'неверно' + half, bad: true };
   }
   /** Отметки попытки: ⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — ответ вставлен из буфера;
-      🤖 — ответ «верный + K»: так отвечает нейросеть, которой дали условие со скрытой строкой-ловушкой. */
+      🤖 — ответ «верный + K»: так отвечает нейросеть, которой дали условие со скрытой строкой-ловушкой;
+      🦾 — похоже, решала программа, которая сама управляет экраном (детектор ботов; ученику не показывается). */
   const flagsOf = a => String(a.flags || '').split(',').filter(Boolean);
   function flagsHtml(a) {
     const f = flagsOf(a);
     return (f.includes('sus') ? ' <span class="flag sus" title="Ушёл со страницы на 30 секунд или дольше и сразу после возвращения ответил верно">⚠ ушёл и сразу верно</span>' : '')
       + (f.includes('paste') ? ' <span class="flag paste" title="Ответ не набран, а вставлен из буфера обмена (не из окна Python тренажёра)">📋 вставлен</span>' : '')
-      + (f.includes('ai') ? ' <span class="flag ai" title="Ответ — верный, увеличенный на число из скрытой строки-ловушки в условии. Ученик её не видит, а нейросеть, которой дали условие, читает и выполняет">🤖 ответ нейросети</span>' : '');
+      + (f.includes('ai') ? ' <span class="flag ai" title="Ответ — верный, увеличенный на число из скрытой строки-ловушки в условии. Ученик её не видит, а нейросеть, которой дали условие, читает и выполняет">🤖 ответ нейросети</span>' : '')
+      + (f.includes('bot') ? ` <span class="flag bot" title="Похоже, решала программа, которая сама управляет экраном: ${esc(a.bot_why || '')}. Ученик об этой проверке не знает">🦾 похоже на бота</span>` : '');
   }
   /** Подозрительно много показанных ответов: так выкачивают ответы, а не решают. */
   function suspicion(s) {
@@ -837,7 +839,7 @@
   // ------------------------------------------------------------ экономика: обзор, журнал изменений, кошелёк ученика
   const ECO_KIND = { gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа', grant: '➕ Начислил учитель', take: '➖ Снял учитель',
     teacher_gift: '🎁 Подарок от учителя', work: '🏅 Подарок за труд', removed: '🗑 Удалён учителем',
-    mbuy: '🏪 Купил на рынке', msell: '🏪 Продал на рынке', stipend: '🎓 Стипендия из банка', storage: '📦 Плата за хранение' };
+    mbuy: '🏪 Купил на рынке', msell: '🏪 Продал на рынке', stipend: '🎓 Стипендия из банка', storage: '📦 Плата за хранение', class: '🏆 Битва классов' };
   const ecoGift = g => g ? `${g.i} ${esc(g.t)}${g.uniq ? ` <b>#${g.uniq.n}</b> <span class="eco-rar r-${g.uniq.rar.k}">${esc(g.uniq.rar.t)}</span>` : ''}` : '';
   /** Что произошло — одной строкой: событие, подарок, кому, причина. */
   function ecoWhat(e) {
@@ -1089,7 +1091,7 @@
     const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
     const toGoal = (now, goal, f) => (!auto || goal == null ? '' : Math.abs(goal - now) < 0.005 ? ' · у цели' : ` · тянет к ${f(goal)} ${goal > now ? '↗' : '↘'}`);
     const state = E.r > R.limited_r ? 'денег у учеников много' : E.r < R.stipend_r ? 'денег у учеников мало' : 'в норме';
-    const S = T.bank.sums, inSum = (S.labor || 0) + (S.fee || 0) + (S.ops || 0) + (S.box || 0) + (S.storage || 0) + (S.take || 0), outSum = Math.abs((S.grant || 0) + (S.stipend || 0));
+    const S = T.bank.sums, inSum = (S.labor || 0) + (S.fee || 0) + (S.ops || 0) + (S.box || 0) + (S.storage || 0) + (S.take || 0), outSum = Math.abs((S.grant || 0) + (S.stipend || 0) + (S.class || 0));
     const day = ts => new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const cards = card('Среднее состояние', `${E.avg} ₿`, `кошелёк + подарки; медиана ${E.med} ₿ при норме ${E.target} ₿ — ${state}. `
         + `Кошельки: средний ${E.w_avg} ₿, медиана ${E.w_med} ₿; подарков на ${numFmt(E.worth)} ₿; активных ${E.active}`)
@@ -1899,6 +1901,8 @@
         <label class="adm-switch"><input type="checkbox" id="goalBattle"${c.battle ? ' checked' : ''}> Класс участвует в битве классов</label>
         <p class="adm-hint">Ученики видят классы-участники, их опыт за неделю, цель и прогресс во вкладке «Классы» рейтинга.
           Если ни один класс не участвует, вкладки нет. Считаются верно решённые задания с понедельника.
+          В понедельник первые три класса по опыту за неделю получают приз из банка рынка: 5000, 2500 и 1000 ₿ — поровну
+          на всех учеников класса, с округлением вверх (5000 на 15 — по 334 ₿). Нужно хотя бы два класса в битве.
           Сейчас: <b>${c.weekSolved}</b>${c.goal ? ` из ${c.goal}` : ''}.</p>
         <div class="login-form">
           <input class="inp" id="goalTasks" type="number" min="0" max="100000" placeholder="Заданий, например 300" value="${c.goal || ''}" style="max-width:190px">
@@ -2251,7 +2255,7 @@
         <td class="num">${r.tasks ? pct(csPercent(r)) + '%' : '<span class="muted">—</span>'}</td>
         <td class="num">${r.spent ? fmtSpent(r.spent) : ''}</td>
         <td class="num">${r.out_n ? `<span style="color:var(--review)" title="уходов со страницы: ${r.out_n}">${r.out_n} · ${fmtSpent(r.out_sec * 1000) || '0 с'}</span>` : ''}</td>
-        <td class="num">${r.sus || r.paste || r.ai ? `<span style="color:var(--weak)" title="⚠ ушёл на 30+ с и сразу верно · 📋 вставил ответ · 🤖 ответ нейросети (ловушка)">${[r.sus ? '⚠' + r.sus : '', r.paste ? '📋' + r.paste : '', r.ai ? '🤖' + r.ai : ''].filter(Boolean).join(' ')}</span>` : ''}</td>
+        <td class="num">${r.sus || r.paste || r.ai || r.bot ? `<span style="color:var(--weak)" title="⚠ ушёл на 30+ с и сразу верно · 📋 вставил ответ · 🤖 ответ нейросети (ловушка) · 🦾 похоже на бота">${[r.sus ? '⚠' + r.sus : '', r.paste ? '📋' + r.paste : '', r.ai ? '🤖' + r.ai : '', r.bot ? '🦾' + r.bot : ''].filter(Boolean).join(' ')}</span>` : ''}</td>
         <td class="muted">${r.nums.join(', ')}</td>
         <td class="num">${r.exam != null ? r.exam : ''}</td>
         <td class="num cs-grade">${g ? `<b class="g${g}">${g}</b>` : ''}</td></tr>`;
@@ -2263,16 +2267,16 @@
         <th>Ученик</th><th class="num">${asg ? 'Решено из подборки' : 'Решено'}</th><th class="num" title="Разных заданий, к которым приступал">Начал</th>
         <th class="num">С 1-й</th><th class="num">Со 2-й</th><th class="num">Неверно</th><th class="num" title="Открыл ответ, не решив">Ответ показан</th>
         <th class="num">%</th><th class="num">Время</th><th class="num" title="Сколько раз уходил со страницы и сколько всего был вне тренажёра">Вне тренажёра</th>
-        <th class="num" title="⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — вставил ответ из буфера; 🤖 — ответ нейросети (сработала ловушка)">Отметки</th><th>Номера</th>
+        <th class="num" title="⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — вставил ответ из буфера; 🤖 — ответ нейросети (сработала ловушка); 🦾 — похоже на бота">Отметки</th><th>Номера</th>
         <th class="num">Вариант</th><th class="num">Оценка</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   function csCsv() {
     if (!csData) return;
     const asg = csData.asg_total != null;
-    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходов со страницы', 'Вне тренажёра, мин', 'Ушёл и сразу верно', 'Вставил ответ', 'Ответ нейросети', 'Номера', 'Вариант', 'Оценка (подсказка)'];
+    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходов со страницы', 'Вне тренажёра, мин', 'Ушёл и сразу верно', 'Вставил ответ', 'Ответ нейросети', 'Похоже на бота', 'Номера', 'Вариант', 'Оценка (подсказка)'];
     const q = v => { v = String(v == null ? '' : v); if (/^[=+\-@]/.test(v)) v = "'" + v; return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     const lines = [head, ...csData.rows.map(r => [r.name, asg ? `${r.solved} из ${csData.asg_total}` : r.solved, r.tasks, r.ok1, r.ok2, r.bad, r.shown,
-      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.out_n, Math.round(r.out_sec / 60), r.sus, r.paste, r.ai, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
+      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.out_n, Math.round(r.out_sec / 60), r.sus, r.paste, r.ai, r.bot, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
     const csv = '﻿' + lines.map(l => l.map(q).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -2514,7 +2518,7 @@
     const rv = st.reveals || { granted: 0, blocked: 0, early: 0 };
     const act = st.activity || {};
     const nSus = A.filter(a => flagsOf(a).includes('sus')).length, nPaste = A.filter(a => flagsOf(a).includes('paste')).length,
-      nAi = A.filter(a => flagsOf(a).includes('ai')).length;
+      nAi = A.filter(a => flagsOf(a).includes('ai')).length, nBot = A.filter(a => flagsOf(a).includes('bot')).length;
     $('#stClass').innerHTML = '<option value="0">Без класса</option>' + classes
       .filter(c => !ME.is_main || c.teacher_id === s.teacher_id)
       .map(c => `<option value="${c.id}" ${c.id === s.class_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
@@ -2542,9 +2546,10 @@
         nSus ? `<span style="color:var(--weak)">⚠ ушёл и сразу верно: ${nSus}</span>` : '',
         nPaste ? `<span style="color:var(--weak)">📋 вставил ответ: ${nPaste}</span>` : '',
         nAi ? `<span style="color:var(--weak)">🤖 ответ нейросети: ${nAi}</span>` : '',
+        nBot ? `<span style="color:var(--weak)">🦾 похоже на бота: ${nBot}</span>` : '',
         act.away && act.away.exam ? `<span style="color:var(--weak)">во время варианта: ${act.away.exam}</span>` : '',
         act.shot ? `<span style="color:var(--weak)">клавиши снимка экрана: ${act.shot.count}</span>` : ''].filter(Boolean).join(' · '),
-        (act.shot && act.shot.count) || (act.away && act.away.exam) || nSus || nPaste || nAi ? 'var(--weak)' : ''),
+        (act.shot && act.shot.count) || (act.away && act.away.exam) || nSus || nPaste || nAi || nBot ? 'var(--weak)' : ''),
       card('Варианты ЕГЭ', exams.length ? exams[0].test_score : '—', exams.length
         ? `последний ${fmtDate(exams[0].finished)}: ${exams[0].primary_score} перв. · ${fmtMinutes((exams[0].finished - exams[0].started) * 1000)}${exams.length > 1 ? ` · всего ${exams.length}, лучший ${Math.max(...exams.map(e => e.test_score))}` : ''}`
           + (exams[0].away || exams[0].fs || exams[0].paste
@@ -2911,8 +2916,8 @@
       feedEvents(d.events, !evPolled);
       evPolled = true;
       // подозрительные ответы (ушёл со страницы и сразу верно, вставка ответа) — тоже в уведомления
-      ntfAdd(d.attempts.filter(a => /sus|paste|ai/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
-        text: `${/\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
+      ntfAdd(d.attempts.filter(a => /sus|paste|ai|bot/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
+        text: `${/\bbot\b/.test(a.flags) ? `🦾 похоже, решает программа (${a.bot_why || 'бот'})` : /\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
       if (d.attempts.length) {
         const first = feedSince === 0;
         d.attempts.forEach(a => { if (!first) freshIds.add(a.id); });

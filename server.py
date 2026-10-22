@@ -101,6 +101,12 @@ SUS_BACK_SEC = 60                   # …и ответил верно не по�
 # у каждого ученика и задания своё K (TRAP_MIN … TRAP_MIN + TRAP_SPAN − 1, не круглое). Решает сам — строки не видит;
 # скормил текст нейросети — она прибавит K. Пришло «верный ответ + K» — попытка с отметкой ai (учителю — 🤖), ученику — «неверно».
 TRAP_MIN, TRAP_SPAN = 11, 79
+# Детектор ботов (скрыто — ученику ничего не показываем): программа, которая сама управляет экраном, видит то же, что ученик,
+# но работает иначе. С ответом приходят только счётчики по заданию (bot): движений мыши mv, кликов мышью clk, из них «прыжком»
+# (без движения перед кликом) tclk, нажатий клавиш keys и разброс интервалов между ними kstd (мс), ответов, появившихся в поле
+# целиком без нажатий, inst, событий, созданных скриптом, synth, касаний touch, флаг автоматизации браузера wd. bot_reasons —
+# причины; есть — у попытки отметка bot (учителю — 🦾 с причиной).
+BOT_KSTD_MS = 6                            # печать ровнее этого (разброс интервалов, мс) — так печатает программа
 ACTIVITY_PER_HOUR = 300
 MAX_SOLUTION = 50_000                 # символов в решении (код или текст)
 ATTEMPTS_PER_TASK = 2               # попыток на задание; считает сервер, а не страница
@@ -150,6 +156,27 @@ def tokens(s):
     s = str(s or "").replace("\\n", " ").lower().replace("ё", "е")
     s = re.sub("[−–—]", "-", s)
     return [x for x in re.split(r"[\s;|,]+", s) if x]
+
+
+def bot_reasons(m):
+    """Почему ответ похож на работу программы (см. BOT_KSTD_MS): сильный признак — сразу, слабых — нужно два; иначе []."""
+    if not isinstance(m, dict):
+        return []
+    n = lambda k: to_float(m.get(k)) or 0
+    strong, weak = [], []
+    if m.get("wd"):
+        strong.append("браузер под управлением программы")
+    if n("synth") >= 1:
+        strong.append("нажатия созданы скриптом")
+    if not n("touch"):                                   # планшет и телефон — без мыши, это не признак
+        clicks = n("fclk") if "fclk" in m else n("clk")            # клики в новое место (тройной клик в одно — один)
+        if clicks >= 2 and n("tclk") >= clicks and n("mv") <= 2 * clicks:
+            (strong if clicks >= 3 else weak).append("клики без движения мыши — курсор «прыгает» на кнопки")
+        if n("inst") >= 1:
+            weak.append("ответ появился в поле целиком, без нажатий клавиш")
+    if n("keys") >= 5 and n("kstd") < BOT_KSTD_MS:
+        weak.append("печать с одинаковым до миллисекунды интервалом")
+    return strong + weak if strong or len(weak) >= 2 else []
 
 
 def trap_k(db, s, t):
@@ -1423,6 +1450,10 @@ class DB:
                 a_solved INTEGER, b_solved INTEGER, winner INTEGER, stake INTEGER, finished REAL);
             CREATE TABLE IF NOT EXISTS awards(
                 student_id INTEGER NOT NULL, kind TEXT NOT NULL, week TEXT NOT NULL, info INTEGER, PRIMARY KEY(student_id, kind, week));
+            -- призы битвы классов за неделю: место, призовой фонд и сколько получил каждый ученик класса
+            CREATE TABLE IF NOT EXISTS class_prizes(
+                week TEXT NOT NULL, class_id INTEGER NOT NULL, teacher_id INTEGER, name TEXT, place INTEGER, xp INTEGER,
+                pool INTEGER, each_btc INTEGER, members INTEGER, ts REAL, PRIMARY KEY(week, class_id));
             CREATE TABLE IF NOT EXISTS tournaments(
                 id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, size INTEGER NOT NULL, title TEXT, status TEXT NOT NULL,
                 created REAL, started REAL, finished REAL, round INTEGER DEFAULT 0, round_ends REAL);
@@ -1525,6 +1556,7 @@ class DB:
                     ("attempts", "away", "INTEGER"),       # сколько раз уходил со вкладки, пока решал
                     ("attempts", "away_sec", "REAL"),      # сколько секунд всего был вне страницы, пока решал
                     ("attempts", "flags", "TEXT"),         # отметки через запятую: sus — ушёл и сразу верно, paste — ответ вставлен
+                    ("attempts", "bot_why", "TEXT"),       # детектор ботов: почему похоже на программу (видит только учитель)
                     ("students", "teacher_id", "INTEGER"), # учитель, по чьему коду зарегистрировался; NULL — главный
                     ("classes", "teacher_id", "INTEGER"),
                     ("admin_sessions", "teacher_id", "INTEGER"),
@@ -2271,8 +2303,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     # ---------- журнал и показ ответов
     def log_attempt(self, s, t, answers, score, *, gave_up=False, abandoned=False, reason="", rk=None,
-                    part=None, revealed=0, spent=None, exam=None, away=None, st=None, ai=False):
+                    part=None, revealed=0, spent=None, exam=None, away=None, st=None, ai=False, bot=None):
         away_sec, fl = None, []
+        bot = bot or (st and st.get("bot")) or None
+        if bot:                                    # детектор ботов: причины — учителю, ученику не показываем
+            fl.append("bot")
         if st:
             away_sec = st.get("away_sec") or None
             if score > 0 and st.get("back_sec") is not None and st["back_sec"] <= SUS_BACK_SEC:
@@ -2283,11 +2318,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             fl.append("ai")
         flags = ",".join(fl) or None
         aid = APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,
-                                               spent_ms,reason,rk,part,grp,revealed,exam,ip,away,away_sec,flags)
-                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                               spent_ms,reason,rk,part,grp,revealed,exam,ip,away,away_sec,flags,bot_why)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (s["id"], time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps(answers, ensure_ascii=False),
                          t.get("ans", ""), score, int(gave_up), int(abandoned), spent, reason, rk, part,
-                         t.get("group"), int(revealed), exam, self.client_ip(), away or None, away_sec, flags))
+                         t.get("group"), int(revealed), exam, self.client_ip(), away or None, away_sec, flags,
+                         "; ".join(bot) if bot else None))
         live_teacher(s)                          # учитель видит ответ в ленте сразу
         LIVE.send([s["id"]], "mine")             # другие вкладки и устройства ученика: опыт, уровень, плитки номеров
         if score > 0 and not s["is_teacher"]:
@@ -3166,6 +3202,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             league_rollover(db)
+            class_rollover(db)
             tid = teacher_of(s)["id"]
             # список учеников учителя собираем не чаще раза в LB_TTL секунд (рейтинг перезапрашивают после каждого ответа),
             # а свою строку ученик всегда видит свежей
@@ -3254,7 +3291,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 classes.append({"name": c["name"], "xp": sum(p["wk"] for p in cm), "members": len(cm), "solved": solved,
                                 "goal": c["goal_tasks"] or 0, "reward": c["goal_reward"] or "", "mine": c["id"] == s["class_id"]})
             classes.sort(key=lambda c: -c["xp"])
-            boards["classes"] = {"list": classes}
+            for i, c in enumerate(classes[:len(CLASS_PRIZES)]):      # призы недели: сколько получит каждый, если так и останется
+                if len(classes) >= CLASS_MIN and c["xp"] > 0:
+                    c["prize"], c["each"] = CLASS_PRIZES[i], math.ceil(CLASS_PRIZES[i] / c["members"])
+            last = db.q("""SELECT name, place, pool, each_btc, members, week FROM class_prizes WHERE teacher_id=? AND week=(
+                               SELECT MAX(week) FROM class_prizes WHERE teacher_id=?) ORDER BY place""", (teacher_of(s)["id"], teacher_of(s)["id"]))
+            boards["classes"] = {"list": classes, "prizes": list(CLASS_PRIZES), "min": CLASS_MIN, "ends": week_start() + 7 * 86400,
+                                 "last": [dict(r) for r in last]}
             return self.send_json({"boards": boards, "spectator": spectator})
 
         if path in ("/api/daily", "/api/daily/start"):
@@ -3771,6 +3814,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         back = data.get("back_sec")
         st["back_sec"] = round(min(max(float(back), 0), 86400), 1) if isinstance(back, (int, float)) else None
         st["paste"] = bool(st.get("paste") or data.get("paste"))
+        st["bot"] = bot_reasons(data.get("bot")) or st.get("bot")      # детектор ботов — скрыто, только учителю
         n = t.get("n") or 0
 
         if data.get("abandoned"):
@@ -3946,9 +3990,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if not data.get("change"):
                     return self.err(409, "Ответ на это задание уже сдан")
                 old = answers[tid]
-                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": old.get("ms"), "ch": 1, "prev": old.get("a")}
+                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": old.get("ms"), "ch": 1, "prev": old.get("a"),
+                                "bot": bot_reasons(data.get("bot")) or old.get("bot")}
             else:
-                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None}
+                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None, "bot": bot_reasons(data.get("bot"))}
             db.x("UPDATE asg_runs SET answers=?, last=? WHERE asg_id=? AND student_id=?",
                  (json.dumps(answers, ensure_ascii=False), now, aid, s["id"]))
             live_teacher(s)                      # «● Онлайн» у учителя: сдано на одно задание больше
@@ -3994,7 +4039,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             primary += pts
             if not blank:                     # нетронутое задание варианта — не ошибка: в журнал и статистику не идёт
                 self.log_attempt(s, t, [ans], 1.0 if credit == 1.0 else 0.0, reason="exam",
-                                 part=credit, revealed=int(show), exam=e["id"], ai=credit < 1.0 and trap_hit(db, s, t, ans))
+                                 part=credit, revealed=int(show), exam=e["id"], ai=credit < 1.0 and trap_hit(db, s, t, ans),
+                                 bot=bot_reasons(it.get("bot")))
             r = {"task": APP.bank.pid(tid), "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank}
             if show and not blank:
                 r["answer"] = t.get("ans", "")
@@ -5253,6 +5299,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                          SUM(',' || COALESCE(flags, '') || ',' LIKE '%,sus,%') AS sus,
                                          SUM(',' || COALESCE(flags, '') || ',' LIKE '%,paste,%') AS paste,
                                          SUM(',' || COALESCE(flags, '') || ',' LIKE '%,ai,%') AS ai,
+                                         SUM(',' || COALESCE(flags, '') || ',' LIKE '%,bot,%') AS bot,
                                          MIN(ts) AS first, MAX(ts) AS last, GROUP_CONCAT(DISTINCT n) AS nums
                                   FROM attempts WHERE {cond} GROUP BY student_id""", args):
                     rows[r["student_id"]] = dict(r)
@@ -5271,7 +5318,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             "solved": r.get("solved") or 0, "ok1": r.get("ok1") or 0, "ok2": r.get("ok2") or 0,
                             "bad": r.get("bad") or 0, "shown": r.get("shown") or 0, "spent": r.get("spent") or 0,
                             "away": r.get("away") or 0, "first": r.get("first"), "last": r.get("last"), "nums": nums,
-                            "exam": r.get("exam"), "sus": r.get("sus") or 0, "paste": r.get("paste") or 0, "ai": r.get("ai") or 0,
+                            "exam": r.get("exam"), "sus": r.get("sus") or 0, "paste": r.get("paste") or 0, "ai": r.get("ai") or 0, "bot": r.get("bot") or 0,
                             "out_n": r.get("out_n") or 0, "out_sec": r.get("out_sec") or 0})
             return self.send_json({"rows": out, "asg_total": len(asg_tasks) if asg_tasks is not None else None})
 
@@ -7052,7 +7099,8 @@ def market_hist(db, fresh=False):
 BANK_WHY = {"start": "🏦 Стартовый капитал", "labor": "⚒ Половина заработка учеников", "fee": "🏪 Комиссия рынка",
             "ops": "🎁 Комиссия с подарков", "box": "🎲 Случайные подарки", "storage": "📦 Плата за хранение",
             "take": "➖ Снял учитель",
-            "mint": "➕ Пополнение банка", "grant": "🎁 Начислил учитель", "stipend": "🎓 Стипендия", "burn": "🔥 Изъято из банка"}
+            "mint": "➕ Пополнение банка", "grant": "🎁 Начислил учитель", "stipend": "🎓 Стипендия", "burn": "🔥 Изъято из банка",
+            "class": "🏆 Битва классов"}
 
 
 def thermo_info(db, T):
@@ -7892,6 +7940,58 @@ def league_row(db, sid):
     return r
 
 
+# Битва классов: по итогам недели (опыт всех учеников класса с понедельника) первые три класса получают призовой фонд
+# из банка рынка — он делится поровну на всех учеников класса, с округлением вверх (5000 / 15 = 333,3 → по 334 ₿).
+# Битва — у каждого учителя своя; приз — только если в ней хотя бы CLASS_MIN классов и у класса есть опыт за неделю.
+CLASS_PRIZES = (5000, 2500, 1000)
+CLASS_MIN = 2
+
+
+def class_week_xp(db, tid, w0, w1):
+    """Классы битвы учителя tid и их опыт за [w0, w1): [(опыт, класс, ученики)], больше опыта — выше."""
+    people = rank_students(db, tid)
+    out = []
+    for c in db.q("SELECT id, name FROM classes WHERE COALESCE(teacher_id, ?) = ? AND battle = 1", (main_teacher()["id"], tid)):
+        cm = [p["id"] for p in people if p["class_id"] == c["id"]]
+        if cm:
+            xp = sum(game_summary(db, sid, brief=True, windows={"prev": (w0, w1)})["win"]["prev"] for sid in cm)
+            out.append((xp, c, cm))
+    out.sort(key=lambda x: (-x[0], x[1]["id"]))
+    return out
+
+
+def class_rollover(db):
+    """В понедельник — призы битвы классов за прошлую неделю. Лениво, один раз за неделю; при самом первом запуске — без призов."""
+    cur = week_key()
+    with _COMP_LOCK:
+        prev = db.setting("class_week")
+        if prev == cur:
+            return
+        db.setting("class_week", cur)
+    if prev is None:
+        return
+    w1 = week_start()
+    w0 = week_start(w1 - 3 * 86400)
+    now = time.time()
+    for t in db.q("SELECT id FROM teachers"):
+        ranked = class_week_xp(db, t["id"], w0, w1)
+        if len(ranked) < CLASS_MIN:
+            continue
+        for place, (xp, c, cm) in enumerate(ranked[:len(CLASS_PRIZES)], 1):
+            if xp <= 0:
+                break
+            pool = CLASS_PRIZES[place - 1]
+            each = math.ceil(pool / len(cm))
+            if not db.xn("""INSERT OR IGNORE INTO class_prizes(week, class_id, teacher_id, name, place, xp, pool, each_btc, members, ts)
+                            VALUES(?,?,?,?,?,?,?,?,?,?)""", (prev, c["id"], t["id"], c["name"], place, xp, pool, each, len(cm), now)):
+                continue                                   # уже выдано (два запроса разом)
+            note = f"{place}-е место класса «{c['name']}» в битве классов: {pool} ₿ на {len(cm)}"
+            for sid in cm:
+                db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'class', ?, 0)", (sid, now, each, note))
+            bank_move(db, -each * len(cm), "class", f"{place}-е место «{c['name']}»: по {each} ₿ · учеников: {len(cm)}", tid=t["id"], ts=now)
+            LIVE.send(cm, "mine")
+
+
 def league_rollover(db):
     """В понедельник: первые LEAGUE_UP[лига] поднимаются, последние трое опускаются. Лениво, один раз за неделю."""
     cur = week_key()
@@ -8090,6 +8190,8 @@ def comp_flags(db, row, side):
             out.add("уходил со страницы")
         if "ai" in fl:
             out.add("ответ нейросети")
+        if "bot" in fl:
+            out.add("похоже на бота")
         if (a["score"] or 0) > 0 and a["spent_ms"] is not None and a["spent_ms"] < SUS_FAST_MS:
             out.add("ответ за секунды")
     return sorted(out)
@@ -8843,7 +8945,7 @@ def asg_finish_run(handler, db, a, s, real, forced=0):
         t = APP.bank.tasks.get(k)
         x = answers[k]
         handler.log_attempt(s, t, [x.get("a") or ""], 1.0 if credit == 1 else 0.0, reason=WORK_REASON, part=credit,
-                            spent=x.get("ms"), ai=credit != 1 and trap_hit(db, s, t, x.get("a") or ""))
+                            spent=x.get("ms"), ai=credit != 1 and trap_hit(db, s, t, x.get("a") or ""), bot=x.get("bot"))
     db.x("UPDATE asg_runs SET xp=? WHERE asg_id=? AND student_id=?", (game_summary(db, s["id"])["xp"] - xp0, a["id"], s["id"]))
     make_fix_set(db, a, s, res)                    # ошибки — сразу в личную «работу над ошибками»
 

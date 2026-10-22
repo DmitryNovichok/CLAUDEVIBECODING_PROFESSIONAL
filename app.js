@@ -1528,7 +1528,8 @@
   function payloadFor(obj, extra) {
     const rk = cur.group ? cur.revKey : (cur.why.type === 'review' ? cur.why.r.key : '');
     return Object.assign({ task: obj.id, reason: cur.why.type, rk, spent_ms: Date.now() - cur.started, away: cur.away || 0,
-      away_sec: Math.round(cur.awaySec || 0), back_sec: cur.backAt ? (Date.now() - cur.backAt) / 1000 : null, paste: cur.paste ? 1 : 0 }, extra);
+      away_sec: Math.round(cur.awaySec || 0), back_sec: cur.backAt ? (Date.now() - cur.backAt) / 1000 : null, paste: cur.paste ? 1 : 0,
+      bot: botPayload(cur.task.id) }, extra);
   }
   async function callCheck(obj, extra) {              // может выбросить ошибку сети
     if (!SERVER) return localCheck(obj, extra);
@@ -3516,7 +3517,7 @@
     for (const x of EX.items) {
       const t = byId.get(x.id);
       if (!t) continue;
-      for (const k of examKeys(t)) list.push({ task: k, answer: (EX.ans[k] || {}).answer || '', cells: (EX.ans[k] || {}).cells || null });
+      for (const k of examKeys(t)) list.push({ task: k, answer: (EX.ans[k] || {}).answer || '', cells: (EX.ans[k] || {}).cells || null, bot: botPayload(x.id) });
     }
     let res;
     try {
@@ -5737,16 +5738,26 @@
         : '<p class="fm-muted lb-empty">В лиге пока никого — реши задание, и ты в игре.</p>'}
       ${L.total > L.top.length ? `<p class="fm-muted lb-mine">Показаны первые ${L.top.length} из ${L.total}.</p>` : ''}`;
   }
+  /** Призы битвы классов: правила и итоги прошлой недели. */
+  function classPrizeNote(C) {
+    const P = C.prizes || [], last = C.last || [];
+    const ends = C.ends ? new Date(C.ends * 1000).toLocaleDateString('ru-RU', { weekday: 'long' }) : 'понедельник';
+    const rules = P.length ? `Итоги — в ${ends}: 1-е место — ${num(P[0])} ₿ классу, 2-е — ${num(P[1])} ₿, 3-е — ${num(P[2])} ₿. Приз делится поровну
+      на всех учеников класса (с округлением вверх) и приходит сам. Считается опыт всех учеников класса с понедельника${C.min ? `; нужно хотя бы ${C.min} класса в битве` : ''}.` : '';
+    const prev = last.length ? `<div class="cl-last"><b>Прошлая неделя:</b> ${last.map(r => `${placeHtml(r.place)} ${esc(r.name)} — по ${num(r.each_btc)} ₿`).join(' · ')}</div>` : '';
+    return `${prev}<p class="fm-muted lb-mine">${rules} Цель и награду за неё задаёт учитель.</p>`;
+  }
   function classesHtml(C) {
     if (!C.list.length) return '<p class="fm-muted lb-empty">Классов пока нет: битва начнётся, когда учитель распределит учеников по классам.</p>';
     return C.list.map((c, i) => {
       const goal = c.goal ? `<div class="cl-goal"><i class="xp-bar"><b style="width:${Math.min(100, pct(c.solved / c.goal))}%"></b></i>
         <span>${c.solved} / ${c.goal} заданий${c.reward ? ` — ${esc(c.reward)}` : ''}${c.solved >= c.goal ? ' ✅' : ''}</span></div>` : '';
+      const prize = c.prize ? `<div class="cl-prize">🏆 ${num(c.prize)} ₿ классу — по <b>${num(c.each)} ₿</b> каждому</div>` : '';
       return `<div class="cl-row${c.mine ? ' me' : ''}"><span class="lb-place">${placeHtml(i + 1)}</span>
         <div class="cl-main"><b>${esc(c.name)}</b>${c.mine ? ' <span class="chip good">твой класс</span>' : ''}
-          <span class="fm-muted"> · ${c.members} ${plural(c.members, 'ученик', 'ученика', 'учеников')}</span>${goal}</div>
+          <span class="fm-muted"> · ${c.members} ${plural(c.members, 'ученик', 'ученика', 'учеников')}</span>${prize}${goal}</div>
         <span class="num">+${c.xp} XP</span></div>`;
-    }).join('') + '<p class="fm-muted lb-mine">Опыт всех учеников класса с понедельника. Цель и награду задаёт учитель.</p>';
+    }).join('') + classPrizeNote(C);
   }
   /** Переключатель лиг: своя — по умолчанию, остальные можно посмотреть (без своей строки). */
   function leaguesHtml(B, view) {
@@ -7221,7 +7232,7 @@
     setBusy(true);
     let r = null;
     try {
-      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing }, x));
+      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing, bot: botPayload(cur.task.id) }, x));
     } catch (e) {
       setBusy(false);
       if (e.status === 409) { await wkRefresh(a); if (!wkLive()) return; toast(e.message, 4000); next(); return; }
@@ -7758,7 +7769,7 @@
   }
   function logTab(G) {
     const why = { grant: '➕ Учитель', take: '➖ Учитель', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
-      mbuy: '🏪 Купил у', msell: '🏪 Продал —', storage: '📦 Хранение', stipend: '🎓 Стипендия' };
+      mbuy: '🏪 Купил у', msell: '🏪 Продал —', storage: '📦 Хранение', stipend: '🎓 Стипендия', class: '🏆 Битва классов' };
     const sum = [G.task_coins ? `🧩 за задания <b class="xp-plus">+${num(G.task_coins)}</b>` : '', G.exam_coins ? `🎓 за варианты <b class="xp-plus">+${num(G.exam_coins)}</b>` : '',
       G.fines ? `⏱ штрафы <b class="xp-minus">−${num(G.fines)}</b>` : ''].filter(Boolean);
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts).slice(0, 5)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (r.reason === 'mbuy' || r.reason === 'msell' ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
@@ -8026,6 +8037,7 @@
     list.forEach((c, i) => setTimeout(() => toast(c.reason === 'msell' ? `🏪 Твой подарок купили на рынке: +${c.delta} ₿ (покупатель — ${c.note})`
       : c.reason === 'storage' ? `📦 Плата за хранение большой суммы: −${-c.delta} ₿. Биткоины выгоднее тратить, чем копить`
       : c.reason === 'stipend' ? `🎓 Стипендия из банка рынка: +${c.delta} ₿ — ${c.note}`
+      : c.reason === 'class' ? `🏆 Битва классов: +${c.delta} ₿ — ${c.note}`
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
   }
@@ -8939,6 +8951,65 @@
     ['pointerdown', 'keydown'].forEach(t => document.addEventListener(t, go, true));
   }
   sndRender();
+  // ═══════ src/app/12h-bot.js
+  // ------------------------------------------------------------ детектор ботов (скрыто: ученику ничего не показываем)
+  // Программа, которая сама управляет экраном (смотрит снимки экрана, двигает мышь и печатает), видит то же, что ученик, —
+  // запретить её нельзя, но работает она иначе: курсор «прыгает» прямо на кнопку без промежуточных движений, буквы идут
+  // с одинаковым до миллисекунды интервалом или ответ появляется в поле целиком, нажатия бывают созданы скриптом
+  // (isTrusted = false), у браузера под автоматизацией — navigator.webdriver. По каждому заданию копим только счётчики
+  // и интервалы — не что печатали — и отправляем с ответом (botPayload); решает сервер (bot_reasons), учитель видит 🦾.
+  const BOT = { tasks: {}, dx: null, dy: null, since: 0, lastKey: 0 };     // dx, dy — где был прошлый клик; since — движений после него
+  const botTask = () => { const id = openTaskId(); return id ? (BOT.tasks[id] = BOT.tasks[id] || { mv: 0, clk: 0, fclk: 0, tclk: 0, keys: 0, gaps: [], inst: 0, synth: 0, touch: 0, kt: 0 }) : null; };
+  const botField = el => !!(el && el.closest && el.closest('#trainer .answer-row, #pyCode'));
+  /** Счётчики задания id для отправки с ответом: разброс интервалов печати — в мс. */
+  function botPayload(id) {
+    const m = BOT.tasks[id];
+    if (!m) return navigator.webdriver ? { wd: 1 } : null;
+    const g = m.gaps, mean = g.length ? g.reduce((a, b) => a + b, 0) / g.length : 0;
+    const std = g.length ? Math.sqrt(g.reduce((a, b) => a + (b - mean) * (b - mean), 0) / g.length) : 0;
+    return { mv: m.mv, clk: m.clk, fclk: m.fclk, tclk: m.tclk, keys: m.keys, kstd: Math.round(std * 10) / 10, inst: m.inst, synth: m.synth, touch: m.touch,
+      wd: navigator.webdriver ? 1 : 0 };
+  }
+  document.addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse') return;
+    const m = botTask();
+    BOT.since++;
+    if (m) m.mv++;
+  }, { capture: true, passive: true });
+  document.addEventListener('pointerdown', e => {
+    const m = botTask();
+    if (m && !e.isTrusted) { m.synth++; return; }
+    if (e.pointerType !== 'mouse') { if (m) m.touch++; return; }
+    // курсор оказался на новом месте, а движений после прошлого клика — одно-два: к кнопке не вели, он «прыгнул»
+    const far = BOT.dx == null || Math.hypot(e.clientX - BOT.dx, e.clientY - BOT.dy) > 40;
+    if (m) {
+      m.clk++;
+      if (far) m.fclk++;                                       // клик в новое место (тройной клик в одно — не в счёт)
+      if (far && BOT.since <= 1) m.tclk++;
+    }
+    BOT.dx = e.clientX;                                          // и вне задания: следующий клик сравнивается с этим
+    BOT.dy = e.clientY;
+    BOT.since = 0;
+  }, { capture: true, passive: true });
+  document.addEventListener('keydown', e => {
+    if (!botField(e.target)) return;
+    const m = botTask();
+    if (!m) return;
+    if (!e.isTrusted) { m.synth++; return; }
+    BOT.lastKey = performance.now();
+    if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+    m.keys++;
+    if (m.kt && BOT.lastKey - m.kt < 600 && m.gaps.length < 60) m.gaps.push(BOT.lastKey - m.kt);   // паузы между словами — не в счёт
+    m.kt = BOT.lastKey;
+  }, { capture: true, passive: true });
+  document.addEventListener('input', e => {
+    if (!botField(e.target)) return;
+    const m = botTask();
+    if (!m) return;
+    if (!e.isTrusted) { m.synth++; return; }
+    // ответ появился целиком без нажатий (не вставка из буфера, не набор через IME) — так заполняет поле программа
+    if (/^insert(Text|ReplacementText)$/.test(e.inputType || '') && (e.data || '').length >= 3 && performance.now() - BOT.lastKey > 80) m.inst++;
+  }, { capture: true, passive: true });
   // ═══════ src/app/13-live.js
   // ------------------------------------------------------------ живые обновления (SSE)
   /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя, support — ответ техподдержки,

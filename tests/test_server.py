@@ -1912,6 +1912,84 @@ class ServerTest(unittest.TestCase):
             self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [{"task": p5, "answer": str(12 + ek[p5])}]}, tok)
             self.assertEqual(server.APP.db.q("SELECT flags FROM attempts WHERE exam=?", (e["exam_id"],), one=True)["flags"], "ai")
 
+    def test_class_prizes(self):
+        # битва классов: в понедельник первые три класса по опыту за прошлую неделю получают 5000 / 2500 / 1000 ₿ из банка —
+        # поровну на всех учеников класса с округлением вверх; один раз за неделю; класс без опыта — без приза
+        db = server.APP.db
+        w1 = server.week_start()
+        w0 = server.week_start(w1 - 3 * 86400)
+        groups = []
+        for cname, n, solved in (("Призовой А", 3, 4), ("Призовой Б", 2, 2), ("Призовой В", 1, 1), ("Призовой Г", 2, 0)):
+            cid = self.admin("POST", "/api/admin/class/save", {"name": cname})[1]["id"]
+            self.admin("POST", "/api/admin/class/goal", {"id": cid, "battle": True})
+            sids = []
+            for k in range(n):
+                tok = self.login(f"{cname.split()[1]}классов {('Кирилл', 'Марк', 'Лев')[k]}")
+                sids.append(self.req("GET", "/api/me", token=tok)[1]["sid"])
+            self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": sids})
+            for k in range(solved):                                       # прошлая неделя: решено solved заданий на класс
+                db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,?,1,?)",
+                     (sids[0], w0 + 3600 + k * 60, f"cp:{cid}:{k}", 27, 30 * 60000))
+            groups.append((cid, sids))
+        self.addCleanup(lambda: [self.admin("POST", "/api/admin/class/goal", {"id": c, "battle": False}) for c, _ in groups])
+        self.addCleanup(lambda: [db.x("UPDATE students SET no_rank=1 WHERE id=?", (x,)) for _, sids in groups for x in sids])   # не теснить чужие тесты в рейтинге
+        server._GS_CACHE.clear()
+        bank0 = server.bank_balance(db)
+        db.setting("class_week", "2000-01-03")                            # «прошлая неделя ещё не подведена»
+        server.class_rollover(db)
+        got = lambda sid: db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=? AND reason='class'", (sid,), one=True)["s"]
+        ranked = server.class_week_xp(db, server.main_teacher()["id"], w0, w1)
+        order = [c["name"] for xp, c, cm in ranked if c["name"].startswith("Призовой")]
+        self.assertEqual(order[:3], ["Призовой А", "Призовой Б", "Призовой В"])
+        prize = {r["name"]: r for r in db.q("SELECT * FROM class_prizes WHERE week='2000-01-03'")}
+        mine = {g[0]: g[1] for g in groups}
+        place_of = {c["name"]: i + 1 for i, (xp, c, cm) in enumerate(ranked)}
+        for (cid, sids), cname in zip(groups, ("Призовой А", "Призовой Б", "Призовой В", "Призовой Г")):
+            pl = place_of[cname]
+            if pl <= 3 and cname != "Призовой Г":
+                pool = server.CLASS_PRIZES[pl - 1]
+                n_all = prize[cname]["members"]
+                self.assertEqual(prize[cname]["each_btc"], math.ceil(pool / n_all))
+                self.assertEqual([got(x) for x in sids], [math.ceil(pool / n_all)] * len(sids))
+            else:
+                self.assertEqual([got(x) for x in sids], [0] * len(sids))      # без опыта или ниже третьего — без приза
+        self.assertLess(server.bank_balance(db), bank0)                         # приз — из банка рынка
+        n_coins = db.q("SELECT COUNT(*) c FROM coins WHERE reason='class'", one=True)["c"]
+        server.class_rollover(db)                                               # второй раз за неделю — ничего
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM coins WHERE reason='class'", one=True)["c"], n_coins)
+        self.assertEqual(math.ceil(5000 / 15), 334)
+
+    def test_bot_detector(self):
+        # детектор ботов: признаки программы — отметка bot с причиной (учителю), ученику в ответе — ничего; человек и планшет — без отметки
+        R = server.bot_reasons
+        human = {"mv": 180, "clk": 2, "tclk": 0, "keys": 3, "kstd": 60, "inst": 0, "synth": 0, "touch": 0, "wd": 0}
+        self.assertEqual(R(human), [])
+        self.assertEqual(R(None), [])
+        self.assertEqual(R({"mv": 0, "clk": 0, "touch": 4, "inst": 1}), [])                     # планшет: без мыши — не признак
+        self.assertEqual(len(R({"mv": 3, "clk": 3, "tclk": 3})), 1)                              # три «прыжка» — сразу
+        self.assertEqual(R({"mv": 2, "clk": 2, "tclk": 2}), [])                                  # один слабый признак — мало
+        self.assertEqual(len(R({"mv": 2, "clk": 2, "tclk": 2, "keys": 8, "kstd": 1.5})), 2)      # два слабых — отметка
+        self.assertIn("браузер под управлением программы", R({"wd": 1}))
+        tok = self.login("Роботов Роман")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        p5, p6 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": p5}, tok)
+        st, d = self.check(tok, p5, answer="12", bot={"mv": 1, "clk": 3, "tclk": 3, "keys": 6, "kstd": 0.8})
+        self.assertEqual(st, 200)
+        self.assertNotIn("bot", json.dumps(d))                                                  # скрыто: ученик ничего не узнаёт
+        self.req("POST", "/api/open", {"task": p6}, tok)
+        self.check(tok, p6, answer="7", bot=human)
+        at = {a["task_id"]: a for a in self.admin("GET", f"/api/admin/student?id={sid}&from=0")[1]["attempts"]}
+        self.assertEqual(at["b:5"]["flags"], "bot")
+        self.assertIn("клики без движения мыши", at["b:5"]["bot_why"])
+        self.assertIsNone(at["b:6"]["flags"])
+        # вариант: метрики приходят с каждым ответом
+        st, e = self.req("POST", "/api/exam/start", {}, tok)
+        self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [{"task": "b:5", "answer": "12", "bot": {"wd": 1}}]}, tok)
+        row = server.APP.db.q("SELECT flags, bot_why FROM attempts WHERE exam=?", (e["exam_id"],), one=True)
+        if row:                                                                                # b:5 мог не попасть в вариант
+            self.assertEqual((row["flags"], row["bot_why"]), ("bot", "браузер под управлением программы"))
+
     def test_integrity_flags(self):
         # ⚠ — вернулся после долгого ухода и сразу верно; 📋 — ответ вставлен; сводка «вне тренажёра» и строгий режим варианта
         tok = self.login("Честнов Чеслав")
