@@ -57,7 +57,7 @@
     }
     writeStudent(student);
     schoolWatch(!!me.shared);
-    if (me.rules) Object.assign(RULES, me.rules);
+    if (me.rules) { Object.assign(RULES, me.rules); sndRules(false); }
     ADMINS = new Set(me.admins || []);
     CONSENT_NEEDED = !!me.consent_needed;
     if (me.game) GAME = me.game;

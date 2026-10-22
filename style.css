@@ -931,6 +931,8 @@ body.tt-big .py-dock { z-index: 80; }
 .sm-num { font-size: 22px; font-weight: 900; }
 .sm-sub { font-size: 13px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
 .sm-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 14px 0 10px; text-align: center; }
+.sm-bonus { margin: 10px 0 0; padding: 9px 12px; border-radius: 12px; background: var(--accent-soft); color: var(--text); font-size: 13.5px; line-height: 1.4; }
+.sm-bonus b { color: var(--accent-text); } .sm-bonus small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
 .sw-day { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
 .sw-day i { width: 30px; height: 30px; border-radius: 50%; background: var(--track); display: grid; place-items: center; color: #fff; }
 .sw-day.ok i { background: #ff9600; }
@@ -2088,6 +2090,11 @@ body.asg-wide .course.asg-page { max-width: none; }
 .support-btn:hover { border-color: var(--accent); }
 .support-btn .dot { position: absolute; top: 6px; right: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--weak); }
 .support-btn:not([hidden]) + .side-actions { margin-top: 0; }
+.sp-tabs { display: flex; gap: 6px; margin: 4px 0 14px; padding: 4px; border: 2px solid var(--border); border-radius: 14px; }
+.sp-tabs button { position: relative; flex: 1; padding: 9px 12px; border: 0; border-radius: 10px; background: transparent; color: var(--muted);
+  font: 800 14px var(--font); cursor: pointer; }
+.sp-tabs button.on { background: var(--accent-soft); color: var(--accent-text); }
+.sp-tab-dot { position: absolute; top: 7px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--weak); }
 .sp-form { display: flex; flex-direction: column; gap: 10px; }
 .sp-form textarea { min-height: 120px; resize: vertical; font: inherit; }
 .sp-form select { font: inherit; font-weight: 700; }
@@ -3046,3 +3053,24 @@ body.cr-open { overflow: hidden; }
   .cr-it.hero { width: 112px; height: 112px; } .cr-it.hero .e { font-size: 66px; }
   .cr-acts .cr-btn { flex: 1; padding: 12px 10px; }
 }
+
+/* ---- спокойные звуки для занятий (12g-sound.js): кнопка 🎧 в левой панели и меню рядом с ней */
+.snd-btn { width: 36px; height: 36px; padding: 0; font-size: 18px; position: relative; }
+.snd-btn.on { background: var(--accent-soft); border-color: var(--accent); }
+.snd-btn.on::after { content: ''; position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  animation: snd-pulse 2s ease-in-out infinite; }
+@keyframes snd-pulse { 50% { opacity: .3; } }
+.snd-btn.off { opacity: .45; }
+.snd-menu { position: fixed; z-index: 80; width: 250px; padding: 12px; border: 2px solid var(--border); border-radius: 16px; background: var(--panel);
+  color: var(--text); box-shadow: var(--shadow); }
+.snd-menu[hidden] { display: none; }
+.snd-h { font-weight: 800; margin: 0 2px 8px; }
+.snd-list { display: grid; gap: 4px; }
+.snd-it { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent;
+  color: var(--text); font: 700 14px var(--font); text-align: left; cursor: pointer; }
+.snd-it span { width: 22px; text-align: center; font-size: 17px; }
+.snd-it:hover { background: var(--card-hover); }
+.snd-it.on { background: var(--accent-soft); color: var(--accent-text); }
+.snd-vol { display: flex; align-items: center; gap: 8px; margin: 10px 4px 2px; }
+.snd-vol input { flex: 1; accent-color: var(--accent); }
+.snd-off { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.45; }

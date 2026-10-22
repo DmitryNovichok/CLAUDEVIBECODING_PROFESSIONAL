@@ -1570,6 +1570,7 @@ class DB:
                     ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
                     ("teachers", "consent_ts", "REAL"),
                     ("teachers", "consent_ip", "TEXT"),
+                    ("teachers", "sounds", "INTEGER DEFAULT 1"),      # 0 — учитель выключил звуки на сайте у своих учеников (урок)
                     ("assignments", "batch", "TEXT"),                 # серия личных подборок: fix:<id> — работа над ошибками, weak:<ts>
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
@@ -1629,6 +1630,8 @@ class DB:
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('task_btc_since', ?)", (str(time.time()),))
             # минимальное время на №24–27 — с первого запуска версии: раньше решённое не пересчитываем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('hard_min_since', ?)", (str(time.time()),))
+            # бонус огонька к опыту и ₿ — за решённое после этой версии (прошлый опыт и лиги не пересчитываем)
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fire_bonus_since', ?)", (str(time.time()),))
             # подарки, купленные «🎲» до отметки kind='box', — один раз: заплачено меньше 60 % каталожной цены выпавшего
             # (обычная покупка не бывает дешевле ~64 %: индекс цен от ×0,8 и спрос от ×0,8) — значит, выпал в «🎲»
             if not c.execute("SELECT 1 FROM settings WHERE key='box_kind_backfill'").fetchone():
@@ -2353,6 +2356,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return {"think": THINK_SEC_DEFAULT, "think_hard": THINK_SEC_HARD, "reveal_per_hour": REVEAL_PER_HOUR,
                 "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
                 "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored,
+                "sounds": bool(teacher_of(s)["sounds"]) if s else True,       # рубильник звуков учителя
                 "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file(),
                 "repeat_since": 0}
 
@@ -3329,7 +3333,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if kind not in SUPPORT_KINDS:
                     kind = "other"
                 if len(text) < 5:
-                    return self.err(400, "Опиши проблему подробнее — хотя бы пару слов")
+                    return self.err(400, "Опиши идею подробнее — хотя бы пару слов" if kind == "idea" else "Опиши проблему подробнее — хотя бы пару слов")
                 recent = db.q("SELECT COUNT(*) AS c FROM support WHERE student_id=? AND ts>?", (s["id"], time.time() - 3600), one=True)["c"]
                 if recent >= SUPPORT_PER_HOUR:
                     return self.err(429, "Слишком много обращений за час — подожди немного")
@@ -4944,8 +4948,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("UPDATE js_errors SET fixed_ts=? WHERE id=?", (time.time() if data.get("fixed") else None, to_int(data.get("id"))))
             return self.send_json({"errors": jserr_list(db), "new": jserr_new(db), "seen": seen})
 
+        if path == "/api/admin/sounds" and method == "POST":
+            # рубильник звуков: у учеников этого учителя замолкают фон и звуки кейса — сразу, без перезагрузки
+            on = 1 if data.get("on") else 0
+            db.x("UPDATE teachers SET sounds=? WHERE id=?", (on, self.T["id"]))
+            LIVE.send([m["id"] for m in teacher_students(db, self.T["id"])], "sound")
+            return self.send_json({"ok": True, "on": bool(on)})
+
         if path == "/api/admin/me":
             out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")}
+            out["sounds"] = bool(self.T["sounds"])
             if self.T["is_main"]:
                 out["jserr_new"] = jserr_new(db)
             row = db.q("SELECT consent_ver FROM teachers WHERE id=?", (self.T["id"],), one=True)
@@ -6160,7 +6172,7 @@ LIMITED_BY = {k: (k, i, t, LIMITED_PRICE) for k, i, t in LIMITED}
 GIFT_BY.update(LIMITED_BY)
 GIFT_BOX_PRICE = 60                    # «🎲 Случайный подарок»: выпадает любой, дорогие — реже (вес ∝ 1 / цена)
 GIFTS_SHOW = 5                         # сколько подарков видно у ника
-GIFTS_PER_DAY = 40                     # подарков, которые ученик может купить за сутки
+GIFTS_PER_DAY = 100                    # подарков, которые ученик может купить за сутки
 GIFT_NOTE_MAX = 80
 COINS_GRANT_MAX = 1000                 # биткоинов за одно начисление учителем
 _GIFT_LOCK = threading.Lock()          # проверка баланса, покупка и номер уникального подарка — одним шагом
@@ -6260,7 +6272,7 @@ OP_FEE_MAX = 0.05
 ECON_DAYS = 30                         # графики экономики — за столько дней
 HIST_DAYS = 26 * 7                     # графики рынка «по неделям» — за 26 недель
 MARKET_MIN, MARKET_MAX = 5, 20000
-MARKET_MAX_LISTED = 10
+MARKET_MAX_LISTED = 25                 # своих подарков на рынке сразу
 
 # Редкость высчитывается из шансов. Обычный подарок — шанс выпасть в «🎲 Случайном подарке» (вес ∝ 1 / цена);
 # уникальный — шанс его сочетания: фон × узор × эффект («1 из N»). Порог — наименьший шанс уровня.
@@ -7461,6 +7473,10 @@ def _game_summary(db, sid, brief=False, windows=None):
             if why:
                 xplog.append((ts, 0, why + " — срезано: накрутка"))
             return                                 # опыт, набранный пока пользовался лазейкой, — срезан целиком
+        fp = fire_pct(ts) if boost and v > 0 else 0
+        if fp:                                     # огонёк: +fp % к опыту за задание или вариант (а с ним — и к ₿ за опыт)
+            v = math.floor(Fraction(v * (100 + fp), 100) + Fraction(1, 2))
+            why = why and f"{why} · 🔥+{fp}%"
         if why:
             xplog.append((ts, v, why))
         xp += v
@@ -7483,6 +7499,28 @@ def _game_summary(db, sid, brief=False, windows=None):
 
     skips = reward_skips(rows, fast_since)
     cheat = exploit_window(db, rows, skips)
+    # огонёк: дни подряд, в каждый из которых решено не меньше FIRE_NEED заданий (сегодняшний ещё может идти);
+    # пропущенный день закрывает заморозка (тратится сама) или восстановление от учителя
+    fire_all = {}
+    for r, skip in zip(rows, skips):
+        if not skip:
+            fd = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
+            fire_all[fd] = fire_all.get(fd, 0) + 1
+    cover = fire_cover(db, sid)
+    froze = use_freezes(db, sid, fire_all, cover)
+    fire_since, fire_base = setting_since(db, "fire_bonus_since"), {}
+
+    def fire_pct(ts):
+        """Бонус огонька в момент ts, %: огонёк по вчерашний день (дни до него уже прошли) + сегодняшний, если он уже засчитан."""
+        if ts < fire_since:
+            return 0
+        d = datetime.fromtimestamp(ts).date()
+        y = d - timedelta(days=1)
+        if d not in fire_base:
+            fire_base[d] = fire_streak(fire_days, cover, y) if fire_ok(fire_days, cover, y) else 0
+        n = fire_base[d] + (fire_counts(fire_days, cover, d) if fire_ok(fire_days, cover, d) else 0)
+        return min(FIRE_BONUS_MAX, n * FIRE_BONUS_PCT)
+
     task_btc, task_since = Fraction(0), setting_since(db, "task_btc_since")
     for r, skip in zip(rows, skips):
         for k, (a, b) in rank_win.items():              # для рейтинга: каждое задание периода, ошибся ли в нём
@@ -7568,7 +7606,7 @@ def _game_summary(db, sid, brief=False, windows=None):
                     # и бонус ₿ по номеру; самостоятельная считается целиком, как вариант (ниже)
                     if ts >= task_since and r["reason"] != WORK_REASON and not (cheat and cheat[0] <= ts < cheat[1]):
                         bonus = (TASK_BTC.get(r["n"] or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2)) * earn_at(db, ts)
-                                 * promo_mult(db, ts, "task"))
+                                 * promo_mult(db, ts, "task") * Fraction(100 + fire_pct(ts), 100))
                         task_btc += bonus
                         earn(bonus, ts)
             if first_time:
@@ -7615,7 +7653,8 @@ def _game_summary(db, sid, brief=False, windows=None):
         if (e["finished"] - e["started"]) >= EXAM_MIN_SEC_FOR_XP and (e["primary_score"] or 0) > 0:
             gain(30 + 3 * (e["primary_score"] or 0), e["finished"], "вариант ЕГЭ", "exam")
             if e["finished"] >= exam_since and not (cheat and cheat[0] <= e["finished"] < cheat[1]):
-                eb = exam_btc(e["test_score"]) * earn_at(db, e["finished"]) * promo_mult(db, e["finished"], "exam")   # 40+ — 15 ₿, 60+ — 30…
+                eb = (exam_btc(e["test_score"]) * earn_at(db, e["finished"]) * promo_mult(db, e["finished"], "exam")   # 40+ — 15 ₿, 60+ — 30…
+                      * Fraction(100 + fire_pct(e["finished"]), 100))
                 exam_coins += eb
                 earn(eb, e["finished"])
         got.setdefault("exam1", e["finished"])
@@ -7667,10 +7706,6 @@ def _game_summary(db, sid, brief=False, windows=None):
                else "дуэль — победа" if a["delta"] > 0 else "дуэль — поражение")
         gain(a["delta"], a["ts"], why)
     xp = max(0, xp)
-    # огонёк: дни подряд, в каждый из которых решено не меньше FIRE_NEED заданий (сегодняшний ещё может идти);
-    # пропущенный день закрывает заморозка (тратится сама) или восстановление от учителя
-    cover = fire_cover(db, sid)
-    froze = use_freezes(db, sid, fire_days, cover)
     dropped = work_gifts(db, sid, cnt["solved"])       # каждые WORK_GIFT_EVERY решённых — подарок за труд
     fire = fire_streak(fire_days, cover)
     xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
@@ -7686,6 +7721,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     xp_of = dict({"day": xp_day, "week": week, "month": xp_month, "wk": xp_wk}, **sums)
     rank = {k: rank_score(xp_of[k], rank_btc[k], len(rank_seen[k]), len(rank_err[k])) for k in rank_win}
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums, "rank": rank,
+           "fire_bonus": min(FIRE_BONUS_MAX, fire * FIRE_BONUS_PCT) if now >= fire_since else 0, "fire_bonus_max": FIRE_BONUS_MAX,
            "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "coins_raw": coins_raw, "mined": mined, "exam_coins": exam_coins, "task_coins": task_btc, "btc_rate": rate,
            "btc_days": {d: [round(float(btc_days.get(d, 0)), 2), fine_days.get(d, 0)] for d in set(btc_days) | set(fine_days)}, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
@@ -7714,6 +7750,9 @@ def _game_summary(db, sid, brief=False, windows=None):
 
 ACH_GOAL = {a: g for a, _, _, _, g in ACHIEVEMENTS}
 FIRE_NEED = 3                          # заданий за день, чтобы огонёк продлился (как в app.js)
+# огонёк — коэффициент: +FIRE_BONUS_PCT % за каждый его день к опыту и ₿ за задания и варианты (не больше FIRE_BONUS_MAX %),
+# по огоньку в момент решения — сгоревший огонёк заработанное не отнимает
+FIRE_BONUS_PCT, FIRE_BONUS_MAX = 1, 30
 FREEZE_MAX = 4                         # заморозок огонька в запасе у ученика
 FREEZE_PRICE = 500                     # цена заморозки в опыте
 
@@ -8075,7 +8114,9 @@ def duel_tasks(nums=None):
 
 # Турнир «как в футболе»: жеребьёвка по корзинам → групповой этап (каждый с каждым, победа 3 очка, ничья 1) →
 # плей-офф на выбывание с матчем за 3-е место. «Счёт» матча — сколько заданий решил каждый.
-SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не работает сайт", "xp": "Опыт, рейтинг, турниры", "question": "Вопрос", "other": "Другое"}
+# idea — «💡 Пожелания»: своя вкладка в окне техподдержки ученика, у учителя — фильтр
+SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не работает сайт", "xp": "Опыт, рейтинг, турниры", "question": "Вопрос", "other": "Другое",
+                 "idea": "💡 Пожелание"}
 SUPPORT_MAX = 2000
 ACH_CLOCK = time.localtime          # часы для достижений «ночью», «в обед», «пятница 13-е»… (тесты подменяют)
 

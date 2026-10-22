@@ -1685,6 +1685,32 @@ class ServerTest(unittest.TestCase):
         self.assertIsNone(server.APP.db.q("SELECT 1 FROM support WHERE id=?", (mine[0]["id"],), one=True))
         self.assertEqual(self.admin("POST", "/api/admin/support/delete", {"closed": True})[1]["deleted"], 1)   # закрытое ранее
 
+    def test_sound_switch(self):
+        # рубильник звуков: учитель выключает — у его учеников rules.sounds = false (и событие sound), включает — снова true
+        tok = self.login("Звуков Захар")
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["sounds"])
+        self.assertTrue(self.admin("GET", "/api/admin/me")[1]["sounds"])
+        self.assertEqual(self.admin("POST", "/api/admin/sounds", {"on": False})[1], {"ok": True, "on": False})
+        self.addCleanup(self.admin, "POST", "/api/admin/sounds", {"on": True})
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["rules"]["sounds"])
+        self.assertFalse(self.admin("GET", "/api/admin/me")[1]["sounds"])
+        self.admin("POST", "/api/admin/sounds", {"on": True})
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["sounds"])
+
+    def test_support_ideas(self):
+        # «💡 Пожелания»: своя тема idea — приходит учителю вместе с обращениями, отвечать можно как обычно
+        tok = self.login("Идеев Илья")
+        d = self.req("GET", "/api/support", token=tok)[1]
+        self.assertEqual(d["kinds"]["idea"], "💡 Пожелание")
+        st, d = self.req("POST", "/api/support", {"kind": "idea", "text": "ой"}, tok)
+        self.assertEqual((st, d.get("error")), (400, "Опиши идею подробнее — хотя бы пару слов"))
+        self.assertEqual(self.req("POST", "/api/support", {"kind": "idea", "text": "Добавьте тёмную тему для доски"}, tok)[0], 200)
+        x = next(r for r in self.admin("GET", "/api/admin/site-stats")[1]["support"] if r["text"] == "Добавьте тёмную тему для доски")
+        self.assertEqual((x["kind"], x["status"]), ("idea", "new"))
+        self.admin("POST", "/api/admin/support/answer", {"id": x["id"], "answer": "Отличная идея!"})
+        item = self.req("GET", "/api/support", token=tok)[1]["items"][0]
+        self.assertEqual((item["kind"], item["answer"]), ("idea", "Отличная идея!"))
+
     def test_support_dialog_and_close(self):
         # переписка в теме: ученик отвечает, учитель отвечает ещё раз; закрытая тема — писать нельзя, можно открыть снова
         tok = self.login("Диалогов Денис")
@@ -3398,6 +3424,50 @@ class ServerTest(unittest.TestCase):
         kinds = [r["kind"] for r in db.q("SELECT kind FROM gifts WHERE student_id=? AND from_teacher IS NOT NULL ORDER BY id", (sidA,))]
         self.assertEqual(kinds, ["box", None])
 
+    def test_fire_bonus(self):
+        # огонёк — коэффициент: +1 % за день к опыту и ₿ за задания — по огоньку в момент решения; до версии — без бонуса
+        db = server.APP.db
+        tok = self.login("Жаров Женя")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        today = datetime.datetime.combine(datetime.date.today(), datetime.time()).timestamp() + 3600
+        old = db.setting("fire_bonus_since")
+        db.setting("fire_bonus_since", str(today - 10 * 86400))
+        server._SINCE.clear()
+        self.addCleanup(server._SINCE.clear)
+        self.addCleanup(db.setting, "fire_bonus_since", old)
+        seq = iter(range(1000))
+
+        def att(n, ts):
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,?,1,?)",
+                 (sid, ts, f"f:{next(seq)}", n, 30 * 60000))
+        for d in (3, 2, 1):                                     # три дня подряд по три задания — огонёк 3
+            for k in range(3):
+                att(10, today - d * 86400 + k * 60)
+        att(27, today)                                          # сегодня первое: огонёк ещё 3 — +3 %
+        att(10, today + 60)
+        att(27, today + 120)                                    # третье за день: день засчитан, огонёк 4 — +4 %
+        g = server.game_summary(db, sid)
+        self.assertEqual((g["fire"], g["fire_bonus"]), (4, 4))
+        log = {(x["v"], x["why"]) for x in g["xplog"]}
+        xp27 = server.task_xp(27, None)
+        self.assertIn((math.floor(xp27 * 1.03 + 0.5), "№27 — решено · 🔥+3%"), log)
+        self.assertIn((math.floor(xp27 * 1.04 + 0.5), "№27 — решено · 🔥+4%"), log)
+        self.assertTrue(any(w == "№10 — решено" for v, w in log))          # в первый день огонька ещё нет — без бонуса
+        # до версии бонуса — без него; огонёк больше 30 дней — не больше +30 %
+        db.setting("fire_bonus_since", str(today + 86400))
+        server._SINCE.clear()
+        self.assertFalse(any("🔥" in x["why"] for x in server.game_summary(db, sid)["xplog"]))
+        tok2 = self.login("Пламенев Пётр")
+        sid = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        for d in range(40, 0, -1):
+            for k in range(3):
+                att(1, today - d * 86400 + k * 60)
+        g = server.game_summary(db, sid)
+        self.assertEqual((g["fire"], g["fire_bonus"]), (40, 0))                 # версия ещё «не вышла»
+        db.setting("fire_bonus_since", str(today - 50 * 86400))
+        server._SINCE.clear()
+        self.assertEqual(server.game_summary(db, sid)["fire_bonus"], 30)
+
     def test_task_and_work_btc(self):
         db = server.APP.db
         tok = self.login("Бонусный Борис")
@@ -3405,9 +3475,12 @@ class ServerTest(unittest.TestCase):
         now = time.time()
         since, old = now - 3600, db.setting("task_btc_since")     # «версия вышла» час назад
         db.setting("task_btc_since", str(since))
+        old_fire = db.setting("fire_bonus_since")                  # бонус огонька здесь не нужен — проверяется отдельно
+        db.setting("fire_bonus_since", str(now + 86400))
         server._SINCE.clear()
         self.addCleanup(server._SINCE.clear)
         self.addCleanup(db.setting, "task_btc_since", old)
+        self.addCleanup(db.setting, "fire_bonus_since", old_fire)
         seq = iter(range(100))
 
         def att(tid, n, score=1.0, spent=30 * 60000, reason="", grp=None, exam=None, ts=None):     # полчаса — дольше любого минимума

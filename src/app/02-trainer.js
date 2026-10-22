@@ -418,7 +418,8 @@
     else if (t.r) meta.push(`<span title="Сложность ${t.r} из 5">${RANK_WORD[t.r]}</span>`);
     if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
     else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
-    if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${t.n} XP за №${t.n}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}">+${xpFor(t)} XP</span>`);
+    const fb = (GAME && GAME.fire_bonus) || 0;      // огонёк: +1 % за день к опыту (сервер считает так же)
+    if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${t.n} XP за №${t.n}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}${fb ? ` и +${fb}% за огонёк` : ''}">+${fb ? Math.floor(xpFor(t) * (100 + fb) / 100 + 0.5) : xpFor(t)} XP${fb ? ' 🔥' : ''}</span>`);
     if (t.y && !(t.src || '').includes(String(t.y))) {
       meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
     }

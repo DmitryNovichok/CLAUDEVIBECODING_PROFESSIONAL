@@ -91,8 +91,16 @@
           : days ? `Реши сегодня ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}, иначе серия сгорит`
           : `Реши ${left} ${plural(left, 'задание', 'задания', 'заданий')}, чтобы зажечь огонёк`}</div></div></div>
       <div class="sm-week">${week}</div>
+      ${fireBonusHtml(days)}
       ${freezeHtml()}
       <div class="sm-foot">Лучшая серия: <b>${best} ${plural(best, 'день', 'дня', 'дней')}</b></div>`;
+  }
+  /** Огонёк — коэффициент: +1 % за каждый день к опыту и ₿ за задания и варианты (до +30 %, сервер — FIRE_BONUS_*). */
+  function fireBonusHtml(days) {
+    if (!SERVER || !student) return '';
+    const max = (GAME && GAME.fire_bonus_max) || 30, b = Math.min(max, days);
+    return `<div class="sm-bonus">${b ? `🔥 Бонус огонька: <b>+${b}%</b> к опыту и ₿ за задания и варианты` : '🔥 Каждый день огонька — +1% к опыту и ₿'}
+      <small>${b >= max ? 'это максимум' : b ? `продлишь огонёк — станет +${b + 1}%, максимум +${max}%` : `реши ${fireNeed()} задания за день — и будет +1%, максимум +${max}%`}${b ? ' · сгорит огонёк — бонус начнётся заново' : ''}</small></div>`;
   }
   let goalToastDay = null, fireDay = null, fireBurst = false;
   /** После каждого засчитанного ответа: поздравить с целью дня, отправить прогноз учителю. */
