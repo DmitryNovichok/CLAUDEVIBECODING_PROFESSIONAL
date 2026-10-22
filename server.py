@@ -6597,19 +6597,24 @@ def gift_demand(db):
     now = time.time()
     if _DEMAND["v"] is not None and _DEMAND["db"] is db and now - _DEMAND["t"] < 300:
         return _DEMAND["v"]
-    cnt = {r["gift"]: r["c"] for r in db.q("""SELECT gift, COUNT(*) c FROM gifts WHERE from_sid IS NOT NULL AND ts > ?
-                                              GROUP BY gift""", (now - DEMAND_DAYS * 86400,))}
-    v = demand_of(cnt)
+    cnt, base = {}, {}
+    for r in db.q("""SELECT gift, COUNT(*) c, SUM(COALESCE(kind, '') <> 'box') b FROM gifts WHERE from_sid IS NOT NULL AND ts > ?
+                     GROUP BY gift""", (now - DEMAND_DAYS * 86400,)):
+        cnt[r["gift"]], base[r["gift"]] = r["c"], r["b"]
+    v = demand_of(cnt, base)
     _DEMAND.update(t=now, v=v, db=db)
     return v
 
 
-def demand_of(cnt):
-    """Множители спроса по числу покупок каждого подарка за DEMAND_DAYS — к среднему по его редкости (см. DEMAND_POW)."""
+def demand_of(cnt, base=None):
+    """Множители спроса по числу покупок каждого подарка за DEMAND_DAYS — к среднему по его редкости (см. DEMAND_POW).
+    base — покупки без выпавших в «🎲»: среднее по редкости — по ним, а выпадение прибавляет спрос только своему подарку
+    (иначе каждое выпадение поднимало бы среднее, и остальные подарки той же редкости дешевели бы)."""
+    base = cnt if base is None else base
     tier = {g[0]: gift_rarity(g[0])["k"] for g in GIFTS}           # лимитки — не в счёт: у них своя цена
     tot, size = {}, {}
     for g in GIFTS:
-        tot[tier[g[0]]] = tot.get(tier[g[0]], 0) + cnt.get(g[0], 0)
+        tot[tier[g[0]]] = tot.get(tier[g[0]], 0) + base.get(g[0], 0)
         size[tier[g[0]]] = size.get(tier[g[0]], 0) + 1
     return {g[0]: round(min(DEMAND_MAX, max(DEMAND_MIN, ((cnt.get(g[0], 0) + DEMAND_PRIOR)
                                                        / (tot[tier[g[0]]] / size[tier[g[0]]] + DEMAND_PRIOR)) ** DEMAND_POW)), 2)
@@ -6631,7 +6636,7 @@ def gift_price_hist(db):
     if not ends:
         _PRICE_HIST.update(t=now, v=[], db=db)
         return []
-    buys = db.q("SELECT gift, ts FROM gifts WHERE from_sid IS NOT NULL AND ts > ? ORDER BY ts", (ends[0][1] - DEMAND_DAYS * 86400,))
+    buys = db.q("SELECT gift, ts, kind FROM gifts WHERE from_sid IS NOT NULL AND ts > ? ORDER BY ts", (ends[0][1] - DEMAND_DAYS * 86400,))
     bts = [r["ts"] for r in buys]
     th = db.q("SELECT ts, idx FROM thermo ORDER BY ts")
     tts = [r["ts"] for r in th]
@@ -6640,10 +6645,12 @@ def gift_price_hist(db):
     for d, t in ends:
         i = bisect.bisect_right(tts, t) - 1
         lo, hi = bisect.bisect_right(bts, t - DEMAND_DAYS * 86400), bisect.bisect_right(bts, t)
-        cnt = {}
+        cnt, base = {}, {}
         for r in buys[lo:hi]:
             cnt[r["gift"]] = cnt.get(r["gift"], 0) + 1
-        out.append({"d": d.isoformat(), "idx": th[i]["idx"] if i >= 0 else old.get(d.isoformat(), 1.0), "cnt": cnt, "dem": demand_of(cnt)})
+            if r["kind"] != "box":
+                base[r["gift"]] = base.get(r["gift"], 0) + 1
+        out.append({"d": d.isoformat(), "idx": th[i]["idx"] if i >= 0 else old.get(d.isoformat(), 1.0), "cnt": cnt, "dem": demand_of(cnt, base)})
     _PRICE_HIST.update(t=now, v=out, db=db)
     return out
 
