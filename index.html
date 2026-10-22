@@ -132,6 +132,15 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
       <span class="py-task" id="pyTask"></span>
       <span class="py-tools">
         <span class="py-font" role="group" aria-label="Размер шрифта">
+          <button type="button" class="icon-btn py-emacs" id="pyEmacs" aria-pressed="true" title="Клавиши Emacs — нажмите, чтобы включить или выключить.
+Ctrl+A / Ctrl+E — начало / конец строки
+Ctrl+F / Ctrl+B — символ вперёд / назад, Alt+F / Alt+B — слово
+Ctrl+P / Ctrl+N — строка вверх / вниз, Alt+&lt; / Alt+&gt; — начало / конец кода
+Ctrl+D / Ctrl+H — удалить символ справа / слева, Alt+D / Alt+Backspace — слово
+Ctrl+K — вырезать до конца строки, Ctrl+Y — вставить вырезанное
+Ctrl+Пробел — метка (дальше курсор выделяет), Ctrl+G — снять, Alt+W — копировать
+Ctrl+O — новая строка, Ctrl+L — строку с курсором в центр, Ctrl+X H — выделить всё
+Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стрелка вниз и Ctrl+X">Emacs</button>
           <button type="button" class="icon-btn" id="pyFontDown" title="Мельче (Ctrl −)">A−</button>
           <button type="button" class="icon-btn" id="pyFontUp" title="Крупнее (Ctrl +)">A+</button>
         </span>
