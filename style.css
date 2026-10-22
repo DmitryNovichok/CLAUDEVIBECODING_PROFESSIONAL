@@ -2684,8 +2684,13 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .bx-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--card);
   color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .bx-row.mine { border-style: dashed; }
+.bx-row.lead { border-color: #2fa36b; }
+.bx-lead { color: #2fa36b; }
+.bx-auc { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.bx-auc small { color: var(--muted); font-size: 11.5px; font-weight: 800; white-space: nowrap; }
+.bx-auc .bx-price { margin-left: 0; }
 .bx-rt { flex: 1; min-width: 0; } .bx-rt b { font-size: 14.5px; } .bx-rt small { display: block; color: var(--muted); font-size: 12px; font-weight: 700; }
-.bx-worth { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 10px; } .bx-worth small { color: var(--muted); font-weight: 800; } .bx-worth b { font-size: 20px; }
+.bx-worth { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 2px 0 10px; } .bx-worth small { color: var(--muted); font-weight: 800; } .bx-worth b { font-size: 20px; }
 .bx-mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .bx-card { display: grid; justify-items: center; gap: 3px; padding: 10px 4px 8px; border: 2px solid var(--border); border-radius: 16px; background: var(--card);
   color: inherit; font: inherit; cursor: pointer; box-shadow: 0 3px 0 var(--border); }
