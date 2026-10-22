@@ -113,12 +113,14 @@
     if (a.abandoned) return { cls: 'res-bad', text: 'ушёл после ошибки' + half, bad: true };
     return { cls: 'res-bad', text: 'неверно' + half, bad: true };
   }
-  /** Отметки попытки: ⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — ответ вставлен из буфера. */
+  /** Отметки попытки: ⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — ответ вставлен из буфера;
+      🤖 — ответ «верный + K»: так отвечает нейросеть, которой дали условие со скрытой строкой-ловушкой. */
   const flagsOf = a => String(a.flags || '').split(',').filter(Boolean);
   function flagsHtml(a) {
     const f = flagsOf(a);
     return (f.includes('sus') ? ' <span class="flag sus" title="Ушёл со страницы на 30 секунд или дольше и сразу после возвращения ответил верно">⚠ ушёл и сразу верно</span>' : '')
-      + (f.includes('paste') ? ' <span class="flag paste" title="Ответ не набран, а вставлен из буфера обмена (не из окна Python тренажёра)">📋 вставлен</span>' : '');
+      + (f.includes('paste') ? ' <span class="flag paste" title="Ответ не набран, а вставлен из буфера обмена (не из окна Python тренажёра)">📋 вставлен</span>' : '')
+      + (f.includes('ai') ? ' <span class="flag ai" title="Ответ — верный, увеличенный на число из скрытой строки-ловушки в условии. Ученик её не видит, а нейросеть, которой дали условие, читает и выполняет">🤖 ответ нейросети</span>' : '');
   }
   /** Подозрительно много показанных ответов: так выкачивают ответы, а не решают. */
   function suspicion(s) {
@@ -2223,7 +2225,7 @@
         <td class="num">${r.tasks ? pct(csPercent(r)) + '%' : '<span class="muted">—</span>'}</td>
         <td class="num">${r.spent ? fmtSpent(r.spent) : ''}</td>
         <td class="num">${r.out_n ? `<span style="color:var(--review)" title="уходов со страницы: ${r.out_n}">${r.out_n} · ${fmtSpent(r.out_sec * 1000) || '0 с'}</span>` : ''}</td>
-        <td class="num">${r.sus || r.paste ? `<span style="color:var(--weak)" title="⚠ ушёл на 30+ с и сразу верно · 📋 вставил ответ">${r.sus ? '⚠' + r.sus : ''}${r.sus && r.paste ? ' ' : ''}${r.paste ? '📋' + r.paste : ''}</span>` : ''}</td>
+        <td class="num">${r.sus || r.paste || r.ai ? `<span style="color:var(--weak)" title="⚠ ушёл на 30+ с и сразу верно · 📋 вставил ответ · 🤖 ответ нейросети (ловушка)">${[r.sus ? '⚠' + r.sus : '', r.paste ? '📋' + r.paste : '', r.ai ? '🤖' + r.ai : ''].filter(Boolean).join(' ')}</span>` : ''}</td>
         <td class="muted">${r.nums.join(', ')}</td>
         <td class="num">${r.exam != null ? r.exam : ''}</td>
         <td class="num cs-grade">${g ? `<b class="g${g}">${g}</b>` : ''}</td></tr>`;
@@ -2235,16 +2237,16 @@
         <th>Ученик</th><th class="num">${asg ? 'Решено из подборки' : 'Решено'}</th><th class="num" title="Разных заданий, к которым приступал">Начал</th>
         <th class="num">С 1-й</th><th class="num">Со 2-й</th><th class="num">Неверно</th><th class="num" title="Открыл ответ, не решив">Ответ показан</th>
         <th class="num">%</th><th class="num">Время</th><th class="num" title="Сколько раз уходил со страницы и сколько всего был вне тренажёра">Вне тренажёра</th>
-        <th class="num" title="⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — вставил ответ из буфера">Отметки</th><th>Номера</th>
+        <th class="num" title="⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — вставил ответ из буфера; 🤖 — ответ нейросети (сработала ловушка)">Отметки</th><th>Номера</th>
         <th class="num">Вариант</th><th class="num">Оценка</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   function csCsv() {
     if (!csData) return;
     const asg = csData.asg_total != null;
-    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходов со страницы', 'Вне тренажёра, мин', 'Ушёл и сразу верно', 'Вставил ответ', 'Номера', 'Вариант', 'Оценка (подсказка)'];
+    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходов со страницы', 'Вне тренажёра, мин', 'Ушёл и сразу верно', 'Вставил ответ', 'Ответ нейросети', 'Номера', 'Вариант', 'Оценка (подсказка)'];
     const q = v => { v = String(v == null ? '' : v); if (/^[=+\-@]/.test(v)) v = "'" + v; return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     const lines = [head, ...csData.rows.map(r => [r.name, asg ? `${r.solved} из ${csData.asg_total}` : r.solved, r.tasks, r.ok1, r.ok2, r.bad, r.shown,
-      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.out_n, Math.round(r.out_sec / 60), r.sus, r.paste, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
+      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.out_n, Math.round(r.out_sec / 60), r.sus, r.paste, r.ai, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
     const csv = '﻿' + lines.map(l => l.map(q).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -2485,7 +2487,8 @@
     }
     const rv = st.reveals || { granted: 0, blocked: 0, early: 0 };
     const act = st.activity || {};
-    const nSus = A.filter(a => flagsOf(a).includes('sus')).length, nPaste = A.filter(a => flagsOf(a).includes('paste')).length;
+    const nSus = A.filter(a => flagsOf(a).includes('sus')).length, nPaste = A.filter(a => flagsOf(a).includes('paste')).length,
+      nAi = A.filter(a => flagsOf(a).includes('ai')).length;
     $('#stClass').innerHTML = '<option value="0">Без класса</option>' + classes
       .filter(c => !ME.is_main || c.teacher_id === s.teacher_id)
       .map(c => `<option value="${c.id}" ${c.id === s.class_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
@@ -2512,9 +2515,10 @@
         act.away ? `всего ${fmtMinutes(act.away.sec * 1000)}` : 'ни разу за период',
         nSus ? `<span style="color:var(--weak)">⚠ ушёл и сразу верно: ${nSus}</span>` : '',
         nPaste ? `<span style="color:var(--weak)">📋 вставил ответ: ${nPaste}</span>` : '',
+        nAi ? `<span style="color:var(--weak)">🤖 ответ нейросети: ${nAi}</span>` : '',
         act.away && act.away.exam ? `<span style="color:var(--weak)">во время варианта: ${act.away.exam}</span>` : '',
         act.shot ? `<span style="color:var(--weak)">клавиши снимка экрана: ${act.shot.count}</span>` : ''].filter(Boolean).join(' · '),
-        (act.shot && act.shot.count) || (act.away && act.away.exam) || nSus || nPaste ? 'var(--weak)' : ''),
+        (act.shot && act.shot.count) || (act.away && act.away.exam) || nSus || nPaste || nAi ? 'var(--weak)' : ''),
       card('Варианты ЕГЭ', exams.length ? exams[0].test_score : '—', exams.length
         ? `последний ${fmtDate(exams[0].finished)}: ${exams[0].primary_score} перв. · ${fmtMinutes((exams[0].finished - exams[0].started) * 1000)}${exams.length > 1 ? ` · всего ${exams.length}, лучший ${Math.max(...exams.map(e => e.test_score))}` : ''}`
           + (exams[0].away || exams[0].fs || exams[0].paste
@@ -2881,8 +2885,8 @@
       feedEvents(d.events, !evPolled);
       evPolled = true;
       // подозрительные ответы (ушёл со страницы и сразу верно, вставка ответа) — тоже в уведомления
-      ntfAdd(d.attempts.filter(a => /sus|paste/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
-        text: `${/paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
+      ntfAdd(d.attempts.filter(a => /sus|paste|ai/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
+        text: `${/\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
       if (d.attempts.length) {
         const first = feedSince === 0;
         d.attempts.forEach(a => { if (!first) freshIds.add(a.id); });
