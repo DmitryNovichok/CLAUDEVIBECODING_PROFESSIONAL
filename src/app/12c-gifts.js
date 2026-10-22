@@ -308,15 +308,15 @@
   }
   // ---- действия
   async function buyGift(id) {
-    const box = id === 'box', g = box ? { i: '🎲', t: 'Случайный подарок', price: GF.box }
-      : GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id);
+    if (id === 'box') { rollBox(); return; }                  // «🎲» — с прокруткой ленты (12e-case.js)
+    const g = GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id);
     const who = gfTo ? gfMate(gfTo) : '';
     if (!g) return;
     try {
       const r = await api('gifts/buy', { gift: id, to: gfTo ? +gfTo : null });
       if (r.game) onGame(r.game);
       const got = GF.catalog.find(x => x.id === r.got) || g;
-      toast(box ? `🎲 Выпало: ${got.i} ${got.t}!${who ? ` — подарено: ${who}` : ''}` : who ? `🎁 ${got.i} ${got.t} — подарено: ${who}` : `🎁 ${got.i} ${got.t} — теперь у тебя`, 5000);
+      toast(who ? `🎁 ${got.i} ${got.t} — подарено: ${who}` : `🎁 ${got.i} ${got.t} — теперь у тебя`, 5000);
       await openGifts();
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось купить'); }
   }
