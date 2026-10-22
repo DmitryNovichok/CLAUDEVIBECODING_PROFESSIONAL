@@ -1856,6 +1856,36 @@ class ServerTest(unittest.TestCase):
         row = server.APP.db.q("SELECT task_id FROM activity WHERE student_id=? AND kind='away'", (sid,), one=True)
         self.assertEqual(row["task_id"], "b:6")
 
+    def test_ai_trap(self):
+        # ловушка «+K»: K — при открытии задания и в варианте, у ученика и задания постоянный; ответ «верный + K» — неверно
+        # для ученика и отметка ai учителю; просто неверный — без отметки; у 19–21 и ответа из двух чисел ловушки нет
+        tok = self.login("Ловушкин Лев")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        p5, p27, pg = (server.APP.bank.pid(x) for x in ("b:5", "b:27", "b:g"))
+        k = self.req("POST", "/api/open", {"task": p5}, tok)[1]["trap"]
+        self.assertTrue(server.TRAP_MIN <= k < server.TRAP_MIN + server.TRAP_SPAN and k % 10, k)
+        self.assertEqual(self.req("POST", "/api/open", {"task": p5}, tok)[1]["trap"], k)
+        self.assertIsNone(self.req("POST", "/api/open", {"task": p27}, tok)[1]["trap"])
+        self.assertIsNone(self.req("POST", "/api/open", {"task": pg}, tok)[1]["trap"])
+        st, d = self.check(tok, p5, answer=str(12 + k))
+        self.assertEqual((st, d["correct"]), (200, False))
+        self.check(tok, p5, answer="12")                               # со второй попытки верно — отметка остаётся
+        tok2 = self.login("Промахов Пётр")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        k2 = self.req("POST", "/api/open", {"task": p5}, tok2)[1]["trap"]
+        self.check(tok2, p5, answer=str(12 + k2 + 1))
+        self.check(tok2, p5, answer=str(12 + k))                       # чужое K — просто ошибка (если K совпали — пропускаем)
+        flags = lambda sid_: [a["flags"] for a in self.admin("GET", f"/api/admin/student?id={sid_}&from=0")[1]["attempts"] if a["task_id"] == "b:5"]
+        self.assertEqual(flags(sid), ["ai"])
+        self.assertEqual(flags(sid2), ["ai"] if k2 == k else [None])
+        # вариант: K — в каждом задании; ответ «верный + K» — отметка в журнале варианта
+        st, e = self.req("POST", "/api/exam/start", {}, tok)
+        self.assertTrue(all("trap" in x for x in e["items"]))
+        ek = {x["id"]: x["trap"] for x in e["items"]}
+        if ek.get(p5):
+            self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [{"task": p5, "answer": str(12 + ek[p5])}]}, tok)
+            self.assertEqual(server.APP.db.q("SELECT flags FROM attempts WHERE exam=?", (e["exam_id"],), one=True)["flags"], "ai")
+
     def test_integrity_flags(self):
         # ⚠ — вернулся после долгого ухода и сразу верно; 📋 — ответ вставлен; сводка «вне тренажёра» и строгий режим варианта
         tok = self.login("Честнов Чеслав")

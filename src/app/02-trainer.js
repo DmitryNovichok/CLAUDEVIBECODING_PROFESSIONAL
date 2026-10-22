@@ -474,7 +474,7 @@
       const lab = $('.answer-label');
       lab.innerHTML = `<b>Ответ на задание ${t.n}</b>` + (cur.shape.type === 'single' ? '' : ' — ' + esc(answerLabel(cur.shape).replace(/^Ответ — /, '')));
     }
-    guardDecorate($('#cond'));                       // после разметки вопросов 19–21 — записка для ИИ её не путает
+    guardDecorate($('#cond'), cur.trap);             // после разметки вопросов 19–21 — записка для ИИ её не путает
     renderActions();
     wkDecorate();
     pkBar();
@@ -866,6 +866,7 @@
     api('open', { task: t.id }).then(r => {
       if (cur !== c || !r) return;
       if (r.think_left != null) cur.thinkUntil = Date.now() + r.think_left * 1000;
+      if (r.trap) { cur.trap = r.trap; guardDecorate($('#cond'), r.trap); }     // ловушка «+K» для нейросетей
       restoreTries(r.tries || {});
     }).catch(() => { /* проверка всё равно пройдёт: сервер начнёт отсчёт с первого ответа */ });
   }

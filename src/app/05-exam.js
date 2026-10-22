@@ -81,7 +81,7 @@
         id = r.exam_id;
         limit = r.limit || limit;
         // вариант собирает сервер: проверяются и показываются ответы только выданных заданий
-        items = (r.items || []).filter(x => byId.get(x.id)).map(x => ({ id: x.id, n: byId.get(x.id).n }));
+        items = (r.items || []).filter(x => byId.get(x.id)).map(x => ({ id: x.id, n: byId.get(x.id).n, trap: x.trap || null }));
       } catch (e) { netError(e); return; }
     }
     if (!items.length) { toast('В банке нет заданий для варианта'); return; }
@@ -202,7 +202,7 @@
     $$('#trainer .answer-row[data-key]').forEach(row => fillRow(row, EX.ans[row.dataset.key]));
     dropDuplicateFileLinks($('#cond'), t.att || []);
     decorateCondition($('#cond'), t);
-    guardDecorate($('#cond'));
+    guardDecorate($('#cond'), it.trap);
     bindInputs(() => { if (!last) exGo(EX.cur + 1); });
     const first = $('#trainer .answer-row input');
     if (first && window.matchMedia('(min-width: 861px)').matches && !pyOpen()) first.focus({ preventScroll: true });
