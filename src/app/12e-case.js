@@ -3,7 +3,7 @@
   // слетает со вспышкой, лента подарков бежит под чертой (черта и подсветка — цвета редкости подарка под ней, по краям лента
   // уходит в глубину), замедляется и встаёт на выпавшем; потом — лучи, искры и аккорд: чем реже подарок, тем ярче.
   // Подарки ленты — случайные с теми же шансами, что в 🎲 (дорогие реже); «чуть не выпавшее» нарочно не подставляем.
-  // Тихие щелчки — WebAudio, выключаются 🔊 (запоминается в браузере). «Пропустить», Esc или касание ленты — сразу
+  // Звуки (как в кейсе CS:GO, свои — синтез WebAudio) выключаются 🔊 (запоминается в браузере) и рубильником учителя. «Пропустить», Esc или касание ленты — сразу
   // к результату; при «уменьшить движение» в системе — сразу результат.
   const CASE_N = 60, CASE_WIN = 52, CASE_SHAKE_MS = 1300, CASE_OPEN_MS = 520, CASE_MS = 5800, CASE_SNAP_MS = 360, CASE_LAND_MS = 750;
   const CASE_RANK = ['common', 'uncommon', 'rare', 'epic', 'legend', 'myth'];
@@ -15,7 +15,10 @@
   const crEase = t => 1 - Math.pow(1 - t, 4.2);
   const crEaseIO = t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
   const crQuick = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-  // ---- звук: создаётся по нажатию «Купить» — иначе браузер не даст
+  // ---- звук: создаётся по нажатию «Купить» — иначе браузер не даст. Как в кейсах CS:GO, но свой (синтез, без чужих файлов):
+  // коробка дребезжит, замок щёлкает и крышка уходит со вздохом, лента сухо щёлкает на каждом подарке, встала — «клац»,
+  // показ — мягкий колокольчик (чем реже подарок, тем больше нот, от эпического — искры). Всё — через мягкую шину:
+  // фильтр срезает резкие верха, компрессор — пики.
   function crAudio() {
     if (crMuted || RULES.sounds === false) return null;            // учитель выключил звуки на уроке
     try {
@@ -24,24 +27,77 @@
       return crAC;
     } catch (e) { return null; }
   }
-  function crTone(freq, dur, vol, type = 'sine', at = 0, to = 0) {
+  function crBus(ac) {
+    if (!ac.crBus) {
+      const lp = ac.createBiquadFilter(), comp = ac.createDynamicsCompressor();
+      lp.type = 'lowpass';
+      lp.frequency.value = 5500;
+      comp.threshold.value = -24;
+      comp.knee.value = 20;
+      comp.ratio.value = 4;
+      lp.connect(comp);
+      comp.connect(ac.destination);
+      ac.crBus = lp;
+    }
+    return ac.crBus;
+  }
+  function crTone(freq, dur, vol, type = 'sine', at = 0, to = 0, attack = 0.004) {
     const ac = crAudio();
     if (!ac) return;
     const t = ac.currentTime + at, o = ac.createOscillator(), g = ac.createGain();
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
     if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
-    g.gain.setValueAtTime(vol, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g);
-    g.connect(ac.destination);
+    g.connect(crBus(ac));
     o.start(t);
     o.stop(t + dur + 0.02);
   }
-  const crTick = () => crTone(1500 + Math.random() * 300, 0.035, 0.03, 'triangle');
-  /** Аккорд выпавшего: чем реже подарок, тем больше нот. */
-  const crChime = k => [523, 659, 784, 1046, 1318, 1568].slice(0, Math.max(0, CASE_RANK.indexOf(k)) + 1)
-    .forEach((f, i) => crTone(f, 0.7, 0.05, 'sine', i * 0.08));
+  let crBuf = null;
+  /** Шорох: шум через полосовой фильтр (частота f → to за dur) — щелчки, дребезг, «вздох» крышки. */
+  function crNoise(f, q, dur, vol, at = 0, to = 0) {
+    const ac = crAudio();
+    if (!ac) return;
+    if (!crBuf || crBuf.sampleRate !== ac.sampleRate) {
+      crBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      const d = crBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const t = ac.currentTime + at, src = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = crBuf;
+    bp.type = 'bandpass';
+    bp.Q.value = q;
+    bp.frequency.setValueAtTime(f, t);
+    if (to) bp.frequency.exponentialRampToValueAtTime(to, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.004, dur / 4));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(crBus(ac));
+    src.start(t, Math.random() * 0.4);
+    src.stop(t + dur + 0.02);
+  }
+  /** Щелчок ленты на каждом подарке — сухой, как в кейсе: короткий шорох и тихий «тук». */
+  const crTick = () => { const k = 0.97 + Math.random() * 0.06; crNoise(2600 * k, 7, 0.022, 0.32); crTone(1150 * k, 0.03, 0.035); };
+  /** Пока коробка трясётся — дребезг, всё сильнее. */
+  const crRattle = ms => { for (let i = 0, n = Math.floor(ms / 130); i < n; i++) crNoise(700 + i * 45, 3, 0.06, 0.05 + 0.25 * i / n, i * 0.13); };
+  /** Замок щёлкнул, крышка ушла: глухой удар, щелчок и «вздох». */
+  const crUnlock = () => { crTone(150, 0.22, 0.16, 'sine', 0, 55); crNoise(2200, 9, 0.035, 0.3, 0.01); crNoise(500, 1.2, 0.45, 0.12, 0.03, 2400); };
+  /** Лента встала — мягкий «клац». */
+  const crLand = () => { crNoise(1700, 4, 0.05, 0.22); crTone(523.25, 0.35, 0.05, 'sine', 0, 0, 0.01); };
+  /** Показ выпавшего: колокольчик (основной тон и тихий обертон); чем реже подарок, тем больше нот, от эпического — искры. */
+  function crChime(k) {
+    const r = Math.max(0, CASE_RANK.indexOf(k));
+    [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568].slice(0, r + 1).forEach((f, i) => {
+      crTone(f, 1.6, 0.05, 'sine', i * 0.11, 0, 0.015);
+      crTone(f * 2.005, 0.9, 0.012, 'sine', i * 0.11, 0, 0.015);
+    });
+    if (r >= 3) for (let i = 0; i < 8 + r * 3; i++) crTone(1800 + Math.random() * 1600, 0.25, 0.008, 'sine', 0.3 + Math.random() * 0.9, 0, 0.01);
+  }
   /** Случайный подарок для ленты — с шансами 🎲 (rar.p — шанс в процентах). */
   function crPick(cat) {
     let r = Math.random() * cat.reduce((s, x) => s + (x.rar.p || 0), 0);
@@ -88,6 +144,7 @@
     crAudio();
     const who = gfTo ? gfMate(gfTo) : '';
     openCase(who);
+    if (!crQuick()) crRattle(CASE_SHAKE_MS);                 // коробка дребезжит, пока трясётся
     const C = CR, shaken = new Promise(res => setTimeout(res, crQuick() ? 0 : CASE_SHAKE_MS));
     let r;
     try { r = await api('gifts/buy', { gift: 'box', to: gfTo ? +gfTo : null }); } catch (e) {
@@ -105,7 +162,7 @@
     await shaken;
     if (CR !== C || C.done) return;
     C.ov.classList.add('is-open');
-    crTone(260, 0.35, 0.05, 'sine', 0, 900);
+    crUnlock();
     C.timer = setTimeout(() => { if (CR === C && !C.done) crSpin(); }, CASE_OPEN_MS);
   }
   /** Выпавший — на своё место в ленте; размеры ленты для прокрутки. */
@@ -155,7 +212,7 @@
       crAt(C.x1 + C.jit * (1 - crEaseIO(u)));
       if (u < 1) { C.raf = requestAnimationFrame(snap); return; }
       C.tiles[CASE_WIN].classList.add('win');                   // встал — выпавший вспыхивает, через миг — большой показ
-      crTone(880, 0.25, 0.05, 'triangle');
+      crLand();
       C.timer = setTimeout(crEnd, CASE_LAND_MS);
     };
     C.raf = requestAnimationFrame(snap);
