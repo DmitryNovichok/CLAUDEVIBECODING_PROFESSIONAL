@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from urllib.parse import quote
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -2939,7 +2940,9 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/gifts/list", {"id": cat["id"], "price": 3}, tokA)[0], 400)
         self.assertEqual(self.req("POST", "/api/gifts/list", {"id": cat["id"], "price": 200}, tokB)[0], 404)       # чужой
         st, r = self.req("POST", "/api/gifts/list", {"id": cat["id"], "price": 200}, tokA)
-        self.assertEqual((st, r["get"]), (200, 200 - math.ceil(200 * server.MARKET_FEE)))
+        F = server.market_fee_amt(200, server.MARKET_FEE, cat["mk_ref"])     # с части выше 1,5 опорных — комиссия больше
+        self.assertGreater(F, math.ceil(200 * server.MARKET_FEE))
+        self.assertEqual((st, r["get"]), (200, 200 - F))
         self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": cat["id"]}, tokA)[0], 409)
         self.assertEqual(self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tokA)[0], 409)
         # одноклассник видит предложение, продавец — как своё
@@ -2951,22 +2954,23 @@ class ServerTest(unittest.TestCase):
         # покупка: у покупателя −200, у продавца +180 и уведомление, подарок переходит
         coinsA, coinsB = (self.req("GET", "/api/gifts", token=t)[1]["coins"] for t in (tokA, tokB))
         st, r = self.req("POST", "/api/gifts/mbuy", {"id": cat["id"], "price": 200}, tokB)
-        self.assertEqual((st, r["fee"], r["game"]["coins"]), (200, 20, coinsB - 200))
-        self.assertEqual(self.req("GET", "/api/gifts", token=tokA)[1]["coins"], coinsA + 180)
+        self.assertEqual((st, r["fee"], r["game"]["coins"]), (200, F, coinsB - 200))
+        self.assertEqual(self.req("GET", "/api/gifts", token=tokA)[1]["coins"], coinsA + 200 - F)
         news = self.req("GET", "/api/me", token=tokA)[1]["coin_news"]
-        self.assertEqual([(c["reason"], c["delta"], c["note"]) for c in news], [("msell", 180, "Покупаев Б.")])
+        self.assertEqual([(c["reason"], c["delta"], c["note"]) for c in news], [("msell", 200 - F, "Покупаев Б.")])
         mineB = next(g for g in self.req("GET", "/api/gifts", token=tokB)[1]["mine"] if g["id"] == cat["id"])
         self.assertEqual((mineB["market"], mineB["listed"]), ("Продавцов П.", None))
         self.assertNotIn(cat["id"], [g["id"] for g in self.req("GET", "/api/gifts", token=tokA)[1]["mine"]])
         self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": cat["id"]}, tokB)[0], 404)                  # уже не на рынке
         # снять с продажи
+        db.x("UPDATE gifts SET market_ts=? WHERE id=?", (time.time() - 49 * 3600, cat["id"]))     # купленный — снова через 48 ч
         self.req("POST", "/api/gifts/list", {"id": cat["id"], "price": 220}, tokB)
         self.req("POST", "/api/gifts/unlist", {"id": cat["id"]}, tokB)
         self.assertNotIn(cat["id"], [x["id"] for x in self.req("GET", "/api/gifts", token=tokA)[1]["market"]])
         # кошельки и журнал учителя
         wA = self.admin("GET", f"/api/admin/gifts/student?id={sidA}")[1]
         wB = self.admin("GET", f"/api/admin/gifts/student?id={sidB}")[1]
-        self.assertEqual((wA["wallet"]["mkt_in"], wB["wallet"]["mkt_out"]), (180, 200))
+        self.assertEqual((wA["wallet"]["mkt_in"], wB["wallet"]["mkt_out"]), (200 - F, 200))
         self.assertIn(("msell", "Покупаев Б."), [(e["kind"], e.get("to")) for e in wA["feed"]])
         self.assertIn(("mbuy", "Продавцов П."), [(e["kind"], e.get("to")) for e in wB["feed"]])
         # подарок за труд считается по первому владельцу: продал на рынке — нового не выдадут
@@ -3007,7 +3011,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/gifts/list", {"id": cat["id"], "price": 230}, tokA)[0], 200)
         b0 = server.bank_balance(db)
         st, r = self.req("POST", "/api/gifts/mbuy", {"id": cat["id"], "price": 230}, tokB)
-        self.assertEqual((st, r["fee"]), (200, math.ceil(230 * e["fee"])))
+        self.assertEqual((st, r["fee"]), (200, server.market_fee_amt(230, e["fee"], cat["mk_ref"])))
         self.assertEqual(server.bank_balance(db), b0 + r["fee"])
         # начисление учителя — из банка; больше, чем в банке, — нельзя; снятое — в банк
         b1 = server.bank_balance(db)
@@ -3460,14 +3464,14 @@ class ServerTest(unittest.TestCase):
         for g, p in ((tl[0], 40), (tl[1], 60)):
             self.assertEqual(self.req("POST", "/api/gifts/list", {"id": g["id"], "price": p}, tokA)[0], 200)
             self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": g["id"], "price": p}, tokB)[0], 200)
-        server._MKT_TYP.update(t=0)
+        server._MKT_TYP.update(day=None)
         G = self.req("GET", "/api/gifts", token=tokA)[1]
         last = next(g for g in G["mine"] if g["id"] == tl[2]["id"])
-        self.assertEqual(last["mk_typ"], 50)
+        self.assertIsNone(last["mk_typ"])                        # две сделки одной пары — для оценки мало
         # торги кончились без ставок — лот снят сам, подарок у продавца
         self.req("POST", "/api/gifts/list", {"id": last["id"], "price": 45}, tokA)
         mk = next(x for x in self.req("GET", "/api/gifts", token=tokB)[1]["market"] if x["id"] == last["id"])
-        self.assertEqual((mk["typ"], round(mk["until"] - mk["ts"])), (50, 24 * 3600))
+        self.assertEqual((mk["typ"], round(mk["until"] - mk["ts"])), (None, 24 * 3600))
         db.x("UPDATE gifts SET auc_end=? WHERE id=?", (time.time() - 1, last["id"]))
         G = self.req("GET", "/api/gifts", token=tokB)[1]
         self.assertNotIn(last["id"], [x["id"] for x in G["market"]])
@@ -3536,14 +3540,77 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((st, r["bought"], r["price"]), (200, True, bn))
         self.assertEqual(self.req("GET", "/api/gifts", token=tB)[1]["coins"], cB + h["mk_start"])
         self.assertEqual(db.q("SELECT student_id FROM gifts WHERE id=?", (h["id"],), one=True)["student_id"], sids[2])
-        # оценка портфеля — по медиане сделок (от двух), не ниже продажи сразу
-        server._MKT_TYP.update(t=0)
-        mine = self.req("GET", "/api/gifts", token=tC)[1]
-        typ = round((need + bn) / 2)
-        for x in mine["mine"]:
-            if x["gift"] == "cake" and not x["uniq"]:
-                self.assertEqual((x["mk_typ"], x["worth"]), (typ, max(x["sell"], typ)))
-        self.assertEqual(mine["value"]["worth"], sum(x["worth"] for x in mine["mine"]))
+        # в оценку — вторая ставка + 5 %: первая сделка — ставка Семёна (start) + шаг; «купить сразу» при ставке — тоже
+        deals = db.q("SELECT price, signal, bidders FROM market_deals WHERE gift_id IN (?, ?) ORDER BY id", (g["id"], h["id"]))
+        self.assertEqual([tuple(d) for d in deals], [(need, need, 2), (bn, math.ceil(h["mk_start"] * 1.05), 2)])
+        # перепродать сразу нельзя, выкупить свой проданный — тоже
+        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": g["id"]}, tC)[0], 409)
+        db.x("UPDATE gifts SET market_ts=? WHERE id=?", (time.time() - 49 * 3600, g["id"]))
+        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": g["id"]}, tC)[0], 200)
+        st, r = self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": 10 ** 4}, tA)
+        self.assertEqual(st, 409)
+        self.assertIn("недавно продал", r["error"])
+        # ставка — не дороже 3 опорных
+        mk = next(x for x in self.req("GET", "/api/gifts", token=tB)[1]["market"] if x["id"] == g["id"])
+        self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": mk["max"] + 1}, tB)[0], 400)
+        self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": mk["max"]}, tB)[0], 200)
+
+    def test_market_valuation(self):
+        # оценка рынка: повторы одной пары и одного подарка — одна сделка; уровень редкости — от 5 сделок, вид — от 3 покупателей
+        # и 2 продавцов (притянут к уровню); шаг — не больше 10 % в сутки; сгоревший тираж уникальных — дороже
+        db = server.APP.db
+        saved = [tuple(r) for r in db.q("SELECT * FROM market_deals")], [tuple(r) for r in db.q("SELECT * FROM market_vals")]
+        def restore():
+            db.x("DELETE FROM market_deals")
+            db.x("DELETE FROM market_vals")
+            for r in saved[0]:
+                db.x(f"INSERT INTO market_deals VALUES({','.join('?' * len(r))})", r)
+            for r in saved[1]:
+                db.x("INSERT INTO market_vals VALUES(?,?,?)", r)
+            server._MKT_TYP.update(day=None)
+        self.addCleanup(restore)
+        db.x("DELETE FROM market_deals")
+        db.x("DELETE FROM market_vals")
+        now = time.time()
+        rare = [g[0] for g in server.GIFTS if server.gift_rarity(g[0])["k"] == "rare" and g[0] not in server.LIMITED_BY]
+        a, b, c = rare[:3]
+        def deal(gid, gift_id, seller, buyer, signal, ref=100, ago=3600):
+            db.x("""INSERT INTO market_deals(gift_id, ts, gift, mkey, tier, price, signal, ref, seller, buyer, bidders)
+                    VALUES(?,?,?,?, 'rare', ?,?,?,?,?, 2)""", (gift_id, now - ago, gid, gid, signal, signal, ref, seller, buyer))
+        # «туда-обратно» между двумя: 10 сделок по 3 опорных — одна сделка, оценки нет
+        for k in range(10):
+            deal(a, 9001 + k % 2, 1, 2, 300)
+        mv = server.market_vals(db, "2099-01-01")
+        self.assertEqual(mv["r"], {})
+        # честные сделки: вид b — 4 разных покупателя и 2 продавца по 1,5; вид a — ещё 1 сделка по 1,2 → уровень «rare»: 6 сделок
+        for k, (sl, by) in enumerate([(3, 4), (5, 6), (3, 7), (5, 8)]):
+            deal(b, 9100 + k, sl, by, 150)
+        deal(a, 9200, 9, 10, 120)
+        server._MKT_TYP.update(day=None)
+        db.x("DELETE FROM market_vals")
+        mv = server.market_vals(db, "2099-01-02")
+        tier = server._median([3.0, 1.5, 1.5, 1.5, 1.5, 1.2])
+        self.assertEqual(mv["r"]["*rare"], 1.0)                               # первый день — не выше опорной
+        self.assertEqual(mv["r"][b], 1.0)
+        self.assertEqual(mv["r"][a], mv["r"]["*rare"])                        # у вида a мало своих сделок — по уровню
+        # следующие дни: +10 % в сутки, пока не дойдёт до цели: вид b — (4 × 1,5 + 5 × уровень) / 9
+        for d in range(3, 12):
+            server._MKT_TYP.update(day=None)
+            mv = server.market_vals(db, f"2099-01-{d:02d}")
+        self.assertAlmostEqual(mv["r"][b], (4 * 1.5 + 5 * tier) / 9)
+        self.assertAlmostEqual(mv["r"]["*rare"], tier)
+        server._MKT_TYP.update(day=None)
+        mv = server.market_vals(db, "2099-01-12")
+        e, dem = server.econ(db), server.gift_demand(db)
+        ref_c = server.market_ref(c, None, e, dem)
+        self.assertEqual(server.market_est(c, None, e, dem, None, mv), round(ref_c * tier))   # вид без сделок — по уровню
+        # сгоревшие уникальные — дороже
+        mv2 = {"r": {"x:epic": 2.0}, "burn": {"u:x": 0.5}}
+        with mock.patch.object(server, "market_ref", return_value=100), mock.patch.object(server, "market_key", return_value="x:epic"):
+            self.assertEqual(server.market_est("x", {"rar": {"k": "epic"}}, e, dem, None, mv2), round(100 * 2.0 * 1.1))
+        # комиссия с переплаты: до 1,5 опорных — обычная, выше — не меньше 30 %
+        self.assertEqual(server.market_fee_amt(150, 0.1, 100), 15)
+        self.assertEqual(server.market_fee_amt(250, 0.1, 100), 15 + 30)
 
     def test_box_gift_market_fee(self):
         # выпавший в «🎲» подарок: первая продажа на рынке — комиссия 50 % (в банк), перепродажа — обычная
@@ -3564,7 +3631,7 @@ class ServerTest(unittest.TestCase):
         cake = next(g for g in G["mine"] if g["gift"] == "cake" and not g["box"])
         self.assertEqual((box["fee"], cake["fee"], G["market_fee_box"]), (0.5, G["market_fee"], 0.5))
         self.assertEqual(db.q("SELECT kind FROM gifts WHERE id=?", (box["id"],), one=True)["kind"], "box")
-        p1 = min(301, box["mk_max"]) // 2 * 2 + 1                                       # нечётная — комиссия вверх
+        p1 = min(max(301, box["mk_start"] + 1), box["mk_max"]) // 2 * 2 + 1               # нечётная — комиссия вверх, выше старта
         p1 = p1 if p1 <= box["mk_max"] else p1 - 2
         st, r = self.req("POST", "/api/gifts/list", {"id": box["id"], "price": p1}, tokA)
         self.assertEqual((st, r["get"], r["fee"]), (200, p1 - math.ceil(p1 / 2), 0.5))
@@ -3574,9 +3641,11 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.bank_balance(db), b0 + math.ceil(p1 / 2))
         mineB = next(g for g in self.req("GET", "/api/gifts", token=tokB)[1]["mine"] if g["id"] == box["id"])
         self.assertFalse(mineB["box"])
-        p2 = min(300, mineB["mk_max"])
+        p2 = min(max(300, mineB["mk_start"] + 1), mineB["mk_max"])
+        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": box["id"], "price": p2}, tokB)[0], 409)    # купленный — через 48 ч
+        db.x("UPDATE gifts SET market_ts=? WHERE id=?", (time.time() - 49 * 3600, box["id"]))
         st, r = self.req("POST", "/api/gifts/list", {"id": box["id"], "price": p2}, tokB)
-        self.assertEqual(r["get"], p2 - math.ceil(p2 * server.econ(db)["fee"]))
+        self.assertEqual(r["get"], p2 - server.market_fee_amt(p2, server.econ(db)["fee"], mineB["mk_ref"]))
         # «🎲 Случайный» от учителя — тоже из «🎲»; выбранный учителем — нет
         self.admin("POST", "/api/admin/gifts/give", {"student_id": sidA, "gift": "random"})
         self.admin("POST", "/api/admin/gifts/give", {"student_id": sidA, "gift": "tea"})

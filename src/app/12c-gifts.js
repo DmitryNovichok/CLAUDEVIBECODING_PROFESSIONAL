@@ -17,7 +17,11 @@
     : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '') + (g.box ? ' · выпал в 🎲' : '');
   // комиссия рынка — в банк; у выпавшего в «🎲» (g.fee) при первой продаже — 50 %
   const feeRate = g => (g && g.fee != null ? g.fee : GF.market_fee);
-  const fee = (p, g) => Math.ceil(p * feeRate(g));
+  // с части цены выше over_k опорных — комиссия побольше (переплата между своими невыгодна); ученику — только итог
+  const fee = (p, g) => {
+    const over = g && g.mk_ref ? Math.max(0, p - Math.floor(GF.over_k * g.mk_ref)) : 0;
+    return Math.ceil((p - over) * feeRate(g)) + Math.ceil(over * Math.max(feeRate(g), GF.over_fee || 0));
+  };
   const mkGetTxt = (p, g) => `купят сразу — получишь ${p - fee(p, g)} ₿`;
   /** Сколько осталось до конца торгов: «5 ч 12 мин», «3 мин», «меньше минуты». */
   function aucLeft(until) {
@@ -201,20 +205,22 @@
     if (S.k === 'mk') {
       const x = G.market.find(m => m.id === S.id);
       if (!x) return '';
-      const short = G.coins < x.next, bnShort = x.buy_now && G.coins < x.buy_now;
+      const short = G.coins < x.next, bnShort = x.buy_now && G.coins < x.buy_now, top = x.next > x.max;
       const acts = x.mine ? (x.bids ? `<button type="button" class="bx-btn" disabled><span>🔨</span>Идут торги<small>снять уже нельзя</small></button>`
           : `<button type="button" class="bx-btn" data-bx-unlist="${x.id}"><span>↩</span>Снять с торгов<small>ставок нет</small></button>`)
         : x.lead ? `<button type="button" class="bx-btn pri" disabled><span>👑</span>Твоя ставка выше всех<small>₿ ${num(x.bid)}</small></button>`
+        : x.back ? `<button type="button" class="bx-btn org" disabled><span>🔨</span>Ставка<small>ты недавно продал его — выкупить через ${G.buyback_days} дн.</small></button>`
+        : top ? `<button type="button" class="bx-btn org" disabled><span>🔨</span>Перебить нельзя<small>ставка уже у потолка ₿ ${num(x.max)}</small></button>`
         : `<button type="button" class="bx-btn org" data-bx-bid="${x.id}"${G.teacher || short ? ' disabled' : ''}><span>🔨</span>${x.bids ? 'Перебить' : 'Сделать ставку'}<small>${short ? `не хватает ₿ ${num(x.next - G.coins)}` : `за ₿ ${num(x.next)}`}</small></button>`;
       const bn = !x.mine && x.buy_now ? `<button type="button" class="bx-btn pri" data-bx-mbuy="${x.id}"${G.teacher || bnShort ? ' disabled' : ''}><span>⚡</span>Купить сразу<small>${bnShort ? `не хватает ₿ ${num(x.buy_now - G.coins)}` : `₿ ${num(x.buy_now)}`}</small></button>` : '';
       return `<div class="bx-sh">${gfTile(x, 76)}<div><b class="nm">${gfName(x)}</b>${rarHtml(x)}<small>${x.mine ? 'твой лот' : 'продаёт ' + esc(x.seller)} · до конца торгов ⏳ ${aucSpan(x.until)}</small>
-          <small>в магазине ₿ ${num(x.shop)}${x.typ ? ` · обычно продают за ₿ ${num(x.typ)}` : ''}</small></div></div>
+          <small>в магазине ₿ ${num(x.shop)}${x.typ ? ` · оценка рынка ₿ ${num(x.typ)}` : ''}</small></div></div>
         <div class="bx-sum"><span>старт <b>₿ ${num(x.start)}</b></span><span>${x.bids ? `ставка <b>₿ ${num(x.bid)}</b> · ${x.bids} ${plural(x.bids, 'ставка', 'ставки', 'ставок')}` : 'ставок пока нет'}</span>${x.buy_now ? `<span>купить сразу <b>₿ ${num(x.buy_now)}</b></span>` : ''}</div>
         ${x.rar && x.rar.k === 'limited' ? '' : priceBox(x.gift)}
         <div class="bx-acts${bn ? '' : ' one'}">${acts}${bn}</div>
-        ${x.mine || x.lead || G.teacher ? '' : `<div class="bx-mkrow"><label>своя ставка ₿ <input class="inp" id="bidAmt" type="number" min="${x.next}" value="${x.next}"></label>
+        ${x.mine || x.lead || x.back || top || G.teacher ? '' : `<div class="bx-mkrow"><label>своя ставка ₿ <input class="inp" id="bidAmt" type="number" min="${x.next}" max="${x.max}" value="${x.next}"></label>
           <button type="button" class="btn" data-bx-bid="${x.id}" data-own="1">Поставить</button></div>`}
-        <small class="bx-mkhint">${x.mine ? '' : 'ставка замораживает биткоины — перебьют, они вернутся · '}каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше · ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги</small>`;
+        <small class="bx-mkhint">${x.mine ? '' : 'ставка замораживает биткоины — перебьют, они вернутся · '}каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше, не больше ₿ ${num(x.max)} · ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги</small>`;
     }
     const g = G.mine.find(x => x.id === S.id);
     if (!g) return '';
@@ -225,7 +231,8 @@
       : listed ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>подарок на торгах</small></button>'
       : `<button type="button" class="bx-btn pri" data-bx-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}><span>✨</span>Улучшить<small>${GF.coins < g.up ? `не хватает ₿ ${num(g.up - GF.coins)}` : `₿ ${num(g.up)}`}</small></button>`;
     const sell = `<button type="button" class="bx-btn" data-bx-sell="${g.id}"${listed ? ' disabled' : ''}><span>💰</span>Продать<small>₿ ${num(g.sell)}</small></button>`;
-    const mk = !listed ? `<button type="button" class="bx-btn org${gfMkOpen ? ' on' : ''}" data-bx-mkopen><span>🔨</span>На аукцион<small>от ₿ ${num(g.mk_start)}</small></button>`
+    const mk = !listed && g.mk_wait ? `<button type="button" class="bx-btn org" disabled><span>🔨</span>На аукцион<small>через ${g.mk_wait}: куплен на рынке</small></button>`
+      : !listed ? `<button type="button" class="bx-btn org${gfMkOpen ? ' on' : ''}" data-bx-mkopen><span>🔨</span>На аукцион<small>от ₿ ${num(g.mk_start)}</small></button>`
       : g.mk_bids ? `<button type="button" class="bx-btn org" disabled><span>🔨</span>Идут торги<small>ставка ₿ ${num(g.mk_bid)}</small></button>`
       : `<button type="button" class="bx-btn org" data-bx-unlist="${g.id}"><span>↩</span>Снять с торгов<small>ставок нет</small></button>`;
     const suggest = Math.min(g.mk_max, Math.max(g.mk_start + 1, g.mk_typ ? Math.round(g.mk_typ * 1.3) : g.mk_start * 2));
@@ -238,7 +245,7 @@
       <div class="bx-acts">${up}${sell}${mk}</div>
       ${gfMkOpen && !listed ? `<div class="bx-mkrow"><label><input type="checkbox" id="mkBnOn"> купить сразу за ₿ <input class="inp" id="mkPrice" type="number" min="${g.mk_start + 1}" max="${g.mk_max}" value="${suggest}" disabled></label>
         <button type="button" class="btn primary" data-bx-list="${g.id}">Выставить</button><span class="fm-muted" id="mkGet"></span></div>
-        <small class="bx-mkhint">торги ${GF.auc_hours} ч, старт — ₿ ${num(g.mk_start)} (как при продаже сразу) · подарок уйдёт тому, чья ставка выше; ставок не будет — вернётся к тебе${g.mk_typ ? ` · обычно продают за ₿ ${num(g.mk_typ)}` : ''}</small>` : ''}`;
+        <small class="bx-mkhint">торги ${GF.auc_hours} ч, старт — ₿ ${num(g.mk_start)} (как при продаже сразу) · подарок уйдёт тому, чья ставка выше; ставок не будет — вернётся к тебе${g.mk_typ ? ` · оценка рынка ₿ ${num(g.mk_typ)}` : ''}</small>` : ''}`;
   }
   /** «Кому»: себе или одноклассник, найденный поиском по имени. */
   function whoHtml(G) {
@@ -328,7 +335,8 @@
         <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
         <li>💰 Продать сразу — почти за ту цену, за которую подарок тебе достался (если в магазине он подешевел — от нынешней). Подарок сгорит.</li>
         <li>🔨 Или выставь его на аукцион одноклассникам: старт — цена продажи сразу, торги ${G.auc_hours} ч, каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше. Ставка замораживает биткоины, перебьют — вернутся. Ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги. Подарок уйдёт тому, чья ставка выше.</li>
-        <li>💎 Подарки в портфеле и Forbes стоят столько, за сколько такие обычно уходят на торгах (но не меньше продажи сразу).</li>
+        <li>💎 Подарки в портфеле и Forbes стоят по оценке рынка — сколько ты получил бы, продав по ней (но не меньше продажи сразу). Оценку поднимают только настоящие торги: в неё идёт не цена победителя, а сколько давали соперники; без соперников — стартовая цена. Нужны сделки разных учеников, оценка меняется плавно — не больше 10% в сутки. Редкость важна: у редкого подарка без своих сделок оценка — по сделкам подарков той же редкости. Чем больше таких уникальных сгорело, тем дороже оставшиеся.</li>
+        <li>⏳ Купленный на рынке подарок можно снова выставить через ${G.relist_h} ч, а свой проданный — выкупить через ${G.buyback_days} дней. Ставка — не дороже трёх цен подарка.</li>
         <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов и подарков у всех. Копить очень много невыгодно.</li>
       </ul>
       <div class="bx-sum"><span>⚒ заработок <b>×${idxTxt(G.econ.earn)}</b></span><span>🏷 цены <b>×${idxTxt(G.econ.idx)}</b></span><span>🏦 банк <b>₿ ${num(G.econ.bank)}</b></span></div>`;
@@ -396,7 +404,7 @@
     const x = GF.market.find(m => m.id === id);
     if (!x) return;
     const amount = own ? Math.round(+($('#bidAmt') || {}).value || 0) : x.next;
-    if (amount < x.next) { toast(`Ставка — от ${x.next} ₿`); return; }
+    if (amount < x.next || amount > x.max) { toast(`Ставка — от ${x.next} до ${x.max} ₿`); return; }
     if (amount > GF.coins) { toast(`Не хватает биткоинов: нужно ${amount} ₿, у тебя ${GF.coins} ₿`); return; }
     try {
       const r = await api('gifts/bid', { id, amount });
