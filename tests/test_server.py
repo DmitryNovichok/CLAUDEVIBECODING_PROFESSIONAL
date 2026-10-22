@@ -2574,7 +2574,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "cookie", "to": 999999}, tok)[0], 404)
         # у второго монет нет — купить нельзя
         self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "cookie"}, tok2)[0], 400)
-        # учитель: монеты и случайный подарок всем; один подарок ученику с подписью
+        # учитель: монеты и случайный подарок всем; один подарок ученику с подписью (банку хватит при любом числе учеников)
+        need = 50 * db.q("SELECT COUNT(*) c FROM students", one=True)["c"] - server.bank_balance(db)
+        if need > 0:
+            db.x("INSERT INTO bank(ts, delta, reason, note) VALUES(?, ?, 'mint', 'тест')", (time.time(), need))
         st, r = self.admin("POST", "/api/admin/gifts/give", {"all": True, "gift": "random", "coins": 50})
         self.assertEqual(st, 200, r)
         self.assertGreaterEqual(r["count"], 2)
@@ -2941,7 +2944,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tokA)[0], 409)
         # одноклассник видит предложение, продавец — как своё
         mk = next(x for x in self.req("GET", "/api/gifts", token=tokB)[1]["market"] if x["id"] == cat["id"])
-        self.assertEqual((mk["price"], mk["seller"], mk["mine"]), (200, "Продавцов П.", False))
+        self.assertEqual((mk["buy_now"], mk["seller"], mk["mine"]), (200, "Продавцов П.", False))
         self.assertTrue(next(x for x in self.req("GET", "/api/gifts", token=tokA)[1]["market"] if x["id"] == cat["id"])["mine"])
         self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": cat["id"], "price": 200}, tokA)[0], 404)   # у себя не купить
         self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": cat["id"], "price": 150}, tokB)[0], 409)   # цена поменялась
@@ -3247,14 +3250,16 @@ class ServerTest(unittest.TestCase):
         for g in teas:
             self.assertEqual(g["sell"], math.floor(paid[g["id"]] * 0.9))
         self.assertLess(sum(g["sell"] for g in teas), spent)
-        # на рынке за 5 ₿ — продать сразу можно только за 4 ₿
-        cheap = teas[0]["id"]
-        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": cheap, "price": 5}, tokA)[0], 200)
-        self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": cheap, "price": 5}, tokB)[0], 200)
+        # куплен на рынке дёшево — продать сразу можно только от цены покупки
+        low = min(teas, key=lambda g: g["mk_start"])
+        cheap, bn = low["id"], low["mk_start"] + 1
+        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": cheap, "buy_now": bn}, tokA)[0], 200)
+        self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": cheap}, tokB)[0], 200)
+        gross = min(bn, next(c["price"] for c in self.req("GET", "/api/gifts", token=tokB)[1]["catalog"] if c["id"] == "tea"))
         mine = next(g for g in self.req("GET", "/api/gifts", token=tokB)[1]["mine"] if g["id"] == cheap)
-        self.assertEqual(mine["sell"], 4)
+        self.assertEqual(mine["sell"], math.floor(gross * 0.9))
         st, r = self.req("POST", "/api/gifts/sell", {"id": cheap}, tokB)
-        self.assertEqual((st, r["price"], r["fee"]), (200, 4, 1))
+        self.assertEqual((st, r["price"], r["fee"]), (200, math.floor(gross * 0.9), gross - math.floor(gross * 0.9)))
         # подешевел в магазине — от нынешней цены; без цены покупки (от учителя, за труд) — не выше цены без спроса
         e1 = {"idx": 1.0}
         self.assertEqual(server.gift_sell_price("castle", None, e1, {}, {"castle": 0.8}, 1100), math.floor(880 * 0.9))
@@ -3437,7 +3442,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(pts[k + 7]["n"], pts[k]["n"] - 5)                              # потом выпадают
 
     def test_market_rules(self):
-        # потолок цены — 3 оценки подарка; лот снимается сам через 7 дней; «обычно продают за» — медиана сделок (от двух)
+        # «купить сразу» — не дороже 3 оценок подарка; торги — сутки, без ставок лот снимается; «обычно продают за» — медиана сделок (от двух)
         db = server.APP.db
         tokA, tokB = self.login("Рыночный Роман"), self.login("Лотов Лев")
         for t in (tokA, tokB):
@@ -3448,7 +3453,7 @@ class ServerTest(unittest.TestCase):
         G = self.req("GET", "/api/gifts", token=tokA)[1]
         tl = [g for g in G["mine"] if g["gift"] == "tulip"]
         shop = next(c["price"] for c in G["catalog"] if c["id"] == "tulip")
-        self.assertEqual((tl[0]["mk_max"], tl[0]["mk_typ"], G["market_days"]), (3 * shop, None, 7))
+        self.assertEqual((tl[0]["mk_max"], tl[0]["mk_typ"], G["auc_hours"]), (3 * shop, None, 24))
         st, r = self.req("POST", "/api/gifts/list", {"id": tl[0]["id"], "price": 3 * shop + 1}, tokA)
         self.assertEqual(st, 400)
         self.assertIn(str(3 * shop), r["error"])
@@ -3459,15 +3464,86 @@ class ServerTest(unittest.TestCase):
         G = self.req("GET", "/api/gifts", token=tokA)[1]
         last = next(g for g in G["mine"] if g["id"] == tl[2]["id"])
         self.assertEqual(last["mk_typ"], 50)
-        # выставлен 8 дней назад — снят сам
+        # торги кончились без ставок — лот снят сам, подарок у продавца
         self.req("POST", "/api/gifts/list", {"id": last["id"], "price": 45}, tokA)
         mk = next(x for x in self.req("GET", "/api/gifts", token=tokB)[1]["market"] if x["id"] == last["id"])
-        self.assertEqual((mk["typ"], round(mk["until"] - mk["ts"])), (50, 7 * 86400))
-        db.x("UPDATE gifts SET listed_ts=? WHERE id=?", (time.time() - 8 * 86400, last["id"]))
+        self.assertEqual((mk["typ"], round(mk["until"] - mk["ts"])), (50, 24 * 3600))
+        db.x("UPDATE gifts SET auc_end=? WHERE id=?", (time.time() - 1, last["id"]))
         G = self.req("GET", "/api/gifts", token=tokB)[1]
         self.assertNotIn(last["id"], [x["id"] for x in G["market"]])
         self.assertIsNone(db.q("SELECT listed FROM gifts WHERE id=?", (last["id"],), one=True)["listed"])
         self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": last["id"], "price": 45}, tokB)[0], 404)
+        self.assertIn(last["id"], [g["id"] for g in self.req("GET", "/api/gifts", token=tokA)[1]["mine"]])
+
+    def test_auction(self):
+        # аукцион: старт — продажа сразу, ставка +5 %, ₿ замораживаются и возвращаются перебитому, защита от снайперов,
+        # итог — подарок лидеру, продавцу — ставка минус комиссия; оценка портфеля — по медиане сделок
+        db = server.APP.db
+        toks = [self.login(n) for n in ("Аукционов Артём", "Ставкин Семён", "Торгов Тимур")]
+        sids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in toks]
+        self.addCleanup(lambda: [db.x("UPDATE students SET no_rank=1 WHERE id=?", (x,)) for x in sids])   # не теснить чужие тесты в рейтинге
+        for sid in sids:
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 3000))
+        tA, tB, tC = toks
+        self.req("POST", "/api/gifts/buy", {"gift": "cake"}, tA)
+        g = next(x for x in self.req("GET", "/api/gifts", token=tA)[1]["mine"] if x["gift"] == "cake")
+        st, r = self.req("POST", "/api/gifts/list", {"id": g["id"]}, tA)
+        self.assertEqual((st, r["start"], r["buy_now"], r["hours"]), (200, g["sell"], None, 24))
+        start = r["start"]
+        coins = {t: self.req("GET", "/api/gifts", token=t)[1]["coins"] for t in toks}
+        mk = next(x for x in self.req("GET", "/api/gifts", token=tB)[1]["market"] if x["id"] == g["id"])
+        self.assertEqual((mk["start"], mk["bid"], mk["next"], mk["bids"]), (start, None, start, 0))
+        self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": start - 1}, tB)[0], 409)
+        self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": start}, tA)[0], 404)       # свой лот
+        st, r = self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": start}, tB)
+        self.assertEqual((st, r["bought"], r["game"]["coins"]), (200, False, coins[tB] - start))                 # заморожено
+        self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": start * 2}, tB)[0], 409)   # и так выше всех
+        self.assertEqual(self.req("POST", "/api/gifts/unlist", {"id": g["id"]}, tA)[0], 409)                     # есть ставки
+        need = max(start + 1, math.ceil(start * 1.05))
+        mk = next(x for x in self.req("GET", "/api/gifts", token=tC)[1]["market"] if x["id"] == g["id"])
+        self.assertEqual((mk["next"], mk["lead"]), (need, False))
+        self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": need - 1}, tC)[0], 409)
+        # за 2 минуты до конца — торги продлеваются до 5 минут
+        db.x("UPDATE gifts SET auc_end=? WHERE id=?", (time.time() + 120, g["id"]))
+        st, r = self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": need}, tC)
+        self.assertEqual(st, 200)
+        self.assertGreater(db.q("SELECT auc_end FROM gifts WHERE id=?", (g["id"],), one=True)["auc_end"], time.time() + 290)
+        # перебитому — ₿ вернулись и уведомление
+        self.assertEqual(self.req("GET", "/api/gifts", token=tB)[1]["coins"], coins[tB])
+        news = self.req("GET", "/api/me", token=tB)[1]["coin_news"]
+        self.assertEqual([(c["reason"], c["delta"]) for c in news], [("bidback", start)])
+        self.assertIn("перебили", news[0]["note"])
+        # торги кончились — подарок у лидера, продавцу ставка минус комиссия, комиссия — в банк
+        b0, fee = server.bank_balance(db), math.ceil(need * server.econ(db)["fee"])
+        db.x("UPDATE gifts SET auc_end=? WHERE id=?", (time.time() - 1, g["id"]))
+        server.market_expire(db)
+        self.assertEqual(server.bank_balance(db), b0 + fee)
+        self.assertEqual(self.req("GET", "/api/gifts", token=tA)[1]["coins"], coins[tA] + need - fee)
+        GC = self.req("GET", "/api/gifts", token=tC)[1]
+        won = next(x for x in GC["mine"] if x["id"] == g["id"])
+        self.assertEqual((won["market"], won["listed"], GC["coins"]), ("Аукционов А.", None, coins[tC] - need))
+        self.assertEqual([x for x in GC["ledger"] if x["reason"] in ("bid", "mbuy")][0]["reason"], "mbuy")
+        self.assertEqual(db.q("SELECT seen FROM gifts WHERE id=?", (g["id"],), one=True)["seen"], 0)            # победителю — уведомление
+        # «купить сразу»: ставка лидера возвращается, сделка тут же; ставка не выше «купить сразу»
+        self.req("POST", "/api/gifts/buy", {"gift": "cake"}, tA)
+        h = next(x for x in self.req("GET", "/api/gifts", token=tA)[1]["mine"] if x["gift"] == "cake" and x["id"] != g["id"])
+        bn = h["mk_start"] + 50
+        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": h["id"], "buy_now": h["mk_max"] + 1}, tA)[0], 400)
+        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": h["id"], "buy_now": bn}, tA)[0], 200)
+        self.req("POST", "/api/gifts/bid", {"id": h["id"], "amount": h["mk_start"]}, tB)
+        cB = self.req("GET", "/api/gifts", token=tB)[1]["coins"]
+        st, r = self.req("POST", "/api/gifts/bid", {"id": h["id"], "amount": bn + 100}, tC)
+        self.assertEqual((st, r["bought"], r["price"]), (200, True, bn))
+        self.assertEqual(self.req("GET", "/api/gifts", token=tB)[1]["coins"], cB + h["mk_start"])
+        self.assertEqual(db.q("SELECT student_id FROM gifts WHERE id=?", (h["id"],), one=True)["student_id"], sids[2])
+        # оценка портфеля — по медиане сделок (от двух), не ниже продажи сразу
+        server._MKT_TYP.update(t=0)
+        mine = self.req("GET", "/api/gifts", token=tC)[1]
+        typ = round((need + bn) / 2)
+        for x in mine["mine"]:
+            if x["gift"] == "cake" and not x["uniq"]:
+                self.assertEqual((x["mk_typ"], x["worth"]), (typ, max(x["sell"], typ)))
+        self.assertEqual(mine["value"]["worth"], sum(x["worth"] for x in mine["mine"]))
 
     def test_box_gift_market_fee(self):
         # выпавший в «🎲» подарок: первая продажа на рынке — комиссия 50 % (в банк), перепродажа — обычная
