@@ -931,6 +931,8 @@ body.tt-big .py-dock { z-index: 80; }
 .sm-num { font-size: 22px; font-weight: 900; }
 .sm-sub { font-size: 13px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
 .sm-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 14px 0 10px; text-align: center; }
+.sm-bonus { margin: 10px 0 0; padding: 9px 12px; border-radius: 12px; background: var(--accent-soft); color: var(--text); font-size: 13.5px; line-height: 1.4; }
+.sm-bonus b { color: var(--accent-text); } .sm-bonus small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
 .sw-day { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
 .sw-day i { width: 30px; height: 30px; border-radius: 50%; background: var(--track); display: grid; place-items: center; color: #fff; }
 .sw-day.ok i { background: #ff9600; }

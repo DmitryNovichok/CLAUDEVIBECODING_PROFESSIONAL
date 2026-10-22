@@ -3412,6 +3412,50 @@ class ServerTest(unittest.TestCase):
         kinds = [r["kind"] for r in db.q("SELECT kind FROM gifts WHERE student_id=? AND from_teacher IS NOT NULL ORDER BY id", (sidA,))]
         self.assertEqual(kinds, ["box", None])
 
+    def test_fire_bonus(self):
+        # огонёк — коэффициент: +1 % за день к опыту и ₿ за задания — по огоньку в момент решения; до версии — без бонуса
+        db = server.APP.db
+        tok = self.login("Жаров Женя")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        today = datetime.datetime.combine(datetime.date.today(), datetime.time()).timestamp() + 3600
+        old = db.setting("fire_bonus_since")
+        db.setting("fire_bonus_since", str(today - 10 * 86400))
+        server._SINCE.clear()
+        self.addCleanup(server._SINCE.clear)
+        self.addCleanup(db.setting, "fire_bonus_since", old)
+        seq = iter(range(1000))
+
+        def att(n, ts):
+            db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,?,1,?)",
+                 (sid, ts, f"f:{next(seq)}", n, 30 * 60000))
+        for d in (3, 2, 1):                                     # три дня подряд по три задания — огонёк 3
+            for k in range(3):
+                att(10, today - d * 86400 + k * 60)
+        att(27, today)                                          # сегодня первое: огонёк ещё 3 — +3 %
+        att(10, today + 60)
+        att(27, today + 120)                                    # третье за день: день засчитан, огонёк 4 — +4 %
+        g = server.game_summary(db, sid)
+        self.assertEqual((g["fire"], g["fire_bonus"]), (4, 4))
+        log = {(x["v"], x["why"]) for x in g["xplog"]}
+        xp27 = server.task_xp(27, None)
+        self.assertIn((math.floor(xp27 * 1.03 + 0.5), "№27 — решено · 🔥+3%"), log)
+        self.assertIn((math.floor(xp27 * 1.04 + 0.5), "№27 — решено · 🔥+4%"), log)
+        self.assertTrue(any(w == "№10 — решено" for v, w in log))          # в первый день огонька ещё нет — без бонуса
+        # до версии бонуса — без него; огонёк больше 30 дней — не больше +30 %
+        db.setting("fire_bonus_since", str(today + 86400))
+        server._SINCE.clear()
+        self.assertFalse(any("🔥" in x["why"] for x in server.game_summary(db, sid)["xplog"]))
+        tok2 = self.login("Пламенев Пётр")
+        sid = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        for d in range(40, 0, -1):
+            for k in range(3):
+                att(1, today - d * 86400 + k * 60)
+        g = server.game_summary(db, sid)
+        self.assertEqual((g["fire"], g["fire_bonus"]), (40, 0))                 # версия ещё «не вышла»
+        db.setting("fire_bonus_since", str(today - 50 * 86400))
+        server._SINCE.clear()
+        self.assertEqual(server.game_summary(db, sid)["fire_bonus"], 30)
+
     def test_task_and_work_btc(self):
         db = server.APP.db
         tok = self.login("Бонусный Борис")
@@ -3419,9 +3463,12 @@ class ServerTest(unittest.TestCase):
         now = time.time()
         since, old = now - 3600, db.setting("task_btc_since")     # «версия вышла» час назад
         db.setting("task_btc_since", str(since))
+        old_fire = db.setting("fire_bonus_since")                  # бонус огонька здесь не нужен — проверяется отдельно
+        db.setting("fire_bonus_since", str(now + 86400))
         server._SINCE.clear()
         self.addCleanup(server._SINCE.clear)
         self.addCleanup(db.setting, "task_btc_since", old)
+        self.addCleanup(db.setting, "fire_bonus_since", old_fire)
         seq = iter(range(100))
 
         def att(tid, n, score=1.0, spent=30 * 60000, reason="", grp=None, exam=None, ts=None):     # полчаса — дольше любого минимума
