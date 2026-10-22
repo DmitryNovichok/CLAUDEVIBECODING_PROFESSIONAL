@@ -1685,6 +1685,20 @@ class ServerTest(unittest.TestCase):
         self.assertIsNone(server.APP.db.q("SELECT 1 FROM support WHERE id=?", (mine[0]["id"],), one=True))
         self.assertEqual(self.admin("POST", "/api/admin/support/delete", {"closed": True})[1]["deleted"], 1)   # закрытое ранее
 
+    def test_support_ideas(self):
+        # «💡 Пожелания»: своя тема idea — приходит учителю вместе с обращениями, отвечать можно как обычно
+        tok = self.login("Идеев Илья")
+        d = self.req("GET", "/api/support", token=tok)[1]
+        self.assertEqual(d["kinds"]["idea"], "💡 Пожелание")
+        st, d = self.req("POST", "/api/support", {"kind": "idea", "text": "ой"}, tok)
+        self.assertEqual((st, d.get("error")), (400, "Опиши идею подробнее — хотя бы пару слов"))
+        self.assertEqual(self.req("POST", "/api/support", {"kind": "idea", "text": "Добавьте тёмную тему для доски"}, tok)[0], 200)
+        x = next(r for r in self.admin("GET", "/api/admin/site-stats")[1]["support"] if r["text"] == "Добавьте тёмную тему для доски")
+        self.assertEqual((x["kind"], x["status"]), ("idea", "new"))
+        self.admin("POST", "/api/admin/support/answer", {"id": x["id"], "answer": "Отличная идея!"})
+        item = self.req("GET", "/api/support", token=tok)[1]["items"][0]
+        self.assertEqual((item["kind"], item["answer"]), ("idea", "Отличная идея!"))
+
     def test_support_dialog_and_close(self):
         # переписка в теме: ученик отвечает, учитель отвечает ещё раз; закрытая тема — писать нельзя, можно открыть снова
         tok = self.login("Диалогов Денис")

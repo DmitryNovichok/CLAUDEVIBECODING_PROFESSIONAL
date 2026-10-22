@@ -345,11 +345,14 @@
   });
   /** Обращения в техподдержку от учеников: новые сверху, ответ виден ученику на сайте. */
   const SP_ST = { new: ['new', 'новое'], answered: ['ans', 'отвечено'], closed: ['closed', 'закрыто'] };
+  let spF = 'all';                      // фильтр: all — всё, help — обращения, idea — 💡 пожелания учеников
   function supportHtml(d) {
     const list = d.support || [];
     const fresh = list.filter(x => x.status === 'new').length;
     const dt = mskTime;
-    const items = list.map(x => `<div class="sp-a ${SP_ST[x.status] ? SP_ST[x.status][0] : ''}" data-sp="${x.id}">
+    const nIdea = list.filter(x => x.kind === 'idea').length, newIdea = list.filter(x => x.kind === 'idea' && x.status === 'new').length;
+    const seg = (k, t, n) => `<button type="button" class="${spF === k ? 'on' : ''}" data-sp-f="${k}">${t}${n ? ` <b>${n}</b>` : ''}</button>`;
+    const items = list.map(x => `<div class="sp-a ${SP_ST[x.status] ? SP_ST[x.status][0] : ''}" data-sp="${x.id}" data-kind="${esc(x.kind || '')}">
       <div class="sp-a-head"><span class="sp-st">${(SP_ST[x.status] || SP_ST.new)[1]}</span><b>${esc(x.name)}</b>
         <span class="muted">${esc(x.teacher ? 'учитель: ' + x.teacher : '')}</span><span class="muted">${esc((d.support_kinds || {})[x.kind] || '')}</span>
         <span class="muted">${dt(x.ts)}</span>${x.task ? `<span class="muted">задание <button type="button" class="task-link" data-task="${esc(x.task)}"><code>${esc(x.task)}</code></button></span>` : ''}${x.page ? `<span class="muted">раздел: ${esc(x.page)}</span>` : ''}</div>
@@ -366,8 +369,17 @@
     return `<h3 class="adm-h3">Обращения в техподдержку ${fresh ? `<span class="sp-badge">${fresh} ${fresh === 1 ? 'новое' : 'новых'}</span>` : ''}
         <span class="adm-hint">от учеников: кнопка «🛟 Техподдержка» на сайте</span>
         ${closed ? `<button type="button" class="btn ghost danger sp-clear" data-sp-clear>Удалить закрытые (${closed})</button>` : ''}</h3>
-      <div class="sp-admin">${items || '<p class="adm-empty">Обращений пока нет.</p>'}</div>`;
+      ${nIdea ? `<div class="cs-seg sp-f">${seg('all', 'Все', 0)}${seg('help', '🛟 Обращения', 0)}${seg('idea', '💡 Пожелания', newIdea || nIdea)}</div>` : ''}
+      <div class="sp-admin f-${spF}">${items || '<p class="adm-empty">Обращений пока нет.</p>'}</div>`;
   }
+  $('#siteBody').addEventListener('click', e => {                     // фильтр обращений: все / обращения / пожелания
+    const f = e.target.closest('[data-sp-f]');
+    if (!f) return;
+    spF = f.dataset.spF;
+    $$('[data-sp-f]').forEach(b => b.classList.toggle('on', b === f));
+    const box = $('.sp-admin');
+    if (box) box.className = `sp-admin f-${spF}`;
+  });
   $('#siteBody').addEventListener('click', async e => {
     const del = e.target.closest('[data-sp-del]'), clear = e.target.closest('[data-sp-clear]');
     if (del || clear) {

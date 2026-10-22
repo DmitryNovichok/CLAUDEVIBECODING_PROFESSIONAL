@@ -2088,6 +2088,11 @@ body.asg-wide .course.asg-page { max-width: none; }
 .support-btn:hover { border-color: var(--accent); }
 .support-btn .dot { position: absolute; top: 6px; right: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--weak); }
 .support-btn:not([hidden]) + .side-actions { margin-top: 0; }
+.sp-tabs { display: flex; gap: 6px; margin: 4px 0 14px; padding: 4px; border: 2px solid var(--border); border-radius: 14px; }
+.sp-tabs button { position: relative; flex: 1; padding: 9px 12px; border: 0; border-radius: 10px; background: transparent; color: var(--muted);
+  font: 800 14px var(--font); cursor: pointer; }
+.sp-tabs button.on { background: var(--accent-soft); color: var(--accent-text); }
+.sp-tab-dot { position: absolute; top: 7px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--weak); }
 .sp-form { display: flex; flex-direction: column; gap: 10px; }
 .sp-form textarea { min-height: 120px; resize: vertical; font: inherit; }
 .sp-form select { font: inherit; font-weight: 700; }

@@ -152,32 +152,52 @@
     prev.addEventListener('click', e => { if (e.target.closest('.sp-prev-x')) { box.spImg = null; prev.innerHTML = ''; prev.hidden = true; } });
   }
   const SP_PICK = '<button type="button" class="btn ghost sp-pick" data-sp-pick title="Прикрепить картинку — или вставь скриншот в поле через Ctrl+V">📎 Картинка</button><span class="sp-prev" hidden></span>';
-  async function openSupport() {
+  // две вкладки: «🛟 Обращения» (ошибка, не работает, вопрос) и «💡 Пожелания» (свои идеи для сайта, kind = idea)
+  let spTab = 'help';
+  const spIdea = x => x.kind === 'idea';
+  const spNew = x => x.answer && !x.seen;
+  /** tab: 'help' | 'idea' | 'auto' (кнопка «Техподдержка»: новый ответ только в пожеланиях — сразу туда); иначе — та же вкладка. */
+  async function openSupport(tab) {
     if (isNarrow()) setSideOpen(false);
     await loadSupport();
-    const t = cur && cur.task && !courseShown ? cur.task : null;
-    const kinds = Object.entries(SUPPORT.kinds || {}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
-    const list = SUPPORT.items.map(x => {
+    if (tab === 'auto') spTab = SUPPORT.items.some(x => spIdea(x) && spNew(x)) && !SUPPORT.items.some(x => !spIdea(x) && spNew(x)) ? 'idea' : 'help';
+    else if (tab === 'help' || tab === 'idea') spTab = tab;
+    const idea = spTab === 'idea';
+    const t = !idea && cur && cur.task && !courseShown ? cur.task : null;
+    const kinds = Object.entries(SUPPORT.kinds || {}).filter(([k]) => k !== 'idea').map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
+    const dot = ideas => (SUPPORT.items.some(x => spIdea(x) === ideas && spNew(x)) ? '<i class="sp-tab-dot"></i>' : '');
+    const list = SUPPORT.items.filter(x => spIdea(x) === idea).map(x => {
       const st = SP_STATUS[x.status] || SP_STATUS.new;
       const thread = (x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map(m => m.who === 'teacher'
         ? `<div class="sp-ans"><b>Учитель · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`
         : `<div class="sp-msg"><b>Ты · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`).join('');
       return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}" data-sp="${x.id}"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
-        <span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span>${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
+        ${idea ? `<span>${mskTime(x.ts)}</span>` : `<span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span>`}${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
         <div class="sp-thread">${thread}</div>
         ${x.status === 'closed' ? '<p class="sp-closed">Тема закрыта. Если вопрос остался — напиши новое обращение выше.</p>'
           : `<div class="sp-reply" data-sp-box><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
           <div class="sp-row">${SP_PICK}<button type="button" class="btn" data-sp-reply>Отправить</button></div></div>`}</div>`;
     }).join('');
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">🛟 Техподдержка</h2>
-      <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Можно приложить скриншот: кнопка «📎 Картинка» или Ctrl+V в поле. Обращение получит учитель, ответ появится здесь.</p>
+    const form = idea ? `<p class="fm-note">Есть идея, как сделать Egeshka лучше? Новый режим, задания, подарки, что-то неудобно — напиши.
+        Учитель прочитает и ответит здесь. Можно приложить картинку: «📎 Картинка» или Ctrl+V в поле.</p>
+      <form class="sp-form" id="spForm" data-sp-box>
+        <input type="hidden" id="spKind" value="idea">
+        <textarea class="inp" id="spText" maxlength="2000" placeholder="Моя идея: что добавить или улучшить и зачем" required></textarea>
+        <div class="sp-row"><span></span>${SP_PICK}<button type="submit" class="btn primary">💡 Отправить идею</button></div>
+      </form>` : `<p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Можно приложить скриншот: кнопка «📎 Картинка» или Ctrl+V в поле. Обращение получит учитель, ответ появится здесь.</p>
       <form class="sp-form" id="spForm" data-sp-box>
         <select class="inp" id="spKind">${kinds}</select>
         <textarea class="inp" id="spText" maxlength="2000" placeholder="Опиши, что случилось: что делал, что ожидал и что получилось" required></textarea>
         <div class="sp-row">${t ? `<label class="sp-att"><input type="checkbox" id="spTask" checked> приложить задание №${numLabel(t.n)} (${esc(t.id)})</label>` : '<span></span>'}
           ${SP_PICK}<button type="submit" class="btn primary">Отправить</button></div>
-      </form>
-      ${list ? `<h3 class="fm-sub">Мои обращения</h3><div class="sp-list">${list}</div>` : ''}`;
+      </form>`;
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">🛟 Техподдержка</h2>
+      <div class="sp-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected="${!idea}" class="${idea ? '' : 'on'}" data-sp-tab="help">🛟 Обращения${dot(false)}</button>
+        <button type="button" role="tab" aria-selected="${idea}" class="${idea ? 'on' : ''}" data-sp-tab="idea">💡 Пожелания${dot(true)}</button>
+      </div>
+      ${form}
+      ${list ? `<h3 class="fm-sub">${idea ? 'Мои пожелания' : 'Мои обращения'}</h3><div class="sp-list">${list}</div>` : ''}`;
     $('#forecastModal').hidden = false;
     if (t) $('#spKind').value = 'task';
     $('#forecastBody').querySelectorAll('[data-sp-box]').forEach(spAttach);
@@ -198,13 +218,17 @@
       if (t && $('#spTask') && $('#spTask').checked) body.task = t.id;
       btn.disabled = true;                              // двойной клик — одно обращение
       try { await api('support', body); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); btn.disabled = false; return; }
-      toast('Обращение отправлено — ответ появится в «Техподдержке»', 3500);
+      toast(idea ? '💡 Спасибо! Пожелание отправлено учителю — ответ появится здесь' : 'Обращение отправлено — ответ появится в «Техподдержке»', 3500);
       $('#spText').value = ''; $('#spForm').spImg = null;
       openSupport();
     });
     if (SUPPORT.unread) { try { await api('support/seen', {}); } catch (e) { /* не страшно */ } SUPPORT.unread = 0; $('#supportDot').hidden = true; }
   }
-  $('#supportBtn').addEventListener('click', openSupport);
+  $('#supportBtn').addEventListener('click', () => openSupport('auto'));
+  $('#forecastBody').addEventListener('click', e => {                 // вкладки техподдержки
+    const b = e.target.closest('[data-sp-tab]');
+    if (b && b.dataset.spTab !== spTab) openSupport(b.dataset.spTab);
+  });
   $('#forecastBody').addEventListener('click', e => {                 // картинку в техподдержке — открыть целиком
     const b = e.target.closest('[data-sp-img]');
     if (b && SP_IMG.get(b.dataset.spImg)) window.open(SP_IMG.get(b.dataset.spImg), '_blank');

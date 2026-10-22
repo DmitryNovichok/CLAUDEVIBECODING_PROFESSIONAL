@@ -363,6 +363,8 @@ span.cp-sq { min-width: 14px; height: 14px; cursor: default; }
 
 /* обращения в техподдержку */
 .sp-admin { display: flex; flex-direction: column; gap: 10px; }
+.sp-f { margin: 0 0 10px; } .sp-f b { color: var(--accent-text); }
+.sp-admin.f-idea .sp-a:not([data-kind="idea"]), .sp-admin.f-help .sp-a[data-kind="idea"] { display: none; }
 .sp-a { padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
 .sp-a.new { border-color: var(--weak); }
 .sp-a.closed { opacity: .65; }
