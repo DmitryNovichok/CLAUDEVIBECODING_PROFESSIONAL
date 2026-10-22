@@ -1685,6 +1685,18 @@ class ServerTest(unittest.TestCase):
         self.assertIsNone(server.APP.db.q("SELECT 1 FROM support WHERE id=?", (mine[0]["id"],), one=True))
         self.assertEqual(self.admin("POST", "/api/admin/support/delete", {"closed": True})[1]["deleted"], 1)   # закрытое ранее
 
+    def test_sound_switch(self):
+        # рубильник звуков: учитель выключает — у его учеников rules.sounds = false (и событие sound), включает — снова true
+        tok = self.login("Звуков Захар")
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["sounds"])
+        self.assertTrue(self.admin("GET", "/api/admin/me")[1]["sounds"])
+        self.assertEqual(self.admin("POST", "/api/admin/sounds", {"on": False})[1], {"ok": True, "on": False})
+        self.addCleanup(self.admin, "POST", "/api/admin/sounds", {"on": True})
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["rules"]["sounds"])
+        self.assertFalse(self.admin("GET", "/api/admin/me")[1]["sounds"])
+        self.admin("POST", "/api/admin/sounds", {"on": True})
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["sounds"])
+
     def test_support_ideas(self):
         # «💡 Пожелания»: своя тема idea — приходит учителю вместе с обращениями, отвечать можно как обычно
         tok = self.login("Идеев Илья")

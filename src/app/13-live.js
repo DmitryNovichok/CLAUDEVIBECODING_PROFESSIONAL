@@ -107,6 +107,9 @@
     else if (topic === 'support') liveSupport();
     else if (topic === 'pyc') pycLive();
     else if (topic === 'gift') giftLive();
+    else if (topic === 'sound') {                    // учитель переключил звуки у класса
+      api('me').then(me => { if (me.rules) Object.assign(RULES, me.rules); sndRules(true); }).catch(() => {});
+    }
     else if (topic === 'logout') {
       // учитель завершил вход на компьютерах класса — если и этот вход закрыт, выходим
       api('me').catch(e => { if (e.status === 401 && student) { toast('🏫 Учитель завершил вход на компьютерах класса', 6000); logout(); } });

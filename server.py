@@ -1570,6 +1570,7 @@ class DB:
                     ("teachers", "consent_ver", "TEXT"),              # учитель тоже принимает документы
                     ("teachers", "consent_ts", "REAL"),
                     ("teachers", "consent_ip", "TEXT"),
+                    ("teachers", "sounds", "INTEGER DEFAULT 1"),      # 0 — учитель выключил звуки на сайте у своих учеников (урок)
                     ("assignments", "batch", "TEXT"),                 # серия личных подборок: fix:<id> — работа над ошибками, weak:<ts>
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
@@ -2355,6 +2356,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return {"think": THINK_SEC_DEFAULT, "think_hard": THINK_SEC_HARD, "reveal_per_hour": REVEAL_PER_HOUR,
                 "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
                 "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored,
+                "sounds": bool(teacher_of(s)["sounds"]) if s else True,       # рубильник звуков учителя
                 "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file(),
                 "repeat_since": 0}
 
@@ -4946,8 +4948,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("UPDATE js_errors SET fixed_ts=? WHERE id=?", (time.time() if data.get("fixed") else None, to_int(data.get("id"))))
             return self.send_json({"errors": jserr_list(db), "new": jserr_new(db), "seen": seen})
 
+        if path == "/api/admin/sounds" and method == "POST":
+            # рубильник звуков: у учеников этого учителя замолкают фон и звуки кейса — сразу, без перезагрузки
+            on = 1 if data.get("on") else 0
+            db.x("UPDATE teachers SET sounds=? WHERE id=?", (on, self.T["id"]))
+            LIVE.send([m["id"] for m in teacher_students(db, self.T["id"])], "sound")
+            return self.send_json({"ok": True, "on": bool(on)})
+
         if path == "/api/admin/me":
             out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")}
+            out["sounds"] = bool(self.T["sounds"])
             if self.T["is_main"]:
                 out["jserr_new"] = jserr_new(db)
             row = db.q("SELECT consent_ver FROM teachers WHERE id=?", (self.T["id"],), one=True)

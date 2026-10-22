@@ -17,7 +17,7 @@
   const crQuick = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   // ---- звук: создаётся по нажатию «Купить» — иначе браузер не даст
   function crAudio() {
-    if (crMuted) return null;
+    if (crMuted || RULES.sounds === false) return null;            // учитель выключил звуки на уроке
     try {
       crAC = crAC || new (window.AudioContext || window.webkitAudioContext)();
       if (crAC.state === 'suspended') crAC.resume();

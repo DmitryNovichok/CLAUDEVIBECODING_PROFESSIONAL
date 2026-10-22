@@ -155,9 +155,23 @@
     document.body.classList.toggle('is-main', !!ME.is_main);
     $('#admWho').textContent = ME.name + (ME.is_main ? ' · главный' : '');
     errBadge(ME.jserr_new || 0);
+    sndSwitch();
     if (ME.is_main) { try { teachers = (await api('teachers')).teachers; } catch (e) { teachers = []; } }
     await askConsent();
   }
+  /** Рубильник звуков у учеников (фон 🎧 и звуки кейса): на уроке — выключить, замолкнут сразу. */
+  function sndSwitch() {
+    const b = $('#sndSwitch');
+    b.hidden = false;
+    b.classList.toggle('off', !ME.sounds);
+    b.textContent = ME.sounds ? '🔊 Звуки учеников' : '🔇 Звуки выключены';
+    b.setAttribute('aria-pressed', String(!ME.sounds));
+  }
+  $('#sndSwitch').addEventListener('click', async () => {
+    try { ME.sounds = (await api('sounds', { on: !ME.sounds })).on; } catch (e) { toast(e.message || 'Не получилось'); return; }
+    sndSwitch();
+    toast(ME.sounds ? '🔊 Звуки у учеников снова включены' : '🔇 Звуки у учеников выключены — на уроке тишина', 3500);
+  });
   // новая редакция документов: учитель тоже подтверждает согласие, иначе панель не открывается
   function askConsent() {
     if (!ME.consent_needed) return Promise.resolve();
