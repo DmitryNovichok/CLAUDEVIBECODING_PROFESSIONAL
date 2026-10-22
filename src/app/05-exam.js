@@ -202,6 +202,7 @@
     $$('#trainer .answer-row[data-key]').forEach(row => fillRow(row, EX.ans[row.dataset.key]));
     dropDuplicateFileLinks($('#cond'), t.att || []);
     decorateCondition($('#cond'), t);
+    guardDecorate($('#cond'));
     bindInputs(() => { if (!last) exGo(EX.cur + 1); });
     const first = $('#trainer .answer-row input');
     if (first && window.matchMedia('(min-width: 861px)').matches && !pyOpen()) first.focus({ preventScroll: true });

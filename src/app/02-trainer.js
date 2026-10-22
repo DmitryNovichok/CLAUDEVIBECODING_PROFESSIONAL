@@ -474,6 +474,7 @@
       const lab = $('.answer-label');
       lab.innerHTML = `<b>Ответ на задание ${t.n}</b>` + (cur.shape.type === 'single' ? '' : ' — ' + esc(answerLabel(cur.shape).replace(/^Ответ — /, '')));
     }
+    guardDecorate($('#cond'));                       // после разметки вопросов 19–21 — записка для ИИ её не путает
     renderActions();
     wkDecorate();
     pkBar();
