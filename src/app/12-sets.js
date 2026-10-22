@@ -548,7 +548,7 @@
     setBusy(true);
     let r = null;
     try {
-      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing }, x));
+      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing, bot: botPayload(cur.task.id) }, x));
     } catch (e) {
       setBusy(false);
       if (e.status === 409) { await wkRefresh(a); if (!wkLive()) return; toast(e.message, 4000); next(); return; }

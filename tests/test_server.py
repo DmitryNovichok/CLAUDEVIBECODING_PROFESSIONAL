@@ -1912,6 +1912,37 @@ class ServerTest(unittest.TestCase):
             self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [{"task": p5, "answer": str(12 + ek[p5])}]}, tok)
             self.assertEqual(server.APP.db.q("SELECT flags FROM attempts WHERE exam=?", (e["exam_id"],), one=True)["flags"], "ai")
 
+    def test_bot_detector(self):
+        # детектор ботов: признаки программы — отметка bot с причиной (учителю), ученику в ответе — ничего; человек и планшет — без отметки
+        R = server.bot_reasons
+        human = {"mv": 180, "clk": 2, "tclk": 0, "keys": 3, "kstd": 60, "inst": 0, "synth": 0, "touch": 0, "wd": 0}
+        self.assertEqual(R(human), [])
+        self.assertEqual(R(None), [])
+        self.assertEqual(R({"mv": 0, "clk": 0, "touch": 4, "inst": 1}), [])                     # планшет: без мыши — не признак
+        self.assertEqual(len(R({"mv": 3, "clk": 3, "tclk": 3})), 1)                              # три «прыжка» — сразу
+        self.assertEqual(R({"mv": 2, "clk": 2, "tclk": 2}), [])                                  # один слабый признак — мало
+        self.assertEqual(len(R({"mv": 2, "clk": 2, "tclk": 2, "keys": 8, "kstd": 1.5})), 2)      # два слабых — отметка
+        self.assertIn("браузер под управлением программы", R({"wd": 1}))
+        tok = self.login("Роботов Роман")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        p5, p6 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:6")
+        self.req("POST", "/api/open", {"task": p5}, tok)
+        st, d = self.check(tok, p5, answer="12", bot={"mv": 1, "clk": 3, "tclk": 3, "keys": 6, "kstd": 0.8})
+        self.assertEqual(st, 200)
+        self.assertNotIn("bot", json.dumps(d))                                                  # скрыто: ученик ничего не узнаёт
+        self.req("POST", "/api/open", {"task": p6}, tok)
+        self.check(tok, p6, answer="7", bot=human)
+        at = {a["task_id"]: a for a in self.admin("GET", f"/api/admin/student?id={sid}&from=0")[1]["attempts"]}
+        self.assertEqual(at["b:5"]["flags"], "bot")
+        self.assertIn("клики без движения мыши", at["b:5"]["bot_why"])
+        self.assertIsNone(at["b:6"]["flags"])
+        # вариант: метрики приходят с каждым ответом
+        st, e = self.req("POST", "/api/exam/start", {}, tok)
+        self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [{"task": "b:5", "answer": "12", "bot": {"wd": 1}}]}, tok)
+        row = server.APP.db.q("SELECT flags, bot_why FROM attempts WHERE exam=?", (e["exam_id"],), one=True)
+        if row:                                                                                # b:5 мог не попасть в вариант
+            self.assertEqual((row["flags"], row["bot_why"]), ("bot", "браузер под управлением программы"))
+
     def test_integrity_flags(self):
         # ⚠ — вернулся после долгого ухода и сразу верно; 📋 — ответ вставлен; сводка «вне тренажёра» и строгий режим варианта
         tok = self.login("Честнов Чеслав")

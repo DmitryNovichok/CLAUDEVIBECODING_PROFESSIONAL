@@ -258,7 +258,7 @@
     for (const x of EX.items) {
       const t = byId.get(x.id);
       if (!t) continue;
-      for (const k of examKeys(t)) list.push({ task: k, answer: (EX.ans[k] || {}).answer || '', cells: (EX.ans[k] || {}).cells || null });
+      for (const k of examKeys(t)) list.push({ task: k, answer: (EX.ans[k] || {}).answer || '', cells: (EX.ans[k] || {}).cells || null, bot: botPayload(x.id) });
     }
     let res;
     try {
