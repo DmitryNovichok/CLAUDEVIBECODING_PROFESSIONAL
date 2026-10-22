@@ -48,10 +48,17 @@
   }
   /** Редкость подарка: уровень (у уникального — его сочетания) и шанс. */
   const gfRar = g => (g.uniq ? g.uniq.rar : g.rar);
-  const rarHtml = g => { const r = gfRar(g); return r ? `<span class="rar r-${r.k}">${esc(r.t)}</span>` : ''; };
+  const rarHtml = g => { const r = gfRar(g); return r ? `<span class="rar r-${r.k}" title="${esc(rarWhy(g))}">${esc(r.t)}</span>` : ''; };
   const rarWhy = g => (g.uniq ? `шанс такого сочетания — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
     : g.rar && g.rar.k === 'limited' ? 'продавался одну неделю ограниченным тиражом, в 🎲 не выпадает'
+    : g.rar && g.rar.cap ? `живой тираж — ${num(g.rar.live)} из ${num(g.rar.cap)}: проданные сразу и улучшенные делают вид реже`
     : g.rar ? `шанс выпасть в 🎲 случайном подарке — ${String(g.rar.p).replace('.', ',')}%` : '');
+  /** Тираж вида: «в магазине 3 из 20 · в обороте 15 · сгорело 2» (у лимитки — нет). */
+  const supTxt = gid => {
+    const x = GF && GF.supply && GF.supply[gid];
+    if (!x || gid.startsWith('lim_')) return '';
+    return `<small class="bx-sup">📦 ${x.left ? `в магазине ${num(x.left)} из ${num(x.cap)}` : `распродан (тираж ${num(x.cap)})`} · в обороте ${num(x.alive)}${x.burned ? ` · сгорело ${num(x.burned)}` : ''}${x.up ? ` · улучшено ${num(x.up)}` : ''}</small>`;
+  };
   // Окно «Биткоины» как приложение: вкладки снизу (Магазин / Рынок / Мои / Forbes / История), нажал на подарок — снизу шторка
   // с крупными кнопками; правила и экономика — под «?». Текста на экране — минимум: суммы и действия.
   let gfSheet = null;                     // шторка: { k: 'mine' | 'shop' | 'mk' | 'help', id } или null
@@ -107,8 +114,9 @@
     const lim = G.limited, who = gfTo ? gfMate(gfTo) : '';
     const left = Math.max(0, G.per_day - G.bought_today);
     const trend = d => (d >= 1.05 ? '<em class="gf-trend up">▲</em>' : d <= 0.95 ? '<em class="gf-trend down">▼</em>' : '');
-    const item = (id, i, t, price, cls, rar, dem) => `<button type="button" class="bx-it ${cls || ''}${rar ? ' r-' + rar.k : ''}${price > G.coins ? ' dim' : ''}" data-bx-shop="${id}" title="${esc(t)}">
-      <span class="e">${i}</span><b>₿ ${num(price)}${trend(dem || 1)}</b>${cls === 'box' ? '<small>Случайный</small>' : ''}</button>`;
+    const out = id => G.supply && G.supply[id] && !G.supply[id].left;
+    const item = (id, i, t, price, cls, rar, dem) => `<button type="button" class="bx-it ${cls || ''}${rar ? ' r-' + rar.k : ''}${price > G.coins || out(id) ? ' dim' : ''}" data-bx-shop="${id}" title="${esc(t)}">
+      <span class="e">${i}</span><b>₿ ${num(price)}${trend(dem || 1)}</b>${cls === 'box' ? '<small>Случайный</small>' : out(id) ? '<small>распродан</small>' : ''}</button>`;
     return `${who ? `<div class="bx-for">🎁 Подарок для <b>${esc(who)}</b><button type="button" class="bx-x" data-bx-to="" title="Покупать себе">✕</button></div>` : ''}
       ${G.mine.length ? `<div class="bx-sec">🎁 Мои подарки <small>${G.mine.length}</small><button type="button" class="bx-more" data-bx-tab="mine">все →</button></div>
         <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
@@ -195,12 +203,15 @@
       const g = box ? { i: '🎲', t: 'Случайный подарок', price: G.box, rar: null } : lim ? { ...lim, rar: { k: 'limited', t: 'Лимитка' } } : G.catalog.find(x => x.id === S.id);
       if (!g) return '';
       const short = Math.max(0, g.price - G.coins), who = gfTo ? gfMate(gfTo) : '';
+      const sp = !box && !lim && G.supply ? G.supply[S.id] : null, mineN = G.mine.filter(x => x.gift === S.id).length;
+      const block = sp && !sp.left ? 'распродан — ищи на рынке' : sp && !who && mineN >= sp.own_max ? `у тебя уже ${mineN} — больше нельзя` : '';
       return `<div class="bx-sh">${box ? '<span class="bx-t s76"><span class="ug plain gf-boxt"><span class="ug-ic">🎲</span></span></span>' : gfTile(g, 76)}
-          <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой — дорогие реже' : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small></div></div>
+          <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой из тех, что остались в магазине, — дорогие реже' : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small>${box || lim ? '' : supTxt(S.id)}
+          ${sp ? `<small class="bx-sup">одному ученику — не больше ${num(sp.own_max)}</small>` : ''}</div></div>
         ${box || lim ? '' : priceBox(S.id)}
         ${G.teacher ? '' : whoHtml(G)}
-        <div class="bx-acts one"><button type="button" class="bx-btn pri" data-bx-buy="${esc(S.id)}"${short || G.teacher ? ' disabled' : ''}>
-          <span>${who ? '🎁' : '🛍'}</span>${who ? 'Подарить' : 'Купить'}<small>${short ? `не хватает ₿ ${num(short)}` : `₿ ${num(g.price)}`}</small></button></div>`;
+        <div class="bx-acts one"><button type="button" class="bx-btn pri" data-bx-buy="${esc(S.id)}"${short || block || G.teacher ? ' disabled' : ''}>
+          <span>${who ? '🎁' : '🛍'}</span>${who ? 'Подарить' : 'Купить'}<small>${block || (short ? `не хватает ₿ ${num(short)}` : `₿ ${num(g.price)}`)}</small></button></div>`;
     }
     if (S.k === 'mk') {
       const x = G.market.find(m => m.id === S.id);
@@ -214,7 +225,7 @@
         : `<button type="button" class="bx-btn org" data-bx-bid="${x.id}"${G.teacher || short ? ' disabled' : ''}><span>🔨</span>${x.bids ? 'Перебить' : 'Сделать ставку'}<small>${short ? `не хватает ₿ ${num(x.next - G.coins)}` : `за ₿ ${num(x.next)}`}</small></button>`;
       const bn = !x.mine && x.buy_now ? `<button type="button" class="bx-btn pri" data-bx-mbuy="${x.id}"${G.teacher || bnShort ? ' disabled' : ''}><span>⚡</span>Купить сразу<small>${bnShort ? `не хватает ₿ ${num(x.buy_now - G.coins)}` : `₿ ${num(x.buy_now)}`}</small></button>` : '';
       return `<div class="bx-sh">${gfTile(x, 76)}<div><b class="nm">${gfName(x)}</b>${rarHtml(x)}<small>${x.mine ? 'твой лот' : 'продаёт ' + esc(x.seller)} · до конца торгов ⏳ ${aucSpan(x.until)}</small>
-          <small>в магазине ₿ ${num(x.shop)}${x.typ ? ` · оценка рынка ₿ ${num(x.typ)}` : ''}</small></div></div>
+          <small>в магазине ₿ ${num(x.shop)}${x.typ ? ` · оценка рынка ₿ ${num(x.typ)}` : ''}</small>${supTxt(x.gift)}</div></div>
         <div class="bx-sum"><span>старт <b>₿ ${num(x.start)}</b></span><span>${x.bids ? `ставка <b>₿ ${num(x.bid)}</b> · ${x.bids} ${plural(x.bids, 'ставка', 'ставки', 'ставок')}` : 'ставок пока нет'}</span>${x.buy_now ? `<span>купить сразу <b>₿ ${num(x.buy_now)}</b></span>` : ''}</div>
         ${x.rar && x.rar.k === 'limited' ? '' : priceBox(x.gift)}
         <div class="bx-acts${bn ? '' : ' one'}">${acts}${bn}</div>
@@ -238,7 +249,7 @@
     const suggest = Math.min(g.mk_max, Math.max(g.mk_start + 1, g.mk_typ ? Math.round(g.mk_typ * 1.3) : g.mk_start * 2));
     const props = u ? `<div class="bx-props">${u.props.map(p => `<span><small>${p.k}</small>${esc(p.t)}</span>`).join('')}</div>` : '';
     return `<div class="bx-sh">${gfTile(g, 76, gfFresh === g.id ? 'reveal' : '')}<div><b class="nm">${gfName(g)}</b>${rarHtml(g)}
-        <small>${esc([gfFrom(g), gfDate(g.ts).slice(0, 5)].filter(Boolean).join(' · '))}</small>${g.note ? `<small class="bx-note">«${esc(g.note)}»</small>` : ''}
+        <small>${esc([gfFrom(g), gfDate(g.ts).slice(0, 5)].filter(Boolean).join(' · '))}</small>${g.note ? `<small class="bx-note">«${esc(g.note)}»</small>` : ''}${supTxt(g.gift)}
         ${listed && g.mk_until ? `<small>🔨 на торгах: ${g.mk_bids ? `ставка ₿ ${num(g.mk_bid)} (${g.mk_bids} ${plural(g.mk_bids, 'ставка', 'ставки', 'ставок')})` : `старт ₿ ${num(g.listed)}, ставок нет`} · ⏳ ${aucSpan(g.mk_until)}${g.mk_bn ? ` · купить сразу ₿ ${num(g.mk_bn)}` : ''}</small>` : ''}</div></div>
       ${props}
       ${g.limited ? '' : priceBox(g.gift)}
@@ -338,6 +349,7 @@
         <li>💎 Подарки в портфеле и Forbes стоят по оценке рынка — сколько ты получил бы, продав по ней (но не меньше продажи сразу). Оценку поднимают только настоящие торги: в неё идёт не цена победителя, а сколько давали соперники; без соперников — стартовая цена. Нужны сделки разных учеников, оценка меняется плавно — не больше 10% в сутки. Редкость важна: у редкого подарка без своих сделок оценка — по сделкам подарков той же редкости. Чем больше таких уникальных сгорело, тем дороже оставшиеся.</li>
         <li>⏳ Купленный на рынке подарок можно снова выставить через ${G.relist_h} ч, а свой проданный — выкупить через ${G.buyback_days} дней. Ставка — не дороже трёх цен подарка.</li>
         <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов и подарков у всех. Копить очень много невыгодно.</li>
+        <li>📦 У каждого подарка свой тираж на весь сайт: замков — 20, драконов — 30, печенек — 2000. Чем меньше осталось в магазине, тем дороже. Проданные сразу и улучшенные в тираж не возвращаются — оставшиеся становятся реже и дороже, а с ними и улучшение. Распродан — купить можно только на рынке. У одного ученика — не больше 10% тиража одного вида.</li>
       </ul>
       <div class="bx-sum"><span>⚒ заработок <b>×${idxTxt(G.econ.earn)}</b></span><span>🏷 цены <b>×${idxTxt(G.econ.idx)}</b></span><span>🏦 банк <b>₿ ${num(G.econ.bank)}</b></span></div>`;
   }

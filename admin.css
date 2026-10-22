@@ -629,3 +629,10 @@ tr.comp-void td { opacity: .55; }
 .void-past { display: grid; gap: 6px; margin-top: 10px; }
 .void-past > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px;
   border-radius: 10px; background: var(--card-hover); font-size: 13.5px; }
+
+/* тиражи */
+.sup-src { font-size: 11px; font-weight: 700; max-width: 150px; margin-left: auto; }
+.sup-table th, .sup-table td { padding: 6px 7px; font-size: 13px; }
+.sup-table th { white-space: normal; max-width: 90px; }
+.sup-out { color: #e53935; }
+.sup-table tr.on td { background: var(--card-hover, rgba(0,0,0,.04)); }
