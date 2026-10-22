@@ -1062,6 +1062,8 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .z-mark.up { color: var(--good); }
 .z-mark.down { color: var(--weak); }
 .cl-row { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+.cl-prize { margin-top: 3px; font-size: 12.5px; color: var(--accent-text); }
+.cl-last { margin: 10px 2px 0; padding: 8px 10px; border-radius: 10px; background: var(--card-hover); font-size: 13px; line-height: 1.6; }
 .cl-row.me { background: var(--accent-soft); border-radius: 10px; }
 .cl-main { flex: 1; min-width: 0; }
 .cl-goal { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; font-size: 12.5px; color: var(--muted); }

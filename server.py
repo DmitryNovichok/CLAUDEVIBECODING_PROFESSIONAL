@@ -1450,6 +1450,10 @@ class DB:
                 a_solved INTEGER, b_solved INTEGER, winner INTEGER, stake INTEGER, finished REAL);
             CREATE TABLE IF NOT EXISTS awards(
                 student_id INTEGER NOT NULL, kind TEXT NOT NULL, week TEXT NOT NULL, info INTEGER, PRIMARY KEY(student_id, kind, week));
+            -- призы битвы классов за неделю: место, призовой фонд и сколько получил каждый ученик класса
+            CREATE TABLE IF NOT EXISTS class_prizes(
+                week TEXT NOT NULL, class_id INTEGER NOT NULL, teacher_id INTEGER, name TEXT, place INTEGER, xp INTEGER,
+                pool INTEGER, each_btc INTEGER, members INTEGER, ts REAL, PRIMARY KEY(week, class_id));
             CREATE TABLE IF NOT EXISTS tournaments(
                 id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, size INTEGER NOT NULL, title TEXT, status TEXT NOT NULL,
                 created REAL, started REAL, finished REAL, round INTEGER DEFAULT 0, round_ends REAL);
@@ -3198,6 +3202,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             league_rollover(db)
+            class_rollover(db)
             tid = teacher_of(s)["id"]
             # список учеников учителя собираем не чаще раза в LB_TTL секунд (рейтинг перезапрашивают после каждого ответа),
             # а свою строку ученик всегда видит свежей
@@ -3286,7 +3291,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 classes.append({"name": c["name"], "xp": sum(p["wk"] for p in cm), "members": len(cm), "solved": solved,
                                 "goal": c["goal_tasks"] or 0, "reward": c["goal_reward"] or "", "mine": c["id"] == s["class_id"]})
             classes.sort(key=lambda c: -c["xp"])
-            boards["classes"] = {"list": classes}
+            for i, c in enumerate(classes[:len(CLASS_PRIZES)]):      # призы недели: сколько получит каждый, если так и останется
+                if len(classes) >= CLASS_MIN and c["xp"] > 0:
+                    c["prize"], c["each"] = CLASS_PRIZES[i], math.ceil(CLASS_PRIZES[i] / c["members"])
+            last = db.q("""SELECT name, place, pool, each_btc, members, week FROM class_prizes WHERE teacher_id=? AND week=(
+                               SELECT MAX(week) FROM class_prizes WHERE teacher_id=?) ORDER BY place""", (teacher_of(s)["id"], teacher_of(s)["id"]))
+            boards["classes"] = {"list": classes, "prizes": list(CLASS_PRIZES), "min": CLASS_MIN, "ends": week_start() + 7 * 86400,
+                                 "last": [dict(r) for r in last]}
             return self.send_json({"boards": boards, "spectator": spectator})
 
         if path in ("/api/daily", "/api/daily/start"):
@@ -7088,7 +7099,8 @@ def market_hist(db, fresh=False):
 BANK_WHY = {"start": "🏦 Стартовый капитал", "labor": "⚒ Половина заработка учеников", "fee": "🏪 Комиссия рынка",
             "ops": "🎁 Комиссия с подарков", "box": "🎲 Случайные подарки", "storage": "📦 Плата за хранение",
             "take": "➖ Снял учитель",
-            "mint": "➕ Пополнение банка", "grant": "🎁 Начислил учитель", "stipend": "🎓 Стипендия", "burn": "🔥 Изъято из банка"}
+            "mint": "➕ Пополнение банка", "grant": "🎁 Начислил учитель", "stipend": "🎓 Стипендия", "burn": "🔥 Изъято из банка",
+            "class": "🏆 Битва классов"}
 
 
 def thermo_info(db, T):
@@ -7926,6 +7938,58 @@ def league_row(db, sid):
         db.x("INSERT OR IGNORE INTO leagues(student_id, league, week) VALUES(?,0,?)", (sid, week_key()))
         r = db.q("SELECT * FROM leagues WHERE student_id=?", (sid,), one=True)
     return r
+
+
+# Битва классов: по итогам недели (опыт всех учеников класса с понедельника) первые три класса получают призовой фонд
+# из банка рынка — он делится поровну на всех учеников класса, с округлением вверх (5000 / 15 = 333,3 → по 334 ₿).
+# Битва — у каждого учителя своя; приз — только если в ней хотя бы CLASS_MIN классов и у класса есть опыт за неделю.
+CLASS_PRIZES = (5000, 2500, 1000)
+CLASS_MIN = 2
+
+
+def class_week_xp(db, tid, w0, w1):
+    """Классы битвы учителя tid и их опыт за [w0, w1): [(опыт, класс, ученики)], больше опыта — выше."""
+    people = rank_students(db, tid)
+    out = []
+    for c in db.q("SELECT id, name FROM classes WHERE COALESCE(teacher_id, ?) = ? AND battle = 1", (main_teacher()["id"], tid)):
+        cm = [p["id"] for p in people if p["class_id"] == c["id"]]
+        if cm:
+            xp = sum(game_summary(db, sid, brief=True, windows={"prev": (w0, w1)})["win"]["prev"] for sid in cm)
+            out.append((xp, c, cm))
+    out.sort(key=lambda x: (-x[0], x[1]["id"]))
+    return out
+
+
+def class_rollover(db):
+    """В понедельник — призы битвы классов за прошлую неделю. Лениво, один раз за неделю; при самом первом запуске — без призов."""
+    cur = week_key()
+    with _COMP_LOCK:
+        prev = db.setting("class_week")
+        if prev == cur:
+            return
+        db.setting("class_week", cur)
+    if prev is None:
+        return
+    w1 = week_start()
+    w0 = week_start(w1 - 3 * 86400)
+    now = time.time()
+    for t in db.q("SELECT id FROM teachers"):
+        ranked = class_week_xp(db, t["id"], w0, w1)
+        if len(ranked) < CLASS_MIN:
+            continue
+        for place, (xp, c, cm) in enumerate(ranked[:len(CLASS_PRIZES)], 1):
+            if xp <= 0:
+                break
+            pool = CLASS_PRIZES[place - 1]
+            each = math.ceil(pool / len(cm))
+            if not db.xn("""INSERT OR IGNORE INTO class_prizes(week, class_id, teacher_id, name, place, xp, pool, each_btc, members, ts)
+                            VALUES(?,?,?,?,?,?,?,?,?,?)""", (prev, c["id"], t["id"], c["name"], place, xp, pool, each, len(cm), now)):
+                continue                                   # уже выдано (два запроса разом)
+            note = f"{place}-е место класса «{c['name']}» в битве классов: {pool} ₿ на {len(cm)}"
+            for sid in cm:
+                db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'class', ?, 0)", (sid, now, each, note))
+            bank_move(db, -each * len(cm), "class", f"{place}-е место «{c['name']}»: по {each} ₿ · учеников: {len(cm)}", tid=t["id"], ts=now)
+            LIVE.send(cm, "mine")
 
 
 def league_rollover(db):

@@ -839,7 +839,7 @@
   // ------------------------------------------------------------ экономика: обзор, журнал изменений, кошелёк ученика
   const ECO_KIND = { gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа', grant: '➕ Начислил учитель', take: '➖ Снял учитель',
     teacher_gift: '🎁 Подарок от учителя', work: '🏅 Подарок за труд', removed: '🗑 Удалён учителем',
-    mbuy: '🏪 Купил на рынке', msell: '🏪 Продал на рынке', stipend: '🎓 Стипендия из банка', storage: '📦 Плата за хранение' };
+    mbuy: '🏪 Купил на рынке', msell: '🏪 Продал на рынке', stipend: '🎓 Стипендия из банка', storage: '📦 Плата за хранение', class: '🏆 Битва классов' };
   const ecoGift = g => g ? `${g.i} ${esc(g.t)}${g.uniq ? ` <b>#${g.uniq.n}</b> <span class="eco-rar r-${g.uniq.rar.k}">${esc(g.uniq.rar.t)}</span>` : ''}` : '';
   /** Что произошло — одной строкой: событие, подарок, кому, причина. */
   function ecoWhat(e) {
@@ -1091,7 +1091,7 @@
     const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
     const toGoal = (now, goal, f) => (!auto || goal == null ? '' : Math.abs(goal - now) < 0.005 ? ' · у цели' : ` · тянет к ${f(goal)} ${goal > now ? '↗' : '↘'}`);
     const state = E.r > R.limited_r ? 'денег у учеников много' : E.r < R.stipend_r ? 'денег у учеников мало' : 'в норме';
-    const S = T.bank.sums, inSum = (S.labor || 0) + (S.fee || 0) + (S.ops || 0) + (S.box || 0) + (S.storage || 0) + (S.take || 0), outSum = Math.abs((S.grant || 0) + (S.stipend || 0));
+    const S = T.bank.sums, inSum = (S.labor || 0) + (S.fee || 0) + (S.ops || 0) + (S.box || 0) + (S.storage || 0) + (S.take || 0), outSum = Math.abs((S.grant || 0) + (S.stipend || 0) + (S.class || 0));
     const day = ts => new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const cards = card('Среднее состояние', `${E.avg} ₿`, `кошелёк + подарки; медиана ${E.med} ₿ при норме ${E.target} ₿ — ${state}. `
         + `Кошельки: средний ${E.w_avg} ₿, медиана ${E.w_med} ₿; подарков на ${numFmt(E.worth)} ₿; активных ${E.active}`)
@@ -1901,6 +1901,8 @@
         <label class="adm-switch"><input type="checkbox" id="goalBattle"${c.battle ? ' checked' : ''}> Класс участвует в битве классов</label>
         <p class="adm-hint">Ученики видят классы-участники, их опыт за неделю, цель и прогресс во вкладке «Классы» рейтинга.
           Если ни один класс не участвует, вкладки нет. Считаются верно решённые задания с понедельника.
+          В понедельник первые три класса по опыту за неделю получают приз из банка рынка: 5000, 2500 и 1000 ₿ — поровну
+          на всех учеников класса, с округлением вверх (5000 на 15 — по 334 ₿). Нужно хотя бы два класса в битве.
           Сейчас: <b>${c.weekSolved}</b>${c.goal ? ` из ${c.goal}` : ''}.</p>
         <div class="login-form">
           <input class="inp" id="goalTasks" type="number" min="0" max="100000" placeholder="Заданий, например 300" value="${c.goal || ''}" style="max-width:190px">

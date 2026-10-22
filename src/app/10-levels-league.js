@@ -168,16 +168,26 @@
         : '<p class="fm-muted lb-empty">В лиге пока никого — реши задание, и ты в игре.</p>'}
       ${L.total > L.top.length ? `<p class="fm-muted lb-mine">Показаны первые ${L.top.length} из ${L.total}.</p>` : ''}`;
   }
+  /** Призы битвы классов: правила и итоги прошлой недели. */
+  function classPrizeNote(C) {
+    const P = C.prizes || [], last = C.last || [];
+    const ends = C.ends ? new Date(C.ends * 1000).toLocaleDateString('ru-RU', { weekday: 'long' }) : 'понедельник';
+    const rules = P.length ? `Итоги — в ${ends}: 1-е место — ${num(P[0])} ₿ классу, 2-е — ${num(P[1])} ₿, 3-е — ${num(P[2])} ₿. Приз делится поровну
+      на всех учеников класса (с округлением вверх) и приходит сам. Считается опыт всех учеников класса с понедельника${C.min ? `; нужно хотя бы ${C.min} класса в битве` : ''}.` : '';
+    const prev = last.length ? `<div class="cl-last"><b>Прошлая неделя:</b> ${last.map(r => `${placeHtml(r.place)} ${esc(r.name)} — по ${num(r.each_btc)} ₿`).join(' · ')}</div>` : '';
+    return `${prev}<p class="fm-muted lb-mine">${rules} Цель и награду за неё задаёт учитель.</p>`;
+  }
   function classesHtml(C) {
     if (!C.list.length) return '<p class="fm-muted lb-empty">Классов пока нет: битва начнётся, когда учитель распределит учеников по классам.</p>';
     return C.list.map((c, i) => {
       const goal = c.goal ? `<div class="cl-goal"><i class="xp-bar"><b style="width:${Math.min(100, pct(c.solved / c.goal))}%"></b></i>
         <span>${c.solved} / ${c.goal} заданий${c.reward ? ` — ${esc(c.reward)}` : ''}${c.solved >= c.goal ? ' ✅' : ''}</span></div>` : '';
+      const prize = c.prize ? `<div class="cl-prize">🏆 ${num(c.prize)} ₿ классу — по <b>${num(c.each)} ₿</b> каждому</div>` : '';
       return `<div class="cl-row${c.mine ? ' me' : ''}"><span class="lb-place">${placeHtml(i + 1)}</span>
         <div class="cl-main"><b>${esc(c.name)}</b>${c.mine ? ' <span class="chip good">твой класс</span>' : ''}
-          <span class="fm-muted"> · ${c.members} ${plural(c.members, 'ученик', 'ученика', 'учеников')}</span>${goal}</div>
+          <span class="fm-muted"> · ${c.members} ${plural(c.members, 'ученик', 'ученика', 'учеников')}</span>${prize}${goal}</div>
         <span class="num">+${c.xp} XP</span></div>`;
-    }).join('') + '<p class="fm-muted lb-mine">Опыт всех учеников класса с понедельника. Цель и награду задаёт учитель.</p>';
+    }).join('') + classPrizeNote(C);
   }
   /** Переключатель лиг: своя — по умолчанию, остальные можно посмотреть (без своей строки). */
   function leaguesHtml(B, view) {
