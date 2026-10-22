@@ -238,7 +238,7 @@
   document.addEventListener('paste', e => {
     if (!SERVER || !student || !e.target.closest || !e.target.closest('#trainer .answer-row')) return;
     const text = normCopy((e.clipboardData || window.clipboardData).getData('text'));
-    if (!text || (lastCopy && lastCopy.includes(text))) return;
+    if (!text || guardMasked(text) || (lastCopy && lastCopy.includes(text))) return;   // заглушка — условие с этой же страницы
     if (examShown && EX) {
       EX.paste = (EX.paste || 0) + 1;
       saveExam();
