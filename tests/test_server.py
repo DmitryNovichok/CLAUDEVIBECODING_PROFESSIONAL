@@ -3323,6 +3323,11 @@ class ServerTest(unittest.TestCase):
         d2 = server.demand_of({"rocket": 1})
         self.assertLess(d2["rocket"], 1.15)                                           # одна покупка не взвинчивает цену
         self.assertLess(d2["castle"], 1.0)
+        # выпавшие в «🎲» поднимают цену только своему подарку — остальные той же редкости не дешевеют
+        d3 = server.demand_of({"cookie": 6, "candy": 4, "tea": 5}, {"cookie": 6, "candy": 4})   # 5 чаёв — выпали в «🎲»
+        self.assertGreater(d3["tea"], d["tea"])
+        self.assertGreater(d3["tea"], 1.0)
+        self.assertEqual((d3["cookie"], d3["candy"]), (d["cookie"], d["candy"]))
 
     def test_gift_price_chart(self):
         # график цены подарка: 30 точек (по дням и сейчас), в точке — цена на конец дня и покупки за неделю до неё

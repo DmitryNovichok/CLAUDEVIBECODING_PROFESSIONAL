@@ -1,3 +1,8 @@
+/* Эмодзи подарков, которых нет в старых системах (🧋 🪄 🪅 — Emoji 13, 🪐 🪁 🦩 — Emoji 12: в Windows 10 вместо них квадрат):
+   последним в списке шрифтов — подрезанный Noto Color Emoji (vendor/fonts/egeshka-emoji.woff2, OFL, только эмодзи подарков).
+   Есть эмодзи в системе — берётся системный, нет — этот; файл грузится, только если такой символ встретился на странице. */
+@font-face { font-family: "EgeshkaEmoji"; src: url("vendor/fonts/egeshka-emoji.woff2") format("woff2"); font-display: swap;
+  unicode-range: U+2328, U+2604, U+2615, U+26BD, U+270F, U+FE0F, U+1F308, U+1F30B, U+1F319, U+1F320, U+1F337, U+1F349, U+1F353, U+1F354, U+1F355, U+1F363, U+1F366, U+1F369, U+1F36A, U+1F36B, U+1F36C, U+1F36D, U+1F370, U+1F37F, U+1F381, U+1F382, U+1F386, U+1F388, U+1F3A0, U+1F3A1, U+1F3A7, U+1F3A8, U+1F3AE, U+1F3B2, U+1F3B8, U+1F3BB, U+1F3F0, U+1F409, U+1F40D, U+1F419, U+1F41D, U+1F422, U+1F427, U+1F428, U+1F42F, U+1F430, U+1F431, U+1F433, U+1F436, U+1F438, U+1F43C, U+1F4BB, U+1F4DA, U+1F4F7, U+1F52D, U+1F52E, U+1F680, U+1F6F8, U+1F6F9, U+1F916, U+1F950, U+1F981, U+1F984, U+1F988, U+1F989, U+1F98A, U+1F98B, U+1F996, U+1F99A, U+1F9A9, U+1F9C1, U+1F9CB, U+1F9DE, U+1F9E9, U+1F9EA, U+1F9EE, U+1F9F8, U+1FA81, U+1FA84, U+1FA85, U+1FA90; }
 :root {
   --bg: #16181d; --panel: #1a1d23; --card: #22262e; --card-hover: #2a2f38;
   --border: #343a45; --border-strong: #4a5262;
@@ -16,7 +21,7 @@
   color-scheme: dark;
   --radius: 16px;
   --px: none;
-  --font: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "EgeshkaEmoji";
   --pixel: var(--font);
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
   --focus: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent);
