@@ -843,6 +843,7 @@ pre.tsol { margin: 8px 0 0; padding: 10px 12px; background: var(--code-bg); bord
 }
 .py-font { display: inline-flex; gap: 4px; }
 .py-font .icon-btn { font: 700 12px var(--font); padding: 0 8px; }
+.py-font .py-emacs { color: var(--muted); } .py-font .py-emacs.on { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent); }
 .py-gutter, .py-code, .py-hl { font-size: var(--py-fs) !important; line-height: 1.5 !important; }
 .py-out { font-size: calc(var(--py-fs) - 1px) !important; }
 .py-area { position: relative; flex: 1; min-width: 0; display: flex; }

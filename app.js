@@ -5170,8 +5170,119 @@
   }
   const pyFont = () => parseInt(getComputedStyle($('#pyDock')).getPropertyValue('--py-fs'), 10) || 14;
   try { const f = +localStorage.getItem(FONT_KEY); if (f) setPyFont(f); } catch (e) { /* нет доступа */ }
+  // Клавиши Emacs в редакторе (кнопка «Emacs» включает и выключает, запоминается в браузере). Клавиши — по физическому месту:
+  // работают и в русской раскладке. Ctrl+C/V/X/Z, Ctrl+Enter, Ctrl+/ — как раньше. Ctrl+N и Ctrl+W браузер странице не отдаёт
+  // (новое окно, закрыть вкладку) — вместо них стрелка вниз и Ctrl+X. Выделить всё — Ctrl+X H (Ctrl+A — начало строки).
+  const EMACS_KEY = 'egeshka.pyEmacs';
+  const EM = { on: true, kill: '', last: '', col: null, mark: null, cx: false };
+  try { EM.on = localStorage.getItem(EMACS_KEY) !== '0'; } catch (e) { /* по умолчанию — включены */ }
+  function setEmacs(on) {
+    EM.on = on;
+    EM.mark = null;
+    try { localStorage.setItem(EMACS_KEY, on ? '1' : '0'); } catch (e) { /* только на этот раз */ }
+    const b = $('#pyEmacs');
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  /** Курсор p виден: строка — по вертикали, столбец — по горизонтали (строки не переносятся). */
+  function emShow(ta, p, center) {
+    const v = ta.value, cs = getComputedStyle(ta), lh = parseFloat(cs.lineHeight) || 20, pt = parseFloat(cs.paddingTop) || 0;
+    const row = v.slice(0, p).split('\n').length - 1, top = pt + row * lh;
+    if (center) ta.scrollTop = Math.max(0, top - (ta.clientHeight - lh) / 2);
+    else if (top < ta.scrollTop) ta.scrollTop = top - pt;
+    else if (top + lh > ta.scrollTop + ta.clientHeight) ta.scrollTop = top + lh + pt - ta.clientHeight;
+    const cw = (EM.cw = EM.cw || (() => { const c = document.createElement('canvas').getContext('2d'); c.font = cs.font; return c.measureText('0').width; })());
+    const x = (parseFloat(cs.paddingLeft) || 0) + (p - v.lastIndexOf('\n', p - 1) - 1) * cw;
+    if (x < ta.scrollLeft + cw) ta.scrollLeft = Math.max(0, x - 4 * cw);
+    else if (x > ta.scrollLeft + ta.clientWidth - 2 * cw) ta.scrollLeft = x - ta.clientWidth + 4 * cw;
+  }
+  /** Клавиша Emacs: обработана — true. */
+  function emacsKey(e) {
+    if (!EM.on || e.isComposing) return false;
+    const ta = e.target, v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+    const modOnly = /^(Shift|Control|Alt|Meta|OS)$/.test(e.key);
+    const ctrl = e.ctrlKey && !e.altKey && !e.metaKey, meta = e.altKey && !e.ctrlKey && !e.metaKey;
+    const done = (cmd = '') => { e.preventDefault(); EM.last = cmd; EM.cx = false; return true; };
+    if (EM.cx && !modOnly) {                                   // Ctrl+X, затем H — выделить всё
+      EM.cx = false;
+      if (e.code === 'KeyH' && !e.ctrlKey && !e.altKey && !e.metaKey) { EM.mark = null; ta.setSelectionRange(0, v.length); return done(); }
+    }
+    if (!ctrl && !meta) { if (!modOnly) { EM.last = ''; EM.mark = null; } return false; }
+    const p = ta.selectionDirection === 'backward' ? a : b;    // где курсор (у выделения — подвижный край)
+    const ls = q => v.lastIndexOf('\n', q - 1) + 1;
+    const le = q => { const i = v.indexOf('\n', q); return i < 0 ? v.length : i; };
+    const W = /[\p{L}\p{N}_]/u;
+    const wordF = q => { while (q < v.length && !W.test(v[q])) q++; while (q < v.length && W.test(v[q])) q++; return q; };
+    const wordB = q => { while (q > 0 && !W.test(v[q - 1])) q--; while (q > 0 && W.test(v[q - 1])) q--; return q; };
+    const go = (q, cmd, shift = e.shiftKey) => {              // курсор в q; с меткой (Ctrl+Пробел) или с Shift — выделение
+      q = Math.max(0, Math.min(v.length, q));
+      const m = EM.mark != null ? EM.mark : shift ? (p === a ? b : a) : null;
+      if (m == null) ta.setSelectionRange(q, q);
+      else ta.setSelectionRange(Math.min(m, q), Math.max(m, q), q < m ? 'backward' : 'forward');
+      emShow(ta, q);
+      return done(cmd);
+    };
+    const edit = (from, to, text, caret) => {
+      EM.mark = null;
+      ta.setRangeText(text, from, to, 'end');
+      ta.setSelectionRange(caret, caret);
+      ta.dispatchEvent(new Event('input'));
+      emShow(ta, caret);
+    };
+    const kill = (from, to, back) => {                         // вырезать в свой буфер; Ctrl+K подряд — дописывать
+      if (from < to) {
+        const s = v.slice(from, to);
+        EM.kill = EM.last === 'kill' ? (back ? s + EM.kill : EM.kill + s) : s;
+        edit(from, to, '', from);
+      }
+      return done('kill');
+    };
+    if (ctrl) {
+      switch (e.code) {
+        case 'KeyA': return go(ls(p));
+        case 'KeyE': return go(le(p));
+        case 'KeyF': return go(p + 1);
+        case 'KeyB': return go(p - 1);
+        case 'KeyN': case 'KeyP': {                            // строка вниз / вверх — в тот же столбец
+          const s0 = ls(p), col = EM.last === 'line' && EM.col != null ? EM.col : p - s0;
+          let q;
+          if (e.code === 'KeyN') q = le(p) >= v.length ? v.length : Math.min(le(p) + 1 + col, le(le(p) + 1));
+          else q = s0 === 0 ? 0 : Math.min(ls(s0 - 1) + col, s0 - 1);
+          EM.col = col;
+          return go(q, 'line');
+        }
+        case 'KeyD': if (a !== b) edit(a, b, '', a); else if (p < v.length) edit(p, p + 1, '', p); return done();
+        case 'KeyH': if (a !== b) edit(a, b, '', a); else if (p > 0) edit(p - 1, p, '', p - 1); return done();
+        case 'KeyK': return kill(p, p === le(p) && p < v.length ? p + 1 : le(p));
+        case 'KeyY': if (!EM.kill) return false; edit(a, b, EM.kill, a + EM.kill.length); return done();
+        case 'KeyO': edit(a, b, '\n', a); return done();
+        case 'KeyG': EM.mark = null; ta.setSelectionRange(p, p); return done();
+        case 'Space': EM.mark = p; ta.setSelectionRange(p, p); return done('mark');
+        case 'KeyL': emShow(ta, p, true); return done();
+        case 'KeyX': if (a !== b) return false; EM.cx = true; e.preventDefault(); return true;     // с выделением — вырезать, как обычно
+        default: return false;
+      }
+    }
+    switch (e.code) {
+      case 'KeyF': return go(wordF(p));
+      case 'KeyB': return go(wordB(p));
+      case 'KeyD': return kill(p, wordF(p));
+      case 'Backspace': return kill(wordB(p), p, true);
+      case 'Comma': return e.shiftKey ? go(0, '', false) : false;               // Alt+< (Shift — часть знака, не выделение)
+      case 'Period': return e.shiftKey ? go(v.length, '', false) : false;       // Alt+>
+      case 'KeyW':                                             // копировать выделенное в свой буфер и в буфер обмена
+        if (a === b) return done();
+        EM.kill = v.slice(a, b);
+        try { navigator.clipboard.writeText(EM.kill).catch(() => {}); } catch (err) { /* нет доступа — только свой буфер */ }
+        EM.mark = null;
+        ta.setSelectionRange(p, p);
+        return done();
+      default: return false;
+    }
+  }
   // редактор: Tab — 4 пробела, Shift+Tab — убрать отступ, Enter — отступ как у строки выше (+4 после «:»)
   function editKey(e) {
+    if (emacsKey(e)) return;
     const ta = e.target;
     const v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
     const put = (text, from, to, caretA, caretB) => {
@@ -5409,6 +5520,8 @@
   // курсор переехал — пересчитать подсветку парной скобки
   document.addEventListener('selectionchange', () => { if (document.activeElement === $('#pyCode')) pyPaint(); });
   $('#pyCode').addEventListener('blur', () => pyPaint());
+  $('#pyEmacs').addEventListener('click', () => { setEmacs(!EM.on); $('#pyCode').focus(); });
+  setEmacs(EM.on);
   $('#pyFontUp').addEventListener('click', () => setPyFont(pyFont() + 1));
   $('#pyFontDown').addEventListener('click', () => setPyFont(pyFont() - 1));
   $('#pyLoad').addEventListener('click', () => $('#pyFile').click());
