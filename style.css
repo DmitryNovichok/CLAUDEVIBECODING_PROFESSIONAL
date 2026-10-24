@@ -2941,6 +2941,8 @@ body.sto-open { overflow: hidden; }
 .sto-hw-duo img.raw, .sto-hw-one img.raw { box-shadow: none; border-radius: 0; filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .45)); }
 .sto-hw-duo img.r.raw { width: 170px; height: 170px; right: -8px; top: 56px; }
 .sto-hw-one.masks .main { width: 170px; height: 170px; }
+.sto-hw-soon { padding: 4px 12px; border-radius: 999px; background: #ff9100; color: #fff; font-size: 12.5px; font-weight: 900; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }
+.sto-hw-duo img.l.raw { width: 170px; height: 170px; left: -8px; top: 6px; }
 .sto-hw-row { display: grid; grid-template-columns: repeat(4, 66px); gap: 2px; }
 .sto-hw-row span { animation: stIn .35s ease-out both; animation-delay: calc(var(--i) * 90ms); }
 .sto-hw-row img { width: 66px; height: 66px; display: block; }

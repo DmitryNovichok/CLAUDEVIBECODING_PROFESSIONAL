@@ -8269,15 +8269,17 @@
     document.body.appendChild(bats);
   }
   const HW_IMG = 'vendor/halloween/';
-  const HW_PUMPKINS = ['witch', 'jack', 'vampire', 'pirate', 'king', 'mummy', 'ghost', 'gold', 'frank', 'cat'];
   // маски — готовые картинки (с рамкой и тыквой сверху): обычная — клоун, при улучшении — одна из страшных
   const HW_MASK = 'gift_clown.webp';
+  const HW_PUMPKIN = 'gift_pumpkin.webp';
+  const HW_OUTFITS = ['gift_p_witch.webp', 'gift_p_king.webp', 'gift_p_ghost.webp', 'gift_p_frank.webp'];
+  const hwSoon = '<div class="sto-hw-soon">🗓 в продаже с 26 октября</div>';
+  const hwRow = ks => `<div class="sto-hw-row">${ks.map((k, i) => `<span style="--i:${i}">${hwImg(k, 'raw')}</span>`).join('')}</div>`;
   const HW_MASKS = ['gift_scream.webp', 'gift_billy.webp', 'gift_skull.webp', 'gift_evilclown.webp'];
   let ST = null;                          // { k, list, paused } — открытые истории
   const storyKey = () => `egeshka.stories.${STORIES_VER}.${student ? student.sid : 'local'}`;
   const hwLeft = () => Math.max(0, Math.round((new Date(HW_START + 'T00:00') - new Date(new Date().toDateString())) / 86400000));
   const hwImg = (k, cls = '') => `<img class="${cls}" src="${HW_IMG}${/\.\w+$/.test(k) ? k : k + '.svg'}" alt="" loading="lazy" draggable="false">`;
-  const hwGrid = (pre, ks) => `<div class="sto-hw-grid">${ks.map((k, i) => `<span style="--i:${i}">${hwImg(pre + k)}</span>`).join('')}</div>`;
   function storySlides() {
     const g = GAME || {}, left = hwLeft(), coins = g.coins || 0;
     const conf = Array.from({ length: 18 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 6) * .35}s;--c:${['#ffd54f', '#ff8a65', '#81d4fa', '#a5d6a7', '#ce93d8', '#fff'][i % 6]}"></i>`).join('');
@@ -8289,14 +8291,13 @@
       { cls: 'h2', ico: '🎃', head: left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'уже начался', title: 'Скоро Хеллоуин!',
         text: `С 26 октября — Хеллоуинский ивент: две лимитки, которые продаются только в эти дни.`,
         art: `<div class="sto-hw-duo"><span class="bat b1">🦇</span><span class="bat b2">🦇</span><span class="bat b3">🦇</span>
-          ${hwImg('pumpkin_base', 'l')}${hwImg(HW_MASK, 'r raw')}<div class="date"><b>26</b><small>октября</small></div></div>` },
+          ${hwImg(HW_PUMPKIN, 'l raw')}${hwImg(HW_MASK, 'r raw')}<div class="date"><b>26</b><small>октября</small></div></div>` },
       { cls: 'h3', ico: '🎃', head: 'Лимитка 1', title: 'Тыква и 10 нарядов',
-        text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она наденет один из 10 нарядов: ведьма, вампир, пират, король…',
-        art: `<div class="sto-hw-one">${hwImg('pumpkin_base', 'main')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwGrid('pumpkin_', HW_PUMPKINS)}</div>` },
+        text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она станет особенной: ведьма, золотой король, призрак, Франкенштейн и другие.',
+        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_PUMPKIN, 'main raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
       { cls: 'h4', ico: '🎭', head: 'Лимитка 2', title: 'Маска клоуна',
         text: 'Весёлый клоун? Улучши — и маска превратится в страшную: Крик, Пила, Череп, Злой клоун и другие.',
-        art: `<div class="sto-hw-one masks">${hwImg(HW_MASK, 'main raw')}<div class="arr">✨ улучшение — и он станет…</div>
-          <div class="sto-hw-row">${HW_MASKS.map((k, i) => `<span style="--i:${i}">${hwImg(k, 'raw')}</span>`).join('')}</div></div>` },
+        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_MASK, 'main raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
       { cls: 'h5', ico: '₿', head: 'Готовься', title: 'Копи биткоины!',
         text: 'Тираж ограничен — кто первый, тот и успел. Решай задания, чтобы к 26-му хватило на тыкву.',
         art: `<div class="sto-hw-save"><div class="coin">₿</div><b>${num(coins)} <small>из 5 000</small></b>
