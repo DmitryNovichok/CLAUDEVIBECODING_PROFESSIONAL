@@ -4888,6 +4888,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not self.T["is_main"]:
                 return self.err(403, "Акции запускает главный учитель")
             now, P = time.time(), promo_get(db)
+            running = P and P["from"] <= now <= P["to"]
             if data.get("stop"):
                 if P and P["to"] > now:
                     promo_set(db, dict(P, to=now))
@@ -4902,8 +4903,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if to <= now:
                     return self.err(400, "День окончания уже прошёл")
                 title = str(data.get("title") or "").strip()[:60] or "Бонус"
-                start = P["from"] if P and P["from"] <= now <= P["to"] else now       # идёт — продлеваем, нет — с этой минуты
-                promo_set(db, {"title": title, "task": round(task, 2), "exam": round(exam, 2), "from": start, "to": to})
+                task, exam = round(task, 2), round(exam, 2)
+                if running and (P["task"], P["exam"]) == (task, exam):
+                    promo_set(db, dict(P, title=title, to=to))          # те же множители — просто продлить (или переименовать)
+                else:
+                    if running:                                        # множители другие — прежний период закончился сейчас:
+                        promo_set(db, dict(P, to=now))                 # заработанное до этой минуты — по прежним множителям
+                    promo_set(db, {"title": title, "task": task, "exam": exam, "from": now, "to": to})
             with _GS_LOCK:
                 _GS_CACHE.clear()
             return self.send_json({"ok": True, "thermo": thermo_info(db, self.T)})
@@ -5993,35 +5999,87 @@ def exam_btc_since(db):
 
 
 # Акция (например, перед пробником): с from по to биткоины за задания (опыт за решение, бонус за задание, самостоятельные) —
-# × task, за вариант ЕГЭ (опыт и бонус за балл) — × exam. Хранится в настройке promo (JSON: title, task, exam, from, to — время),
-# меняет главный учитель («Экономика»). PROMO_SEED включается сам при первом запуске версии — с этого момента и до конца дня to.
+# × task, за вариант ЕГЭ (опыт и бонус за балл) — × exam. Меняет главный учитель («Экономика»). Каждая акция (и каждая смена
+# множителей) — свой период в истории promo_hist: заработанное во время прошлых периодов считается по их множителям, новая
+# акция и смена множителей прошлое не трогают (раньше акция хранилась одна — новая стирала бонусы прежней, и у тех, кто их уже
+# потратил, баланс уходил в минус). Настройка promo — текущий (последний) период. PROMO_SEED включается сам при первом запуске
+# версии — с этого момента и до конца дня to.
 PROMO_SEED = {"title": "Бонус перед пробником", "task": 1.5, "exam": 2.0, "to": "2026-10-24"}
+PROMO_SEED_FROM = 1792587762           # не раньше выхода версии с этой акцией (21.10.2026) — для восстановления её периода
 PROMO_MAX = 3.0
-_PROMO = {"db": None, "v": None, "n": 0}
+_PROMO = {"db": None, "v": None, "h": [], "n": 0}
+
+
+def _promo_load(db):
+    if _PROMO["db"] is db:
+        return
+    try:
+        v = json.loads(db.setting("promo") or "null")
+    except ValueError:
+        v = None
+    v = v if isinstance(v, dict) else None
+    raw = db.setting("promo_hist")
+    if raw is None:
+        # история ещё не велась: текущая акция — период; акция «перед пробником», если её уже затёрла новая, — восстановить
+        hist, seed_to = [], day_end(PROMO_SEED["to"])
+        is_seed = v and v.get("title") == PROMO_SEED["title"] and float(v.get("task") or 0) == PROMO_SEED["task"] \
+            and float(v.get("exam") or 0) == PROMO_SEED["exam"]
+        if db.setting("promo_seeded") and not is_seed:
+            end = min(seed_to, (v["from"] - 1) if v else seed_to)
+            if end > PROMO_SEED_FROM:
+                hist.append(dict(PROMO_SEED, id=1, **{"from": PROMO_SEED_FROM, "to": end}))
+        if v:
+            v = dict(v, id=len(hist) + 1)
+            hist.append(v)
+        db.setting("promo_hist", json.dumps(hist, ensure_ascii=False))
+        if v:
+            db.setting("promo", json.dumps(v, ensure_ascii=False))
+    else:
+        try:
+            hist = json.loads(raw) or []
+        except ValueError:
+            hist = []
+    _PROMO.update(db=db, v=v, h=hist, n=_PROMO["n"] + 1)
 
 
 def promo_get(db):
-    """Акция из настройки promo (кэш до promo_set) или None."""
-    if _PROMO["db"] is not db:
-        try:
-            v = json.loads(db.setting("promo") or "null")
-        except ValueError:
-            v = None
-        _PROMO.update(db=db, v=v if isinstance(v, dict) else None, n=_PROMO["n"] + 1)
+    """Текущая (последняя) акция или None."""
+    _promo_load(db)
     return _PROMO["v"]
 
 
+def promo_hist(db):
+    """Все периоды акций по порядку: {id, title, task, exam, from, to}."""
+    _promo_load(db)
+    return _PROMO["h"]
+
+
 def promo_set(db, v):
+    """Записать акцию v: тот же id, что у последнего периода, — поправить его (продлить, закончить), новый — добавить период.
+    None — убрать все акции (для тестов)."""
+    _promo_load(db)
+    hist = list(_PROMO["h"])
+    if v is None:
+        hist = []
+    else:
+        v = dict(v)
+        if "id" not in v:
+            v["id"] = max((p.get("id", 0) for p in hist), default=0) + 1
+        if hist and hist[-1].get("id") == v["id"]:
+            hist[-1] = v
+        else:
+            hist.append(v)
     db.setting("promo", json.dumps(v, ensure_ascii=False) if v else "")
-    _PROMO.update(db=db, v=v, n=_PROMO["n"] + 1)
+    db.setting("promo_hist", json.dumps(hist, ensure_ascii=False))
+    _PROMO.update(db=db, v=v, h=hist, n=_PROMO["n"] + 1)
 
 
 def promo_mult(db, ts, kind):
-    """Множитель акции для заработка kind ('task' или 'exam') в момент ts; вне акции — 1."""
-    P = promo_get(db)
-    if not P or not P["from"] <= ts <= P["to"]:
-        return 1
-    return Fraction(round(float(P.get(kind) or 1) * 100), 100)
+    """Множитель акции для заработка kind ('task' или 'exam') в момент ts — по периоду акции, в который ts попал; вне акций — 1."""
+    for P in promo_hist(db):
+        if P["from"] <= ts <= P["to"]:
+            return Fraction(round(float(P.get(kind) or 1) * 100), 100)
+    return 1
 
 
 def promo_now(db, now=None):
