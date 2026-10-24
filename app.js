@@ -7698,8 +7698,26 @@
     const u = g.uniq;
     const pat = Array.from({ length: 8 }, (_, k) => `<i class="ug-s s${k}">${esc(u.ch)}</i>`).join('');
     const pose = u.pose || 'stand';         // поза: наклон, великан, вверх ногами, близнецы (значок дважды), вихрь…
-    return `<span class="ug r-${u.rar.k} ${cls}" style="--c1:${u.c1};--c2:${u.c2}">${pat}<span class="ug-ic gfx-${u.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span><b class="ug-n">#${u.n}</b></span>`;
+    // чем реже сочетание — тем богаче плитка: у всех — глянец и блик, от эпического — искры, от легендарного — лучи за значком
+    const k = u.rar.k, rays = k === 'legend' || k === 'myth' ? '<span class="ug-rays"></span>' : '';
+    const spk = k === 'epic' || rays ? '<span class="ug-spk"><i></i><i></i><i></i><i></i></span>' : '';
+    if (u.img) {                            // наряд лимитки ивента (тыква, маска) — своей картинкой
+      return `<span class="ug img r-${k} ${cls}">${rays}<span class="ug-ic"><img src="${esc(u.img)}" alt="" draggable="false"></span>${spk}<b class="ug-n">#${u.n}</b><span class="ug-gloss"></span></span>`;
+    }
+    return `<span class="ug r-${k} ${cls}" style="--c1:${u.c1};--c2:${u.c2}">${rays}${pat}<span class="ug-ic gfx-${u.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span>${spk}<b class="ug-n">#${u.n}</b><span class="ug-gloss"></span></span>`;
   }
+  // уникальный подарок в шторке наклоняется за курсором, как голографическая наклейка: блик бежит за мышкой
+  document.addEventListener('pointermove', e => {
+    const t = e.target.closest && e.target.closest('.bx-sh .ug:not(.plain), .ug.big:not(.plain)');
+    document.querySelectorAll('.ug.tilt').forEach(x => { if (x !== t) { x.classList.remove('tilt'); x.style.removeProperty('--rx'); x.style.removeProperty('--ry'); } });
+    if (!t || e.pointerType !== 'mouse') return;
+    const r = t.getBoundingClientRect(), mx = (e.clientX - r.left) / r.width, my = (e.clientY - r.top) / r.height;
+    t.classList.add('tilt');
+    t.style.setProperty('--rx', `${((.5 - my) * 22).toFixed(1)}deg`);
+    t.style.setProperty('--ry', `${((mx - .5) * 22).toFixed(1)}deg`);
+    t.style.setProperty('--mx', `${(mx * 100).toFixed(0)}%`);
+    t.style.setProperty('--my', `${(my * 100).toFixed(0)}%`);
+  }, { passive: true });
   /** Редкость подарка: уровень (у уникального — его сочетания) и шанс. */
   const gfRar = g => (g.uniq ? g.uniq.rar : g.rar);
   const rarHtml = g => { const r = gfRar(g); return r ? `<span class="rar r-${r.k}" title="${esc(rarWhy(g))}">${esc(r.t)}</span>` : ''; };
@@ -7722,7 +7740,9 @@
   let gfFind = '';                        // поиск одноклассника в шторке «Купить» (список длинный — выпадающий не листается)
   const PH = {};                          // графики цены подарков: gift → { pts, at } (с сервера, на 5 минут)
   const num = v => Number(v || 0).toLocaleString('ru-RU');
-  const gfTile = (g, s = 52, extra = '') => `<span class="bx-t s${s}">${g.uniq ? uniqTile(g, extra) : `<span class="ug plain r-${g.rar.k} ${extra}"><span class="ug-ic">${g.i}</span></span>`}</span>`;
+  const gfTile = (g, s = 52, extra = '') => `<span class="bx-t s${s}">${g.uniq ? uniqTile(g, extra) : g.img
+    ? `<span class="ug plain img r-${g.rar.k} ${extra}"><span class="ug-ic"><img src="${esc(g.img)}" alt="" draggable="false"></span><span class="ug-gloss"></span></span>`
+    : `<span class="ug plain r-${g.rar.k} ${extra}"><span class="ug-ic">${g.i}</span></span>`}</span>`;
   const gfName = g => esc(g.t) + (g.uniq ? ` <span class="ug-num">#${g.uniq.n}</span>` : '');
 
   async function openGifts(to, open, tab) {
@@ -7774,7 +7794,7 @@
     return `${who ? `<div class="bx-for">🎁 Подарок для <b>${esc(who)}</b><button type="button" class="bx-x" data-bx-to="" title="Покупать себе">✕</button></div>` : ''}
       ${G.mine.length ? `<div class="bx-sec">🎁 Мои подарки <small>${G.mine.length}</small><button type="button" class="bx-more" data-bx-tab="mine">все →</button></div>
         <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
-      ${lim && lim.left ? `<button type="button" class="bx-lim" data-bx-shop="${lim.gift}"><span class="e">${lim.i}</span><span><b>Лимитка недели · ${esc(lim.t)}</b>
+      ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
       <div class="bx-sec">🛍 Магазин${left < 5 ? ` <small>${left ? `сегодня можно ещё ${left}` : 'на сегодня всё — завтра снова'}</small>` : ''}</div>
       ${G.teacher ? '<p class="fm-muted">Учительский аккаунт дарит подарки из панели учителя.</p>' : ''}
@@ -8237,6 +8257,17 @@
   const STORIES_VER = 'halloween-2026', STORY_MS = 7000;
   const HW_START = '2026-10-26';          // с этого дня — Хеллоуинский ивент: две лимитки
   const HW_UNTIL = '2026-11-01';          // до этого дня истории показываются сами
+  const HW_END = '2026-11-03';            // до этого дня — хеллоуинская тема сайта
+  // тема ивента: ночной (в светлой теме — сумеречный) фон с луной, кладбищем и тыквами, паутина, пролетающие летучие мыши;
+  // заранее посмотреть — ?halloween=1 в адресе
+  if ((d => d >= HW_START && d < HW_END)(dayKey(Date.now())) || /[?&]halloween=1/.test(location.search)) {
+    document.body.classList.add('hw');
+    const bats = document.createElement('div');
+    bats.className = 'hw-bats';
+    bats.setAttribute('aria-hidden', 'true');
+    bats.innerHTML = '<img src="vendor/halloween/bat.svg" alt=""><img src="vendor/halloween/bat.svg" alt=""><img src="vendor/halloween/bat.svg" alt="">';
+    document.body.appendChild(bats);
+  }
   const HW_IMG = 'vendor/halloween/';
   const HW_PUMPKINS = ['witch', 'jack', 'vampire', 'pirate', 'king', 'mummy', 'ghost', 'gold', 'frank', 'cat'];
   const HW_MASKS = ['scream', 'freddy', 'jason', 'evilclown', 'myers', 'vendetta', 'billy', 'plague', 'calavera', 'shrek'];

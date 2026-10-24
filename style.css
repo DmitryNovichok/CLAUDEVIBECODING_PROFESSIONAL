@@ -2458,6 +2458,40 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
   border-radius: 6px; background: rgba(0, 0, 0, .35); }
 .ug.big .ug-n { font-size: 14px; right: 8px; bottom: 8px; padding: 1px 6px; border-radius: 8px; }
 .ug.mini .ug-n { display: none; }
+/* объём: обычный — мягкая подсветка цвета редкости и тень у значка; уникальный — глянец, бегущий блик, искры и лучи */
+.ug.plain { background: radial-gradient(circle at 50% 30%, var(--card), var(--card-hover) 75%); }
+.ug.plain.r-uncommon { background: radial-gradient(circle at 50% 30%, #f1ffe4, #d9f5c2 80%); }
+.ug.plain.r-rare { background: radial-gradient(circle at 50% 30%, #eef7ff, #cfe6ff 80%); }
+.ug.plain.r-epic { background: radial-gradient(circle at 50% 30%, #f8efff, #e3ccff 80%); }
+.ug.plain.r-legend { background: radial-gradient(circle at 50% 30%, #fff6e5, #ffd9a1 80%); }
+.ug.plain.r-limited { background: radial-gradient(circle at 50% 30%, #fff3e0, #ffcc80 80%); }
+:root[data-theme="dark"] .ug.plain[class*="r-"] { background: radial-gradient(circle at 50% 30%, var(--card-hover), var(--card) 80%); }
+.ug.plain .ug-ic { filter: drop-shadow(0 3px 2px rgba(0, 0, 0, .2)); }
+.ug-gloss { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit;
+  background: radial-gradient(circle at var(--mx, 30%) var(--my, 18%), rgba(255, 255, 255, .5), rgba(255, 255, 255, 0) 45%),
+    linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, .5) 50%, transparent 60%) -150% 0 / 250% 100% no-repeat;
+  animation: ugSheen 5s ease-in-out infinite; }
+@keyframes ugSheen { 0%, 62% { background-position: 0 0, -150% 0; } 100% { background-position: 0 0, 150% 0; } }
+.ug-rays { position: absolute; inset: -40%; z-index: 0; pointer-events: none; opacity: .45;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, .9) 0 10deg, rgba(255, 255, 255, 0) 10deg 30deg);
+  -webkit-mask: radial-gradient(circle, #000 20%, transparent 62%); mask: radial-gradient(circle, #000 20%, transparent 62%);
+  animation: ugRays 14s linear infinite; }
+@keyframes ugRays { to { transform: rotate(360deg); } }
+.ug-spk { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.ug-spk i { position: absolute; width: 14%; aspect-ratio: 1; background: #fff; opacity: 0;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); animation: ugSpk 2.8s ease-in-out infinite; }
+.ug-spk i:nth-child(1) { top: 10%; left: 14%; } .ug-spk i:nth-child(2) { top: 18%; right: 12%; animation-delay: .7s; width: 10%; }
+.ug-spk i:nth-child(3) { bottom: 22%; left: 10%; animation-delay: 1.4s; width: 9%; } .ug-spk i:nth-child(4) { bottom: 14%; right: 24%; animation-delay: 2.1s; }
+@keyframes ugSpk { 0%, 100% { opacity: 0; transform: scale(.3) rotate(0); } 50% { opacity: .95; transform: scale(1) rotate(45deg); } }
+.ug.r-myth { animation: ugMyth 4s linear infinite; }
+@keyframes ugMyth { 0%, 100% { box-shadow: 0 0 0 2px #ff4081, 0 0 14px #ff4081; } 33% { box-shadow: 0 0 0 2px #40c4ff, 0 0 14px #40c4ff; }
+  66% { box-shadow: 0 0 0 2px #ffd740, 0 0 14px #ffd740; } }
+.ug.r-myth .ug-rays { opacity: .6; background: repeating-conic-gradient(from 0deg, #ff80ab 0 10deg, transparent 10deg 20deg, #80d8ff 20deg 30deg, transparent 30deg 40deg, #ffe57f 40deg 50deg, transparent 50deg 60deg); }
+.bx-sh .ug:not(.plain), .ug.big:not(.plain) { transition: transform .25s ease-out; }
+.ug.tilt { transform: perspective(500px) rotateX(var(--rx, 0)) rotateY(var(--ry, 0)) scale(1.06); transition: transform .06s linear; }
+.ug.tilt .ug-ic { transform: translate(calc(var(--ry, 0) * .25), calc(var(--rx, 0) * -.25)); }
+.bx-t.s24 .ug-spk, .bx-t.s24 .ug-rays { display: none; }
+@media (prefers-reduced-motion: reduce) { .ug-gloss, .ug-rays, .ug-spk i, .ug.r-myth { animation: none; } .ug-spk i { opacity: .6; } }
 .ug.reveal { animation: ugReveal 1s cubic-bezier(.2, 1.4, .4, 1); }
 @keyframes ugReveal { 0% { transform: scale(.3) rotate(-25deg); filter: brightness(3); } 100% { transform: none; filter: none; } }
 .ugb { display: inline-grid; place-items: center; width: 1.5em; height: 1.5em; border-radius: 50%; vertical-align: middle;
@@ -3127,3 +3161,59 @@ body.cr-open { overflow: hidden; }
 .snd-vol { display: flex; align-items: center; gap: 8px; margin: 10px 4px 2px; }
 .snd-vol input { flex: 1; accent-color: var(--accent); }
 .snd-off { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+
+/* ---------------- Хеллоуин (body.hw: с HW_START до HW_END, заранее — ?halloween=1) ---------------- */
+/* ночь — тёмная тема (по умолчанию), сумерки — светлая; карточки заданий остаются своего цвета — текст читается как обычно */
+body.hw .main { position: relative; isolation: isolate;
+  background: url(vendor/halloween/bg_bottom.svg) center bottom / 1600px 220px repeat-x fixed,
+    url(vendor/halloween/bg_moon.svg) right 18px top 64px / 300px auto no-repeat,
+    radial-gradient(ellipse at 70% 0%, rgba(255, 145, 0, .16), transparent 55%), linear-gradient(180deg, #140b22 0%, #1f1035 55%, #2b1440 100%); }
+body.hw .topbar { background: rgba(20, 11, 34, .78); }
+body.hw .sidebar { background: linear-gradient(180deg, #1a0f2b, #160c24); }
+body.hw .main::before { content: ''; position: absolute; top: 70px; left: 0; width: 170px; height: 170px; z-index: -1; pointer-events: none;
+  background: url(vendor/halloween/bg_web.svg) 0 0 / contain no-repeat; opacity: .8; }
+:root[data-theme="light"] body.hw .main {
+  background: url(vendor/halloween/bg_bottom.svg) center bottom / 1600px 220px repeat-x fixed,
+    url(vendor/halloween/bg_moon.svg) right 18px top 64px / 300px auto no-repeat,
+    linear-gradient(180deg, #fdf0e1 0%, #f7e2ea 55%, #ead7f3 100%); }
+:root[data-theme="light"] body.hw .topbar { background: rgba(253, 240, 225, .85); }
+:root[data-theme="light"] body.hw .sidebar { background: linear-gradient(180deg, #fff6ec, #f3e7f5); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) body.hw .main {
+    background: url(vendor/halloween/bg_bottom.svg) center bottom / 1600px 220px repeat-x fixed,
+      url(vendor/halloween/bg_moon.svg) right 18px top 64px / 300px auto no-repeat,
+      linear-gradient(180deg, #fdf0e1 0%, #f7e2ea 55%, #ead7f3 100%); }
+  :root:not([data-theme="dark"]) body.hw .topbar { background: rgba(253, 240, 225, .85); }
+  :root:not([data-theme="dark"]) body.hw .sidebar { background: linear-gradient(180deg, #fff6ec, #f3e7f5); }
+}
+body.hw .rail-logo { position: relative; }
+body.hw .rail-logo::after { content: ''; position: absolute; right: -4px; top: -6px; width: 22px; height: 22px; pointer-events: none;
+  background: url(vendor/halloween/pumpkin_base.svg) center / 140% auto no-repeat; border-radius: 50%; transform: rotate(14deg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .3); }
+body.hw .brand-title b, body.hw .side-panel .brand b { color: #ff9100; }
+/* летучие мыши: изредка пролетают по верху экрана */
+.hw-bats { position: fixed; inset: 0 0 auto 0; height: 46vh; pointer-events: none; z-index: 4; overflow: hidden; }
+.hw-bats img { position: absolute; left: -80px; width: 46px; opacity: .85; animation: hwBat 26s linear infinite; }
+.hw-bats img:nth-child(2) { top: 18%; width: 32px; animation-duration: 31s; animation-delay: 9s; }
+.hw-bats img:nth-child(3) { top: 34%; width: 26px; animation-duration: 37s; animation-delay: 17s; }
+.hw-bats img:nth-child(1) { top: 8%; }
+@keyframes hwBat { 0% { transform: translate(0, 0); } 5% { transform: translate(14vw, -3vh) scaleY(.7); } 10% { transform: translate(28vw, 2vh); }
+  15% { transform: translate(42vw, -4vh) scaleY(.7); } 20% { transform: translate(56vw, 1vh); } 25% { transform: translate(70vw, -3vh) scaleY(.7); }
+  30% { transform: translate(86vw, 0); } 35%, 100% { transform: translate(110vw, -2vh); } }
+/* окно «Биткоины» в ивент: гирлянда тыкв сверху и тёплая подсветка */
+body.hw #forecastModal .fm-close { z-index: 4; }
+body.hw #forecastModal .modal-panel:has(.bx)::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 30px; pointer-events: none; z-index: 2;
+  background: url(vendor/halloween/garland.svg) center top / auto 30px repeat-x; border-radius: inherit; }
+/* лимитки ивента — картинкой вместо значка */
+.ug.img { background: radial-gradient(circle at 50% 40%, #6a3d9a, #1c0f2e); } .ug.img .ug-ic img { width: 100%; height: 100%; display: block; border-radius: 18%; }
+.ug.img .ug-ic { position: absolute; inset: 0; font-size: 0; }
+.ug.img:not(.plain) .ug-ic { inset: 9%; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .5)); }
+.ug.img.r-epic { background: radial-gradient(circle at 50% 40%, #b388ff, #3a1670); }
+.ug.img.r-legend { background: radial-gradient(circle at 50% 40%, #ffd180, #8a3a00); }
+.ug.img.r-myth { background: conic-gradient(from 0deg, #ff4081, #ffd740, #69f0ae, #40c4ff, #b388ff, #ff4081); }
+.ug.img.r-rare { background: radial-gradient(circle at 50% 40%, #82b1ff, #1a3a7a); }
+@media (prefers-reduced-motion: reduce) { .hw-bats { display: none; } }
+body.no-anim .hw-bats { display: none; }
+.bx-lim.img .e { width: 54px; height: 54px; flex: none; } .bx-lim.img .e img { width: 100%; height: 100%; border-radius: 14px; display: block; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }
+body.hw .bx-lim { background: linear-gradient(100deg, #2a1540, #5a1e3c 60%, #8a3a12); color: #fff; border-color: #ff9100; }
+body.hw .bx-lim small { color: #ffd8a8; }

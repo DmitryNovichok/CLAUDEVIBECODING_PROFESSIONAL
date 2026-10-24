@@ -5,6 +5,17 @@
   const STORIES_VER = 'halloween-2026', STORY_MS = 7000;
   const HW_START = '2026-10-26';          // с этого дня — Хеллоуинский ивент: две лимитки
   const HW_UNTIL = '2026-11-01';          // до этого дня истории показываются сами
+  const HW_END = '2026-11-03';            // до этого дня — хеллоуинская тема сайта
+  // тема ивента: ночной (в светлой теме — сумеречный) фон с луной, кладбищем и тыквами, паутина, пролетающие летучие мыши;
+  // заранее посмотреть — ?halloween=1 в адресе
+  if ((d => d >= HW_START && d < HW_END)(dayKey(Date.now())) || /[?&]halloween=1/.test(location.search)) {
+    document.body.classList.add('hw');
+    const bats = document.createElement('div');
+    bats.className = 'hw-bats';
+    bats.setAttribute('aria-hidden', 'true');
+    bats.innerHTML = '<img src="vendor/halloween/bat.svg" alt=""><img src="vendor/halloween/bat.svg" alt=""><img src="vendor/halloween/bat.svg" alt="">';
+    document.body.appendChild(bats);
+  }
   const HW_IMG = 'vendor/halloween/';
   const HW_PUMPKINS = ['witch', 'jack', 'vampire', 'pirate', 'king', 'mummy', 'ghost', 'gold', 'frank', 'cat'];
   const HW_MASKS = ['scream', 'freddy', 'jason', 'evilclown', 'myers', 'vendetta', 'billy', 'plague', 'calavera', 'shrek'];
