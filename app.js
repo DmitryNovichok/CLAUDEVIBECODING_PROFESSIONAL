@@ -8292,6 +8292,12 @@
         text: `С 26 октября — Хеллоуинский ивент: две лимитки, которые продаются только в эти дни.`,
         art: `<div class="sto-hw-duo"><span class="bat b1">🦇</span><span class="bat b2">🦇</span><span class="bat b3">🦇</span>
           ${hwImg(HW_PUMPKIN, 'l raw')}${hwImg(HW_MASK, 'r raw')}<div class="date"><b>26</b><small>октября</small></div></div>` },
+      { cls: 'h6', ico: '🦇', head: 'Новые темы', title: 'Сайт к Хеллоуину',
+        text: 'С 26 октября сайт переоденется: в тёмной теме — ночь с луной, кладбищем и светящимися тыквами, в светлой — сумерки. А ещё паутина, летучие мыши и гирлянда из тыкв в «Биткоинах».',
+        art: `<div class="sto-hw-themes">${['night', 'dusk'].map(t => `<div class="tw-w tw-${t === 'night' ? 'n' : 'd'}"><div class="tw"><div class="tw-bar"><i></i><i></i><i></i></div>
+          <div class="tw-side"><b>Egeshka</b><i></i><i></i><i></i></div><div class="tw-pane">${hwImg('bg_web', 'tw-web')}${hwImg('bg_moon', 'tw-moon')}${hwImg('bat', 'tw-bat')}
+          <i class="tw-card"></i><i class="tw-card"></i>${hwImg('bg_bottom', 'tw-grave')}</div></div>
+          <span class="tw-lbl">${t === 'night' ? '🌙 Ночь · тёмная тема' : '🌆 Сумерки · светлая тема'}</span></div>`).join('')}</div>` },
       { cls: 'h3', ico: '🎃', head: 'Лимитка 1', title: 'Тыква и 10 нарядов',
         text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она станет особенной: ведьма, золотой король, призрак, Франкенштейн и другие.',
         art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_PUMPKIN, 'main raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
