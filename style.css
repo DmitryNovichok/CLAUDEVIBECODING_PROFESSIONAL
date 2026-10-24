@@ -2870,6 +2870,46 @@ body.sto-open { overflow: hidden; }
 .sto-scr.s4 { background: radial-gradient(circle at 25% 10%, rgba(255, 255, 255, .3), transparent 42%), linear-gradient(160deg, #7b3fc0, #a560e8 50%, #ff6aa8); }
 .sto-scr.s5 { background: radial-gradient(circle at 80% 8%, rgba(255, 215, 90, .35), transparent 40%), linear-gradient(160deg, #2b2f3a, #3c4152 55%, #1f6f8b); }
 .sto-scr.s6 { background: radial-gradient(circle at 20% 10%, rgba(255, 255, 255, .28), transparent 40%), linear-gradient(160deg, #ff9600, #ff4b4b 60%, #ce3d8f); }
+/* истории: поздравление с пробником и Хеллоуинский ивент */
+.sto-scr.h1 { background: radial-gradient(circle at 80% 0%, rgba(255, 255, 255, .28), transparent 45%), linear-gradient(160deg, #1cb0f6, #7b5cff 60%, #c84bd8); }
+.sto-scr.h2 { background: radial-gradient(circle at 78% 10%, rgba(255, 236, 179, .45), transparent 22%), radial-gradient(circle at 50% 80%, rgba(255, 145, 0, .35), transparent 50%), linear-gradient(170deg, #12081f, #2d1450 55%, #5a1e3c); }
+.sto-scr.h3 { background: radial-gradient(circle at 50% 30%, rgba(255, 167, 38, .35), transparent 55%), linear-gradient(170deg, #1d0f33, #3b1a5a 60%, #6b2a1a); }
+.sto-scr.h4 { background: radial-gradient(circle at 50% 30%, rgba(255, 82, 82, .28), transparent 55%), linear-gradient(170deg, #0c0a12, #2a1530 60%, #4a0f1f); }
+.sto-scr.h5 { background: radial-gradient(circle at 80% 8%, rgba(255, 215, 90, .4), transparent 40%), linear-gradient(160deg, #ff9100, #e65100 55%, #6a1b9a); }
+.sto-scr.h2 .sto-go, .sto-scr.h3 .sto-go, .sto-scr.h4 .sto-go, .sto-scr.h5 .sto-go { color: #e65100; }
+.sto-cong { position: relative; width: 250px; height: 260px; display: grid; place-items: center; }
+.sto-cong .conf { position: absolute; inset: -20px 0 0; overflow: hidden; pointer-events: none; }
+.sto-cong .conf i { position: absolute; top: -12px; left: var(--x); width: 9px; height: 14px; border-radius: 2px; background: var(--c);
+  animation: stConf 2.6s linear var(--d) infinite; }
+@keyframes stConf { 0% { transform: translateY(0) rotate(0); opacity: 1; } 100% { transform: translateY(290px) rotate(540deg); opacity: .2; } }
+.sto-cong .cap { font-size: 96px; line-height: 1; filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .3)); animation: stBob 2.4s ease-in-out infinite; }
+.sto-cong .card { margin-top: -6px; padding: 12px 22px; border-radius: 18px; background: #fff; color: #3b2a6b; text-align: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .25); display: grid; gap: 2px; }
+.sto-cong .card b { font-size: 20px; } .sto-cong .card span { color: #2fbf71; font-weight: 900; } .sto-cong .card small { color: #7a6f99; font-weight: 800; }
+@keyframes stBob { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-8px) rotate(4deg); } }
+.sto-hw-duo { position: relative; width: 270px; height: 250px; }
+.sto-hw-duo img { position: absolute; width: 150px; height: 150px; border-radius: 26px; box-shadow: 0 14px 30px rgba(0, 0, 0, .45); }
+.sto-hw-duo img.l { left: 0; top: 20px; transform: rotate(-8deg); animation: stBob 3s ease-in-out infinite; }
+.sto-hw-duo img.r { right: 0; top: 70px; transform: rotate(7deg); animation: stBob 3s ease-in-out .8s infinite; }
+.sto-hw-duo .date { position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); padding: 6px 18px; border-radius: 14px; background: #ff9100;
+  color: #fff; text-align: center; line-height: 1; box-shadow: 0 8px 18px rgba(0, 0, 0, .35); }
+.sto-hw-duo .date b { display: block; font-size: 30px; font-weight: 900; } .sto-hw-duo .date small { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+.sto-hw-duo .bat { position: absolute; font-size: 26px; animation: stBat 3.4s ease-in-out infinite; }
+.sto-hw-duo .b1 { left: 40%; top: -8px; } .sto-hw-duo .b2 { left: 6%; top: 190px; animation-delay: .9s; font-size: 20px; } .sto-hw-duo .b3 { right: 4%; top: 20px; animation-delay: 1.7s; font-size: 18px; }
+@keyframes stBat { 0%, 100% { transform: translate(0, 0) scaleX(1); } 50% { transform: translate(10px, -10px) scaleX(-1); } }
+.sto-hw-one { display: grid; justify-items: center; gap: 8px; }
+.sto-hw-one .main { width: 128px; height: 128px; border-radius: 24px; box-shadow: 0 12px 26px rgba(0, 0, 0, .45); animation: stBob 3s ease-in-out infinite; }
+.sto-hw-one .arr { padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, .16); font-size: 13px; font-weight: 900; }
+.sto-hw-grid { display: grid; grid-template-columns: repeat(5, 46px); gap: 6px; }
+.sto-hw-grid span { animation: stIn .35s ease-out both; animation-delay: calc(var(--i) * 60ms); }
+.sto-hw-grid img { width: 46px; height: 46px; border-radius: 10px; display: block; box-shadow: 0 4px 10px rgba(0, 0, 0, .35); }
+.sto-hw-save { display: grid; justify-items: center; gap: 8px; width: 240px; }
+.sto-hw-save .coin { width: 96px; height: 96px; border-radius: 50%; display: grid; place-items: center; font-size: 54px; font-weight: 900;
+  background: radial-gradient(circle at 35% 30%, #ffe082, #ffb300 55%, #e65100); color: #fff; box-shadow: 0 12px 26px rgba(0, 0, 0, .35); animation: stBob 2.6s ease-in-out infinite; }
+.sto-hw-save b { font-size: 30px; font-weight: 900; } .sto-hw-save b small { font-size: 16px; opacity: .85; }
+.sto-hw-save .prog { width: 100%; height: 14px; border-radius: 999px; background: rgba(255, 255, 255, .25); overflow: hidden; }
+.sto-hw-save .prog i { display: block; height: 100%; border-radius: 999px; background: #fff; }
+.sto-hw-save > small { font-weight: 900; opacity: .95; }
 /* картинки слайдов — светлые «скриншоты» в любой теме */
 .sto-ov { --sx-bg: #f5f2eb; --sx-card: #fffdf8; --sx-border: #e6dfd0; --sx-text: #2c2923; --sx-muted: #7a7264; }
 .sto-mini { width: 250px; border-radius: 18px; background: var(--sx-bg); color: var(--sx-text); padding: 10px; box-shadow: 0 14px 30px rgba(0, 0, 0, .25); transform: rotate(-3deg); }
@@ -2944,7 +2984,7 @@ body.sto-open { overflow: hidden; }
   .sto-scr { padding: calc(env(safe-area-inset-top, 0px) + 12px) 18px calc(env(safe-area-inset-bottom, 0px) + 18px); }
 }
 @media (max-height: 700px) { .sto-art-in { transform: scale(.82); } .sto-ttl { font-size: 25px; } .sto-txt { font-size: 14.5px; } }
-@media (prefers-reduced-motion: reduce) { .sto-art-in, .sto-ttl, .sto-phone, .sto-up .ic, .sto-bonus .bolt { animation: none; } .sto-island { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .sto-art-in, .sto-ttl, .sto-phone, .sto-up .ic, .sto-bonus .bolt, .sto-cong .conf i, .sto-cong .cap, .sto-hw-duo img, .sto-hw-duo .bat, .sto-hw-one .main, .sto-hw-save .coin { animation: none; } .sto-island { transition: none; } }
 
 /* ---- «🎲 Случайный подарок» как кейс (12e-case.js): коробка трясётся → крышка слетает → лента → лучи и искры цвета редкости.
    --hc — цвет редкости подарка под чертой (в конце — выпавшего) */
