@@ -3841,6 +3841,47 @@ class ServerTest(unittest.TestCase):
         g2 = server.game_summary(db, sid)
         self.assertEqual(g2["task_coins"], math.floor(bonus[26] + bonus[25] * 1.5 + server.TASK_BTC[24]))
 
+    def test_promo_history(self):
+        # новая акция (×3) и смена множителей не трогают заработанное раньше: каждый период — со своими множителями;
+        # акция «перед пробником», затёртая новой до истории периодов, восстанавливается
+        db = server.APP.db
+        self.addCleanup(server.promo_set, db, None)
+        tok = self.login("Периодов Платон")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        now = time.time()
+        for key in ("task_btc_since", "exam_btc_since"):
+            self.addCleanup(db.setting, key, db.setting(key))
+            db.setting(key, str(now - 90000))
+        server._SINCE.clear()
+        self.addCleanup(server._SINCE.clear)
+        db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,?,1,?)", (sid, now - 7200, "ph:25", 25, 30 * 60000))
+        server.promo_set(db, {"title": "Первая", "task": 1.5, "exam": 2, "from": now - 10000, "to": now - 3600})
+        b = server.TASK_BTC[25]
+        g1 = server.game_summary(db, sid)
+        self.assertEqual(g1["task_coins"], math.floor(b * 1.5))
+        st, d = self.admin("POST", "/api/admin/promo", {"task": 3, "exam": 3, "to": "2099-01-01", "title": "Хеллоуин"})
+        self.assertEqual(st, 200, d)
+        self.assertEqual(server.game_summary(db, sid)["task_coins"], g1["task_coins"])      # прежняя акция не стёрлась
+        self.assertEqual([p["title"] for p in server.promo_hist(db)], ["Первая", "Хеллоуин"])
+        # смена множителей идущей акции: новый период с этой минуты
+        time.sleep(.02)
+        db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,?,1,?)", (sid, time.time(), "ph:24", 24, 30 * 60000))
+        g2 = server.game_summary(db, sid)
+        self.assertEqual(g2["task_coins"], math.floor(b * 1.5 + server.TASK_BTC[24] * 3))
+        time.sleep(.01)
+        self.assertEqual(self.admin("POST", "/api/admin/promo", {"task": 2, "exam": 2, "to": "2099-01-01", "title": "Хеллоуин"})[0], 200)
+        self.assertEqual(server.game_summary(db, sid)["task_coins"], g2["task_coins"])
+        self.assertEqual([(p["task"], p["to"] < time.time() + 5) for p in server.promo_hist(db)], [(1.5, True), (3, True), (2, False)])
+        self.assertEqual(self.req("GET", "/api/me", token=tok)[1]["promo"]["task"], 2)
+        # восстановление: истории ещё нет, текущая — новая акция, а «перед пробником» была (promo_seeded)
+        cur = server.promo_get(db)
+        db.x("DELETE FROM settings WHERE key='promo_hist'")
+        db.setting("promo", json.dumps({k: v for k, v in cur.items() if k != "id"}))
+        server._PROMO["db"] = None
+        h = server.promo_hist(db)
+        self.assertEqual((h[0]["title"], h[0]["task"], h[0]["exam"], h[0]["from"]), ("Бонус перед пробником", 1.5, 2.0, server.PROMO_SEED_FROM))
+        self.assertEqual(h[-1]["task"], 2)
+
     def test_gift_value(self):
         db = server.APP.db
         tok = self.login("Ценников Цезарь")
