@@ -2932,7 +2932,7 @@ body.sto-open { overflow: hidden; }
 .sto-hw-duo .b1 { left: 40%; top: -8px; } .sto-hw-duo .b2 { left: 6%; top: 190px; animation-delay: .9s; font-size: 20px; } .sto-hw-duo .b3 { right: 4%; top: 20px; animation-delay: 1.7s; font-size: 18px; }
 @keyframes stBat { 0%, 100% { transform: translate(0, 0) scaleX(1); } 50% { transform: translate(10px, -10px) scaleX(-1); } }
 .sto-hw-one { display: grid; justify-items: center; gap: 8px; }
-.sto-hw-one .main { width: 128px; height: 128px; border-radius: 24px; box-shadow: 0 12px 26px rgba(0, 0, 0, .45); animation: stBob 3s ease-in-out infinite; }
+.sto-hw-one .hero { width: 128px; height: 128px; border-radius: 24px; box-shadow: 0 12px 26px rgba(0, 0, 0, .45); animation: stBob 3s ease-in-out infinite; }
 .sto-hw-one .arr { padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, .16); font-size: 13px; font-weight: 900; }
 .sto-hw-grid { display: grid; grid-template-columns: repeat(5, 46px); gap: 6px; }
 .sto-hw-grid span { animation: stIn .35s ease-out both; animation-delay: calc(var(--i) * 60ms); }
@@ -2940,7 +2940,7 @@ body.sto-open { overflow: hidden; }
 /* готовые картинки масок — со своей рамкой и тёмным полем: без нашей тени и скругления */
 .sto-hw-duo img.raw, .sto-hw-one img.raw { box-shadow: none; border-radius: 0; filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .45)); }
 .sto-hw-duo img.r.raw { width: 170px; height: 170px; right: -8px; top: 56px; }
-.sto-hw-one.masks .main { width: 170px; height: 170px; }
+.sto-hw-one.masks .hero { width: 170px; height: 170px; }
 .sto-hw-soon { padding: 4px 12px; border-radius: 999px; background: #ff9100; color: #fff; font-size: 12.5px; font-weight: 900; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }
 .sto-hw-duo img.l.raw { width: 170px; height: 170px; left: -8px; top: 6px; }
 .sto-hw-row { display: grid; grid-template-columns: repeat(4, 66px); gap: 2px; }
@@ -3054,7 +3054,7 @@ body.sto-open { overflow: hidden; }
   .sto-scr { padding: calc(env(safe-area-inset-top, 0px) + 12px) 18px calc(env(safe-area-inset-bottom, 0px) + 18px); }
 }
 @media (max-height: 700px) { .sto-art-in { transform: scale(.82); } .sto-ttl { font-size: 25px; } .sto-txt { font-size: 14.5px; } }
-@media (prefers-reduced-motion: reduce) { .sto-art-in, .sto-ttl, .sto-phone, .sto-up .ic, .sto-bonus .bolt, .sto-cong .conf i, .sto-cong .cap, .sto-hw-duo img, .sto-hw-duo .bat, .sto-hw-one .main, .sto-hw-save .coin, .sto-hw-themes .tw-w, .sto-hw-themes .tw-bat { animation: none; } .sto-island { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .sto-art-in, .sto-ttl, .sto-phone, .sto-up .ic, .sto-bonus .bolt, .sto-cong .conf i, .sto-cong .cap, .sto-hw-duo img, .sto-hw-duo .bat, .sto-hw-one .hero, .sto-hw-save .coin, .sto-hw-themes .tw-w, .sto-hw-themes .tw-bat { animation: none; } .sto-island { transition: none; } }
 
 /* ---- «🎲 Случайный подарок» как кейс (12e-case.js): коробка трясётся → крышка слетает → лента → лучи и искры цвета редкости.
    --hc — цвет редкости подарка под чертой (в конце — выпавшего) */

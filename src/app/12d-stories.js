@@ -20,7 +20,7 @@
   // маски — готовые картинки (с рамкой и тыквой сверху): обычная — клоун, при улучшении — одна из страшных
   const HW_MASK = 'gift_clown.webp';
   const HW_PUMPKIN = 'gift_pumpkin.webp';
-  const HW_OUTFITS = ['gift_p_witch.webp', 'gift_p_king.webp', 'gift_p_ghost.webp', 'gift_p_frank.webp'];
+  const HW_OUTFITS = ['gift_p_vampire.webp', 'gift_p_cat.webp', 'gift_p_king.webp', 'gift_p_hell.webp'];
   const hwLive = () => dayKey(Date.now()) >= HW_START;
   const hwSoon = () => `<div class="sto-hw-soon">${hwLive() ? '🎃 уже в продаже · до 2 ноября' : '🗓 в продаже с 26 октября'}</div>`;
   const hwRow = ks => `<div class="sto-hw-row">${ks.map((k, i) => `<span style="--i:${i}">${hwImg(k, 'raw')}</span>`).join('')}</div>`;
@@ -49,11 +49,11 @@
           <i class="tw-card"></i><i class="tw-card"></i>${hwImg('bg_bottom', 'tw-grave')}</div></div>
           <span class="tw-lbl">${t === 'night' ? '🌙 Ночь · тёмная тема' : '🌆 Сумерки · светлая тема'}</span></div>`).join('')}</div>` },
       { cls: 'h3', ico: '🎃', head: 'Лимитка 1', title: 'Тыква и 10 нарядов',
-        text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она наденет случайный наряд: ведьма, призрак, Франкенштейн, золотой король и другие.',
-        art: `<div class="sto-hw-one masks">${hwSoon()}${hwImg(HW_PUMPKIN, 'main raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
+        text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она наденет случайный наряд: вампир, пират, мумия, чёрный кот, золотой король… а самым везучим — адская тыква.',
+        art: `<div class="sto-hw-one masks">${hwSoon()}${hwImg(HW_PUMPKIN, 'hero raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
       { cls: 'h4', ico: '🎭', head: 'Лимитка 2', title: 'Маска клоуна',
         text: 'Маска клоуна — ₿ 5 000. Весёлый клоун? Улучши за ₿ 1 000 — и маска превратится в страшную: Крик, Пила, Череп, Злой клоун и другие.',
-        art: `<div class="sto-hw-one masks">${hwSoon()}${hwImg(HW_MASK, 'main raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
+        art: `<div class="sto-hw-one masks">${hwSoon()}${hwImg(HW_MASK, 'hero raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
       { cls: 'h5', ico: '₿', head: live ? 'Успей' : 'Готовься', title: live ? 'Успей купить!' : 'Копи биткоины!',
         text: live ? 'Тираж ограничен — кто первый, тот и успел. Тыква и маска — в «Биткоинах», до 2 ноября включительно. Не хватает — решай задания!'
           : 'Тираж ограничен — кто первый, тот и успел. Решай задания, чтобы к 26-му хватило на тыкву.',
