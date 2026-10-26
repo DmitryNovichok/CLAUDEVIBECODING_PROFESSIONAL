@@ -24,7 +24,7 @@
   const hwLive = () => dayKey(Date.now()) >= HW_START;
   const hwSoon = () => `<div class="sto-hw-soon">${hwLive() ? '🎃 уже в продаже · до 2 ноября' : '🗓 в продаже с 26 октября'}</div>`;
   const hwRow = ks => `<div class="sto-hw-row">${ks.map((k, i) => `<span style="--i:${i}">${hwImg(k, 'raw')}</span>`).join('')}</div>`;
-  const HW_MASKS = ['gift_scream.webp', 'gift_billy.webp', 'gift_skull.webp', 'gift_evilclown.webp'];
+  const HW_MASKS = ['gift_scream.webp', 'gift_m_plague.webp', 'gift_m_wolf.webp', 'gift_m_pharaoh.webp'];
   let ST = null;                          // { k, list, paused } — открытые истории
   const storyKey = () => `egeshka.stories.${STORIES_VER}.${student ? student.sid : 'local'}`;
   const hwLeft = () => Math.max(0, Math.round((new Date(HW_START + 'T00:00') - new Date(new Date().toDateString())) / 86400000));
@@ -52,7 +52,7 @@
         text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она наденет случайный наряд: вампир, пират, мумия, чёрный кот, золотой король… а самым везучим — адская тыква.',
         art: `<div class="sto-hw-one masks">${hwSoon()}${hwImg(HW_PUMPKIN, 'hero raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
       { cls: 'h4', ico: '🎭', head: 'Лимитка 2', title: 'Маска клоуна',
-        text: 'Маска клоуна — ₿ 5 000. Весёлый клоун? Улучши за ₿ 1 000 — и маска превратится в страшную: Крик, Пила, Череп, Злой клоун и другие.',
+        text: 'Маска клоуна — ₿ 5 000. Весёлый клоун? Улучши за ₿ 1 000 — и маска превратится в страшную: Крик, Пила, Чумной доктор, Оборотень… а самым везучим — проклятый фараон.',
         art: `<div class="sto-hw-one masks">${hwSoon()}${hwImg(HW_MASK, 'hero raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
       { cls: 'h5', ico: '₿', head: live ? 'Успей' : 'Готовься', title: live ? 'Успей купить!' : 'Копи биткоины!',
         text: live ? 'Тираж ограничен — кто первый, тот и успел. Тыква и маска — в «Биткоинах», до 2 ноября включительно. Не хватает — решай задания!'

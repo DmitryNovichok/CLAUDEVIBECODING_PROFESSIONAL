@@ -6463,11 +6463,11 @@ HW_SKINS = [                           # вид, id, название, карт�
     ("hw_pumpkin", "aztec", "Ацтекский вождь", "gift_p_aztec.webp", "legend"),
     ("hw_pumpkin", "hell", "Адская тыква", "gift_p_hell.webp", "myth"),
     ("hw_clown", "skull", "Череп", "gift_skull.webp", "rare"), ("hw_clown", "scream", "Крик", "gift_scream.webp", "rare"),
-    ("hw_clown", "hockey", "Хоккейная маска", "gift_m_hockey.webp", "rare"), ("hw_clown", "wolf", "Оборотень", "gift_m_wolf.webp", "rare"),
+    ("hw_clown", "wolf", "Оборотень", "gift_m_wolf.webp", "rare"), ("hw_clown", "doll", "Фарфоровая кукла", "gift_m_doll.webp", "rare"),
     ("hw_clown", "billy", "Пила", "gift_billy.webp", "epic"), ("hw_clown", "plague", "Чумной доктор", "gift_m_plague.webp", "epic"),
-    ("hw_clown", "oni", "Демон Они", "gift_m_oni.webp", "epic"), ("hw_clown", "evilclown", "Злой клоун", "gift_evilclown.webp", "legend"),
+    ("hw_clown", "demon", "Демон", "gift_m_demon.webp", "epic"), ("hw_clown", "evilclown", "Злой клоун", "gift_evilclown.webp", "legend"),
     ("hw_clown", "nightmare", "Кошмар", "gift_m_nightmare.webp", "legend"),
-    ("hw_clown", "gold", "Проклятая золотая маска", "gift_m_gold.webp", "myth")]
+    ("hw_clown", "pharaoh", "Проклятый фараон", "gift_m_pharaoh.webp", "myth")]
 HW_SKIN = {s[1]: s for s in HW_SKINS}
 HW_SKIN_W = {"rare": 14, "epic": 8, "legend": 4, "myth": 1.5}
 HW_TIER_T = {"rare": "Редкий", "epic": "Эпический", "legend": "Легендарный", "myth": "Мифический"}
