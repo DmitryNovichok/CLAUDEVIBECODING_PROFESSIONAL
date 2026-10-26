@@ -103,8 +103,10 @@
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
   /** Подарки у ника — маленькие значки после наград: уникальный — на своём цветном фоне, одинаковые обычные — числом. */
-  // лимитки Хеллоуина (тыква, маска) — своей картинкой вместо значка
-  const giftImg = src => `<img src="${esc(src)}" alt="" draggable="false">`;
+  // лимитки Хеллоуина (тыква, маска) — своей картинкой вместо значка; в плитке, аватарке и значке — миниатюра, обрезанная
+  // по рамке (*_t.webp), чтобы подарок заполнял её целиком; полная картинка с конфетти — в магазине и историях
+  const hwThumb = src => String(src).replace(/\.webp$/, '_t.webp');
+  const giftImg = src => `<img src="${esc(hwThumb(src))}" alt="" draggable="false">`;
   const giftBadge = g => (g.u ? `<span class="bdg ugb${g.u.img ? ' img' : ''} r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}">${g.u.img ? giftImg(g.u.img) : `<i class="gfx-${g.u.fx}">${esc(g.i)}</i>`}</span>`
     : g.img ? `<span class="bdg bdg-img" title="${esc(g.t)}${g.n ? ' × ' + g.n : ''}">${giftImg(g.img)}${g.n ? `<sup>${g.n}</sup>` : ''}</span>` : badgeHtml(g));
   const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
@@ -148,7 +150,7 @@
     const row = r => {
       const z = zoneOf(r);
       return `${lines(r)}<div class="lp-row${r.me ? ' me' : ''}${z ? ' z-' + z : ''}"><span class="lp-place">${r.place}</span>${lbAvatar(r, 36)}
-        <span class="lp-who">${lbNm(r)}${r.level ? `<small>ур. ${r.level}</small>` : ''}</span>${lbIcons(lbItems(r), 3)}
+        <span class="lp-who">${lbNm(r)}${r.level ? `<small>ур. ${r.level}</small>` : ''}</span>${lbIcons(lbItems(r, topGift(r)), 3)}
         <span class="lp-val"><b>${lbValue(key, r.value)}</b>${lbParts(r) ? `<small>${lbParts(r)}</small>` : ''}</span></div>`;
     };
     return `${order.length ? `<div class="lp-podium n${order.length}">${order.map(pd).join('')}</div>` : ''}

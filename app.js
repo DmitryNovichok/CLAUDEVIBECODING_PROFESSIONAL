@@ -5673,8 +5673,10 @@
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
   /** Подарки у ника — маленькие значки после наград: уникальный — на своём цветном фоне, одинаковые обычные — числом. */
-  // лимитки Хеллоуина (тыква, маска) — своей картинкой вместо значка
-  const giftImg = src => `<img src="${esc(src)}" alt="" draggable="false">`;
+  // лимитки Хеллоуина (тыква, маска) — своей картинкой вместо значка; в плитке, аватарке и значке — миниатюра, обрезанная
+  // по рамке (*_t.webp), чтобы подарок заполнял её целиком; полная картинка с конфетти — в магазине и историях
+  const hwThumb = src => String(src).replace(/\.webp$/, '_t.webp');
+  const giftImg = src => `<img src="${esc(hwThumb(src))}" alt="" draggable="false">`;
   const giftBadge = g => (g.u ? `<span class="bdg ugb${g.u.img ? ' img' : ''} r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}">${g.u.img ? giftImg(g.u.img) : `<i class="gfx-${g.u.fx}">${esc(g.i)}</i>`}</span>`
     : g.img ? `<span class="bdg bdg-img" title="${esc(g.t)}${g.n ? ' × ' + g.n : ''}">${giftImg(g.img)}${g.n ? `<sup>${g.n}</sup>` : ''}</span>` : badgeHtml(g));
   const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
@@ -5718,7 +5720,7 @@
     const row = r => {
       const z = zoneOf(r);
       return `${lines(r)}<div class="lp-row${r.me ? ' me' : ''}${z ? ' z-' + z : ''}"><span class="lp-place">${r.place}</span>${lbAvatar(r, 36)}
-        <span class="lp-who">${lbNm(r)}${r.level ? `<small>ур. ${r.level}</small>` : ''}</span>${lbIcons(lbItems(r), 3)}
+        <span class="lp-who">${lbNm(r)}${r.level ? `<small>ур. ${r.level}</small>` : ''}</span>${lbIcons(lbItems(r, topGift(r)), 3)}
         <span class="lp-val"><b>${lbValue(key, r.value)}</b>${lbParts(r) ? `<small>${lbParts(r)}</small>` : ''}</span></div>`;
     };
     return `${order.length ? `<div class="lp-podium n${order.length}">${order.map(pd).join('')}</div>` : ''}
@@ -7706,7 +7708,7 @@
     const k = u.rar.k, rays = k === 'legend' || k === 'myth' ? '<span class="ug-rays"></span>' : '';
     const spk = k === 'epic' || rays ? '<span class="ug-spk"><i></i><i></i><i></i><i></i></span>' : '';
     if (u.img) {                            // наряд лимитки ивента (тыква, маска) — своей картинкой
-      return `<span class="ug img r-${k} ${cls}">${rays}<span class="ug-ic"><img src="${esc(u.img)}" alt="" draggable="false"></span>${spk}<b class="ug-n">#${u.n}</b><span class="ug-gloss"></span></span>`;
+      return `<span class="ug img r-${k} ${cls}">${rays}<span class="ug-ic">${giftImg(u.img)}</span>${spk}<b class="ug-n">#${u.n}</b><span class="ug-gloss"></span></span>`;
     }
     return `<span class="ug r-${k} ${cls}" style="--c1:${u.c1};--c2:${u.c2}">${rays}${pat}<span class="ug-ic gfx-${u.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span>${spk}<b class="ug-n">#${u.n}</b><span class="ug-gloss"></span></span>`;
   }
@@ -7747,7 +7749,7 @@
   const PH = {};                          // графики цены подарков: gift → { pts, at } (с сервера, на 5 минут)
   const num = v => Number(v || 0).toLocaleString('ru-RU');
   const gfTile = (g, s = 52, extra = '') => `<span class="bx-t s${s}">${g.uniq ? uniqTile(g, extra) : g.img
-    ? `<span class="ug plain img r-${g.rar.k} ${extra}"><span class="ug-ic"><img src="${esc(g.img)}" alt="" draggable="false"></span><span class="ug-gloss"></span></span>`
+    ? `<span class="ug plain img r-${g.rar.k} ${extra}"><span class="ug-ic">${giftImg(g.img)}</span></span>`
     : `<span class="ug plain r-${g.rar.k} ${extra}"><span class="ug-ic">${g.i}</span></span>`}</span>`;
   const gfName = g => esc(g.t) + (g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : '') + (g.uniq ? ` <span class="ug-num">#${g.uniq.n}</span>` : '');
   /** Лимитка Хеллоуина в магазине (пока идёт ивент) — или null. */
@@ -7755,7 +7757,7 @@
   /** Наряды лимитки, которые может дать улучшение: картинка, название, редкость. */
   const hwSkins = gid => {
     const xs = (GF && GF.hw_skins && GF.hw_skins[gid]) || [];
-    return xs.length ? `<div class="ug-sk">${xs.map(x => `<span class="r-${x.k}" title="${esc(x.t)} · ${esc(x.k === 'rare' ? 'редкий' : x.k === 'epic' ? 'эпический' : x.k === 'legend' ? 'легендарный' : 'мифический')}"><img src="${esc(x.img)}" alt="" loading="lazy">${esc(x.t)}</span>`).join('')}</div>` : '';
+    return xs.length ? `<div class="ug-sk">${xs.map(x => `<span class="r-${x.k}" title="${esc(x.t)} · ${esc(x.k === 'rare' ? 'редкий' : x.k === 'epic' ? 'эпический' : x.k === 'legend' ? 'легендарный' : 'мифический')}">${giftImg(x.img)}${esc(x.t)}</span>`).join('')}</div>` : '';
   };
 
   async function openGifts(to, open, tab) {
@@ -7841,7 +7843,7 @@
       ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Биткоины за опыт приходят сами — их здесь нет</small></div>'}`;
   }
   // ---- Forbes класса: обложка журнала, список и вкладки
-  const fbAv = (r, s) => (r.avatar ? `<span class="fb-av r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.uniq.img ? `<img src="${esc(r.avatar.uniq.img)}" alt="">` : r.avatar.i}</span>`
+  const fbAv = (r, s) => (r.avatar ? `<span class="fb-av${r.avatar.uniq.img ? ' img' : ''} r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.uniq.img ? giftImg(r.avatar.uniq.img) : r.avatar.i}</span>`
     : `<span class="fb-av plain" style="--s:${s}px">${esc(r.name[0] || '?')}</span>`);
   const fbDelta = w => (w == null ? '' : `<em class="fb-dl ${w > 0 ? 'up' : w < 0 ? 'dn' : ''}">${w > 0 ? '▲' : w < 0 ? '▼' : '='} ${w ? num(Math.abs(w)) : ''}</em>`);
   const fbTags = r => [r.rocket ? '<span class="fb-tag rocket">🚀 рывок недели</span>' : '', r.new ? '<span class="fb-tag new">новичок</span>' : '',
@@ -8128,7 +8130,7 @@
     const t = document.createElement('div');
     t.className = 'ach-toast gift-toast';
     const from = gfFrom(g);
-    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : g.img ? `<img src="${esc(g.img)}" alt="">` : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
+    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : g.img ? giftImg(g.img) : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
       <b>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
     t.addEventListener('click', () => openGifts(undefined, g.id));
     document.body.appendChild(t);
@@ -8551,7 +8553,7 @@
     for (const x of cat) { r -= x.rar.p || 0; if (r <= 0) return x; }
     return cat[cat.length - 1];
   }
-  const crTile = (x, cls = '') => `<span class="cr-it r-${x.rar.k} ${cls}">${x.img ? `<span class="e img"><img src="${esc(x.img)}" alt="" draggable="false"></span>` : `<span class="e">${x.i}</span>`}</span>`;
+  const crTile = (x, cls = '') => `<span class="cr-it r-${x.rar.k} ${cls}">${x.img ? `<span class="e img">${giftImg(x.img)}</span>` : `<span class="e">${x.i}</span>`}</span>`;
   function openCase(who) {
     let ov = $('#caseOv');
     if (!ov) {
