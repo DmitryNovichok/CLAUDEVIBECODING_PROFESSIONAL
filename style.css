@@ -1097,6 +1097,7 @@ body:has(.py-dock:not([hidden])) .topbar .dots { display: none; }
 .lp-av.r-epic { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-epic); }
 .lp-av.r-legend { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-legend), 0 0 10px var(--r-legend); }
 .lp-av.r-myth { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-myth), 0 0 12px var(--r-myth); }
+.lp-av.r-limited { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-limited), 0 0 10px var(--r-limited); }
 .lp-av.plain { background: var(--card-hover); color: var(--muted); font-weight: 900; font-size: calc(var(--s) * .4); box-shadow: 0 0 0 2px var(--border); }
 .lp-podium { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 8px; align-items: end; margin: 18px 0 12px; }
 .lp-podium.n1 { grid-template-columns: minmax(0, 220px); justify-content: center; }
@@ -2831,6 +2832,7 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .fb-av.r-epic { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--r-epic); }
 .fb-av.r-legend { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--r-legend), 0 0 10px var(--r-legend); }
 .fb-av.r-myth { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--r-myth), 0 0 12px var(--r-myth); }
+.fb-av.r-limited { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--r-limited), 0 0 10px var(--r-limited); }
 .fb-av.plain { background: var(--card-hover); color: var(--muted); font-weight: 900; font-size: calc(var(--s) * .42); box-shadow: 0 0 0 2px var(--border); }
 .fb-hero .fb-av.plain { color: #fff; background: rgba(255, 255, 255, .15); }
 .fb-tiers { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }

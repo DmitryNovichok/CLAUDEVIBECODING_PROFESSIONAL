@@ -183,12 +183,13 @@
       ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Биткоины за опыт приходят сами — их здесь нет</small></div>'}`;
   }
   // ---- Forbes класса: обложка журнала, список и вкладки
-  const fbAv = (r, s) => (r.avatar ? `<span class="fb-av${r.avatar.uniq.img ? ' img' : ''} r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.uniq.img ? giftImg(r.avatar.uniq.img) : r.avatar.i}</span>`
+  const fbAv = (r, s) => (r.avatar && !r.avatar.uniq ? `<span class="fb-av img r-limited" style="--s:${s}px">${giftImg(r.avatar.img)}</span>`   // лимитка без улучшения
+    : r.avatar ? `<span class="fb-av${r.avatar.uniq.img ? ' img' : ''} r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.uniq.img ? giftImg(r.avatar.uniq.img) : r.avatar.i}</span>`
     : `<span class="fb-av plain" style="--s:${s}px">${esc(r.name[0] || '?')}</span>`);
   const fbDelta = w => (w == null ? '' : `<em class="fb-dl ${w > 0 ? 'up' : w < 0 ? 'dn' : ''}">${w > 0 ? '▲' : w < 0 ? '▼' : '='} ${w ? num(Math.abs(w)) : ''}</em>`);
   const fbTags = r => [r.rocket ? '<span class="fb-tag rocket">🚀 рывок недели</span>' : '', r.new ? '<span class="fb-tag new">новичок</span>' : '',
     r.me ? '<span class="fb-tag me">это ты</span>' : ''].join('');
-  const RK_T = { 'u:myth': 'мифич.', 'u:legend': 'легенд.', 'u:epic': 'эпич.', 'u:rare': 'редк.', limited: 'лимитка' };
+  const RK_T = { limited: 'лимитка', 'u:myth': 'мифич.', 'u:legend': 'легенд.', 'u:epic': 'эпич.', 'u:rare': 'редк.' };
   function forbesTab() {
     const subs = [['rich', '💰 Состояние'], ['gift', '🎁 Подарок'], ['coll', '🖼 Коллекция'], ['rare', '💎 Редкость']];
     const head = `<div class="fb-head"><div class="fb-title">FORBES <i>Egeshka</i></div><small>Самые богатые в классе · ${FB ? FB.month : ''}</small></div>
