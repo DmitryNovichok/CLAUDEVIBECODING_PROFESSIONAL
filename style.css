@@ -3240,14 +3240,37 @@ body.hw .brand-title b, body.hw .side-panel .brand b { color: #ff9100; }
 body.hw #forecastModal .fm-close { z-index: 4; }
 body.hw #forecastModal .modal-panel:has(.bx)::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 30px; pointer-events: none; z-index: 2;
   background: url(vendor/halloween/garland.svg) center top / auto 30px repeat-x; border-radius: inherit; }
-/* лимитки ивента — картинкой вместо значка */
-.ug.img { background: radial-gradient(circle at 50% 40%, #6a3d9a, #1c0f2e); } .ug.img .ug-ic img { width: 100%; height: 100%; display: block; border-radius: 18%; }
-.ug.img .ug-ic { position: absolute; inset: 0; font-size: 0; }
-.ug.img:not(.plain) .ug-ic { inset: 9%; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .5)); }
-.ug.img.r-epic { background: radial-gradient(circle at 50% 40%, #b388ff, #3a1670); }
-.ug.img.r-legend { background: radial-gradient(circle at 50% 40%, #ffd180, #8a3a00); }
-.ug.img.r-myth { background: conic-gradient(from 0deg, #ff4081, #ffd740, #69f0ae, #40c4ff, #b388ff, #ff4081); }
-.ug.img.r-rare { background: radial-gradient(circle at 50% 40%, #82b1ff, #1a3a7a); }
+/* лимитки Хеллоуина — своей картинкой (рамка уже нарисована в ней): без фона и обводки плитки, только тень;
+   у наряда — сияние цвета редкости по контуру рамки, за ней — лучи (легендарный, мифический) */
+.ug.img { background: none !important; box-shadow: none !important; }
+.ug.img .ug-ic { position: absolute; inset: 0; font-size: 0; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .45)); }
+.ug.img .ug-ic img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.ug.img .ug-gloss { display: none; }
+.ug.img.r-rare .ug-ic { filter: drop-shadow(0 0 5px var(--r-rare)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
+.ug.img.r-epic .ug-ic { filter: drop-shadow(0 0 6px var(--r-epic)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
+.ug.img.r-legend .ug-ic { filter: drop-shadow(0 0 8px var(--r-legend)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
+.ug.img.r-myth .ug-ic { filter: drop-shadow(0 0 9px var(--r-myth)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); animation: ugMythImg 4s linear infinite; }
+@keyframes ugMythImg { 0%, 100% { filter: drop-shadow(0 0 9px #ff4081); } 33% { filter: drop-shadow(0 0 9px #40c4ff); } 66% { filter: drop-shadow(0 0 9px #ffd740); } }
+.ug.img .ug-n { right: 6%; bottom: 6%; }
+.ug-sk { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ug-sk img { width: 46px; height: 46px; display: block; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .35)); }
+.ug-sk span { display: grid; justify-items: center; font-size: 10px; font-weight: 800; color: var(--muted); }
+.ug-sk span.r-epic { color: var(--r-epic); } .ug-sk span.r-legend { color: var(--r-legend); } .ug-sk span.r-myth { color: var(--r-myth); }
+/* «🎃 Хеллоуин» в магазине: две лимитки крупно */
+.bx-hw { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 4px; }
+.bx-hw-h { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; font-weight: 900; }
+.bx-hw-h small { color: var(--muted); font-weight: 700; font-size: 12px; }
+.bx-hwc { position: relative; display: grid; justify-items: center; gap: 2px; padding: 8px 8px 10px; border-radius: 18px; border: 2px solid var(--r-limited);
+  background: radial-gradient(circle at 50% 35%, rgba(255, 145, 0, .28), transparent 65%), linear-gradient(170deg, #1d0f33, #3b1a5a 60%, #6b2a1a); color: #fff;
+  cursor: pointer; font: inherit; }
+.bx-hwc img { width: 100%; max-width: 150px; aspect-ratio: 1; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .5)); transition: transform .2s; }
+.bx-hwc:hover img { transform: scale(1.05) rotate(-2deg); }
+.bx-hwc b { font-size: 15px; } .bx-hwc .bx-price { margin: 2px 0 0; }
+.bx-hwc small { color: #ffd8a8; font-weight: 800; font-size: 11.5px; }
+.bx-hwc.dim img { filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .5)) grayscale(.5); }
+.cr-it .e.img { width: 74%; aspect-ratio: 1; font-size: 0; } .cr-it .e.img img { width: 100%; height: 100%; display: block; }
+.bx-hwup { margin: 10px 0 0; } .bx-hwup > small { color: var(--muted); font-weight: 800; }
+.fb-av img { width: 100%; height: 100%; object-fit: contain; display: block; }
 @media (prefers-reduced-motion: reduce) { .hw-bats { display: none; } }
 body.no-anim .hw-bats { display: none; }
 .bx-lim.img .e { width: 54px; height: 54px; flex: none; } .bx-lim.img .e img { width: 100%; height: 100%; border-radius: 14px; display: block; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }

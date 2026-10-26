@@ -189,6 +189,12 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
           <button class="btn primary" type="submit">Сохранить</button>
           <button class="btn ghost" type="button" id="giftBoxReset">Сбросить</button>
         </div>
+        <p class="fm-note" id="hwBoxNote" style="margin-top:10px"></p>
+        <div class="gift-box-row">
+          <label>🎃 Шанс каждой лимитки в «🎲», %<input class="inp" id="hwBoxChance" type="number" min="0" max="1" step="0.01"></label>
+          <button class="btn" type="button" id="hwBoxSave">Сохранить шанс</button>
+          <button class="btn ghost" type="button" id="hwBoxReset">По умолчанию</button>
+        </div>
         <div class="login-err" id="giftBoxMsg"></div>
       </form>
       <form class="adm-box" id="giftForm">

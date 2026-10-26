@@ -1,8 +1,8 @@
   // ------------------------------------------------------------ истории (как в Instagram/Telegram): сейчас — поздравление с пробником
-  // и анонс Хеллоуинского ивента. Один раз (STORIES_VER) — при первом входе (новичку — после знакомства с сайтом), потом — из «Что нового».
+  // и Хеллоуинский ивент (до HW_START — анонс, с него — «уже в продаже», кнопка в конце ведёт в магазин). Один раз (STORIES_VER) — при первом входе (новичку — после знакомства с сайтом), потом — из «Что нового».
   // Слайд листается сам за STORY_MS; касание справа — дальше, слева — назад, удержание — пауза, свайп вниз, ✕ или Esc — закрыть.
   // На компьютере — в рамке iPhone с Dynamic Island (в нём на миг — номер слайда), на телефоне — на весь экран.
-  const STORIES_VER = 'halloween-2026', STORY_MS = 7000;
+  const STORIES_VER = 'halloween-2026-live', STORY_MS = 7000;   // -live: с запуском ивента истории показываются ещё раз
   const HW_START = '2026-10-26';          // с этого дня — Хеллоуинский ивент: две лимитки
   const HW_UNTIL = '2026-11-01';          // до этого дня истории показываются сами
   const HW_END = '2026-11-03';            // до этого дня — хеллоуинская тема сайта
@@ -21,7 +21,8 @@
   const HW_MASK = 'gift_clown.webp';
   const HW_PUMPKIN = 'gift_pumpkin.webp';
   const HW_OUTFITS = ['gift_p_witch.webp', 'gift_p_king.webp', 'gift_p_ghost.webp', 'gift_p_frank.webp'];
-  const hwSoon = '<div class="sto-hw-soon">🗓 в продаже с 26 октября</div>';
+  const hwLive = () => dayKey(Date.now()) >= HW_START;
+  const hwSoon = () => `<div class="sto-hw-soon">${hwLive() ? '🎃 уже в продаже · до 2 ноября' : '🗓 в продаже с 26 октября'}</div>`;
   const hwRow = ks => `<div class="sto-hw-row">${ks.map((k, i) => `<span style="--i:${i}">${hwImg(k, 'raw')}</span>`).join('')}</div>`;
   const HW_MASKS = ['gift_scream.webp', 'gift_billy.webp', 'gift_skull.webp', 'gift_evilclown.webp'];
   let ST = null;                          // { k, list, paused } — открытые истории
@@ -29,31 +30,33 @@
   const hwLeft = () => Math.max(0, Math.round((new Date(HW_START + 'T00:00') - new Date(new Date().toDateString())) / 86400000));
   const hwImg = (k, cls = '') => `<img class="${cls}" src="${HW_IMG}${/\.\w+$/.test(k) ? k : k + '.svg'}" alt="" loading="lazy" draggable="false">`;
   function storySlides() {
-    const g = GAME || {}, left = hwLeft(), coins = g.coins || 0;
+    const g = GAME || {}, left = hwLeft(), coins = g.coins || 0, live = hwLive();
     const conf = Array.from({ length: 18 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 6) * .35}s;--c:${['#ffd54f', '#ff8a65', '#81d4fa', '#a5d6a7', '#ce93d8', '#fff'][i % 6]}"></i>`).join('');
     return [
       { cls: 'h1', ico: '🎓', head: 'Egeshka', title: 'С пробником! 🎉',
         text: 'Поздравляем всех, кто написал пробный ЕГЭ, — вы молодцы! Разбери свои ошибки: так баллы растут быстрее всего.',
         art: `<div class="sto-cong"><div class="conf">${conf}</div><div class="cap">🎓</div>
           <div class="card"><b>Пробный ЕГЭ</b><span>написан ✓</span><small>дальше — работа над ошибками</small></div></div>` },
-      { cls: 'h2', ico: '🎃', head: left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'уже начался', title: 'Скоро Хеллоуин!',
-        text: `С 26 октября — Хеллоуинский ивент: две лимитки, которые продаются только в эти дни.`,
+      { cls: 'h2', ico: '🎃', head: left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'уже идёт', title: live ? 'Хеллоуин начался!' : 'Скоро Хеллоуин!',
+        text: live ? 'До 2 ноября включительно — Хеллоуинский ивент: две лимитки, которые продаются только в эти дни. Тираж ограничен!'
+          : 'С 26 октября — Хеллоуинский ивент: две лимитки, которые продаются только в эти дни.',
         art: `<div class="sto-hw-duo"><span class="bat b1">🦇</span><span class="bat b2">🦇</span><span class="bat b3">🦇</span>
-          ${hwImg(HW_PUMPKIN, 'l raw')}${hwImg(HW_MASK, 'r raw')}<div class="date"><b>26</b><small>октября</small></div></div>` },
+          ${hwImg(HW_PUMPKIN, 'l raw')}${hwImg(HW_MASK, 'r raw')}<div class="date">${live ? '<small>до</small><b>2</b><small>ноября</small>' : '<b>26</b><small>октября</small>'}</div></div>` },
       { cls: 'h6', ico: '🦇', head: 'Новые темы', title: 'Сайт к Хеллоуину',
-        text: 'С 26 октября сайт переоденется: в тёмной теме — ночь с луной, кладбищем и светящимися тыквами, в светлой — сумерки. А ещё паутина, летучие мыши и гирлянда из тыкв в «Биткоинах».',
+        text: `${live ? 'Сайт переоделся к Хеллоуину' : 'С 26 октября сайт переоденется'}: в тёмной теме — ночь с луной, кладбищем и светящимися тыквами, в светлой — сумерки. А ещё паутина, летучие мыши и гирлянда из тыкв в «Биткоинах».`,
         art: `<div class="sto-hw-themes">${['night', 'dusk'].map(t => `<div class="tw-w tw-${t === 'night' ? 'n' : 'd'}"><div class="tw"><div class="tw-bar"><i></i><i></i><i></i></div>
           <div class="tw-side"><b>Egeshka</b><i></i><i></i><i></i></div><div class="tw-pane">${hwImg('bg_web', 'tw-web')}${hwImg('bg_moon', 'tw-moon')}${hwImg('bat', 'tw-bat')}
           <i class="tw-card"></i><i class="tw-card"></i>${hwImg('bg_bottom', 'tw-grave')}</div></div>
           <span class="tw-lbl">${t === 'night' ? '🌙 Ночь · тёмная тема' : '🌆 Сумерки · светлая тема'}</span></div>`).join('')}</div>` },
       { cls: 'h3', ico: '🎃', head: 'Лимитка 1', title: 'Тыква и 10 нарядов',
-        text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она станет особенной: ведьма, золотой король, призрак, Франкенштейн и другие.',
-        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_PUMPKIN, 'main raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
+        text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она наденет случайный наряд: ведьма, призрак, Франкенштейн, золотой король и другие.',
+        art: `<div class="sto-hw-one masks">${hwSoon()}${hwImg(HW_PUMPKIN, 'main raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
       { cls: 'h4', ico: '🎭', head: 'Лимитка 2', title: 'Маска клоуна',
-        text: 'Весёлый клоун? Улучши — и маска превратится в страшную: Крик, Пила, Череп, Злой клоун и другие.',
-        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_MASK, 'main raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
-      { cls: 'h5', ico: '₿', head: 'Готовься', title: 'Копи биткоины!',
-        text: 'Тираж ограничен — кто первый, тот и успел. Решай задания, чтобы к 26-му хватило на тыкву.',
+        text: 'Маска клоуна — ₿ 5 000. Весёлый клоун? Улучши за ₿ 1 000 — и маска превратится в страшную: Крик, Пила, Череп, Злой клоун и другие.',
+        art: `<div class="sto-hw-one masks">${hwSoon()}${hwImg(HW_MASK, 'main raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
+      { cls: 'h5', ico: '₿', head: live ? 'Успей' : 'Готовься', title: live ? 'Успей купить!' : 'Копи биткоины!',
+        text: live ? 'Тираж ограничен — кто первый, тот и успел. Тыква и маска — в «Биткоинах», до 2 ноября включительно. Не хватает — решай задания!'
+          : 'Тираж ограничен — кто первый, тот и успел. Решай задания, чтобы к 26-му хватило на тыкву.',
         art: `<div class="sto-hw-save"><div class="coin">₿</div><b>${num(coins)} <small>из 5 000</small></b>
           <div class="prog"><i style="width:${Math.min(100, Math.round(coins / 50))}%"></i></div>
           <small>${coins >= 5000 ? 'на тыкву уже хватает 🎃' : `ещё ₿ ${num(5000 - coins)}`}</small></div>` },
@@ -99,7 +102,7 @@
       <div class="sto-top"><b><em>${s.ico}</em>${esc(s.head)}</b><button type="button" class="sto-x" data-st="close" aria-label="Закрыть">✕</button></div>
       <div class="sto-art"><div class="sto-art-in">${s.art}</div></div>
       <h2 class="sto-ttl">${s.title}</h2><p class="sto-txt">${s.text}</p>
-      ${last ? '<button type="button" class="sto-go" data-st="close">Ждём 26-го! 🎃</button>' : '<div class="sto-tap"><span>‹ назад</span><span>дальше ›</span></div>'}</div>`;
+      ${last ? (hwLive() ? '<button type="button" class="sto-go" data-st="shop">🎃 В магазин</button>' : '<button type="button" class="sto-go" data-st="close">Ждём 26-го! 🎃</button>') : '<div class="sto-tap"><span>‹ назад</span><span>дальше ›</span></div>'}</div>`;
     ov.classList.toggle('paused', ST.paused);
     ov.querySelector('[data-st="prev"]').disabled = ST.k === 0;
     const isl = ov.querySelector('.sto-island');               // Dynamic Island на миг раскрывается: значок и номер слайда
@@ -150,7 +153,7 @@
   document.addEventListener('pointercancel', () => { if (stDown) { clearTimeout(stDown.hold); if (stDown.held) stPause(false); stDown = null; } });
   document.addEventListener('click', e => {
     const b = e.target.closest('#storiesOv [data-st]');
-    if (b) { ({ prev: stPrev, next: stNext, close: closeStories })[b.dataset.st](); return; }
+    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); } })[b.dataset.st](); return; }
     if (ST && e.target.id === 'storiesOv') closeStories();          // клик мимо телефона
     if (e.target.closest('#storiesGo')) { closeForecast(); openStories(); }
   });

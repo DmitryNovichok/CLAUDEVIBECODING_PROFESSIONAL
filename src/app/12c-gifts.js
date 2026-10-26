@@ -67,7 +67,8 @@
   /** Редкость подарка: уровень (у уникального — его сочетания) и шанс. */
   const gfRar = g => (g.uniq ? g.uniq.rar : g.rar);
   const rarHtml = g => { const r = gfRar(g); return r ? `<span class="rar r-${r.k}" title="${esc(rarWhy(g))}">${esc(r.t)}</span>` : ''; };
-  const rarWhy = g => (g.uniq ? `шанс такого сочетания — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
+  const rarWhy = g => (g.uniq ? `шанс такого ${g.uniq.img ? 'наряда' : 'сочетания'} — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
+    : g.rar && g.rar.why ? g.rar.why
     : g.rar && g.rar.k === 'limited' ? 'продавался одну неделю ограниченным тиражом, в 🎲 не выпадает'
     : g.rar && g.rar.cap ? `живой тираж — ${num(g.rar.live)} из ${num(g.rar.cap)}: проданные сразу и улучшенные делают вид реже`
     : g.rar ? `шанс выпасть в 🎲 случайном подарке — ${String(g.rar.p).replace('.', ',')}%` : '');
@@ -75,7 +76,8 @@
   const supTxt = gid => {
     const x = GF && GF.supply && GF.supply[gid];
     if (!x || gid.startsWith('lim_')) return '';
-    return `<small class="bx-sup">📦 ${x.left ? `в магазине ${num(x.left)} из ${num(x.cap)}` : `распродан (тираж ${num(x.cap)})`} · в обороте ${num(x.alive)}${x.burned ? ` · сгорело ${num(x.burned)}` : ''}${x.up ? ` · улучшено ${num(x.up)}` : ''}</small>`;
+    const shop = !gid.startsWith('hw_') || (GF.hw || []).length;  // лимитка Хеллоуина после ивента в магазине не продаётся
+    return `<small class="bx-sup">📦 ${!shop ? `тираж ${num(x.cap)}` : x.left ? `в магазине ${num(x.left)} из ${num(x.cap)}` : `раскупили (тираж ${num(x.cap)})`} · в обороте ${num(x.alive)}${x.burned ? ` · сгорело ${num(x.burned)}` : ''}${x.up ? ` · улучшено ${num(x.up)}` : ''}</small>`;
   };
   // Окно «Биткоины» как приложение: вкладки снизу (Магазин / Рынок / Мои / Forbes / История), нажал на подарок — снизу шторка
   // с крупными кнопками; правила и экономика — под «?». Текста на экране — минимум: суммы и действия.
@@ -89,7 +91,14 @@
   const gfTile = (g, s = 52, extra = '') => `<span class="bx-t s${s}">${g.uniq ? uniqTile(g, extra) : g.img
     ? `<span class="ug plain img r-${g.rar.k} ${extra}"><span class="ug-ic"><img src="${esc(g.img)}" alt="" draggable="false"></span><span class="ug-gloss"></span></span>`
     : `<span class="ug plain r-${g.rar.k} ${extra}"><span class="ug-ic">${g.i}</span></span>`}</span>`;
-  const gfName = g => esc(g.t) + (g.uniq ? ` <span class="ug-num">#${g.uniq.n}</span>` : '');
+  const gfName = g => esc(g.t) + (g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : '') + (g.uniq ? ` <span class="ug-num">#${g.uniq.n}</span>` : '');
+  /** Лимитка Хеллоуина в магазине (пока идёт ивент) — или null. */
+  const hwOf = id => (GF && GF.hw || []).find(x => x.gift === id) || null;
+  /** Наряды лимитки, которые может дать улучшение: картинка, название, редкость. */
+  const hwSkins = gid => {
+    const xs = (GF && GF.hw_skins && GF.hw_skins[gid]) || [];
+    return xs.length ? `<div class="ug-sk">${xs.map(x => `<span class="r-${x.k}" title="${esc(x.t)} · ${esc(x.k === 'rare' ? 'редкий' : x.k === 'epic' ? 'эпический' : x.k === 'legend' ? 'легендарный' : 'мифический')}"><img src="${esc(x.img)}" alt="" loading="lazy">${esc(x.t)}</span>`).join('')}</div>` : '';
+  };
 
   async function openGifts(to, open, tab) {
     if (!SERVER) return;
@@ -142,6 +151,9 @@
         <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
       ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
+      ${(G.hw || []).length ? `<div class="bx-hw"><div class="bx-hw-h">🎃 Хеллоуин <small>лимитки · до ${G.hw[0].until.slice(8, 10)}.${G.hw[0].until.slice(5, 7)} включительно</small></div>
+        ${G.hw.map(x => `<button type="button" class="bx-hwc${x.price > G.coins || !x.left ? ' dim' : ''}" data-bx-shop="${x.gift}"><img src="${esc(x.img)}" alt="" draggable="false">
+          <b>${esc(x.t)}</b><small>${x.left ? `осталось ${num(x.left)} из ${num(x.cap)}` : 'всё раскупили — ищи на рынке'}</small><span class="bx-price">₿ ${num(x.price)}</span></button>`).join('')}</div>` : ''}
       <div class="bx-sec">🛍 Магазин${left < 5 ? ` <small>${left ? `сегодня можно ещё ${left}` : 'на сегодня всё — завтра снова'}</small>` : ''}</div>
       ${G.teacher ? '<p class="fm-muted">Учительский аккаунт дарит подарки из панели учителя.</p>' : ''}
       <div class="bx-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar, x.demand)).join('')}</div>`;
@@ -171,7 +183,7 @@
       ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Биткоины за опыт приходят сами — их здесь нет</small></div>'}`;
   }
   // ---- Forbes класса: обложка журнала, список и вкладки
-  const fbAv = (r, s) => (r.avatar ? `<span class="fb-av r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.i}</span>`
+  const fbAv = (r, s) => (r.avatar ? `<span class="fb-av r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.uniq.img ? `<img src="${esc(r.avatar.uniq.img)}" alt="">` : r.avatar.i}</span>`
     : `<span class="fb-av plain" style="--s:${s}px">${esc(r.name[0] || '?')}</span>`);
   const fbDelta = w => (w == null ? '' : `<em class="fb-dl ${w > 0 ? 'up' : w < 0 ? 'dn' : ''}">${w > 0 ? '▲' : w < 0 ? '▼' : '='} ${w ? num(Math.abs(w)) : ''}</em>`);
   const fbTags = r => [r.rocket ? '<span class="fb-tag rocket">🚀 рывок недели</span>' : '', r.new ? '<span class="fb-tag new">новичок</span>' : '',
@@ -219,15 +231,18 @@
     const S = gfSheet;
     if (S.k === 'help') return helpSheet(G);
     if (S.k === 'shop') {
-      const box = S.id === 'box', lim = G.limited && G.limited.gift === S.id ? G.limited : null;
-      const g = box ? { i: '🎲', t: 'Случайный подарок', price: G.box, rar: null } : lim ? { ...lim, rar: { k: 'limited', t: 'Лимитка' } } : G.catalog.find(x => x.id === S.id);
+      const box = S.id === 'box', hw = hwOf(S.id), lim = hw || (G.limited && G.limited.gift === S.id ? G.limited : null);
+      const g = box ? { i: '🎲', t: 'Случайный подарок', price: G.box, rar: null } : hw || (lim ? { ...lim, rar: { k: 'limited', t: 'Лимитка' } } : G.catalog.find(x => x.id === S.id));
       if (!g) return '';
       const short = Math.max(0, g.price - G.coins), who = gfTo ? gfMate(gfTo) : '';
-      const sp = !box && !lim && G.supply ? G.supply[S.id] : null, mineN = G.mine.filter(x => x.gift === S.id).length;
-      const block = sp && !sp.left ? 'распродан — ищи на рынке' : sp && !who && mineN >= sp.own_max ? `у тебя уже ${mineN} — больше нельзя` : '';
+      const sp = !box && (!lim || hw) && G.supply ? G.supply[S.id] : null, mineN = G.mine.filter(x => x.gift === S.id).length;
+      const block = hw && !hw.left ? 'всё раскупили — ищи на рынке' : sp && !sp.left ? 'распродан — ищи на рынке' : sp && !who && mineN >= sp.own_max ? `у тебя уже ${mineN} — больше нельзя` : '';
       return `<div class="bx-sh">${box ? '<span class="bx-t s76"><span class="ug plain gf-boxt"><span class="ug-ic">🎲</span></span></span>' : gfTile(g, 76)}
-          <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой из тех, что остались в магазине, — дорогие реже' : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small>${box || lim ? '' : supTxt(S.id)}
+          <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой из тех, что остались в магазине, — дорогие реже'
+            : hw ? `лимитка Хеллоуина · осталось ${num(hw.left)} из ${num(hw.cap)} · в магазине до ${hw.until.slice(8, 10)}.${hw.until.slice(5, 7)} включительно`
+            : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small>${box || lim ? '' : supTxt(S.id)}
           ${sp ? `<small class="bx-sup">одному ученику — не больше ${num(sp.own_max)}</small>` : ''}</div></div>
+        ${hw ? `<div class="bx-hwup"><small>✨ Улучшение за ₿ ${num(hw.up)} — случайный наряд:</small>${hwSkins(S.id)}</div>` : ''}
         ${box || lim ? '' : priceBox(S.id)}
         ${G.teacher ? '' : whoHtml(G)}
         <div class="bx-acts one"><button type="button" class="bx-btn pri" data-bx-buy="${esc(S.id)}"${short || block || G.teacher ? ' disabled' : ''}>
@@ -258,7 +273,7 @@
     const u = g.uniq, listed = g.listed != null;
     const up = u ? `<button type="button" class="bx-btn pri" disabled><span>✨</span>Уникальный<small>1 из ${num(u.rar.one_in)}</small></button>`
       : g.limited ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>лимитку нельзя</small></button>'
-      : g.up == null ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>тираж кончился</small></button>'
+      : g.up == null ? `<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>${g.hw ? 'наряды скоро' : 'тираж кончился'}</small></button>`
       : listed ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>подарок на торгах</small></button>'
       : `<button type="button" class="bx-btn pri" data-bx-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}><span>✨</span>Улучшить<small>${GF.coins < g.up ? `не хватает ₿ ${num(g.up - GF.coins)}` : `₿ ${num(g.up)}`}</small></button>`;
     const sell = `<button type="button" class="bx-btn" data-bx-sell="${g.id}"${listed ? ' disabled' : ''}><span>💰</span>Продать<small>₿ ${num(g.sell)}</small></button>`;
@@ -267,12 +282,13 @@
       : g.mk_bids ? `<button type="button" class="bx-btn org" disabled><span>🔨</span>Идут торги<small>ставка ₿ ${num(g.mk_bid)}</small></button>`
       : `<button type="button" class="bx-btn org" data-bx-unlist="${g.id}"><span>↩</span>Снять с торгов<small>ставок нет</small></button>`;
     const suggest = Math.min(g.mk_max, Math.max(g.mk_start + 1, g.mk_typ ? Math.round(g.mk_typ * 1.3) : g.mk_start * 2));
-    const props = u ? `<div class="bx-props">${u.props.map(p => `<span><small>${p.k}</small>${esc(p.t)}</span>`).join('')}</div>` : '';
+    const props = u ? `<div class="bx-props">${u.props.map(p => `<span><small>${p.k}</small>${esc(p.t)}</span>`).join('')}</div>`
+      : g.hw && g.up != null ? `<div class="bx-hwup"><small>✨ Улучши — наденет случайный наряд:</small>${hwSkins(g.gift)}</div>` : '';
     return `<div class="bx-sh">${gfTile(g, 76, gfFresh === g.id ? 'reveal' : '')}<div><b class="nm">${gfName(g)}</b>${rarHtml(g)}
         <small>${esc([gfFrom(g), gfDate(g.ts).slice(0, 5)].filter(Boolean).join(' · '))}</small>${g.note ? `<small class="bx-note">«${esc(g.note)}»</small>` : ''}${supTxt(g.gift)}
         ${listed && g.mk_until ? `<small>🔨 на торгах: ${g.mk_bids ? `ставка ₿ ${num(g.mk_bid)} (${g.mk_bids} ${plural(g.mk_bids, 'ставка', 'ставки', 'ставок')})` : `старт ₿ ${num(g.listed)}, ставок нет`} · ⏳ ${aucSpan(g.mk_until)}${g.mk_bn ? ` · купить сразу ₿ ${num(g.mk_bn)}` : ''}</small>` : ''}</div></div>
       ${props}
-      ${g.limited ? '' : priceBox(g.gift)}
+      ${g.limited || g.hw ? '' : priceBox(g.gift)}
       <div class="bx-acts">${up}${sell}${mk}</div>
       ${gfMkOpen && !listed ? `<div class="bx-mkrow"><label><input type="checkbox" id="mkBnOn"> купить сразу за ₿ <input class="inp" id="mkPrice" type="number" min="${g.mk_start + 1}" max="${g.mk_max}" value="${suggest}" disabled></label>
         <button type="button" class="btn primary" data-bx-list="${g.id}">Выставить</button><span class="fm-muted" id="mkGet"></span></div>
@@ -364,6 +380,7 @@
         <li>🔥 Огонёк — +1% к опыту и биткоинам за задания и варианты за каждый его день, до +${(GAME && GAME.fire_bonus_max) || 30}%${GAME && GAME.fire_bonus ? `. Сейчас у тебя <b>+${GAME.fire_bonus}%</b>` : ''}.</li>
         <li>⏱ Решено слишком быстро — минус 1 ₿: быстрее ${G.fine_sec} секунд, №24–27 — быстрее ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.</li>
         <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
+        ${(G.hw || []).length ? `<li>🎃 Хеллоуин: лимитки «Тыква» и «Маска клоуна» — по ₿ ${num(G.hw[0].price)}, тираж ограничен, в магазине до ${G.hw[0].until.slice(8, 10)}.${G.hw[0].until.slice(5, 7)} включительно. Улучшение за ₿ ${num(G.hw[0].up)} — случайный наряд: чем реже наряд, тем дороже подарок. Потом — только на рынке.</li>` : ''}
         <li>💰 Продать сразу — почти за ту цену, за которую подарок тебе достался (если в магазине он подешевел — от нынешней). Подарок сгорит.</li>
         <li>🔨 Или выставь его на аукцион одноклассникам: старт — цена продажи сразу, торги ${G.auc_hours} ч, каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше. Ставка замораживает биткоины, перебьют — вернутся. Ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги. Подарок уйдёт тому, чья ставка выше.</li>
         <li>💎 Подарки в портфеле и Forbes стоят по оценке рынка — сколько ты получил бы, продав по ней (но не меньше продажи сразу). Оценку поднимают только настоящие торги: в неё идёт не цена победителя, а сколько давали соперники; без соперников — стартовая цена. Нужны сделки разных учеников, оценка меняется плавно — не больше 10% в сутки. Редкость важна: у редкого подарка без своих сделок оценка — по сделкам подарков той же редкости. Чем больше таких уникальных сгорело, тем дороже оставшиеся.</li>
@@ -376,7 +393,7 @@
   // ---- действия
   async function buyGift(id) {
     if (id === 'box') { rollBox(); return; }                  // «🎲» — с прокруткой ленты (12e-case.js)
-    const g = GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id);
+    const g = hwOf(id) || (GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id));
     const who = gfTo ? gfMate(gfTo) : '';
     if (!g) return;
     try {
@@ -389,7 +406,8 @@
   }
   async function upgradeGift(id) {
     const g = GF.mine.find(x => x.id === id);
-    if (!g || !confirm(`Улучшить ${g.i} ${g.t} за ${g.up} ₿? Подарок станет уникальным.`)) return;
+    if (!g || !confirm(g.hw ? `Улучшить ${g.i} ${g.t} за ${g.up} ₿? Она наденет случайный наряд — какой, решит удача.`
+      : `Улучшить ${g.i} ${g.t} за ${g.up} ₿? Подарок станет уникальным.`)) return;
     try {
       const r = await api('gifts/upgrade', { id });
       if (r.game) onGame(r.game);

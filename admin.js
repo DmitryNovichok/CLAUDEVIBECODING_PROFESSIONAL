@@ -822,6 +822,13 @@
     if (document.activeElement !== $('#giftBoxPrice')) $('#giftBoxPrice').value = B.set || B.now;
     $('#giftBoxReset').disabled = !B.set;
     $('#giftBoxMsg').textContent = '';
+    const H = B.hw, pc = v => String(v).replace('.', ',');
+    $('#hwBoxNote').innerHTML = `🎃 Лимитки Хеллоуина (${H.names.map(esc).join(', ')}) ${H.on ? 'сейчас продаются' : 'сейчас не продаются'} по ${H.price} ₿.
+      Пока идёт ивент, каждая выпадает в «🎲» с шансом <b>${pc(H.chance)} %</b>${H.set ? ' (задали вы)' : ' (по умолчанию)'} — это в среднем
+      +${pc(H.ev)} ₿ к каждому «🎲» при цене ${B.now} ₿. По умолчанию ${pc(H.default)} %: лимитка из «🎲» обходится примерно как в магазине.
+      При 1 % «🎲» выгоднее магазина в разы и тираж уйдёт через него. В ленте «🎲» лимитки пролетают часто при любом шансе; ученикам шанс не показывается.`;
+    if (document.activeElement !== $('#hwBoxChance')) $('#hwBoxChance').value = H.chance;
+    $('#hwBoxReset').disabled = !H.set;
   }
   async function saveGiftBox(body) {
     $('#giftBoxMsg').textContent = '';
@@ -836,6 +843,16 @@
     saveGiftBox({ price: Number($('#giftBoxPrice').value) });
   });
   $('#giftBoxReset').addEventListener('click', () => saveGiftBox({ reset: true }));
+  async function saveHwChance(body) {
+    $('#giftBoxMsg').textContent = '';
+    try {
+      const r = await api('gifts/box', body);
+      toast(`🎃 Шанс каждой лимитки в «🎲» — ${String(r.hw_chance).replace('.', ',')} %`);
+      loadGifts();
+    } catch (err) { if (err.status !== 401) $('#giftBoxMsg').textContent = err.message; }
+  }
+  $('#hwBoxSave').addEventListener('click', () => saveHwChance({ hw_chance: Number(String($('#hwBoxChance').value).replace(',', '.')) }));
+  $('#hwBoxReset').addEventListener('click', () => saveHwChance({ hw_chance: 0, reset: true }));
   // ------------------------------------------------------------ экономика: обзор, журнал изменений, кошелёк ученика
   const ECO_KIND = { gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа', grant: '➕ Начислил учитель', take: '➖ Снял учитель',
     teacher_gift: '🎁 Подарок от учителя', work: '🏅 Подарок за труд', removed: '🗑 Удалён учителем',
