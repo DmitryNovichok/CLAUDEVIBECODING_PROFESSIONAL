@@ -6446,11 +6446,11 @@ LIMITED = [("lim_fireworks", "🎆", "Салют"), ("lim_shooting", "🌠", "З
 LIMITED_BY = {k: (k, i, t, LIMITED_PRICE) for k, i, t in LIMITED}
 GIFT_BY.update(LIMITED_BY)
 # Хеллоуинский ивент: две лимитки с картинками — «Тыква» и «Маска клоуна». В магазине — с HW_START до HW_END (не включая)
-# по HW_PRICE (без индекса цен), тираж — HW_CAP каждой (gift_supply); в «🎲» выпадают с шансом hw_box_chance() каждая (пока
+# по HW_PRICE (без индекса цен), тираж — HW_CAP каждой (из кода, не из gift_supply); в «🎲» выпадают с шансом hw_box_chance() каждая (пока
 # идёт ивент и тираж не кончился). Улучшение за HW_UP — случайный наряд из HW_SKINS (у каждого своя редкость, вес — HW_SKIN_W)
 # и номер среди улучшенных этого вида. Наряд без картинки в vendor/halloween ещё не выпадает: добавили файл — он в игре.
 HW_START, HW_END = "2026-10-26", "2026-11-03"
-HW_PRICE, HW_UP, HW_CAP = 5000, 1000, 30
+HW_PRICE, HW_UP, HW_CAP = 5000, 1000, 15
 HW_BOX_CHANCE = 0.1                    # % на каждую в одном «🎲»: при 1 % «🎲» выгоднее магазина в разы (см. hw_box_ev)
 HW_BOX_MAX = 1.0
 HW_DIR = "vendor/halloween/"
@@ -7031,16 +7031,16 @@ def gift_supply(db, fresh=False):
                                                 SUM(sold IS NOT NULL OR uniq IS NOT NULL) gone, SUM(uniq IS NOT NULL AND sold IS NULL) ualive
                                          FROM gifts GROUP BY gift""")}
     caps = {r["gift"]: r["cap"] for r in db.q("SELECT gift, cap FROM gift_supply")}
-    for g in GIFTS + list(HW_BY.values()):
+    for g in GIFTS:
         if g[0] not in caps:                     # новый вид (или первый запуск): по формуле, но не меньше выпущенного × 1,25
-            caps[g[0]] = HW_CAP if g[0] in HW_BY else max(supply_cap0(g[0]), math.ceil((cnt[g[0]]["issued"] if g[0] in cnt else 0) * 1.25))
+            caps[g[0]] = max(supply_cap0(g[0]), math.ceil((cnt[g[0]]["issued"] if g[0] in cnt else 0) * 1.25))
             db.x("INSERT OR IGNORE INTO gift_supply(gift, cap) VALUES(?,?)", (g[0], caps[g[0]]))
     v = {}
     for gid in list(GIFT_BY):
         r = cnt.get(gid)
         issued, burned, up, gone, ualive = ((r["issued"], r["burned"] or 0, r["up"] or 0, r["gone"] or 0, r["ualive"] or 0)
                                             if r else (0, 0, 0, 0, 0))
-        cap = LIMITED_CAP if gid in LIMITED_BY else caps[gid]
+        cap = LIMITED_CAP if gid in LIMITED_BY else HW_CAP if gid in HW_BY else caps[gid]
         live = max(0, cap - gone)
         v[gid] = {"cap": cap, "issued": issued, "burned": burned, "up": up, "live": live, "alive": issued - burned,
                   "regular": issued - gone, "uniq": ualive,

@@ -3484,7 +3484,7 @@ class ServerTest(unittest.TestCase):
         with mock.patch.object(server, "HW_START", "2000-01-01"), mock.patch.object(server, "HW_END", "2100-01-01"):
             G = self.req("GET", "/api/gifts", token=tok)[1]
             offer = next(x for x in G["hw"] if x["gift"] == gid)
-            self.assertEqual((offer["price"], offer["up"], offer["cap"], offer["own_max"]), (server.HW_PRICE, server.HW_UP, server.HW_CAP, 3))
+            self.assertEqual((offer["price"], offer["up"], offer["cap"], offer["own_max"]), (server.HW_PRICE, server.HW_UP, 15, 2))
             self.assertTrue(offer["img"].endswith("gift_pumpkin.webp"))
             self.assertNotIn(gid, {c["id"] for c in G["catalog"]})                       # не в обычном каталоге
             coins = G["coins"]
@@ -3505,9 +3505,8 @@ class ServerTest(unittest.TestCase):
             self.assertIn(u["rar"]["k"], ("rare", "epic", "legend", "myth"))
             self.assertEqual(u["props"][0]["k"], "Наряд")
             self.assertGreater(r["gift"]["sell"], math.floor(server.HW_PRICE * server.SELL_SHARE))   # наряд добавляет цены
-            # одному — не больше трёх
-            for _ in range(2):
-                self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)[0], 200)
+            # одному — не больше двух (10 % тиража, не меньше OWN_MIN)
+            self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)[0], 200)
             st, r = self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)
             self.assertEqual(st, 409)
             self.assertIn("больше одному ученику нельзя", r["error"])
@@ -3531,15 +3530,15 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(server.gift_random(Rng(ch * 0.5), db, hw_sid=sid2)[0], "hw_pumpkin")
             self.assertEqual(server.gift_random(Rng(ch * 1.5), db, hw_sid=sid2)[0], "hw_clown")
             self.assertNotIn(server.gift_random(Rng(ch * 2.5), db, hw_sid=sid2)[0], server.HW_BY)
-            self.assertNotEqual(server.gift_random(Rng(ch * 0.5), db, hw_sid=sid)[0], "hw_pumpkin")   # у него уже три
+            self.assertNotEqual(server.gift_random(Rng(ch * 0.5), db, hw_sid=sid)[0], "hw_pumpkin")   # у него уже две
             self.assertNotIn(server.gift_random(Rng(0), db)[0], server.HW_BY)                        # за труд — не выпадают
             # пока «🎲» крутился, маску раскупили — выпадает обычный подарок, тираж не превышен
-            db.x("UPDATE gift_supply SET cap=0 WHERE gift='hw_clown'")
-            self.addCleanup(lambda: (db.x("UPDATE gift_supply SET cap=? WHERE gift='hw_clown'", (server.HW_CAP,)), server._SUPPLY.update(t=0)))
-            server._SUPPLY.update(t=0)
             db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid2, time.time(), 1000))
-            with mock.patch.object(server, "gift_random", side_effect=[server.GIFT_BY["hw_clown"], server.GIFT_BY["cookie"]]):
+            server._SUPPLY.update(t=0)
+            with mock.patch.object(server, "HW_CAP", 0), \
+                    mock.patch.object(server, "gift_random", side_effect=[server.GIFT_BY["hw_clown"], server.GIFT_BY["cookie"]]):
                 st, r = self.req("POST", "/api/gifts/buy", {"gift": "box"}, tok2)
+            server._SUPPLY.update(t=0)
             self.assertEqual((st, r.get("got")), (200, "cookie"), r)
             # главный учитель меняет шанс; учитель лимитки не дарит
             self.assertEqual(self.admin("POST", "/api/admin/gifts/box", {"hw_chance": 5})[0], 400)
