@@ -6460,7 +6460,7 @@ HW_SKINS = [                           # вид, id, название, карт�
     ("hw_pumpkin", "vampire", "Вампир", "gift_p_vampire.webp", "rare"), ("hw_pumpkin", "mummy", "Мумия", "gift_p_mummy.webp", "rare"),
     ("hw_pumpkin", "frank", "Франкенштейн", "gift_p_frank.webp", "epic"), ("hw_pumpkin", "pirate", "Пират", "gift_p_pirate.webp", "epic"),
     ("hw_pumpkin", "cat", "Чёрный кот", "gift_p_cat.webp", "epic"), ("hw_pumpkin", "king", "Золотой король", "gift_p_king.webp", "legend"),
-    ("hw_pumpkin", "horseman", "Всадник без головы", "gift_p_horseman.webp", "legend"),
+    ("hw_pumpkin", "aztec", "Ацтекский вождь", "gift_p_aztec.webp", "legend"),
     ("hw_pumpkin", "hell", "Адская тыква", "gift_p_hell.webp", "myth"),
     ("hw_clown", "skull", "Череп", "gift_skull.webp", "rare"), ("hw_clown", "scream", "Крик", "gift_scream.webp", "rare"),
     ("hw_clown", "hockey", "Хоккейная маска", "gift_m_hockey.webp", "rare"), ("hw_clown", "wolf", "Оборотень", "gift_m_wolf.webp", "rare"),
