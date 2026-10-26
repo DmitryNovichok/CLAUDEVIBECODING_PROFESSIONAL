@@ -121,7 +121,7 @@
     }
     ov.className = 'cr-ov is-case';
     ov.style.removeProperty('--hc');
-    const hw = (GF.hw || []).map(x => ({ ...x, id: x.gift }));
+    const hw = (GF.hw || []).filter(x => x.left > 0).map(x => ({ ...x, id: x.gift }));   // раскупленная не выпадет — и не пролетает
     const items = Array.from({ length: CASE_N }, (_, i) => (hw.length && Math.abs(i - CASE_WIN) > 2 && Math.random() < CASE_HW
       ? hw[Math.floor(Math.random() * hw.length)] : crPick(GF.catalog)));
     ov.innerHTML = `<div class="cr-box">

@@ -840,6 +840,7 @@
   }
   $('#giftBoxForm').addEventListener('submit', e => {
     e.preventDefault();
+    if (document.activeElement === $('#hwBoxChance')) { $('#hwBoxSave').click(); return; }   // Enter в поле шанса — шанс, не цена
     saveGiftBox({ price: Number($('#giftBoxPrice').value) });
   });
   $('#giftBoxReset').addEventListener('click', () => saveGiftBox({ reset: true }));
@@ -1187,7 +1188,7 @@
     let d;
     try { d = await api('supply' + (one ? '?gift=' + encodeURIComponent(one) : '')); }
     catch (err) { if (err.status !== 401) $('#supplyBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
-    if (sel.options.length < 2) sel.insertAdjacentHTML('beforeend', d.rows.filter(r => !r.limited).map(r => `<option value="${r.id}">${r.i} ${esc(r.t)}</option>`).join(''));
+    if (sel.options.length < 2) sel.insertAdjacentHTML('beforeend', d.rows.filter(r => !r.limited || r.id.startsWith('hw_')).map(r => `<option value="${r.id}">${r.i} ${esc(r.t)}</option>`).join(''));
     const T = d.total, n = v => numFmt(v);
     const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
     const R = d.daily, g = one ? d.rows.find(r => r.id === one) : null;

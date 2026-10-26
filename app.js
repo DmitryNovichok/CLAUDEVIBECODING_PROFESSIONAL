@@ -5673,8 +5673,10 @@
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
   /** Подарки у ника — маленькие значки после наград: уникальный — на своём цветном фоне, одинаковые обычные — числом. */
-  const giftBadge = g => (g.u ? `<span class="bdg ugb r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
-    : badgeHtml(g));
+  // лимитки Хеллоуина (тыква, маска) — своей картинкой вместо значка
+  const giftImg = src => `<img src="${esc(src)}" alt="" draggable="false">`;
+  const giftBadge = g => (g.u ? `<span class="bdg ugb${g.u.img ? ' img' : ''} r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}">${g.u.img ? giftImg(g.u.img) : `<i class="gfx-${g.u.fx}">${esc(g.i)}</i>`}</span>`
+    : g.img ? `<span class="bdg bdg-img" title="${esc(g.t)}${g.n ? ' × ' + g.n : ''}">${giftImg(g.img)}${g.n ? `<sup>${g.n}</sup>` : ''}</span>` : badgeHtml(g));
   const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
   // ---- подиум + список: тройка лидеров крупно, остальные строкой; аватар — самый редкий уникальный подарок
@@ -5682,7 +5684,7 @@
   const topGift = r => (r.gifts || []).filter(g => g.u).sort((a, b) => (GIFT_RANK[b.u.r] || 0) - (GIFT_RANK[a.u.r] || 0))[0];
   function lbAvatar(r, size) {
     const g = topGift(r);
-    return g ? `<span class="lp-av r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2};--s:${size}px" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
+    return g ? `<span class="lp-av${g.u.img ? ' img' : ''} r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2};--s:${size}px" title="${esc(g.t)}">${g.u.img ? giftImg(g.u.img) : `<i class="gfx-${g.u.fx}">${esc(g.i)}</i>`}</span>`
       : `<span class="lp-av plain" style="--s:${size}px" aria-hidden="true">${esc(((r.name || '?').trim()[0]) || '?')}</span>`;
   }
   /** Значки и подарки у ника: первые max — крупно, остальные — «+N» (все — в профиле). skip — подарок, который уже в аватаре. */
@@ -5691,7 +5693,8 @@
   }
   const lbIcon = x => {
     const tip = esc((x.t || '') + (x.n ? ' × ' + x.n : '')), sup = x.n ? `<sup>${x.n}</sup>` : '';
-    if (x.gift && x.u) return `<span class="lp-ic lp-ug r-${x.u.r}" style="--c1:${x.u.c1};--c2:${x.u.c2}" title="${tip}"><i class="gfx-${x.u.fx}">${esc(x.i)}</i></span>`;
+    if (x.gift && x.u) return `<span class="lp-ic lp-ug${x.u.img ? ' img' : ''} r-${x.u.r}" style="--c1:${x.u.c1};--c2:${x.u.c2}" title="${tip}">${x.u.img ? giftImg(x.u.img) : `<i class="gfx-${x.u.fx}">${esc(x.i)}</i>`}</span>`;
+    if (x.gift && x.img) return `<span class="lp-ic lp-img" title="${tip}">${giftImg(x.img)}${sup}</span>`;
     return `<span class="lp-ic${/^[\x20-\x7e]{2,}$/.test(x.i) ? ' lp-txt' : ''}" title="${tip}">${esc(x.i)}${sup}</span>`;
   };
   function lbIcons(items, max, cls = 'lp-icons') {
@@ -5907,7 +5910,7 @@
     const items = fly.map((g, k) => {
       const tip = `${g.t} #${g.uniq.n} · ${g.uniq.rar.t}`, pose = g.uniq.pose || 'stand';
       return `<button type="button" class="ph-fly f${k}" data-fly="${esc(tip)}" title="${esc(tip)}" aria-label="${esc(tip)}" style="--glow:${g.uniq.c1}">
-        <span class="ug-ic gfx-${g.uniq.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span></button>`;
+        ${g.uniq.img ? giftImg(g.uniq.img) : `<span class="ug-ic gfx-${g.uniq.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span>`}</button>`;
     }).join('');
     return `<div class="pf-hero${u ? '' : ' plain'}"${u ? ` style="--c1:${u.c1};--c2:${u.c2}"` : ''}>${pat}
       <div class="ph-stage">${xpRing(P.cur || 0, P.need || 0)}<span class="ph-ava"><b>${P.level}</b><small>уровень</small></span>${items}</div>
@@ -5924,8 +5927,9 @@
     const sorted = [...list.filter(g => g.uniq).sort(byRank), ...list.filter(g => !g.uniq)];
     return `${V && V.n ? `<div class="pf-value" title="Столько дадут, если продать все подарки сейчас; в магазине такие стоят ${V.shop.toLocaleString('ru-RU')} ₿">
         <span class="fm-muted">💎 Оценка коллекции</span><b>≈ ${V.sell.toLocaleString('ru-RU')} ₿</b></div>` : ''}
-      <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
-        <small>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
+      <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : g.img ? `<span class="ug plain img r-${g.rar.k}"><span class="ug-ic">${giftImg(g.img)}</span></span>`
+          : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
+        <small>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
       ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху): уникальные летают в шапке профиля.</p>' : ''}`;
   }
   async function saveBadges(keys) {
@@ -8124,8 +8128,8 @@
     const t = document.createElement('div');
     t.className = 'ach-toast gift-toast';
     const from = gfFrom(g);
-    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
-      <b>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
+    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : g.img ? `<img src="${esc(g.img)}" alt="">` : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
+      <b>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
     t.addEventListener('click', () => openGifts(undefined, g.id));
     document.body.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 5200);
@@ -8563,7 +8567,7 @@
     }
     ov.className = 'cr-ov is-case';
     ov.style.removeProperty('--hc');
-    const hw = (GF.hw || []).map(x => ({ ...x, id: x.gift }));
+    const hw = (GF.hw || []).filter(x => x.left > 0).map(x => ({ ...x, id: x.gift }));   // раскупленная не выпадет — и не пролетает
     const items = Array.from({ length: CASE_N }, (_, i) => (hw.length && Math.abs(i - CASE_WIN) > 2 && Math.random() < CASE_HW
       ? hw[Math.floor(Math.random() * hw.length)] : crPick(GF.catalog)));
     ov.innerHTML = `<div class="cr-box">

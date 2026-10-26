@@ -3533,6 +3533,14 @@ class ServerTest(unittest.TestCase):
             self.assertNotIn(server.gift_random(Rng(ch * 2.5), db, hw_sid=sid2)[0], server.HW_BY)
             self.assertNotEqual(server.gift_random(Rng(ch * 0.5), db, hw_sid=sid)[0], "hw_pumpkin")   # у него уже три
             self.assertNotIn(server.gift_random(Rng(0), db)[0], server.HW_BY)                        # за труд — не выпадают
+            # пока «🎲» крутился, маску раскупили — выпадает обычный подарок, тираж не превышен
+            db.x("UPDATE gift_supply SET cap=0 WHERE gift='hw_clown'")
+            self.addCleanup(lambda: (db.x("UPDATE gift_supply SET cap=? WHERE gift='hw_clown'", (server.HW_CAP,)), server._SUPPLY.update(t=0)))
+            server._SUPPLY.update(t=0)
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid2, time.time(), 1000))
+            with mock.patch.object(server, "gift_random", side_effect=[server.GIFT_BY["hw_clown"], server.GIFT_BY["cookie"]]):
+                st, r = self.req("POST", "/api/gifts/buy", {"gift": "box"}, tok2)
+            self.assertEqual((st, r.get("got")), (200, "cookie"), r)
             # главный учитель меняет шанс; учитель лимитки не дарит
             self.assertEqual(self.admin("POST", "/api/admin/gifts/box", {"hw_chance": 5})[0], 400)
             st, d = self.admin("POST", "/api/admin/gifts/box", {"hw_chance": 0.5})

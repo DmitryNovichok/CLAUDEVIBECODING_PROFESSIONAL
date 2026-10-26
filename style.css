@@ -3271,6 +3271,13 @@ body.hw #forecastModal .modal-panel:has(.bx)::before { content: ''; position: ab
 .cr-it .e.img { width: 74%; aspect-ratio: 1; font-size: 0; } .cr-it .e.img img { width: 100%; height: 100%; display: block; }
 .bx-hwup { margin: 10px 0 0; } .bx-hwup > small { color: var(--muted); font-weight: 800; }
 .fb-av img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* лимитки Хеллоуина у ника, на подиуме, в профиле и в уведомлении — картинкой */
+.bdg img, .lp-ic img, .lp-av img, .ph-fly img, .gift-toast .ach-icon img { display: block; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35)); }
+.bdg img { width: 1.5em; height: 1.5em; } .bdg.bdg-img { vertical-align: middle; }
+.ugb.img, .lp-ic.lp-ug.img, .lp-av.img { background: none; border-radius: 22%; }
+.lp-ic img { width: 24px; height: 24px; } .lp-av img { width: 100%; height: 100%; }
+.ph-fly img { width: 48px; height: 48px; filter: drop-shadow(0 0 8px var(--glow, #fff)); }
+.gift-toast .ach-icon img { width: 100%; height: 100%; }
 @media (prefers-reduced-motion: reduce) { .hw-bats { display: none; } }
 body.no-anim .hw-bats { display: none; }
 .bx-lim.img .e { width: 54px; height: 54px; flex: none; } .bx-lim.img .e img { width: 100%; height: 100%; border-radius: 14px; display: block; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }

@@ -2770,6 +2770,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if lim and not (limited_now(db) or {}).get("left"):
                         return self.err(409, f"Лимитку «{g[2]}» уже раскупили — все {LIMITED_CAP} штук")
                     sup = gift_supply(db, fresh=True)[g[0]]
+                    if hw and box and sup["left"] <= 0:          # пока крутилось, лимитку раскупили — выпадет обычный
+                        g, hw = gift_random(random.SystemRandom(), db), False
+                        sup = gift_supply(db)[g[0]]
                     if hw and not box and sup["left"] <= 0:
                         return self.err(409, f"«{g[2]}» раскупили: все {sup['cap']} штук у учеников — теперь только на рынке")
                     if not lim and not box and sup["left"] <= 0:
@@ -7776,12 +7779,14 @@ def gift_icons(db, sid):
         g, u = GIFT_BY.get(r["gift"]), uniq_pub(r["uniq"])
         if g and u:
             out.append({"i": g[1], "t": f"{g[2]} #{u['n']} · {u['rar']['t']} · " + ", ".join(x["t"] for x in u["props"]), "n": 0,
-                        "u": {"c1": u["c1"], "c2": u["c2"], "fx": u["fx"], "pose": u["pose"], "r": u["rar"]["k"]}})
+                        "u": {"c1": u["c1"], "c2": u["c2"], "fx": u["fx"], "pose": u["pose"], "r": u["rar"]["k"],
+                              **({"img": u["img"]} if u.get("img") else {})}})
     for r in db.q("""SELECT gift, COUNT(*) c, MAX(ts) t FROM gifts WHERE student_id=? AND uniq IS NULL AND sold IS NULL
                      GROUP BY gift ORDER BY t DESC""", (sid,)):
         g = GIFT_BY.get(r["gift"])
         if g:
-            out.append({"i": g[1], "t": f"Подарок: {g[2]} · {gift_rarity(g[0])['t']}", "n": r["c"] if r["c"] > 1 else 0})
+            out.append({"i": g[1], "t": f"Подарок: {g[2]} · {gift_rarity(g[0])['t']}", "n": r["c"] if r["c"] > 1 else 0,
+                        **({"img": HW_IMG[g[0]]} if g[0] in HW_IMG else {})})
     return out[:GIFTS_SHOW]
 
 
