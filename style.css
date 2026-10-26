@@ -3252,9 +3252,13 @@ body.hw #forecastModal .modal-panel:has(.bx)::before { content: ''; position: ab
 .ug.img.r-myth .ug-ic { filter: drop-shadow(0 0 9px var(--r-myth)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); animation: ugMythImg 4s linear infinite; }
 @keyframes ugMythImg { 0%, 100% { filter: drop-shadow(0 0 9px #ff4081); } 33% { filter: drop-shadow(0 0 9px #40c4ff); } 66% { filter: drop-shadow(0 0 9px #ffd740); } }
 .ug.img .ug-n { right: 6%; bottom: 6%; }
-.ug-sk { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.ug-sk img { width: 46px; height: 46px; display: block; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .35)); }
-.ug-sk span { display: grid; justify-items: center; font-size: 10px; font-weight: 800; color: var(--muted); }
+/* наряды лимитки в шторке: по 5 в ряд на всю ширину — 10 нарядов ровно в два ряда */
+.ug-sk { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 8px; margin-top: 8px; }
+.ug-sk img { width: 100%; max-width: 112px; aspect-ratio: 1; height: auto; display: block; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .35));
+  transition: transform .15s; }
+.ug-sk span:hover img { transform: scale(1.06); }
+.ug-sk span { display: grid; justify-items: center; align-content: start; gap: 4px; font-size: 11.5px; font-weight: 800; line-height: 1.15;
+  color: var(--muted); text-align: center; }
 .ug-sk span.r-epic { color: var(--r-epic); } .ug-sk span.r-legend { color: var(--r-legend); } .ug-sk span.r-myth { color: var(--r-myth); }
 /* «🎃 Хеллоуин» в магазине: две лимитки крупно */
 .bx-hw { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 4px; }
