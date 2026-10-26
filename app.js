@@ -5673,8 +5673,10 @@
   const badgeHtml = b => typeof b === 'string' ? esc(b)
     : `<span class="bdg" title="${esc(b.t || '')}${b.n ? ' × ' + b.n : ''}">${esc(b.i)}${b.n ? `<sup>${b.n}</sup>` : ''}</span>`;
   /** Подарки у ника — маленькие значки после наград: уникальный — на своём цветном фоне, одинаковые обычные — числом. */
-  const giftBadge = g => (g.u ? `<span class="bdg ugb r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
-    : badgeHtml(g));
+  // лимитки Хеллоуина (тыква, маска) — своей картинкой вместо значка
+  const giftImg = src => `<img src="${esc(src)}" alt="" draggable="false">`;
+  const giftBadge = g => (g.u ? `<span class="bdg ugb${g.u.img ? ' img' : ''} r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2}" title="${esc(g.t)}">${g.u.img ? giftImg(g.u.img) : `<i class="gfx-${g.u.fx}">${esc(g.i)}</i>`}</span>`
+    : g.img ? `<span class="bdg bdg-img" title="${esc(g.t)}${g.n ? ' × ' + g.n : ''}">${giftImg(g.img)}${g.n ? `<sup>${g.n}</sup>` : ''}</span>` : badgeHtml(g));
   const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
   // ---- подиум + список: тройка лидеров крупно, остальные строкой; аватар — самый редкий уникальный подарок
@@ -5682,7 +5684,7 @@
   const topGift = r => (r.gifts || []).filter(g => g.u).sort((a, b) => (GIFT_RANK[b.u.r] || 0) - (GIFT_RANK[a.u.r] || 0))[0];
   function lbAvatar(r, size) {
     const g = topGift(r);
-    return g ? `<span class="lp-av r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2};--s:${size}px" title="${esc(g.t)}"><i class="gfx-${g.u.fx}">${esc(g.i)}</i></span>`
+    return g ? `<span class="lp-av${g.u.img ? ' img' : ''} r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2};--s:${size}px" title="${esc(g.t)}">${g.u.img ? giftImg(g.u.img) : `<i class="gfx-${g.u.fx}">${esc(g.i)}</i>`}</span>`
       : `<span class="lp-av plain" style="--s:${size}px" aria-hidden="true">${esc(((r.name || '?').trim()[0]) || '?')}</span>`;
   }
   /** Значки и подарки у ника: первые max — крупно, остальные — «+N» (все — в профиле). skip — подарок, который уже в аватаре. */
@@ -5691,7 +5693,8 @@
   }
   const lbIcon = x => {
     const tip = esc((x.t || '') + (x.n ? ' × ' + x.n : '')), sup = x.n ? `<sup>${x.n}</sup>` : '';
-    if (x.gift && x.u) return `<span class="lp-ic lp-ug r-${x.u.r}" style="--c1:${x.u.c1};--c2:${x.u.c2}" title="${tip}"><i class="gfx-${x.u.fx}">${esc(x.i)}</i></span>`;
+    if (x.gift && x.u) return `<span class="lp-ic lp-ug${x.u.img ? ' img' : ''} r-${x.u.r}" style="--c1:${x.u.c1};--c2:${x.u.c2}" title="${tip}">${x.u.img ? giftImg(x.u.img) : `<i class="gfx-${x.u.fx}">${esc(x.i)}</i>`}</span>`;
+    if (x.gift && x.img) return `<span class="lp-ic lp-img" title="${tip}">${giftImg(x.img)}${sup}</span>`;
     return `<span class="lp-ic${/^[\x20-\x7e]{2,}$/.test(x.i) ? ' lp-txt' : ''}" title="${tip}">${esc(x.i)}${sup}</span>`;
   };
   function lbIcons(items, max, cls = 'lp-icons') {
@@ -5907,7 +5910,7 @@
     const items = fly.map((g, k) => {
       const tip = `${g.t} #${g.uniq.n} · ${g.uniq.rar.t}`, pose = g.uniq.pose || 'stand';
       return `<button type="button" class="ph-fly f${k}" data-fly="${esc(tip)}" title="${esc(tip)}" aria-label="${esc(tip)}" style="--glow:${g.uniq.c1}">
-        <span class="ug-ic gfx-${g.uniq.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span></button>`;
+        ${g.uniq.img ? giftImg(g.uniq.img) : `<span class="ug-ic gfx-${g.uniq.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span>`}</button>`;
     }).join('');
     return `<div class="pf-hero${u ? '' : ' plain'}"${u ? ` style="--c1:${u.c1};--c2:${u.c2}"` : ''}>${pat}
       <div class="ph-stage">${xpRing(P.cur || 0, P.need || 0)}<span class="ph-ava"><b>${P.level}</b><small>уровень</small></span>${items}</div>
@@ -5924,8 +5927,9 @@
     const sorted = [...list.filter(g => g.uniq).sort(byRank), ...list.filter(g => !g.uniq)];
     return `${V && V.n ? `<div class="pf-value" title="Столько дадут, если продать все подарки сейчас; в магазине такие стоят ${V.shop.toLocaleString('ru-RU')} ₿">
         <span class="fm-muted">💎 Оценка коллекции</span><b>≈ ${V.sell.toLocaleString('ru-RU')} ₿</b></div>` : ''}
-      <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
-        <small>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
+      <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : g.img ? `<span class="ug plain img r-${g.rar.k}"><span class="ug-ic">${giftImg(g.img)}</span></span>`
+          : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
+        <small>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
       ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху): уникальные летают в шапке профиля.</p>' : ''}`;
   }
   async function saveBadges(keys) {
@@ -7721,7 +7725,8 @@
   /** Редкость подарка: уровень (у уникального — его сочетания) и шанс. */
   const gfRar = g => (g.uniq ? g.uniq.rar : g.rar);
   const rarHtml = g => { const r = gfRar(g); return r ? `<span class="rar r-${r.k}" title="${esc(rarWhy(g))}">${esc(r.t)}</span>` : ''; };
-  const rarWhy = g => (g.uniq ? `шанс такого сочетания — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
+  const rarWhy = g => (g.uniq ? `шанс такого ${g.uniq.img ? 'наряда' : 'сочетания'} — 1 из ${g.uniq.rar.one_in.toLocaleString('ru-RU')}`
+    : g.rar && g.rar.why ? g.rar.why
     : g.rar && g.rar.k === 'limited' ? 'продавался одну неделю ограниченным тиражом, в 🎲 не выпадает'
     : g.rar && g.rar.cap ? `живой тираж — ${num(g.rar.live)} из ${num(g.rar.cap)}: проданные сразу и улучшенные делают вид реже`
     : g.rar ? `шанс выпасть в 🎲 случайном подарке — ${String(g.rar.p).replace('.', ',')}%` : '');
@@ -7729,7 +7734,8 @@
   const supTxt = gid => {
     const x = GF && GF.supply && GF.supply[gid];
     if (!x || gid.startsWith('lim_')) return '';
-    return `<small class="bx-sup">📦 ${x.left ? `в магазине ${num(x.left)} из ${num(x.cap)}` : `распродан (тираж ${num(x.cap)})`} · в обороте ${num(x.alive)}${x.burned ? ` · сгорело ${num(x.burned)}` : ''}${x.up ? ` · улучшено ${num(x.up)}` : ''}</small>`;
+    const shop = !gid.startsWith('hw_') || (GF.hw || []).length;  // лимитка Хеллоуина после ивента в магазине не продаётся
+    return `<small class="bx-sup">📦 ${!shop ? `тираж ${num(x.cap)}` : x.left ? `в магазине ${num(x.left)} из ${num(x.cap)}` : `раскупили (тираж ${num(x.cap)})`} · в обороте ${num(x.alive)}${x.burned ? ` · сгорело ${num(x.burned)}` : ''}${x.up ? ` · улучшено ${num(x.up)}` : ''}</small>`;
   };
   // Окно «Биткоины» как приложение: вкладки снизу (Магазин / Рынок / Мои / Forbes / История), нажал на подарок — снизу шторка
   // с крупными кнопками; правила и экономика — под «?». Текста на экране — минимум: суммы и действия.
@@ -7743,7 +7749,14 @@
   const gfTile = (g, s = 52, extra = '') => `<span class="bx-t s${s}">${g.uniq ? uniqTile(g, extra) : g.img
     ? `<span class="ug plain img r-${g.rar.k} ${extra}"><span class="ug-ic"><img src="${esc(g.img)}" alt="" draggable="false"></span><span class="ug-gloss"></span></span>`
     : `<span class="ug plain r-${g.rar.k} ${extra}"><span class="ug-ic">${g.i}</span></span>`}</span>`;
-  const gfName = g => esc(g.t) + (g.uniq ? ` <span class="ug-num">#${g.uniq.n}</span>` : '');
+  const gfName = g => esc(g.t) + (g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : '') + (g.uniq ? ` <span class="ug-num">#${g.uniq.n}</span>` : '');
+  /** Лимитка Хеллоуина в магазине (пока идёт ивент) — или null. */
+  const hwOf = id => (GF && GF.hw || []).find(x => x.gift === id) || null;
+  /** Наряды лимитки, которые может дать улучшение: картинка, название, редкость. */
+  const hwSkins = gid => {
+    const xs = (GF && GF.hw_skins && GF.hw_skins[gid]) || [];
+    return xs.length ? `<div class="ug-sk">${xs.map(x => `<span class="r-${x.k}" title="${esc(x.t)} · ${esc(x.k === 'rare' ? 'редкий' : x.k === 'epic' ? 'эпический' : x.k === 'legend' ? 'легендарный' : 'мифический')}"><img src="${esc(x.img)}" alt="" loading="lazy">${esc(x.t)}</span>`).join('')}</div>` : '';
+  };
 
   async function openGifts(to, open, tab) {
     if (!SERVER) return;
@@ -7796,6 +7809,9 @@
         <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
       ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
+      ${(G.hw || []).length ? `<div class="bx-hw"><div class="bx-hw-h">🎃 Хеллоуин <small>лимитки · до ${G.hw[0].until.slice(8, 10)}.${G.hw[0].until.slice(5, 7)} включительно</small></div>
+        ${G.hw.map(x => `<button type="button" class="bx-hwc${x.price > G.coins || !x.left ? ' dim' : ''}" data-bx-shop="${x.gift}"><img src="${esc(x.img)}" alt="" draggable="false">
+          <b>${esc(x.t)}</b><small>${x.left ? `осталось ${num(x.left)} из ${num(x.cap)}` : 'всё раскупили — ищи на рынке'}</small><span class="bx-price">₿ ${num(x.price)}</span></button>`).join('')}</div>` : ''}
       <div class="bx-sec">🛍 Магазин${left < 5 ? ` <small>${left ? `сегодня можно ещё ${left}` : 'на сегодня всё — завтра снова'}</small>` : ''}</div>
       ${G.teacher ? '<p class="fm-muted">Учительский аккаунт дарит подарки из панели учителя.</p>' : ''}
       <div class="bx-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar, x.demand)).join('')}</div>`;
@@ -7825,7 +7841,7 @@
       ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Биткоины за опыт приходят сами — их здесь нет</small></div>'}`;
   }
   // ---- Forbes класса: обложка журнала, список и вкладки
-  const fbAv = (r, s) => (r.avatar ? `<span class="fb-av r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.i}</span>`
+  const fbAv = (r, s) => (r.avatar ? `<span class="fb-av r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.uniq.img ? `<img src="${esc(r.avatar.uniq.img)}" alt="">` : r.avatar.i}</span>`
     : `<span class="fb-av plain" style="--s:${s}px">${esc(r.name[0] || '?')}</span>`);
   const fbDelta = w => (w == null ? '' : `<em class="fb-dl ${w > 0 ? 'up' : w < 0 ? 'dn' : ''}">${w > 0 ? '▲' : w < 0 ? '▼' : '='} ${w ? num(Math.abs(w)) : ''}</em>`);
   const fbTags = r => [r.rocket ? '<span class="fb-tag rocket">🚀 рывок недели</span>' : '', r.new ? '<span class="fb-tag new">новичок</span>' : '',
@@ -7873,15 +7889,18 @@
     const S = gfSheet;
     if (S.k === 'help') return helpSheet(G);
     if (S.k === 'shop') {
-      const box = S.id === 'box', lim = G.limited && G.limited.gift === S.id ? G.limited : null;
-      const g = box ? { i: '🎲', t: 'Случайный подарок', price: G.box, rar: null } : lim ? { ...lim, rar: { k: 'limited', t: 'Лимитка' } } : G.catalog.find(x => x.id === S.id);
+      const box = S.id === 'box', hw = hwOf(S.id), lim = hw || (G.limited && G.limited.gift === S.id ? G.limited : null);
+      const g = box ? { i: '🎲', t: 'Случайный подарок', price: G.box, rar: null } : hw || (lim ? { ...lim, rar: { k: 'limited', t: 'Лимитка' } } : G.catalog.find(x => x.id === S.id));
       if (!g) return '';
       const short = Math.max(0, g.price - G.coins), who = gfTo ? gfMate(gfTo) : '';
-      const sp = !box && !lim && G.supply ? G.supply[S.id] : null, mineN = G.mine.filter(x => x.gift === S.id).length;
-      const block = sp && !sp.left ? 'распродан — ищи на рынке' : sp && !who && mineN >= sp.own_max ? `у тебя уже ${mineN} — больше нельзя` : '';
+      const sp = !box && (!lim || hw) && G.supply ? G.supply[S.id] : null, mineN = G.mine.filter(x => x.gift === S.id).length;
+      const block = hw && !hw.left ? 'всё раскупили — ищи на рынке' : sp && !sp.left ? 'распродан — ищи на рынке' : sp && !who && mineN >= sp.own_max ? `у тебя уже ${mineN} — больше нельзя` : '';
       return `<div class="bx-sh">${box ? '<span class="bx-t s76"><span class="ug plain gf-boxt"><span class="ug-ic">🎲</span></span></span>' : gfTile(g, 76)}
-          <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой из тех, что остались в магазине, — дорогие реже' : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small>${box || lim ? '' : supTxt(S.id)}
+          <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой из тех, что остались в магазине, — дорогие реже'
+            : hw ? `лимитка Хеллоуина · осталось ${num(hw.left)} из ${num(hw.cap)} · в магазине до ${hw.until.slice(8, 10)}.${hw.until.slice(5, 7)} включительно`
+            : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small>${box || lim ? '' : supTxt(S.id)}
           ${sp ? `<small class="bx-sup">одному ученику — не больше ${num(sp.own_max)}</small>` : ''}</div></div>
+        ${hw ? `<div class="bx-hwup"><small>✨ Улучшение за ₿ ${num(hw.up)} — случайный наряд:</small>${hwSkins(S.id)}</div>` : ''}
         ${box || lim ? '' : priceBox(S.id)}
         ${G.teacher ? '' : whoHtml(G)}
         <div class="bx-acts one"><button type="button" class="bx-btn pri" data-bx-buy="${esc(S.id)}"${short || block || G.teacher ? ' disabled' : ''}>
@@ -7912,7 +7931,7 @@
     const u = g.uniq, listed = g.listed != null;
     const up = u ? `<button type="button" class="bx-btn pri" disabled><span>✨</span>Уникальный<small>1 из ${num(u.rar.one_in)}</small></button>`
       : g.limited ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>лимитку нельзя</small></button>'
-      : g.up == null ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>тираж кончился</small></button>'
+      : g.up == null ? `<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>${g.hw ? 'наряды скоро' : 'тираж кончился'}</small></button>`
       : listed ? '<button type="button" class="bx-btn pri" disabled><span>✨</span>Улучшить<small>подарок на торгах</small></button>'
       : `<button type="button" class="bx-btn pri" data-bx-up="${g.id}"${GF.coins < g.up ? ' disabled' : ''}><span>✨</span>Улучшить<small>${GF.coins < g.up ? `не хватает ₿ ${num(g.up - GF.coins)}` : `₿ ${num(g.up)}`}</small></button>`;
     const sell = `<button type="button" class="bx-btn" data-bx-sell="${g.id}"${listed ? ' disabled' : ''}><span>💰</span>Продать<small>₿ ${num(g.sell)}</small></button>`;
@@ -7921,12 +7940,13 @@
       : g.mk_bids ? `<button type="button" class="bx-btn org" disabled><span>🔨</span>Идут торги<small>ставка ₿ ${num(g.mk_bid)}</small></button>`
       : `<button type="button" class="bx-btn org" data-bx-unlist="${g.id}"><span>↩</span>Снять с торгов<small>ставок нет</small></button>`;
     const suggest = Math.min(g.mk_max, Math.max(g.mk_start + 1, g.mk_typ ? Math.round(g.mk_typ * 1.3) : g.mk_start * 2));
-    const props = u ? `<div class="bx-props">${u.props.map(p => `<span><small>${p.k}</small>${esc(p.t)}</span>`).join('')}</div>` : '';
+    const props = u ? `<div class="bx-props">${u.props.map(p => `<span><small>${p.k}</small>${esc(p.t)}</span>`).join('')}</div>`
+      : g.hw && g.up != null ? `<div class="bx-hwup"><small>✨ Улучши — наденет случайный наряд:</small>${hwSkins(g.gift)}</div>` : '';
     return `<div class="bx-sh">${gfTile(g, 76, gfFresh === g.id ? 'reveal' : '')}<div><b class="nm">${gfName(g)}</b>${rarHtml(g)}
         <small>${esc([gfFrom(g), gfDate(g.ts).slice(0, 5)].filter(Boolean).join(' · '))}</small>${g.note ? `<small class="bx-note">«${esc(g.note)}»</small>` : ''}${supTxt(g.gift)}
         ${listed && g.mk_until ? `<small>🔨 на торгах: ${g.mk_bids ? `ставка ₿ ${num(g.mk_bid)} (${g.mk_bids} ${plural(g.mk_bids, 'ставка', 'ставки', 'ставок')})` : `старт ₿ ${num(g.listed)}, ставок нет`} · ⏳ ${aucSpan(g.mk_until)}${g.mk_bn ? ` · купить сразу ₿ ${num(g.mk_bn)}` : ''}</small>` : ''}</div></div>
       ${props}
-      ${g.limited ? '' : priceBox(g.gift)}
+      ${g.limited || g.hw ? '' : priceBox(g.gift)}
       <div class="bx-acts">${up}${sell}${mk}</div>
       ${gfMkOpen && !listed ? `<div class="bx-mkrow"><label><input type="checkbox" id="mkBnOn"> купить сразу за ₿ <input class="inp" id="mkPrice" type="number" min="${g.mk_start + 1}" max="${g.mk_max}" value="${suggest}" disabled></label>
         <button type="button" class="btn primary" data-bx-list="${g.id}">Выставить</button><span class="fm-muted" id="mkGet"></span></div>
@@ -8018,6 +8038,7 @@
         <li>🔥 Огонёк — +1% к опыту и биткоинам за задания и варианты за каждый его день, до +${(GAME && GAME.fire_bonus_max) || 30}%${GAME && GAME.fire_bonus ? `. Сейчас у тебя <b>+${GAME.fire_bonus}%</b>` : ''}.</li>
         <li>⏱ Решено слишком быстро — минус 1 ₿: быстрее ${G.fine_sec} секунд, №24–27 — быстрее ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.</li>
         <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
+        ${(G.hw || []).length ? `<li>🎃 Хеллоуин: лимитки «Тыква» и «Маска клоуна» — по ₿ ${num(G.hw[0].price)}, тираж ограничен, в магазине до ${G.hw[0].until.slice(8, 10)}.${G.hw[0].until.slice(5, 7)} включительно. Улучшение за ₿ ${num(G.hw[0].up)} — случайный наряд: чем реже наряд, тем дороже подарок. Потом — только на рынке.</li>` : ''}
         <li>💰 Продать сразу — почти за ту цену, за которую подарок тебе достался (если в магазине он подешевел — от нынешней). Подарок сгорит.</li>
         <li>🔨 Или выставь его на аукцион одноклассникам: старт — цена продажи сразу, торги ${G.auc_hours} ч, каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше. Ставка замораживает биткоины, перебьют — вернутся. Ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги. Подарок уйдёт тому, чья ставка выше.</li>
         <li>💎 Подарки в портфеле и Forbes стоят по оценке рынка — сколько ты получил бы, продав по ней (но не меньше продажи сразу). Оценку поднимают только настоящие торги: в неё идёт не цена победителя, а сколько давали соперники; без соперников — стартовая цена. Нужны сделки разных учеников, оценка меняется плавно — не больше 10% в сутки. Редкость важна: у редкого подарка без своих сделок оценка — по сделкам подарков той же редкости. Чем больше таких уникальных сгорело, тем дороже оставшиеся.</li>
@@ -8030,7 +8051,7 @@
   // ---- действия
   async function buyGift(id) {
     if (id === 'box') { rollBox(); return; }                  // «🎲» — с прокруткой ленты (12e-case.js)
-    const g = GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id);
+    const g = hwOf(id) || (GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id));
     const who = gfTo ? gfMate(gfTo) : '';
     if (!g) return;
     try {
@@ -8043,7 +8064,8 @@
   }
   async function upgradeGift(id) {
     const g = GF.mine.find(x => x.id === id);
-    if (!g || !confirm(`Улучшить ${g.i} ${g.t} за ${g.up} ₿? Подарок станет уникальным.`)) return;
+    if (!g || !confirm(g.hw ? `Улучшить ${g.i} ${g.t} за ${g.up} ₿? Она наденет случайный наряд — какой, решит удача.`
+      : `Улучшить ${g.i} ${g.t} за ${g.up} ₿? Подарок станет уникальным.`)) return;
     try {
       const r = await api('gifts/upgrade', { id });
       if (r.game) onGame(r.game);
@@ -8106,8 +8128,8 @@
     const t = document.createElement('div');
     t.className = 'ach-toast gift-toast';
     const from = gfFrom(g);
-    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
-      <b>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
+    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : g.img ? `<img src="${esc(g.img)}" alt="">` : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
+      <b>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
     t.addEventListener('click', () => openGifts(undefined, g.id));
     document.body.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 5200);
@@ -8251,10 +8273,11 @@
   });
   // ═══════ src/app/12d-stories.js
   // ------------------------------------------------------------ истории (как в Instagram/Telegram): сейчас — поздравление с пробником
-  // и анонс Хеллоуинского ивента. Один раз (STORIES_VER) — при первом входе (новичку — после знакомства с сайтом), потом — из «Что нового».
+  // и вышедшее обновление — Хеллоуинский ивент (лимитки уже в продаже, кнопка в конце ведёт в магазин). Один раз (STORIES_VER) —
+  // при первом входе (новичку — после знакомства с сайтом), потом — из «Что нового».
   // Слайд листается сам за STORY_MS; касание справа — дальше, слева — назад, удержание — пауза, свайп вниз, ✕ или Esc — закрыть.
   // На компьютере — в рамке iPhone с Dynamic Island (в нём на миг — номер слайда), на телефоне — на весь экран.
-  const STORIES_VER = 'halloween-2026', STORY_MS = 7000;
+  const STORIES_VER = 'halloween-2026-out', STORY_MS = 7000;    // новая версия — истории покажутся всем ещё раз
   const HW_START = '2026-10-26';          // с этого дня — Хеллоуинский ивент: две лимитки
   const HW_UNTIL = '2026-11-01';          // до этого дня истории показываются сами
   const HW_END = '2026-11-03';            // до этого дня — хеллоуинская тема сайта
@@ -8272,40 +8295,40 @@
   // маски — готовые картинки (с рамкой и тыквой сверху): обычная — клоун, при улучшении — одна из страшных
   const HW_MASK = 'gift_clown.webp';
   const HW_PUMPKIN = 'gift_pumpkin.webp';
-  const HW_OUTFITS = ['gift_p_witch.webp', 'gift_p_king.webp', 'gift_p_ghost.webp', 'gift_p_frank.webp'];
-  const hwSoon = '<div class="sto-hw-soon">🗓 в продаже с 26 октября</div>';
+  const HW_OUTFITS = ['gift_p_vampire.webp', 'gift_p_cat.webp', 'gift_p_king.webp', 'gift_p_hell.webp'];
+  const HW_N = 15;                        // тираж каждой лимитки (HW_CAP в server.py), одному ученику — не больше двух
+  const hwSoon = `<div class="sto-hw-soon">🎃 уже в продаже · ${HW_N} штук · до 2 ноября</div>`;
   const hwRow = ks => `<div class="sto-hw-row">${ks.map((k, i) => `<span style="--i:${i}">${hwImg(k, 'raw')}</span>`).join('')}</div>`;
-  const HW_MASKS = ['gift_scream.webp', 'gift_billy.webp', 'gift_skull.webp', 'gift_evilclown.webp'];
+  const HW_MASKS = ['gift_scream.webp', 'gift_m_plague.webp', 'gift_m_wolf.webp', 'gift_m_pharaoh.webp'];
   let ST = null;                          // { k, list, paused } — открытые истории
   const storyKey = () => `egeshka.stories.${STORIES_VER}.${student ? student.sid : 'local'}`;
-  const hwLeft = () => Math.max(0, Math.round((new Date(HW_START + 'T00:00') - new Date(new Date().toDateString())) / 86400000));
   const hwImg = (k, cls = '') => `<img class="${cls}" src="${HW_IMG}${/\.\w+$/.test(k) ? k : k + '.svg'}" alt="" loading="lazy" draggable="false">`;
   function storySlides() {
-    const g = GAME || {}, left = hwLeft(), coins = g.coins || 0;
+    const g = GAME || {}, coins = g.coins || 0;
     const conf = Array.from({ length: 18 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 6) * .35}s;--c:${['#ffd54f', '#ff8a65', '#81d4fa', '#a5d6a7', '#ce93d8', '#fff'][i % 6]}"></i>`).join('');
     return [
       { cls: 'h1', ico: '🎓', head: 'Egeshka', title: 'С пробником! 🎉',
         text: 'Поздравляем всех, кто написал пробный ЕГЭ, — вы молодцы! Разбери свои ошибки: так баллы растут быстрее всего.',
         art: `<div class="sto-cong"><div class="conf">${conf}</div><div class="cap">🎓</div>
           <div class="card"><b>Пробный ЕГЭ</b><span>написан ✓</span><small>дальше — работа над ошибками</small></div></div>` },
-      { cls: 'h2', ico: '🎃', head: left ? `через ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'уже начался', title: 'Скоро Хеллоуин!',
-        text: `С 26 октября — Хеллоуинский ивент: две лимитки, которые продаются только в эти дни.`,
+      { cls: 'h2', ico: '🎃', head: 'Обновление вышло', title: 'Хеллоуин уже на сайте!',
+        text: `Обновление вышло! В «Биткоинах» — две лимитки Хеллоуина: тыква и маска клоуна. Всего по ${HW_N} штук на весь сайт и только до 2 ноября включительно.`,
         art: `<div class="sto-hw-duo"><span class="bat b1">🦇</span><span class="bat b2">🦇</span><span class="bat b3">🦇</span>
-          ${hwImg(HW_PUMPKIN, 'l raw')}${hwImg(HW_MASK, 'r raw')}<div class="date"><b>26</b><small>октября</small></div></div>` },
-      { cls: 'h6', ico: '🦇', head: 'Новые темы', title: 'Сайт к Хеллоуину',
-        text: 'С 26 октября сайт переоденется: в тёмной теме — ночь с луной, кладбищем и светящимися тыквами, в светлой — сумерки. А ещё паутина, летучие мыши и гирлянда из тыкв в «Биткоинах».',
+          ${hwImg(HW_PUMPKIN, 'l raw')}${hwImg(HW_MASK, 'r raw')}<div class="date"><small>до</small><b>2</b><small>ноября</small></div></div>` },
+      { cls: 'h6', ico: '🦇', head: 'Новые темы', title: 'Сайт уже в стиле Хеллоуина',
+        text: 'Уже включились: в тёмной теме — ночь с луной, кладбищем и светящимися тыквами, в светлой — сумерки. А ещё паутина, летучие мыши и гирлянда из тыкв в «Биткоинах».',
         art: `<div class="sto-hw-themes">${['night', 'dusk'].map(t => `<div class="tw-w tw-${t === 'night' ? 'n' : 'd'}"><div class="tw"><div class="tw-bar"><i></i><i></i><i></i></div>
           <div class="tw-side"><b>Egeshka</b><i></i><i></i><i></i></div><div class="tw-pane">${hwImg('bg_web', 'tw-web')}${hwImg('bg_moon', 'tw-moon')}${hwImg('bat', 'tw-bat')}
           <i class="tw-card"></i><i class="tw-card"></i>${hwImg('bg_bottom', 'tw-grave')}</div></div>
           <span class="tw-lbl">${t === 'night' ? '🌙 Ночь · тёмная тема' : '🌆 Сумерки · светлая тема'}</span></div>`).join('')}</div>` },
       { cls: 'h3', ico: '🎃', head: 'Лимитка 1', title: 'Тыква и 10 нарядов',
-        text: 'Тыква — ₿ 5 000. Улучши её за ₿ 1 000 — и она станет особенной: ведьма, золотой король, призрак, Франкенштейн и другие.',
-        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_PUMPKIN, 'main raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
+        text: `Уже в «Биткоинах»: тыква — ₿ 5 000, всего ${HW_N} штук. Улучши её за ₿ 1 000 — и она наденет случайный наряд: вампир, пират, мумия, чёрный кот, золотой король… а самым везучим — адская тыква.`,
+        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_PUMPKIN, 'hero raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
       { cls: 'h4', ico: '🎭', head: 'Лимитка 2', title: 'Маска клоуна',
-        text: 'Весёлый клоун? Улучши — и маска превратится в страшную: Крик, Пила, Череп, Злой клоун и другие.',
-        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_MASK, 'main raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
-      { cls: 'h5', ico: '₿', head: 'Готовься', title: 'Копи биткоины!',
-        text: 'Тираж ограничен — кто первый, тот и успел. Решай задания, чтобы к 26-му хватило на тыкву.',
+        text: `Уже в «Биткоинах»: маска клоуна — ₿ 5 000, всего ${HW_N} штук. Улучши за ₿ 1 000 — и весёлый клоун превратится в страшную маску: Крик, Пила, Чумной доктор, Оборотень… а самым везучим — проклятый фараон.`,
+        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_MASK, 'hero raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
+      { cls: 'h5', ico: '₿', head: 'Успей', title: 'Успей купить!',
+        text: `Тыкв и масок — всего по ${HW_N} штук на весь сайт и не больше двух в одни руки: кто первый, тот и успел. До 2 ноября включительно. Не хватает биткоинов — решай задания!`,
         art: `<div class="sto-hw-save"><div class="coin">₿</div><b>${num(coins)} <small>из 5 000</small></b>
           <div class="prog"><i style="width:${Math.min(100, Math.round(coins / 50))}%"></i></div>
           <small>${coins >= 5000 ? 'на тыкву уже хватает 🎃' : `ещё ₿ ${num(5000 - coins)}`}</small></div>` },
@@ -8351,7 +8374,7 @@
       <div class="sto-top"><b><em>${s.ico}</em>${esc(s.head)}</b><button type="button" class="sto-x" data-st="close" aria-label="Закрыть">✕</button></div>
       <div class="sto-art"><div class="sto-art-in">${s.art}</div></div>
       <h2 class="sto-ttl">${s.title}</h2><p class="sto-txt">${s.text}</p>
-      ${last ? '<button type="button" class="sto-go" data-st="close">Ждём 26-го! 🎃</button>' : '<div class="sto-tap"><span>‹ назад</span><span>дальше ›</span></div>'}</div>`;
+      ${last ? '<button type="button" class="sto-go" data-st="shop">🎃 В магазин</button>' : '<div class="sto-tap"><span>‹ назад</span><span>дальше ›</span></div>'}</div>`;
     ov.classList.toggle('paused', ST.paused);
     ov.querySelector('[data-st="prev"]').disabled = ST.k === 0;
     const isl = ov.querySelector('.sto-island');               // Dynamic Island на миг раскрывается: значок и номер слайда
@@ -8402,7 +8425,7 @@
   document.addEventListener('pointercancel', () => { if (stDown) { clearTimeout(stDown.hold); if (stDown.held) stPause(false); stDown = null; } });
   document.addEventListener('click', e => {
     const b = e.target.closest('#storiesOv [data-st]');
-    if (b) { ({ prev: stPrev, next: stNext, close: closeStories })[b.dataset.st](); return; }
+    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); } })[b.dataset.st](); return; }
     if (ST && e.target.id === 'storiesOv') closeStories();          // клик мимо телефона
     if (e.target.closest('#storiesGo')) { closeForecast(); openStories(); }
   });
@@ -8423,11 +8446,14 @@
   // Что выпало, решает сервер: покупка уходит сразу, пока коробка трясётся и светится по шву. Дальше — только показ: крышка
   // слетает со вспышкой, лента подарков бежит под чертой (черта и подсветка — цвета редкости подарка под ней, по краям лента
   // уходит в глубину), замедляется и встаёт на выпавшем; потом — лучи, искры и аккорд: чем реже подарок, тем ярче.
-  // Подарки ленты — случайные с теми же шансами, что в 🎲 (дорогие реже); «чуть не выпавшее» нарочно не подставляем.
+  // Подарки ленты — случайные с теми же шансами, что в 🎲 (дорогие реже). Пока идёт Хеллоуин, лимитки (тыква, маска)
+  // часто пролетают в ленте, но рядом с выпавшим их не ставим.
   // Звуки (как в кейсе CS:GO, свои — синтез WebAudio) выключаются 🔊 (запоминается в браузере) и рубильником учителя. «Пропустить», Esc или касание ленты — сразу
   // к результату; при «уменьшить движение» в системе — сразу результат.
   const CASE_N = 60, CASE_WIN = 52, CASE_SHAKE_MS = 1300, CASE_OPEN_MS = 520, CASE_MS = 5800, CASE_SNAP_MS = 360, CASE_LAND_MS = 750;
   const CASE_RANK = ['common', 'uncommon', 'rare', 'epic', 'legend', 'myth'];
+  const crRank = k => (k === 'limited' ? 5 : Math.max(0, CASE_RANK.indexOf(k)));   // лимитка — как мифический
+  const CASE_HW = 0.3;                    // доля подарков ленты, которые — лимитки Хеллоуина (пока идёт ивент)
   const CASE_SPARKS = { common: 14, uncommon: 20, rare: 28, epic: 40, legend: 56, myth: 72 };
   const CASE_MUTE = 'egeshka.case.mute';
   let CR = null;                          // открытый кейс: { ov, got, who, done, raf, … }
@@ -8512,7 +8538,7 @@
   const crLand = () => { crNoise(1700, 4, 0.05, 0.22); crTone(523.25, 0.35, 0.05, 'sine', 0, 0, 0.01); };
   /** Показ выпавшего: колокольчик (основной тон и тихий обертон); чем реже подарок, тем больше нот, от эпического — искры. */
   function crChime(k) {
-    const r = Math.max(0, CASE_RANK.indexOf(k));
+    const r = crRank(k);
     [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568].slice(0, r + 1).forEach((f, i) => {
       crTone(f, 1.6, 0.05, 'sine', i * 0.11, 0, 0.015);
       crTone(f * 2.005, 0.9, 0.012, 'sine', i * 0.11, 0, 0.015);
@@ -8525,7 +8551,7 @@
     for (const x of cat) { r -= x.rar.p || 0; if (r <= 0) return x; }
     return cat[cat.length - 1];
   }
-  const crTile = (x, cls = '') => `<span class="cr-it r-${x.rar.k} ${cls}"><span class="e">${x.i}</span></span>`;
+  const crTile = (x, cls = '') => `<span class="cr-it r-${x.rar.k} ${cls}">${x.img ? `<span class="e img"><img src="${esc(x.img)}" alt="" draggable="false"></span>` : `<span class="e">${x.i}</span>`}</span>`;
   function openCase(who) {
     let ov = $('#caseOv');
     if (!ov) {
@@ -8539,13 +8565,15 @@
     }
     ov.className = 'cr-ov is-case';
     ov.style.removeProperty('--hc');
-    const items = Array.from({ length: CASE_N }, () => crPick(GF.catalog));
+    const hw = (GF.hw || []).filter(x => x.left > 0).map(x => ({ ...x, id: x.gift }));   // раскупленная не выпадет — и не пролетает
+    const items = Array.from({ length: CASE_N }, (_, i) => (hw.length && Math.abs(i - CASE_WIN) > 2 && Math.random() < CASE_HW
+      ? hw[Math.floor(Math.random() * hw.length)] : crPick(GF.catalog)));
     ov.innerHTML = `<div class="cr-box">
         <div class="cr-hd"><b>🎲 Случайный подарок</b>${who ? `<small>для ${esc(who)}</small>` : ''}
           <button type="button" class="cr-snd" data-cr="snd" aria-label="Звук" title="Звук">${crMuted ? '🔇' : '🔊'}</button></div>
         <div class="cr-stage">
           <div class="cr-case"><i class="cr-rays"></i><div class="cr-gift"><i class="cr-body"></i><i class="cr-lid"></i></div>
-            <div class="cr-tease"><small>может выпасть</small>${GF.catalog.slice(-5).reverse().map(x => crTile(x, 'mini')).join('')}</div></div>
+            <div class="cr-tease"><small>может выпасть</small>${[...hw, ...GF.catalog.slice(-5).reverse()].slice(0, 5).map(x => crTile(x, 'mini')).join('')}</div></div>
           <div class="cr-roll"><div class="cr-strip"><div class="cr-track">${items.map(x => crTile(x)).join('')}</div>
             <i class="cr-mark" aria-hidden="true"></i></div><b class="cr-now" aria-hidden="true"></b></div>
           <div class="cr-rev" aria-live="polite"></div>
@@ -8574,7 +8602,8 @@
       return;
     }
     if (r.game) onGame(r.game);
-    const got = GF.catalog.find(x => x.id === r.got) || { id: r.got, i: '🎁', t: 'Подарок', price: 0, rar: { k: 'common', t: 'Обычный' } };
+    const hwGot = (GF.hw || []).find(x => x.gift === r.got);
+    const got = GF.catalog.find(x => x.id === r.got) || (hwGot && { ...hwGot, id: hwGot.gift }) || { id: r.got, i: '🎁', t: 'Подарок', price: 0, rar: { k: 'common', t: 'Обычный' } };
     const ref = openGifts().catch(() => {});        // магазин и «Мои» под кейсом обновятся, пока он открывается
     if (CR !== C) { toast(`🎲 Выпало: ${got.i} ${got.t}!${who ? ` — подарено: ${who}` : ''}`, 5000); return; }
     Object.assign(C, { got, ref });
@@ -8650,7 +8679,7 @@
     if (CR !== C) return;
     const g = GF.catalog.find(x => x.id === C.got.id) || C.got, k = g.rar.k;
     const more = !GF.teacher && GF.coins >= GF.box && GF.bought_today < GF.per_day;
-    const sparks = Array.from({ length: CASE_SPARKS[k] || 14 }, () => {
+    const sparks = Array.from({ length: CASE_SPARKS[CASE_RANK[crRank(k)]] || 14 }, () => {
       const a = Math.random() * Math.PI * 2, r = 80 + Math.random() * 190;
       return `<i style="--dx:${Math.round(Math.cos(a) * r)}px;--dy:${Math.round(Math.sin(a) * r)}px;--s:${(0.5 + Math.random()).toFixed(2)};--dl:${(Math.random() * 0.15).toFixed(2)}s"></i>`;
     }).join('');
@@ -8659,7 +8688,7 @@
       <div class="cr-got"><small>${C.who ? `Выпало — и подарено: ${esc(C.who)}` : 'Тебе выпало'}</small><b class="nm">${esc(g.t)}</b>
         <span>${rarHtml(g)}${g.price ? ` <small>в магазине ₿ ${num(g.price)}</small>` : ''}</span></div>`;
     C.ov.classList.add('is-rev');
-    if (CASE_RANK.indexOf(k) >= 3) C.ov.classList.add('is-big');
+    if (crRank(k) >= 3) C.ov.classList.add('is-big');
     crChime(k);
     C.ov.querySelector('.cr-acts').innerHTML = `<button type="button" class="cr-btn" data-cr="again"${more ? '' : ' disabled'}>🎲 Ещё раз<small>₿ ${num(GF.box)}</small></button>
       <button type="button" class="cr-btn pri" data-cr="close">${C.who ? 'Готово' : 'Забрать'}</button>`;
@@ -9504,8 +9533,8 @@
   versionBtn?.addEventListener('click', () => {
     if (isNarrow()) setSideOpen(false);
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Что нового</h2>
-      ${SERVER && student ? `<button type="button" class="sto-launch" id="storiesGo"><span class="sto-l-ic">🎃</span><span><b>Скоро Хеллоуин!</b>
-        <small>поздравление с пробником и анонс ивента · ${storySlides().length} слайдов</small></span></button>` : ''}
+      ${SERVER && student ? `<button type="button" class="sto-launch" id="storiesGo"><span class="sto-l-ic">🎃</span><span><b>Обновление вышло: Хеллоуин!</b>
+        <small>лимитки — по 15 штук, новые темы и поздравление с пробником · ${storySlides().length} слайдов</small></span></button>` : ''}
       <div class="changelog">${CHANGELOG.map(([v, d, added, changed], i) => `<section class="cl-ver${i ? '' : ' cl-now'}">
         <h3><span class="cl-num">${v}</span><span class="fm-muted">${d}</span>${i ? '' : '<span class="chip good">сейчас</span>'}</h3>
         ${(added || []).length ? `<div class="cl-kind cl-add">✨ Добавлено</div><ul>${added.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}

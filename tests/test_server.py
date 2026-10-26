@@ -3464,6 +3464,95 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["daily"][-1]["issue"] >= 3 and d["daily"][-1]["burn"] >= 1, True)
         self.assertIsNotNone(d["daily"][-1]["price"])
 
+    def test_halloween_limited(self):
+        # лимитки Хеллоуина: в магазине — только во время ивента, ровно HW_PRICE, одному — не больше own_max; улучшение за HW_UP —
+        # наряд с картинкой и номером; в «🎲» — с шансом hw_box_chance (главный учитель меняет), учитель их не дарит
+        db = server.APP.db
+        tok = self.login("Тыквин Тихон")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        self.addCleanup(lambda: db.x("UPDATE students SET no_rank=1 WHERE id=?", (sid,)))
+        self.addCleanup(lambda: db.setting("hw_box_chance", ""))
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 30000))
+        gid = "hw_pumpkin"
+        self.assertEqual({s["id"] for s in server.hw_skins(gid)} >= {"witch", "ghost", "frank", "king"}, True)
+        with mock.patch.object(server, "HW_START", "2000-01-01"), mock.patch.object(server, "HW_END", "2000-01-02"):
+            G = self.req("GET", "/api/gifts", token=tok)[1]
+            self.assertEqual(G["hw"], [])
+            st, r = self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)
+            self.assertEqual(st, 409)
+            self.assertIn("больше не продаётся", r["error"])
+        with mock.patch.object(server, "HW_START", "2000-01-01"), mock.patch.object(server, "HW_END", "2100-01-01"):
+            G = self.req("GET", "/api/gifts", token=tok)[1]
+            offer = next(x for x in G["hw"] if x["gift"] == gid)
+            self.assertEqual((offer["price"], offer["up"], offer["cap"], offer["own_max"]), (server.HW_PRICE, server.HW_UP, 15, 2))
+            self.assertTrue(offer["img"].endswith("gift_pumpkin.webp"))
+            self.assertNotIn(gid, {c["id"] for c in G["catalog"]})                       # не в обычном каталоге
+            coins = G["coins"]
+            st, r = self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)
+            self.assertEqual(st, 200, r)
+            self.assertEqual(r["game"]["coins"], coins - server.HW_PRICE)                 # без индекса цен
+            G = self.req("GET", "/api/gifts", token=tok)[1]
+            mine = next(g for g in G["mine"] if g["gift"] == gid)
+            self.assertEqual((mine["hw"], mine["rar"]["k"], mine["up"], mine["sell"]), (True, "limited", server.HW_UP, math.floor(server.HW_PRICE * server.SELL_SHARE)))
+            self.assertEqual(self.req("GET", "/api/gifts/price?gift=" + gid, token=tok)[0], 404)
+            # улучшение — наряд с картинкой
+            st, r = self.req("POST", "/api/gifts/upgrade", {"id": mine["id"]}, tok)
+            self.assertEqual(st, 200, r)
+            self.assertEqual(r["price"], server.HW_UP)
+            u = r["gift"]["uniq"]
+            self.assertIn(u["skin"], {s["id"] for s in server.hw_skins(gid)})
+            self.assertTrue(u["img"].startswith(server.HW_DIR) and u["st"] and u["n"] >= 1)
+            self.assertIn(u["rar"]["k"], ("rare", "epic", "legend", "myth"))
+            self.assertEqual(u["props"][0]["k"], "Наряд")
+            self.assertGreater(r["gift"]["sell"], math.floor(server.HW_PRICE * server.SELL_SHARE))   # наряд добавляет цены
+            # одному — не больше двух (10 % тиража, не меньше OWN_MIN)
+            self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)[0], 200)
+            st, r = self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)
+            self.assertEqual(st, 409)
+            self.assertIn("больше одному ученику нельзя", r["error"])
+            # «🎲»: шанс по умолчанию; тыква — первой «полосой» шанса, маска — второй, у кого предел — не выпадает
+            self.assertEqual(server.hw_box_chance(db), server.HW_BOX_CHANCE)
+            self.assertEqual(server.hw_box_ev(0.1), 9.0)
+
+            class Rng:
+                def __init__(self, v):
+                    self.v = v
+
+                def random(self):
+                    return self.v
+
+                def choices(self, *a, **k):
+                    return __import__("random").choices(*a, **k)
+            ch = server.HW_BOX_CHANCE / 100
+            tok2 = self.login("Масков Мирон")
+            sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+            self.addCleanup(lambda: db.x("UPDATE students SET no_rank=1 WHERE id=?", (sid2,)))
+            self.assertEqual(server.gift_random(Rng(ch * 0.5), db, hw_sid=sid2)[0], "hw_pumpkin")
+            self.assertEqual(server.gift_random(Rng(ch * 1.5), db, hw_sid=sid2)[0], "hw_clown")
+            self.assertNotIn(server.gift_random(Rng(ch * 2.5), db, hw_sid=sid2)[0], server.HW_BY)
+            self.assertNotEqual(server.gift_random(Rng(ch * 0.5), db, hw_sid=sid)[0], "hw_pumpkin")   # у него уже две
+            self.assertNotIn(server.gift_random(Rng(0), db)[0], server.HW_BY)                        # за труд — не выпадают
+            # пока «🎲» крутился, маску раскупили — выпадает обычный подарок, тираж не превышен
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid2, time.time(), 1000))
+            server._SUPPLY.update(t=0)
+            with mock.patch.object(server, "HW_CAP", 0), \
+                    mock.patch.object(server, "gift_random", side_effect=[server.GIFT_BY["hw_clown"], server.GIFT_BY["cookie"]]):
+                st, r = self.req("POST", "/api/gifts/buy", {"gift": "box"}, tok2)
+            server._SUPPLY.update(t=0)
+            self.assertEqual((st, r.get("got")), (200, "cookie"), r)
+            # главный учитель меняет шанс; учитель лимитки не дарит
+            self.assertEqual(self.admin("POST", "/api/admin/gifts/box", {"hw_chance": 5})[0], 400)
+            st, d = self.admin("POST", "/api/admin/gifts/box", {"hw_chance": 0.5})
+            self.assertEqual((st, d["hw_chance"]), (200, 0.5))
+            st, d = self.admin("GET", "/api/admin/gifts")
+            self.assertEqual((d["box"]["hw"]["chance"], d["box"]["hw"]["set"], d["box"]["hw"]["ev"]), (0.5, True, 45.0))
+            st, d = self.admin("POST", "/api/admin/gifts/box", {"hw_chance": 0, "reset": True})
+            self.assertEqual(d["hw_chance"], server.HW_BOX_CHANCE)
+            self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sid2, "gift": gid})[0], 400)
+            st, d = self.admin("GET", "/api/admin/supply")
+            row = next(x for x in d["rows"] if x["id"] == gid)
+            self.assertEqual((row["limited"], row["price"], row["cap"]), (True, server.HW_PRICE, server.HW_CAP))
+
     def test_gift_price_chart(self):
         # график цены подарка: 30 точек (по дням и сейчас), в точке — цена на конец дня и покупки за неделю до неё
         db = server.APP.db

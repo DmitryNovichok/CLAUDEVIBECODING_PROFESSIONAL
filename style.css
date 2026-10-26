@@ -2932,7 +2932,7 @@ body.sto-open { overflow: hidden; }
 .sto-hw-duo .b1 { left: 40%; top: -8px; } .sto-hw-duo .b2 { left: 6%; top: 190px; animation-delay: .9s; font-size: 20px; } .sto-hw-duo .b3 { right: 4%; top: 20px; animation-delay: 1.7s; font-size: 18px; }
 @keyframes stBat { 0%, 100% { transform: translate(0, 0) scaleX(1); } 50% { transform: translate(10px, -10px) scaleX(-1); } }
 .sto-hw-one { display: grid; justify-items: center; gap: 8px; }
-.sto-hw-one .main { width: 128px; height: 128px; border-radius: 24px; box-shadow: 0 12px 26px rgba(0, 0, 0, .45); animation: stBob 3s ease-in-out infinite; }
+.sto-hw-one .hero { width: 128px; height: 128px; border-radius: 24px; box-shadow: 0 12px 26px rgba(0, 0, 0, .45); animation: stBob 3s ease-in-out infinite; }
 .sto-hw-one .arr { padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, .16); font-size: 13px; font-weight: 900; }
 .sto-hw-grid { display: grid; grid-template-columns: repeat(5, 46px); gap: 6px; }
 .sto-hw-grid span { animation: stIn .35s ease-out both; animation-delay: calc(var(--i) * 60ms); }
@@ -2940,7 +2940,7 @@ body.sto-open { overflow: hidden; }
 /* готовые картинки масок — со своей рамкой и тёмным полем: без нашей тени и скругления */
 .sto-hw-duo img.raw, .sto-hw-one img.raw { box-shadow: none; border-radius: 0; filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .45)); }
 .sto-hw-duo img.r.raw { width: 170px; height: 170px; right: -8px; top: 56px; }
-.sto-hw-one.masks .main { width: 170px; height: 170px; }
+.sto-hw-one.masks .hero { width: 170px; height: 170px; }
 .sto-hw-soon { padding: 4px 12px; border-radius: 999px; background: #ff9100; color: #fff; font-size: 12.5px; font-weight: 900; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }
 .sto-hw-duo img.l.raw { width: 170px; height: 170px; left: -8px; top: 6px; }
 .sto-hw-row { display: grid; grid-template-columns: repeat(4, 66px); gap: 2px; }
@@ -3054,7 +3054,7 @@ body.sto-open { overflow: hidden; }
   .sto-scr { padding: calc(env(safe-area-inset-top, 0px) + 12px) 18px calc(env(safe-area-inset-bottom, 0px) + 18px); }
 }
 @media (max-height: 700px) { .sto-art-in { transform: scale(.82); } .sto-ttl { font-size: 25px; } .sto-txt { font-size: 14.5px; } }
-@media (prefers-reduced-motion: reduce) { .sto-art-in, .sto-ttl, .sto-phone, .sto-up .ic, .sto-bonus .bolt, .sto-cong .conf i, .sto-cong .cap, .sto-hw-duo img, .sto-hw-duo .bat, .sto-hw-one .main, .sto-hw-save .coin, .sto-hw-themes .tw-w, .sto-hw-themes .tw-bat { animation: none; } .sto-island { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .sto-art-in, .sto-ttl, .sto-phone, .sto-up .ic, .sto-bonus .bolt, .sto-cong .conf i, .sto-cong .cap, .sto-hw-duo img, .sto-hw-duo .bat, .sto-hw-one .hero, .sto-hw-save .coin, .sto-hw-themes .tw-w, .sto-hw-themes .tw-bat { animation: none; } .sto-island { transition: none; } }
 
 /* ---- «🎲 Случайный подарок» как кейс (12e-case.js): коробка трясётся → крышка слетает → лента → лучи и искры цвета редкости.
    --hc — цвет редкости подарка под чертой (в конце — выпавшего) */
@@ -3240,14 +3240,44 @@ body.hw .brand-title b, body.hw .side-panel .brand b { color: #ff9100; }
 body.hw #forecastModal .fm-close { z-index: 4; }
 body.hw #forecastModal .modal-panel:has(.bx)::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 30px; pointer-events: none; z-index: 2;
   background: url(vendor/halloween/garland.svg) center top / auto 30px repeat-x; border-radius: inherit; }
-/* лимитки ивента — картинкой вместо значка */
-.ug.img { background: radial-gradient(circle at 50% 40%, #6a3d9a, #1c0f2e); } .ug.img .ug-ic img { width: 100%; height: 100%; display: block; border-radius: 18%; }
-.ug.img .ug-ic { position: absolute; inset: 0; font-size: 0; }
-.ug.img:not(.plain) .ug-ic { inset: 9%; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .5)); }
-.ug.img.r-epic { background: radial-gradient(circle at 50% 40%, #b388ff, #3a1670); }
-.ug.img.r-legend { background: radial-gradient(circle at 50% 40%, #ffd180, #8a3a00); }
-.ug.img.r-myth { background: conic-gradient(from 0deg, #ff4081, #ffd740, #69f0ae, #40c4ff, #b388ff, #ff4081); }
-.ug.img.r-rare { background: radial-gradient(circle at 50% 40%, #82b1ff, #1a3a7a); }
+/* лимитки Хеллоуина — своей картинкой (рамка уже нарисована в ней): без фона и обводки плитки, только тень;
+   у наряда — сияние цвета редкости по контуру рамки, за ней — лучи (легендарный, мифический) */
+.ug.img { background: none !important; box-shadow: none !important; }
+.ug.img .ug-ic { position: absolute; inset: 0; font-size: 0; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .45)); }
+.ug.img .ug-ic img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.ug.img .ug-gloss { display: none; }
+.ug.img.r-rare .ug-ic { filter: drop-shadow(0 0 5px var(--r-rare)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
+.ug.img.r-epic .ug-ic { filter: drop-shadow(0 0 6px var(--r-epic)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
+.ug.img.r-legend .ug-ic { filter: drop-shadow(0 0 8px var(--r-legend)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
+.ug.img.r-myth .ug-ic { filter: drop-shadow(0 0 9px var(--r-myth)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); animation: ugMythImg 4s linear infinite; }
+@keyframes ugMythImg { 0%, 100% { filter: drop-shadow(0 0 9px #ff4081); } 33% { filter: drop-shadow(0 0 9px #40c4ff); } 66% { filter: drop-shadow(0 0 9px #ffd740); } }
+.ug.img .ug-n { right: 6%; bottom: 6%; }
+.ug-sk { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ug-sk img { width: 46px; height: 46px; display: block; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .35)); }
+.ug-sk span { display: grid; justify-items: center; font-size: 10px; font-weight: 800; color: var(--muted); }
+.ug-sk span.r-epic { color: var(--r-epic); } .ug-sk span.r-legend { color: var(--r-legend); } .ug-sk span.r-myth { color: var(--r-myth); }
+/* «🎃 Хеллоуин» в магазине: две лимитки крупно */
+.bx-hw { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 4px; }
+.bx-hw-h { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; font-weight: 900; }
+.bx-hw-h small { color: var(--muted); font-weight: 700; font-size: 12px; }
+.bx-hwc { position: relative; display: grid; justify-items: center; gap: 2px; padding: 8px 8px 10px; border-radius: 18px; border: 2px solid var(--r-limited);
+  background: radial-gradient(circle at 50% 35%, rgba(255, 145, 0, .28), transparent 65%), linear-gradient(170deg, #1d0f33, #3b1a5a 60%, #6b2a1a); color: #fff;
+  cursor: pointer; font: inherit; }
+.bx-hwc img { width: 100%; max-width: 150px; aspect-ratio: 1; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .5)); transition: transform .2s; }
+.bx-hwc:hover img { transform: scale(1.05) rotate(-2deg); }
+.bx-hwc b { font-size: 15px; } .bx-hwc .bx-price { margin: 2px 0 0; }
+.bx-hwc small { color: #ffd8a8; font-weight: 800; font-size: 11.5px; }
+.bx-hwc.dim img { filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .5)) grayscale(.5); }
+.cr-it .e.img { width: 74%; aspect-ratio: 1; font-size: 0; } .cr-it .e.img img { width: 100%; height: 100%; display: block; }
+.bx-hwup { margin: 10px 0 0; } .bx-hwup > small { color: var(--muted); font-weight: 800; }
+.fb-av img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* лимитки Хеллоуина у ника, на подиуме, в профиле и в уведомлении — картинкой */
+.bdg img, .lp-ic img, .lp-av img, .ph-fly img, .gift-toast .ach-icon img { display: block; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35)); }
+.bdg img { width: 1.5em; height: 1.5em; } .bdg.bdg-img { vertical-align: middle; }
+.ugb.img, .lp-ic.lp-ug.img, .lp-av.img { background: none; border-radius: 22%; }
+.lp-ic img { width: 24px; height: 24px; } .lp-av img { width: 100%; height: 100%; }
+.ph-fly img { width: 48px; height: 48px; filter: drop-shadow(0 0 8px var(--glow, #fff)); }
+.gift-toast .ach-icon img { width: 100%; height: 100%; }
 @media (prefers-reduced-motion: reduce) { .hw-bats { display: none; } }
 body.no-anim .hw-bats { display: none; }
 .bx-lim.img .e { width: 54px; height: 54px; flex: none; } .bx-lim.img .e img { width: 100%; height: 100%; border-radius: 14px; display: block; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }

@@ -2,11 +2,14 @@
   // Что выпало, решает сервер: покупка уходит сразу, пока коробка трясётся и светится по шву. Дальше — только показ: крышка
   // слетает со вспышкой, лента подарков бежит под чертой (черта и подсветка — цвета редкости подарка под ней, по краям лента
   // уходит в глубину), замедляется и встаёт на выпавшем; потом — лучи, искры и аккорд: чем реже подарок, тем ярче.
-  // Подарки ленты — случайные с теми же шансами, что в 🎲 (дорогие реже); «чуть не выпавшее» нарочно не подставляем.
+  // Подарки ленты — случайные с теми же шансами, что в 🎲 (дорогие реже). Пока идёт Хеллоуин, лимитки (тыква, маска)
+  // часто пролетают в ленте, но рядом с выпавшим их не ставим.
   // Звуки (как в кейсе CS:GO, свои — синтез WebAudio) выключаются 🔊 (запоминается в браузере) и рубильником учителя. «Пропустить», Esc или касание ленты — сразу
   // к результату; при «уменьшить движение» в системе — сразу результат.
   const CASE_N = 60, CASE_WIN = 52, CASE_SHAKE_MS = 1300, CASE_OPEN_MS = 520, CASE_MS = 5800, CASE_SNAP_MS = 360, CASE_LAND_MS = 750;
   const CASE_RANK = ['common', 'uncommon', 'rare', 'epic', 'legend', 'myth'];
+  const crRank = k => (k === 'limited' ? 5 : Math.max(0, CASE_RANK.indexOf(k)));   // лимитка — как мифический
+  const CASE_HW = 0.3;                    // доля подарков ленты, которые — лимитки Хеллоуина (пока идёт ивент)
   const CASE_SPARKS = { common: 14, uncommon: 20, rare: 28, epic: 40, legend: 56, myth: 72 };
   const CASE_MUTE = 'egeshka.case.mute';
   let CR = null;                          // открытый кейс: { ov, got, who, done, raf, … }
@@ -91,7 +94,7 @@
   const crLand = () => { crNoise(1700, 4, 0.05, 0.22); crTone(523.25, 0.35, 0.05, 'sine', 0, 0, 0.01); };
   /** Показ выпавшего: колокольчик (основной тон и тихий обертон); чем реже подарок, тем больше нот, от эпического — искры. */
   function crChime(k) {
-    const r = Math.max(0, CASE_RANK.indexOf(k));
+    const r = crRank(k);
     [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568].slice(0, r + 1).forEach((f, i) => {
       crTone(f, 1.6, 0.05, 'sine', i * 0.11, 0, 0.015);
       crTone(f * 2.005, 0.9, 0.012, 'sine', i * 0.11, 0, 0.015);
@@ -104,7 +107,7 @@
     for (const x of cat) { r -= x.rar.p || 0; if (r <= 0) return x; }
     return cat[cat.length - 1];
   }
-  const crTile = (x, cls = '') => `<span class="cr-it r-${x.rar.k} ${cls}"><span class="e">${x.i}</span></span>`;
+  const crTile = (x, cls = '') => `<span class="cr-it r-${x.rar.k} ${cls}">${x.img ? `<span class="e img"><img src="${esc(x.img)}" alt="" draggable="false"></span>` : `<span class="e">${x.i}</span>`}</span>`;
   function openCase(who) {
     let ov = $('#caseOv');
     if (!ov) {
@@ -118,13 +121,15 @@
     }
     ov.className = 'cr-ov is-case';
     ov.style.removeProperty('--hc');
-    const items = Array.from({ length: CASE_N }, () => crPick(GF.catalog));
+    const hw = (GF.hw || []).filter(x => x.left > 0).map(x => ({ ...x, id: x.gift }));   // раскупленная не выпадет — и не пролетает
+    const items = Array.from({ length: CASE_N }, (_, i) => (hw.length && Math.abs(i - CASE_WIN) > 2 && Math.random() < CASE_HW
+      ? hw[Math.floor(Math.random() * hw.length)] : crPick(GF.catalog)));
     ov.innerHTML = `<div class="cr-box">
         <div class="cr-hd"><b>🎲 Случайный подарок</b>${who ? `<small>для ${esc(who)}</small>` : ''}
           <button type="button" class="cr-snd" data-cr="snd" aria-label="Звук" title="Звук">${crMuted ? '🔇' : '🔊'}</button></div>
         <div class="cr-stage">
           <div class="cr-case"><i class="cr-rays"></i><div class="cr-gift"><i class="cr-body"></i><i class="cr-lid"></i></div>
-            <div class="cr-tease"><small>может выпасть</small>${GF.catalog.slice(-5).reverse().map(x => crTile(x, 'mini')).join('')}</div></div>
+            <div class="cr-tease"><small>может выпасть</small>${[...hw, ...GF.catalog.slice(-5).reverse()].slice(0, 5).map(x => crTile(x, 'mini')).join('')}</div></div>
           <div class="cr-roll"><div class="cr-strip"><div class="cr-track">${items.map(x => crTile(x)).join('')}</div>
             <i class="cr-mark" aria-hidden="true"></i></div><b class="cr-now" aria-hidden="true"></b></div>
           <div class="cr-rev" aria-live="polite"></div>
@@ -153,7 +158,8 @@
       return;
     }
     if (r.game) onGame(r.game);
-    const got = GF.catalog.find(x => x.id === r.got) || { id: r.got, i: '🎁', t: 'Подарок', price: 0, rar: { k: 'common', t: 'Обычный' } };
+    const hwGot = (GF.hw || []).find(x => x.gift === r.got);
+    const got = GF.catalog.find(x => x.id === r.got) || (hwGot && { ...hwGot, id: hwGot.gift }) || { id: r.got, i: '🎁', t: 'Подарок', price: 0, rar: { k: 'common', t: 'Обычный' } };
     const ref = openGifts().catch(() => {});        // магазин и «Мои» под кейсом обновятся, пока он открывается
     if (CR !== C) { toast(`🎲 Выпало: ${got.i} ${got.t}!${who ? ` — подарено: ${who}` : ''}`, 5000); return; }
     Object.assign(C, { got, ref });
@@ -229,7 +235,7 @@
     if (CR !== C) return;
     const g = GF.catalog.find(x => x.id === C.got.id) || C.got, k = g.rar.k;
     const more = !GF.teacher && GF.coins >= GF.box && GF.bought_today < GF.per_day;
-    const sparks = Array.from({ length: CASE_SPARKS[k] || 14 }, () => {
+    const sparks = Array.from({ length: CASE_SPARKS[CASE_RANK[crRank(k)]] || 14 }, () => {
       const a = Math.random() * Math.PI * 2, r = 80 + Math.random() * 190;
       return `<i style="--dx:${Math.round(Math.cos(a) * r)}px;--dy:${Math.round(Math.sin(a) * r)}px;--s:${(0.5 + Math.random()).toFixed(2)};--dl:${(Math.random() * 0.15).toFixed(2)}s"></i>`;
     }).join('');
@@ -238,7 +244,7 @@
       <div class="cr-got"><small>${C.who ? `Выпало — и подарено: ${esc(C.who)}` : 'Тебе выпало'}</small><b class="nm">${esc(g.t)}</b>
         <span>${rarHtml(g)}${g.price ? ` <small>в магазине ₿ ${num(g.price)}</small>` : ''}</span></div>`;
     C.ov.classList.add('is-rev');
-    if (CASE_RANK.indexOf(k) >= 3) C.ov.classList.add('is-big');
+    if (crRank(k) >= 3) C.ov.classList.add('is-big');
     crChime(k);
     C.ov.querySelector('.cr-acts').innerHTML = `<button type="button" class="cr-btn" data-cr="again"${more ? '' : ' disabled'}>🎲 Ещё раз<small>₿ ${num(GF.box)}</small></button>
       <button type="button" class="cr-btn pri" data-cr="close">${C.who ? 'Готово' : 'Забрать'}</button>`;
