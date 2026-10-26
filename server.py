@@ -6468,7 +6468,7 @@ HW_SKINS = [                           # вид, id, название, карт�
     ("hw_clown", "skull", "Череп", "gift_skull.webp", "rare"), ("hw_clown", "wolf", "Оборотень", "gift_m_wolf.webp", "rare"),
     ("hw_clown", "doll", "Фарфоровая кукла", "gift_m_doll.webp", "rare"),
     ("hw_clown", "scream", "Крик", "gift_scream.webp", "epic"), ("hw_clown", "billy", "Пила", "gift_billy.webp", "epic"),
-    ("hw_clown", "demon", "Демон", "gift_m_demon.webp", "epic"), ("hw_clown", "evilclown", "Злой клоун", "gift_evilclown.webp", "epic"),
+    ("hw_clown", "demon", "Демон", "gift_m_demon.webp", "rare"), ("hw_clown", "evilclown", "Злой клоун", "gift_evilclown.webp", "rare"),
     ("hw_clown", "octopus", "Осьминог", "gift_m_octopus.webp", "epic"),
     ("hw_clown", "plague", "Чумной доктор", "gift_m_plague.webp", "legend"),
     ("hw_clown", "pharaoh", "Проклятый фараон", "gift_m_pharaoh.webp", "myth")]
