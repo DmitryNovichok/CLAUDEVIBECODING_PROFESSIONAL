@@ -6456,9 +6456,9 @@ HW_BY = {k: (k, i, t, HW_PRICE) for k, i, t, _ in HW_GIFTS}
 HW_IMG = {k: HW_DIR + f for k, _, _, f in HW_GIFTS}
 GIFT_BY.update(HW_BY)
 HW_SKINS = [                           # вид, id, название, картинка, редкость
-    ("hw_pumpkin", "witch", "Ведьма", "gift_p_witch.webp", "rare"), ("hw_pumpkin", "ghost", "Призрак", "gift_p_ghost.webp", "rare"),
+    ("hw_pumpkin", "witch", "Ведьма", "gift_p_witch.webp", "rare"), ("hw_pumpkin", "ghost", "Призрак", "gift_p_ghost.webp", "epic"),
     ("hw_pumpkin", "vampire", "Вампир", "gift_p_vampire.webp", "rare"), ("hw_pumpkin", "mummy", "Мумия", "gift_p_mummy.webp", "rare"),
-    ("hw_pumpkin", "frank", "Франкенштейн", "gift_p_frank.webp", "epic"), ("hw_pumpkin", "pirate", "Пират", "gift_p_pirate.webp", "epic"),
+    ("hw_pumpkin", "frank", "Франкенштейн", "gift_p_frank.webp", "epic"), ("hw_pumpkin", "pirate", "Пират", "gift_p_pirate.webp", "rare"),
     ("hw_pumpkin", "cat", "Чёрный кот", "gift_p_cat.webp", "epic"), ("hw_pumpkin", "king", "Золотой король", "gift_p_king.webp", "legend"),
     ("hw_pumpkin", "aztec", "Ацтекский вождь", "gift_p_aztec.webp", "legend"),
     ("hw_pumpkin", "hell", "Адская тыква", "gift_p_hell.webp", "myth"),
