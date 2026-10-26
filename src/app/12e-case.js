@@ -107,7 +107,7 @@
     for (const x of cat) { r -= x.rar.p || 0; if (r <= 0) return x; }
     return cat[cat.length - 1];
   }
-  const crTile = (x, cls = '') => `<span class="cr-it r-${x.rar.k} ${cls}">${x.img ? `<span class="e img"><img src="${esc(x.img)}" alt="" draggable="false"></span>` : `<span class="e">${x.i}</span>`}</span>`;
+  const crTile = (x, cls = '') => `<span class="cr-it r-${x.rar.k} ${cls}">${x.img ? `<span class="e img">${giftImg(x.img)}</span>` : `<span class="e">${x.i}</span>`}</span>`;
   function openCase(who) {
     let ov = $('#caseOv');
     if (!ov) {

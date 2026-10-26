@@ -3240,26 +3240,22 @@ body.hw .brand-title b, body.hw .side-panel .brand b { color: #ff9100; }
 body.hw #forecastModal .fm-close { z-index: 4; }
 body.hw #forecastModal .modal-panel:has(.bx)::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 30px; pointer-events: none; z-index: 2;
   background: url(vendor/halloween/garland.svg) center top / auto 30px repeat-x; border-radius: inherit; }
-/* лимитки Хеллоуина — своей картинкой (рамка уже нарисована в ней): без фона и обводки плитки, только тень;
-   у наряда — сияние цвета редкости по контуру рамки, за ней — лучи (легендарный, мифический) */
-.ug.img { background: none !important; box-shadow: none !important; }
-.ug.img .ug-ic { position: absolute; inset: 0; font-size: 0; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .45)); }
-.ug.img .ug-ic img { width: 100%; height: 100%; display: block; object-fit: contain; }
-.ug.img .ug-gloss { display: none; }
-.ug.img.r-rare .ug-ic { filter: drop-shadow(0 0 5px var(--r-rare)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
-.ug.img.r-epic .ug-ic { filter: drop-shadow(0 0 6px var(--r-epic)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
-.ug.img.r-legend .ug-ic { filter: drop-shadow(0 0 8px var(--r-legend)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); }
-.ug.img.r-myth .ug-ic { filter: drop-shadow(0 0 9px var(--r-myth)) drop-shadow(0 3px 5px rgba(0, 0, 0, .4)); animation: ugMythImg 4s linear infinite; }
-@keyframes ugMythImg { 0%, 100% { filter: drop-shadow(0 0 9px #ff4081); } 33% { filter: drop-shadow(0 0 9px #40c4ff); } 66% { filter: drop-shadow(0 0 9px #ffd740); } }
+/* лимитки Хеллоуина — своей картинкой: в плитке — миниатюра, обрезанная по рамке (*_t.webp), на всю плитку;
+   обводка и свечение — цвета редкости, как у остальных подарков */
+.ug.img { background: #1b1030; }
+.ug.img .ug-ic { position: absolute; inset: 0; font-size: 0; }
+.ug.img .ug-ic img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .ug.img .ug-n { right: 6%; bottom: 6%; }
 /* наряды лимитки в шторке: по 5 в ряд на всю ширину — 10 нарядов ровно в два ряда */
 .ug-sk { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 8px; margin-top: 8px; }
-.ug-sk img { width: 100%; max-width: 112px; aspect-ratio: 1; height: auto; display: block; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .35));
+.ug-sk img { width: 100%; max-width: 104px; aspect-ratio: 1; height: auto; display: block; border-radius: 16%; box-shadow: 0 3px 8px rgba(0, 0, 0, .3);
   transition: transform .15s; }
 .ug-sk span:hover img { transform: scale(1.06); }
 .ug-sk span { display: grid; justify-items: center; align-content: start; gap: 4px; font-size: 11.5px; font-weight: 800; line-height: 1.15;
   color: var(--muted); text-align: center; }
 .ug-sk span.r-epic { color: var(--r-epic); } .ug-sk span.r-legend { color: var(--r-legend); } .ug-sk span.r-myth { color: var(--r-myth); }
+.ug-sk span.r-rare img { box-shadow: 0 0 0 2px var(--r-rare), 0 3px 8px rgba(0, 0, 0, .3); } .ug-sk span.r-epic img { box-shadow: 0 0 0 2px var(--r-epic), 0 0 8px var(--r-epic); }
+.ug-sk span.r-legend img { box-shadow: 0 0 0 2px var(--r-legend), 0 0 10px var(--r-legend); } .ug-sk span.r-myth img { box-shadow: 0 0 0 2px var(--r-myth), 0 0 12px var(--r-myth); }
 /* «🎃 Хеллоуин» в магазине: две лимитки крупно */
 .bx-hw { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 4px; }
 .bx-hw-h { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; font-weight: 900; }
@@ -3272,15 +3268,15 @@ body.hw #forecastModal .modal-panel:has(.bx)::before { content: ''; position: ab
 .bx-hwc b { font-size: 15px; } .bx-hwc .bx-price { margin: 2px 0 0; }
 .bx-hwc small { color: #ffd8a8; font-weight: 800; font-size: 11.5px; }
 .bx-hwc.dim img { filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .5)) grayscale(.5); }
-.cr-it .e.img { width: 74%; aspect-ratio: 1; font-size: 0; } .cr-it .e.img img { width: 100%; height: 100%; display: block; }
+.cr-it .e.img { width: 70%; aspect-ratio: 1; font-size: 0; } .cr-it .e.img img { width: 100%; height: 100%; display: block; border-radius: 16%; }
 .bx-hwup { margin: 10px 0 0; } .bx-hwup > small { color: var(--muted); font-weight: 800; }
-.fb-av img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.fb-av.img { overflow: hidden; border-radius: 22%; background: #1b1030; } .fb-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* лимитки Хеллоуина у ника, на подиуме, в профиле и в уведомлении — картинкой */
-.bdg img, .lp-ic img, .lp-av img, .ph-fly img, .gift-toast .ach-icon img { display: block; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35)); }
+.bdg img, .lp-ic img, .lp-av img, .ph-fly img, .gift-toast .ach-icon img { display: block; object-fit: cover; border-radius: 22%; }
 .bdg img { width: 1.5em; height: 1.5em; } .bdg.bdg-img { vertical-align: middle; }
-.ugb.img, .lp-ic.lp-ug.img, .lp-av.img { background: none; border-radius: 22%; }
-.lp-ic img { width: 24px; height: 24px; } .lp-av img { width: 100%; height: 100%; }
-.ph-fly img { width: 48px; height: 48px; filter: drop-shadow(0 0 8px var(--glow, #fff)); }
+.ugb.img, .lp-ic.lp-ug.img, .lp-av.img { background: #1b1030; border-radius: 22%; overflow: hidden; }
+.lp-ic img { width: 24px; height: 24px; } .lp-av img, .ugb.img img, .lp-ic.lp-ug.img img { width: 100%; height: 100%; }
+.ph-fly img { width: 48px; height: 48px; box-shadow: 0 0 12px var(--glow, #fff); }
 .gift-toast .ach-icon img { width: 100%; height: 100%; }
 @media (prefers-reduced-motion: reduce) { .hw-bats { display: none; } }
 body.no-anim .hw-bats { display: none; }
