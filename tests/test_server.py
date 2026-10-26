@@ -3505,6 +3505,11 @@ class ServerTest(unittest.TestCase):
             self.assertIn(u["rar"]["k"], ("rare", "epic", "legend", "myth"))
             self.assertEqual(u["props"][0]["k"], "Наряд")
             self.assertGreater(r["gift"]["sell"], math.floor(server.HW_PRICE * server.SELL_SHARE))   # наряд добавляет цены
+            # лимитка — «главная»: выше любого уникального, её наряд — ещё выше; у ника — первой
+            self.assertGreater(server.gift_rank(gid), server.gift_rank("castle", "myth"))
+            self.assertGreater(server.gift_rank(gid, "rare"), server.gift_rank(gid))
+            first = server.gift_icons(db, sid)[0]
+            self.assertTrue((first.get("u") or first).get("img"))
             # одному — не больше двух (10 % тиража, не меньше OWN_MIN)
             self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)[0], 200)
             st, r = self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)

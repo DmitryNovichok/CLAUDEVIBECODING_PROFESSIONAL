@@ -112,10 +112,13 @@
   const giftsHtml = r => (r.gifts || []).length ? ` <span class="lb-gifts">${r.gifts.map(giftBadge).join('')}</span>` : '';
   const placeHtml = p => p <= 3 ? ['🥇', '🥈', '🥉'][p - 1] : p;
   // ---- подиум + список: тройка лидеров крупно, остальные строкой; аватар — самый редкий уникальный подарок
+  // «главный» подарок (как gift_rank на сервере): лимитка Хеллоуина — выше любого уникального, её наряд — ещё выше по редкости
   const GIFT_RANK = { myth: 4, legend: 3, epic: 2, rare: 1 };
-  const topGift = r => (r.gifts || []).filter(g => g.u).sort((a, b) => (GIFT_RANK[b.u.r] || 0) - (GIFT_RANK[a.u.r] || 0))[0];
+  const iconRank = g => (g.u ? (g.u.img ? 100 : 0) + (GIFT_RANK[g.u.r] || 0) : g.img ? 100 : 0);
+  const topGift = r => (r.gifts || []).filter(g => iconRank(g) > 0).sort((a, b) => iconRank(b) - iconRank(a))[0];
   function lbAvatar(r, size) {
     const g = topGift(r);
+    if (g && !g.u) return `<span class="lp-av img r-limited" style="--s:${size}px" title="${esc(g.t)}">${giftImg(g.img)}</span>`;   // лимитка без улучшения
     return g ? `<span class="lp-av${g.u.img ? ' img' : ''} r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2};--s:${size}px" title="${esc(g.t)}">${g.u.img ? giftImg(g.u.img) : `<i class="gfx-${g.u.fx}">${esc(g.i)}</i>`}</span>`
       : `<span class="lp-av plain" style="--s:${size}px" aria-hidden="true">${esc(((r.name || '?').trim()[0]) || '?')}</span>`;
   }
@@ -324,10 +327,13 @@
       ${nickLine}
       ${body}`;
   }
-  const FLY_RANK = { myth: 0, legend: 1, epic: 2, rare: 3 };
-  const byRank = (a, b) => (FLY_RANK[a.uniq.rar.k] ?? 9) - (FLY_RANK[b.uniq.rar.k] ?? 9) || a.uniq.n - b.uniq.n;
-  /** Улучшенные подарки, которые летают в шапке профиля: сначала самые редкие (при равной редкости — меньший номер), до 6. */
-  const profFlyers = P => (P.gift_list || []).filter(g => g.uniq).sort(byRank).slice(0, 6);
+  /** Насколько подарок «главный»: лимитка Хеллоуина (hw) — выше любого уникального, её наряд — ещё выше по редкости. */
+  const giftRank = g => (g.hw ? 100 : 0) + (g.uniq ? GIFT_RANK[g.uniq.rar.k] || 0 : 0);
+  const byRank = (a, b) => giftRank(b) - giftRank(a) || (a.uniq ? a.uniq.n : 0) - (b.uniq ? b.uniq.n : 0);
+  /** Что летает в шапке профиля: лимитки Хеллоуина и улучшенные подарки, сначала самые главные (при равной редкости —
+   *  меньший номер), до 6. Цвет шапки — по первому. */
+  const profFlyers = P => (P.gift_list || []).filter(g => g.uniq || g.hw).sort(byRank).slice(0, 6);
+  const HW_HERO = { c1: '#ff9a3c', c2: '#3b1a5a', ch: '✦' };    // шапка, когда главная — лимитка без улучшения
   /** Кольцо прогресса до следующего уровня вокруг круга с уровнем. */
   function xpRing(cur, need) {
     const r = 56, c = 2 * Math.PI * r, part = need ? Math.min(1, cur / need) : 0;
@@ -337,10 +343,14 @@
   /** Шапка профиля: цвет и узор самого редкого улучшенного подарка (без них — цвета сайта), уровень с кольцом XP,
    *  вокруг летают уникальные подарки. */
   function profHeroHtml(P, fly, info) {
-    const u = fly.length ? fly[0].uniq : null;
-    const pat = u ? Array.from({ length: 12 }, (_, k) => `<i class="ph-p p${k}">${esc(u.ch)}</i>`).join('') : '';
+    const u = fly.length ? fly[0].uniq || HW_HERO : null;
+    const pat = u ? Array.from({ length: 12 }, (_, k) => `<i class="ph-p p${k}">${esc(u.ch || (fly[0].hw ? HW_HERO.ch : ''))}</i>`).join('') : '';
     const items = fly.map((g, k) => {
-      const tip = `${g.t} #${g.uniq.n} · ${g.uniq.rar.t}`, pose = g.uniq.pose || 'stand';
+      if (!g.uniq) {                                         // лимитка без улучшения
+        const tip = `${g.t} · ${g.rar.t}`;
+        return `<button type="button" class="ph-fly f${k}" data-fly="${esc(tip)}" title="${esc(tip)}" aria-label="${esc(tip)}" style="--glow:${HW_HERO.c1}">${giftImg(g.img)}</button>`;
+      }
+      const tip = `${g.t}${g.uniq.st ? ' · ' + g.uniq.st : ''} #${g.uniq.n} · ${g.uniq.rar.t}`, pose = g.uniq.pose || 'stand';
       return `<button type="button" class="ph-fly f${k}" data-fly="${esc(tip)}" title="${esc(tip)}" aria-label="${esc(tip)}" style="--glow:${g.uniq.c1}">
         ${g.uniq.img ? giftImg(g.uniq.img) : `<span class="ug-ic gfx-${g.uniq.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span>`}</button>`;
     }).join('');
@@ -356,7 +366,7 @@
     const tip = g => [g.t + (g.uniq ? ' #' + g.uniq.n : ''), gfRar(g) ? `${gfRar(g).t}: ${rarWhy(g)}` : '',
       g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)].filter(Boolean).join(' · ');
     const V = P.gift_value;
-    const sorted = [...list.filter(g => g.uniq).sort(byRank), ...list.filter(g => !g.uniq)];
+    const sorted = [...list.filter(g => giftRank(g) > 0).sort(byRank), ...list.filter(g => !giftRank(g))];
     return `${V && V.n ? `<div class="pf-value" title="Столько дадут, если продать все подарки сейчас; в магазине такие стоят ${V.shop.toLocaleString('ru-RU')} ₿">
         <span class="fm-muted">💎 Оценка коллекции</span><b>≈ ${V.sell.toLocaleString('ru-RU')} ₿</b></div>` : ''}
       <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : g.img ? `<span class="ug plain img r-${g.rar.k}"><span class="ug-ic">${giftImg(g.img)}</span></span>`

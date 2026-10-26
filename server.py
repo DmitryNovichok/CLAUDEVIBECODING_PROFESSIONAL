@@ -3291,7 +3291,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "gift_value": gift_value(gift_rows(db, sid, limit=100000, prices=(ge, uniq_issued(db), gdem)), ge, gdem),
                 # все подарки — витриной в профиле: сначала уникальные; подпись учителя видит только сам ученик
                 "gift_list": sorted(({k: v for k, v in g.items() if sid == s["id"] or k != "note"} for g in gift_rows(db, sid, limit=120)),
-                                    key=lambda g: (g["uniq"] is None, -g["ts"])),
+                                    key=lambda g: (-gift_rank(g["gift"], g["uniq"]["rar"]["k"] if g["uniq"] else None),
+                                                   g["uniq"] is None, -g["ts"])),
                 "chosen": chosen, "max": BADGES_MAX})
 
         if path == "/api/leaderboard":
@@ -7771,22 +7772,32 @@ def uniq_pub(raw):
             "props": [{"k": a, "t": b, "p": round(100 * c, 1)} for a, b, c in parts]}
 
 
+GIFT_TIER = {"rare": 1, "epic": 2, "legend": 3, "myth": 4}
+
+
+def gift_rank(gid, k=None):
+    """Какой подарок «главный» (больше — главнее): лимитка Хеллоуина — выше любого уникального, её наряд — ещё выше
+    по редкости; уникальный — по редкости (k); обычный — 0. По нему — аватарка, шапка профиля, витрина и значки у ника."""
+    return (100 if gid in HW_BY else 0) + GIFT_TIER.get(k, 0)
+
+
 def gift_icons(db, sid):
-    """Подарки у ника: сначала уникальные (каждый отдельно, с номером), потом обычные — разные, последний полученный первым,
-    одинаковые — числом."""
+    """Подарки у ника: самые главные (gift_rank) первыми — лимитки Хеллоуина, потом уникальные (каждый отдельно, с номером),
+    потом обычные — разные, последний полученный первым, одинаковые — числом."""
     out = []
     for r in db.q("SELECT gift, uniq FROM gifts WHERE student_id=? AND uniq IS NOT NULL AND sold IS NULL ORDER BY ts DESC", (sid,)):
         g, u = GIFT_BY.get(r["gift"]), uniq_pub(r["uniq"])
         if g and u:
             out.append({"i": g[1], "t": f"{g[2]} #{u['n']} · {u['rar']['t']} · " + ", ".join(x["t"] for x in u["props"]), "n": 0,
                         "u": {"c1": u["c1"], "c2": u["c2"], "fx": u["fx"], "pose": u["pose"], "r": u["rar"]["k"],
-                              **({"img": u["img"]} if u.get("img") else {})}})
+                              **({"img": u["img"]} if u.get("img") else {})}, "_r": gift_rank(g[0], u["rar"]["k"])})
     for r in db.q("""SELECT gift, COUNT(*) c, MAX(ts) t FROM gifts WHERE student_id=? AND uniq IS NULL AND sold IS NULL
                      GROUP BY gift ORDER BY t DESC""", (sid,)):
         g = GIFT_BY.get(r["gift"])
         if g:
             out.append({"i": g[1], "t": f"Подарок: {g[2]} · {gift_rarity(g[0])['t']}", "n": r["c"] if r["c"] > 1 else 0,
-                        **({"img": HW_IMG[g[0]]} if g[0] in HW_IMG else {})})
+                        **({"img": HW_IMG[g[0]]} if g[0] in HW_IMG else {}), "_r": gift_rank(g[0])})
+    out.sort(key=lambda x: -x.pop("_r"))                   # сортировка устойчивая: внутри ранга — прежний порядок
     return out[:GIFTS_SHOW]
 
 
@@ -7852,10 +7863,15 @@ def gift_rk(g):
     return ("u:" + g["uniq"]["rar"]["k"]) if g.get("uniq") else g["rar"]["k"]
 
 
+HW_SCORE = 300                          # лимитка Хеллоуина — редче любого обычного уникального (мифический замок ≈ 250)
+
+
 def rare_score(g):
     """Очки редкости подарка: по уровню (RARE_SCORE); у уникального — ещё × √(каталожная цена / средняя по каталогу): мифическая
-    печенька (улучшение — 100 ₿) весит меньше мифического замка."""
+    печенька (улучшение — 100 ₿) весит меньше мифического замка. Лимитка Хеллоуина — HW_SCORE и сверху — её наряд."""
     s = RARE_SCORE.get(gift_rk(g), 0)
+    if g["gift"] in HW_BY:
+        return HW_SCORE + (s * (HW_PRICE / AVG_GIFT) ** 0.5 if g.get("uniq") else 0)
     return s * (GIFT_BY[g["gift"]][3] / AVG_GIFT) ** 0.5 if g.get("uniq") else s
 
 
@@ -7891,7 +7907,7 @@ def forbes_data(db, tid, e=None):
         value = sum(g["worth"] for g in gifts)
         rows.append({"sid": m["id"], "name": short_name(m["name"]), "wallet": wallet, "value": value, "total": wallet + value,
                      "n": len(gifts), "tops": [gift_tile(g) for g in gifts[:4]], "best": gift_tile(gifts[0]) if gifts else None,
-                     "avatar": gift_tile(rarest) if rarest and rarest["uniq"] else None, "rarest": gift_tile(rarest) if rarest else None,
+                     "avatar": gift_tile(rarest) if rarest and (rarest["uniq"] or rarest["gift"] in HW_BY) else None, "rarest": gift_tile(rarest) if rarest else None,
                      "score": round(sum(rare_score(g) for g in gifts), 1), "tiers": tiers,
                      "new": now - created.get(m["id"], 0) < FORBES_NEW_DAYS * 86400, "_gifts": gifts})
     # снимок сегодня и рост за неделю: от самого раннего снимка за последние 7 дней (без сегодняшнего)
