@@ -490,7 +490,7 @@
     }
     // парные скобки и кавычки: открыл — сразу закрылась, курсор внутри; закрывающую поверх такой же — просто перешагнуть
     const PAIR = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
-    if (!(e.ctrlKey && !e.altKey) && !e.metaKey && !e.isComposing && e.key.length === 1) {   // AltGr = Ctrl+Alt — тоже ввод символа
+    if (!(e.ctrlKey && !e.altKey) && !e.metaKey && !e.isComposing && e.key && e.key.length === 1) {   // AltGr = Ctrl+Alt — тоже ввод символа
       const k = e.key, nx = v[b] || '', pv = v[a - 1] || '';
       const isQ = k === '"' || k === "'";
       if (a === b && (')]}'.includes(k) || isQ) && nx === k) { e.preventDefault(); ta.setSelectionRange(a + 1, a + 1); pyPaint(); return; }

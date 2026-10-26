@@ -13,7 +13,7 @@
 <meta name="theme-color" content="#58cc02">
 <script>/* ошибки JavaScript — на сервер: главный учитель видит их во вкладке «Ошибки» (каждая разная — раз за загрузку, не больше 10) */
 (function(){var sent={},n=0;function rep(m,s,st){try{m=String(m||'').slice(0,300);s=String(s||'');
-if(!m||n>=10||(/^Script error\.?$/.test(m)&&!s)||/extension:\/\/|ResizeObserver loop|Failed to fetch|NetworkError|Load failed|aborted/i.test(m+' '+s))return;
+if(!m||n>=10||(/^Script error\.?$/.test(m)&&!s)||/extension:\/\/|contentScript|ResizeObserver loop|Failed to fetch|NetworkError|Load failed|aborted/i.test(m+' '+s+' '+String(st||'')))return;
 var k=m+'|'+s;if(sent[k])return;sent[k]=1;n++;var v='',h={'Content-Type':'application/json'};try{v=window.EGE_CHANGELOG.student[0][0];}catch(e){}try{var u=JSON.parse(localStorage.getItem('egeTrainer.student.v1')||'null');if(u&&u.token)h['X-Token']=u.token;}catch(e){}
 fetch('api/jserr',{method:'POST',keepalive:true,headers:h,body:JSON.stringify({app:'site',msg:m,src:s,stack:String(st||'').slice(0,2000),page:location.pathname+location.hash,ver:v})}).catch(function(){});}catch(e){}}
 addEventListener('error',function(e){if(e.target&&e.target!==window)return;rep(e.message,e.filename?e.filename+':'+e.lineno+':'+e.colno:'',e.error&&e.error.stack);},true);

@@ -4676,7 +4676,7 @@
   document.addEventListener('keydown', e => {
     if (!bdOpen() || e.target.closest('input, textarea, select, [contenteditable]')) return;
     if (!$('#forecastModal').hidden) return;
-    const k = e.key.toLowerCase();
+    const k = String(e.key || '').toLowerCase();                 // у автозаполнения и части клавиш key нет
     if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я') && !e.shiftKey) { e.preventDefault(); bdUndo(); return; }
     if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н' || ((k === 'z' || k === 'я') && e.shiftKey))) { e.preventDefault(); bdRedoAct(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -5347,7 +5347,7 @@
     }
     // парные скобки и кавычки: открыл — сразу закрылась, курсор внутри; закрывающую поверх такой же — просто перешагнуть
     const PAIR = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
-    if (!(e.ctrlKey && !e.altKey) && !e.metaKey && !e.isComposing && e.key.length === 1) {   // AltGr = Ctrl+Alt — тоже ввод символа
+    if (!(e.ctrlKey && !e.altKey) && !e.metaKey && !e.isComposing && e.key && e.key.length === 1) {   // AltGr = Ctrl+Alt — тоже ввод символа
       const k = e.key, nx = v[b] || '', pv = v[a - 1] || '';
       const isQ = k === '"' || k === "'";
       if (a === b && (')]}'.includes(k) || isQ) && nx === k) { e.preventDefault(); ta.setSelectionRange(a + 1, a + 1); pyPaint(); return; }
@@ -8812,7 +8812,7 @@
     if (guardOn() && e.target.closest && e.target.closest(GUARD_SEL) && !guardEditable(e.target)) e.preventDefault();
   });
   document.addEventListener('keydown', e => {                     // сохранить страницу, исходный код — нельзя
-    const k = e.key.toLowerCase();
+    const k = String(e.key || '').toLowerCase();                 // у автозаполнения и части клавиш key нет
     if (guardOn() && (e.ctrlKey || e.metaKey) && !e.shiftKey && (k === 's' || k === 'u' || k === 'ы' || k === 'г')) e.preventDefault();
   }, true);
   // ═══════ src/app/12g-sound.js
@@ -9132,7 +9132,7 @@
     if (!m) return;
     if (!e.isTrusted) { m.synth++; return; }
     BOT.lastKey = performance.now();
-    if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!e.key || e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
     m.keys++;
     if (m.kt && BOT.lastKey - m.kt < 600 && m.gaps.length < 60) m.gaps.push(BOT.lastKey - m.kt);   // паузы между словами — не в счёт
     m.kt = BOT.lastKey;

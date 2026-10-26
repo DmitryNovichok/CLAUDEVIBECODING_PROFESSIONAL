@@ -81,6 +81,6 @@
     if (guardOn() && e.target.closest && e.target.closest(GUARD_SEL) && !guardEditable(e.target)) e.preventDefault();
   });
   document.addEventListener('keydown', e => {                     // сохранить страницу, исходный код — нельзя
-    const k = e.key.toLowerCase();
+    const k = String(e.key || '').toLowerCase();                 // у автозаполнения и части клавиш key нет
     if (guardOn() && (e.ctrlKey || e.metaKey) && !e.shiftKey && (k === 's' || k === 'u' || k === 'ы' || k === 'г')) e.preventDefault();
   }, true);
