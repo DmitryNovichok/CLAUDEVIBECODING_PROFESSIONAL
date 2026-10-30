@@ -1461,6 +1461,8 @@ class DB:
             CREATE INDEX IF NOT EXISTS market_deals_ts ON market_deals(ts);
             -- оценка рынка по ключу (вид, у уникального — и редкость): доля опорной цены, сглаженная — не больше ±VAL_STEP в сутки
             CREATE TABLE IF NOT EXISTS market_vals(mkey TEXT PRIMARY KEY, ratio REAL, day TEXT);
+            -- коэффициент рынка по дням (сегодняшний пересчитывается после каждой сделки): «за неделю» и шаг за сутки
+            CREATE TABLE IF NOT EXISTS market_hist(day TEXT, mkey TEXT, ratio REAL, PRIMARY KEY(day, mkey));
             -- тиражи: сколько всего может быть выпущено подарков вида (на весь сайт)
             CREATE TABLE IF NOT EXISTS gift_supply(gift TEXT PRIMARY KEY, cap INTEGER NOT NULL);
             -- журнал тиражей: выпуск (source — shop, box, work, teacher, limited), улучшение, продажа сразу, удаление, сделка на рынке
@@ -2859,9 +2861,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if path == "/api/gifts/unlist":
                     db.x("UPDATE gifts SET listed=NULL, listed_ts=NULL, auc_end=NULL, buy_now=NULL WHERE id=?", (r["id"],))
                     return self.send_json({"ok": True})
-                u, dem = uniq_pub(r["uniq"]) if r["uniq"] else None, gift_demand(db)
+                u, dem, mv = uniq_pub(r["uniq"]) if r["uniq"] else None, gift_demand(db), market_vals(db)
                 start = max(1, gift_sell_price(r["gift"], u, e, None, dem, r["paid"], r["up_base"]))
-                cap = max(start + 1, market_cap(r["gift"], u, e, dem, r["up_base"]))
+                cap = max(start + 1, market_cap(r["gift"], u, e, dem, r["up_base"], mv))
+                hours = to_int(data.get("hours")) if to_int(data.get("hours")) in AUC_HOURS_SET else AUC_HOURS
                 bn = to_int(data.get("buy_now") or data.get("price")) or None     # price — прежнее имя (цена лота)
                 if bn is not None and not start < bn <= cap:
                     return self.err(400, f"«Купить сразу» — от {start + 1} до {cap} ₿ (или без неё)")
@@ -2874,12 +2877,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         return self.err(429, f"На рынке может быть не больше {MARKET_MAX_LISTED} твоих подарков — сними какой-нибудь")
                     now = time.time()
                     db.x("UPDATE gifts SET listed=?, listed_ts=?, auc_end=?, buy_now=?, bid_n=0 WHERE id=?",
-                         (start, now, now + AUC_HOURS * 3600, bn, r["id"]))
+                         (start, now, now + hours * 3600, bn, r["id"]))
                 else:
                     db.x("UPDATE gifts SET buy_now=? WHERE id=?", (bn, r["id"]))
                 fee = market_fee(e, r)
-                return self.send_json({"ok": True, "start": start, "buy_now": bn, "hours": AUC_HOURS, "fee": fee,
-                                       "get": bn - market_fee_amt(bn, fee, market_ref(r["gift"], u, e, dem, r["up_base"])) if bn else None})
+                return self.send_json({"ok": True, "start": start, "buy_now": bn, "hours": hours, "fee": fee,
+                                       "get": bn - market_fee_amt(bn, fee, market_base(r["gift"], u, e, dem, r["up_base"], mv)) if bn else None})
             if path in ("/api/gifts/bid", "/api/gifts/mbuy"):
                 # ставка на лот одноклассника (₿ замораживаются, прежнему лидеру — возврат; в последние 5 минут торги
                 # продлеваются) или «купить сразу» — сделка тут же, лидеру торгов — возврат
@@ -2906,7 +2909,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         amount, need = to_int(data.get("amount")), auc_next(r)
                         if not amount or amount < need:
                             return self.err(409, f"Ставку уже перебили: теперь — от {need} ₿")
-                        cap = market_cap(r["gift"], uniq_pub(r["uniq"]) if r["uniq"] else None, e, gift_demand(db), r["up_base"])
+                        cap = market_cap(r["gift"], uniq_pub(r["uniq"]) if r["uniq"] else None, e, gift_demand(db), r["up_base"], market_vals(db))
                         if amount > cap:
                             return self.err(400, f"Ставка — не больше {cap} ₿: дороже этот подарок не продают" if need <= cap
                                             else "Ставки дошли до самой высокой цены этого подарка — перебить уже нельзя")
@@ -2916,11 +2919,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if own_count(db, s["id"], r["gift"]) >= om:
                         return self.err(409, f"У тебя уже {om} «{GIFT_BY[r['gift']][2]}» — больше одному ученику нельзя "
                                              f"(это {round(OWN_SHARE * 100)}% тиража)")
-                    have = game_summary(db, s["id"])["coins"]
-                    if have < amount:
-                        return self.err(400, f"Не хватает биткоинов: нужно {amount} ₿, у тебя {have} ₿")
+                    have, total = game_summary(db, s["id"])["coins"], amount + buy_fee(amount)   # ставка и сбор покупателя
+                    if have < total:
+                        return self.err(400, f"Не хватает биткоинов: нужно {total} ₿, у тебя {have} ₿")
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id, note) VALUES(?,?,?, 'bid', ?, ?)",
-                         (s["id"], now, -amount, r["id"], short_name(seller["name"])))
+                         (s["id"], now, -total, r["id"], short_name(seller["name"])))
                     db.x("INSERT INTO bids(gift_id, sid, amount, ts) VALUES(?,?,?,?)", (r["id"], s["id"], amount, now))
                     auc_refund(db, r, now, "твою ставку перебили" if amount != r["buy_now"] else "его купили сразу")
                     bought, fee = bool(r["buy_now"]) and amount == r["buy_now"], None
@@ -2951,7 +2954,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "mine": mine, "value": gift_value(mine, e, dem),
                 "supply": {k: {f: x[f] for f in ("cap", "left", "alive", "burned", "up", "live", "own_max")} for k, x in sup_all.items()},
                 "market": market_rows(db, [s["id"]] + [m["id"] for m in mates], s["id"], e, issued, dem),
-                "market_fee": e["fee"], "market_fee_box": MARKET_FEE_BOX, "market_min": MARKET_MIN, "market_max": MARKET_MAX, "market_max_listed": MARKET_MAX_LISTED,
+                "market_fee": MARKET_FEE_SELL, "buy_fee": MARKET_FEE_BUY, "auc_hours_set": AUC_HOURS_SET, "market_min": MARKET_MIN, "market_max": MARKET_MAX, "market_max_listed": MARKET_MAX_LISTED,
                 "auc_hours": AUC_HOURS, "auc_step": AUC_STEP, "auc_snipe": AUC_SNIPE, "over_k": OVER_K, "over_fee": OVER_FEE, "relist_h": RELIST_H, "buyback_days": BUYBACK_DAYS, "promo": promo_now(db),
                 "mates": sorted(({"sid": m["id"], "name": short_name(m["name"])} for m in mates), key=lambda x: x["name"]),
                 "bought_today": db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], time.time() - 86400), one=True)["c"],
@@ -6560,40 +6563,43 @@ _THERMO = {"db": None, "ts": [], "earn": [], "last": None}
 SELL_SHARE = 0.9
 SELL_UNIQ = {"rare": 0.45, "epic": 0.9, "legend": 2.2, "myth": 6.0}
 # Рынок: ученик выставляет свой подарок за свою цену, одноклассник (ученик того же учителя) покупает; подарок переходит
-# к покупателю вместе с номером и свойствами, продавец получает цену минус комиссия — комиссия уходит в банк рынка.
-# Комиссию ставит термостат (5–20 %); MARKET_FEE — с неё он стартует. Подарок, выпавший в «🎲 Случайном подарке» (kind='box'),
-# при первой продаже на рынке — с комиссией MARKET_FEE_BOX: иначе выгодно покупать «🎲» и перепродавать дорогие выпадения;
-# с перепродажи (уже куплен на рынке) — обычная.
+# к покупателю вместе с номером и свойствами. Комиссия рынка — 5 %: MARKET_FEE_SELL с продавца (вычитается из цены) и
+# MARKET_FEE_BUY с покупателя (сверху ставки, замораживается вместе с ней) — обе в банк рынка. MARKET_FEE — стартовое
+# значение рычага «комиссия» термостата: теперь от него зависит только комиссия операций (op_fee), не рынок.
 MARKET_FEE = 0.10
-MARKET_FEE_BOX = 0.5
+MARKET_FEE_SELL = 0.025
+MARKET_FEE_BUY = 0.025
 # Рынок — аукцион: стартовая цена лота — сколько дадут, если продать сразу; торги идут AUC_HOURS часов, каждая ставка —
 # хотя бы на AUC_STEP выше прошлой, ₿ за ставку замораживаются (строка coins 'bid'), перебитому возвращаются ('bidback').
 # Ставка за AUC_SNIPE секунд до конца продлевает торги на AUC_SNIPE. Итог: подарок — тому, чья ставка выше, продавцу —
 # ставка минус комиссия (в банк рынка); без ставок лот снимается. Продавец может назначить «купить сразу» — не дороже
-# MARKET_CAP оценок подарка. «Обычно продают за» — медиана сделок за MARKET_TYP_DAYS (от двух сделок); по ней же (но не
-# дешевле продажи сразу) подарок оценивается в портфеле и Forbes.
+# MARKET_CAP рыночных цен подарка. Продавец выбирает длительность торгов — AUC_HOURS_SET (по умолчанию AUC_HOURS).
 MARKET_CAP = 3
 MARKET_TYP_DAYS = 30
 AUC_HOURS = 24
+AUC_HOURS_SET = (1, 6, 24)
 AUC_STEP = 0.05
 AUC_SNIPE = 300
-# Против накрутки: ставка — не дороже MARKET_CAP опорных цен (иначе через рынок переводят биткоины); купленный на рынке —
+# Против накрутки: ставка — не дороже MARKET_CAP рыночных цен (иначе через рынок переводят биткоины); купленный на рынке —
 # снова на торги через RELIST_H часов; свой проданный подарок выкупить — через BUYBACK_DAYS дней; с части цены выше
-# OVER_K опорных — комиссия не меньше OVER_FEE.
+# OVER_K рыночных цен — комиссия продавца не меньше OVER_FEE (переплата «своему» невыгодна).
 RELIST_H = 48
 BUYBACK_DAYS = 7
 OVER_K = 1.5
 OVER_FEE = 0.3
-# Оценка рынка (market_vals): сделка даёт в оценку не цену, а «сигнал» — вторую ставку + AUC_STEP (без соперников — старт).
-# Сделки за MARKET_TYP_DAYS: один подарок и одна пара продавец–покупатель — одна сделка. Уровень редкости — медиана
-# (сигнал / опорная) от VAL_TIER сделок; вид — от VAL_BUYERS покупателей и VAL_SELLERS продавцов, притянут к уровню
-# с весом VAL_PRIOR сделок. Оценка меняется не больше чем на VAL_STEP в сутки; сгоревший тираж уникальных и лимиток —
-# дороже: + BURN_K × доля сгоревших. В портфеле и Forbes — оценка минус комиссия, но не меньше продажи сразу.
-VAL_TIER = 5
-VAL_BUYERS = 3
-VAL_SELLERS = 2
-VAL_PRIOR = 5
-VAL_STEP = 0.10
+# Рыночная цена (market_vals, market_est) есть у каждого подарка: опорная (цена в магазине, у уникального — с улучшением;
+# растёт с индексом цен и когда тираж раскупают) × коэффициент рынка × (1 + BURN_K × доля сгоревших уникальных/лимиток).
+# Коэффициент — по сделкам за MARKET_TYP_DAYS, пересчёт после каждой сделки. Сделка даёт не цену, а «сигнал» — вторую
+# ставку + AUC_STEP: торговались — цена растёт, купили без соперников по старту — падает (накрутить в одиночку нельзя);
+# один подарок и одна пара продавец–покупатель — одна сделка; свежие весят больше (полураспад VAL_HALF дней).
+# Уровень редкости — среднее его сделок (от VAL_TIER); вид — свои сделки, притянутые к уровню с весом VAL_PRIOR; без сделок —
+# по уровню, иначе 1. За сутки — не больше чем на VAL_STEP от вчерашнего (market_hist — история по дням, для «за неделю»).
+# В портфеле и Forbes — рыночная цена минус комиссия продавца, но не меньше продажи сразу.
+VAL_TIER = 2
+VAL_PRIOR = 1.0
+VAL_HALF = 7
+VAL_STEP = 0.25
+VAL_MIN = 0.3
 BURN_K = 0.2
 _MKT_TYP = {"day": None, "v": None, "db": None}
 # «🎲 Случайный подарок» — вся цена в банк рынка (bank.reason = 'box'). Комиссия с покупки, лимитки и улучшения — в банк рынка: четверть комиссии рынка, не больше OP_FEE_MAX (при комиссии
@@ -7124,13 +7130,24 @@ def round5(v):
 
 
 def market_fee(e, g):
-    """Комиссия рынка для подарка: выпавший в «🎲» и ещё не перепроданный — MARKET_FEE_BOX, остальные — комиссия термостата."""
-    return MARKET_FEE_BOX if g["kind"] == "box" and g["market_from"] is None else e["fee"]
+    """Комиссия рынка с продавца (доля цены) — MARKET_FEE_SELL; с покупателя — buy_fee."""
+    return MARKET_FEE_SELL
 
 
-def market_cap(gid, u, e, dem, ub=None):
-    """Самая высокая цена подарка на рынке: MARKET_CAP × его оценки (в пределах MARKET_MIN–MARKET_MAX)."""
-    return min(MARKET_MAX, max(MARKET_MIN, MARKET_CAP * market_ref(gid, u, e, dem, ub)))
+def buy_fee(price):
+    """Сбор с покупателя сверху цены (вверх до целого): замораживается со ставкой, при сделке — в банк рынка."""
+    return math.ceil(price * MARKET_FEE_BUY)
+
+
+def market_cap(gid, u, e, dem, ub=None, mv=None):
+    """Самая высокая цена подарка на рынке: MARKET_CAP × его рыночной цены (в пределах MARKET_MIN–MARKET_MAX)."""
+    return min(MARKET_MAX, max(MARKET_MIN, MARKET_CAP * market_base(gid, u, e, dem, ub, mv)))
+
+
+def market_base(gid, u, e, dem, ub=None, mv=None):
+    """Рыночная цена, от которой считаются потолок ставки и «переплата»: не ниже опорной."""
+    ref = market_ref(gid, u, e, dem, ub)
+    return max(ref, market_est(gid, u, e, dem, ub, mv) if mv is not None else ref)
 
 
 def market_key(gid, u):
@@ -7170,71 +7187,67 @@ def _median(v):
 
 
 def market_vals(db, day=None):
-    """Оценка рынка на сегодня: {"r": {ключ: доля опорной цены}, "burn": {вид: доля сгоревших}}. Считается раз в сутки:
-    по сделкам за MARKET_TYP_DAYS без повторов (подарок, пара), уровень редкости и вид с притяжением, шаг — VAL_STEP."""
+    """Коэффициенты рынка на сегодня: {"r": {ключ: доля опорной цены}, "burn": {вид: доля сгоревших}, "chg": {ключ: к неделе
+    назад}}. Пересчёт — при первом обращении за день и после каждой сделки (_MKT_TYP["day"] = None)."""
     day = day or time.strftime("%Y-%m-%d")
     if _MKT_TYP["v"] is not None and _MKT_TYP["db"] is db and _MKT_TYP["day"] == day:
         return _MKT_TYP["v"]
+    now = datetime.strptime(day, "%Y-%m-%d").timestamp() + 86400 if day != time.strftime("%Y-%m-%d") else time.time()
     deals, seen_g, seen_p = [], set(), set()
-    for d in db.q("SELECT * FROM market_deals WHERE ts > ? ORDER BY ts DESC", (time.time() - MARKET_TYP_DAYS * 86400,)):
+    for d in db.q("SELECT * FROM market_deals WHERE ts > ? AND ts <= ? ORDER BY ts DESC", (now - MARKET_TYP_DAYS * 86400, now)):
         if d["gift_id"] in seen_g or (d["seller"], d["buyer"]) in seen_p or not d["ref"]:
             continue                                  # туда-обратно и одна пара много раз — одна сделка
         seen_g.add(d["gift_id"])
         seen_p.add((d["seller"], d["buyer"]))
-        deals.append(d)
-    tier = {}
-    for d in deals:
-        tier.setdefault(d["tier"], []).append(d["signal"] / d["ref"])
-    tier = {k: _median(v) for k, v in tier.items() if len(v) >= VAL_TIER}
-    keys = {}
-    for d in deals:
-        keys.setdefault(d["mkey"], []).append(d)
-    target = {}
-    for k, ds in keys.items():
-        t = tier.get(ds[0]["tier"])
-        ok = len({d["buyer"] for d in ds}) >= VAL_BUYERS and len({d["seller"] for d in ds}) >= VAL_SELLERS
-        obs = _median([d["signal"] / d["ref"] for d in ds])
-        if ok and t:
-            target[k] = (len(ds) * obs + VAL_PRIOR * t) / (len(ds) + VAL_PRIOR)
-        elif ok:
-            target[k] = obs
-        elif t:
-            target[k] = t
-    for k in tier:                                    # вид без своих сделок — по уровню редкости (ключ «*уровень»)
-        target["*" + k] = tier[k]
-    prev = {r["mkey"]: r for r in db.q("SELECT mkey, ratio, day FROM market_vals")}
+        deals.append((d, 0.5 ** (max(0.0, now - d["ts"]) / 86400 / VAL_HALF)))   # свежие весят больше
+    wmean = lambda ds: sum(w * d["signal"] / d["ref"] for d, w in ds) / sum(w for _, w in ds)
+    by_tier, by_key = {}, {}
+    for d, w in deals:
+        by_tier.setdefault(d["tier"], []).append((d, w))
+        by_key.setdefault(d["mkey"], []).append((d, w))
+    tier = {k: wmean(v) for k, v in by_tier.items() if len(v) >= VAL_TIER}
+    target = {"*" + k: v for k, v in tier.items()}
+    for k, ds in by_key.items():
+        base, n = tier.get(ds[0][0]["tier"], 1.0), sum(w for _, w in ds)
+        target[k] = (n * wmean(ds) + VAL_PRIOR * base) / (n + VAL_PRIOR)
+    prev = {}                                         # вчерашнее (последнее до сегодня) — от него шаг за сутки
+    for r in db.q("""SELECT h.mkey, h.ratio FROM market_hist h JOIN (SELECT mkey, MAX(day) d FROM market_hist WHERE day < ?
+                     GROUP BY mkey) m ON m.mkey = h.mkey AND m.d = h.day""", (day,)):
+        prev[r["mkey"]] = r["ratio"]
     out = {}
-    for k, t in target.items():
-        t = min(MARKET_CAP, t)
-        p = prev.get(k)
-        if p and p["day"] == day:
-            out[k] = p["ratio"]
-            continue
-        v = min(max(t, p["ratio"] * (1 - VAL_STEP)), p["ratio"] * (1 + VAL_STEP)) if p else min(t, 1.0)
-        db.x("INSERT OR REPLACE INTO market_vals(mkey, ratio, day) VALUES(?,?,?)", (k, v, day))
-        out[k] = v
-    for k in prev:
-        if k not in target:                           # сделки вышли из окна — оценки по рынку больше нет
-            db.x("DELETE FROM market_vals WHERE mkey=?", (k,))
+    for k in set(target) | set(prev):                 # сделки ушли из окна — цена плавно возвращается к опорной
+        t = min(MARKET_CAP, max(VAL_MIN, target.get(k, 1.0)))
+        p = prev.get(k, 1.0)
+        out[k] = round(min(max(t, p * (1 - VAL_STEP)), p * (1 + VAL_STEP)), 4)
+        db.x("INSERT OR REPLACE INTO market_hist(day, mkey, ratio) VALUES(?,?,?)", (day, k, out[k]))
+    week = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
+    old = {}
+    for r in db.q("""SELECT h.mkey, h.ratio FROM market_hist h JOIN (SELECT mkey, MAX(day) d FROM market_hist WHERE day <= ?
+                     GROUP BY mkey) m ON m.mkey = h.mkey AND m.d = h.day""", (week,)):
+        old[r["mkey"]] = r["ratio"]
     burn = {}
     for r in db.q("SELECT gift, COUNT(*) c, SUM(sold IS NOT NULL) b FROM gifts WHERE uniq IS NOT NULL GROUP BY gift"):
         burn["u:" + r["gift"]] = (r["b"] or 0) / r["c"]
     for r in db.q("SELECT gift, COUNT(*) c, SUM(sold IS NOT NULL) b FROM gifts GROUP BY gift"):
         if r["gift"] in LIMITED_BY or r["gift"] in HW_BY:
             burn[r["gift"]] = (r["b"] or 0) / r["c"]
-    v = {"r": out, "burn": burn}
+    v = {"r": out, "burn": burn, "chg": {k: round(x / old.get(k, 1.0), 4) for k, x in out.items()}}
     _MKT_TYP.update(day=day, v=v, db=db)
     return v
 
 
 def market_est(gid, u, e, dem, ub, mv):
-    """Оценка рынка подарка в ₿ (None — сделок для неё мало): опорная × доля по виду (или по уровню редкости) × тираж."""
-    r = mv["r"].get(market_key(gid, u), mv["r"].get("*" + market_tier(gid, u)))
-    if r is None:
-        return None
+    """Рыночная цена подарка в ₿: опорная × коэффициент рынка (вида, иначе его уровня редкости, иначе 1) × сгоревший тираж."""
+    r = mv["r"].get(market_key(gid, u), mv["r"].get("*" + market_tier(gid, u), 1.0))
     ref = market_ref(gid, u, e, dem, ub)
     burn = mv["burn"].get(("u:" + gid) if u else gid, 0)
-    return min(MARKET_CAP * ref, round(ref * r * (1 + BURN_K * burn)))
+    return min(MARKET_CAP * ref, max(1, round(ref * r * (1 + BURN_K * burn))))
+
+
+def market_chg(gid, u, mv):
+    """Как изменился коэффициент рынка подарка за неделю (1.0 — не менялся)."""
+    k = market_key(gid, u)
+    return mv["chg"].get(k, mv["chg"].get("*" + market_tier(gid, u), 1.0))
 
 
 def auc_next(r):
@@ -7247,8 +7260,11 @@ def auc_refund(db, r, now, why="перебили"):
     if not r["bid_sid"]:
         return
     g = GIFT_BY.get(r["gift"], ("", "🎁", "подарок"))
+    frozen = db.q("SELECT delta FROM coins WHERE student_id=? AND gift_id=? AND reason='bid' ORDER BY id DESC LIMIT 1",
+                  (r["bid_sid"], r["id"]), one=True)
+    back = -frozen["delta"] if frozen else r["bid_amt"]    # ставка и сбор покупателя (у ставок до 2.9.0 — без сбора)
     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id, note, seen) VALUES(?,?,?, 'bidback', ?, ?, 0)",
-         (r["bid_sid"], now, r["bid_amt"], r["id"], f"{g[1]} {g[2]} — {why}"))
+         (r["bid_sid"], now, back, r["id"], f"{g[1]} {g[2]} — {why}"))
     LIVE.send([r["bid_sid"]], "gift")
 
 
@@ -7261,20 +7277,23 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
                     WHERE id=? AND student_id=? AND listed IS NOT NULL AND sold IS NULL""",
                  (buyer, r["student_id"], now, r["student_id"], seen, amount, r["id"], r["student_id"])):
         return None
-    bid = db.q("SELECT id FROM coins WHERE student_id=? AND gift_id=? AND reason='bid' AND delta=? ORDER BY id DESC LIMIT 1",
-               (buyer, r["id"], -amount), one=True)
-    if bid:
+    bid = db.q("SELECT id, delta FROM coins WHERE student_id=? AND gift_id=? AND reason='bid' ORDER BY id DESC LIMIT 1",
+               (buyer, r["id"]), one=True)
+    if bid:                                           # замороженная ставка (со сбором покупателя) становится покупкой
         db.x("UPDATE coins SET reason='mbuy', note=?, ts=? WHERE id=?", (names.get(r["student_id"], ""), now, bid["id"]))
+        bfee = max(0, -bid["delta"] - amount)
     else:
+        bfee = buy_fee(amount)
         db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id, note) VALUES(?,?,?, 'mbuy', ?, ?)",
-             (buyer, now, -amount, r["id"], names.get(r["student_id"], "")))
+             (buyer, now, -amount - bfee, r["id"], names.get(r["student_id"], "")))
     u = uniq_pub(r["uniq"]) if r["uniq"] else None
-    ref = market_ref(r["gift"], u, e, gift_demand(db), r["up_base"])
-    fee = market_fee_amt(amount, market_fee(e, r), ref)
+    dem = gift_demand(db)
+    ref = market_ref(r["gift"], u, e, dem, r["up_base"])
+    fee = market_fee_amt(amount, market_fee(e, r), market_base(r["gift"], u, e, dem, r["up_base"], market_vals(db)))
     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id, note, seen) VALUES(?,?,?, 'msell', ?, ?, 0)",
          (r["student_id"], now, amount - fee, r["id"], names.get(buyer, "")))
-    if fee:
-        bank_move(db, fee, "fee", f"{GIFT_BY[r['gift']][1]} {GIFT_BY[r['gift']][2]} за {amount} ₿", sid=r["student_id"], ts=now)
+    if fee + bfee:
+        bank_move(db, fee + bfee, "fee", f"{GIFT_BY[r['gift']][1]} {GIFT_BY[r['gift']][2]} за {amount} ₿", sid=r["student_id"], ts=now)
     # в оценку — не заплаченное, а сколько давали соперники: вторая ставка + шаг (без соперников — старт)
     top = {b["sid"]: b["a"] for b in db.q("SELECT sid, MAX(amount) a FROM bids WHERE gift_id=? AND ts >= ? GROUP BY sid",
                                           (r["id"], r["listed_ts"] or 0))}
@@ -7282,6 +7301,7 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
     start = int(r["listed"] or amount)
     signal = min(amount, max(start, math.ceil(second * (1 + AUC_STEP)))) if second else min(amount, start)
     glog(db, "trade", r["id"], r["gift"], buyer, amount, ts=now)
+    _MKT_TYP["day"] = None                            # рыночная цена пересчитается с этой сделкой
     db.x("""INSERT INTO market_deals(gift_id, ts, gift, mkey, tier, price, signal, ref, seller, buyer, bidders)
             VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (r["id"], now, r["gift"], market_key(r["gift"], u), market_tier(r["gift"], u), amount,
                                                signal, ref, r["student_id"], buyer, len(set(top) | {buyer})))
@@ -7289,7 +7309,7 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
     with _GS_LOCK:
         _LB_PEOPLE.pop((tid["teacher_id"] if tid else None) or main_teacher()["id"], None)
     LIVE.send([buyer, r["student_id"]], "gift")
-    return fee
+    return fee + bfee
 
 
 _AUC = {"t": 0.0}
@@ -7826,14 +7846,15 @@ def gift_rows(db, sid, where="", limit=200, prices=None):
             e, issued, dem = prices
             up_now = gift_up_price(g[0], e, issued)          # сколько сейчас стоит улучшение такого подарка (None — тираж кончился)
             sell = gift_sell_price(g[0], u, e, issued, dem, r["paid"], r["up_base"])
-            mk_typ, ref, rate = market_est(g[0], u, e, dem, r["up_base"], mv), market_ref(g[0], u, e, dem, r["up_base"]), market_fee(e, r)
-            # оценка в портфеле и Forbes: сколько получишь, продав по оценке рынка (минус комиссия), но не меньше продажи сразу
+            mk_typ, rate = market_est(g[0], u, e, dem, r["up_base"], mv), market_fee(e, r)
+            base = market_base(g[0], u, e, dem, r["up_base"], mv)
+            # оценка в портфеле и Forbes: рыночная цена минус комиссия продавца, но не меньше продажи сразу — растёт с рынком
             wait = (r["market_ts"] or 0) + RELIST_H * 3600 - time.time() if r["market_from"] else 0
             row.update(up=None if u else up_now, up_now=up_now, sell=sell,
-                       worth=max(sell, mk_typ - market_fee_amt(mk_typ, rate, ref)) if mk_typ else sell,
-                       mk_ref=ref, mk_wait=wait_txt(wait) if wait > 0 else None,
+                       worth=max(sell, mk_typ - market_fee_amt(mk_typ, rate, base)),
+                       mk_ref=base, mk_wait=wait_txt(wait) if wait > 0 else None, mk_chg=market_chg(g[0], u, mv),
                        fee=market_fee(e, r), issued=issued.get(g[0], 0), cap=UNIQ_CAP, ub=r["up_base"],
-                       mk_max=max(max(1, sell) + 1, market_cap(g[0], u, e, dem, r["up_base"])), mk_typ=mk_typ, mk_start=max(1, sell),
+                       mk_max=max(max(1, sell) + 1, market_cap(g[0], u, e, dem, r["up_base"], mv)), mk_typ=mk_typ, mk_start=max(1, sell),
                        mk_until=r["auc_end"] if r["listed"] is not None else None, mk_bn=r["buy_now"], mk_bid=r["bid_amt"],
                        mk_bids=r["bid_n"] or 0)
         out.append(row)
@@ -7966,7 +7987,8 @@ def market_rows(db, sids, me, e, issued, dem):
                     "bid": r["bid_amt"], "bids": r["bid_n"] or 0, "lead": r["bid_sid"] == me, "next": auc_next(r), "buy_now": bn,
                     "price": r["bid_amt"] or r["listed"], "ts": r["listed_ts"], "until": r["auc_end"], "mine": r["student_id"] == me,
                     "seller": short_name(r["name"]), "shop": gift_price(g[0], e, dem) + (gift_up_base(g[0], e, r["up_base"]) if u else 0),
-                    "typ": market_est(g[0], u, e, dem, r["up_base"], mv), "max": market_cap(g[0], u, e, dem, r["up_base"]),
+                    "typ": market_est(g[0], u, e, dem, r["up_base"], mv), "max": market_cap(g[0], u, e, dem, r["up_base"], mv),
+                    "chg": market_chg(g[0], u, mv), "mk_ref": market_base(g[0], u, e, dem, r["up_base"], mv), "fee": market_fee(e, r),
                     "back": r["id"] in back, "quick": gift_sell_price(g[0], u, e, issued, dem, r["paid"], r["up_base"])})
     return out
 
