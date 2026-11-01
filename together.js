@@ -12,7 +12,6 @@
   const Q = new URLSearchParams(location.search);
   const SID = parseInt(Q.get('id'), 10) || 0;
   const AS_T = Q.get('as') === 't';
-  const LH = 21;                                    // высота строки кода, px
   const BW = 1000;                                  // ширина листа доски
   const NARROW = () => innerWidth <= 760;
 
@@ -296,7 +295,7 @@
     if (v.mode && v.mode !== S.mode) setMode(v.mode, false);
     if (v.tab && NARROW() && v.tab !== S.tab) setTab(v.tab, false);
     if (v.by != null) { S.followScroll = Date.now(); $('#tgBs').scrollTop = v.by * scale(); }
-    if (v.cy != null) { S.followScroll = Date.now(); $('#tgEd').scrollTop = v.cy * LH; }
+    if (v.cy != null) { S.followScroll = Date.now(); ta.scrollTop = v.cy * lineH(); }
   }
   $('#tgMode').addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b) setMode(b.dataset.m); });
   $('#tgTabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
@@ -304,10 +303,9 @@
   function sendScroll() {
     if (!S.teacher || !S.follow) return;
     clearTimeout(viewT);
-    viewT = setTimeout(() => send({ t: 'view', by: $('#tgBs').scrollTop / scale(), cy: $('#tgEd').scrollTop / LH }), 60);
+    viewT = setTimeout(() => send({ t: 'view', by: $('#tgBs').scrollTop / scale(), cy: $('#tgTa').scrollTop / (parseFloat(getComputedStyle($('#tgTa')).lineHeight) || 21) }), 60);
   }
   $('#tgBs').addEventListener('scroll', sendScroll, { passive: true });
-  $('#tgEd').addEventListener('scroll', sendScroll, { passive: true });
   $('#tgFollow').onclick = () => send({ t: 'follow', on: !S.follow });
   $('#tgRo').onclick = () => send({ t: 'ro', on: !S.ro });
   $('#tgEnd').onclick = async () => {
@@ -512,26 +510,225 @@
   };
 
   // ================================================================ код
+  // Редактор — тот же, что в тренажёре (src/app/09-python.js): подсветка как в PyCharm, парные скобки, клавиши Emacs,
+  // размер шрифта (настройки общие с тренажёром). Поверх — курсоры других участников.
   const ta = $('#tgTa');
-  let charW = 8.4;
-  function measure() {
-    const m = $('#tgMir');
-    m.textContent = 'x'.repeat(100);
-    charW = m.scrollWidth ? (m.getBoundingClientRect().width - 10) / 100 : 8.4;
-    m.textContent = '';
+  const lineH = () => parseFloat(getComputedStyle(ta).lineHeight) || 21;
+  function setPyFont(px) {
+    px = Math.min(28, Math.max(10, px));
+    $('#tgCode').style.setProperty('--py-fs', px + 'px');
+    try { localStorage.setItem('egeshka.pyFont', String(px)); } catch (e) { /* нет места */ }
+    paint(true);
   }
-  function layoutCode() {
-    const lines = S.text.split('\n');
-    $('#tgGut').textContent = lines.map((_, i) => i + 1).join('\n');
-    const longest = lines.reduce((m, l) => Math.max(m, l.length), 0);
-    const box = $('#tgEd');
-    const w = Math.max(box.clientWidth - 44, longest * charW + 40);
-    const h = Math.max(box.clientHeight, lines.length * LH + 20 + LH * 4);
-    ta.style.width = w + 'px';
-    ta.style.height = h + 'px';
-    $('#tgEdIn').style.height = h + 'px';
-    $('#tgEdIn').style.width = (w + 44) + 'px';
+  const pyFont = () => parseInt(getComputedStyle($('#tgCode')).getPropertyValue('--py-fs'), 10) || 14;
+  try { const f = +localStorage.getItem('egeshka.pyFont'); if (f) setPyFont(f); } catch (e) { /* нет доступа */ }
+  let pyMarks = '';
+  /** Номера строк, раскраска, парная скобка, курсоры участников. */
+  function paint(force) {
+    const v = ta.value;
+    const n = v.split('\n').length, g = $('#tgGut');
+    if (+g.dataset.n !== n) { g.textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n'); g.dataset.n = n; }
+    const marks = bracketMarks(v, ta.selectionStart, ta.selectionEnd, document.activeElement === ta);
+    const key = marks.map(m => m.join(':')).join(',');
+    if (force || key !== pyMarks || v !== paint.last) {
+      pyMarks = key;
+      paint.last = v;
+      $('#tgHl').innerHTML = '<div class="py-hl-in">' + highlightPy(v, marks) + '\n</div>';
+    }
     renderCarets();
+    syncScroll();
+  }
+  function layoutCode() { paint(true); }
+  function syncScroll() {
+    $('#tgGut').scrollTop = ta.scrollTop;
+    const tr = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+    $$('#tgHl > div, #tgRc > div').forEach(d => { d.style.transform = tr; });
+  }
+  /** Курсоры других участников — отдельный прозрачный слой с тем же текстом, сдвигается вместе с кодом. */
+  function renderCarets() {
+    const v = S.text, list = [...S.carets.values()].map(c => ({ ...c, u: c2u(v, Math.min(c.pos, cpLen(v))) })).sort((a, b) => a.u - b.u);
+    let html = '', last = 0;
+    for (const c of list) {
+      const top = v.lastIndexOf('\n', c.u - 1) < 0;
+      html += esc(v.slice(last, c.u)) + `<span class="tg-rc${top ? ' dn' : ''}${Date.now() - (c.t || 0) > 2500 ? ' idle' : ''}" style="--c:${esc(c.color)}"><b>${esc(c.name)}</b></span>`;
+      last = c.u;
+    }
+    $('#tgRc').innerHTML = list.length ? '<div class="py-hl-in">' + html + esc(v.slice(last)) + '\n</div>' : '';
+  }
+  /** Скобка рядом с курсором (или выделенная) и её пара: [[позиция, 'ok'|'bad'], ...]. Скобки в строках и комментариях не в счёт. */
+  const BR_OPEN = '([{', BR_CLOSE = ')]}';
+  function bracketMarks(code, a, b, focused) {
+    if (!focused || code.length > 200000) return [];
+    let i = -1;
+    if (b - a === 1 && (BR_OPEN + BR_CLOSE).includes(code[a])) i = a;
+    else if (a === b) {
+      if (a > 0 && (BR_OPEN + BR_CLOSE).includes(code[a - 1])) i = a - 1;
+      else if ((BR_OPEN + BR_CLOSE).includes(code[a])) i = a;
+    }
+    if (i < 0) return [];
+    // где строки и комментарии — там скобки не считаем
+    const skip = new Uint8Array(code.length);
+    PY_TOK.lastIndex = 0;
+    for (let m; (m = PY_TOK.exec(code));) if (m[1] || m[2]) skip.fill(1, m.index, PY_TOK.lastIndex);
+    if (skip[i]) return [];
+    const ch = code[i], open = BR_OPEN.includes(ch);
+    const pair = open ? BR_CLOSE[BR_OPEN.indexOf(ch)] : BR_OPEN[BR_CLOSE.indexOf(ch)];
+    const step = open ? 1 : -1;
+    let depth = 0;
+    for (let j = i; j >= 0 && j < code.length; j += step) {
+      if (skip[j]) continue;
+      if (code[j] === ch) depth++;
+      else if (code[j] === pair && --depth === 0) return [[Math.min(i, j), 'ok'], [Math.max(i, j), 'ok']];
+    }
+    return [[i, 'bad']];
+  }
+
+  // подсветка синтаксиса в цветах PyCharm: под прозрачным полем ввода лежит раскрашенная копия текста
+  const PY_KW = new Set(('False None True and as assert async await break class continue def del elif else except finally for '
+    + 'from global if import in is lambda nonlocal not or pass raise return try while with yield match case').split(' '));
+  const PY_BI = new Set(('abs all any ascii bin bool bytes callable chr complex dict dir divmod enumerate eval exec filter float '
+    + 'format frozenset getattr globals hasattr hash help hex id input int isinstance issubclass iter len list locals map max '
+    + 'min next object oct open ord pow print range repr reversed round set setattr slice sorted str sum super tuple type vars zip '
+    + 'Exception ValueError KeyError IndexError TypeError ZeroDivisionError RecursionError StopIteration NameError').split(' '));
+  const PY_TOK = /(#[^\n]*)|((?:[rRbBuUfF]{1,2})?(?:'''[\s\S]*?(?:'''|$)|"""[\s\S]*?(?:"""|$)|'(?:\\.|[^'\\\n])*'?|"(?:\\.|[^"\\\n])*"?))|(@[A-Za-z_][\w.]*)|(\b(?:0[xXoObB][\da-fA-F_]+|\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?j?)\b|\.\d+\b)|([A-Za-z_\u0400-\u04FF][\w\u0400-\u04FF]*)/g;
+  function highlightPy(code, marks) {
+    let out = '', last = 0, prevWord = '';
+    const mk = new Map((marks || []).map(([p, k]) => [p, k]));
+    // обычный текст между словами и строками; в нём же стоят скобки — их и обводим
+    const plain = (from, to) => {
+      if (!mk.size) return esc(code.slice(from, to));
+      let o = '';
+      for (let k = from; k < to; k++) o += mk.has(k) ? `<span class="hl-br ${mk.get(k)}">${esc(code[k])}</span>` : esc(code[k]);
+      return o;
+    };
+    PY_TOK.lastIndex = 0;
+    for (let m; (m = PY_TOK.exec(code));) {
+      out += plain(last, m.index);
+      last = PY_TOK.lastIndex;
+      const [tok, com, str, dec, num, word] = m;
+      let cls = '';
+      if (com) cls = 'com';
+      else if (str) cls = 'str';
+      else if (dec) cls = 'dec';
+      else if (num) cls = 'num';
+      else if (word) {
+        cls = PY_KW.has(word) ? 'kw' : (prevWord === 'def' || prevWord === 'class') ? 'def' : word === 'self' ? 'self' : PY_BI.has(word) ? 'bi' : '';
+        prevWord = word;
+      }
+      if (!word) prevWord = '';
+      out += cls ? `<span class="hl-${cls}">${esc(tok)}</span>` : esc(tok);
+    }
+    return out + plain(last, code.length);
+  }
+  // Клавиши Emacs в редакторе (кнопка «Emacs» включает и выключает, запоминается в браузере). Клавиши — по физическому месту:
+  // работают и в русской раскладке. Ctrl+C/V/X/Z, Ctrl+Enter, Ctrl+/ — как раньше. Ctrl+N и Ctrl+W браузер странице не отдаёт
+  // (новое окно, закрыть вкладку) — вместо них стрелка вниз и Ctrl+X. Выделить всё — Ctrl+X H (Ctrl+A — начало строки).
+  const EMACS_KEY = 'egeshka.pyEmacs';
+  const EM = { on: true, kill: '', last: '', col: null, mark: null, cx: false };
+  try { EM.on = localStorage.getItem(EMACS_KEY) !== '0'; } catch (e) { /* по умолчанию — включены */ }
+  function setEmacs(on) {
+    EM.on = on;
+    EM.mark = null;
+    try { localStorage.setItem(EMACS_KEY, on ? '1' : '0'); } catch (e) { /* только на этот раз */ }
+    const b = $('#pyEmacs');
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  /** Курсор p виден: строка — по вертикали, столбец — по горизонтали (строки не переносятся). */
+  function emShow(ta, p, center) {
+    const v = ta.value, cs = getComputedStyle(ta), lh = parseFloat(cs.lineHeight) || 20, pt = parseFloat(cs.paddingTop) || 0;
+    const row = v.slice(0, p).split('\n').length - 1, top = pt + row * lh;
+    if (center) ta.scrollTop = Math.max(0, top - (ta.clientHeight - lh) / 2);
+    else if (top < ta.scrollTop) ta.scrollTop = top - pt;
+    else if (top + lh > ta.scrollTop + ta.clientHeight) ta.scrollTop = top + lh + pt - ta.clientHeight;
+    const cw = (EM.cw = EM.cw || (() => { const c = document.createElement('canvas').getContext('2d'); c.font = cs.font; return c.measureText('0').width; })());
+    const x = (parseFloat(cs.paddingLeft) || 0) + (p - v.lastIndexOf('\n', p - 1) - 1) * cw;
+    if (x < ta.scrollLeft + cw) ta.scrollLeft = Math.max(0, x - 4 * cw);
+    else if (x > ta.scrollLeft + ta.clientWidth - 2 * cw) ta.scrollLeft = x - ta.clientWidth + 4 * cw;
+  }
+  /** Клавиша Emacs: обработана — true. */
+  function emacsKey(e) {
+    if (!EM.on || e.isComposing) return false;
+    const ta = e.target, v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+    const modOnly = /^(Shift|Control|Alt|Meta|OS)$/.test(e.key);
+    const ctrl = e.ctrlKey && !e.altKey && !e.metaKey, meta = e.altKey && !e.ctrlKey && !e.metaKey;
+    const done = (cmd = '') => { e.preventDefault(); EM.last = cmd; EM.cx = false; return true; };
+    if (EM.cx && !modOnly) {                                   // Ctrl+X, затем H — выделить всё
+      EM.cx = false;
+      if (e.code === 'KeyH' && !e.ctrlKey && !e.altKey && !e.metaKey) { EM.mark = null; ta.setSelectionRange(0, v.length); return done(); }
+    }
+    if (!ctrl && !meta) { if (!modOnly) { EM.last = ''; EM.mark = null; } return false; }
+    const p = ta.selectionDirection === 'backward' ? a : b;    // где курсор (у выделения — подвижный край)
+    const ls = q => v.lastIndexOf('\n', q - 1) + 1;
+    const le = q => { const i = v.indexOf('\n', q); return i < 0 ? v.length : i; };
+    const W = /[\p{L}\p{N}_]/u;
+    const wordF = q => { while (q < v.length && !W.test(v[q])) q++; while (q < v.length && W.test(v[q])) q++; return q; };
+    const wordB = q => { while (q > 0 && !W.test(v[q - 1])) q--; while (q > 0 && W.test(v[q - 1])) q--; return q; };
+    const go = (q, cmd, shift = e.shiftKey) => {              // курсор в q; с меткой (Ctrl+Пробел) или с Shift — выделение
+      q = Math.max(0, Math.min(v.length, q));
+      const m = EM.mark != null ? EM.mark : shift ? (p === a ? b : a) : null;
+      if (m == null) ta.setSelectionRange(q, q);
+      else ta.setSelectionRange(Math.min(m, q), Math.max(m, q), q < m ? 'backward' : 'forward');
+      emShow(ta, q);
+      return done(cmd);
+    };
+    const edit = (from, to, text, caret) => {
+      EM.mark = null;
+      ta.setRangeText(text, from, to, 'end');
+      ta.setSelectionRange(caret, caret);
+      ta.dispatchEvent(new Event('input'));
+      emShow(ta, caret);
+    };
+    const kill = (from, to, back) => {                         // вырезать в свой буфер; Ctrl+K подряд — дописывать
+      if (from < to) {
+        const s = v.slice(from, to);
+        EM.kill = EM.last === 'kill' ? (back ? s + EM.kill : EM.kill + s) : s;
+        edit(from, to, '', from);
+      }
+      return done('kill');
+    };
+    if (ctrl) {
+      switch (e.code) {
+        case 'KeyA': return go(ls(p));
+        case 'KeyE': return go(le(p));
+        case 'KeyF': return go(p + 1);
+        case 'KeyB': return go(p - 1);
+        case 'KeyN': case 'KeyP': {                            // строка вниз / вверх — в тот же столбец
+          const s0 = ls(p), col = EM.last === 'line' && EM.col != null ? EM.col : p - s0;
+          let q;
+          if (e.code === 'KeyN') q = le(p) >= v.length ? v.length : Math.min(le(p) + 1 + col, le(le(p) + 1));
+          else q = s0 === 0 ? 0 : Math.min(ls(s0 - 1) + col, s0 - 1);
+          EM.col = col;
+          return go(q, 'line');
+        }
+        case 'KeyD': if (a !== b) edit(a, b, '', a); else if (p < v.length) edit(p, p + 1, '', p); return done();
+        case 'KeyH': if (a !== b) edit(a, b, '', a); else if (p > 0) edit(p - 1, p, '', p - 1); return done();
+        case 'KeyK': return kill(p, p === le(p) && p < v.length ? p + 1 : le(p));
+        case 'KeyY': if (!EM.kill) return false; edit(a, b, EM.kill, a + EM.kill.length); return done();
+        case 'KeyO': edit(a, b, '\n', a); return done();
+        case 'KeyG': EM.mark = null; ta.setSelectionRange(p, p); return done();
+        case 'Space': EM.mark = p; ta.setSelectionRange(p, p); return done('mark');
+        case 'KeyL': emShow(ta, p, true); return done();
+        case 'KeyX': if (a !== b) return false; EM.cx = true; e.preventDefault(); return true;     // с выделением — вырезать, как обычно
+        default: return false;
+      }
+    }
+    switch (e.code) {
+      case 'KeyF': return go(wordF(p));
+      case 'KeyB': return go(wordB(p));
+      case 'KeyD': return kill(p, wordF(p));
+      case 'Backspace': return kill(wordB(p), p, true);
+      case 'Comma': return e.shiftKey ? go(0, '', false) : false;               // Alt+< (Shift — часть знака, не выделение)
+      case 'Period': return e.shiftKey ? go(v.length, '', false) : false;       // Alt+>
+      case 'KeyW':                                             // копировать выделенное в свой буфер и в буфер обмена
+        if (a === b) return done();
+        EM.kill = v.slice(a, b);
+        try { navigator.clipboard.writeText(EM.kill).catch(() => {}); } catch (err) { /* нет доступа — только свой буфер */ }
+        EM.mark = null;
+        ta.setSelectionRange(p, p);
+        return done();
+      default: return false;
+    }
   }
   /** Своя правка: отправить сразу, если ничего не ждёт ответа; иначе — копить. */
   function localOp(op) {
@@ -554,13 +751,13 @@
       S.rev = m.rev;
       // выделение и курсоры сдвигаются вместе с текстом
       const a = u2c(S.text, ta.selectionStart), b = u2c(S.text, ta.selectionEnd), focus = document.activeElement === ta;
-      const st = $('#tgEd').scrollTop;
+      const st = ta.scrollTop, sl = ta.scrollLeft;
       S.text = text;
       ta.value = text;
       if (focus) ta.setSelectionRange(c2u(text, xIndex(a, op)), c2u(text, xIndex(b, op)));
-      $('#tgEd').scrollTop = st;
+      ta.scrollTop = st; ta.scrollLeft = sl;
       S.carets.forEach((c, cid) => { if (cid !== m.cid) c.pos = xIndex(c.pos, op); });
-      layoutCode();
+      paint(true);
     } catch (e) {
       send({ t: 'op', page: S.page, rev: -1, ops: [] });       // разошлись — сервер пришлёт свежее состояние
     }
@@ -575,6 +772,19 @@
     layoutCode();
     sendCaret();
   });
+  ta.addEventListener('input', () => {
+    if (!canWrite()) { ta.value = S.text; return; }
+    const v = ta.value;
+    if (v === S.text) return;
+    const op = diffOp(S.text, v);
+    S.text = v;
+    localOp(op);
+    paint();
+    sendCaret();
+  });
+  ta.addEventListener('scroll', () => { syncScroll(); sendScroll(); });
+  document.addEventListener('selectionchange', () => { if (document.activeElement === ta) { paint(); sendCaret(); } });
+  ta.addEventListener('blur', () => { caretLast = -1; paint(); send({ t: 'cur', where: null }); });
   // ---------- курсоры
   let caretLast = -1;
   const sendCaret = throttle(() => {
@@ -584,83 +794,101 @@
     caretLast = pos;
     send({ t: 'cur', where: 'code', pos });
   }, 25);
-  ['keyup', 'click', 'select', 'focus'].forEach(ev => ta.addEventListener(ev, sendCaret));
-  document.addEventListener('selectionchange', () => { if (document.activeElement === ta) sendCaret(); });
-  ta.addEventListener('blur', () => { caretLast = -1; send({ t: 'cur', where: null }); });
+  ['keyup', 'click', 'focus'].forEach(ev => ta.addEventListener(ev, sendCaret));
   function onCur(m) {
-    if (m.where === 'code') { S.carets.set(m.cid, { pos: m.pos, name: m.name, color: m.color }); dropPtr(m.cid); }
+    if (m.where === 'code') { S.carets.set(m.cid, { pos: m.pos, name: m.name, color: m.color, t: Date.now() }); dropPtr(m.cid); }
     else { S.carets.delete(m.cid); if (m.where === 'board') movePtr(m); else dropPtr(m.cid); }
     renderCarets();
+    syncScroll();
+    clearTimeout(onCur.t);
+    onCur.t = setTimeout(() => { renderCarets(); syncScroll(); }, 2600);     // имя у курсора прячется, когда он стоит
   }
-  function renderCarets() {
-    const box = $('#tgEdIn'), mir = $('#tgMir');
-    $$('.tg-caret', box).forEach(el => { if (!S.carets.has(el.dataset.cid)) el.remove(); });
-    S.carets.forEach((c, cid) => {
-      let el = box.querySelector(`.tg-caret[data-cid="${cid}"]`);
-      if (!el) {
-        el = document.createElement('div');
-        el.className = 'tg-caret';
-        el.dataset.cid = cid;
-        el.innerHTML = '<span></span>';
-        box.appendChild(el);
-      }
-      const u = c2u(S.text, Math.min(c.pos, cpLen(S.text)));
-      mir.textContent = S.text.slice(0, u);
-      const mark = document.createElement('span');
-      mark.textContent = '​';
-      mir.appendChild(mark);
-      el.style.left = (44 + mark.offsetLeft) + 'px';
-      el.style.top = mark.offsetTop + 'px';
-      el.style.background = c.color;
-      const lab = el.firstChild;
-      lab.style.background = c.color;
-      lab.textContent = c.name;
-      if (mark.offsetTop < LH) { lab.style.bottom = 'auto'; lab.style.top = '100%'; } else { lab.style.bottom = ''; lab.style.top = ''; }
-    });
-    mir.textContent = '';
-  }
-  // ---------- клавиши редактора: Tab, Enter с отступом, Ctrl+/, Ctrl+Enter
-  function insert(text) {
-    if (!document.execCommand('insertText', false, text)) {
-      ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end');
-      ta.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  }
-  function editLines(fn) {
+  // ---------- клавиши — как в тренажёре: Tab, Enter с отступом, парные скобки, Ctrl+/, Ctrl+Enter, Ctrl ±, Emacs
+  function editKey(e) {
+    if (emacsKey(e)) return;
+    const ta = e.target;
     const v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
-    const ls = v.lastIndexOf('\n', a - 1) + 1, le0 = v.indexOf('\n', b - (b > a && v[b - 1] === '\n' ? 1 : 0));
-    const le = le0 < 0 ? v.length : le0;
-    const block = v.slice(ls, le), nb = fn(block.split('\n')).join('\n');
-    ta.setSelectionRange(ls, le);
-    insert(nb);
-    ta.setSelectionRange(ls, ls + nb.length);
-  }
-  ta.addEventListener('keydown', e => {
-    if (!canWrite()) return;
-    const k = String(e.key || '');
-    if (k === 'Tab') {
+    const put = (text, from, to, caretA, caretB) => {
+      ta.setRangeText(text, from, to, 'end');
+      if (caretA != null) ta.setSelectionRange(caretA, caretB == null ? caretA : caretB);
+      ta.dispatchEvent(new Event('input'));
+    };
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runAll(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); setPyFont(pyFont() + 1); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); setPyFont(pyFont() - 1); return; }
+    // Ctrl+/ — закомментировать строку или выделенные строки (повторно — снять), как в PyCharm.
+    // По физической клавише: в русской раскладке на ней точка
+    if ((e.ctrlKey || e.metaKey) && (e.code === 'Slash' || e.key === '/')) {
       e.preventDefault();
-      if (e.shiftKey) editLines(ls => ls.map(l => l.replace(/^ {1,4}/, '')));
-      else if (ta.value.slice(ta.selectionStart, ta.selectionEnd).includes('\n')) editLines(ls => ls.map(l => '    ' + l));
-      else insert('    ');
-    } else if (k === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      $('#tgRun').click();
-    } else if (k === 'Enter' && !e.shiftKey && !e.altKey) {
-      e.preventDefault();
-      const v = ta.value, a = ta.selectionStart;
-      const line = v.slice(v.lastIndexOf('\n', a - 1) + 1, a);
-      let ind = (line.match(/^[ \t]*/) || [''])[0];
-      if (/:\s*(#.*)?$/.test(line)) ind += '    ';
-      insert('\n' + ind);
-    } else if ((e.ctrlKey || e.metaKey) && (k === '/' || e.code === 'Slash')) {
-      e.preventDefault();
-      editLines(ls => {
-        const all = ls.filter(l => l.trim()).every(l => /^\s*#/.test(l));
-        return ls.map(l => !l.trim() ? l : all ? l.replace(/^(\s*)# ?/, '$1') : l.replace(/^(\s*)/, '$1# '));
-      });
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      let le = v.indexOf('\n', b > a && v[b - 1] === '\n' ? b - 1 : b);
+      if (le < 0) le = v.length;
+      const lines = v.slice(ls, le).split('\n');
+      const code = lines.filter(l => l.trim());
+      const off = code.length && code.every(l => /^\s*#/.test(l));
+      const ind = Math.min(...code.map(l => l.match(/^ */)[0].length), Infinity);
+      const out = lines.map(l => {
+        if (!l.trim()) return l;
+        return off ? l.replace(/^(\s*)# ?/, '$1') : l.slice(0, ind) + '# ' + l.slice(ind);
+      }).join('\n');
+      const d = out.length - (le - ls);
+      if (a === b) {                              // без выделения — курсор остаётся на своём месте в строке
+        const k = off ? Math.max(ls, a + d) : a + d;
+        put(out, ls, le, k);
+      } else put(out, ls, le, ls, ls + out.length);
+      return;
     }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      if (!e.shiftKey && a === b) { put('    ', a, b); return; }
+      const le = b > a && v[b - 1] === '\n' ? b - 1 : b;
+      const block = v.slice(ls, le);
+      const lines = block.split('\n');
+      const changed = lines.map(l => (e.shiftKey ? l.replace(/^ {1,4}/, '') : '    ' + l)).join('\n');
+      put(changed, ls, le, ls, ls + changed.length);
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      const line = v.slice(ls, a);
+      let ind = (line.match(/^\s*/) || [''])[0];
+      if (/:\s*(#.*)?$/.test(line)) ind += '    ';
+      put('\n' + ind, a, b);
+      return;
+    }
+    // парные скобки и кавычки: открыл — сразу закрылась, курсор внутри; закрывающую поверх такой же — просто перешагнуть
+    const PAIR = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
+    if (!(e.ctrlKey && !e.altKey) && !e.metaKey && !e.isComposing && e.key && e.key.length === 1) {   // AltGr = Ctrl+Alt — тоже ввод символа
+      const k = e.key, nx = v[b] || '', pv = v[a - 1] || '';
+      const isQ = k === '"' || k === "'";
+      if (a === b && (')]}'.includes(k) || isQ) && nx === k) { e.preventDefault(); ta.setSelectionRange(a + 1, a + 1); paint(); return; }
+      if (PAIR[k]) {
+        if (a !== b) { e.preventDefault(); put(k + v.slice(a, b) + PAIR[k], a, b, a + 1, b + 1); return; }   // обернуть выделение
+        const free = !nx || /[\s)\]},:;=]/.test(nx);
+        if (free && !(isQ && (/\w/.test(pv) || pv === k))) { e.preventDefault(); put(k + PAIR[k], a, b, a + 1); return; }
+      }
+    }
+    if (e.key === 'Backspace' && a === b && a > 0 && PAIR[v[a - 1]] && PAIR[v[a - 1]] === v[a]) {
+      e.preventDefault(); put('', a - 1, a + 1, a - 1); return;          // пустая пара () — удалить обе
+    }
+    if (e.key === 'Backspace' && a === b && a > 0) {
+      const ls = v.lastIndexOf('\n', a - 1) + 1;
+      const before = v.slice(ls, a);
+      if (before.length && /^ +$/.test(before)) { e.preventDefault(); const k = (before.length - 1) % 4 + 1; put('', a - k, a); }
+    }
+  }
+
+  ta.addEventListener('keydown', e => {
+    if (!canWrite()) { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') e.preventDefault(); return; }
+    editKey(e);
   });
+  $('#pyEmacs').addEventListener('click', () => { setEmacs(!EM.on); ta.focus(); });
+  setEmacs(EM.on);
+  $('#pyFontUp').addEventListener('click', () => setPyFont(pyFont() + 1));
+  $('#pyFontDown').addEventListener('click', () => setPyFont(pyFont() - 1));
+  function runAll() { $('#tgRun').click(); }
 
   // ================================================================ запуск Python (у того, кто нажал; вывод видят все)
   const PY = { worker: null, busy: false, sendT: 0, pending: '' };
@@ -1005,7 +1233,6 @@
   addEventListener('resize', () => { clearTimeout(S.rsT); S.rsT = setTimeout(() => { if (NARROW() && S.tab === 'board' && $('#tgApp').dataset.tab !== S.tab) setTab(S.tab, false); sizeBoard(); layoutCode(); }, 80); });
   if ('ResizeObserver' in window) new ResizeObserver(() => { sizeBoard(); layoutCode(); }).observe(bs);
   window.addEventListener('beforeunload', () => { if (ws) ws.close(); });
-  measure();
   setTab('board', false);
   renderTools();
   connect();
