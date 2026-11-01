@@ -433,7 +433,7 @@
   // Черновик живёт в браузере, пока его не отправят классу.
   const BLD_KEY = 'egeAdmin.bldDraft';
   const RANK_SHORT = ['', 'очень лёгкое', 'лёгкое', 'среднее', 'сложное', 'очень сложное'];
-  const BLD = { cat: null, page: 0, res: null, timer: 0, asg: [],
+  const BLD = { cat: null, page: 0, res: null, timer: 0, asg: [], open: new Set(), full: {},
     f: { n: [], c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: '', q: '', sort: 'rank' },
     d: { class_id: '', id: null, title: '', due: '', tasks: [] } };
   try { const v = JSON.parse(localStorage.getItem(BLD_KEY)); if (v && Array.isArray(v.tasks)) BLD.d = Object.assign(BLD.d, v); } catch (e) { /* пусто */ }
@@ -502,10 +502,13 @@
       <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 из общего банка (актуальные)">Вариант ЕГЭ</button></span>`;
     $('#bldList').innerHTML = d.tasks.length ? d.tasks.map(x => `<div class="bld-item${inDraft.has(x.id) ? ' in' : ''}">
         <span class="num-badge sm">${x.n === 19 ? '19–21' : x.n}</span>
-        <div class="bld-item-main"><div class="bld-meta"><b>${esc(x.cname)}</b> ${rankDots(x.r)} ${rateHtml(x)}
+        <div class="bld-item-main"><div class="bld-meta"><button type="button" class="bld-id" data-copy="${esc(idOf(x.id))}" title="Номер задания — нажмите, чтобы скопировать">№ ${esc(idOf(x.id))}</button>
+          <b>${esc(x.cname)}</b> ${rankDots(x.r)} ${rateHtml(x)}
           <span class="muted">${esc(x.bank || '')}${x.y ? ' · ' + x.y : ''}${x.old ? ' · старый формат' : ''}</span></div>
-          <div class="bld-snip">${esc(x.snip)}</div></div>
-        <span class="bld-item-act"><button type="button" class="link-btn" data-task="${esc(x.id)}">открыть</button>
+          ${BLD.open.has(x.id) ? `<div class="bld-full">${BLD.full[x.id] || '<span class="muted">Загружаю…</span>'}</div>`
+            : `<div class="bld-snip" data-more="${esc(x.id)}" title="Показать условие целиком">${esc(x.snip)}</div>`}
+          <button type="button" class="link-btn bld-more" data-more="${esc(x.id)}">${BLD.open.has(x.id) ? '▴ свернуть' : '▾ условие целиком'}</button></div>
+        <span class="bld-item-act"><button type="button" class="link-btn" data-task="${esc(x.id)}" title="Условие, ответ, решение — в отдельном окне">открыть</button>
           <button type="button" class="btn ${inDraft.has(x.id) ? 'ghost' : 'primary'} bld-add" data-add="${esc(x.id)}">${inDraft.has(x.id) ? '✓ в подборке' : '+ добавить'}</button></span>
       </div>`).join('') : '<p class="adm-empty">Ничего не найдено — ослабьте фильтры.</p>';
     const pages = Math.ceil(d.total / d.per);
@@ -627,7 +630,34 @@
       toast(n ? `Добавлено случайных: ${n}` : 'Все найденные задания уже в подборке');
     }
   });
+  /** Условие целиком прямо в карточке (с ответом) — без отдельного окна. */
+  async function bldMore(id) {
+    if (BLD.open.has(id)) { BLD.open.delete(id); renderBldList(); return; }
+    BLD.open.add(id);
+    renderBldList();
+    if (BLD.full[id]) return;
+    try {
+      const t = await api('task?id=' + encodeURIComponent(id));
+      BLD.full[id] = `<article class="cond">${safeHtml(t.html)}</article>
+        ${(t.att || []).length ? `<div class="files"><span>Файлы:</span>${t.att.map(a => `<a class="file" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.name)}</a>`).join('')}</div>` : ''}
+        <div class="bld-ans">Ответ: <b>${String(t.ans || '').split('\n').filter(Boolean).map(esc).join(' · ') || '—'}</b></div>`;
+    } catch (err) { BLD.full[id] = `<span class="muted">${esc(err.message)}</span>`; }
+    if (BLD.open.has(id) && BLD.res) {
+      renderBldList();
+      const el = $('#bldList .bld-full');
+      if (el && window.renderMathInElement) {
+        try { window.renderMathInElement($('#bldList'), { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\[', right: '\\]', display: true }, { left: '\\(', right: '\\)', display: false }], throwOnError: false }); } catch (x) { /* текстом */ }
+      }
+    }
+  }
   $('#bldList').addEventListener('click', e => {
+    const c = e.target.closest('[data-copy]');
+    if (c) {
+      try { navigator.clipboard.writeText(c.dataset.copy).then(() => toast('Номер ' + c.dataset.copy + ' скопирован')).catch(() => {}); } catch (x) { /* без буфера */ }
+      return;
+    }
+    const m = e.target.closest('[data-more]');
+    if (m) { bldMore(m.dataset.more); return; }
     const b = e.target.closest('[data-add]');
     if (!b) return;
     const id = b.dataset.add;

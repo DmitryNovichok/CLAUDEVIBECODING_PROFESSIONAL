@@ -662,3 +662,68 @@ tr.comp-void td { opacity: .55; }
 .tog-row .live { color: var(--weak); font-weight: 800; font-size: 12.5px; }
 .tog-row .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 3px; }
 .tog-row .btn { font-size: 13px; padding: 6px 11px; }
+
+/* ---------- меню слева (вместо шапки с вкладками): разделы по группам, внизу — инструменты и учитель */
+.adm-app:not([hidden]) { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+.adm-side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 10px; padding: 16px 12px 12px;
+  background: var(--panel); border-right: 2px solid var(--border); overflow: hidden; z-index: 20; }
+.adm-side .adm-brand { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 0 6px 6px; }
+.adm-side .adm-brand .brand-mark { width: 30px; height: 30px; flex: none; }
+.adm-side .adm-brand .brand-title { font-size: 21px; }
+.adm-side .adm-brand > span:last-child { flex-basis: 100%; padding-left: 38px; margin-top: -4px; }
+.adm-side .adm-tabs { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 1px; background: none; border: 0; padding: 0; border-radius: 0;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.adm-side .nav-h { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); padding: 10px 10px 3px; }
+.adm-side .adm-tabs button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 6px 10px; border-radius: 10px;
+  font-size: 14.5px; font-weight: 700; color: var(--muted); }
+.adm-side .adm-tabs button:hover { background: var(--card-hover); color: var(--text); }
+.adm-side .adm-tabs button.on { background: var(--sel); color: var(--sel-text); font-weight: 900; }
+.adm-side .adm-tabs button i { font-style: normal; width: 22px; text-align: center; font-size: 16px; flex: none; }
+.adm-side .adm-tabs .tab-dot { position: static; margin-left: auto; flex: none; }
+.adm-side .adm-tabs .tab-n { margin-left: auto; }
+.adm-side-foot { flex: none; margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px 4px 0; border-top: 1px solid var(--border); }
+.adm-side-foot .adm-solve { width: 100%; justify-content: center; }
+.adm-side-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.adm-side-tools .snd-switch { flex: 1; font-size: 12px; padding: 6px 6px; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+/* уведомления — поверх страницы рядом с меню (меню прокручивается и обрезало бы окно) */
+.adm-side .ntf-pop { position: fixed; left: 246px; right: auto; top: auto; bottom: 16px; max-height: calc(100vh - 32px); }
+.adm-side-me { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--muted); padding: 0 4px; }
+.adm-side-me .adm-who { color: var(--text); font-weight: 800; }
+.adm-side-links { display: flex; gap: 12px; flex-wrap: wrap; }
+.adm-side-links .link-btn { font-size: 12.5px; }
+.adm-app .adm-main { width: 100%; box-sizing: border-box; }
+
+/* телефон и узкое окно: меню — сверху, разделы листаются строкой */
+@media (max-width: 900px) {
+  .adm-app:not([hidden]) { display: block; }
+  .adm-side { position: sticky; top: 0; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px;
+    border-right: 0; border-bottom: 2px solid var(--border); overflow: visible; }
+  .adm-side .adm-brand { padding: 0; }
+  .adm-side .adm-brand > span:last-child { display: none; }
+  .adm-side .adm-tabs { order: 3; flex-basis: 100%; flex-direction: row; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; gap: 4px; }
+  .adm-side .adm-tabs::-webkit-scrollbar { display: none; }
+  .adm-side .nav-h { display: none; }
+  .adm-side .adm-tabs button { width: auto; white-space: nowrap; flex: none; padding: 6px 10px; }
+  .adm-side-foot { display: contents; }
+  .adm-side-foot .adm-solve { order: 1; width: auto; margin-left: auto; padding: 6px 10px; font-size: 0; }
+  .adm-side-foot .adm-solve::before { content: "🎓 Как ученик"; font-size: 12px; }
+  .adm-side-tools { order: 2; flex: 1; flex-wrap: nowrap; }
+  .adm-side-tools .snd-switch { flex: 0 1 auto; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+  .adm-side-me { order: 2; flex-direction: row; gap: 10px; align-items: center; padding: 0; }
+  .adm-side-me .adm-who { display: none; }
+  .adm-side .ntf-pop { position: fixed; top: 56px; bottom: auto; left: 12px; right: 12px; width: auto; max-height: calc(100vh - 72px); }
+}
+
+/* конструктор подборки: номер задания и условие целиком в карточке */
+.bld-id { font: 800 12px var(--mono); color: var(--accent-text); background: var(--accent-soft); border: 0; border-radius: 6px; padding: 2px 7px; cursor: copy; }
+.bld-id:hover { filter: brightness(1.1); }
+.bld-snip[data-more] { cursor: pointer; }
+.bld-snip[data-more]:hover { color: var(--text); }
+.bld-more { font-size: 12.5px; margin-top: 4px; }
+.bld-full { margin-top: 8px; }
+.bld-full .cond { font-size: 14.5px; padding: 12px 16px; }
+.bld-full .cond img { max-width: 100%; height: auto; }
+.bld-ans { margin-top: 8px; font-size: 13.5px; color: var(--muted); }
+.bld-ans b { font-family: var(--mono); color: var(--good-strong, #58a700); }
+.bld-item { align-items: start; }
+.bld-item > .num-badge, .bld-item > .bld-item-act { margin-top: 4px; }
