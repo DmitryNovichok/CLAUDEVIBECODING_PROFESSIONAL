@@ -187,10 +187,11 @@
       case 'ack': return onAck(m);
       case 'op': return onOp(m);
       case 'cur': return onCur(m);
-      case 's+': case 's!': addStroke(m.s, true); return;
+      case 's+': addStroke(m.s, true); return;
+      case 's!': addStroke(m.s, false); return;          // вернули отменённый — уже готовый штрих
       case 's.': return morePoints(m.id, m.p);
-      case 's~': { const st = S.strokes.get(m.id); if (st) { st.p = m.p; S.live.add(m.id); drawLive(); } return; }
-      case 's-': S.live.delete(m.id); redraw(); return;
+      case 's~': { const st = S.strokes.get(m.id); if (st) { st.p = m.p; liveTouch(m.id); } return; }
+      case 's-': return commitLive(m.id);
       case 'del': m.ids.forEach(i => { S.strokes.delete(i); S.live.delete(i); }); return redraw();
       case 'clr': S.strokes.clear(); S.live.clear(); S.undo = []; S.redo = []; redraw(); if (m.by) toast(`🗑️ ${m.by} очистил(а) доску`); return;
       case 'ans': return onAns(m);
@@ -1013,26 +1014,45 @@
     S.strokes.forEach(s => { if (!S.live.has(s.id)) drawStroke(x, s); });
     drawLive();
   }
+  /* Штрих, который сейчас рисуют (свой или чужой), каждый кадр перерисовывается целиком на верхнем слое — так он
+     сглаживается одинаково у всех и не оставляет угловатых «хвостов»; дорисованный — один раз ложится на доску. */
+  const liveAt = new Map();
+  let liveRaf = 0;
   function drawLive() {
+    liveRaf = 0;
     const x = ctxOf(cv2);
     x.clearRect(0, 0, BW, H);
     S.live.forEach(id => { const s = S.strokes.get(id); if (s) drawStroke(x, s); });
   }
+  function liveTouch(id) {
+    S.live.add(id);
+    liveAt.set(id, Date.now());
+    if (!liveRaf) liveRaf = requestAnimationFrame(drawLive);
+  }
+  function commitLive(id) {
+    S.live.delete(id);
+    liveAt.delete(id);
+    const s = S.strokes.get(id);
+    if (s) { drawStroke(ctxOf(cv), s); grow(Math.max(...s.p.map(p => p[1]))); }
+    if (!liveRaf) liveRaf = requestAnimationFrame(drawLive);
+  }
+  // чужой штрих оборвался (связь пропала посреди линии) — через 4 с без новых точек он просто ложится на доску
+  setInterval(() => {
+    const now = Date.now();
+    liveAt.forEach((t, id) => { if (now - t > 4000 && !(D.s && D.s.id === id)) commitLive(id); });
+  }, 2000);
   function addStroke(s, remote) {
     if (!s || !s.id) return;
     S.strokes.set(s.id, s);
-    if (s.k === 'l' && remote) { S.live.add(s.id); drawLive(); return; }
+    if (remote && s.k !== 't') { liveTouch(s.id); return; }        // рисуют прямо сейчас — до «s-» на верхнем слое
     drawStroke(ctxOf(cv), s);
     grow(Math.max(...s.p.map(p => p[1])));
   }
   function morePoints(id, pts) {
     const s = S.strokes.get(id);
     if (!s) return;
-    const from = s.p.length;
     s.p.push(...pts);
-    // дорисовать с последней точки (кривой хвост — заново от предпоследней)
-    drawStroke(ctxOf(cv), s, Math.max(1, from - 1));
-    grow(Math.max(...pts.map(p => p[1])));
+    liveTouch(id);
   }
   // ---------- инструменты
   function renderTools() {
@@ -1112,8 +1132,8 @@
     const s = { id: uid(), c: S.color || 'ink', w: S.width, k: S.tool === 'line' ? 'l' : 'p', p: [p] };
     D.s = s;
     S.strokes.set(s.id, s);
-    if (s.k === 'l') { s.p = [p, p]; S.live.add(s.id); drawLive(); }
-    else drawStroke(ctxOf(cv), s);
+    if (s.k === 'l') s.p = [p, p];
+    liveTouch(s.id);
     send({ t: 's+', page: S.page, s });
     S.undo.push(s.id);
     S.redo = [];
@@ -1130,7 +1150,7 @@
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     if (s.k === 'l') {
       s.p = [s.p[0], p];
-      drawLive();
+      liveTouch(s.id);
       send({ t: 's~', page: S.page, id: s.id, p: s.p });
       return;
     }
@@ -1141,7 +1161,7 @@
       s.p.push(q);
       D.q.push(q);
     }
-    if (s.p.length > from) drawStroke(ctxOf(cv), s, Math.max(1, from - 1));
+    if (s.p.length > from) liveTouch(s.id);
     if (!D.raf) D.raf = requestAnimationFrame(flushPts);          // точки уходят пачкой каждый кадр (~60 раз в секунду)
   });
   function endDraw() {
@@ -1150,8 +1170,8 @@
       if (D.erase.size) send({ t: 'del', page: S.page, ids: [...D.erase] });
     } else {
       flushPts();
-      if (D.s.k === 'l') { S.live.delete(D.s.id); redraw(); send({ t: 's-', page: S.page, id: D.s.id }); }
-      grow(Math.max(...D.s.p.map(q => q[1])));
+      commitLive(D.s.id);
+      send({ t: 's-', page: S.page, id: D.s.id });
     }
     D.s = null;
   }
