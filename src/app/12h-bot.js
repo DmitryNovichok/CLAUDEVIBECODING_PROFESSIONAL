@@ -43,7 +43,7 @@
     if (!m) return;
     if (!e.isTrusted) { m.synth++; return; }
     BOT.lastKey = performance.now();
-    if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!e.key || e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
     m.keys++;
     if (m.kt && BOT.lastKey - m.kt < 600 && m.gaps.length < 60) m.gaps.push(BOT.lastKey - m.kt);   // паузы между словами — не в счёт
     m.kt = BOT.lastKey;

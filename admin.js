@@ -1670,7 +1670,8 @@
     if (t !== 'student') backTab = t;
     tab = t;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
     if (t === 'course') loadCourseProgress();
     if (t === 'pyc') loadPyc();
@@ -1691,6 +1692,106 @@
     const b = e.target.closest('button[data-tab]');
     if (b) go(b.dataset.tab);
   });
+  // ------------------------------------------------------------ совместная работа (общий код и доска)
+  const TOGS = { mode: 'both', sel: new Set(), students: [], task: null, taskT: 0, timer: 0 };
+  /** Новая вкладка — сразу по нажатию (иначе браузер сочтёт её всплывающим окном), адрес — когда сеанс создан. */
+  function togOpen(id, win) {
+    const url = `together.html?id=${id}&as=t`;
+    if (win && !win.closed) win.location = url;
+    else if (!window.open(url, '_blank')) location.href = url;
+  }
+  async function loadTog() {
+    clearInterval(TOGS.timer);
+    TOGS.timer = setInterval(() => { if (tab === 'tog' && !document.hidden) togList(); else clearInterval(TOGS.timer); }, 15000);
+    try { TOGS.students = (await api('together/students')).students; } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    togStudents();
+    togList();
+  }
+  function togStudents() {
+    const q = $('#togSearch').value.trim().toLowerCase().replace(/ё/g, 'е');
+    const ago = ts => !ts ? 'не заходил(а)' : fmtWhen(ts);
+    const rows = TOGS.students.filter(s => !q || s.name.toLowerCase().replace(/ё/g, 'е').includes(q));
+    $('#togStu').innerHTML = rows.map(s => `<label class="${TOGS.sel.has(s.id) ? 'on' : ''}"><input type="checkbox" value="${s.id}"${TOGS.sel.has(s.id) ? ' checked' : ''}>
+      <span>${esc(s.name)}${s.cls ? `<br><small style="color:var(--muted)">${esc(s.cls)}</small>` : ''}</span>
+      <span class="st${s.on ? ' live' : ''}">${s.on ? '● на сайте' : esc(ago(s.seen))}</span></label>`).join('')
+      || '<p class="tog-hint">Учеников не нашлось.</p>';
+  }
+  $('#togSearch').addEventListener('input', togStudents);
+  $('#togStu').addEventListener('change', e => {
+    const i = e.target.closest('input[type=checkbox]');
+    if (!i) return;
+    if (i.checked) TOGS.sel.add(+i.value); else TOGS.sel.delete(+i.value);
+    i.closest('label').classList.toggle('on', i.checked);
+  });
+  $('#togMode').addEventListener('click', e => {
+    const b = e.target.closest('[data-m]');
+    if (!b) return;
+    TOGS.mode = b.dataset.m;
+    $$('#togMode button').forEach(x => x.classList.toggle('on', x === b));
+  });
+  $('#togTask').addEventListener('input', () => {
+    clearTimeout(TOGS.taskT);
+    TOGS.task = null;
+    const q = $('#togTask').value.trim();
+    $('#togTaskInfo').textContent = '';
+    if (!q) return;
+    TOGS.taskT = setTimeout(async () => {
+      try {
+        const d = await api('bank/find?q=' + encodeURIComponent(q));
+        if ($('#togTask').value.trim() !== q) return;
+        TOGS.task = d.id;
+        $('#togTaskInfo').innerHTML = `<b>№ ${esc(d.n)}</b> · ${esc((d.snip || '').slice(0, 140))}`;
+      } catch (e) { if ($('#togTask').value.trim() === q) $('#togTaskInfo').textContent = 'Задание не найдено — можно выбрать его уже в сеансе'; }
+    }, 350);
+  });
+  $('#togGo').addEventListener('click', async () => {
+    if (!TOGS.sel.size) return toast('Отметьте учеников, которых позвать');
+    if ($('#togTask').value.trim() && !TOGS.task) return toast('Задание не найдено — очистите поле или выберите задание в сеансе');
+    const win = window.open('', '_blank');
+    try {
+      const d = await api('together/new', { students: [...TOGS.sel], mode: TOGS.mode, task: TOGS.task });
+      togOpen(d.id, win);
+      TOGS.sel.clear();
+      $('#togTask').value = ''; $('#togTaskInfo').textContent = ''; TOGS.task = null;
+      togStudents();
+      togList();
+    } catch (e) { if (win) win.close(); toast(e.message); }
+  });
+  async function togList() {
+    let d;
+    try { d = await api('together/list'); } catch (e) { return; }
+    const modes = { both: 'код + доска', code: 'код', board: 'доска' };
+    $('#togList').innerHTML = d.sessions.length ? d.sessions.map(s => `<div class="tog-row">
+        <div class="who"><b>${s.students.map(x => `${x.on ? '<i class="dot" title="в сеансе"></i>' : ''}${esc(x.name)}`).join(', ')}</b>
+          <div class="meta">${esc(fmtWhen(s.created))} · ${esc(modes[s.mode] || '')}${s.task ? ' · ' + esc(s.task) : ''}${s.pages > 1 ? ` · страниц: ${s.pages}` : ''}</div></div>
+        ${s.ended ? '<span class="meta">завершён</span>' : '<span class="live">● идёт</span>'}
+        <button type="button" class="btn${s.ended ? '' : ' primary'}" data-tog-open="${s.id}">${s.ended ? 'Посмотреть' : 'Открыть'}</button>
+        ${s.ended ? `<button type="button" class="btn" data-tog-again="${s.id}" title="Снова позвать тех же учеников — код и доска продолжатся">Продолжить</button>`
+          : `<button type="button" class="btn ghost" data-tog-end="${s.id}">Завершить</button>`}
+        <button type="button" class="link-btn" data-tog-del="${s.id}" title="Удалить сеанс вместе с кодом и доской">Удалить</button>
+      </div>`).join('') : '<p class="tog-hint">Сеансов пока не было.</p>';
+    TOGS.list = d.sessions;
+  }
+  $('#togList').addEventListener('click', async e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    try {
+      if (b.dataset.togOpen) togOpen(b.dataset.togOpen);
+      else if (b.dataset.togEnd) { await api('together/end', { id: +b.dataset.togEnd }); togList(); }
+      else if (b.dataset.togAgain) {
+        const s = (TOGS.list || []).find(x => x.id === +b.dataset.togAgain);
+        const win = window.open('', '_blank');
+        await api('together/invite', { id: s.id, students: s.students.map(x => x.id) });
+        togOpen(s.id, win);
+        togList();
+      } else if (b.dataset.togDel) {
+        if (!confirm('Удалить сеанс? Код и доска пропадут насовсем.')) return;
+        await api('together/delete', { id: +b.dataset.togDel });
+        togList();
+      }
+    } catch (x) { toast(x.message); }
+  });
+
   /** Из класса — в конструктор: черновик для этого класса, по номеру n (если задан). */
   function openBuilderFor(classId, n) {
     if (String(BLD.d.class_id) !== String(classId)) { BLD.d.class_id = String(classId); BLD.d.id = null; }

@@ -351,7 +351,7 @@
   document.addEventListener('keydown', e => {
     if (!bdOpen() || e.target.closest('input, textarea, select, [contenteditable]')) return;
     if (!$('#forecastModal').hidden) return;
-    const k = e.key.toLowerCase();
+    const k = String(e.key || '').toLowerCase();                 // у автозаполнения и части клавиш key нет
     if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я') && !e.shiftKey) { e.preventDefault(); bdUndo(); return; }
     if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н' || ((k === 'z' || k === 'я') && e.shiftKey))) { e.preventDefault(); bdRedoAct(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;

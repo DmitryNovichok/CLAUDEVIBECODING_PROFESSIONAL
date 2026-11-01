@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
+<title>Совместный сеанс — Egeshka</title>
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;var c=localStorage.getItem('egeTrainer.themeCss');if(c&&/^[^<]*$/.test(c)){var st=document.createElement('style');st.id='themeVars';st.textContent=c;document.head.appendChild(st);}}catch(e){}</script>
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="style.css">
+<script defer src="vendor/katex/katex.min.js"></script>
+<script defer src="vendor/katex/contrib/auto-render.min.js"></script>
+<style>
+html, body { height: 100%; }
+body.tgp { margin: 0; overflow: hidden; background: var(--bg); }
+body.tgp [hidden] { display: none !important; }
+.tg-ta:focus-visible, .tg-ta:focus { box-shadow: none; }
+.tg-app { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.tg-btn { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 5px 11px; font: 700 13.5px/1.3 var(--font);
+  color: var(--text); cursor: pointer; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+.tg-btn:hover { background: var(--card-hover); }
+.tg-btn:disabled { opacity: .5; cursor: default; }
+.tg-btn.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.tg-btn.good { background: var(--good); border-color: var(--good); color: var(--on-good); }
+.tg-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.tg-btn.red { color: var(--weak); }
+.tg-btn.sm { padding: 3px 8px; font-size: 12.5px; }
+
+/* верхняя строка */
+.tg-top { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--topbar-bg); flex-wrap: wrap; }
+.tg-logo { font-weight: 900; font-size: 18px; color: var(--text); text-decoration: none; }
+.tg-title { font-weight: 800; color: var(--muted); }
+.tg-live { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; color: var(--weak); }
+.tg-live i { width: 9px; height: 9px; border-radius: 50%; background: var(--weak); animation: tgBlink 1.2s infinite; }
+.tg-live.off { color: var(--muted); } .tg-live.off i { background: var(--faint); animation: none; }
+@keyframes tgBlink { 50% { opacity: .3; } }
+.tg-people { display: flex; gap: 5px; margin-left: auto; align-items: center; flex-wrap: wrap; }
+.tg-av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font: 900 12.5px var(--font); color: #fff;
+  position: relative; flex: none; opacity: .45; }
+.tg-av.on { opacity: 1; }
+.tg-av.on::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%; background: var(--good); border: 2px solid var(--topbar-bg); }
+.tg-ping { font-size: 12.5px; font-weight: 800; color: var(--good); white-space: nowrap; min-width: 62px; text-align: right; }
+.tg-ping.mid { color: var(--mid); } .tg-ping.bad { color: var(--weak); }
+
+/* строка управления */
+.tg-bar { display: flex; gap: 6px; padding: 7px 14px; border-bottom: 1px solid var(--border); align-items: center; flex-wrap: wrap; }
+.tg-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.tg-seg button { background: none; border: 0; padding: 5px 11px; font: 700 13.5px var(--font); color: var(--muted); cursor: pointer; }
+.tg-seg button.cur { background: var(--accent-soft); color: var(--accent-text); }
+.tg-sp { flex: 1; }
+.tg-tag { font-size: 12.5px; color: var(--accent-text); font-weight: 800; background: var(--accent-soft); padding: 4px 9px; border-radius: 8px; }
+
+/* задание */
+.tg-task { border-bottom: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; max-height: 42vh; min-height: 0; }
+.tg-task-h { display: flex; align-items: center; gap: 8px; padding: 7px 14px; font-weight: 800; font-size: 14px; flex-wrap: wrap; }
+.tg-num { background: var(--accent-soft); color: var(--accent-text); border-radius: 7px; padding: 1px 8px; }
+.tg-task-b { overflow: auto; padding: 0 14px 10px; min-height: 0; }
+.tg-task.min .tg-task-b { display: none; }
+.tg-task .cond { padding: 12px 16px; font-size: 15px; }
+.tgp.stu .tg-task .cond { -webkit-user-select: none; user-select: none; }
+.tg-att { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 13.5px; }
+.tg-ans { display: flex; gap: 8px; align-items: center; padding: 8px 14px; flex-wrap: wrap; font-size: 14px; border-top: 1px solid var(--border); }
+.tg-task.min .tg-ans { display: none; }
+.tg-ans input { background: var(--input-bg); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font: 700 14px var(--mono);
+  padding: 6px 10px; width: 170px; }
+.tg-ans input:focus { border-color: var(--accent); outline: none; }
+.tg-res { font-weight: 800; }
+.tg-res.ok { color: var(--good); } .tg-res.bad { color: var(--weak); } .tg-res.half { color: var(--mid); }
+.tg-typing { font-size: 12.5px; color: var(--muted); }
+.tg-key { font-size: 13px; color: var(--muted); }
+.tg-key b { font-family: var(--mono); color: var(--text); }
+.tg-blank { color: var(--muted); font-size: 14px; padding: 2px 0 6px; }
+.tg-ai { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* код и доска */
+.tg-main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+.tg-app[data-mode="code"] .tg-main { grid-template-columns: 1fr; }
+.tg-app[data-mode="board"] .tg-main { grid-template-columns: 1fr; }
+.tg-app[data-mode="code"] .tg-board, .tg-app[data-mode="board"] .tg-code { display: none; }
+.tg-code { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--border); background: var(--code-bg); }
+.tg-ed { flex: 1; overflow: auto; position: relative; min-height: 0; }
+.tg-ed-in { position: relative; min-height: 100%; }
+.tg-gut, .tg-mir, .tg-ta { font: 14px/21px var(--mono); tab-size: 4; margin: 0; white-space: pre; }
+.tg-gut { position: absolute; left: 0; top: 0; width: 38px; padding: 10px 6px 10px 0; text-align: right; color: var(--faint); pointer-events: none;
+  box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+.tg-mir { position: absolute; left: 44px; top: 0; padding: 10px 10px 10px 0; visibility: hidden; pointer-events: none; }
+.tg-ta { position: absolute; left: 44px; top: 0; border: 0; padding: 10px 10px 10px 0; background: transparent; color: var(--text); resize: none;
+  outline: none; overflow: hidden; caret-color: var(--me, var(--accent)); box-sizing: border-box; }
+.tg-ta:read-only { caret-color: transparent; }
+.tg-caret { position: absolute; width: 2px; height: 21px; pointer-events: none; z-index: 2; }
+.tg-caret span { position: absolute; left: 0; bottom: 100%; font: 800 10.5px/14px var(--font); color: #fff; padding: 0 5px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
+.tg-out { border-top: 1px solid var(--border); display: flex; flex-direction: column; max-height: 38%; min-height: 92px; }
+.tg-out-h { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12.5px; font-weight: 800; color: var(--muted); }
+.tg-out-h .tg-sp { flex: 1; }
+.tg-out pre { margin: 0; padding: 0 10px 10px; font: 13px/1.45 var(--mono); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; flex: 1; color: var(--text); }
+.tg-out pre .err { color: var(--weak); }
+.tg-out pre .sys { color: var(--muted); }
+
+.tg-board { position: relative; min-width: 0; min-height: 0; display: flex; }
+.tg-bscroll { flex: 1; overflow-y: auto; overflow-x: hidden; position: relative; background: var(--panel); }
+.tg-sheet { position: relative; width: 100%; touch-action: none; background-color: var(--panel);
+  background-image: linear-gradient(var(--subtle) 1px, transparent 1px), linear-gradient(90deg, var(--subtle) 1px, transparent 1px); }
+.tg-sheet canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.tg-sheet.pen { cursor: crosshair; } .tg-sheet.txt { cursor: text; } .tg-sheet.erase { cursor: cell; } .tg-sheet.ro { cursor: default; }
+.tg-tools { position: absolute; left: 10px; top: 10px; z-index: 5; display: flex; flex-direction: column; gap: 3px; background: var(--card);
+  border: 1px solid var(--border); border-radius: 12px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+.tg-tools button { width: 34px; height: 32px; border: 0; border-radius: 8px; background: none; display: grid; place-items: center; font-size: 16px; cursor: pointer; color: var(--text); }
+.tg-tools button.cur { background: var(--accent-soft); }
+.tg-tools hr { border: 0; border-top: 1px solid var(--border); margin: 2px 4px; }
+.tg-tools .cl { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border-strong); }
+.tg-tools .wd { display: block; border-radius: 4px; background: var(--text); width: 18px; }
+.tg-cols { position: absolute; left: 50px; top: 0; display: grid; grid-template-columns: repeat(4, 30px); gap: 4px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+.tg-cols button { width: 30px; height: 30px; }
+.tg-ptr { position: absolute; pointer-events: none; z-index: 4; transform: translate(-2px, -2px); }
+.tg-ptr svg { display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
+.tg-ptr span { position: absolute; left: 14px; top: 15px; font: 800 10.5px/14px var(--font); color: #fff; padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
+.tg-tin { position: absolute; z-index: 6; background: var(--card); border: 1px dashed var(--accent); color: var(--text); font-family: var(--font); padding: 0 4px; outline: none; min-width: 120px; }
+.tg-note { position: absolute; right: 10px; bottom: 10px; z-index: 5; font-size: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 3px 9px; color: var(--muted); }
+
+/* выбор задания */
+.tg-modal { position: fixed; inset: 0; z-index: 50; background: var(--overlay); display: grid; place-items: start center; padding: 70px 16px 16px; }
+.tg-modal[hidden] { display: none; }
+.tg-dlg { width: min(640px, 100%); max-height: calc(100vh - 100px); display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border-strong);
+  border-radius: 16px; box-shadow: var(--shadow); padding: 14px; }
+.tg-dlg h3 { margin: 0 0 10px; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+.tg-dlg h3 .tg-btn { margin-left: auto; }
+.tg-q { width: 100%; box-sizing: border-box; background: var(--input-bg); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font: 600 14px var(--font); padding: 8px 11px; }
+.tg-chips { display: flex; gap: 5px; margin: 9px 0; flex-wrap: wrap; }
+.tg-list { list-style: none; margin: 0; padding: 0; overflow: auto; min-height: 60px; }
+.tg-list li { display: flex; gap: 9px; align-items: center; padding: 8px 9px; border-radius: 10px; cursor: pointer; font-size: 13.5px; }
+.tg-list li:hover { background: var(--card-hover); }
+.tg-list li.cur { background: var(--accent-soft); }
+.tg-list .tg-num { flex: none; font-weight: 800; }
+.tg-list .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); flex: 1; }
+.tg-list .mk { flex: none; font-size: 12px; color: var(--faint); }
+.tg-list .empty { color: var(--muted); cursor: default; }
+.tg-list label { display: flex; gap: 9px; align-items: center; width: 100%; cursor: pointer; }
+
+/* связь, конец сеанса */
+.tg-over { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: var(--overlay); padding: 16px; }
+.tg-over[hidden] { display: none; }
+.tg-over .box { background: var(--card); border: 1px solid var(--border-strong); border-radius: 16px; padding: 22px 24px; max-width: 420px; text-align: center; box-shadow: var(--shadow); }
+.tg-over .box h2 { margin: 0 0 8px; font-size: 20px; }
+.tg-over .box p { color: var(--muted); margin: 0 0 14px; }
+.tg-over .acts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.tg-toast { position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); z-index: 70; background: var(--card); border: 1px solid var(--border-strong);
+  border-radius: 12px; padding: 9px 14px; font-size: 14px; box-shadow: var(--shadow); max-width: calc(100% - 32px); }
+.tg-toast[hidden] { display: none; }
+
+/* телефон: задание, код, доска, вывод — вкладками */
+.tg-tabs { display: none; }
+@media (max-width: 760px) {
+  .tg-top { padding: 7px 10px; gap: 8px; }
+  .tg-title { display: none; }
+  .tg-bar { padding: 6px 10px; }
+  .tg-bar .tg-seg { display: none; }
+  .tg-tabs { display: flex; border-top: 1px solid var(--border); background: var(--topbar-bg); padding-bottom: env(safe-area-inset-bottom); }
+  .tg-tabs button { flex: 1; background: none; border: 0; padding: 9px 0 10px; font: 800 12.5px var(--font); color: var(--muted); cursor: pointer; }
+  .tg-tabs button.cur { color: var(--accent-text); }
+  .tg-app .tg-task { display: none; max-height: none; flex: 1; }
+  .tg-app[data-tab="task"] .tg-task { display: flex; }
+  .tg-app[data-tab="task"] .tg-task-b { display: block; }
+  .tg-app[data-tab="task"] .tg-main { display: none; }
+  .tg-app .tg-main { grid-template-columns: 1fr !important; }
+  .tg-app .tg-code, .tg-app .tg-board { display: none !important; }
+  .tg-app[data-tab="code"] .tg-code, .tg-app[data-tab="out"] .tg-code { display: flex !important; border-right: 0; }
+  .tg-app[data-tab="board"] .tg-board { display: flex !important; }
+  .tg-app[data-tab="code"] .tg-out { max-height: 30%; }
+  .tg-app[data-tab="out"] .tg-ed { display: none; }
+  .tg-app[data-tab="out"] .tg-out { max-height: none; flex: 1; }
+  .tg-hide-narrow { display: none !important; }
+}
+</style>
+</head>
+<body class="tgp">
+<div class="tg-app" id="tgApp" data-mode="both" data-tab="board">
+  <header class="tg-top">
+    <a class="tg-logo" href="/" id="tgHome">Egeshka</a>
+    <span class="tg-title">👥 Совместный сеанс</span>
+    <span class="tg-live" id="tgLive"><i></i><span id="tgTime">—</span></span>
+    <span class="tg-people" id="tgPeople"></span>
+    <span class="tg-ping" id="tgPing" title="Задержка связи с сервером (туда и обратно)">⚡ …</span>
+  </header>
+  <div class="tg-bar">
+    <span class="tg-seg" id="tgMode"><button type="button" data-m="board">✏️ Доска</button><button type="button" data-m="code">🐍 Код</button><button type="button" data-m="both">Код + доска</button></span>
+    <span class="tg-sp"></span>
+    <span id="tgTBar" hidden>
+      <button type="button" class="tg-btn" id="tgInvite" title="Позвать ещё учеников">＋ Позвать</button>
+      <button type="button" class="tg-btn on" id="tgFollow" title="У учеников режим, вкладка и прокрутка — как у вас">🎯 Следить за мной</button>
+      <button type="button" class="tg-btn" id="tgRo" title="Ученики видят всё, но не могут писать и рисовать">🔒 Только смотреть</button>
+      <button type="button" class="tg-btn red" id="tgEnd">Завершить</button>
+    </span>
+    <span id="tgSBar" hidden>
+      <span class="tg-tag" id="tgLead" hidden>🎯 Учитель ведёт</span>
+      <span class="tg-tag" id="tgRoTag" hidden>🔒 Только смотреть</span>
+      <a class="tg-btn red" href="/">Выйти</a>
+    </span>
+  </div>
+  <section class="tg-task" id="tgTask">
+    <div class="tg-task-h">📄 <span class="tg-num" id="tgNum">Без задания</span>
+      <span class="tg-sp"></span>
+      <button type="button" class="tg-btn sm" id="tgPick" hidden>Сменить задание</button>
+      <button type="button" class="tg-btn sm tg-hide-narrow" id="tgMin">Свернуть ▴</button>
+    </div>
+    <div class="tg-task-b">
+      <div id="tgCond"></div>
+      <div class="tg-att" id="tgAtt"></div>
+    </div>
+    <div class="tg-ans" id="tgAns">Ответ: <input id="tgAnsIn" autocomplete="off" spellcheck="false" maxlength="200">
+      <button type="button" class="tg-btn" id="tgChk">Проверить</button>
+      <span class="tg-res" id="tgRes"></span><span class="tg-typing" id="tgTyping"></span>
+      <span class="tg-key" id="tgKey" hidden><button type="button" class="tg-btn sm" id="tgKeyBtn">🔑 Показать ответ</button> <b id="tgKeyV" hidden></b></span>
+    </div>
+  </section>
+  <main class="tg-main" id="tgMain">
+    <section class="tg-code">
+      <div class="tg-ed" id="tgEd"><div class="tg-ed-in" id="tgEdIn">
+        <pre class="tg-gut" id="tgGut">1</pre><pre class="tg-mir" id="tgMir"></pre>
+        <textarea class="tg-ta" id="tgTa" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Общий код Python"></textarea>
+      </div></div>
+      <div class="tg-out">
+        <div class="tg-out-h">Вывод <span id="tgRunWho"></span><span class="tg-sp"></span>
+          <button type="button" class="tg-btn sm" id="tgStop" hidden>■ Стоп</button>
+          <button type="button" class="tg-btn sm good" id="tgRun" title="Ctrl+Enter">▶ Запустить у всех</button></div>
+        <pre id="tgOut"></pre>
+      </div>
+    </section>
+    <section class="tg-board">
+      <div class="tg-tools" id="tgTools">
+        <button type="button" data-tool="pen" class="cur" title="Ручка (P)">✏️</button>
+        <button type="button" data-tool="line" title="Прямая (L)">📏</button>
+        <button type="button" data-tool="text" title="Текст (T)">🔤</button>
+        <button type="button" data-tool="erase" title="Ластик (E)">🧽</button>
+        <hr>
+        <button type="button" id="tgColor" title="Цвет"><i class="cl" id="tgColorI"></i></button>
+        <button type="button" id="tgWidth" title="Толщина"><i class="wd" id="tgWidthI" style="height:3px"></i></button>
+        <hr>
+        <button type="button" id="tgUndo" title="Отменить свой штрих (Ctrl+Z)">↶</button>
+        <button type="button" id="tgRedo" title="Вернуть (Ctrl+Y)">↷</button>
+        <button type="button" id="tgClear" title="Очистить доску">🗑️</button>
+        <div class="tg-cols" id="tgCols" hidden></div>
+      </div>
+      <div class="tg-bscroll" id="tgBs"><div class="tg-sheet pen" id="tgSheet"><canvas id="tgCv"></canvas><canvas id="tgCv2"></canvas></div></div>
+      <div class="tg-note" id="tgBNote" hidden></div>
+    </section>
+  </main>
+  <nav class="tg-tabs" id="tgTabs">
+    <button type="button" data-tab="task">📄 Задание</button><button type="button" data-tab="code">🐍 Код</button><button type="button" data-tab="board" class="cur">✏️ Доска</button><button type="button" data-tab="out">💬 Вывод</button>
+  </nav>
+</div>
+
+<div class="tg-modal" id="tgPickM" hidden><div class="tg-dlg">
+  <h3>Задание для сеанса <button type="button" class="tg-btn sm" data-close>✕</button></h3>
+  <input class="tg-q" id="tgPickQ" placeholder="Номер ЕГЭ (1–27), номер или id задания" autocomplete="off">
+  <div class="tg-chips" id="tgPickChips">
+    <button type="button" class="tg-btn sm on" data-kind="recent">Последние у учеников</button>
+    <button type="button" class="tg-btn sm" data-kind="errors">Ошибки учеников</button>
+    <button type="button" class="tg-btn sm" data-kind="pages">Страницы сеанса</button>
+    <button type="button" class="tg-btn sm" data-kind="blank">＋ Чистая страница</button>
+  </div>
+  <ul class="tg-list" id="tgPickL"></ul>
+</div></div>
+
+<div class="tg-modal" id="tgInvM" hidden><div class="tg-dlg">
+  <h3>Позвать в сеанс <button type="button" class="tg-btn sm" data-close>✕</button></h3>
+  <ul class="tg-list" id="tgInvL"></ul>
+  <div style="display:flex;justify-content:flex-end;margin-top:10px"><button type="button" class="tg-btn pri" id="tgInvGo">Позвать</button></div>
+</div></div>
+
+<div class="tg-over" id="tgOver"><div class="box"><h2 id="tgOverH">Подключаюсь…</h2><p id="tgOverP">Соединяемся с сервером.</p><div class="acts" id="tgOverA"></div></div></div>
+<div class="tg-toast" id="tgToast" hidden></div>
+<script src="together.js"></script>
+</body>
+</html>

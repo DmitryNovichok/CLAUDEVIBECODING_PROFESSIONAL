@@ -47,6 +47,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
     <div class="adm-brand"><span class="brand-mark" aria-hidden="true"><svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="4" y="9" width="56" height="51" rx="16" fill="#58a700"/><rect x="4" y="4" width="56" height="51" rx="16" fill="#58cc02"/><rect x="20" y="15" width="9" height="29" rx="4" fill="#fff"/><rect x="20" y="15" width="24" height="8.5" rx="4.25" fill="#fff"/><rect x="20" y="25.5" width="19" height="8" rx="4" fill="#fff"/><rect x="20" y="35.5" width="24" height="8.5" rx="4.25" fill="#fff"/><circle cx="48.5" cy="43" r="5" fill="#1cb0f6" stroke="#fff" stroke-width="2.5"/></svg></span><span class="brand-title"><b>Ege</b>shka<i class="brand-cursor" aria-hidden="true"></i></span><span>панель учителя</span></div>
     <nav class="adm-tabs" id="tabs">
       <button type="button" data-tab="students" class="on">Ученики</button>
+      <button type="button" data-tab="tog">👥 Вместе</button>
       <button type="button" data-tab="classes">Классы</button>
       <button type="button" data-tab="build">Создать подборку</button>
       <button type="button" data-tab="teachers" class="main-only">Учителя</button>
@@ -220,6 +221,30 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
       </div>
       <h3 class="adm-h3" style="margin-top:18px">Недавно подарено</h3>
       <div id="giftRecent"><p class="adm-hint">Загружаю…</p></div>
+    </section>
+
+    <!-- Совместная работа: общий код и доска с учениками -->
+    <section class="adm-view" id="view-tog" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">👥 Совместная работа</h2></div>
+      <p class="tog-hint">Общий код Python и большая доска с учениками в реальном времени: пишете и рисуете одновременно, всё видно сразу у всех.
+        Войти смогут только те, кого вы отметите. У учеников, которые сейчас на сайте, приглашение всплывёт сразу; остальные увидят его, когда зайдут.</p>
+      <div class="tog-new">
+        <div class="tog-col">
+          <div class="tog-lbl">Кого позвать</div>
+          <input class="inp" id="togSearch" placeholder="Поиск по ФИО" autocomplete="off">
+          <div class="tog-stu" id="togStu"></div>
+        </div>
+        <div class="tog-col">
+          <div class="tog-lbl">Начать с</div>
+          <div class="tog-seg" id="togMode"><button type="button" data-m="board">✏️ Доска</button><button type="button" data-m="code">🐍 Код</button><button type="button" data-m="both" class="on">Код + доска</button></div>
+          <div class="tog-lbl">Задание (необязательно)</div>
+          <input class="inp" id="togTask" placeholder="Номер или id задания — можно выбрать и в сеансе" autocomplete="off">
+          <div class="tog-task" id="togTaskInfo"></div>
+          <button type="button" class="btn primary tog-go" id="togGo">Позвать и открыть сеанс →</button>
+        </div>
+      </div>
+      <h3 class="tog-h">Сеансы</h3>
+      <div id="togList"></div>
     </section>
 
     <section class="adm-view" id="view-supply" hidden>
