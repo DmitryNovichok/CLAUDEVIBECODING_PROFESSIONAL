@@ -4085,6 +4085,24 @@ class ServerTest(unittest.TestCase):
         r.read()
         c.close()
 
+    def test_page_assets_versioned_and_snippet_tex(self):
+        # страница отдаёт скрипты с версией в адресе — новая версия сайта не застрянет в кэше браузера
+        (server.HERE / "index.html").write_text('<script src="app.js"></script><link rel="stylesheet" href="style.css">', encoding="utf-8")
+        (server.HERE / "app.js").write_text("1", encoding="utf-8")
+        c = __import__("http.client").client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/")
+        r = c.getresponse()
+        html = r.read().decode()
+        c.close()
+        self.assertEqual(r.status, 200)
+        self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
+        self.assertRegex(html, r'src="app\.js\?v=[0-9a-f]+"')
+        # формулы KaTeX в коротком описании — один раз и читаемо
+        h = ('<p>Дано <span data-math="4163x1_y = 247393_{10}"><span class="katex"><span class="katex-mathml"><math><semantics>'
+             '<mrow><mn>4163</mn></mrow><annotation encoding="application/x-tex">4163x1_y = 247393_{10}</annotation></semantics>'
+             '</math></span><span>4163</span><span>x</span><span>10</span></span></span></span> и \\(x^2 \\le 5\\)</p>')
+        self.assertEqual(" ".join(server.html_text(h).split()), "Дано 4163x1_y = 247393₁₀ и x² ≤ 5")
+
     # ------------------------------------------------------------ совместный сеанс
 
     def ws(self, sid, token=None, teacher=False, origin=None):
