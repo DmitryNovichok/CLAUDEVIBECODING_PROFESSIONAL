@@ -4085,6 +4085,165 @@ class ServerTest(unittest.TestCase):
         r.read()
         c.close()
 
+    # ------------------------------------------------------------ совместный сеанс
+
+    def ws(self, sid, token=None, teacher=False, origin=None):
+        import base64, os, socket
+        s = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        key = base64.b64encode(os.urandom(16)).decode()
+        hdr = [f"GET /api/together/ws?id={sid}{'&as=t' if teacher else ''} HTTP/1.1", f"Host: 127.0.0.1:{self.port}",
+               "Upgrade: websocket", "Connection: Upgrade", f"Sec-WebSocket-Key: {key}", "Sec-WebSocket-Version: 13"]
+        if token:
+            hdr.append(f"X-Token: {token}")
+        if teacher:
+            hdr.append("Cookie: egeadm=admtest")
+        if origin:
+            hdr.append(f"Origin: {origin}")
+        s.sendall(("\r\n".join(hdr) + "\r\n\r\n").encode())
+        rf = s.makefile("rb")
+        status = rf.readline().decode()
+        while rf.readline() not in (b"\r\n", b""):
+            pass
+        return s, rf, status
+
+    def send(self, s, msg):
+        import os, struct
+        data = json.dumps(msg).encode()
+        mask = os.urandom(4)
+        n = len(data)
+        head = struct.pack(">BB", 0x81, 0x80 | n) if n < 126 else struct.pack(">BBH", 0x81, 0x80 | 126, n)
+        s.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+    def recv(self, rf, want, limit=50):
+        for _ in range(limit):
+            op, data = server.together.ws_read(rf)
+            m = json.loads(data)
+            if m.get("t") == want:
+                return m
+        self.fail(f"нет сообщения {want}")
+
+    def test_together_session(self):
+        a, b = self.login("Совместов Сава"), self.login("Совместова Света")
+        stranger = self.login("Чужаков Чип")
+        db = server.APP.db
+        ida = db.q("SELECT id FROM students WHERE name LIKE 'Совместов С%'", one=True)["id"]
+        idb = db.q("SELECT id FROM students WHERE name LIKE 'Совместова%'", one=True)["id"]
+        st, d = self.admin("GET", "/api/admin/together/students")
+        self.assertEqual(st, 200)
+        self.assertIn(ida, [x["id"] for x in d["students"]])
+        st, d = self.admin("POST", "/api/admin/together/new", {"students": [ida, idb], "task": "b:5", "mode": "both"})
+        self.assertEqual(st, 200, d)
+        sid = d["id"]
+        # приглашение видят только приглашённые
+        st, d = self.req("GET", "/api/together/mine", token=a)
+        self.assertEqual([x["id"] for x in d["sessions"]], [sid])
+        self.assertEqual(d["sessions"][0]["task"], "№ 5")
+        st, d = self.req("GET", "/api/together/mine", token=stranger)
+        self.assertEqual(d["sessions"], [])
+        # чужой ученик и чужой сайт не подключатся
+        self.assertIn(" 403", self.ws(sid, stranger)[2])
+        self.assertIn(" 403", self.ws(sid, a, origin="https://evil.example")[2])
+        self.assertIn(" 403", self.ws(sid)[2])
+        # учитель и ученик подключаются
+        ts, trf, status = self.ws(sid, teacher=True)
+        self.assertIn(" 101", status)
+        snap = self.recv(trf, "snap")
+        self.assertTrue(snap["me"]["teacher"])
+        self.assertEqual(snap["page"]["task"]["ans"], "12")              # учителю — ответ
+        ss, srf, status = self.ws(sid, a)
+        self.assertIn(" 101", status)
+        snap = self.recv(srf, "snap")
+        self.assertNotIn("ans", snap["page"]["task"])                    # ученику ответа нет
+        self.assertNotIn("id", snap["page"]["task"])
+        self.assertIn("Пять", snap["page"]["task"]["html"])
+        # одновременная правка кода с одной ревизии: сервер сводит обе
+        self.send(ts, {"t": "op", "rev": 0, "ops": ["print(1)"]})
+        self.send(ss, {"t": "op", "rev": 0, "ops": ["# x\n"]})
+        self.assertEqual(self.recv(trf, "ack")["rev"], 1)
+        got = self.recv(srf, "op")
+        self.recv(srf, "ack")
+        page = server.TOG.get(sid).pages["p1"]
+        self.assertEqual(page.rev, 2)
+        self.assertIn(page.code, ("print(1)# x\n", "# x\nprint(1)"))
+        # ученик применяет правку учителя, сдвинутую поверх своей — тексты совпадают
+        mine = server.together.op_apply("", ["# x\n"])
+        their = server.together.op_transform(["# x\n"], got["ops"])[1]
+        self.assertEqual(server.together.op_apply(mine, their), page.code)
+        # доска: штрих и продолжение доходят до соседа
+        self.send(ts, {"t": "s+", "page": "p1", "s": {"id": "t1", "c": "#ff0000", "w": 2, "k": "p", "p": [[10, 10]]}})
+        self.assertEqual(self.recv(srf, "s+")["s"]["id"], "t1")
+        self.send(ts, {"t": "s.", "page": "p1", "id": "t1", "p": [[20, 20], [30, 25]]})
+        self.assertEqual(self.recv(srf, "s.")["p"], [[20, 20], [30, 25]])
+        # только смотреть: правки ученика не принимаются
+        self.send(ts, {"t": "ro", "on": True})
+        self.recv(srf, "ro")
+        self.send(ss, {"t": "s+", "page": "p1", "s": {"id": "s1", "p": [[1, 1]]}})
+        self.send(ss, {"t": "op", "rev": 2, "ops": [len(page.code), "!"]})
+        self.recv(srf, "resync")
+        self.assertNotIn("s1", page.strokes)
+        self.send(ts, {"t": "ro", "on": False})
+        self.recv(srf, "ro")
+        # ответ: неверный, затем верный — итог видят все
+        self.send(ss, {"t": "chk", "page": "p1", "v": "11"})
+        self.assertFalse(self.recv(trf, "res")["ok"])
+        self.send(ss, {"t": "chk", "page": "p1", "v": "12"})
+        self.assertTrue(self.recv(trf, "res")["ok"])
+        # в журнал сеанс не пишет: ни опыта, ни биткоинов за решение с учителем
+        self.assertIsNone(db.q("SELECT 1 FROM attempts WHERE student_id=? AND task_id='b:5'", (ida,), one=True))
+        # новое задание — новая страница у всех; прежняя сохранена
+        self.send(ts, {"t": "task", "task": "b:6"})
+        pg = self.recv(srf, "page")
+        self.assertEqual(pg["task"]["n"], 6)
+        self.assertEqual(pg["code"], "")
+        self.assertEqual(len(pg["pages"]), 2)
+        # сохранение в базу и завершение
+        server.TOG.flush()
+        state = json.loads(db.q("SELECT state FROM together WHERE id=?", (sid,), one=True)["state"])
+        self.assertEqual(state["pages"]["p1"]["code"], page.code)
+        st, d = self.admin("GET", "/api/admin/together/list")
+        self.assertEqual(d["sessions"][0]["id"], sid)
+        self.assertTrue(any(x["on"] for x in d["sessions"][0]["students"]))
+        st, d = self.admin("POST", "/api/admin/together/end", {"id": sid})
+        self.assertEqual(st, 200)
+        self.recv(srf, "end")
+        st, d = self.req("GET", "/api/together/mine", token=a)
+        self.assertEqual(d["sessions"], [])
+        for s in (ts, ss):
+            s.close()
+        # чужого ученика позвать нельзя
+        st, d = self.admin("POST", "/api/admin/together/new", {"students": [999999]})
+        self.assertEqual(st, 400)
+        # подбор заданий: по номеру ЕГЭ и последние задания учеников сеанса
+        st, d = self.admin("GET", f"/api/admin/together/tasks?id={sid}&q=5")
+        self.assertTrue(all(x["n"] == 5 for x in d["tasks"]))
+        st, d = self.admin("POST", "/api/admin/together/delete", {"id": sid})
+        self.assertEqual(st, 200)
+        self.assertIsNone(db.q("SELECT 1 FROM together WHERE id=?", (sid,), one=True))
+
+    def test_ot_converges(self):
+        import random
+        T = server.together
+        rnd = random.Random(7)
+
+        def op(doc):
+            ops, i = [], 0
+            while i < len(doc):
+                k = rnd.randint(1, len(doc) - i)
+                r = rnd.random()
+                if r < 0.3:
+                    T._push(ops, rnd.choice(["a", "бв", "\n"]))
+                    continue
+                T._push(ops, k if r < 0.65 else -k)
+                i += k
+            if rnd.random() < 0.5:
+                T._push(ops, "Z")
+            return ops
+        for _ in range(3000):
+            doc = "".join(rnd.choice("xy\n ") for _ in range(rnd.randint(0, 10)))
+            a, b = op(doc), op(doc)
+            a1, b1 = T.op_transform(a, b)
+            self.assertEqual(T.op_apply(T.op_apply(doc, a), b1), T.op_apply(T.op_apply(doc, b), a1))
+
 
 class NumberFixTest(unittest.TestCase):
     def test_turtle_moves_to_6(self):

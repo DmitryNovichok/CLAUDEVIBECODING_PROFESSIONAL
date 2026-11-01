@@ -65,7 +65,7 @@
             buf = buf.slice(i + 2);
             if (ev === 'hello') {
               got = true;
-              if (LV.was) { liveSend('comp'); liveSend('asg'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
+              if (LV.was) { liveSend('comp'); liveSend('asg'); liveSend('together'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
               LV.was = true;
             } else if (ev) liveSend(ev);
           }
@@ -105,6 +105,7 @@
       }).catch(() => {});
     }
     else if (topic === 'support') liveSupport();
+    else if (topic === 'together') togCheck(true);         // учитель позвал в общий сеанс (или завершил его)
     else if (topic === 'pyc') pycLive();
     else if (topic === 'gift') giftLive();
     else if (topic === 'sound') {                    // учитель переключил звуки у класса

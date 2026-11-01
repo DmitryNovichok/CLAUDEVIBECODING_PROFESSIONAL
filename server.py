@@ -50,6 +50,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import clusters                                   # noqa: E402  тип задания и сложность (clusters.py рядом с сервером)
+import together                                   # noqa: E402  совместный сеанс: код и доска (together.py рядом с сервером)
 
 HERE = Path(__file__).resolve().parent            # папка trainer
 BIBLIO = HERE.parent                              # где обычно лежат банки: Biblio/trainer + Biblio/*_bank
@@ -61,6 +62,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "changelog.js",
+              "together.html", "together.js",
               "terms.html", "privacy.html", "consent.html", "legal.css",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
               "favicon.ico", "favicon.svg", "favicon-96.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "site.webmanifest"}
@@ -1098,6 +1100,7 @@ class Bank:
         self.zipped = set()
         self.broken = []
         self.authored = 0          # сколько заданий с автором
+        self.pubs = {}             # настоящий id -> задание без ответа (как в bank.js) — для совместного сеанса
         self.mtime = None
         self.extra_mtime = None
         self.lock = threading.Lock()
@@ -1316,6 +1319,7 @@ class Bank:
             self.zipped = set()
             self.broken = []
             self.authored = 0
+            self.pubs = {}
             pub_tasks = []
             for tid, was, now_n in clusters.fix_numbers(data.get("tasks", [])):
                 print(f"Банк: задание {tid} перенесено из №{was} в №{now_n}", flush=True)
@@ -1353,6 +1357,7 @@ class Bank:
                     if t.get("sol"):
                         p["hasSol"] = True
                 pub_tasks.append(p)
+                self.pubs[t["id"]] = p
             pub = dict(data, tasks=pub_tasks, srv=True, clusters=clusters.catalog())
             raw = ("window.EGE_BANK = " + json.dumps(pub, ensure_ascii=False, separators=(",", ":")) + ";\n").encode("utf-8")
             self.public_raw = raw
@@ -1465,6 +1470,10 @@ class DB:
             CREATE TABLE IF NOT EXISTS market_hist(day TEXT, mkey TEXT, ratio REAL, PRIMARY KEY(day, mkey));
             -- тиражи: сколько всего может быть выпущено подарков вида (на весь сайт)
             CREATE TABLE IF NOT EXISTS gift_supply(gift TEXT PRIMARY KEY, cap INTEGER NOT NULL);
+            -- совместные сеансы: учитель и приглашённые ученики (students — JSON со списком id); state — код, доска, задания
+            CREATE TABLE IF NOT EXISTS together(id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, students TEXT NOT NULL,
+                created REAL NOT NULL, ended REAL, updated REAL, state TEXT);
+            CREATE INDEX IF NOT EXISTS together_t ON together(teacher_id, created);
             -- журнал тиражей: выпуск (source — shop, box, work, teacher, limited), улучшение, продажа сразу, удаление, сделка на рынке
             CREATE TABLE IF NOT EXISTS gift_log(id INTEGER PRIMARY KEY, ts REAL NOT NULL, gift_id INTEGER, gift TEXT, event TEXT NOT NULL,
                 source TEXT, sid INTEGER, price INTEGER);
@@ -1977,6 +1986,87 @@ def live_class(db, cid, sids=None):
     LIVE.send(sids, "asg")
 
 
+# ---------- совместный сеанс (together.py): хранение, задание, проверка ответа
+TOG_ACTIVE_SEC = 12 * 3600          # приглашение «висит» у ученика столько, пока учитель не завершил сеанс
+TOG_LIST = 30
+
+
+def tog_load(sid):
+    r = APP.db.q("SELECT * FROM together WHERE id=?", (sid,), one=True)
+    if not r:
+        return None
+    try:
+        st = json.loads(r["state"] or "{}")
+    except ValueError:
+        st = {}
+    return r, st
+
+
+def tog_save(sid, state):
+    APP.db.x("UPDATE together SET state=?, updated=? WHERE id=?",
+             (json.dumps(state, ensure_ascii=False, separators=(",", ":")), time.time(), sid))
+
+
+def tog_task(real, teacher):
+    """Задание для страницы сеанса: условие и файлы — как в тренажёре (без ответа); учителю — ещё id и ответ."""
+    if not real or not APP.bank.ensure():
+        return None
+    t, p = APP.bank.tasks.get(real), APP.bank.pubs.get(real)
+    if not t or not p:
+        return None
+    n = t.get("n")
+    out = {"n": n, "html": p.get("html") or "", "att": p.get("att") or [], "parts": bool(t.get("parts")),
+           "label": f"№ {n}" if n else "Задание"}
+    if teacher:
+        out["id"] = real
+        out["label"] += " · " + real.split(":", 1)[-1]
+        out["ans"] = (" | ".join(f"{x.get('n')}: {x.get('ans', '')}" for x in t["parts"]) if t.get("parts")
+                      else t.get("ans", ""))
+    return out
+
+
+def tog_check(real, ans):
+    t = APP.bank.tasks.get(real) if APP.bank.ensure() else None
+    if not t or t.get("parts"):
+        return None
+    return answer_credit(t.get("n") or 0, t.get("ans", ""), ans)
+
+
+def tog_name(who):
+    if who[0] == "t":
+        r = APP.db.q("SELECT name FROM teachers WHERE id=?", (who[1],), one=True)
+        return (r["name"] if r else "") or "Учитель"
+    r = APP.db.q("SELECT name FROM students WHERE id=?", (who[1],), one=True)
+    return short_name(r["name"]) if r else "Ученик"
+
+
+TOG = together.Hub(tog_load, tog_save, tog_task, tog_check, tog_name)
+together.PY_LOCAL = lambda: (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()      # Python с самого сервера (школьная сеть)
+
+
+def tog_public(db, r, sid=None):
+    """Сеанс для списка: у ученика — кто зовёт и куда; у учителя — кто приглашён и кто сейчас в сеансе."""
+    try:
+        st = json.loads(r["state"] or "{}")
+    except ValueError:
+        st = {}
+    pages = st.get("pages") or {}
+    cur = pages.get(st.get("cur")) or {}
+    task = tog_task(cur.get("task"), sid is None) if cur.get("task") else None
+    out = {"id": r["id"], "created": r["created"], "ended": r["ended"], "mode": st.get("mode") or "both",
+           "task": task["label"] if task else None, "pages": len(pages)}
+    if sid is None:
+        ids = json.loads(r["students"] or "[]")
+        names = {x["id"]: x["name"] for x in db.q(f"SELECT id, name FROM students WHERE id IN ({','.join('?' * len(ids)) or 'NULL'})", ids)}
+        online = {w[1] for w in TOG.online(r["id"]) if w[0] == "s"}
+        out["students"] = [{"id": i, "name": names.get(i, "?"), "on": i in online} for i in ids]
+        out["teacher_on"] = any(w[0] == "t" for w in TOG.online(r["id"]))
+    else:
+        t = db.q("SELECT name FROM teachers WHERE id=?", (r["teacher_id"],), one=True)
+        out["teacher"] = (t["name"] if t else "") or "Учитель"
+    return out
+
+
 APP = None
 
 
@@ -2039,6 +2129,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.live()
             if path == "/api/admin/live":
                 return self.live_admin()
+            if path == "/api/together/ws":
+                return self.together_ws(qs)
             if path.startswith("/api/"):
                 return self.api("GET", path, qs, {})
             return self.static(path)
@@ -2098,6 +2190,8 @@ class Handler(BaseHTTPRequestHandler):
             path = "/index.html"
         if path in ("/admin", "/admin/"):
             path = "/admin.html"
+        if path in ("/together", "/together/"):
+            path = "/together.html"
         rel = path.lstrip("/")
         # «..», обратные слэши и пустые части пути не нужны ни одному честному запросу
         segs = rel.split("/")
@@ -2317,6 +2411,48 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             pass                                 # вкладку закрыли или связь пропала — браузер переподключится сам
         finally:
             LIVE.unsubscribe(key, q)
+
+    # ---------- совместный сеанс: WebSocket
+    def together_who(self, sid, as_teacher):
+        """Кто входит в сеанс: его учитель (as=t и вход учителя) или приглашённый ученик; иначе None."""
+        r = APP.db.q("SELECT teacher_id, students FROM together WHERE id=?", (sid,), one=True)
+        if not r:
+            return None
+        if as_teacher:
+            return ("t", r["teacher_id"]) if self.is_admin() and self.T["id"] == r["teacher_id"] else None
+        s = self.student()
+        if s and not s["is_teacher"] and s["id"] in json.loads(r["students"] or "[]"):
+            return ("s", s["id"])
+        return None
+
+    def together_ws(self, qs):
+        sid = to_int(qs.get("id"))
+        origin = self.headers.get("Origin") or ""
+        host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or ""
+        if origin and urlparse(origin).netloc != host:
+            return self.err(403, "чужой сайт")               # чужая страница не подключится к сеансу с cookie ученика
+        who = self.together_who(sid, qs.get("as") == "t") if sid else None
+        if not who:
+            return self.err(403, "Этот сеанс вам недоступен")
+        key = self.headers.get("Sec-WebSocket-Key")
+        if not key or "websocket" not in (self.headers.get("Upgrade") or "").lower():
+            return self.err(400, "нужен WebSocket")
+        sess = TOG.get(sid)
+        if not sess:
+            return self.err(404, "сеанс не найден")
+        self.close_connection = True
+        self.send_response(101, "Switching Protocols")
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", together.ws_accept(key))
+        self.end_headers()
+        sock = self.connection
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)     # мелкие сообщения уходят сразу, без склейки
+        except OSError:
+            pass
+        sock.settimeout(75)                                  # браузер шлёт «ping» каждые несколько секунд
+        TOG.run(sess, who, sock, self.rfile, secrets.token_hex(4))
 
     # ---------- API
     def cookie(self, name):
@@ -3212,6 +3348,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json({"ok": True})
             r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid), one=True)
             return self.send_json({"code": r["code"] if r else "", "ts": r["ts"] if r else None})
+
+        if path == "/api/together/mine":
+            # совместные сеансы, куда позвал учитель (не завершённые)
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            rows = db.q("SELECT * FROM together WHERE ended IS NULL AND created > ? ORDER BY created DESC",
+                        (time.time() - TOG_ACTIVE_SEC,))
+            mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")]
+            return self.send_json({"sessions": mine})
 
         if path == "/api/assignments":
             s = self.student(data)
@@ -5779,6 +5925,99 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 rows.append(row)
             return self.send_json({"id": aid, "title": a["title"], "strict": bool(a["strict"]), "closed": a["closed"],
                                    "grading": asg_grading(a), "total": len(items), "rows": rows})
+
+        if path == "/api/admin/together/students":
+            # свои ученики для приглашения: кто сейчас на сайте (держит живое соединение) — первыми
+            with LIVE.lock:
+                live = {k for k in LIVE.subs if isinstance(k, int)}
+            cls = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM classes")}
+            out = []
+            for r in db.q("SELECT id, name, class_id, last_seen, teacher_id FROM students WHERE " + self.student_scope("students")[0]
+                          + " ORDER BY name", self.student_scope("students")[1]):
+                out.append({"id": r["id"], "name": r["name"], "cls": cls.get(r["class_id"]), "seen": r["last_seen"],
+                            "on": r["id"] in live})
+            out.sort(key=lambda x: (not x["on"], -(x["seen"] or 0)))
+            return self.send_json({"students": out, "now": now})
+
+        if path == "/api/admin/together/list":
+            rows = db.q("SELECT * FROM together WHERE teacher_id=? ORDER BY created DESC LIMIT ?", (self.T["id"], TOG_LIST))
+            return self.send_json({"sessions": [tog_public(db, r) for r in rows], "now": now})
+
+        if path in ("/api/admin/together/new", "/api/admin/together/invite") and method == "POST":
+            ids = [to_int(x) for x in (data.get("students") or []) if to_int(x)]
+            ids = sorted({i for i in ids if self.sees_student(i)})
+            if not ids:
+                return self.err(400, "Отметьте хотя бы одного своего ученика")
+            if len(ids) > 30:
+                return self.err(400, "Слишком много учеников для одного сеанса")
+            if path.endswith("/new"):
+                APP.bank.ensure()
+                task = str(data.get("task") or "") or None
+                if task and task not in APP.bank.tasks:
+                    task = APP.bank.find(task)
+                    if not task:
+                        return self.err(404, "Задание не найдено")
+                mode = data.get("mode") if data.get("mode") in ("both", "code", "board") else "both"
+                state = {"mode": mode, "cur": "p1", "follow": True, "pages": {"p1": {"task": task}}}
+                tid = db.x("INSERT INTO together(teacher_id, students, created, updated, state) VALUES(?,?,?,?,?)",
+                           (self.T["id"], json.dumps(ids), now, now, json.dumps(state, ensure_ascii=False)))
+            else:
+                tid = to_int(data.get("id"))
+                r = db.q("SELECT * FROM together WHERE id=? AND teacher_id=?", (tid, self.T["id"]), one=True)
+                if not r:
+                    return self.err(404, "Сеанс не найден")
+                ids = sorted(set(json.loads(r["students"] or "[]")) | set(ids))
+                db.x("UPDATE together SET students=?, ended=NULL, created=? WHERE id=?", (json.dumps(ids), now, tid))
+                TOG.forget(tid)
+            LIVE.send(ids, "together")                       # у учеников на сайте приглашение всплывёт сразу
+            return self.send_json({"ok": True, "id": tid})
+
+        if path in ("/api/admin/together/end", "/api/admin/together/delete") and method == "POST":
+            tid = to_int(data.get("id"))
+            r = db.q("SELECT * FROM together WHERE id=? AND teacher_id=?", (tid, self.T["id"]), one=True)
+            if not r:
+                return self.err(404, "Сеанс не найден")
+            if path.endswith("/delete"):
+                db.x("UPDATE together SET ended=COALESCE(ended, ?) WHERE id=?", (now, tid))
+                TOG.forget(tid)
+                TOG.flush()
+                db.x("DELETE FROM together WHERE id=?", (tid,))
+            else:
+                db.x("UPDATE together SET ended=? WHERE id=? AND ended IS NULL", (now, tid))
+                TOG.forget(tid)
+            LIVE.send(json.loads(r["students"] or "[]"), "together")
+            return self.send_json({"ok": True})
+
+        if path == "/api/admin/together/tasks":
+            # задание для сеанса: номер ЕГЭ (случайные задания номера), id/номер КомпЕГЭ, последние и ошибки учеников сеанса
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            r = db.q("SELECT students FROM together WHERE id=? AND teacher_id=?", (to_int(qs.get("id")), self.T["id"]), one=True)
+            sids = json.loads(r["students"] or "[]") if r else []
+            kind, q = qs.get("kind") or "recent", str(qs.get("q") or "").strip().lstrip("№").strip()
+            item = lambda i, mark="": {"id": i, "n": APP.bank.tasks[i].get("n"), "snip": APP.bank.snippet(i)[:140],
+                                       "label": f"№ {APP.bank.tasks[i].get('n')} · {i.split(':', 1)[-1]}", "mark": mark}
+            if q:
+                n = to_int(q)
+                if n and 1 <= n <= 27 and q.isdigit():
+                    pool = bank_pool({n}, authored_ok=bool(self.T["authored"]))
+                    pick = secrets.SystemRandom().sample(pool, min(8, len(pool)))
+                    return self.send_json({"tasks": [item(i, "случайное") for i in pick]})
+                rid = q if q in APP.bank.tasks else APP.bank.find(q)
+                return self.send_json({"tasks": [item(rid)] if rid else []})
+            if not sids:
+                return self.send_json({"tasks": []})
+            cond = "a.score = 0" if kind == "errors" else "1"
+            rows = db.q(f"""SELECT COALESCE(a.grp, a.task_id) AS t, MAX(a.ts) AS ts, MAX(a.score) AS best, COUNT(*) AS c
+                            FROM attempts a WHERE a.student_id IN ({','.join('?' * len(sids))}) AND {cond}
+                            AND COALESCE(a.exam, 0) = 0 GROUP BY t ORDER BY ts DESC LIMIT 15""", sids)
+            out = []
+            for x in rows:
+                if x["t"] in APP.bank.tasks:
+                    mark = ("✗ " + ("ошибка" if x["c"] == 1 else f"ошибок: {x['c']}")) if kind == "errors" else (
+                        "✓ решено" if (x["best"] or 0) > 0 else "✗ не решено")
+                    out.append(item(x["t"], mark))
+            return self.send_json({"tasks": out})
 
         if path == "/api/admin/bank/find":
             # задание для подборки: по номеру КомпЕГЭ, коду ФИПИ или id из журнала

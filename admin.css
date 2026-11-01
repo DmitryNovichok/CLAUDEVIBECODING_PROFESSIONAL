@@ -13,7 +13,7 @@ code { font-family: var(--mono); font-size: .92em; background: var(--card); bord
 }
 .adm-brand { font-weight: 650; }
 .adm-brand span { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
-.adm-tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.adm-tabs { display: flex; flex-wrap: wrap; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
 .adm-tabs button {
   border: 0; background: transparent; color: var(--muted); padding: 6px 14px; border-radius: 7px; cursor: pointer; font-size: 14px;
   position: relative;
@@ -636,3 +636,29 @@ tr.comp-void td { opacity: .55; }
 .sup-table th { white-space: normal; max-width: 90px; }
 .sup-out { color: #e53935; }
 .sup-table tr.on td { background: var(--card-hover, rgba(0,0,0,.04)); }
+
+/* совместная работа */
+.tog-hint { color: var(--muted); font-size: 13.5px; margin: -4px 0 14px; max-width: 900px; }
+.tog-new { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 16px; margin-bottom: 22px; }
+@media (max-width: 800px) { .tog-new { grid-template-columns: 1fr; } }
+.tog-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tog-lbl { font-size: 12px; color: var(--muted); font-weight: 800; text-transform: uppercase; letter-spacing: .04em; margin-top: 6px; }
+.tog-stu { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; max-height: 340px; overflow: auto; padding: 2px; }
+.tog-stu label { display: flex; gap: 8px; align-items: center; padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 14px; }
+.tog-stu label.on { border-color: var(--accent); background: var(--accent-soft); }
+.tog-stu .st { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.tog-stu .st.live { color: var(--good-strong, #58a700); font-weight: 800; }
+.tog-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; align-self: flex-start; }
+.tog-seg button { background: none; border: 0; padding: 7px 12px; font-weight: 700; font-size: 13.5px; color: var(--muted); cursor: pointer; }
+.tog-seg button.on { background: var(--accent-soft); color: var(--accent-text); }
+.tog-task { font-size: 13px; color: var(--muted); min-height: 18px; }
+.tog-task b { color: var(--text); }
+.tog-go { margin-top: 12px; align-self: flex-start; }
+.tog-h { font-size: 17px; margin: 0 0 10px; }
+.tog-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 8px; background: var(--card); }
+.tog-row .who { flex: 1; min-width: 200px; font-size: 14px; }
+.tog-row .meta { font-size: 12.5px; color: var(--muted); }
+.tog-row .live { color: var(--weak); font-weight: 800; font-size: 12.5px; }
+.tog-row .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 3px; }
+.tog-row .btn { font-size: 13px; padding: 6px 11px; }
