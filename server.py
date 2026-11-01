@@ -69,6 +69,8 @@ SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "ad
 # редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
 LEGAL_VERSION = "2026-10-13"
 SITE_DIRS = ("vendor/", "media/")
+# скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
+PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker)\.js|(?:style|admin|legal)\.css)"')
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
             ".txt", ".csv", ".tsv", ".xlsx", ".xls", ".xlsm", ".ods", ".odt", ".docx", ".doc", ".rtf",
@@ -1262,9 +1264,7 @@ class Bank:
         h = t.get("html", "")
         if h.lstrip().startswith('<div class="linked-task">') and '<hr class="subtask-sep">' in h:
             h = h.split('<hr class="subtask-sep">', 1)[1]
-        txt = re.sub(r"<[^>]+>", " ", h)
-        import html as _h
-        txt = re.sub(r"\s+", " ", _h.unescape(txt)).strip()
+        txt = re.sub(r"\s+", " ", html_text(h)).strip()
         snip = txt[:140]
         self._snips[task_id] = snip
         return snip
@@ -1371,6 +1371,94 @@ class Bank:
                 print("  Скачайте их заново: удалите эти файлы и запустите python openfipi_parser.py", flush=True)
             self.check_media(text)
         return True
+
+
+_SUB = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
+_SUP = str.maketrans("0123456789+-=()n", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ")
+_TEX_SYM = {"cdot": "·", "times": "×", "le": "≤", "leq": "≤", "leqslant": "≤", "ge": "≥", "geq": "≥", "geqslant": "≥",
+            "ne": "≠", "neq": "≠", "to": "→", "rightarrow": "→", "Rightarrow": "⇒", "leftrightarrow": "↔", "Leftrightarrow": "⇔",
+            "lor": "∨", "vee": "∨", "land": "∧", "wedge": "∧", "neg": "¬", "lnot": "¬", "oplus": "⊕", "equiv": "≡", "ldots": "…",
+            "dots": "…", "cdots": "…", "infty": "∞", "pm": "±", "div": "÷", "approx": "≈", "in": "∈", "quad": " ", "qquad": " ",
+            "left": "", "right": "", "lfloor": "⌊", "rfloor": "⌋", "lceil": "⌈", "rceil": "⌉", "%": "%", "{": "{", "}": "}"}
+
+
+def tex_plain(tex):
+    """Формула TeX — обычным текстом для коротких описаний: 247393_{10} → 247393₁₀, x^2 → x², \\le → ≤."""
+    t = str(tex or "")
+    for _ in range(3):
+        t = re.sub(r"\\(?:text|mathrm|mathbf|mathit|operatorname|textbf)\s*\{([^{}]*)\}", r"\1", t)
+        t = re.sub(r"\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}", r"\1/\2", t)
+    t = re.sub(r"\\([A-Za-z]+|[%{}])", lambda m: _TEX_SYM.get(m.group(1), m.group(1)), t)
+
+    def script(m, table):
+        body = m.group(1) if m.group(1) is not None else m.group(2)
+        conv = body.translate(table)
+        return conv if all(ch not in "0123456789+-=()n" or ch != c for ch, c in zip(body, conv)) and conv != body or \
+            all(c in "0123456789+-=() " for c in body) else ("_" if table is _SUB else "^") + body
+    t = re.sub(r"_\s*(?:\{([^{}]*)\}|(\w))", lambda m: script(m, _SUB), t)
+    t = re.sub(r"\^\s*(?:\{([^{}]*)\}|(\w))", lambda m: script(m, _SUP), t)
+    t = t.replace("{", "").replace("}", "").replace("\\,", " ").replace("~", " ")
+    return re.sub(r"\s+", " ", t).strip()
+
+
+class _HtmlText(__import__("html.parser").parser.HTMLParser):
+    """Текст условия без разметки. Формулы (KaTeX: data-math, annotation) — один раз и читаемо, без копий отрисовки."""
+    VOID = {"br", "img", "hr", "input", "meta", "link", "wbr", "col", "area", "source"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out, self.skip, self.ann = [], 0, None
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.VOID:
+            if not self.skip:
+                self.out.append(" ")
+            return
+        if self.skip:
+            self.skip += 1
+            if tag == "annotation" and self.ann is None:      # формула KaTeX без data-math — берём её исходник
+                self.ann = []
+            return
+        a = dict(attrs)
+        if a.get("data-math") is not None:
+            self.out.append(" " + tex_plain(a["data-math"]) + " ")
+            self.skip = 1
+            self.ann = False                       # формулу уже взяли из data-math
+        elif "katex" in (a.get("class") or "").split():
+            self.skip = 1
+            self.ann = None
+        else:
+            self.out.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in self.VOID:
+            return
+        if self.skip:
+            if tag == "annotation" and isinstance(self.ann, list):
+                self.out.append(" " + tex_plain("".join(self.ann)) + " ")
+                self.ann = False
+            self.skip -= 1
+            return
+        self.out.append(" ")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.out.append(data)
+        elif isinstance(self.ann, list):
+            self.ann.append(data)
+
+
+def html_text(h):
+    p = _HtmlText()
+    try:
+        p.feed(h or "")
+        p.close()
+    except Exception:                               # кривая разметка — по-простому
+        import html as _h
+        return _h.unescape(re.sub(r"<[^>]+>", " ", h or ""))
+    # формулы прямо в тексте: \( … \), \[ … \], $$ … $$
+    return re.sub(r"\\\((.+?)\\\)|\\\[(.+?)\\\]|\$\$(.+?)\$\$", lambda m: tex_plain(next(g for g in m.groups() if g is not None)),
+                  "".join(p.out), flags=re.S)
 
 
 # ================================================================ база
@@ -2084,8 +2172,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "same-origin")
-        self.send_header("X-Frame-Options", "SAMEORIGIN")      # чужой сайт не встроит тренажёр в рамку (кликджекинг)
+        if "Referrer-Policy" not in (extra or {}):
+            self.send_header("Referrer-Policy", "same-origin")
+        if "X-Frame-Options" not in (extra or {}):
+            self.send_header("X-Frame-Options", "SAMEORIGIN")  # чужой сайт не встроит тренажёр в рамку (кликджекинг)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -2206,6 +2296,8 @@ class Handler(BaseHTTPRequestHandler):
         # файлы сайта
         if rel == "index.html":
             self.count_visit()
+        if rel in ("index.html", "admin.html", "together.html"):
+            return self.serve_page(rel)
         if rel in SITE_FILES:
             return self.serve_file(HERE, rel, html=rel.endswith(".html"))
         for d in SITE_DIRS:
@@ -2253,6 +2345,30 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 или переносили, пересоберите его (<code>python build.py</code>) и перезапустите сервер. Папку с банками можно указать:
 <code>python server.py --banks "C:\\путь\\к\\Biblio"</code>.</p><p><a href="/">← В тренажёр</a></p>"""
         return self.send_bytes(404, body.encode("utf-8"), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+
+    def serve_page(self, rel):
+        """Страница сайта: у скриптов и стилей в адресе — их версия (?v=…). Вышла новая — у страницы новые адреса,
+        и браузер (или прокси по дороге) не подсунет старый app.js из кэша."""
+        p = HERE / rel
+        try:
+            html = p.read_text(encoding="utf-8")
+        except OSError:
+            return self.not_found(p)
+
+        def ver(m):
+            f = HERE / m.group(2)
+            try:
+                st = f.stat()
+                return f'{m.group(1)}="{m.group(2)}?v={int(st.st_mtime):x}{st.st_size:x}"'
+            except OSError:
+                return m.group(0)
+        html = PAGE_ASSET_RE.sub(ver, html)
+        body = html.encode("utf-8")
+        etag = '"%s"' % hashlib.md5(body).hexdigest()[:16]
+        if self.headers.get("If-None-Match") == etag:
+            return self.send_bytes(304, b"", "text/plain", {"ETag": etag})
+        return self.send_bytes(200, body, "text/html; charset=utf-8",
+                               {"ETag": etag, "Cache-Control": "no-cache", "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin"})
 
     def serve_task_file(self, rel):
         """Картинка или файл задания по безликой ссылке files/<код>/<имя>; файл из архива ФИПИ — прямо из zip."""

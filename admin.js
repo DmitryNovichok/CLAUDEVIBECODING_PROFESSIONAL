@@ -43,7 +43,7 @@
     : `${Math.floor(ms / 3600000)} ч ${Math.round((ms % 3600000) / 60000)} мин`);
   const WEEKDAYS = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
 
-  function toast(msg) {
+  function toast(msg, ms = 2600) {
     let box = document.getElementById('toasts');
     if (!box) {
       box = document.createElement('div');
@@ -56,7 +56,7 @@
     t.className = 'toast';
     t.textContent = msg;
     box.appendChild(t);
-    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, 2600);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, ms || 2600);
   }
 
   /** Текст задания из чужих банков: без скриптов и обработчиков событий. */
@@ -499,7 +499,7 @@
       <span class="bld-bar-act"><input class="inp" type="number" id="bldK" min="1" max="50" value="5"> <button type="button" class="btn" id="bldRand"${d.total ? '' : ' disabled'}>+ случайных из найденных</button>
       <button type="button" class="btn" id="bldPerN"${d.total ? '' : ' disabled'} title="Из найденных — столько случайных заданий каждого номера">+ по стольку на каждый номер</button>
       <button type="button" class="btn ghost" id="bldAddPage"${d.tasks.length ? '' : ' disabled'}>+ все на странице</button>
-      <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 из общего банка (актуальные)">Вариант ЕГЭ</button></span>`;
+      <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 с выбранными сложностью, банком, годами и решаемостью (номера и типы фильтра не важны). Номер, для которого с такими фильтрами заданий нет, — из всего банка">Вариант ЕГЭ</button></span>`;
     $('#bldList').innerHTML = d.tasks.length ? d.tasks.map(x => `<div class="bld-item${inDraft.has(x.id) ? ' in' : ''}">
         <span class="num-badge sm">${x.n === 19 ? '19–21' : x.n}</span>
         <div class="bld-item-main"><div class="bld-meta"><button type="button" class="bld-id" data-copy="${esc(idOf(x.id))}" title="Номер задания — нажмите, чтобы скопировать">№ ${esc(idOf(x.id))}</button>
@@ -598,11 +598,21 @@
     if (e.target.closest('#bldPerN') || e.target.closest('#bldVariant')) {
       const variant = !!e.target.closest('#bldVariant');
       const k = variant ? 1 : Math.max(1, Math.min(20, +$('#bldK').value || 1));
-      let pool;
-      if (variant) {                       // вариант — из всего актуального банка, без фильтров
+      let pool, filled = [];
+      if (variant) {
+        // вариант — по выбранным сложности, банку, годам, формату и решаемости (номера, типы и текст не важны: нужны все 1–27);
+        // номер, где с такими фильтрами пусто, добирается из всего актуального банка
         const saved = BLD.f;
-        BLD.f = { n: [], c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: saved.notsolved, q: '', sort: 'random' };
+        BLD.f = Object.assign({}, saved, { n: [], c: [], q: '', sort: 'random' });
         pool = await bldSearch(true, true);
+        const got = new Set((pool || []).map(x => x.n));
+        const miss = [];
+        for (let n = 1; n <= 27; n++) if (!(n >= 20 && n <= 21) && !got.has(n)) miss.push(n);
+        if (pool && miss.length && (saved.r.length || saved.bank.length || saved.y0 || saved.y1 || saved.rate || saved.fmt !== 'actual')) {
+          BLD.f = { n: miss.map(String), c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: saved.notsolved, q: '', sort: 'random' };
+          const more = await bldSearch(true, true);
+          if (more) { pool = pool.concat(more); filled = [...new Set(more.map(x => x.n))].sort((a, b) => a - b); }
+        }
         BLD.f = saved;
       } else pool = await bldSearch(true, true);
       if (!pool) return;
@@ -615,8 +625,16 @@
         add.push(...l.slice(0, k));
       }
       const n = bldAdd(add);
-      if (variant && !BLD.d.title) { BLD.d.title = 'Вариант ЕГЭ'; bldSave(); renderBldDraft(); }
-      toast(n ? `Добавлено: ${n}${variant ? ' — по одному на номер' : ` — по ${k} на номер`}` : 'Все подходящие задания уже в подборке');
+      if (variant && !BLD.d.title) {
+        const f = BLD.f, bits = [];
+        if (f.r.length) bits.push('сложность ' + f.r.slice().sort().join(', '));
+        if (f.bank.length) bits.push(f.bank.map(b => (BLD.cat.banks.find(x => x.id === b) || {}).title || b).join(', '));
+        BLD.d.title = 'Вариант ЕГЭ' + (bits.length ? ` (${bits.join('; ')})` : '');
+        bldSave(); renderBldDraft();
+      }
+      toast(n ? `Добавлено: ${n}${variant ? ' — по одному на номер' : ` — по ${k} на номер`}`
+        + (filled.length ? `. С выбранными фильтрами нет заданий №${filled.join(', ')} — они взяты из всего банка` : '')
+        : 'Все подходящие задания уже в подборке', filled.length ? 7000 : undefined);
       return;
     }
     if (e.target.closest('#bldRand')) {

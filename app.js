@@ -6393,12 +6393,19 @@
     } catch (e) { return null; }
   }
   async function checkVersion() {
-    if (VER.shown || (document.hidden && VER.tags !== null)) return;
+    if (VER.shown) return;
     const t = await siteTags();
     if (!t) return;
     if (VER.tags === null) { VER.tags = t; return; }
     if (t === VER.tags) return;
     VER.shown = true;
+    // вкладка давно открыта и в фоне — обновить её саму, когда к ней вернутся (если не идёт вариант или самостоятельная):
+    // старая версия сайта не остаётся работать неделями
+    const safe = () => !EX && !wkLive() && !(document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.value);
+    if (document.hidden) {
+      const go = () => { if (!document.hidden && safe()) location.reload(); };
+      document.addEventListener('visibilitychange', go);
+    }
     const bar = document.createElement('div');
     bar.className = 'ver-bar';
     bar.innerHTML = '✨ Вышла новая версия сайта <button type="button" class="btn primary">Обновить</button>';
