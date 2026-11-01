@@ -81,18 +81,30 @@ body.tgp [hidden] { display: none !important; }
 .tg-app[data-mode="code"] .tg-main { grid-template-columns: 1fr; }
 .tg-app[data-mode="board"] .tg-main { grid-template-columns: 1fr; }
 .tg-app[data-mode="code"] .tg-board, .tg-app[data-mode="board"] .tg-code { display: none; }
-.tg-code { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--border); background: var(--code-bg); }
-.tg-ed { flex: 1; overflow: auto; position: relative; min-height: 0; }
-.tg-ed-in { position: relative; min-height: 100%; }
-.tg-gut, .tg-mir, .tg-ta { font: 14px/21px var(--mono); tab-size: 4; margin: 0; white-space: pre; }
-.tg-gut { position: absolute; left: 0; top: 0; width: 38px; padding: 10px 6px 10px 0; text-align: right; color: var(--faint); pointer-events: none;
-  box-sizing: border-box; -webkit-user-select: none; user-select: none; }
-.tg-mir { position: absolute; left: 44px; top: 0; padding: 10px 10px 10px 0; visibility: hidden; pointer-events: none; }
-.tg-ta { position: absolute; left: 44px; top: 0; border: 0; padding: 10px 10px 10px 0; background: transparent; color: var(--text); resize: none;
-  outline: none; overflow: hidden; caret-color: var(--me, var(--accent)); box-sizing: border-box; }
-.tg-ta:read-only { caret-color: transparent; }
-.tg-caret { position: absolute; width: 2px; height: 21px; pointer-events: none; z-index: 2; }
-.tg-caret span { position: absolute; left: 0; bottom: 100%; font: 800 10.5px/14px var(--font); color: #fff; padding: 0 5px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
+.tg-code { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
+/* редактор — как в тренажёре (классы py-* из style.css), цвета PyCharm Darcula / Light */
+.tg-code { --py-fs: 14px;
+  --py-bg: #2b2b2b; --hl-text: #a9b7c6; --hl-kw: #cc7832; --hl-str: #6a8759; --hl-num: #6897bb; --hl-com: #808080;
+  --hl-bi: #8888c6; --hl-def: #ffc66d; --hl-dec: #bbb529; --hl-self: #94558d; --hl-op: #a9b7c6; }
+:root[data-theme="light"] .tg-code {
+  --py-bg: #ffffff; --hl-text: #080808; --hl-kw: #0033b3; --hl-str: #067d17; --hl-num: #1750eb; --hl-com: #8c8c8c;
+  --hl-bi: #000080; --hl-def: #00627a; --hl-dec: #9e880d; --hl-self: #94558d; --hl-op: #080808; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .tg-code {
+    --py-bg: #ffffff; --hl-text: #080808; --hl-kw: #0033b3; --hl-str: #067d17; --hl-num: #1750eb; --hl-com: #8c8c8c;
+    --hl-bi: #000080; --hl-def: #00627a; --hl-dec: #9e880d; --hl-self: #94558d; --hl-op: #080808; }
+}
+.tg-code-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; font-weight: 800; color: var(--muted); }
+.tg-code .py-editor { flex: 1 1 auto; min-height: 120px; border-left: 0; border-right: 0; }
+.tg-code .py-code:read-only { caret-color: transparent; }
+.tg-code .py-code:focus-visible { box-shadow: none; }
+.tg-rcl { color: transparent !important; z-index: 2; }
+.tg-rc { position: relative; display: inline-block; width: 0; height: 1.5em; vertical-align: top; }
+.tg-rc::before { content: ""; position: absolute; left: -1px; top: 0; bottom: 0; width: 2px; background: var(--c); }
+.tg-rc b { position: absolute; left: -1px; bottom: 100%; font: 800 10.5px/14px var(--font); color: #fff; background: var(--c);
+  padding: 0 5px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
+.tg-rc.idle b { opacity: 0; transition: opacity .4s; }
+.tg-rc.dn b { bottom: auto; top: 100%; border-radius: 0 4px 4px 4px; }
 .tg-out { border-top: 1px solid var(--border); display: flex; flex-direction: column; max-height: 38%; min-height: 92px; }
 .tg-out-h { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12.5px; font-weight: 800; color: var(--muted); }
 .tg-out-h .tg-sp { flex: 1; }
@@ -171,7 +183,7 @@ body.tgp [hidden] { display: none !important; }
   .tg-app[data-tab="code"] .tg-code, .tg-app[data-tab="out"] .tg-code { display: flex !important; border-right: 0; }
   .tg-app[data-tab="board"] .tg-board { display: flex !important; }
   .tg-app[data-tab="code"] .tg-out { max-height: 30%; }
-  .tg-app[data-tab="out"] .tg-ed { display: none; }
+  .tg-app[data-tab="out"] .py-editor, .tg-app[data-tab="out"] .tg-code-bar { display: none; }
   .tg-app[data-tab="out"] .tg-out { max-height: none; flex: 1; }
   .tg-hide-narrow { display: none !important; }
 }
@@ -218,11 +230,29 @@ body.tgp [hidden] { display: none !important; }
     </div>
   </section>
   <main class="tg-main" id="tgMain">
-    <section class="tg-code">
-      <div class="tg-ed" id="tgEd"><div class="tg-ed-in" id="tgEdIn">
-        <pre class="tg-gut" id="tgGut">1</pre><pre class="tg-mir" id="tgMir"></pre>
-        <textarea class="tg-ta" id="tgTa" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Общий код Python"></textarea>
-      </div></div>
+    <section class="tg-code" id="tgCode">
+      <div class="tg-code-bar">🐍 Python <span class="tg-sp"></span>
+        <span class="py-font" role="group" aria-label="Редактор">
+          <button type="button" class="icon-btn py-emacs" id="pyEmacs" aria-pressed="true" title="Клавиши Emacs — нажмите, чтобы включить или выключить.
+Ctrl+A / Ctrl+E — начало / конец строки, Ctrl+F / Ctrl+B — символ вперёд / назад, Alt+F / Alt+B — слово
+Ctrl+P / Ctrl+N — строка вверх / вниз, Alt+&lt; / Alt+&gt; — начало / конец кода
+Ctrl+D / Ctrl+H — удалить символ справа / слева, Alt+D / Alt+Backspace — слово
+Ctrl+K — вырезать до конца строки, Ctrl+Y — вставить вырезанное
+Ctrl+Пробел — метка (дальше курсор выделяет), Ctrl+G — снять, Alt+W — копировать
+Ctrl+O — новая строка, Ctrl+L — строку с курсором в центр, Ctrl+X H — выделить всё
+Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стрелка вниз и Ctrl+X">Emacs</button>
+          <button type="button" class="icon-btn" id="pyFontDown" title="Мельче (Ctrl −)">A−</button>
+          <button type="button" class="icon-btn" id="pyFontUp" title="Крупнее (Ctrl +)">A+</button>
+        </span>
+      </div>
+      <div class="py-editor">
+        <pre class="py-gutter" id="tgGut" aria-hidden="true">1</pre>
+        <div class="py-area">
+          <pre class="py-hl" id="tgHl" aria-hidden="true"></pre>
+          <pre class="py-hl tg-rcl" id="tgRc" aria-hidden="true"></pre>
+          <textarea class="py-code" id="tgTa" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Общий код Python"></textarea>
+        </div>
+      </div>
       <div class="tg-out">
         <div class="tg-out-h">Вывод <span id="tgRunWho"></span><span class="tg-sp"></span>
           <button type="button" class="tg-btn sm" id="tgStop" hidden>■ Стоп</button>
