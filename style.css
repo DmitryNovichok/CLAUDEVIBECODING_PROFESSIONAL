@@ -3316,3 +3316,16 @@ body.no-anim .tog-inv, body.no-anim .tog-bell, body.no-anim .tog-pill { animatio
 .bx-mine.picking .bx-card.sel::after { content: "✓"; display: grid; place-items: center; font: 900 12px var(--font); color: var(--on-accent);
   background: var(--accent); border-color: var(--accent); }
 .bx-mine.picking .bx-card:disabled { opacity: .45; }
+
+/* ⚔️ лимитки «Световые мечи»: звёздное небо, свечение цвета клинка */
+.bx-hw.sw .bx-hwc { overflow: hidden; }
+.bx-hw.sw .bx-hwc::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(1px 1px at 20% 30%, #fff8, transparent), radial-gradient(1px 1px at 70% 20%, #fff6, transparent),
+    radial-gradient(1.5px 1.5px at 85% 70%, #fff7, transparent), radial-gradient(1px 1px at 35% 80%, #fff5, transparent); }
+.bx-hw.sw .bx-hwc[data-bx-shop="sw_blue"] { background: radial-gradient(circle at 50% 40%, rgba(47, 139, 255, .35), transparent 65%), linear-gradient(170deg, #050b1f, #0d1d45 60%, #081028); }
+.bx-hw.sw .bx-hwc[data-bx-shop="sw_red"] { background: radial-gradient(circle at 50% 40%, rgba(255, 35, 35, .33), transparent 65%), linear-gradient(170deg, #140405, #3a0a0c 60%, #1a0608); }
+.bx-hw.sw .bx-hwc small { color: #cfe3ff; } .bx-hw.sw .bx-hwc[data-bx-shop="sw_red"] small { color: #ffc9c2; }
+.bx-hw.sw .bx-hwc:hover img { transform: scale(1.06) rotate(-4deg); }
+/* световой меч в плитке, аватарке и профиле — на тёмном фоне: свечение клинка видно и в светлой теме */
+:is(.ug, .lp-av, .fb-av, .cr-it, .ph-av):has(img[src*="vendor/sabers/"]) { background: radial-gradient(circle at 55% 45%, #1b2a5c, #070b1c 75%) !important; }
+:is(.ug, .lp-av, .fb-av, .cr-it, .ph-av):has(img[src*="saber_red"]) { background: radial-gradient(circle at 55% 45%, #4a0d10, #12030a 75%) !important; }
