@@ -73,6 +73,19 @@ body.tgp [hidden] { display: none !important; }
 .tg-typing { font-size: 12.5px; color: var(--muted); }
 .tg-key { font-size: 13px; color: var(--muted); }
 .tg-key b { font-family: var(--mono); color: var(--text); }
+/* пометки на условии: условие — лист одной ширины у всех (масштаб под экран), поверх — холст */
+.tg-cwrap { position: relative; overflow: hidden; }
+.tg-csheet { position: relative; width: 600px; transform-origin: 0 0; }
+.tg-csheet .cond { margin: 0; }
+.tg-cc { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; touch-action: none; }
+.tg-cwrap.draw .tg-cc { pointer-events: auto; cursor: crosshair; }
+.tg-cwrap.draw.erase .tg-cc { cursor: cell; }
+.tg-cwrap.draw .cond { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.tg-cdraw { display: inline-flex; gap: 4px; }
+.tg-btn.sm.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.tg-files { display: inline-flex; gap: 6px; flex-wrap: wrap; font-weight: 700; }
+.tg-files button { font: 700 12px var(--mono); background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 2px 7px; color: var(--text); cursor: pointer; }
+.tg-files button:hover { border-color: var(--accent); }
 .tg-blank { color: var(--muted); font-size: 14px; padding: 2px 0 6px; }
 .tg-ai { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -216,6 +229,11 @@ body.tgp [hidden] { display: none !important; }
   <section class="tg-task" id="tgTask">
     <div class="tg-task-h">📄 <span class="tg-num" id="tgNum">Без задания</span>
       <span class="tg-sp"></span>
+      <span class="tg-cdraw" id="tgCDraw" hidden>
+        <button type="button" class="tg-btn sm" id="tgCPen" title="Рисовать на условии — видно всем">✏️ Рисовать</button>
+        <button type="button" class="tg-btn sm" id="tgCErase" hidden title="Ластик: проведите по пометке">🧽</button>
+        <button type="button" class="tg-btn sm" id="tgCClear" hidden title="Стереть все пометки на условии">🗑️</button>
+      </span>
       <button type="button" class="tg-btn sm" id="tgPick" hidden>Сменить задание</button>
       <button type="button" class="tg-btn sm tg-hide-narrow" id="tgMin">Свернуть ▴</button>
     </div>
@@ -231,7 +249,7 @@ body.tgp [hidden] { display: none !important; }
   </section>
   <main class="tg-main" id="tgMain">
     <section class="tg-code" id="tgCode">
-      <div class="tg-code-bar">🐍 Python <span class="tg-sp"></span>
+      <div class="tg-code-bar">🐍 Python <span class="tg-files" id="tgFiles"></span><span class="tg-sp"></span>
         <span class="py-font" role="group" aria-label="Редактор">
           <button type="button" class="icon-btn py-emacs" id="pyEmacs" aria-pressed="true" title="Клавиши Emacs — нажмите, чтобы включить или выключить.
 Ctrl+A / Ctrl+E — начало / конец строки, Ctrl+F / Ctrl+B — символ вперёд / назад, Alt+F / Alt+B — слово
