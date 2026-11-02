@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <filter id="srb1" x="-100%" y="-20%" width="300%" height="140%"><feGaussianBlur stdDeviation="10"/></filter>
+    <filter id="srb2" x="-100%" y="-20%" width="300%" height="140%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <linearGradient id="srh" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1b1512"/><stop offset=".35" stop-color="#d8b15e"/><stop offset=".6" stop-color="#4d3d30"/><stop offset="1" stop-color="#1b1512"/>
+    </linearGradient>
+    <linearGradient id="srg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#050506"/><stop offset=".4" stop-color="#2b2e35"/><stop offset="1" stop-color="#050506"/>
+    </linearGradient>
+    <radialGradient id="sraura" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#ff2323" stop-opacity=".32"/><stop offset=".7" stop-color="#ff2323" stop-opacity=".08"/><stop offset="1" stop-color="#ff2323" stop-opacity="0"/></radialGradient>
+  </defs>
+  <circle cx="128" cy="128" r="126" fill="url(#sraura)"/>
+  <g transform="rotate(45 128 128)">
+    <rect x="119" y="-26" width="18" height="190" rx="9" fill="#ff2323" filter="url(#srb1)"/>
+    <rect x="121.5" y="-22" width="13" height="184" rx="6.5" fill="#ff7a6b" filter="url(#srb2)"/>
+    <rect x="124" y="-19" width="8" height="180" rx="4" fill="#fff5f2"/>
+    <path d="M113 160 h30 l-4 8 h-22 z" fill="url(#srh)"/>
+    <rect x="115" y="167" width="26" height="24" rx="4" fill="url(#srh)"/>
+    <rect x="113" y="174" width="30" height="5" rx="2.5" fill="#a8813a"/>
+    <rect x="141" y="181" width="7" height="8" rx="2.5" fill="#ffd34d"/>
+    <rect x="117" y="191" width="22" height="44" rx="3" fill="url(#srg)"/>
+    <rect x="117" y="196" width="22" height="4" rx="2" fill="#4d3d30"/><rect x="117" y="204" width="22" height="4" rx="2" fill="#4d3d30"/><rect x="117" y="212" width="22" height="4" rx="2" fill="#4d3d30"/><rect x="117" y="220" width="22" height="4" rx="2" fill="#4d3d30"/><rect x="117" y="228" width="22" height="4" rx="2" fill="#4d3d30"/>
+    <rect x="115" y="235" width="26" height="16" rx="4" fill="url(#srh)"/>
+    <rect x="115" y="241" width="26" height="3" fill="#e0b13c"/>
+    <rect x="119" y="251" width="18" height="7" rx="3" fill="#1b1512"/>
+  </g>
+</svg>

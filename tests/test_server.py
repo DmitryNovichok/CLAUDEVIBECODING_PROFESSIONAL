@@ -3479,7 +3479,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual({s["id"] for s in server.hw_skins(gid)} >= {"witch", "ghost", "frank", "king"}, True)
         with mock.patch.object(server, "HW_START", "2000-01-01"), mock.patch.object(server, "HW_END", "2000-01-02"):
             G = self.req("GET", "/api/gifts", token=tok)[1]
-            self.assertEqual(G["hw"], [])
+            self.assertEqual([x for x in G["hw"] if x["gift"].startswith("hw_")], [])
             st, r = self.req("POST", "/api/gifts/buy", {"gift": gid}, tok)
             self.assertEqual(st, 409)
             self.assertIn("больше не продаётся", r["error"])
@@ -4123,6 +4123,26 @@ class ServerTest(unittest.TestCase):
             want = (1 / g[3]) * (0.5 if k in ("rare", "epic", "legend") else 1)
             self.assertAlmostEqual(server.box_w(g[0], sup), want)
 
+    def test_lightsabers(self):
+        # световые мечи: по 5 штук за ₿ 10 000, в магазине — свой срок, не улучшаются, в «🎲» не выпадают
+        db = server.APP.db
+        tok = self.login("Мечников Марк")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        self.addCleanup(lambda: db.x("UPDATE students SET no_rank=1 WHERE id=?", (sid,)))
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 25000))
+        self.assertNotIn("sw_blue", server.HW_BOXABLE)
+        with mock.patch.dict(server.IMG_LIM["sw_blue"], start="2000-01-01", end="2100-01-01"):
+            G = self.req("GET", "/api/gifts", token=tok)[1]
+            o = next(x for x in G["hw"] if x["gift"] == "sw_blue")
+            self.assertEqual((o["price"], o["cap"], o["up"], o["box"]), (10000, 5, None, False))
+            st, r = self.req("POST", "/api/gifts/buy", {"gift": "sw_blue"}, tok)
+            self.assertEqual(st, 200, r)
+            g = next(x for x in self.req("GET", "/api/gifts", token=tok)[1]["mine"] if x["gift"] == "sw_blue")
+            self.assertTrue(g["limited"])
+            self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": g["id"]}, tok)[0], 409)
+        with mock.patch.dict(server.IMG_LIM["sw_blue"], start="2000-01-01", end="2000-01-02"):
+            self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "sw_blue"}, tok)[0], 409)
+
     def test_page_assets_versioned_and_snippet_tex(self):
         # страница отдаёт скрипты с версией в адресе — новая версия сайта не застрянет в кэше браузера
         (server.HERE / "index.html").write_text('<script src="app.js"></script><link rel="stylesheet" href="style.css">', encoding="utf-8")
@@ -4214,8 +4234,8 @@ class ServerTest(unittest.TestCase):
         self.assertIn("Пять", snap["page"]["task"]["html"])
         # одновременная правка кода с одной ревизии: сервер сводит обе
         self.send(ts, {"t": "op", "rev": 0, "ops": ["print(1)"]})
-        self.send(ss, {"t": "op", "rev": 0, "ops": ["# x\n"]})
         self.assertEqual(self.recv(trf, "ack")["rev"], 1)
+        self.send(ss, {"t": "op", "rev": 0, "ops": ["# x\n"]})              # ученик ещё не видел правку учителя
         got = self.recv(srf, "op")
         self.recv(srf, "ack")
         page = server.TOG.get(sid).pages["p1"]

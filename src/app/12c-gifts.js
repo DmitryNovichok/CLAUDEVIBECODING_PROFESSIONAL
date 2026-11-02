@@ -82,7 +82,7 @@
   const supTxt = gid => {
     const x = GF && GF.supply && GF.supply[gid];
     if (!x || gid.startsWith('lim_')) return '';
-    const shop = !gid.startsWith('hw_') || (GF.hw || []).length;  // лимитка Хеллоуина после ивента в магазине не продаётся
+    const shop = !(GF.hw_all || []).includes(gid) || (GF.hw || []).some(x => x.gift === gid);   // лимитка с картинкой после своего срока в магазине не продаётся
     return `<small class="bx-sup">📦 ${!shop ? `тираж ${num(x.cap)}` : x.left ? `в магазине ${num(x.left)} из ${num(x.cap)}` : `раскупили (тираж ${num(x.cap)})`} · в обороте ${num(x.alive)}${x.burned ? ` · сгорело ${num(x.burned)}` : ''}${x.up ? ` · улучшено ${num(x.up)}` : ''}</small>`;
   };
   // Окно «Биткоины» как приложение: вкладки снизу (Магазин / Рынок / Мои / Forbes / История), нажал на подарок — снизу шторка
@@ -146,6 +146,16 @@
     drawPrices();
   }
   // ---- вкладки
+  /** Лимитки с картинкой в магазине — по ивентам: [[«🎃 Хеллоуин», [..]], [«⚔️ Световые мечи», [..]]]. */
+  function hwGroups(hw) {
+    const m = new Map();
+    for (const x of hw || []) {
+      const k = `${x.ev_i || '🎃'} ${x.ev_t || 'Хеллоуин'}`;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(x);
+    }
+    return [...m.entries()];
+  }
   function shopTab(G) {
     const lim = G.limited, who = gfTo ? gfMate(gfTo) : '';
     const left = Math.max(0, G.per_day - G.bought_today);
@@ -158,9 +168,9 @@
         <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
       ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
-      ${(G.hw || []).length ? `<div class="bx-hw"><div class="bx-hw-h">🎃 Хеллоуин <small>лимитки · до ${G.hw[0].until.slice(8, 10)}.${G.hw[0].until.slice(5, 7)} включительно</small></div>
-        ${G.hw.map(x => `<button type="button" class="bx-hwc${x.price > G.coins || !x.left ? ' dim' : ''}" data-bx-shop="${x.gift}"><img src="${esc(x.img)}" alt="" draggable="false">
-          <b>${esc(x.t)}</b><small>${x.left ? `осталось ${num(x.left)} из ${num(x.cap)}` : 'всё раскупили — ищи на рынке'}</small><span class="bx-price">₿ ${num(x.price)}</span></button>`).join('')}</div>` : ''}
+      ${hwGroups(G.hw).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : ''}"><div class="bx-hw-h">${esc(ev)} <small>лимитки · до ${xs[0].until.slice(8, 10)}.${xs[0].until.slice(5, 7)} включительно</small></div>
+        ${xs.map(x => `<button type="button" class="bx-hwc${x.price > G.coins || !x.left ? ' dim' : ''}" data-bx-shop="${x.gift}"><img src="${esc(x.img)}" alt="" draggable="false">
+          <b>${esc(x.t)}</b><small>${x.left ? `осталось ${num(x.left)} из ${num(x.cap)}` : 'всё раскупили — ищи на рынке'}</small><span class="bx-price">₿ ${num(x.price)}</span></button>`).join('')}</div>`).join('')}
       <div class="bx-sec">🛍 Магазин${left < 5 ? ` <small>${left ? `сегодня можно ещё ${left}` : 'на сегодня всё — завтра снова'}</small>` : ''}</div>
       ${G.teacher ? '<p class="fm-muted">Учительский аккаунт дарит подарки из панели учителя.</p>' : ''}
       <div class="bx-grid">${item('box', '🎲', 'Случайный подарок', G.box, 'box')}${G.catalog.map(x => item(x.id, x.i, x.t, x.price, '', x.rar, x.demand)).join('')}</div>`;
@@ -417,7 +427,8 @@
         <li>🔥 Огонёк — +1% к опыту и биткоинам за задания и варианты за каждый его день, до +${(GAME && GAME.fire_bonus_max) || 30}%${GAME && GAME.fire_bonus ? `. Сейчас у тебя <b>+${GAME.fire_bonus}%</b>` : ''}.</li>
         <li>⏱ Решено слишком быстро — минус 1 ₿: быстрее ${G.fine_sec} секунд, №24–27 — быстрее ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.</li>
         <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
-        ${(G.hw || []).length ? `<li>🎃 Хеллоуин: лимитки «Тыква» и «Маска клоуна» — по ₿ ${num(G.hw[0].price)}, тираж ограничен, в магазине до ${G.hw[0].until.slice(8, 10)}.${G.hw[0].until.slice(5, 7)} включительно. Улучшение за ₿ ${num(G.hw[0].up)} — случайный наряд: чем реже наряд, тем дороже подарок. Потом — только на рынке.</li>` : ''}
+        ${(G.hw || []).filter(x => x.gift.startsWith('sw_')).length ? `<li>⚔️ Световые мечи: синий и красный — по ₿ ${num(G.hw.find(x => x.gift.startsWith('sw_')).price)}, всего по ${G.hw.find(x => x.gift.startsWith('sw_')).cap} штук каждого на весь сайт, в магазине до ${G.hw.find(x => x.gift.startsWith('sw_')).until.slice(8, 10)}.${G.hw.find(x => x.gift.startsWith('sw_')).until.slice(5, 7)} включительно, потом — только на рынке. Не улучшаются.</li>` : ''}
+        ${(G.hw || []).filter(x => x.gift.startsWith('hw_')).length ? `<li>🎃 Хеллоуин: лимитки «Тыква» и «Маска клоуна» — по ₿ ${num(G.hw.find(x => x.gift.startsWith('hw_')).price)}, тираж ограничен, в магазине до ${G.hw.find(x => x.gift.startsWith('hw_')).until.slice(8, 10)}.${G.hw.find(x => x.gift.startsWith('hw_')).until.slice(5, 7)} включительно. Улучшение за ₿ ${num(G.hw.find(x => x.gift.startsWith('hw_')).up)} — случайный наряд: чем реже наряд, тем дороже подарок. Потом — только на рынке.</li>` : ''}
         <li>💰 Продать сразу — почти за ту цену, за которую подарок тебе достался (если в магазине он подешевел — от нынешней). Подарок сгорит.</li>
         <li>🔨 Или выставь его на аукцион одноклассникам: старт — цена продажи сразу, торги — 1, 6 или 24 ч, каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше. Ставка (и небольшой сбор с покупателя) замораживается, перебьют — всё вернётся. С продавца при сделке — тоже небольшой сбор. Ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги. Подарок уйдёт тому, чья ставка выше.</li>
         <li>📈 У каждого подарка есть рыночная цена — по ней он стоит в портфеле и Forbes: растёт рынок — растёт и твоё состояние. Она идёт от цены в магазине (дорожает, когда тираж раскупают) и меняется после каждой сделки: за подарок торговались — цена растёт, купили по старту без соперников — падает. Свежие сделки важнее старых, за сутки — не больше чем на 25%. Рядом с ценой — ▲▼ за неделю: купи дешевле, продай дороже. Чем больше уникальных сгорело, тем дороже оставшиеся.</li>

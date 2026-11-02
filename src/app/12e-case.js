@@ -122,7 +122,7 @@
     }
     ov.className = 'cr-ov is-case';
     ov.style.removeProperty('--hc');
-    const hw = (GF.hw || []).filter(x => x.left > 0).map(x => ({ ...x, id: x.gift }));   // раскупленная не выпадет — и не пролетает
+    const hw = (GF.hw || []).filter(x => x.left > 0 && x.box !== false).map(x => ({ ...x, id: x.gift }));   // раскупленная не выпадет — и не пролетает
     const flash = GF.catalog.filter(x => x.rar && (x.rar.k === 'legend' || x.rar.k === 'epic'));
     const items = Array.from({ length: CASE_N }, (_, i) => {
       const far = Math.abs(i - CASE_WIN) > 2, r = Math.random();
