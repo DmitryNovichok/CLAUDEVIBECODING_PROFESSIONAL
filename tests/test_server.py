@@ -4096,6 +4096,26 @@ class ServerTest(unittest.TestCase):
         st, d = self.req("GET", "/api/tour", token=tok)
         self.assertEqual((st, d["lobbies"], d["tours"]), (200, [], False))
         self.assertEqual(self.req("POST", "/api/tour/join", {"id": 1}, tok)[0], 410)
+        # дуэль: победителю ровно +300 XP и +50 ₿, проигравшему за участие +50 XP и +1 ₿ (опыт дуэли ₿ не «добывает»)
+        db = server.APP.db
+        ta, tb = self.login("Наградов Алексей"), self.login("Наградов Борис")
+        sa, sb = (self.req("GET", "/api/me", token=t)[1]["sid"] for t in (ta, tb))
+        before = {x: (server.game_summary(db, x)["coins"], server.game_summary(db, x)["xp"]) for x in (sa, sb)}
+        now = time.time()
+        task = next(t["id"] for t in BANK["tasks"] if t.get("ans") and not t.get("parts"))
+        did = db.x("""INSERT INTO duels(a, b, tasks, created, status, accepted, a_start, b_start, a_done, b_done)
+                      VALUES(?,?,?,?, 'active', ?, ?, ?, ?, ?)""", (sa, sb, json.dumps([task]), now, now, now - 50, now - 50, now - 5, now - 5))
+        db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)", (sa, now - 20, task, 5, "[]", "1", 1.0))
+        server.duel_settle(db, db.q("SELECT * FROM duels WHERE id=?", (did,), one=True))
+        after = {x: (server.game_summary(db, x)["coins"], server.game_summary(db, x)["xp"]) for x in (sa, sb)}
+        wa = after[sa][1] - before[sa][1]
+        self.assertGreaterEqual(wa, server.DUEL_STAKE)                         # + опыт за само решённое задание
+        self.assertEqual(db.q("SELECT SUM(delta) s FROM coins WHERE student_id=? AND reason='duel'", (sa,), one=True)["s"], server.DUEL_WIN_BTC)
+        self.assertEqual(after[sb][1] - before[sb][1], server.DUEL_PLAY_XP)
+        self.assertEqual(after[sb][0] - before[sb][0], server.DUEL_PLAY_BTC)    # ровно 1 ₿: опыт участия ₿ не добыл
+        st, d = self.req("GET", "/api/duels", token=tb)
+        x = next(y for y in d["duels"] if y["id"] == did)
+        self.assertEqual((x["result"], x["got_xp"], x["got_btc"]), ("lose", server.DUEL_PLAY_XP, server.DUEL_PLAY_BTC))
         # 🎲: редкие, эпические и легендарные — вдвое реже обычного веса «1 / цена»
         sup = server.gift_supply(server.APP.db, fresh=True)
         for g in server.GIFTS:

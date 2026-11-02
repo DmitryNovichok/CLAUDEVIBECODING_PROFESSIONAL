@@ -6455,7 +6455,9 @@
       } else if (d.status === 'finished') {
         const [c, w0] = RES[d.result] || ['d', d.result];
         const w = d.surrender === 'me' ? `${w0} — ты сдался` : d.surrender === 'op' ? `${w0} — соперник сдался` : w0;
-        st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${d.stake && d.result === 'win' ? ` <small>+${d.stake} XP</small>` : ''}`
+        const got = d.got_xp != null ? (d.got_xp || d.got_btc ? ` <small>+${d.got_xp} XP · +${d.got_btc} ₿</small>` : '')
+          : d.stake && d.result === 'win' ? ` <small>+${d.stake} XP</small>` : '';
+        st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${got}`
           + (d.elo != null ? ` <small class="elo-d ${d.elo >= 0 ? 'up' : 'down'}">${d.elo >= 0 ? '+' : '−'}${Math.abs(d.elo)} Эло</small>` : '')
           + (d.bonus ? ` <small>🔥 +${d.bonus} XP за серию</small>` : '');
         if (d.can_rematch) btn = `<button type="button" class="btn ghost" data-duel-rematch="${d.id}">🔁 Реванш</button>`;
@@ -6476,8 +6478,9 @@
       <div class="duel-me"><span class="chip accent">Твой Эло: <b>${D.my_elo}</b></span>${D.streak >= 2 ? `<span class="chip hot">🔥 ${D.streak} ${plural(D.streak, 'победа', 'победы', 'побед')} подряд</span>` : ''}
         <small class="fm-muted">Эло меняется после каждой дуэли. Отдельно: 3 победы подряд и больше — бонус опыта (XP) 🔥</small></div>
       <p class="fm-muted">Нажми «Найти соперника» — подберём одноклассника с близким рейтингом, который тоже ищет дуэль. По ${D.tasks} заданий каждому (разные, но одного типа и сложности). Время с нажатия «Играть»: <b>№1–23 — 10 минут</b> на задание, <b>№24–27 — 30 минут</b>; начать дуэль нужно в течение ${D.hours} ч. Больше решил — победа, поровну — быстрее.
-        Победителю — <b>+${D.stake} XP</b> за первые ${D.full_per_day} победы за день, дальше — +${D.stake_late} XP (проигравший ничего не теряет;
-        если соперник сдался, а ты не решил ни одного задания — победа без опыта). С одним соперником — одна дуэль в неделю, всего — до ${D.per_day} в день (сегодня ${D.today}).</p>
+        Победителю — <b>+${D.stake} XP и +${D.win_btc} ₿</b> (за первые ${D.full_per_day} победы за день, дальше — как за участие).
+        За участие — <b>+${D.play_xp} XP и +${D.play_btc} ₿</b> (проиграл или ничья — всё равно награда; сдался, ничего не решив, — без неё;
+        если соперник сдался, а ты не решил ни одного задания — победа без награды). С одним соперником — одна дуэль в неделю, всего — до ${D.per_day} в день (сегодня ${D.today}).</p>
       ${search}
       ${rows ? `<div class="tm-list">${rows}</div>` : ''}
       ${tab.length ? `<h4 class="dm-h">Таблица дуэлей недели</h4><table class="lb dm-tab"><tr><th></th><th>Игрок</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>О</th></tr>
@@ -7895,7 +7898,7 @@
   }
   function logTab(G) {
     const why = { grant: '➕ Учитель', take: '➖ Учитель', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
-      mbuy: '🏪 Купил у', msell: '🏪 Продал —', bid: '🔨 Ставка —', bidback: '↩ Вернулась ставка:', storage: '📦 Хранение', stipend: '🎓 Стипендия', class: '🏆 Битва классов' };
+      mbuy: '🏪 Купил у', msell: '🏪 Продал —', bid: '🔨 Ставка —', bidback: '↩ Вернулась ставка:', storage: '📦 Хранение', stipend: '🎓 Стипендия', duel: '⚔️ Дуэль', class: '🏆 Битва классов' };
     const sum = [G.task_coins ? `🧩 за задания <b class="xp-plus">+${num(G.task_coins)}</b>` : '', G.exam_coins ? `🎓 за варианты <b class="xp-plus">+${num(G.exam_coins)}</b>` : '',
       G.fines ? `⏱ штрафы <b class="xp-minus">−${num(G.fines)}</b>` : ''].filter(Boolean);
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts).slice(0, 5)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (['mbuy', 'msell', 'bid', 'bidback'].includes(r.reason) ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
