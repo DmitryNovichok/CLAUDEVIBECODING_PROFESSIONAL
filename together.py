@@ -280,6 +280,8 @@ def _stroke(d):
         c = "ink"
     k = d.get("k") if d.get("k") in ("p", "l", "t") else "p"
     st = {"id": sid, "c": c, "w": _num(d.get("w"), 1, 30) or 2, "k": k, "p": _points(d.get("p"))}
+    if d.get("L") == "c":                    # слой «на условии задания» (лист условия — COND_W точек шириной у всех)
+        st["L"] = "c"
     if k == "t":
         st["txt"] = str(d.get("txt") or "")[:500]
         st["fs"] = _num(d.get("fs"), 10, 80) or 20
@@ -557,9 +559,10 @@ class Hub:
             elif t == "clr":
                 if not may_write:
                     return
-                p.strokes = {}
+                cond = m.get("L") == "c"           # очистить пометки на условии или доску — по отдельности
+                p.strokes = {k: v for k, v in p.strokes.items() if (v.get("L") == "c") != cond}
                 s.dirty = True
-                self._bcast(s, {"t": "clr", "by": c.name}, skip=c)
+                self._bcast(s, {"t": "clr", "by": c.name, "L": "c" if cond else None}, skip=c)
             elif t == "ans":
                 if not may_write:
                     return

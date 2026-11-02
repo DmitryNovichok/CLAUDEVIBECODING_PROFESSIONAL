@@ -192,8 +192,14 @@
       case 's.': return morePoints(m.id, m.p);
       case 's~': { const st = S.strokes.get(m.id); if (st) { st.p = m.p; liveTouch(m.id); } return; }
       case 's-': return commitLive(m.id);
-      case 'del': m.ids.forEach(i => { S.strokes.delete(i); S.live.delete(i); }); return redraw();
-      case 'clr': S.strokes.clear(); S.live.clear(); S.undo = []; S.redo = []; redraw(); if (m.by) toast(`🗑️ ${m.by} очистил(а) доску`); return;
+      case 'del': m.ids.forEach(i => { S.strokes.delete(i); S.live.delete(i); }); redraw(); return condDraw();
+      case 'clr': {
+        const cond = m.L === 'c';
+        S.strokes.forEach((x, id) => { if (isC(x) === cond) { S.strokes.delete(id); S.live.delete(id); } });
+        redraw(); condDraw();
+        if (m.by) toast(cond ? `🗑️ ${m.by} стёр(ла) пометки на условии` : `🗑️ ${m.by} очистил(а) доску`);
+        return;
+      }
       case 'ans': return onAns(m);
       case 'res': return onRes(m);
       case 'run': setOut(''); $('#tgRunWho').textContent = `· запустил(а) ${m.name}`; outSys('▶ Запуск…\n'); return;
@@ -387,10 +393,15 @@
     if (!t) {
       cond.innerHTML = `<div class="tg-blank">${S.teacher ? 'Задания нет — чистая страница. «Сменить задание» — выбрать из банка.' : 'Учитель пока не выбрал задание.'}</div>`;
     } else {
-      cond.innerHTML = `<div class="cond">${S.teacher ? '' : `<span class="tg-ai" aria-hidden="true"> ${esc(GUARD_AI)} </span>`}${t.html}${S.teacher ? '' : `<span class="tg-ai" aria-hidden="true"> ${esc(GUARD_AI)} </span>`}</div>`;
-      $$('img', cond).forEach(i => { i.draggable = false; i.loading = 'lazy'; });
+      cond.innerHTML = `<div class="tg-cwrap${C.on ? ' draw' : ''}${C.erase ? ' erase' : ''}" id="tgCW"><div class="tg-csheet" id="tgCS"><div class="cond">${S.teacher ? '' : `<span class="tg-ai" aria-hidden="true"> ${esc(GUARD_AI)} </span>`}${t.html}${S.teacher ? '' : `<span class="tg-ai" aria-hidden="true"> ${esc(GUARD_AI)} </span>`}</div>
+        <canvas class="tg-cc" id="tgCC"></canvas></div></div>`;
+      $$('img', cond).forEach(i => { i.draggable = false; i.addEventListener('load', condLayout); });
       renderMath(cond);
+      condBind();
+      requestAnimationFrame(condLayout);
     }
+    $('#tgCDraw').hidden = !t;
+    renderFiles();
     $('#tgAtt').innerHTML = t && t.att && t.att.length ? '📎 ' + t.att.map(a => `<a href="${esc(a.href)}" download>${esc(a.name)}</a>`).join(' · ') : '';
     $('#tgAns').hidden = !t || t.parts;
     $('#tgKey').hidden = !(S.teacher && t);
@@ -398,6 +409,134 @@
     $('#tgKeyBtn').hidden = false;
     $('#tgKeyV').textContent = t && t.ans ? t.ans : '';
   }
+  // ---------- файлы задания: лежат рядом с кодом (open('9.txt') работает при запуске) — нажал, и строка вставилась в код
+  function taskFiles() {
+    return ((S.task && S.task.att) || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
+      .filter(f => f.url.startsWith(location.origin));
+  }
+  function renderFiles() {
+    const fs = taskFiles();
+    $('#tgFiles').innerHTML = fs.length ? '· файлы: ' + fs.map(f => `<button type="button" data-file="${esc(f.name)}" title="Вставить в код open('${esc(f.name)}')">${esc(f.name)}</button>`).join('') : '';
+  }
+  $('#tgFiles').addEventListener('click', e => {
+    const b = e.target.closest('[data-file]');
+    if (!b || !canWrite()) return;
+    const ta = $('#tgTa'), text = `open('${b.dataset.file}')`;
+    ta.focus();
+    ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end');
+    ta.dispatchEvent(new Event('input'));
+  });
+
+  // ---------- пометки на условии: слой «c» (L: 'c'), координаты — в листе шириной CW у всех
+  const CW = 600;
+  const C = { on: false, erase: false, sc: 1, h: 0, d: null, del: new Set() };
+  const isC = s => !!s && s.L === 'c';
+  function condLayout() {
+    const wrap = $('#tgCW'), sh = $('#tgCS'), cv3 = $('#tgCC');
+    if (!wrap || !sh || !cv3) return;
+    const avail = $('#tgCond').clientWidth || CW;
+    C.sc = Math.min(1.3, Math.max(0.8, avail / CW));               // уже 0,8 — лист листается вбок, а не мельчит текст
+    sh.style.transform = `scale(${C.sc})`;
+    C.h = sh.offsetHeight;
+    wrap.style.height = Math.ceil(C.h * C.sc) + 'px';
+    wrap.style.width = Math.ceil(CW * C.sc) + 'px';
+    const r = Math.min(window.devicePixelRatio || 1, 2) * C.sc;
+    cv3.width = Math.round(CW * r); cv3.height = Math.round(C.h * r);
+    condDraw();
+  }
+  let condRaf = 0;
+  function condDraw() {
+    cancelAnimationFrame(condRaf);
+    condRaf = requestAnimationFrame(() => {
+      const cv3 = $('#tgCC');
+      if (!cv3) return;
+      const x = cv3.getContext('2d'), r = cv3.width / CW;
+      x.setTransform(r, 0, 0, r, 0, 0);
+      x.clearRect(0, 0, CW, C.h + 10);
+      S.strokes.forEach(st => { if (isC(st)) drawStroke(x, st); });
+    });
+  }
+  function condPt(e) {
+    const r = $('#tgCC').getBoundingClientRect();
+    return [Math.round((e.clientX - r.left) / r.width * CW * 10) / 10, Math.round((e.clientY - r.top) / r.height * C.h * 10) / 10];
+  }
+  function condBind() {
+    const cv3 = $('#tgCC');
+    if (!cv3) return;
+    cv3.addEventListener('pointerdown', e => {
+      if (!C.on || !canWrite() || e.button > 0) return;
+      e.preventDefault();
+      cv3.setPointerCapture(e.pointerId);
+      const p = condPt(e);
+      if (C.erase) { C.del = new Set(); condErase(p); C.d = { erase: true }; return; }
+      const st = { id: uid(), c: S.color || 'ink', w: S.width, k: 'p', p: [p], L: 'c' };
+      C.d = st;
+      S.strokes.set(st.id, st);
+      condDraw();
+      send({ t: 's+', page: S.page, s: st });
+      S.undo.push(st.id);
+      S.redo = [];
+    });
+    cv3.addEventListener('pointermove', e => {
+      if (!C.d) return;
+      const p = condPt(e);
+      if (C.d.erase) { condErase(p); return; }
+      const last = C.d.p[C.d.p.length - 1];
+      if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) < 0.8) return;
+      C.d.p.push(p);
+      condDraw();
+      C.q = (C.q || []).concat([p]);
+      if (!C.qr) C.qr = requestAnimationFrame(() => { C.qr = 0; if (C.d && C.q && C.q.length) { send({ t: 's.', page: S.page, id: C.d.id, p: C.q }); C.q = []; } });
+    });
+    const end = () => {
+      if (!C.d) return;
+      if (C.d.erase) { if (C.del.size) send({ t: 'del', page: S.page, ids: [...C.del] }); }
+      else {
+        if (C.q && C.q.length) { send({ t: 's.', page: S.page, id: C.d.id, p: C.q }); C.q = []; }
+        send({ t: 's-', page: S.page, id: C.d.id });
+      }
+      C.d = null;
+    };
+    cv3.addEventListener('pointerup', end);
+    cv3.addEventListener('pointercancel', end);
+  }
+  function condErase(p) {
+    let hit = false;
+    S.strokes.forEach((st, id) => {
+      if (!isC(st) || C.del.has(id)) return;
+      if (st.p.some((q, i) => {
+        if (Math.hypot(q[0] - p[0], q[1] - p[1]) <= 10 + st.w) return true;
+        const a = st.p[i - 1];
+        if (!a) return false;
+        const dx = q[0] - a[0], dy = q[1] - a[1], L2 = dx * dx + dy * dy;
+        if (!L2) return false;
+        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
+        return Math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1]) <= 10 + st.w;
+      })) { C.del.add(id); S.strokes.delete(id); hit = true; }
+    });
+    if (hit) condDraw();
+  }
+  function condMode() {
+    const w = $('#tgCW');
+    if (w) { w.classList.toggle('draw', C.on); w.classList.toggle('erase', C.on && C.erase); }
+    $('#tgCPen').classList.toggle('on', C.on && !C.erase);
+    $('#tgCPen').textContent = C.on ? '✏️ Рисую' : '✏️ Рисовать';
+    $('#tgCErase').hidden = $('#tgCClear').hidden = !C.on;
+    $('#tgCErase').classList.toggle('on', C.on && C.erase);
+  }
+  $('#tgCPen').onclick = () => {
+    if (!canWrite()) return toast('🔒 Сейчас только смотреть');
+    if (C.on && !C.erase) C.on = false; else { C.on = true; C.erase = false; }
+    condMode();
+  };
+  $('#tgCErase').onclick = () => { C.erase = !C.erase; condMode(); };
+  $('#tgCClear').onclick = () => {
+    if (!canWrite() || ![...S.strokes.values()].some(isC)) return;
+    if (!confirm('Стереть все пометки на условии у всех?')) return;
+    S.strokes.forEach((st, id) => { if (isC(st)) S.strokes.delete(id); });
+    condDraw();
+    send({ t: 'clr', page: S.page, L: 'c' });
+  };
   function renderMath(el) {
     if (typeof window.renderMathInElement !== 'function') { setTimeout(() => window.renderMathInElement && renderMath(el), 500); return; }
     if (window.katex) $$('[data-math]', el).forEach(n => { try { window.katex.render(n.getAttribute('data-math'), n, { throwOnError: false }); } catch (e) { /* как есть */ } });
@@ -964,7 +1103,7 @@
   const colorOf = c => c === 'ink' ? inkColor() : c;
   function needH() {
     let maxY = 0;
-    S.strokes.forEach(s => s.p.forEach(p => { if (p[1] > maxY) maxY = p[1]; }));
+    S.strokes.forEach(s => { if (!isC(s)) s.p.forEach(p => { if (p[1] > maxY) maxY = p[1]; }); });
     return Math.min(12000, Math.max(1400, Math.ceil((maxY + 700) / 200) * 200, bs.clientHeight / (k || 1)));
   }
   function sizeBoard() {
@@ -1011,7 +1150,7 @@
   function redraw() {
     const x = ctxOf(cv);
     x.clearRect(0, 0, BW, H);
-    S.strokes.forEach(s => { if (!S.live.has(s.id)) drawStroke(x, s); });
+    S.strokes.forEach(s => { if (!S.live.has(s.id) && !isC(s)) drawStroke(x, s); });
     drawLive();
   }
   /* Штрих, который сейчас рисуют (свой или чужой), каждый кадр перерисовывается целиком на верхнем слое — так он
@@ -1022,9 +1161,10 @@
     liveRaf = 0;
     const x = ctxOf(cv2);
     x.clearRect(0, 0, BW, H);
-    S.live.forEach(id => { const s = S.strokes.get(id); if (s) drawStroke(x, s); });
+    S.live.forEach(id => { const s = S.strokes.get(id); if (s && !isC(s)) drawStroke(x, s); });
   }
   function liveTouch(id) {
+    if (isC(S.strokes.get(id))) { condDraw(); return; }
     S.live.add(id);
     liveAt.set(id, Date.now());
     if (!liveRaf) liveRaf = requestAnimationFrame(drawLive);
@@ -1033,6 +1173,7 @@
     S.live.delete(id);
     liveAt.delete(id);
     const s = S.strokes.get(id);
+    if (isC(s)) { condDraw(); return; }
     if (s) { drawStroke(ctxOf(cv), s); grow(Math.max(...s.p.map(p => p[1]))); }
     if (!liveRaf) liveRaf = requestAnimationFrame(drawLive);
   }
@@ -1044,6 +1185,7 @@
   function addStroke(s, remote) {
     if (!s || !s.id) return;
     S.strokes.set(s.id, s);
+    if (isC(s)) { condDraw(); return; }
     if (remote && s.k !== 't') { liveTouch(s.id); return; }        // рисуют прямо сейчас — до «s-» на верхнем слое
     drawStroke(ctxOf(cv), s);
     grow(Math.max(...s.p.map(p => p[1])));
@@ -1076,9 +1218,10 @@
     else if (b.id === 'tgUndo') undo();
     else if (b.id === 'tgRedo') redoIt();
     else if (b.id === 'tgClear') {
-      if (!canWrite() || !S.strokes.size) return;
+      if (!canWrite() || ![...S.strokes.values()].some(s => !isC(s))) return;
       if (!confirm('Очистить доску у всех?')) return;
-      S.strokes.clear(); S.live.clear(); S.undo = []; S.redo = [];
+      S.strokes.forEach((s, id) => { if (!isC(s)) S.strokes.delete(id); });
+      S.live.clear();
       redraw();
       send({ t: 'clr', page: S.page });
     }
@@ -1089,7 +1232,7 @@
       if (!s) continue;
       S.strokes.delete(id);
       S.redo.push(s);
-      redraw();
+      if (isC(s)) condDraw(); else redraw();
       send({ t: 'del', page: S.page, ids: [id] });
       return;
     }
@@ -1099,7 +1242,7 @@
     if (!s) return;
     S.strokes.set(s.id, s);
     S.undo.push(s.id);
-    drawStroke(ctxOf(cv), s);
+    if (isC(s)) condDraw(); else drawStroke(ctxOf(cv), s);
     send({ t: 's!', page: S.page, s });
   }
   document.addEventListener('keydown', e => {
@@ -1182,7 +1325,7 @@
     const r = 10 / Math.min(k, 1);
     let hit = false;
     S.strokes.forEach((s, id) => {
-      if (D.erase.has(id)) return;
+      if (D.erase.has(id) || isC(s)) return;
       const near = s.k === 't'
         ? p[0] >= s.p[0][0] - r && p[0] <= s.p[0][0] + (s.fs || 20) * 0.6 * String(s.txt).length + r && p[1] >= s.p[0][1] - r && p[1] <= s.p[0][1] + (s.fs || 20) * 1.3 * String(s.txt).split('\n').length + r
         : s.p.some((q, i) => {
@@ -1252,6 +1395,7 @@
   // ================================================================ старт
   addEventListener('resize', () => { clearTimeout(S.rsT); S.rsT = setTimeout(() => { if (NARROW() && S.tab === 'board' && $('#tgApp').dataset.tab !== S.tab) setTab(S.tab, false); sizeBoard(); layoutCode(); }, 80); });
   if ('ResizeObserver' in window) new ResizeObserver(() => { sizeBoard(); layoutCode(); }).observe(bs);
+  if ('ResizeObserver' in window) new ResizeObserver(() => condLayout()).observe($('#tgCond'));
   window.addEventListener('beforeunload', () => { if (ws) ws.close(); });
   setTab('board', false);
   renderTools();
