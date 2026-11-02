@@ -208,7 +208,7 @@
   }
   function logTab(G) {
     const why = { grant: '➕ Учитель', take: '➖ Учитель', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
-      mbuy: '🏪 Купил у', msell: '🏪 Продал —', bid: '🔨 Ставка —', bidback: '↩ Вернулась ставка:', storage: '📦 Хранение', stipend: '🎓 Стипендия', class: '🏆 Битва классов' };
+      mbuy: '🏪 Купил у', msell: '🏪 Продал —', bid: '🔨 Ставка —', bidback: '↩ Вернулась ставка:', storage: '📦 Хранение', stipend: '🎓 Стипендия', duel: '⚔️ Дуэль', class: '🏆 Битва классов' };
     const sum = [G.task_coins ? `🧩 за задания <b class="xp-plus">+${num(G.task_coins)}</b>` : '', G.exam_coins ? `🎓 за варианты <b class="xp-plus">+${num(G.exam_coins)}</b>` : '',
       G.fines ? `⏱ штрафы <b class="xp-minus">−${num(G.fines)}</b>` : ''].filter(Boolean);
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts).slice(0, 5)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (['mbuy', 'msell', 'bid', 'bidback'].includes(r.reason) ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>

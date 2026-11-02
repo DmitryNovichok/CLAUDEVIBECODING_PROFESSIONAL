@@ -4017,6 +4017,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                 result="draw" if not d["winner"] else ("win" if d["winner"] == s["id"] else "lose"),
                                 elo=round(d[me + "_elo"]) if d[me + "_elo"] is not None else None,
                                 bonus=(d["bonus"] or 0) if d["winner"] == s["id"] else 0)
+                    got = db.q("""SELECT COALESCE(SUM(delta), 0) AS x FROM xp_adjust WHERE student_id=? AND reason IN (?, ?, ?)""",
+                               (s["id"], f"duel:{d['id']}", f"dwin:{d['id']}", f"duelp:{d['id']}"), one=True)["x"]
+                    btc = db.q("SELECT COALESCE(SUM(delta), 0) AS c FROM coins WHERE student_id=? AND reason='duel' AND note=?",
+                               (s["id"], f"duel:{d['id']}"), one=True)["c"]
+                    item.update(got_xp=got, got_btc=btc)
                     item["can_rematch"] = (d["winner"] is not None and d["winner"] != s["id"] and time.time() - (d["finished"] or 0) < 86400
                                            and not db.q("SELECT 1 FROM duels WHERE rematch_of=?", (d["id"],), one=True))
                 out.append(item)
@@ -4025,6 +4030,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"duels": out, "searching": bool(q), "search_since": q["since"] if q else None,
                                    "today": duels_today(db, s["id"]), "per_day": DUEL_PER_DAY,
                                    "full_per_day": DUEL_FULL_PER_DAY, "stake_late": DUEL_STAKE_LATE,
+                                   "win_btc": DUEL_WIN_BTC, "play_xp": DUEL_PLAY_XP, "play_btc": DUEL_PLAY_BTC,
                                    "duel_nums": DUEL_NUMS, "min_nums": DUEL_MIN_NUMS,
                                    "my_elo": round(elo_of(db, s["id"])), "streak": duel_streak(db, s["id"]),
                                    "seekers": duel_seekers(db, tid, s["id"]), "stake": DUEL_STAKE, "tasks": DUEL_TASKS, "hours": DUEL_HOURS,
@@ -4513,7 +4519,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             d = db.q("SELECT * FROM duels WHERE id=?", (to_int(data.get("id")),), one=True)
             if not d or (d["a"] not in names and d["b"] not in names) or d["status"] == "void":
                 return self.err(404, "Дуэль не найдена")
-            db.x("DELETE FROM xp_adjust WHERE reason IN (?, ?)", (f"duel:{d['id']}", f"streak:{d['id']}"))
+            db.x("DELETE FROM xp_adjust WHERE reason IN (?, ?, ?, ?, ?)",
+                 tuple(f"{k}:{d['id']}" for k in ("duel", "dwin", "duelp", "streak", "dstreak")))
+            db.x("DELETE FROM coins WHERE reason='duel' AND note=?", (f"duel:{d['id']}",))
             for side in ("a", "b"):
                 if d[side + "_elo"] is not None:
                     db.x("UPDATE duel_elo SET elo=elo-?, games=MAX(games-1, 0) WHERE student_id=?", (d[side + "_elo"], d[side]))
@@ -8521,7 +8529,7 @@ def _game_summary(db, sid, brief=False, windows=None):
             if a <= ts < b:
                 rank_btc[k] += v
 
-    def gain(v, ts, why=None, boost=None):
+    def gain(v, ts, why=None, boost=None, mine=True):
         nonlocal xp, week, xp_day, xp_month, xp_wk
         if v > 0 and cheat and cheat[0] <= ts < cheat[1]:
             if why:
@@ -8537,7 +8545,8 @@ def _game_summary(db, sid, brief=False, windows=None):
         k, m = btc_rate_at(db, ts), earn_at(db, ts)   # биткоины — по курсу и множителю термостата на момент заработка
         if boost and v > 0:
             m *= promo_mult(db, ts, boost)              # (и акции — за задания или вариант):
-        mined_xp[(k, m)] = mined_xp.get((k, m), 0) + v  # их смена прошлое не трогает
+        if mine:
+            mined_xp[(k, m)] = mined_xp.get((k, m), 0) + v  # их смена прошлое не трогает
         earn(Fraction(v, k) * m, ts)
         if ts >= wk0:
             xp_wk += v
@@ -8756,9 +8765,13 @@ def _game_summary(db, sid, brief=False, windows=None):
             fz_spent -= a["delta"]
             xplog.append((a["ts"], a["delta"], "заморозка огонька"))
             continue
-        why = (f"турнир — {(a['reason'] or '').split(':')[-1]}-е место" if (a["reason"] or "").startswith("tour:")
+        rs = a["reason"] or ""
+        why = (f"турнир — {rs.split(':')[-1]}-е место" if rs.startswith("tour:")
+               else "дуэль — участие" if rs.startswith("duelp:") else "дуэль — серия побед" if rs.startswith(("streak:", "dstreak:"))
                else "дуэль — победа" if a["delta"] > 0 else "дуэль — поражение")
-        gain(a["delta"], a["ts"], why)
+        # новые награды дуэли (dwin, duelp, dstreak) платят биткоины отдельно (coins, reason='duel') — их опыт ₿ не добывает;
+        # прежние (duel, streak) и турниры — как раньше, чтобы уже заработанное не пропало
+        gain(a["delta"], a["ts"], why, mine=not rs.startswith(("dwin:", "duelp:", "dstreak:")))
     xp = max(0, xp)
     dropped = work_gifts(db, sid, cnt["solved"])       # каждые WORK_GIFT_EVERY решённых — подарок за труд
     fire = fire_streak(fire_days, cover)
@@ -8903,9 +8916,13 @@ DUEL_TASKS = 5
 DUEL_NUMS = list(range(1, 19)) + [22, 23, 24, 25, 26, 27]   # 19–21 — игра из трёх вопросов, в дуэль не годится
 DUEL_TASK_SEC = {n: (30 if n >= 24 else 10) * 60 for n in range(1, 28)}   # время на задание дуэли: №1–23 — 10 мин, №24–27 — 30
 DUEL_MIN_NUMS = 3          # меньше общих номеров у двоих ищущих — их не сводим
-DUEL_STAKE = 200           # опыт победителю дуэли (у проигравшего не отнимается); турниров нет — дуэли награждают вдвое щедрее
-DUEL_FULL_PER_DAY = 3      # полная награда — за первые 3 победы в сутки, дальше — DUEL_STAKE_LATE
-DUEL_STAKE_LATE = 40
+# Награды дуэли — точными суммами: опыт за дуэль биткоины не «намайнивает», биткоины начисляются отдельно (coins, reason='duel')
+DUEL_STAKE = 300           # опыт победителю (у проигравшего не отнимается)
+DUEL_WIN_BTC = 50          # биткоины победителю
+DUEL_PLAY_XP = 50          # за участие (сыграл и не победил: проигрыш или ничья) — опыт…
+DUEL_PLAY_BTC = 1          # …и биткоины
+DUEL_FULL_PER_DAY = 3      # полная награда за победу — за первые 3 победы в сутки, дальше победа — как участие
+DUEL_STAKE_LATE = DUEL_PLAY_XP
 DUEL_HOURS = 24
 DUEL_MAX_OPEN = 3
 DUEL_PER_DAY = 10          # дуэлей в сутки на одного ученика
@@ -9798,7 +9815,17 @@ def duel_settle(db, d):
                     WHERE id=? AND status='active'""", (sa, sb, d[win] if win else None, stake, now, d["id"])):
         return                                     # итог уже подвёл параллельный запрос
     if stake:
-        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, stake, f"duel:{d['id']}"))
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, stake, f"dwin:{d['id']}"))
+        btc = DUEL_WIN_BTC if stake >= DUEL_STAKE else DUEL_PLAY_BTC
+        db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'duel', ?, 0)",
+             (d[win], now, btc, f"duel:{d['id']}"))
+    for side, solved in (("a", sa), ("b", sb)):
+        # за участие: начал дуэль и не победил; сдался, ничего не решив, — без награды (против накрутки)
+        if side == win or not d[side + "_start"] or (d["surrender"] == d[side] and solved <= 0):
+            continue
+        db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[side], now, DUEL_PLAY_XP, f"duelp:{d['id']}"))
+        db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'duel', ?, 0)",
+             (d[side], now, DUEL_PLAY_BTC, f"duel:{d['id']}"))
     if d["a_start"] or d["b_start"]:               # рейтинг Эло: никто не начал — дуэль не в счёт
         da, db_ = elo_apply(db, d["a"], d["b"], 1.0 if win == "a" else 0.0 if win == "b" else 0.5)
         db.x("UPDATE duels SET a_elo=?, b_elo=? WHERE id=?", (da, db_, d["id"]))
@@ -9806,7 +9833,7 @@ def duel_settle(db, d):
         streak = duel_streak(db, d[win])
         bonus = min(STREAK_BONUS_MAX, STREAK_BONUS * (streak - 2)) if streak >= 3 else 0
         if bonus:
-            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, bonus, f"streak:{d['id']}"))
+            db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, bonus, f"dstreak:{d['id']}"))
             db.x("UPDATE duels SET bonus=? WHERE id=?", (bonus, d["id"]))
 
 _CSETS = {}
