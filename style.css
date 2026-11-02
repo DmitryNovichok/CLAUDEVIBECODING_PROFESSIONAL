@@ -3303,3 +3303,16 @@ body.hw .bx-lim small { color: #ffd8a8; }
 @keyframes togPulse { 50% { box-shadow: 0 0 0 8px var(--accent-soft), var(--shadow); } }
 @media (max-width: 600px) { .tog-inv { right: 16px; top: 64px; } .tog-inv.mini { bottom: 76px; } }
 body.no-anim .tog-inv, body.no-anim .tog-bell, body.no-anim .tog-pill { animation: none; }
+
+/* «Мои подарки»: выбрать несколько и продать разом */
+.bx-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 10px; }
+.bx-selbar.on { position: sticky; top: 0; z-index: 3; padding: 8px 10px; border: 2px solid var(--accent); border-radius: 14px; background: var(--card); }
+.bx-selbar small { color: var(--muted); font-weight: 800; }
+.bx-selbtns { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+.bx-mine.picking .bx-card { position: relative; }
+.bx-mine.picking .bx-card::after { content: ""; position: absolute; top: 6px; right: 6px; width: 18px; height: 18px; border-radius: 6px;
+  border: 2px solid var(--border-strong); background: var(--card); }
+.bx-mine.picking .bx-card.sel { border-color: var(--accent); background: var(--accent-soft); }
+.bx-mine.picking .bx-card.sel::after { content: "✓"; display: grid; place-items: center; font: 900 12px var(--font); color: var(--on-accent);
+  background: var(--accent); border-color: var(--accent); }
+.bx-mine.picking .bx-card:disabled { opacity: .45; }

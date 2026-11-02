@@ -9,6 +9,7 @@
   const CASE_N = 60, CASE_WIN = 52, CASE_SHAKE_MS = 1300, CASE_OPEN_MS = 520, CASE_MS = 5800, CASE_SNAP_MS = 360, CASE_LAND_MS = 750;
   const CASE_RANK = ['common', 'uncommon', 'rare', 'epic', 'legend', 'myth'];
   const crRank = k => (k === 'limited' ? 5 : Math.max(0, CASE_RANK.indexOf(k)));   // лимитка — как мифический
+  const CASE_FLASH = 0.22;                // доля ленты — легендарные и эпические «пролетают» (не рядом с выпавшим): шанс от этого не меняется
   const CASE_HW = 0.3;                    // доля подарков ленты, которые — лимитки Хеллоуина (пока идёт ивент)
   const CASE_SPARKS = { common: 14, uncommon: 20, rare: 28, epic: 40, legend: 56, myth: 72 };
   const CASE_MUTE = 'egeshka.case.mute';
@@ -122,8 +123,13 @@
     ov.className = 'cr-ov is-case';
     ov.style.removeProperty('--hc');
     const hw = (GF.hw || []).filter(x => x.left > 0).map(x => ({ ...x, id: x.gift }));   // раскупленная не выпадет — и не пролетает
-    const items = Array.from({ length: CASE_N }, (_, i) => (hw.length && Math.abs(i - CASE_WIN) > 2 && Math.random() < CASE_HW
-      ? hw[Math.floor(Math.random() * hw.length)] : crPick(GF.catalog)));
+    const flash = GF.catalog.filter(x => x.rar && (x.rar.k === 'legend' || x.rar.k === 'epic'));
+    const items = Array.from({ length: CASE_N }, (_, i) => {
+      const far = Math.abs(i - CASE_WIN) > 2, r = Math.random();
+      if (far && hw.length && r < CASE_HW) return hw[Math.floor(Math.random() * hw.length)];
+      if (far && flash.length && r < CASE_HW * !!hw.length + CASE_FLASH) return flash[Math.floor(Math.random() * flash.length)];
+      return crPick(GF.catalog);
+    });
     ov.innerHTML = `<div class="cr-box">
         <div class="cr-hd"><b>🎲 Случайный подарок</b>${who ? `<small>для ${esc(who)}</small>` : ''}
           <button type="button" class="cr-snd" data-cr="snd" aria-label="Звук" title="Звук">${crMuted ? '🔇' : '🔊'}</button></div>

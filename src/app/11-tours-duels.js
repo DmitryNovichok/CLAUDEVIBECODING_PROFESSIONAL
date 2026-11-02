@@ -54,8 +54,8 @@
     const m = tourMyMatch(), T = TOUR && TOUR.mine;
     const lob = TOUR && TOUR.lobbies.find(l => l.me_in);
     const call = duelCalls().length;
-    $('#duelSub').textContent = !TOUR ? 'наборы открыты' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
-      : lob ? `набор ${lob.players.length}/${lob.size}` : 'наборы открыты';
+    $('#duelSub').textContent = !TOUR ? 'вызови соперника' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
+      : lob ? `набор ${lob.players.length}/${lob.size}` : TOUR.tours === false ? 'вызови соперника' : 'наборы открыты';
     card.classList.toggle('alert', !!m || !!call);
   }
   const tourLeft = sec => {
@@ -141,10 +141,20 @@
   }
   function renderTourPage() {
     if (!courseShown || pageKind !== 'tour') return;
-    $('#scopeInfo').innerHTML = '<span class="scope-title">Турниры</span>';
+    const tours = !TOUR || TOUR.tours !== false;               // турниры закрыты — на странице только дуэли и Эло
+    $('#scopeInfo').innerHTML = `<span class="scope-title">${tours ? 'Турниры' : '⚔️ Дуэли'}</span>`;
     document.body.classList.add('asg-wide');
-    if (!TOUR) { trainerEl.innerHTML = '<div class="course"><p class="fm-muted">Загружаем турниры…</p></div>'; return; }
+    if (!TOUR) { trainerEl.innerHTML = '<div class="course"><p class="fm-muted">Загружаем…</p></div>'; return; }
     const D = TOUR, T = D.mine;
+    if (!tours) {
+      trainerEl.innerHTML = `<div class="course asg-page tour-page">
+        ${T && T.status === 'run' ? `<h3 class="ap-h tour-h">${esc(T.title)} <span class="chip accent">${esc(T.stage.toLowerCase())}: доиграть — ещё ${tourLeft(T.round_ends)}</span></h3>
+          ${tourNoshowHtml(T)}${tourMyList(T)}` : ''}
+        ${duelsHtml()}
+        <div class="tour-top">${eloHtml()}</div>
+      </div>`;
+      return;
+    }
     const lobby = l => {
       const n = l.players.length;
       const prizes = Object.entries(l.prizes).map(([pl, xp]) => `${MEDAL[pl]} ${xp}`).join(' · ');

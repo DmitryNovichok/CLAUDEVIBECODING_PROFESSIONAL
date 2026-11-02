@@ -89,6 +89,7 @@
   // с крупными кнопками; правила и экономика — под «?». Текста на экране — минимум: суммы и действия.
   let gfSheet = null;                     // шторка: { k: 'mine' | 'shop' | 'mk' | 'help', id } или null
   let gfMkOpen = false;                   // в шторке своего подарка открыта строка «выставить на рынок»
+  let gfSel = null;                       // «Мои подарки»: режим выбора нескольких — Set id выбранных (null — обычный режим)
   let gfFresh = 0;                        // только что улучшенный подарок — плитка «раскрывается»
   let FB = null, fbTab = 'rich';          // Forbes класса и его вкладка
   let gfFind = '';                        // поиск одноклассника в шторке «Купить» (список длинный — выпадающий не листается)
@@ -175,8 +176,35 @@
       <button type="button" class="btn primary" data-bx-tab="shop">🛍 В магазин</button></div>`;
     const V = G.value;
     return `${V && V.n ? `<div class="bx-worth"><small>💎 Твои подарки стоят</small><b>≈ ₿ ${num(V.worth != null ? V.worth : V.sell)}</b>${V.worth > V.sell ? `<small>по рыночным ценам · продать всё сразу — ₿ ${num(V.sell)}</small>` : ''}</div>` : ''}
-      <div class="bx-mine">${G.mine.map(x => `<button type="button" class="bx-card r-${gfRar(x).k}" data-bx-mine="${x.id}">${gfTile(x, 64)}
-        <b>${gfName(x)}</b><small>${x.listed != null ? `🔨 ₿ ${num(x.mk_bid || x.listed)}` : `≈ ₿ ${num(x.worth != null ? x.worth : x.sell)} ${chgHtml(x.mk_chg)}`}</small></button>`).join('')}</div>`;
+      ${G.teacher ? '' : selBar(G)}
+      <div class="bx-mine${gfSel ? ' picking' : ''}">${G.mine.map(x => `<button type="button" class="bx-card r-${gfRar(x).k}${gfSel && gfSel.has(x.id) ? ' sel' : ''}"
+        ${gfSel ? (x.listed != null ? 'disabled title="Выставлен на рынок — сначала сними с продажи"' : `data-bx-selg="${x.id}"`) : `data-bx-mine="${x.id}"`}>${gfTile(x, 64)}
+        <b>${gfName(x)}</b><small>${x.listed != null ? `🔨 ₿ ${num(x.mk_bid || x.listed)}` : gfSel ? `продать — ₿ ${num(x.sell)}` : `≈ ₿ ${num(x.worth != null ? x.worth : x.sell)} ${chgHtml(x.mk_chg)}`}</small></button>`).join('')}</div>`;
+  }
+  /** Строка выбора нескольких подарков: «Выбрать» → отметить → «Продать выбранные» (с подтверждением). */
+  function selBar(G) {
+    if (!gfSel) return `<div class="bx-selbar"><button type="button" class="btn ghost" data-bx-selmode="1">☑ Выбрать несколько — продать разом</button></div>`;
+    const pick = G.mine.filter(x => gfSel.has(x.id)), sum = pick.reduce((a, x) => a + (x.sell || 0), 0);
+    const free = G.mine.filter(x => x.listed == null);
+    return `<div class="bx-selbar on"><b>Выбрано ${pick.length}</b>${pick.length ? `<small>продать сразу — ₿ ${num(sum)}</small>` : '<small>нажимай на подарки</small>'}
+      <span class="bx-selbtns"><button type="button" class="link-btn" data-bx-selall="1">${pick.length === free.length ? 'снять все' : 'выбрать все'}</button>
+        <button type="button" class="btn primary" data-bx-sellsel="1"${pick.length ? '' : ' disabled'}>💰 Продать выбранные</button>
+        <button type="button" class="btn ghost" data-bx-selmode="0">Отмена</button></span></div>`;
+  }
+  async function sellSelected() {
+    const pick = GF.mine.filter(x => gfSel && gfSel.has(x.id) && x.listed == null);
+    if (!pick.length) return;
+    const sum = pick.reduce((a, x) => a + (x.sell || 0), 0);
+    const names = pick.slice(0, 6).map(x => `${x.i} ${x.t}${x.uniq ? ' #' + x.uniq.n : ''}`).join(', ') + (pick.length > 6 ? ` и ещё ${pick.length - 6}` : '');
+    if (!confirm(`Продать ${pick.length} ${plural(pick.length, 'подарок', 'подарка', 'подарков')} за ₿ ${num(sum)}?\n${names}\n\nПодарки сгорят — вернуть их будет нельзя.`)) return;
+    let got = 0, n = 0, err = '';
+    for (const x of pick) {
+      try { const r = await api('gifts/sell', { id: x.id }); got += r.price; n++; if (r.game) onGame(r.game); }
+      catch (e) { if (e.status === 401) return; err = e.message || 'не получилось'; }
+    }
+    gfSel = null;
+    toast(n ? `💰 Продано ${n} ${plural(n, 'подарок', 'подарка', 'подарков')} за ₿ ${num(got)}${err ? ` · часть не продалась: ${err}` : ''}` : `Не получилось продать: ${err}`, 5000);
+    await openGifts(undefined, undefined, 'mine');
   }
   function logTab(G) {
     const why = { grant: '➕ Учитель', take: '➖ Учитель', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
@@ -571,7 +599,7 @@
     if (to) { openGifts(to.dataset.giftTo, undefined, 'shop'); return; }
     if (!GF || !e.target.closest('#forecastBody .bx')) return;
     const b = e.target.closest(`[data-bx-tab], [data-bx-help], [data-bx-close], [data-bx-shop], [data-bx-mine], [data-bx-mk], [data-bx-to], [data-bx-buy],
-      [data-bx-up], [data-bx-sell], [data-bx-mkopen], [data-bx-list], [data-bx-unlist], [data-bx-mbuy], [data-bx-bid], [data-fb-tab], [data-bx-pick]`);
+      [data-bx-up], [data-bx-sell], [data-bx-selmode], [data-bx-selg], [data-bx-selall], [data-bx-sellsel], [data-bx-mkopen], [data-bx-list], [data-bx-unlist], [data-bx-mbuy], [data-bx-bid], [data-fb-tab], [data-bx-pick]`);
     if (gfSheet && !e.target.closest('.bx-sheet')) {      // нажал мимо шторки — закрыть (вкладка снизу и «?» — ещё и сработать)
       gfSheet = null;
       gfMkOpen = false;
@@ -583,6 +611,7 @@
     if (d.bxHelp != null) { gfSheet = { k: 'help' }; renderGifts(); return; }
     if (d.bxTab != null) {
       gfTab = d.bxTab;
+      gfSel = null;
       if (gfTab === 'forbes') loadForbes();
       renderGifts();
       $('#forecastModal').scrollTop = 0;
@@ -598,6 +627,14 @@
     if (d.bxBuy) { buyGift(d.bxBuy); return; }
     if (d.bxUp) { upgradeGift(+d.bxUp); return; }
     if (d.bxSell) { sellGift(+d.bxSell); return; }
+    if (d.bxSelmode != null) { gfSel = d.bxSelmode === '1' ? new Set() : null; renderGifts(); return; }
+    if (d.bxSelg) { const id = +d.bxSelg; if (gfSel.has(id)) gfSel.delete(id); else gfSel.add(id); renderGifts(); return; }
+    if (d.bxSelall != null) {
+      const free = GF.mine.filter(x => x.listed == null).map(x => x.id);
+      gfSel = gfSel.size === free.length ? new Set() : new Set(free);
+      renderGifts(); return;
+    }
+    if (d.bxSellsel != null) { sellSelected(); return; }
     if (d.bxList) { listGift(+d.bxList); return; }
     if (d.bxUnlist) { unlistGift(+d.bxUnlist); return; }
     if (d.bxMbuy) { marketBuy(+d.bxMbuy); return; }

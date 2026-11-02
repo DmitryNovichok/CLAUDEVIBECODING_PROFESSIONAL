@@ -6141,8 +6141,8 @@
     const m = tourMyMatch(), T = TOUR && TOUR.mine;
     const lob = TOUR && TOUR.lobbies.find(l => l.me_in);
     const call = duelCalls().length;
-    $('#duelSub').textContent = !TOUR ? 'наборы открыты' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
-      : lob ? `набор ${lob.players.length}/${lob.size}` : 'наборы открыты';
+    $('#duelSub').textContent = !TOUR ? 'вызови соперника' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
+      : lob ? `набор ${lob.players.length}/${lob.size}` : TOUR.tours === false ? 'вызови соперника' : 'наборы открыты';
     card.classList.toggle('alert', !!m || !!call);
   }
   const tourLeft = sec => {
@@ -6228,10 +6228,20 @@
   }
   function renderTourPage() {
     if (!courseShown || pageKind !== 'tour') return;
-    $('#scopeInfo').innerHTML = '<span class="scope-title">Турниры</span>';
+    const tours = !TOUR || TOUR.tours !== false;               // турниры закрыты — на странице только дуэли и Эло
+    $('#scopeInfo').innerHTML = `<span class="scope-title">${tours ? 'Турниры' : '⚔️ Дуэли'}</span>`;
     document.body.classList.add('asg-wide');
-    if (!TOUR) { trainerEl.innerHTML = '<div class="course"><p class="fm-muted">Загружаем турниры…</p></div>'; return; }
+    if (!TOUR) { trainerEl.innerHTML = '<div class="course"><p class="fm-muted">Загружаем…</p></div>'; return; }
     const D = TOUR, T = D.mine;
+    if (!tours) {
+      trainerEl.innerHTML = `<div class="course asg-page tour-page">
+        ${T && T.status === 'run' ? `<h3 class="ap-h tour-h">${esc(T.title)} <span class="chip accent">${esc(T.stage.toLowerCase())}: доиграть — ещё ${tourLeft(T.round_ends)}</span></h3>
+          ${tourNoshowHtml(T)}${tourMyList(T)}` : ''}
+        ${duelsHtml()}
+        <div class="tour-top">${eloHtml()}</div>
+      </div>`;
+      return;
+    }
     const lobby = l => {
       const n = l.players.length;
       const prizes = Object.entries(l.prizes).map(([pl, xp]) => `${MEDAL[pl]} ${xp}`).join(' · ');
@@ -7766,6 +7776,7 @@
   // с крупными кнопками; правила и экономика — под «?». Текста на экране — минимум: суммы и действия.
   let gfSheet = null;                     // шторка: { k: 'mine' | 'shop' | 'mk' | 'help', id } или null
   let gfMkOpen = false;                   // в шторке своего подарка открыта строка «выставить на рынок»
+  let gfSel = null;                       // «Мои подарки»: режим выбора нескольких — Set id выбранных (null — обычный режим)
   let gfFresh = 0;                        // только что улучшенный подарок — плитка «раскрывается»
   let FB = null, fbTab = 'rich';          // Forbes класса и его вкладка
   let gfFind = '';                        // поиск одноклассника в шторке «Купить» (список длинный — выпадающий не листается)
@@ -7852,8 +7863,35 @@
       <button type="button" class="btn primary" data-bx-tab="shop">🛍 В магазин</button></div>`;
     const V = G.value;
     return `${V && V.n ? `<div class="bx-worth"><small>💎 Твои подарки стоят</small><b>≈ ₿ ${num(V.worth != null ? V.worth : V.sell)}</b>${V.worth > V.sell ? `<small>по рыночным ценам · продать всё сразу — ₿ ${num(V.sell)}</small>` : ''}</div>` : ''}
-      <div class="bx-mine">${G.mine.map(x => `<button type="button" class="bx-card r-${gfRar(x).k}" data-bx-mine="${x.id}">${gfTile(x, 64)}
-        <b>${gfName(x)}</b><small>${x.listed != null ? `🔨 ₿ ${num(x.mk_bid || x.listed)}` : `≈ ₿ ${num(x.worth != null ? x.worth : x.sell)} ${chgHtml(x.mk_chg)}`}</small></button>`).join('')}</div>`;
+      ${G.teacher ? '' : selBar(G)}
+      <div class="bx-mine${gfSel ? ' picking' : ''}">${G.mine.map(x => `<button type="button" class="bx-card r-${gfRar(x).k}${gfSel && gfSel.has(x.id) ? ' sel' : ''}"
+        ${gfSel ? (x.listed != null ? 'disabled title="Выставлен на рынок — сначала сними с продажи"' : `data-bx-selg="${x.id}"`) : `data-bx-mine="${x.id}"`}>${gfTile(x, 64)}
+        <b>${gfName(x)}</b><small>${x.listed != null ? `🔨 ₿ ${num(x.mk_bid || x.listed)}` : gfSel ? `продать — ₿ ${num(x.sell)}` : `≈ ₿ ${num(x.worth != null ? x.worth : x.sell)} ${chgHtml(x.mk_chg)}`}</small></button>`).join('')}</div>`;
+  }
+  /** Строка выбора нескольких подарков: «Выбрать» → отметить → «Продать выбранные» (с подтверждением). */
+  function selBar(G) {
+    if (!gfSel) return `<div class="bx-selbar"><button type="button" class="btn ghost" data-bx-selmode="1">☑ Выбрать несколько — продать разом</button></div>`;
+    const pick = G.mine.filter(x => gfSel.has(x.id)), sum = pick.reduce((a, x) => a + (x.sell || 0), 0);
+    const free = G.mine.filter(x => x.listed == null);
+    return `<div class="bx-selbar on"><b>Выбрано ${pick.length}</b>${pick.length ? `<small>продать сразу — ₿ ${num(sum)}</small>` : '<small>нажимай на подарки</small>'}
+      <span class="bx-selbtns"><button type="button" class="link-btn" data-bx-selall="1">${pick.length === free.length ? 'снять все' : 'выбрать все'}</button>
+        <button type="button" class="btn primary" data-bx-sellsel="1"${pick.length ? '' : ' disabled'}>💰 Продать выбранные</button>
+        <button type="button" class="btn ghost" data-bx-selmode="0">Отмена</button></span></div>`;
+  }
+  async function sellSelected() {
+    const pick = GF.mine.filter(x => gfSel && gfSel.has(x.id) && x.listed == null);
+    if (!pick.length) return;
+    const sum = pick.reduce((a, x) => a + (x.sell || 0), 0);
+    const names = pick.slice(0, 6).map(x => `${x.i} ${x.t}${x.uniq ? ' #' + x.uniq.n : ''}`).join(', ') + (pick.length > 6 ? ` и ещё ${pick.length - 6}` : '');
+    if (!confirm(`Продать ${pick.length} ${plural(pick.length, 'подарок', 'подарка', 'подарков')} за ₿ ${num(sum)}?\n${names}\n\nПодарки сгорят — вернуть их будет нельзя.`)) return;
+    let got = 0, n = 0, err = '';
+    for (const x of pick) {
+      try { const r = await api('gifts/sell', { id: x.id }); got += r.price; n++; if (r.game) onGame(r.game); }
+      catch (e) { if (e.status === 401) return; err = e.message || 'не получилось'; }
+    }
+    gfSel = null;
+    toast(n ? `💰 Продано ${n} ${plural(n, 'подарок', 'подарка', 'подарков')} за ₿ ${num(got)}${err ? ` · часть не продалась: ${err}` : ''}` : `Не получилось продать: ${err}`, 5000);
+    await openGifts(undefined, undefined, 'mine');
   }
   function logTab(G) {
     const why = { grant: '➕ Учитель', take: '➖ Учитель', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
@@ -8248,7 +8286,7 @@
     if (to) { openGifts(to.dataset.giftTo, undefined, 'shop'); return; }
     if (!GF || !e.target.closest('#forecastBody .bx')) return;
     const b = e.target.closest(`[data-bx-tab], [data-bx-help], [data-bx-close], [data-bx-shop], [data-bx-mine], [data-bx-mk], [data-bx-to], [data-bx-buy],
-      [data-bx-up], [data-bx-sell], [data-bx-mkopen], [data-bx-list], [data-bx-unlist], [data-bx-mbuy], [data-bx-bid], [data-fb-tab], [data-bx-pick]`);
+      [data-bx-up], [data-bx-sell], [data-bx-selmode], [data-bx-selg], [data-bx-selall], [data-bx-sellsel], [data-bx-mkopen], [data-bx-list], [data-bx-unlist], [data-bx-mbuy], [data-bx-bid], [data-fb-tab], [data-bx-pick]`);
     if (gfSheet && !e.target.closest('.bx-sheet')) {      // нажал мимо шторки — закрыть (вкладка снизу и «?» — ещё и сработать)
       gfSheet = null;
       gfMkOpen = false;
@@ -8260,6 +8298,7 @@
     if (d.bxHelp != null) { gfSheet = { k: 'help' }; renderGifts(); return; }
     if (d.bxTab != null) {
       gfTab = d.bxTab;
+      gfSel = null;
       if (gfTab === 'forbes') loadForbes();
       renderGifts();
       $('#forecastModal').scrollTop = 0;
@@ -8275,6 +8314,14 @@
     if (d.bxBuy) { buyGift(d.bxBuy); return; }
     if (d.bxUp) { upgradeGift(+d.bxUp); return; }
     if (d.bxSell) { sellGift(+d.bxSell); return; }
+    if (d.bxSelmode != null) { gfSel = d.bxSelmode === '1' ? new Set() : null; renderGifts(); return; }
+    if (d.bxSelg) { const id = +d.bxSelg; if (gfSel.has(id)) gfSel.delete(id); else gfSel.add(id); renderGifts(); return; }
+    if (d.bxSelall != null) {
+      const free = GF.mine.filter(x => x.listed == null).map(x => x.id);
+      gfSel = gfSel.size === free.length ? new Set() : new Set(free);
+      renderGifts(); return;
+    }
+    if (d.bxSellsel != null) { sellSelected(); return; }
     if (d.bxList) { listGift(+d.bxList); return; }
     if (d.bxUnlist) { unlistGift(+d.bxUnlist); return; }
     if (d.bxMbuy) { marketBuy(+d.bxMbuy); return; }
@@ -8481,6 +8528,7 @@
   const CASE_N = 60, CASE_WIN = 52, CASE_SHAKE_MS = 1300, CASE_OPEN_MS = 520, CASE_MS = 5800, CASE_SNAP_MS = 360, CASE_LAND_MS = 750;
   const CASE_RANK = ['common', 'uncommon', 'rare', 'epic', 'legend', 'myth'];
   const crRank = k => (k === 'limited' ? 5 : Math.max(0, CASE_RANK.indexOf(k)));   // лимитка — как мифический
+  const CASE_FLASH = 0.22;                // доля ленты — легендарные и эпические «пролетают» (не рядом с выпавшим): шанс от этого не меняется
   const CASE_HW = 0.3;                    // доля подарков ленты, которые — лимитки Хеллоуина (пока идёт ивент)
   const CASE_SPARKS = { common: 14, uncommon: 20, rare: 28, epic: 40, legend: 56, myth: 72 };
   const CASE_MUTE = 'egeshka.case.mute';
@@ -8594,8 +8642,13 @@
     ov.className = 'cr-ov is-case';
     ov.style.removeProperty('--hc');
     const hw = (GF.hw || []).filter(x => x.left > 0).map(x => ({ ...x, id: x.gift }));   // раскупленная не выпадет — и не пролетает
-    const items = Array.from({ length: CASE_N }, (_, i) => (hw.length && Math.abs(i - CASE_WIN) > 2 && Math.random() < CASE_HW
-      ? hw[Math.floor(Math.random() * hw.length)] : crPick(GF.catalog)));
+    const flash = GF.catalog.filter(x => x.rar && (x.rar.k === 'legend' || x.rar.k === 'epic'));
+    const items = Array.from({ length: CASE_N }, (_, i) => {
+      const far = Math.abs(i - CASE_WIN) > 2, r = Math.random();
+      if (far && hw.length && r < CASE_HW) return hw[Math.floor(Math.random() * hw.length)];
+      if (far && flash.length && r < CASE_HW * !!hw.length + CASE_FLASH) return flash[Math.floor(Math.random() * flash.length)];
+      return crPick(GF.catalog);
+    });
     ov.innerHTML = `<div class="cr-box">
         <div class="cr-hd"><b>🎲 Случайный подарок</b>${who ? `<small>для ${esc(who)}</small>` : ''}
           <button type="button" class="cr-snd" data-cr="snd" aria-label="Звук" title="Звук">${crMuted ? '🔇' : '🔊'}</button></div>
