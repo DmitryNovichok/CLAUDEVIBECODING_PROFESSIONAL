@@ -92,6 +92,7 @@ class ServerTest(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def setUp(self):
+        server.TOURS_ON = True              # турниры на сайте закрыты, но их код проверяем (начатые доигрываются)
         server.LIVE.subs.clear()            # закрытые тестами живые соединения не должны двигать турниры в фоне
         server.THINK_SEC_DEFAULT = 0
         server.THINK_SEC_HARD = 0
@@ -1200,7 +1201,7 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/duel/finish", {"id": did}, tb)              # Борис ничего не решил
         res = {d["id"]: d for d in self.req("GET", "/api/duels", token=ta)[1]["duels"]}[did]
         self.assertEqual((res["status"], res["result"], res["my_solved"], res["op_solved"]), ("finished", "win", len(tasks), 0))
-        self.assertEqual(res["stake"], 100)                               # за победу +100 XP
+        self.assertEqual(res["stake"], server.DUEL_STAKE)                 # за победу — полная награда
         self.assertGreater(self.req("GET", "/api/me", token=tb)[1]["game"]["xp"], 0)   # проигравший опыт не теряет
         # турнирная таблица недели: победа — 3 очка; второй матч той же пары за неделю — нельзя
         T = self.req("GET", "/api/duels", token=ta)[1]["tournament"]
@@ -1443,8 +1444,8 @@ class ServerTest(unittest.TestCase):
         # полная награда — за первые 3 победы в сутки, дальше — меньше
         db = server.APP.db
         for _ in range(3):
-            db.x("INSERT INTO duels(a, b, tasks, created, status, winner, stake, finished) VALUES(?,?,?,?, 'finished', ?, 100, ?)",
-                 (sa, sb, "[]", time.time(), sa, time.time()))
+            db.x("INSERT INTO duels(a, b, tasks, created, status, winner, stake, finished) VALUES(?,?,?,?, 'finished', ?, ?, ?)",
+                 (sa, sb, "[]", time.time(), sa, server.DUEL_STAKE, time.time()))
         now = time.time()
         task = next(t["id"] for t in BANK["tasks"] if t.get("ans") and not t.get("parts"))
         did2 = db.x("""INSERT INTO duels(a, b, tasks, created, status, accepted, a_start, b_start, a_done, b_done)
@@ -3557,7 +3558,11 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sid2, "gift": gid})[0], 400)
             st, d = self.admin("GET", "/api/admin/supply")
             row = next(x for x in d["rows"] if x["id"] == gid)
-            self.assertEqual((row["limited"], row["price"], row["cap"]), (True, server.HW_PRICE, server.HW_CAP))
+            self.assertEqual((row["limited"], row["cap"]), (True, server.HW_CAP))
+            # сожжённые и улучшенные лимитки делают оставшиеся дороже: √(тираж / живых)
+            sup = server.gift_supply(server.APP.db, fresh=True)[gid]
+            self.assertLess(sup["live"], server.HW_CAP)
+            self.assertGreater(row["price"], server.HW_PRICE)
 
     def test_gift_price_chart(self):
         # график цены подарка: 30 точек (по дням и сейчас), в точке — цена на конец дня и покупки за неделю до неё
@@ -4084,6 +4089,19 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(r.status, 400)
         r.read()
         c.close()
+
+    def test_tours_closed_and_box_weights(self):
+        server.TOURS_ON = False
+        tok = self.login("Дуэлев Дмитрий")
+        st, d = self.req("GET", "/api/tour", token=tok)
+        self.assertEqual((st, d["lobbies"], d["tours"]), (200, [], False))
+        self.assertEqual(self.req("POST", "/api/tour/join", {"id": 1}, tok)[0], 410)
+        # 🎲: редкие, эпические и легендарные — вдвое реже обычного веса «1 / цена»
+        sup = server.gift_supply(server.APP.db, fresh=True)
+        for g in server.GIFTS:
+            k = server.rarity_tier(sup[g[0]]["live"], server.SUPPLY_TIERS)[0]
+            want = (1 / g[3]) * (0.5 if k in ("rare", "epic", "legend") else 1)
+            self.assertAlmostEqual(server.box_w(g[0], sup), want)
 
     def test_page_assets_versioned_and_snippet_tex(self):
         # страница отдаёт скрипты с версией в адресе — новая версия сайта не застрянет в кэше браузера

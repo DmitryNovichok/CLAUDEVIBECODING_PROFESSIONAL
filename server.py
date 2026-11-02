@@ -3018,9 +3018,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     return self.err(404, "Дарить можно только себе и ученикам своего учителя")
                 now = time.time()
                 with _GIFT_LOCK:
-                    day = db.q("SELECT COUNT(*) c FROM gifts WHERE from_sid=? AND ts>?", (s["id"], now - 86400), one=True)["c"]
-                    if day >= GIFTS_PER_DAY:
-                        return self.err(429, f"За сутки можно купить не больше {GIFTS_PER_DAY} подарков")
                     if lim and not (limited_now(db) or {}).get("left"):
                         return self.err(409, f"Лимитку «{g[2]}» уже раскупили — все {LIMITED_CAP} штук")
                     sup = gift_supply(db, fresh=True)[g[0]]
@@ -3883,7 +3880,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                               WHERE p.student_id=? AND t.status IN ('reg','run')""", (s["id"],))
         if path == "/api/tour":
             lobbies = []
-            for size, theme in TOUR_KINDS:
+            for size, theme in (TOUR_KINDS if TOURS_ON else []):
                 t = db.q("SELECT * FROM tournaments WHERE teacher_id=? AND size=? AND COALESCE(theme, '')=? AND status='reg'",
                          (tid, size, theme), one=True)
                 th = TOUR_THEMES.get(theme, {})
@@ -3916,9 +3913,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"lobbies": lobbies, "mine": mine, "done": done, "wins": wins, "tasks": DUEL_TASKS,
                                    "elo": elo_board(db, tid, s["id"]), "season": season_view(db, tid, s["id"]),
                                    "vote_nums": sorted(TOUR_NUMS), "vote_max": TOUR_VOTE_MAX, "noshow_sec": TOUR_NOSHOW_SEC,
-                                   "buffer_min": TOUR_BUFFER_SEC // 60, "busy": bool(mine_active)})
+                                   "buffer_min": TOUR_BUFFER_SEC // 60, "busy": bool(mine_active), "tours": TOURS_ON})
         if method != "POST":
             return self.err(405, "нужен POST")
+        if path == "/api/tour/join" and not TOURS_ON:
+            return self.err(410, "Турниров больше нет — играй дуэли ⚔️")
         if path in ("/api/tour/join", "/api/tour/leave", "/api/tour/vote"):
             t = db.q("SELECT * FROM tournaments WHERE id=? AND teacher_id=?", (to_int(data.get("id")), tid), one=True)
             if not t or t["status"] != "reg":
@@ -6837,7 +6836,7 @@ HW_TIER_T = {"rare": "Редкий", "epic": "Эпический", "legend": "Л
 HW_TIER_C = {"rare": ("#82b1ff", "#1a3a7a"), "epic": ("#b388ff", "#3a1670"), "legend": ("#ffd180", "#8a3a00"), "myth": ("#ff80ab", "#4a148c")}
 GIFT_BOX_PRICE = 60                    # «🎲 Случайный подарок»: выпадает любой, дорогие — реже (вес ∝ 1 / цена)
 GIFTS_SHOW = 5                         # сколько подарков видно у ника
-GIFTS_PER_DAY = 100                    # подарков, которые ученик может купить за сутки
+GIFTS_PER_DAY = 10 ** 9                # подарков в сутки: без ограничения (поле осталось для старых страниц)
 GIFT_NOTE_MAX = 80
 COINS_GRANT_MAX = 1000                 # биткоинов за одно начисление учителем
 _GIFT_LOCK = threading.Lock()          # проверка баланса, покупка и номер уникального подарка — одним шагом
@@ -7004,7 +7003,19 @@ def gift_rarity(gid):
     cap = sup["cap"] if sup else supply_cap0(gid)
     live = sup["live"] if sup else cap
     k, t = rarity_tier(live, SUPPLY_TIERS)
-    return {"k": k, "t": t, "p": round(100 * (1 / GIFT_BY[gid][3]) / _GIFT_W, 2), "live": live, "cap": cap}
+    sv = _SUPPLY["v"] or {}
+    return {"k": k, "t": t, "p": round(100 * box_w(gid, sv) / sum(box_w(g[0], sv) for g in GIFTS), 2), "live": live, "cap": cap}
+
+
+BOX_RARE_CUT = 0.5                     # редкие, эпические и легендарные (по живому тиражу) выпадают в «🎲» вдвое реже
+
+
+def box_w(gid, sup=None):
+    """Вес подарка в «🎲»: ∝ 1 / цена, у редких, эпических и легендарных — × BOX_RARE_CUT."""
+    x = (sup or {}).get(gid)
+    live = x["live"] if x else supply_cap0(gid)
+    k = rarity_tier(live, SUPPLY_TIERS)[0]
+    return (1 / GIFT_BY[gid][3]) * (BOX_RARE_CUT if k in ("rare", "epic", "legend") else 1)
 
 
 def hw_on(now=None):
@@ -7044,7 +7055,7 @@ def hw_offers(sup):
     if not hw_on():
         return []
     last = (datetime.strptime(HW_END, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-    return [{"gift": k, "i": i, "t": t, "img": HW_IMG[k], "price": HW_PRICE, "up": HW_UP, "cap": sup[k]["cap"], "left": sup[k]["left"],
+    return [{"gift": k, "i": i, "t": t, "img": HW_IMG[k], "price": math.ceil(HW_PRICE * sup[k]["mult"]), "up": HW_UP, "cap": sup[k]["cap"], "left": sup[k]["left"],
              "own_max": sup[k]["own_max"], "until": last, "rar": gift_rarity(k)} for k, i, t, _ in HW_GIFTS]
 
 
@@ -7373,6 +7384,11 @@ def supply_mult(cap, issued, live):
     return round(min(SUPPLY_MULT, math.sqrt(cap / live) * (1 + SUPPLY_SELL * issued / live)), 4)
 
 
+def lim_mult(cap, live):
+    """Лимитка дорожает, когда её сжигают (продают сразу) и улучшают: живых меньше — каждая дороже, √(тираж / живых)."""
+    return round(min(SUPPLY_MULT, math.sqrt(cap / max(1, live))), 4)
+
+
 def own_max(cap):
     """Сколько подарков одного вида может быть у одного ученика: OWN_SHARE тиража, не меньше OWN_MIN."""
     return max(OWN_MIN, math.ceil(cap * OWN_SHARE))
@@ -7407,7 +7423,7 @@ def gift_supply(db, fresh=False):
         v[gid] = {"cap": cap, "issued": issued, "burned": burned, "up": up, "live": live, "alive": issued - burned,
                   "regular": issued - gone, "uniq": ualive,
                   "left": max(0, cap - issued), "own_max": own_max(cap),
-                  "mult": 1.0 if gid in LIMITED_BY or gid in HW_BY else supply_mult(cap, issued, live)}
+                  "mult": lim_mult(cap, live) if gid in LIMITED_BY or gid in HW_BY else supply_mult(cap, issued, live)}
     _SUPPLY.update(t=now, v=v, db=db)
     return v
 
@@ -7470,8 +7486,8 @@ def gift_price_points(db, gid, e):
 
 def gift_price(gid, e, dem):
     """Цена подарка сейчас: каталог × индекс цен × множитель тиража; у лимитки Хеллоуина — ровно HW_PRICE."""
-    if gid in HW_BY:
-        return HW_PRICE
+    if gid in HW_BY:                                 # без индекса цен, но дорожает, когда сжигают и улучшают
+        return math.ceil(HW_PRICE * dem.get(gid, 1.0))
     return max(1, math.ceil(GIFT_BY[gid][3] * e["idx"] * dem.get(gid, 1.0)))
 
 
@@ -8100,11 +8116,11 @@ def gift_random(rng=None, db=None, hw_sid=None):
         for k, gid in enumerate(HW_BY):
             if k * ch <= r < (k + 1) * ch and sup[gid]["left"] > 0 and own_count(db, hw_sid, gid) < sup[gid]["own_max"]:
                 return GIFT_BY[gid]
-    pool = GIFTS
+    pool, sup = GIFTS, _SUPPLY["v"] or {}
     if db is not None:
         sup = gift_supply(db, fresh=True)
         pool = [g for g in GIFTS if sup[g[0]]["left"] > 0] or GIFTS
-    return (rng or random).choices(pool, weights=[1 / g[3] for g in pool])[0]
+    return (rng or random).choices(pool, weights=[box_w(g[0], sup) for g in pool])[0]
 
 
 def gift_uniq(db, gid, rng=None):
@@ -8887,9 +8903,9 @@ DUEL_TASKS = 5
 DUEL_NUMS = list(range(1, 19)) + [22, 23, 24, 25, 26, 27]   # 19–21 — игра из трёх вопросов, в дуэль не годится
 DUEL_TASK_SEC = {n: (30 if n >= 24 else 10) * 60 for n in range(1, 28)}   # время на задание дуэли: №1–23 — 10 мин, №24–27 — 30
 DUEL_MIN_NUMS = 3          # меньше общих номеров у двоих ищущих — их не сводим
-DUEL_STAKE = 100           # опыт победителю дуэли (у проигравшего не отнимается)
+DUEL_STAKE = 200           # опыт победителю дуэли (у проигравшего не отнимается); турниров нет — дуэли награждают вдвое щедрее
 DUEL_FULL_PER_DAY = 3      # полная награда — за первые 3 победы в сутки, дальше — DUEL_STAKE_LATE
-DUEL_STAKE_LATE = 20
+DUEL_STAKE_LATE = 40
 DUEL_HOURS = 24
 DUEL_MAX_OPEN = 3
 DUEL_PER_DAY = 10          # дуэлей в сутки на одного ученика
@@ -9107,8 +9123,8 @@ DUEL_QUEUE_TTL = 15        # сек: ищущий опрашивает серв�
 
 
 ELO_START = 1000
-STREAK_BONUS = 5           # за серию побед в дуэлях: 3-я подряд +5 XP, 4-я +10 … не больше STREAK_BONUS_MAX
-STREAK_BONUS_MAX = 25
+STREAK_BONUS = 10          # за серию побед в дуэлях: 3-я подряд +10 XP, 4-я +20 … не больше STREAK_BONUS_MAX
+STREAK_BONUS_MAX = 50
 
 
 def elo_of(db, sid):
@@ -9268,6 +9284,7 @@ def support_img_cleanup(db):
 SUPPORT_PER_HOUR = 5
 
 
+TOURS_ON = False                           # турниры закрыты (новых наборов нет), остались дуэли; начатые доигрываются
 TOUR_SIZES = {4: "Мини-турнир", 8: "Кубок", 12: "Чемпионат"}
 TOUR_GROUPS = {4: 1, 8: 2, 12: 3}          # группы по 4
 TOUR_QUAL = {4: 2, 8: 4, 12: 8}            # сколько выходит в плей-офф (у 12 — по двое из группы и две лучшие третьи)
