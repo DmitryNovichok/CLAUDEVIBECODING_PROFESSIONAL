@@ -327,6 +327,39 @@ class ServerTest(unittest.TestCase):
             server.EXTRA_BANK.unlink()
             server.APP.bank.ensure()
 
+    def test_egeshka_bank_file_is_sound(self):
+        # настоящий авторский банк: id не повторяются, у каждого задания есть ответ, файлы и картинки на месте,
+        # 19–21 — одна игра с тремя ответами; сервер загружает его без ошибок
+        root = Path(__file__).resolve().parent.parent
+        data = json.loads((root / "data" / "egeshka_bank.json").read_text(encoding="utf-8"))
+        tasks = data["tasks"]
+        self.assertEqual(data["bank"]["count"], len(tasks))
+        ids = [t["id"] for t in tasks] + [p["id"] for t in tasks for p in t.get("parts") or []]
+        self.assertEqual(len(ids), len(set(ids)))
+        by_n = {}
+        for t in tasks:
+            by_n[t["n"]] = by_n.get(t["n"], 0) + 1
+            if t["n"] == 19:
+                self.assertEqual([p["n"] for p in t["parts"]], [19, 20, 21], t["id"])
+                self.assertTrue(all(p["ans"] for p in t["parts"]), t["id"])
+            else:
+                self.assertTrue(str(t.get("ans", "")).strip(), t["id"])
+            for a in t.get("att") or []:
+                self.assertTrue((root / a["href"]).is_file(), a["href"])
+            for src in re.findall(r'src="(media/egeshka_bank/[^"]+)"', t["html"]):
+                self.assertTrue((root / src).is_file(), src)
+        self.assertEqual(sorted(by_n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23])
+        self.assertTrue(all(v >= 30 for v in by_n.values()), by_n)
+        old = server.EXTRA_BANK
+        server.EXTRA_BANK = root / "data" / "egeshka_bank.json"
+        try:
+            self.assertTrue(server.APP.bank.ensure())
+            self.assertIn("egeshka_bank:e19-01-20", server.APP.bank.tasks)
+            self.assertEqual(server.APP.bank.tasks["egeshka_bank:e6-01"]["n"], 6)
+        finally:
+            server.EXTRA_BANK = old
+            server.APP.bank.ensure()
+
     def test_task9_gets_txt_copy_of_table(self):
         # №9 решают, скопировав таблицу в .txt: сервер сам даёт 9.txt (ячейки через табуляцию)
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
