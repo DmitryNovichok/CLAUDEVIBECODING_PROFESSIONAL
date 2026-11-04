@@ -82,6 +82,10 @@ body.tgp [hidden] { display: none !important; }
 .tg-cwrap.draw.erase .tg-cc { cursor: cell; }
 .tg-cwrap.draw .cond { outline: 2px dashed var(--accent); outline-offset: 2px; }
 .tg-cdraw { display: inline-flex; gap: 4px; }
+.tg-csl { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.tg-csl i { position: absolute; background: var(--c); opacity: .28; border-radius: 3px; mix-blend-mode: multiply; }
+:root[data-theme="dark"] .tg-csl i { mix-blend-mode: screen; opacity: .35; }
+.tg-rsel { background: color-mix(in srgb, var(--c) 35%, transparent); color: transparent; border-radius: 2px; }
 .tg-btn.sm.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
 .tg-files { display: inline-flex; gap: 6px; flex-wrap: wrap; font-weight: 700; }
 .tg-files button { font: 700 12px var(--mono); background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 2px 7px; color: var(--text); cursor: pointer; }
@@ -90,9 +94,25 @@ body.tgp [hidden] { display: none !important; }
 .tg-ai { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* код и доска */
-.tg-main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
-.tg-app[data-mode="code"] .tg-main { grid-template-columns: 1fr; }
-.tg-app[data-mode="board"] .tg-main { grid-template-columns: 1fr; }
+.tg-main { flex: 1; display: grid; grid-template-columns: var(--cw, 1fr) 8px var(--bw, 1fr); min-height: 0; }
+.tg-app[data-mode="code"] .tg-main, .tg-app[data-mode="board"] .tg-main { grid-template-columns: 1fr; }
+.tg-app[data-mode="code"] .tg-split-v, .tg-app[data-mode="board"] .tg-split-v { display: none; }
+/* границы панелей — тянутся мышью или пальцем; размеры запоминаются в браузере */
+.tg-split { flex: none; position: relative; z-index: 6; background: var(--border); transition: background .15s; touch-action: none; }
+.tg-split:hover, .tg-split.drag { background: var(--accent); }
+.tg-split-h { height: 6px; cursor: row-resize; }
+.tg-split-v { width: 8px; cursor: col-resize; }
+.tg-split::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 2px; background: var(--muted); opacity: .6; }
+.tg-split-h::after { width: 34px; height: 2px; } .tg-split-v::after { width: 2px; height: 34px; }
+.tg-task.sized { max-height: none; }
+.tg-task.min { height: auto !important; }
+.tg-rec { padding: 8px 14px; font-size: 13.5px; font-weight: 800; background: var(--accent-soft); color: var(--accent-text); border-bottom: 1px solid var(--border); }
+.tg-pages { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.tg-pages button { font: 800 12px var(--font); border: 1px solid var(--border); background: var(--card); color: var(--muted); border-radius: 8px; padding: 2px 8px; cursor: pointer; }
+.tg-pages button.cur { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.tg-out.sized { max-height: none; }
+body.tg-dragging { user-select: none; -webkit-user-select: none; }
+body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resize; }
 .tg-app[data-mode="code"] .tg-board, .tg-app[data-mode="board"] .tg-code { display: none; }
 .tg-code { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
 /* редактор — как в тренажёре (классы py-* из style.css), цвета PyCharm Darcula / Light */
@@ -179,6 +199,7 @@ body.tgp [hidden] { display: none !important; }
 
 /* телефон: задание, код, доска, вывод — вкладками */
 .tg-tabs { display: none; }
+@media (max-width: 760px) { .tg-split { display: none !important; } }
 @media (max-width: 760px) {
   .tg-top { padding: 7px 10px; gap: 8px; }
   .tg-title { display: none; }
@@ -227,7 +248,8 @@ body.tgp [hidden] { display: none !important; }
     </span>
   </div>
   <section class="tg-task" id="tgTask">
-    <div class="tg-task-h">📄 <span class="tg-num" id="tgNum">Без задания</span>
+    <div class="tg-rec" id="tgRec" hidden></div>
+    <div class="tg-task-h">📄 <span class="tg-num" id="tgNum">Без задания</span><span class="tg-pages" id="tgPages"></span>
       <span class="tg-sp"></span>
       <span class="tg-cdraw" id="tgCDraw" hidden>
         <button type="button" class="tg-btn sm" id="tgCPen" title="Рисовать на условии — видно всем">✏️ Рисовать</button>
@@ -247,6 +269,7 @@ body.tgp [hidden] { display: none !important; }
       <span class="tg-key" id="tgKey" hidden><button type="button" class="tg-btn sm" id="tgKeyBtn">🔑 Показать ответ</button> <b id="tgKeyV" hidden></b></span>
     </div>
   </section>
+  <div class="tg-split tg-split-h" id="tgSplitTask" role="separator" aria-orientation="horizontal" title="Потяните — изменить высоту условия"></div>
   <main class="tg-main" id="tgMain">
     <section class="tg-code" id="tgCode">
       <div class="tg-code-bar">🐍 Python <span class="tg-files" id="tgFiles"></span><span class="tg-sp"></span>
@@ -271,6 +294,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
           <textarea class="py-code" id="tgTa" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Общий код Python"></textarea>
         </div>
       </div>
+      <div class="tg-split tg-split-h" id="tgSplitOut" role="separator" aria-orientation="horizontal" title="Потяните — изменить высоту вывода"></div>
       <div class="tg-out">
         <div class="tg-out-h">Вывод <span id="tgRunWho"></span><span class="tg-sp"></span>
           <button type="button" class="tg-btn sm" id="tgStop" hidden>■ Стоп</button>
@@ -278,6 +302,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
         <pre id="tgOut"></pre>
       </div>
     </section>
+    <div class="tg-split tg-split-v" id="tgSplitMid" role="separator" aria-orientation="vertical" title="Потяните — код шире или доска шире"></div>
     <section class="tg-board">
       <div class="tg-tools" id="tgTools">
         <button type="button" data-tool="pen" class="cur" title="Ручка (P)">✏️</button>

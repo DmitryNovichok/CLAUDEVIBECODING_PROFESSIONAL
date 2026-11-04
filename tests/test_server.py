@@ -4264,8 +4264,17 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(self.recv(trf, "res")["ok"])
         self.send(ss, {"t": "chk", "page": "p1", "v": "12"})
         self.assertTrue(self.recv(trf, "res")["ok"])
-        # в журнал сеанс не пишет: ни опыта, ни биткоинов за решение с учителем
-        self.assertIsNone(db.q("SELECT 1 FROM attempts WHERE student_id=? AND task_id='b:5'", (ida,), one=True))
+        # ответы, которые ученик сдал сам, — в его журнал с пометкой «решено с учителем» (опыт и ₿ — по ним)
+        rows = db.q("SELECT score, reason FROM attempts WHERE student_id=? AND task_id='b:5' ORDER BY id", (ida,))
+        self.assertEqual([(r["score"], r["reason"]) for r in rows], [(0, "tog"), (1, "tog")])
+        # после верного — больше не пишем; ответ, сданный учителем, в журнал никому не идёт
+        self.send(ss, {"t": "chk", "page": "p1", "v": "12"})
+        self.assertEqual(self.recv(trf, "res").get("mine"), None)
+        self.send(ts, {"t": "chk", "page": "p1", "v": "12"})
+        self.recv(srf, "res")
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM attempts WHERE task_id='b:5' AND student_id IN (?, ?)",
+                              (ida, idb), one=True)["c"], 2)
+        self.assertGreater(server.game_summary(db, ida)["xp"], 0)
         # новое задание — новая страница у всех; прежняя сохранена
         self.send(ts, {"t": "task", "task": "b:6"})
         pg = self.recv(srf, "page")
@@ -4279,9 +4288,32 @@ class ServerTest(unittest.TestCase):
         st, d = self.admin("GET", "/api/admin/together/list")
         self.assertEqual(d["sessions"][0]["id"], sid)
         self.assertTrue(any(x["on"] for x in d["sessions"][0]["students"]))
+        # вывод программы: итог — весь текст целиком у всех (и сохраняется со страницей)
+        self.send(ss, {"t": "run", "page": "p2"})
+        self.send(ss, {"t": "out", "page": "p2", "text": "1\n"})
+        self.send(ss, {"t": "done", "page": "p2", "ok": True, "ms": 5, "full": "1\n2\n3\n"})
+        self.assertEqual(self.recv(trf, "done")["full"], "1\n2\n3\n")
+        # выделение: в коде (a…pos) и в условии (a…b) — доходит до остальных
+        self.send(ts, {"t": "cur", "where": "cond", "a": 3, "b": 9})
+        x = self.recv(srf, "cur")
+        self.assertEqual((x["where"], x["a"], x["b"]), ("cond", 3, 9))
+        # ученик идущее занятие по страницам не листает — только учитель
+        self.send(ss, {"t": "peek", "key": "p1"})
+        self.send(ts, {"t": "peek", "key": "p1"})
+        self.assertEqual(self.recv(trf, "page")["page"], "p1")
         st, d = self.admin("POST", "/api/admin/together/end", {"id": sid})
         self.assertEqual(st, 200)
         self.recv(srf, "end")
+        # завершённое занятие — запись: соединение живо, любую страницу можно посмотреть
+        self.send(ss, {"t": "peek", "key": "p1"})
+        pg = self.recv(srf, "page")
+        self.assertEqual((pg["page"], pg["peek"], pg["code"]), ("p1", True, page.code))
+        server.TOG.flush()
+        st, d = self.req("GET", "/api/together/history", token=a)
+        h = next(x for x in d["sessions"] if x["id"] == sid)
+        self.assertTrue(h["ended"])
+        self.assertEqual(h["labels"], ["№ 5", "№ 6"])
+        self.assertEqual(server.TOG.get(sid).pages["p2"].out, "1\n2\n3\n")
         st, d = self.req("GET", "/api/together/mine", token=a)
         self.assertEqual(d["sessions"], [])
         for s in (ts, ss):

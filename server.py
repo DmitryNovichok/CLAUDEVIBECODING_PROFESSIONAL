@@ -2128,7 +2128,24 @@ def tog_name(who):
     return short_name(r["name"]) if r else "Ученик"
 
 
-TOG = together.Hub(tog_load, tog_save, tog_task, tog_check, tog_name)
+def tog_credit(sid, real, ans, score):
+    """Ученик сам сдал ответ в сеансе «Вместе» — попытка в журнал с пометкой «решено с учителем» (reason='tog'):
+    опыт, ₿ и огонёк считаются по ней как по обычной (уже решённое — без наград, см. reward_skips)."""
+    t = APP.bank.tasks.get(real) if APP.bank.ensure() else None
+    s = APP.db.q("SELECT * FROM students WHERE id=?", (sid,), one=True)
+    if not t or not s:
+        return
+    APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,reason,grp,revealed)
+                VALUES(?,?,?,?,?,?,?,?,0,0,'tog',?,0)""",
+             (sid, time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps([ans], ensure_ascii=False),
+              t.get("ans", ""), score, t.get("group")))
+    live_teacher(s)
+    LIVE.send([sid], "mine")
+    if score > 0 and not s["is_teacher"]:
+        LIVE.rate(s["teacher_id"] or main_teacher()["id"])
+
+
+TOG = together.Hub(tog_load, tog_save, tog_task, tog_check, tog_name, tog_credit)
 together.PY_LOCAL = lambda: (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()      # Python с самого сервера (школьная сеть)
 
 
@@ -2142,7 +2159,8 @@ def tog_public(db, r, sid=None):
     cur = pages.get(st.get("cur")) or {}
     task = tog_task(cur.get("task"), sid is None) if cur.get("task") else None
     out = {"id": r["id"], "created": r["created"], "ended": r["ended"], "mode": st.get("mode") or "both",
-           "task": task["label"] if task else None, "pages": len(pages)}
+           "task": task["label"] if task else None, "pages": len(pages),
+           "labels": [(tog_task(x.get("task"), sid is None) or {}).get("label") or "чистая страница" for x in pages.values()]}
     if sid is None:
         ids = json.loads(r["students"] or "[]")
         names = {x["id"]: x["name"] for x in db.q(f"SELECT id, name FROM students WHERE id IN ({','.join('?' * len(ids)) or 'NULL'})", ids)}
@@ -3470,6 +3488,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             rows = db.q("SELECT * FROM together WHERE ended IS NULL AND created > ? ORDER BY created DESC",
                         (time.time() - TOG_ACTIVE_SEC,))
             mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")]
+            return self.send_json({"sessions": mine})
+
+        if path == "/api/together/history":
+            # занятия «Вместе», где был ученик: код, доска и пометки каждого задания сохранены — посмотреть на досуге
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            rows = db.q("SELECT * FROM together ORDER BY created DESC LIMIT 300")
+            mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")][:60]
             return self.send_json({"sessions": mine})
 
         if path == "/api/assignments":
@@ -6279,7 +6306,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
 REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное", "history": "повтор из истории",
            "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
-           "weak": "слабое место", "repeat": "повтор решённого", "asg": "подборка учителя", "work": "самостоятельная", "": ""}
+           "weak": "слабое место", "repeat": "повтор решённого", "asg": "подборка учителя", "work": "самостоятельная",
+           "tog": "решено с учителем", "": ""}
 
 
 def teacher_solution(t, teacher_id=None):

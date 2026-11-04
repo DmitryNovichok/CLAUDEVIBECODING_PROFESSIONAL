@@ -19,7 +19,7 @@
     me: null, teacher: false, page: null, task: null, pages: [], ro: false, follow: true, mode: 'both', tab: 'board',
     ended: false, created: 0, people: [], snapped: false,
     text: '', rev: 0, out: null, buf: null,         // код: текст, ревизия, отправленная правка (ждёт ответа), накопленная после неё
-    carets: new Map(),                              // cid -> {pos (символ), name, color}
+    carets: new Map(), csel: new Map(),           // курсоры в коде; выделения в условии (cid -> {a, b, color})                              // cid -> {pos (символ), name, color}
     strokes: new Map(), live: new Set(), ptrs: new Map(),
     tool: 'pen', color: null, width: 2, undo: [], redo: [],
   };
@@ -159,7 +159,7 @@
     reconnectT = setTimeout(connect, Math.min(800 * 2 ** Math.min(wsTries++, 4), 10000));
   }
   function send(m) {
-    if (!ws || ws.readyState !== 1 || S.ended) return false;
+    if (!ws || ws.readyState !== 1 || (S.ended && m.t !== 'peek' && m.t !== 'ping')) return false;     // запись занятия — только смотреть
     ws.send(JSON.stringify(m));
     return true;
   }
@@ -182,7 +182,7 @@
       }
       case 'people': S.people = m.people || []; return renderPeople();
       case 'gone': S.carets.delete(m.cid); dropPtr(m.cid); return renderCarets();
-      case 'page': return setPage(m);
+      case 'page': return setPage(m, !!m.peek);
       case 'resync': if (m.page) setPage(m.page, true); if (m.why === 'ro') toast('🔒 Учитель включил «Только смотреть»'); if (m.why === 'long') toast('Код слишком длинный'); return;
       case 'ack': return onAck(m);
       case 'op': return onOp(m);
@@ -204,7 +204,10 @@
       case 'res': return onRes(m);
       case 'run': setOut(''); $('#tgRunWho').textContent = `· запустил(а) ${m.name}`; outSys('▶ Запуск…\n'); return;
       case 'out': return outAdd(m.text, m.err);
-      case 'done': outSys(m.ok ? `\n✓ Готово${m.ms != null ? ` за ${(m.ms / 1000).toFixed(2)} с` : ''}\n` : '\n✗ Программа завершилась с ошибкой\n'); return;
+      case 'done':
+        if (m.full != null) { setOut(''); outSys('▶ Запуск…\n'); outAdd(m.full); }     // весь вывод — ровно как у запустившего
+        outSys(m.ok ? `\n✓ Готово${m.ms != null ? ` за ${(m.ms / 1000).toFixed(2)} с` : ''}\n` : '\n✗ Программа завершилась с ошибкой\n');
+        return;
       case 'view': return onView(m);
       case 'follow': S.follow = m.on; renderBars(); if (m.on && m.view) onView(m.view); return;
       case 'ro': S.ro = m.on; renderBars(); return;
@@ -231,7 +234,7 @@
     renderBars();
     renderTools();
     if (!S.teacher && S.follow && m.view) onView(m.view);
-    if (S.ended) onEnd();
+    if (S.ended) onEnd(true);
   }
 
   // ================================================================ участники, панель
@@ -319,9 +322,15 @@
     if (!confirm('Завершить сеанс для всех? Код и доска сохранятся — сеанс можно будет открыть снова из панели учителя.')) return;
     try { await adminPost('together/end', { id: SID }); } catch (e) { toast(e.message); }
   };
-  function onEnd() {
+  function onEnd(quiet) {
     S.ended = true;
     renderBars();
+    renderTask();
+    const d = S.created ? new Date(S.created * 1000) : null;
+    $('#tgRec').hidden = false;
+    $('#tgRec').textContent = `📼 Запись занятия${d ? ` от ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}` : ''}: `
+      + (S.pages.length > 1 ? 'выберите задание — у каждого сохранены код, доска, пометки и вывод' : 'код, доска, пометки и вывод сохранены');
+    if (quiet) { over(null); return; }                    // открыли запись (занятие уже завершено) — сразу смотреть
     if (S.teacher) over('Сеанс завершён', 'Код и доска сохранены. Открыть сеанс снова можно здесь или в панели учителя.',
       [['Открыть снова', '#reopen', 'pri'], ['Смотреть', '#look'], ['В панель учителя', '/admin']]);
     else over('Учитель завершил сеанс', 'Спасибо за работу! Код и доска сохранены у учителя.', [['Смотреть', '#look'], ['В тренажёр', '/', 'pri']]);
@@ -365,6 +374,7 @@
     S.rev = pg.rev || 0;
     S.out = S.buf = null;
     S.carets.clear();
+    S.csel.clear();
     const ta = $('#tgTa');
     const sel = [ta.selectionStart, ta.selectionEnd];
     ta.value = S.text;
@@ -400,7 +410,9 @@
       condBind();
       requestAnimationFrame(condLayout);
     }
-    $('#tgCDraw').hidden = !t;
+    $('#tgCDraw').hidden = !t || S.ended;
+    $('#tgPages').innerHTML = S.ended && S.pages.length > 1 ? S.pages.map((p, i) => `<button type="button" data-peek="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"
+      title="${esc(p.task || 'чистая страница')}">${i + 1}${p.task ? ' · ' + esc(p.task.split(' · ')[0]) : ''}</button>`).join('') : '';
     renderFiles();
     $('#tgAtt').innerHTML = t && t.att && t.att.length ? '📎 ' + t.att.map(a => `<a href="${esc(a.href)}" download>${esc(a.name)}</a>`).join(' · ') : '';
     $('#tgAns').hidden = !t || t.parts;
@@ -443,6 +455,7 @@
     const r = Math.min(window.devicePixelRatio || 1, 2) * C.sc;
     cv3.width = Math.round(CW * r); cv3.height = Math.round(C.h * r);
     condDraw();
+    condSelDraw();
   }
   let condRaf = 0;
   function condDraw() {
@@ -516,6 +529,67 @@
     });
     if (hit) condDraw();
   }
+  function condNodes(root) {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT,
+      { acceptNode: n => (n.parentElement && n.parentElement.closest('.tg-ai, .katex-mathml') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+    const out = [];
+    for (let n = w.nextNode(); n; n = w.nextNode()) out.push(n);
+    return out;
+  }
+  function condOffset(root, node, off) {
+    const r = document.createRange();
+    try { r.setStart(node, off); } catch (e) { return 0; }
+    r.collapse(true);
+    let n = 0;
+    for (const t of condNodes(root)) {
+      if (t === node) return n + off;
+      if (r.comparePoint(t, t.length) <= 0) n += t.length; else break;
+    }
+    return n;
+  }
+  function condRange(root, a, b) {
+    const r = document.createRange();
+    let n = 0, sa = false;
+    for (const t of condNodes(root)) {
+      if (!sa && a <= n + t.length) { r.setStart(t, Math.max(0, a - n)); sa = true; }
+      if (sa && b <= n + t.length) { r.setEnd(t, Math.max(0, b - n)); return r; }
+      n += t.length;
+    }
+    return sa ? r : null;
+  }
+  /** Выделения других участников в условии — полупрозрачные полосы их цвета поверх текста. */
+  function condSelDraw() {
+    const sh = $('#tgCS'), root = sh && sh.querySelector('.cond');
+    if (!sh || !root) return;
+    let layer = sh.querySelector('.tg-csl');
+    if (!layer) { layer = document.createElement('div'); layer.className = 'tg-csl'; sh.appendChild(layer); }
+    const sr = sh.getBoundingClientRect(), k2 = sr.width / CW || 1;
+    let html = '';
+    S.csel.forEach(x => {
+      const r = condRange(root, x.a, x.b);
+      if (!r) return;
+      [...r.getClientRects()].forEach(q => {
+        if (q.width < 1) return;
+        html += `<i style="left:${(q.left - sr.left) / k2}px;top:${(q.top - sr.top) / k2}px;width:${q.width / k2}px;height:${q.height / k2}px;--c:${esc(x.color)}"></i>`;
+      });
+    });
+    layer.innerHTML = html;
+  }
+  const sendCondSel = throttle(() => {
+    const root = $('#tgCS .cond'), sel = getSelection();
+    if (!root) return;
+    let a = 0, b = 0;
+    if (sel && sel.rangeCount && !sel.isCollapsed && root.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      const r = sel.getRangeAt(0);
+      a = condOffset(root, r.startContainer, r.startOffset);
+      b = condOffset(root, r.endContainer, r.endOffset);
+    }
+    const key = `${a}:${b}`;
+    if (key === sendCondSel.last || (!a && !b && !sendCondSel.last)) return;
+    sendCondSel.last = a === b ? '' : key;
+    send({ t: 'cur', where: 'cond', a, b });
+  }, 60);
+  document.addEventListener('selectionchange', () => { if (document.activeElement !== $('#tgTa')) sendCondSel(); });
   function condMode() {
     const w = $('#tgCW');
     if (w) { w.classList.toggle('draw', C.on); w.classList.toggle('erase', C.on && C.erase); }
@@ -545,6 +619,7 @@
         { left: '\\(', right: '\\)', display: false }], throwOnError: false });
     } catch (e) { /* формула останется текстом */ }
   }
+  $('#tgPages').addEventListener('click', e => { const b = e.target.closest('[data-peek]'); if (b) send({ t: 'peek', key: b.dataset.peek }); });
   $('#tgKeyBtn').onclick = () => { $('#tgKeyV').hidden = false; $('#tgKeyBtn').hidden = true; };
   $('#tgMin').onclick = () => {
     const el = $('#tgTask');
@@ -576,6 +651,10 @@
     $('#tgAnsIn').value = m.v;
     $('#tgTyping').textContent = '';
     showRes(m);
+    // ответ сдал сам ученик — он ушёл в его журнал с пометкой «решено с учителем»
+    if (m.mine != null && S.me && S.me.key === 's' + m.mine)
+      toast(m.ok || m.half ? '✓ Засчитано: опыт и ₿ начислены, в журнале — «решено с учителем»' : 'Ответ записан в журнал — попробуй ещё раз');
+    else if (m.mine != null && S.teacher && (m.ok || m.half)) toast(`✓ ${m.by}: ответ засчитан в журнал`);
   }
   function showRes(r) {
     const el = $('#tgRes');
@@ -686,14 +765,25 @@
   }
   /** Курсоры других участников — отдельный прозрачный слой с тем же текстом, сдвигается вместе с кодом. */
   function renderCarets() {
-    const v = S.text, list = [...S.carets.values()].map(c => ({ ...c, u: c2u(v, Math.min(c.pos, cpLen(v))) })).sort((a, b) => a.u - b.u);
-    let html = '', last = 0;
-    for (const c of list) {
-      const top = v.lastIndexOf('\n', c.u - 1) < 0;
-      html += esc(v.slice(last, c.u)) + `<span class="tg-rc${top ? ' dn' : ''}${Date.now() - (c.t || 0) > 2500 ? ' idle' : ''}" style="--c:${esc(c.color)}"><b>${esc(c.name)}</b></span>`;
-      last = c.u;
+    const v = S.text, n = cpLen(v);
+    const list = [...S.carets.values()].map(c => ({ ...c, u: c2u(v, Math.min(c.pos, n)),
+      s: c.a != null ? c2u(v, Math.min(c.a, n)) : null })).sort((a, b) => a.u - b.u);
+    if (!list.length) { $('#tgRc').innerHTML = ''; return; }
+    // выделение соседа — подсветка его цветом, курсор — черта с именем; границы всех выделений и курсоров — по порядку
+    const sel = list.filter(c => c.s != null && c.s !== c.u).map(c => ({ a: Math.min(c.s, c.u), b: Math.max(c.s, c.u), color: c.color }));
+    const cuts = [...new Set([0, v.length, ...list.map(c => c.u), ...sel.flatMap(x => [x.a, x.b])])].sort((a, b) => a - b);
+    let html = '';
+    for (let i = 0; i < cuts.length; i++) {
+      const at = cuts[i];
+      for (const c of list) if (c.u === at) {
+        const top = v.lastIndexOf('\n', c.u - 1) < 0;
+        html += `<span class="tg-rc${top ? ' dn' : ''}${Date.now() - (c.t || 0) > 2500 ? ' idle' : ''}" style="--c:${esc(c.color)}"><b>${esc(c.name)}</b></span>`;
+      }
+      if (i + 1 >= cuts.length) break;
+      const seg = v.slice(at, cuts[i + 1]), hl = sel.find(x => x.a <= at && cuts[i + 1] <= x.b);
+      html += hl ? `<mark class="tg-rsel" style="--c:${esc(hl.color)}">${esc(seg)}</mark>` : esc(seg);
     }
-    $('#tgRc').innerHTML = list.length ? '<div class="py-hl-in">' + html + esc(v.slice(last)) + '\n</div>' : '';
+    $('#tgRc').innerHTML = '<div class="py-hl-in">' + html + '\n</div>';
   }
   /** Скобка рядом с курсором (или выделенная) и её пара: [[позиция, 'ok'|'bad'], ...]. Скобки в строках и комментариях не в счёт. */
   const BR_OPEN = '([{', BR_CLOSE = ')]}';
@@ -872,7 +962,7 @@
   }
   /** Своя правка: отправить сразу, если ничего не ждёт ответа; иначе — копить. */
   function localOp(op) {
-    S.carets.forEach(c => { c.pos = xIndex(c.pos, op); });
+    S.carets.forEach(c => { c.pos = xIndex(c.pos, op); if (c.a != null) c.a = xIndex(c.a, op); });
     if (!S.out) { S.out = op; send({ t: 'op', page: S.page, rev: S.rev, ops: op }); }
     else S.buf = S.buf ? compose(S.buf, op) : op;
   }
@@ -896,7 +986,7 @@
       ta.value = text;
       if (focus) ta.setSelectionRange(c2u(text, xIndex(a, op)), c2u(text, xIndex(b, op)));
       ta.scrollTop = st; ta.scrollLeft = sl;
-      S.carets.forEach((c, cid) => { if (cid !== m.cid) c.pos = xIndex(c.pos, op); });
+      S.carets.forEach((c, cid) => { if (cid !== m.cid) { c.pos = xIndex(c.pos, op); if (c.a != null) c.a = xIndex(c.a, op); } });
       paint(true);
     } catch (e) {
       send({ t: 'op', page: S.page, rev: -1, ops: [] });       // разошлись — сервер пришлёт свежее состояние
@@ -924,20 +1014,24 @@
   });
   ta.addEventListener('scroll', () => { syncScroll(); sendScroll(); });
   document.addEventListener('selectionchange', () => { if (document.activeElement === ta) { paint(); sendCaret(); } });
-  ta.addEventListener('blur', () => { caretLast = -1; paint(); send({ t: 'cur', where: null }); });
+  ta.addEventListener('blur', () => { caretLast = ''; paint(); send({ t: 'cur', where: null }); });
   // ---------- курсоры
-  let caretLast = -1;
+  let caretLast = '';
   const sendCaret = throttle(() => {
     if (document.activeElement !== ta) return;
-    const pos = u2c(S.text, ta.selectionEnd);
-    if (pos === caretLast) return;
-    caretLast = pos;
-    send({ t: 'cur', where: 'code', pos });
+    const back = ta.selectionDirection === 'backward';
+    const pos = u2c(S.text, back ? ta.selectionStart : ta.selectionEnd), a = u2c(S.text, back ? ta.selectionEnd : ta.selectionStart);
+    if (`${a}:${pos}` === caretLast) return;
+    caretLast = `${a}:${pos}`;
+    send(a !== pos ? { t: 'cur', where: 'code', pos, a } : { t: 'cur', where: 'code', pos });
   }, 25);
   ['keyup', 'click', 'focus'].forEach(ev => ta.addEventListener(ev, sendCaret));
   function onCur(m) {
-    if (m.where === 'code') { S.carets.set(m.cid, { pos: m.pos, name: m.name, color: m.color, t: Date.now() }); dropPtr(m.cid); }
+    if (m.where === 'code') { S.carets.set(m.cid, { pos: m.pos, a: m.a, name: m.name, color: m.color, t: Date.now() }); dropPtr(m.cid); }
     else { S.carets.delete(m.cid); if (m.where === 'board') movePtr(m); else dropPtr(m.cid); }
+    if (m.where === 'cond' && m.a !== m.b) S.csel.set(m.cid, { a: Math.min(m.a, m.b), b: Math.max(m.a, m.b), color: m.color, name: m.name });
+    else S.csel.delete(m.cid);
+    condSelDraw();
     renderCarets();
     syncScroll();
     clearTimeout(onCur.t);
@@ -1031,7 +1125,7 @@
   function runAll() { $('#tgRun').click(); }
 
   // ================================================================ запуск Python (у того, кто нажал; вывод видят все)
-  const PY = { worker: null, busy: false, sendT: 0, pending: '' };
+  const PY = { worker: null, busy: false, sendT: 0, pending: '', full: '' };
   function setOut(t) { $('#tgOut').textContent = t; }
   function outAdd(text, err) {
     const pre = $('#tgOut');
@@ -1052,6 +1146,7 @@
       const m = ev.data || {};
       if (m.type === 'out' || m.type === 'err') {
         outAdd(m.text, m.type === 'err');
+        PY.full += m.text;
         if (m.type === 'err') { flushOut(); send({ t: 'out', page: S.page, text: m.text, err: true }); return; }
         PY.pending += m.text;
         if (!PY.sendT) PY.sendT = setTimeout(flushOut, 50);
@@ -1066,7 +1161,7 @@
         $('#tgRun').disabled = !canWrite();
         $('#tgRunWho').textContent = `· запустил(а) ${S.me ? S.me.name : ''}`;
         outSys(m.ok ? `\n✓ Готово${m.ms != null ? ` за ${(m.ms / 1000).toFixed(2)} с` : ''}\n` : '\n✗ Программа завершилась с ошибкой\n');
-        send({ t: 'done', page: S.page, ok: !!m.ok, ms: m.ms });
+        send({ t: 'done', page: S.page, ok: !!m.ok, ms: m.ms, full: PY.full });
       }
     };
   }
@@ -1077,6 +1172,7 @@
     $('#tgStop').hidden = false;
     $('#tgRun').disabled = true;
     setOut('');
+    PY.full = '';
     outSys('▶ Запуск…\n');
     send({ t: 'run', page: S.page });
     const files = ((S.task && S.task.att) || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
@@ -1091,7 +1187,7 @@
     $('#tgRun').disabled = !canWrite();
     outSys('\n■ Остановлено\n');
     flushOut();
-    send({ t: 'out', page: S.page, text: '\n■ Остановлено\n' });
+    send({ t: 'done', page: S.page, ok: false, full: PY.full + '\n■ Остановлено\n' });
   };
 
   // ================================================================ доска
@@ -1391,6 +1487,66 @@
   }
   function placePtr(p) { p.el.style.left = p.x * k + 'px'; p.el.style.top = p.y * k + 'px'; }
   function dropPtr(cid) { const p = S.ptrs.get(cid); if (p) { p.el.remove(); S.ptrs.delete(cid); } }
+
+  // ================================================================ размеры панелей: условие, код | доска, вывод — тянутся границей
+  const SZ_KEY = 'egeshka.tgSizes';
+  const SZ = (() => { try { return JSON.parse(localStorage.getItem(SZ_KEY) || '{}') || {}; } catch (e) { return {}; } })();
+  function applySizes() {
+    const task = $('#tgTask'), out = $('.tg-out'), app = $('#tgApp');
+    if (SZ.task) { task.style.height = SZ.task + 'px'; task.classList.add('sized'); }
+    if (SZ.out) { out.style.height = SZ.out + 'px'; out.classList.add('sized'); }
+    if (SZ.mid) { app.style.setProperty('--cw', SZ.mid + 'fr'); app.style.setProperty('--bw', (1 - SZ.mid) + 'fr'); }
+  }
+  function saveSizes() { try { localStorage.setItem(SZ_KEY, JSON.stringify(SZ)); } catch (e) { /* только на этот раз */ } }
+  function dragSplit(id, axis, onMove) {
+    const el = $(id);
+    el.addEventListener('pointerdown', e => {
+      if (e.button > 0) return;
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      el.classList.add('drag');
+      document.body.classList.add('tg-dragging', axis);
+      const mv = ev => { onMove(ev); requestAnimationFrame(() => { sizeBoard(); layoutCode(); condLayout(); }); };
+      const up = () => {
+        el.classList.remove('drag');
+        document.body.classList.remove('tg-dragging', axis);
+        el.removeEventListener('pointermove', mv);
+        el.removeEventListener('pointerup', up);
+        el.removeEventListener('pointercancel', up);
+        saveSizes();
+      };
+      el.addEventListener('pointermove', mv);
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+    });
+    el.addEventListener('dblclick', () => {                     // двойной щелчок — как было
+      if (id === '#tgSplitTask') { delete SZ.task; $('#tgTask').style.height = ''; $('#tgTask').classList.remove('sized'); }
+      if (id === '#tgSplitOut') { delete SZ.out; $('.tg-out').style.height = ''; $('.tg-out').classList.remove('sized'); }
+      if (id === '#tgSplitMid') { delete SZ.mid; $('#tgApp').style.removeProperty('--cw'); $('#tgApp').style.removeProperty('--bw'); }
+      saveSizes();
+      requestAnimationFrame(() => { sizeBoard(); layoutCode(); condLayout(); });
+    });
+  }
+  dragSplit('#tgSplitTask', 'h', e => {
+    const t = $('#tgTask'), top = t.getBoundingClientRect().top;
+    SZ.task = Math.round(Math.min(innerHeight - 200, Math.max(60, e.clientY - top)));
+    t.style.height = SZ.task + 'px';
+    t.classList.add('sized');
+    t.classList.remove('min');
+  });
+  dragSplit('#tgSplitOut', 'h', e => {
+    const o = $('.tg-out'), bottom = o.getBoundingClientRect().bottom;
+    SZ.out = Math.round(Math.min(innerHeight - 220, Math.max(50, bottom - e.clientY)));
+    o.style.height = SZ.out + 'px';
+    o.classList.add('sized');
+  });
+  dragSplit('#tgSplitMid', 'v', e => {
+    const r = $('#tgMain').getBoundingClientRect();
+    SZ.mid = Math.round(Math.min(0.85, Math.max(0.15, (e.clientX - r.left) / r.width)) * 1000) / 1000;
+    $('#tgApp').style.setProperty('--cw', SZ.mid + 'fr');
+    $('#tgApp').style.setProperty('--bw', (1 - SZ.mid) + 'fr');
+  });
+  applySizes();
 
   // ================================================================ старт
   addEventListener('resize', () => { clearTimeout(S.rsT); S.rsT = setTimeout(() => { if (NARROW() && S.tab === 'board' && $('#tgApp').dataset.tab !== S.tab) setTab(S.tab, false); sizeBoard(); layoutCode(); }, 80); });

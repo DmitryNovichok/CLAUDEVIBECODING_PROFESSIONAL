@@ -44,6 +44,7 @@
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
+      setTimeout(() => togHistory(false), 1600);                      // записи занятий — кнопка 👥 слева
       if (!fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
     }
@@ -244,8 +245,8 @@
   versionBtn?.addEventListener('click', () => {
     if (isNarrow()) setSideOpen(false);
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Что нового</h2>
-      ${SERVER && student ? `<button type="button" class="sto-launch" id="storiesGo"><span class="sto-l-ic">🎃</span><span><b>Обновление вышло: Хеллоуин!</b>
-        <small>лимитки — по 15 штук, новые темы и поздравление с пробником · ${storySlides().length} слайдов</small></span></button>` : ''}
+      ${SERVER && student ? `<button type="button" class="sto-launch" id="storiesGo"><span class="sto-l-ic">👥</span><span><b>Что нового: «Вместе» и дуэли</b>
+        <small>световые мечи, занятия с учителем и их записи, дуэли вместо турниров · ${storySlides().length} слайда</small></span></button>` : ''}
       <div class="changelog">${CHANGELOG.map(([v, d, added, changed], i) => `<section class="cl-ver${i ? '' : ' cl-now'}">
         <h3><span class="cl-num">${v}</span><span class="fm-muted">${d}</span>${i ? '' : '<span class="chip good">сейчас</span>'}</h3>
         ${(added || []).length ? `<div class="cl-kind cl-add">✨ Добавлено</div><ul>${added.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}

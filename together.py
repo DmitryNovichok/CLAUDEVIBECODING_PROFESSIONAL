@@ -26,7 +26,7 @@ BOARD_H_MAX = 12000              # лист растёт вниз до стол�
 CODE_MAX = 50_000                # символов в общем коде
 STROKES_MAX = 4000               # штрихов на одной доске
 POINTS_MAX = 4000                # точек в одном штрихе
-OUT_MAX = 20_000                 # символов вывода программы, который видят все
+OUT_MAX = 300_000                # символов вывода программы, который видят все (и сохраняется со страницей)
 HIST_KEEP = 400                  # сколько последних правок кода помнить для сдвига «опоздавших» правок
 ANS_MAX = 200
 CHECKS_PER_PAGE = 20             # проверок ответа на одно задание за сеанс
@@ -306,10 +306,12 @@ class Page:
         self.res = d.get("res") or []
         self.out = d.get("out") or ""
         self.checks = int(d.get("checks") or 0)
+        self.got = dict(d.get("got") or {})   # ученик ("s12") → 1: его верный ответ уже засчитан в журнал
 
     def dump(self):
         return {"task": self.task, "code": self.code, "rev": self.rev, "strokes": list(self.strokes.values()),
-                "ans": self.ans, "res": self.res[-50:], "out": self.out, "checks": self.checks}
+                "ans": self.ans, "res": self.res[-50:], "out": self.out, "checks": self.checks,
+                "got": self.got}
 
 
 class Session:
@@ -342,10 +344,12 @@ class Session:
 
 class Hub:
     """Все открытые сеансы. Хозяин (server.py) даёт функции: load(id) -> (строка, состояние) | None, save(id, state),
-    task(real_id, teacher) -> {…} | None — задание для показа, check(real_id, answer) -> 0..1, name(who) -> имя."""
+    task(real_id, teacher) -> {…} | None — задание для показа, check(real_id, answer) -> 0..1, name(who) -> имя,
+    credit(student_id, real_id, answer, score) — ученик сам сдал ответ: попытка в его журнал."""
 
-    def __init__(self, load, save, task, check, name):
+    def __init__(self, load, save, task, check, name, credit=None):
         self.load, self.save_fn, self.task_fn, self.check_fn, self.name_fn = load, save, task, check, name
+        self.credit_fn = credit
         self.lock = threading.Lock()
         self.sessions = {}
         self.saver = None
@@ -378,9 +382,7 @@ class Hub:
                 s.students = set(json.loads(got[0]["students"] or "[]"))
                 s.ended = got[0]["ended"]
             if s.ended:
-                self._bcast(s, {"t": "end"})
-                for c in list(s.conns):
-                    c.close()
+                self._bcast(s, {"t": "end"})        # соединения не рвём: запись занятия можно смотреть дальше (peek)
             else:
                 self._people(s)
 
@@ -496,6 +498,11 @@ class Hub:
             c.send({"t": "pong", "ts": m.get("ts")})
             return
         with s.lock:
+            if t == "peek":                          # посмотреть другую страницу занятия, не меняя её у остальных
+                key = m.get("key")                  # (завершённое занятие — всем; идущее — только учителю)
+                if key in s.pages and (s.ended or teacher):
+                    c.send(dict(self._page_msg(s, s.pages[key], key, teacher), peek=True))
+                return
             if s.ended:
                 if t != "cur":
                     c.send({"t": "end"})
@@ -508,6 +515,10 @@ class Hub:
                 d = {"t": "cur", "cid": c.cid, "key": f"{c.who[0]}{c.who[1]}", "name": c.name, "color": c.color}
                 if m.get("where") == "code" and isinstance(m.get("pos"), int):
                     d.update(where="code", pos=max(0, min(m["pos"], len(p.code))))
+                    if isinstance(m.get("a"), int) and m["a"] != m["pos"]:      # выделение в коде: от a до pos
+                        d["a"] = max(0, min(m["a"], len(p.code)))
+                elif m.get("where") == "cond" and isinstance(m.get("a"), int) and isinstance(m.get("b"), int):
+                    d.update(where="cond", a=max(0, min(m["a"], 100_000)), b=max(0, min(m["b"], 100_000)))   # выделение в условии
                 elif m.get("where") == "board":
                     x, y = _num(m.get("x"), -50, BOARD_W + 50), _num(m.get("y"), -50, BOARD_H_MAX)
                     if x is None or y is None:
@@ -583,6 +594,17 @@ class Hub:
                 if credit is None:
                     return
                 r = {"v": ans, "ok": credit >= 1, "half": 0 < credit < 1, "by": c.name, "ts": time.time()}
+                me = f"s{c.who[1]}"
+                if c.who[0] == "s" and self.credit_fn and me not in p.got:
+                    # ответ сдал сам ученик — попытка в его журнал («решено с учителем»): опыт и ₿ — как в тренажёре;
+                    # после верного ответа на этой странице больше не пишем
+                    try:
+                        self.credit_fn(c.who[1], p.task, ans, credit)
+                        r["mine"] = c.who[1]
+                    except Exception:                  # журнал не должен ронять сеанс
+                        pass
+                    if credit > 0:
+                        p.got[me] = 1
                 p.ans = ans
                 p.res.append(r)
                 s.dirty = True
@@ -602,7 +624,12 @@ class Hub:
                     p.out += txt
                     self._bcast(s, {"t": "out", "text": txt, "err": bool(m.get("err"))}, skip=c)
                 else:
-                    self._bcast(s, {"t": "done", "ok": bool(m.get("ok")), "ms": _num(m.get("ms"), 0, 1e7)}, skip=c)
+                    # итог запуска — весь вывод целиком: у всех ровно то же, что у запустившего (кусочки могли не дойти)
+                    full = m.get("full")
+                    if isinstance(full, str):
+                        p.out = full[:OUT_MAX]
+                    self._bcast(s, {"t": "done", "ok": bool(m.get("ok")), "ms": _num(m.get("ms"), 0, 1e7),
+                                    "full": p.out if isinstance(full, str) else None}, skip=c)
                 s.dirty = True
             elif t == "view":
                 if not teacher:
