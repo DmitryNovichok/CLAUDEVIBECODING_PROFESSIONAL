@@ -8,6 +8,7 @@
 соответствии номеров таблицы буквам схемы, в №2 — подходит ровно один порядок переменных).
 
     python tools/gen_egeshka.py            # data/egeshka_bank.json + media/egeshka_bank/…
+    python tools/egeshka_check.py          # решения запускаются и сверяются с ответами, поиск дублей с банком
 
 Сервер подмешивает data/egeshka_bank.json к основному банку сам, пересобирать bank.js не нужно.
 Сид фиксированный: повторный запуск даёт те же задания.
@@ -281,6 +282,13 @@ def col_name(i):
     return s
 
 
+def zput(z, name, data):
+    """Файл в архив с постоянной датой — повторный запуск генератора даёт побайтово те же .xlsx."""
+    info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    z.writestr(info, data)
+
+
 def write_xlsx(path, sheets):
     """Минимальный .xlsx без сторонних библиотек: строки — inlineStr, даты — числа со стилем даты."""
     def cell(ref, v):
@@ -290,7 +298,7 @@ def write_xlsx(path, sheets):
             return f'<c r="{ref}"><v>{v}</v></c>'
         return f'<c r="{ref}" t="inlineStr"><is><t>{html.escape(str(v))}</t></is></c>'
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml",
+        zput(z, "[Content_Types].xml",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
                    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
@@ -299,25 +307,25 @@ def write_xlsx(path, sheets):
                    '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
                    + "".join(f'<Override PartName="/xl/worksheets/sheet{i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
                              for i in range(len(sheets))) + '</Types>')
-        z.writestr("_rels/.rels",
+        zput(z, "_rels/.rels",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
                    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
                    '</Relationships>')
-        z.writestr("xl/workbook.xml",
+        zput(z, "xl/workbook.xml",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
                    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
                    + "".join(f'<sheet name="{html.escape(name)}" sheetId="{i + 1}" r:id="rId{i + 1}"/>'
                              for i, (name, _) in enumerate(sheets)) + '</sheets></workbook>')
-        z.writestr("xl/_rels/workbook.xml.rels",
+        zput(z, "xl/_rels/workbook.xml.rels",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
                    + "".join(f'<Relationship Id="rId{i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i + 1}.xml"/>'
                              for i in range(len(sheets)))
                    + f'<Relationship Id="rId{len(sheets) + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
                    '</Relationships>')
-        z.writestr("xl/styles.xml",
+        zput(z, "xl/styles.xml",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
                    '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>'
@@ -334,7 +342,7 @@ def write_xlsx(path, sheets):
             for r, row in enumerate(rows):
                 xml.append(f'<row r="{r + 1}">' + "".join(cell(f"{col_name(c)}{r + 1}", v) for c, v in enumerate(row)) + "</row>")
             xml.append("</sheetData></worksheet>")
-            z.writestr(f"xl/worksheets/sheet{i + 1}.xml", "".join(xml))
+            zput(z, f"xl/worksheets/sheet{i + 1}.xml", "".join(xml))
 
 
 THEMES = [
@@ -675,6 +683,11 @@ def main():
     for n, g in ((1, gen1), (2, gen2), (3, gen3), (4, gen4), (5, gen5)):
         for k in range(1, PER_NUM + 1):
             g(k)
+    import sys
+    import egeshka_more                     # вторая волна: ещё по 30 на №1–23 (первые 50 заданий не меняются)
+    egeshka_more.G = sys.modules[__name__]  # скрипт запущен как __main__ — общий список заданий и генератор чисел
+    egeshka_more.run()
+    TASKS.sort(key=lambda t: (t["n"], t["id"]))
     data = {"bank": {"id": "egeshka_bank", "title": "Egeshka", "count": len(TASKS)}, "tasks": TASKS}
     OUT_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=0), encoding="utf-8")
     files = sorted(str(p.relative_to(ROOT)).replace("\\", "/") for p in MEDIA.rglob("*") if p.is_file())
