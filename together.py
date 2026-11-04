@@ -306,10 +306,12 @@ class Page:
         self.res = d.get("res") or []
         self.out = d.get("out") or ""
         self.checks = int(d.get("checks") or 0)
+        self.got = dict(d.get("got") or {})   # ученик ("s12") → 1: его верный ответ уже засчитан в журнал
 
     def dump(self):
         return {"task": self.task, "code": self.code, "rev": self.rev, "strokes": list(self.strokes.values()),
-                "ans": self.ans, "res": self.res[-50:], "out": self.out, "checks": self.checks}
+                "ans": self.ans, "res": self.res[-50:], "out": self.out, "checks": self.checks,
+                "got": self.got}
 
 
 class Session:
@@ -342,10 +344,12 @@ class Session:
 
 class Hub:
     """Все открытые сеансы. Хозяин (server.py) даёт функции: load(id) -> (строка, состояние) | None, save(id, state),
-    task(real_id, teacher) -> {…} | None — задание для показа, check(real_id, answer) -> 0..1, name(who) -> имя."""
+    task(real_id, teacher) -> {…} | None — задание для показа, check(real_id, answer) -> 0..1, name(who) -> имя,
+    credit(student_id, real_id, answer, score) — ученик сам сдал ответ: попытка в его журнал."""
 
-    def __init__(self, load, save, task, check, name):
+    def __init__(self, load, save, task, check, name, credit=None):
         self.load, self.save_fn, self.task_fn, self.check_fn, self.name_fn = load, save, task, check, name
+        self.credit_fn = credit
         self.lock = threading.Lock()
         self.sessions = {}
         self.saver = None
@@ -590,6 +594,17 @@ class Hub:
                 if credit is None:
                     return
                 r = {"v": ans, "ok": credit >= 1, "half": 0 < credit < 1, "by": c.name, "ts": time.time()}
+                me = f"s{c.who[1]}"
+                if c.who[0] == "s" and self.credit_fn and me not in p.got:
+                    # ответ сдал сам ученик — попытка в его журнал («решено с учителем»): опыт и ₿ — как в тренажёре;
+                    # после верного ответа на этой странице больше не пишем
+                    try:
+                        self.credit_fn(c.who[1], p.task, ans, credit)
+                        r["mine"] = c.who[1]
+                    except Exception:                  # журнал не должен ронять сеанс
+                        pass
+                    if credit > 0:
+                        p.got[me] = 1
                 p.ans = ans
                 p.res.append(r)
                 s.dirty = True

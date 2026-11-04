@@ -4264,8 +4264,17 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(self.recv(trf, "res")["ok"])
         self.send(ss, {"t": "chk", "page": "p1", "v": "12"})
         self.assertTrue(self.recv(trf, "res")["ok"])
-        # в журнал сеанс не пишет: ни опыта, ни биткоинов за решение с учителем
-        self.assertIsNone(db.q("SELECT 1 FROM attempts WHERE student_id=? AND task_id='b:5'", (ida,), one=True))
+        # ответы, которые ученик сдал сам, — в его журнал с пометкой «решено с учителем» (опыт и ₿ — по ним)
+        rows = db.q("SELECT score, reason FROM attempts WHERE student_id=? AND task_id='b:5' ORDER BY id", (ida,))
+        self.assertEqual([(r["score"], r["reason"]) for r in rows], [(0, "tog"), (1, "tog")])
+        # после верного — больше не пишем; ответ, сданный учителем, в журнал никому не идёт
+        self.send(ss, {"t": "chk", "page": "p1", "v": "12"})
+        self.assertEqual(self.recv(trf, "res").get("mine"), None)
+        self.send(ts, {"t": "chk", "page": "p1", "v": "12"})
+        self.recv(srf, "res")
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM attempts WHERE task_id='b:5' AND student_id IN (?, ?)",
+                              (ida, idb), one=True)["c"], 2)
+        self.assertGreater(server.game_summary(db, ida)["xp"], 0)
         # новое задание — новая страница у всех; прежняя сохранена
         self.send(ts, {"t": "task", "task": "b:6"})
         pg = self.recv(srf, "page")

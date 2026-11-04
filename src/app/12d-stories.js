@@ -1,14 +1,11 @@
-  // ------------------------------------------------------------ истории (как в Instagram/Telegram): сейчас — поздравление с пробником
-  // и вышедшее обновление — Хеллоуинский ивент (лимитки уже в продаже, кнопка в конце ведёт в магазин). Один раз (STORIES_VER) —
+  // ------------------------------------------------------------ истории (как в Instagram/Telegram): что нового на сайте —
+  // световые мечи (лимитки до 9 ноября), занятия «Вместе» и их записи, дуэли вместо турниров. Один раз (STORIES_VER) —
   // при первом входе (новичку — после знакомства с сайтом), потом — из «Что нового».
   // Слайд листается сам за STORY_MS; касание справа — дальше, слева — назад, удержание — пауза, свайп вниз, ✕ или Esc — закрыть.
   // На компьютере — в рамке iPhone с Dynamic Island (в нём на миг — номер слайда), на телефоне — на весь экран.
-  const STORIES_VER = 'halloween-2026-out', STORY_MS = 7000;    // новая версия — истории покажутся всем ещё раз
-  const HW_START = '2026-10-26';          // с этого дня — Хеллоуинский ивент: две лимитки
-  const HW_UNTIL = '2026-11-01';          // до этого дня истории показываются сами
-  const HW_END = '2026-11-03';            // до этого дня — хеллоуинская тема сайта
-  // тема ивента: ночной (в светлой теме — сумеречный) фон с луной, кладбищем и тыквами, паутина, пролетающие летучие мыши;
-  // заранее посмотреть — ?halloween=1 в адресе
+  const STORIES_VER = 'sabers-together-2026-11', STORY_MS = 7000;    // новая версия — истории покажутся всем ещё раз
+  const STORIES_UNTIL = '2026-11-17';     // до этого дня истории показываются сами
+  const HW_START = '2026-10-26', HW_END = '2026-11-03';   // хеллоуинская тема сайта (прошла); посмотреть — ?halloween=1
   if ((d => d >= HW_START && d < HW_END)(dayKey(Date.now())) || /[?&]halloween=1/.test(location.search)) {
     document.body.classList.add('hw');
     const bats = document.createElement('div');
@@ -17,48 +14,36 @@
     bats.innerHTML = '<img src="vendor/halloween/bat.svg" alt=""><img src="vendor/halloween/bat.svg" alt=""><img src="vendor/halloween/bat.svg" alt="">';
     document.body.appendChild(bats);
   }
-  const HW_IMG = 'vendor/halloween/';
-  // маски — готовые картинки (с рамкой и тыквой сверху): обычная — клоун, при улучшении — одна из страшных
-  const HW_MASK = 'gift_clown.webp';
-  const HW_PUMPKIN = 'gift_pumpkin.webp';
-  const HW_OUTFITS = ['gift_p_vampire.webp', 'gift_p_cat.webp', 'gift_p_king.webp', 'gift_p_hell.webp'];
-  const HW_N = 15;                        // тираж каждой лимитки (HW_CAP в server.py), одному ученику — не больше двух
-  const hwSoon = `<div class="sto-hw-soon">🎃 уже в продаже · ${HW_N} штук · до 2 ноября</div>`;
-  const hwRow = ks => `<div class="sto-hw-row">${ks.map((k, i) => `<span style="--i:${i}">${hwImg(k, 'raw')}</span>`).join('')}</div>`;
-  const HW_MASKS = ['gift_scream.webp', 'gift_m_plague.webp', 'gift_m_wolf.webp', 'gift_m_pharaoh.webp'];
-  let ST = null;                          // { k, list, paused } — открытые истории
+  const SW_END = '2026-11-10', SW_N = 5, SW_PRICE = 10000;  // световые мечи: SW_END / cap / price в server.py
+  let ST = null;                          // { k, list, paused, go } — открытые истории
   const storyKey = () => `egeshka.stories.${STORIES_VER}.${student ? student.sid : 'local'}`;
-  const hwImg = (k, cls = '') => `<img class="${cls}" src="${HW_IMG}${/\.\w+$/.test(k) ? k : k + '.svg'}" alt="" loading="lazy" draggable="false">`;
   function storySlides() {
-    const g = GAME || {}, coins = g.coins || 0;
-    const conf = Array.from({ length: 18 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 6) * .35}s;--c:${['#ffd54f', '#ff8a65', '#81d4fa', '#a5d6a7', '#ce93d8', '#fff'][i % 6]}"></i>`).join('');
-    return [
-      { cls: 'h1', ico: '🎓', head: 'Egeshka', title: 'С пробником! 🎉',
-        text: 'Поздравляем всех, кто написал пробный ЕГЭ, — вы молодцы! Разбери свои ошибки: так баллы растут быстрее всего.',
-        art: `<div class="sto-cong"><div class="conf">${conf}</div><div class="cap">🎓</div>
-          <div class="card"><b>Пробный ЕГЭ</b><span>написан ✓</span><small>дальше — работа над ошибками</small></div></div>` },
-      { cls: 'h2', ico: '🎃', head: 'Обновление вышло', title: 'Хеллоуин уже на сайте!',
-        text: `Обновление вышло! В «Биткоинах» — две лимитки Хеллоуина: тыква и маска клоуна. Всего по ${HW_N} штук на весь сайт и только до 2 ноября включительно.`,
-        art: `<div class="sto-hw-duo"><span class="bat b1">🦇</span><span class="bat b2">🦇</span><span class="bat b3">🦇</span>
-          ${hwImg(HW_PUMPKIN, 'l raw')}${hwImg(HW_MASK, 'r raw')}<div class="date"><small>до</small><b>2</b><small>ноября</small></div></div>` },
-      { cls: 'h6', ico: '🦇', head: 'Новые темы', title: 'Сайт уже в стиле Хеллоуина',
-        text: 'Уже включились: в тёмной теме — ночь с луной, кладбищем и светящимися тыквами, в светлой — сумерки. А ещё паутина, летучие мыши и гирлянда из тыкв в «Биткоинах».',
-        art: `<div class="sto-hw-themes">${['night', 'dusk'].map(t => `<div class="tw-w tw-${t === 'night' ? 'n' : 'd'}"><div class="tw"><div class="tw-bar"><i></i><i></i><i></i></div>
-          <div class="tw-side"><b>Egeshka</b><i></i><i></i><i></i></div><div class="tw-pane">${hwImg('bg_web', 'tw-web')}${hwImg('bg_moon', 'tw-moon')}${hwImg('bat', 'tw-bat')}
-          <i class="tw-card"></i><i class="tw-card"></i>${hwImg('bg_bottom', 'tw-grave')}</div></div>
-          <span class="tw-lbl">${t === 'night' ? '🌙 Ночь · тёмная тема' : '🌆 Сумерки · светлая тема'}</span></div>`).join('')}</div>` },
-      { cls: 'h3', ico: '🎃', head: 'Лимитка 1', title: 'Тыква и 10 нарядов',
-        text: `Уже в «Биткоинах»: тыква — ₿ 5 000, всего ${HW_N} штук. Улучши её за ₿ 1 000 — и она наденет случайный наряд: вампир, пират, мумия, чёрный кот, золотой король… а самым везучим — адская тыква.`,
-        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_PUMPKIN, 'hero raw')}<div class="arr">✨ улучшение · ₿ 1 000</div>${hwRow(HW_OUTFITS)}</div>` },
-      { cls: 'h4', ico: '🎭', head: 'Лимитка 2', title: 'Маска клоуна',
-        text: `Уже в «Биткоинах»: маска клоуна — ₿ 5 000, всего ${HW_N} штук. Улучши за ₿ 1 000 — и весёлый клоун превратится в страшную маску: Крик, Пила, Чумной доктор, Оборотень… а самым везучим — проклятый фараон.`,
-        art: `<div class="sto-hw-one masks">${hwSoon}${hwImg(HW_MASK, 'hero raw')}<div class="arr">✨ улучшение — и он станет…</div>${hwRow(HW_MASKS)}</div>` },
-      { cls: 'h5', ico: '₿', head: 'Успей', title: 'Успей купить!',
-        text: `Тыкв и масок — всего по ${HW_N} штук на весь сайт и не больше двух в одни руки: кто первый, тот и успел. До 2 ноября включительно. Не хватает биткоинов — решай задания!`,
-        art: `<div class="sto-hw-save"><div class="coin">₿</div><b>${num(coins)} <small>из 5 000</small></b>
-          <div class="prog"><i style="width:${Math.min(100, Math.round(coins / 50))}%"></i></div>
-          <small>${coins >= 5000 ? 'на тыкву уже хватает 🎃' : `ещё ₿ ${num(5000 - coins)}`}</small></div>` },
-    ];
+    const g = GAME || {}, coins = g.coins || 0, swOn = dayKey(Date.now()) < SW_END;
+    const saber = c => `<img class="sw-s sw-${c}" src="vendor/sabers/saber_${c}.svg" alt="" draggable="false">`;
+    const list = [];
+    if (swOn) list.push({ cls: 'n1', ico: '⚔️', head: 'Лимитки', title: 'Световые мечи',
+      text: `В «Биткоинах» — синий и красный световые мечи: ₿ ${num(SW_PRICE)}, всего по ${SW_N} штук на весь сайт и только до 9 ноября включительно. Кто первый, тот и успел!`,
+      art: `<div class="sto-sw"><div class="sw-pair">${saber('blue')}${saber('red')}</div>
+        <div class="sw-tag">по ${SW_N} штук · до 9 ноября</div>
+        <div class="sw-have">у тебя ₿ ${num(coins)}${coins >= SW_PRICE ? ' — хватает ✓' : ` · ещё ₿ ${num(SW_PRICE - coins)}`}</div></div>` });
+    list.push(
+      { cls: 'n2', ico: '👥', head: 'Новое', title: 'Занятия «Вместе»',
+        text: 'Решай с учителем в одном редакторе: общий код и запуск программы, доска для рисунков и пометки прямо на условии задачи. Ответы, которые ты сдаёшь сам, засчитываются — с опытом и биткоинами.',
+        art: `<div class="sto-tg"><div class="tg-w"><div class="tg-l"><i class="ln w1"></i><i class="ln w2"></i><i class="ln w3"></i><i class="ln w2"></i>
+          <span class="cur t">Учитель</span><span class="cur s">Ты</span></div>
+          <div class="tg-r"><svg viewBox="0 0 100 80" aria-hidden="true"><path d="M10 60 C 30 10, 55 10, 70 45 S 90 70, 92 30" /></svg></div></div>
+          <div class="tg-ok">✓ решено с учителем · +XP · +₿</div></div>` },
+      { cls: 'n3', ico: '📼', head: 'Записи', title: 'Занятие не пропадёт',
+        text: 'После занятия всё сохраняется: код и рисунки по каждой задаче. Открой «Занятия вместе» 👥 в меню слева — и повтори всё, что разбирали.',
+        art: `<div class="sto-rec"><div class="rc-h">👥 Занятия вместе</div>
+          ${[['сегодня', '№ 9 · № 17 · № 24'], ['вчера', '№ 8 · № 25'], ['2 ноября', '№ 6 · № 15 · № 27']].map(([d, t], i) =>
+            `<div class="rc-i" style="--i:${i}"><b>${d}</b><span>${t}</span><em>▶</em></div>`).join('')}</div>` },
+      { cls: 'n4', ico: '🤺', head: 'Вместо турниров', title: 'Дуэли',
+        text: 'Турниров больше нет — теперь дуэли один на один, и награды выше: за победу +300 XP и +50 ₿, за участие +50 XP и +1 ₿.',
+        art: `<div class="sto-duel"><div class="dl-vs"><span>🧑‍🎓</span><b>VS</b><span>🧑‍💻</span></div>
+          <div class="dl-pr"><div><small>победа</small><b>+300 XP</b><b>+50 ₿</b></div><div><small>участие</small><b>+50 XP</b><b>+1 ₿</b></div></div></div>`,
+        go: ['⚔️ К дуэлям', 'duel'] });
+    return list;
   }
   const stClock = () => { const d = new Date(); return `${d.getHours()}:${pad2(d.getMinutes())}`; };
   function openStories() {
@@ -69,7 +54,7 @@
     ov.id = 'storiesOv';
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-modal', 'true');
-    ov.setAttribute('aria-label', 'Хеллоуин на Egeshka');
+    ov.setAttribute('aria-label', 'Что нового на Egeshka');
     ov.innerHTML = `<button type="button" class="sto-nav" data-st="prev" aria-label="Назад">‹</button>
       <div class="sto-phone"><div class="sto-bezel"><div class="sto-screen">
         <div class="sto-status"><span id="stClock">${stClock()}</span><span class="sto-ind" aria-hidden="true">
@@ -100,7 +85,7 @@
       <div class="sto-top"><b><em>${s.ico}</em>${esc(s.head)}</b><button type="button" class="sto-x" data-st="close" aria-label="Закрыть">✕</button></div>
       <div class="sto-art"><div class="sto-art-in">${s.art}</div></div>
       <h2 class="sto-ttl">${s.title}</h2><p class="sto-txt">${s.text}</p>
-      ${last ? '<button type="button" class="sto-go" data-st="shop">🎃 В магазин</button>' : '<div class="sto-tap"><span>‹ назад</span><span>дальше ›</span></div>'}</div>`;
+      ${last && s.go ? `<button type="button" class="sto-go" data-st="${s.go[1]}">${s.go[0]}</button>` : '<div class="sto-tap"><span>‹ назад</span><span>дальше ›</span></div>'}</div>`;
     ov.classList.toggle('paused', ST.paused);
     ov.querySelector('[data-st="prev"]').disabled = ST.k === 0;
     const isl = ov.querySelector('.sto-island');               // Dynamic Island на миг раскрывается: значок и номер слайда
@@ -119,9 +104,9 @@
     const ov = $('#storiesOv');
     if (ov) ov.classList.toggle('paused', on);
   }
-  /** Истории — один раз, пока ивент не начался и неделю после старта (в этот день — вместо объявления об акции). */
+  /** Истории — один раз, до STORIES_UNTIL (в этот день — вместо объявления об акции). */
   function storiesAuto() {
-    if (!SERVER || !student || TEACHER || dayKey(Date.now()) >= HW_UNTIL) return false;
+    if (!SERVER || !student || TEACHER || dayKey(Date.now()) >= STORIES_UNTIL) return false;
     try {
       if (localStorage.getItem(storyKey())) return false;
       localStorage.setItem(storyKey(), '1');
@@ -151,7 +136,7 @@
   document.addEventListener('pointercancel', () => { if (stDown) { clearTimeout(stDown.hold); if (stDown.held) stPause(false); stDown = null; } });
   document.addEventListener('click', e => {
     const b = e.target.closest('#storiesOv [data-st]');
-    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); } })[b.dataset.st](); return; }
+    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); }, duel: () => { closeStories(); tourOpen(); } })[b.dataset.st](); return; }
     if (ST && e.target.id === 'storiesOv') closeStories();          // клик мимо телефона
     if (e.target.closest('#storiesGo')) { closeForecast(); openStories(); }
   });

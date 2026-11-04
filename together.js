@@ -651,6 +651,10 @@
     $('#tgAnsIn').value = m.v;
     $('#tgTyping').textContent = '';
     showRes(m);
+    // ответ сдал сам ученик — он ушёл в его журнал с пометкой «решено с учителем»
+    if (m.mine != null && S.me && S.me.key === 's' + m.mine)
+      toast(m.ok || m.half ? '✓ Засчитано: опыт и ₿ начислены, в журнале — «решено с учителем»' : 'Ответ записан в журнал — попробуй ещё раз');
+    else if (m.mine != null && S.teacher && (m.ok || m.half)) toast(`✓ ${m.by}: ответ засчитан в журнал`);
   }
   function showRes(r) {
     const el = $('#tgRes');

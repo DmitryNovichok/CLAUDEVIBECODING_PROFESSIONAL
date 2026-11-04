@@ -151,6 +151,7 @@
     if (again) e.ra = 1;
     if (o.asg) e.k = 1;                 // ответ из самостоятельной учителя
     if (o.exam) e.x = 1;
+    if (o.tog) e.w = 1;                 // сдано самим учеником на занятии «Вместе»
     if (o.blank) e.b = 1;               // в варианте оставил без ответа: в цель дня не идёт
     P.log.push(e);
     if (P.log.length > 5000) P.log.splice(0, P.log.length - 5000);
@@ -238,7 +239,7 @@
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', skip: !!skip };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();

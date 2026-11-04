@@ -2128,7 +2128,24 @@ def tog_name(who):
     return short_name(r["name"]) if r else "Ученик"
 
 
-TOG = together.Hub(tog_load, tog_save, tog_task, tog_check, tog_name)
+def tog_credit(sid, real, ans, score):
+    """Ученик сам сдал ответ в сеансе «Вместе» — попытка в журнал с пометкой «решено с учителем» (reason='tog'):
+    опыт, ₿ и огонёк считаются по ней как по обычной (уже решённое — без наград, см. reward_skips)."""
+    t = APP.bank.tasks.get(real) if APP.bank.ensure() else None
+    s = APP.db.q("SELECT * FROM students WHERE id=?", (sid,), one=True)
+    if not t or not s:
+        return
+    APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,reason,grp,revealed)
+                VALUES(?,?,?,?,?,?,?,?,0,0,'tog',?,0)""",
+             (sid, time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps([ans], ensure_ascii=False),
+              t.get("ans", ""), score, t.get("group")))
+    live_teacher(s)
+    LIVE.send([sid], "mine")
+    if score > 0 and not s["is_teacher"]:
+        LIVE.rate(s["teacher_id"] or main_teacher()["id"])
+
+
+TOG = together.Hub(tog_load, tog_save, tog_task, tog_check, tog_name, tog_credit)
 together.PY_LOCAL = lambda: (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()      # Python с самого сервера (школьная сеть)
 
 
@@ -6289,7 +6306,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
 REASONS = {"exam": "вариант ЕГЭ", "search": "найдено поиском", "fav": "избранное", "history": "повтор из истории",
            "new": "новое", "review": "повторение после ошибки", "retry": "работа над ошибкой",
-           "weak": "слабое место", "repeat": "повтор решённого", "asg": "подборка учителя", "work": "самостоятельная", "": ""}
+           "weak": "слабое место", "repeat": "повтор решённого", "asg": "подборка учителя", "work": "самостоятельная",
+           "tog": "решено с учителем", "": ""}
 
 
 def teacher_solution(t, teacher_id=None):
