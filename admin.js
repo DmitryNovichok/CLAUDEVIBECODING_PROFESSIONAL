@@ -2133,7 +2133,7 @@
       <div id="asgEditor"></div>
       ${asg || '<p class="adm-hint">Подборок пока нет. Соберите задания и отправьте классу — ученики увидят их в карточке «Задания от учителя».</p>'}
       ${c.batches.length ? `<h3 class="adm-h3">Личные подборки</h3>
-        <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке, ⭐ персональная — в «Создать подборку» → «Кому: персонально». Результаты по каждому ученику — кнопка «📊 Результаты».</p>
+        <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке, ⭐ персональная — в «Создать подборку» → «Кому: персонально». Результаты — кнопка «📊 Результаты»: у каждого ученика видны его задания и какие он решил верно, а какие нет.</p>
         ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : b.batch.startsWith('own') ? '⭐' : '🎯'} ${esc(b.title)}</b>
           <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
           <span class="adm-actions"><button type="button" class="btn${batchOpen === b.batch ? ' primary' : ''}" data-batch-stats="${esc(b.batch)}" data-ids="${(b.ids || []).join(',')}">📊 Результаты</button>
@@ -2311,6 +2311,17 @@
     if (h) h.textContent = KINDS[k.value].hint;
     if (k.id === 'bdKind') { BLD.d.kind = k.value; bldSave(); }
   });
+  // ---------- задания работы с итогом по каждому: ✓ верно, ½ со 2-й попытки / половина, ✗ неверно, — не решал;
+  // щелчок — условие и ответ
+  function asgCells(items, cells) {
+    if (!items || !items.length) return '';
+    const look = { 1: ['c-ok', '✓', 'верно'], 0.5: ['c-half', '½', 'наполовину / со 2-й попытки'], 0: ['c-bad', '✗', 'неверно'] };
+    return `<span class="asg-cells">${items.map((it, i) => {
+      const v = cells ? cells[i] : null, [cls, mark, word] = v == null ? ['c-none', '—', 'не решал'] : look[v] || look[0];
+      const num = it.n == null ? '?' : it.n;
+      return `<button type="button" class="asg-cell ${cls}" data-task="${esc(it.id)}" title="${i + 1}. №${num} — ${word}">${num}<i>${mark}</i></button>`;
+    }).join('')}</span>`;
+  }
   // ---------- личная подборка: результаты всех учеников пачки (у каждого своя копия — собираем по одной)
   let batchOpen = null, batchIds = [];
   const batchBox = () => batchOpen && [...document.querySelectorAll('[data-batch-box]')].find(x => x.dataset.batchBox === batchOpen);
@@ -2319,7 +2330,7 @@
     if (!box) { batchOpen = null; return; }
     let parts;
     try { parts = await Promise.all(batchIds.map(id => api('asg/live?id=' + id))); } catch (e) { if (e.status !== 401) box.innerHTML = `<p class="adm-hint">${esc(e.message)}</p>`; return; }
-    const rows = parts.flatMap(d => d.rows.map(r => ({ ...r, strict: d.strict, title: d.title }))).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    const rows = parts.flatMap(d => d.rows.map(r => ({ ...r, strict: d.strict, title: d.title, items: d.items }))).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
     const st = r => (r.strict ? { none: 'не начинал', work: 'пишет', done: 'сдал' } : { none: 'не начинал', work: 'решает', done: 'сделал все' })[r.status];
     const done = rows.filter(r => r.status === 'done').length, work = rows.filter(r => r.status === 'work').length;
     const grades = rows.filter(r => r.grade).map(r => r.grade), avg = grades.length ? (grades.reduce((a, b) => a + b, 0) / grades.length).toFixed(1) : '—';
@@ -2329,8 +2340,10 @@
         <td>${r.status === 'work' && r.online ? '<span class="live-dot" title="на сайте"></span>' : ''}${st(r)}${r.forced ? ' <span class="adm-hint">(завершил учитель)</span>' : ''}</td>
         <td class="num">${r.answered}/${r.total}</td><td class="num" style="color:var(--good)">${r.status === 'none' ? '' : r.ok + (r.half ? ` +${r.half}½` : '')}</td>
         <td class="num" style="color:var(--weak)">${r.status === 'none' ? '' : r.bad}</td><td class="num">${r.status === 'none' ? '' : r.pct + '%'}</td>
-        <td class="num cs-grade">${r.grade ? `<b class="g${r.grade}">${r.grade}</b>` : ''}</td><td class="num">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td></tr>`).join('')}
-      </tbody></table></div>`;
+        <td class="num cs-grade">${r.grade ? `<b class="g${r.grade}">${r.grade}</b>` : ''}</td><td class="num">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td></tr>
+        <tr class="asg-cells-row"><td colspan="8">${asgCells(r.items, r.cells)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="adm-hint">Под каждым учеником — его задания по порядку: ✓ верно, ½ со 2-й попытки, ✗ неверно, — ещё не решал. Щелчок — условие и ответ.</p>`;
   }
   document.addEventListener('click', e => {
     const bs = e.target.closest('[data-batch-stats]');
@@ -2376,7 +2389,8 @@
       <td class="num cs-grade">${r.grade ? `<b class="g${r.grade}">${r.grade}</b>` : ''}</td>
       <td class="num">${r.away ? `<b style="color:var(--review)">${r.away}</b>` : ''}</td>
       <td class="num">${r.fs ? `<b style="color:var(--weak)">${r.fs}</b>` : ''}</td>
-      <td class="num" title="Заданий с прикреплённым решением (кодом)">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td></tr>`).join('');
+      <td class="num" title="Заданий с прикреплённым решением (кодом)">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td></tr>
+      <tr class="asg-cells-row"><td colspan="10">${asgCells(d.items, r.cells)}</td></tr>`).join('');
     const work = d.rows.filter(r => r.status === 'work').length, done = d.rows.filter(r => r.status === 'done').length;
     box.innerHTML = `<div class="adm-live-bar"><span class="adm-hint">${d.strict ? 'Пишут' : 'Решают'}: <b>${work}</b> · ${d.strict ? 'сдали' : 'сделали все'}: <b>${done}</b> из ${d.rows.length} · обновляется каждые 5 секунд.
         ${d.strict ? 'Верно/неверно видите только вы — ученик узнает результат после сдачи.' : 'Оценка ставится сама: верно с 1-й попытки — полный балл, со 2-й — половина.'}</span>
@@ -2384,7 +2398,8 @@
         : `<button type="button" class="btn danger" data-close="${d.id}">Завершить для всех</button>`}</div>
       <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Ученик</th><th>Статус</th><th class="num">Сдано</th><th class="num">Верно</th>
         <th class="num">Неверно</th><th class="num">%</th><th class="num">Оценка</th><th class="num" title="Уходы со вкладки">Уходы</th><th class="num" title="Выходы из полного экрана">Выходы из полн. экрана</th><th class="num" title="Заданий с прикреплённым решением">Решения</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="10" class="adm-hint">В классе нет учеников.</td></tr>'}</tbody></table></div>`;
+        <tbody>${rows || '<tr><td colspan="10" class="adm-hint">В классе нет учеников.</td></tr>'}</tbody></table></div>
+      <p class="adm-hint">Под каждым учеником — задания работы: ✓ верно, ½ со 2-й попытки или наполовину, ✗ неверно, — не решал. Щелчок — условие и ответ.</p>`;
   }
   $('#classBody').addEventListener('click', async e => {
     const lv = e.target.closest('[data-live]');
