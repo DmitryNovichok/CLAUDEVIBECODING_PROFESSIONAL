@@ -728,3 +728,14 @@ tr.comp-void td { opacity: .55; }
 .bld-ans b { font-family: var(--mono); color: var(--good-strong, #58a700); }
 .bld-item { align-items: start; }
 .bld-item > .num-badge, .bld-item > .bld-item-act { margin-top: 4px; }
+
+/* задания работы с итогом по каждому — в «Результатах» подборки */
+.asg-cells-row td { padding-top: 0 !important; border-top: 0 !important; }
+.asg-cells { display: flex; flex-wrap: wrap; gap: 4px; }
+.asg-cell { display: inline-flex; align-items: center; gap: 2px; min-width: 34px; justify-content: center; padding: 2px 6px; border-radius: 8px;
+  border: 1px solid transparent; font: 700 12px/1.4 var(--font, inherit); cursor: pointer; }
+.asg-cell i { font-style: normal; }
+.asg-cell.c-ok { color: var(--good); background: var(--good-soft); border-color: rgba(63, 185, 122, .3); }
+.asg-cell.c-half { color: var(--mid); background: rgba(217, 169, 59, .1); border-color: rgba(217, 169, 59, .3); }
+.asg-cell.c-bad { color: var(--weak); background: var(--weak-soft); border-color: rgba(226, 87, 79, .3); }
+.asg-cell.c-none { color: var(--muted); background: transparent; border-color: var(--line, rgba(127, 127, 127, .3)); }

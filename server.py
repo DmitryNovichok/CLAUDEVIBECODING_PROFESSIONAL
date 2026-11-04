@@ -6038,6 +6038,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 live_class(db, a["class_id"])
                 return self.send_json({"ok": True, "finished": n})
             items = asg_items(real)
+            # задания работы по порядку — учителю видно, что в подборке и что из этого ученик решил
+            item_info = [{"id": k, "n": (APP.bank.tasks.get(k) or {}).get("n")} for k in items]
             sols = {}                              # сколько решений (кода) прикреплено к заданиям работы
             if real:
                 for x in db.q(f"""SELECT student_id, COUNT(*) AS c FROM solutions WHERE task_id IN ({','.join('?' * len(real))})
@@ -6052,16 +6054,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                  "status": "done" if sc["tried"] >= len(items) else "work" if sc["tried"] else "none",
                                  "ok": sc["ok"], "half": sc["half"], "bad": sc["bad"], "pct": sc["pct"], "grade": sc["grade"],
                                  "attempts": sc["attempts"], "online": bool(m["last_seen"] and now - m["last_seen"] < 60),
-                                 "sol": sols.get(m["id"], 0), "tasks": len(real)})
+                                 "sol": sols.get(m["id"], 0), "tasks": len(real),
+                                 "cells": [sc["items"].get(APP.bank.pid(k)) for k in items]})   # 1 / 0.5 / 0 / None — не решал
                 return self.send_json({"id": aid, "title": a["title"], "strict": False, "kind": a["kind"], "closed": a["closed"],
-                                       "grading": asg_grading(a), "total": len(items), "rows": rows})
+                                       "grading": asg_grading(a), "total": len(items), "items": item_info, "rows": rows})
             runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (aid,))}
             rows = []
             for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? AND (? IS NULL OR id=?) ORDER BY name",
                           (a["class_id"], a["student_id"], a["student_id"])):
                 r = runs.get(m["id"])
                 row = {"id": m["id"], "name": m["name"], "status": "none", "answered": 0, "total": len(items),
-                       "sol": sols.get(m["id"], 0), "tasks": len(real)}
+                       "sol": sols.get(m["id"], 0), "tasks": len(real), "cells": [None] * len(items)}
                 if r:
                     answers = json.loads(r["answers"] or "{}")
                     res = json.loads(r["result"]) if r["finished"] else asg_score(answers, items)
@@ -6071,10 +6074,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                ok=sum(1 for v in got if v == 1), half=sum(1 for v in got if v == 0.5),
                                bad=sum(1 for v in got if v == 0 or v is None),
                                pct=r["pct"] if r["finished"] else int(100 * sum(v or 0 for v in res.values()) / len(items) + 0.5) if items else 0,
-                               grade=r["grade"], online=bool(m["last_seen"] and now - m["last_seen"] < 60))
+                               grade=r["grade"], online=bool(m["last_seen"] and now - m["last_seen"] < 60),
+                               cells=[(res.get(k) or 0) if k in answers else None for k in items])
                 rows.append(row)
             return self.send_json({"id": aid, "title": a["title"], "strict": bool(a["strict"]), "closed": a["closed"],
-                                   "grading": asg_grading(a), "total": len(items), "rows": rows})
+                                   "grading": asg_grading(a), "total": len(items), "items": item_info, "rows": rows})
 
         if path == "/api/admin/together/students":
             # свои ученики для приглашения: кто сейчас на сайте (держит живое соединение) — первыми

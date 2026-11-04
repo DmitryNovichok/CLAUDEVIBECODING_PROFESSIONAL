@@ -590,6 +590,9 @@ class ServerTest(unittest.TestCase):
         st, live = self.admin("GET", f"/api/admin/asg/live?id={aid}")
         row = next(x for x in live["rows"] if x["id"] == me)
         self.assertEqual((row["status"], row["grade"], row["pct"]), ("done", 3, 50))
+        # учитель видит задания работы и итог по каждому: верно, со 2-й попытки, неверно
+        self.assertEqual([x["id"] for x in live["items"]], ["b:5", "b:6", "b:27"])
+        self.assertEqual(row["cells"], [1, 0.5, 0])
         st, d = self.admin("GET", f"/api/admin/assignments?class_id={cid}")
         self.assertEqual(d["assignments"][0]["kind"], "practice")
         # журнал класса: оценка за подборку и точность по номерам
@@ -740,7 +743,10 @@ class ServerTest(unittest.TestCase):
         row = next(x for x in live["rows"] if x["id"] == me)
         self.assertEqual((row["sol"], row["tasks"]), (1, 3))
         self.assertEqual((row["status"], row["answered"], row["ok"], row["half"], row["bad"], row["away"], row["fs"]), ("work", 4, 2, 1, 1, 1, 2))
+        self.assertEqual(len(row["cells"]), len(live["items"]))               # по каждому заданию (у 19–21 — по вопросу)
+        self.assertEqual(sorted(v for v in row["cells"] if v is not None), [0, 0.5, 1, 1])
         self.assertEqual(next(x for x in live["rows"] if x["id"] == me2)["status"], "none")
+        self.assertEqual(set(next(x for x in live["rows"] if x["id"] == me2)["cells"]), {None})
         st, r = self.req("POST", "/api/asg/finish", {"id": aid}, tok)
         self.assertEqual(st, 200, r)
         self.assertEqual((r["result"]["ok"], r["result"]["half"], r["result"]["bad"], r["result"]["pct"], r["result"]["grade"]),
