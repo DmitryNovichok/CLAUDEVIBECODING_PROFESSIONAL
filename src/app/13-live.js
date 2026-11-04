@@ -105,7 +105,7 @@
       }).catch(() => {});
     }
     else if (topic === 'support') liveSupport();
-    else if (topic === 'together') togCheck(true);         // учитель позвал в общий сеанс (или завершил его)
+    else if (topic === 'together') { togCheck(true); togHistory(false); }         // учитель позвал в общий сеанс (или завершил его)
     else if (topic === 'pyc') pycLive();
     else if (topic === 'gift') giftLive();
     else if (topic === 'sound') {                    // учитель переключил звуки у класса

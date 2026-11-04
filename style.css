@@ -3329,3 +3329,13 @@ body.no-anim .tog-inv, body.no-anim .tog-bell, body.no-anim .tog-pill { animatio
 /* световой меч в плитке, аватарке и профиле — на тёмном фоне: свечение клинка видно и в светлой теме */
 :is(.ug, .lp-av, .fb-av, .cr-it, .ph-av):has(img[src*="vendor/sabers/"]) { background: radial-gradient(circle at 55% 45%, #1b2a5c, #070b1c 75%) !important; }
 :is(.ug, .lp-av, .fb-av, .cr-it, .ph-av):has(img[src*="saber_red"]) { background: radial-gradient(circle at 55% 45%, #4a0d10, #12030a 75%) !important; }
+
+/* записи занятий «Вместе» */
+.tgh-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.tgh-row { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 2px solid var(--border); border-radius: 14px; background: var(--card); }
+.tgh-row.live { border-color: var(--accent); }
+.tgh-main { flex: 1; min-width: 0; }
+.tgh-main small { color: var(--muted); font-weight: 700; }
+.tgh-live { color: var(--weak); font-weight: 900; }
+.tgh-tasks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.tgh-tasks .chip { font-size: 12px; }

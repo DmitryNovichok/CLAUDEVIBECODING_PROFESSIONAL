@@ -26,7 +26,7 @@ BOARD_H_MAX = 12000              # лист растёт вниз до стол�
 CODE_MAX = 50_000                # символов в общем коде
 STROKES_MAX = 4000               # штрихов на одной доске
 POINTS_MAX = 4000                # точек в одном штрихе
-OUT_MAX = 20_000                 # символов вывода программы, который видят все
+OUT_MAX = 300_000                # символов вывода программы, который видят все (и сохраняется со страницей)
 HIST_KEEP = 400                  # сколько последних правок кода помнить для сдвига «опоздавших» правок
 ANS_MAX = 200
 CHECKS_PER_PAGE = 20             # проверок ответа на одно задание за сеанс
@@ -378,9 +378,7 @@ class Hub:
                 s.students = set(json.loads(got[0]["students"] or "[]"))
                 s.ended = got[0]["ended"]
             if s.ended:
-                self._bcast(s, {"t": "end"})
-                for c in list(s.conns):
-                    c.close()
+                self._bcast(s, {"t": "end"})        # соединения не рвём: запись занятия можно смотреть дальше (peek)
             else:
                 self._people(s)
 
@@ -496,6 +494,11 @@ class Hub:
             c.send({"t": "pong", "ts": m.get("ts")})
             return
         with s.lock:
+            if t == "peek":                          # посмотреть другую страницу занятия, не меняя её у остальных
+                key = m.get("key")                  # (завершённое занятие — всем; идущее — только учителю)
+                if key in s.pages and (s.ended or teacher):
+                    c.send(dict(self._page_msg(s, s.pages[key], key, teacher), peek=True))
+                return
             if s.ended:
                 if t != "cur":
                     c.send({"t": "end"})
@@ -508,6 +511,10 @@ class Hub:
                 d = {"t": "cur", "cid": c.cid, "key": f"{c.who[0]}{c.who[1]}", "name": c.name, "color": c.color}
                 if m.get("where") == "code" and isinstance(m.get("pos"), int):
                     d.update(where="code", pos=max(0, min(m["pos"], len(p.code))))
+                    if isinstance(m.get("a"), int) and m["a"] != m["pos"]:      # выделение в коде: от a до pos
+                        d["a"] = max(0, min(m["a"], len(p.code)))
+                elif m.get("where") == "cond" and isinstance(m.get("a"), int) and isinstance(m.get("b"), int):
+                    d.update(where="cond", a=max(0, min(m["a"], 100_000)), b=max(0, min(m["b"], 100_000)))   # выделение в условии
                 elif m.get("where") == "board":
                     x, y = _num(m.get("x"), -50, BOARD_W + 50), _num(m.get("y"), -50, BOARD_H_MAX)
                     if x is None or y is None:
@@ -602,7 +609,12 @@ class Hub:
                     p.out += txt
                     self._bcast(s, {"t": "out", "text": txt, "err": bool(m.get("err"))}, skip=c)
                 else:
-                    self._bcast(s, {"t": "done", "ok": bool(m.get("ok")), "ms": _num(m.get("ms"), 0, 1e7)}, skip=c)
+                    # итог запуска — весь вывод целиком: у всех ровно то же, что у запустившего (кусочки могли не дойти)
+                    full = m.get("full")
+                    if isinstance(full, str):
+                        p.out = full[:OUT_MAX]
+                    self._bcast(s, {"t": "done", "ok": bool(m.get("ok")), "ms": _num(m.get("ms"), 0, 1e7),
+                                    "full": p.out if isinstance(full, str) else None}, skip=c)
                 s.dirty = True
             elif t == "view":
                 if not teacher:

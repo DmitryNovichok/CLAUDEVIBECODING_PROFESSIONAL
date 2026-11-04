@@ -9292,6 +9292,34 @@
     const l = e.target.closest && e.target.closest('[data-tog-later]');
     if (l) { TOGI.later.add(+l.dataset.togLater); togRender(false); }
   });
+
+  // ---------- записи занятий «Вместе»: слева кнопка 👥 — список уроков с учителем; у каждого задания сохранены код, доска и вывод
+  async function togHistory(open) {
+    if (!SERVER || !student || TEACHER) return;
+    let d;
+    try { d = await api('together/history'); } catch (e) { return; }
+    TOGI.hist = d.sessions || [];
+    const card = $('#togCard');
+    if (card) {
+      card.hidden = !TOGI.hist.length;
+      const live = TOGI.hist.filter(x => !x.ended).length;
+      $('#togSub').textContent = live ? 'идёт занятие — присоединиться' : `записей: ${TOGI.hist.length}`;
+      card.classList.toggle('alert', !!live);
+    }
+    if (open) togHistoryOpen();
+  }
+  function togHistoryOpen() {
+    const fmt = ts => { const d = new Date(ts * 1000); return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()} в ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+    const rows = (TOGI.hist || []).map(x => `<div class="tgh-row${x.ended ? '' : ' live'}">
+        <div class="tgh-main"><b>${fmt(x.created)}</b> <small>${esc(x.teacher || 'Учитель')}${x.ended ? '' : ' · <span class="tgh-live">● идёт сейчас</span>'}</small>
+          <div class="tgh-tasks">${(x.labels || []).map((l, i) => `<span class="chip">${i + 1}. ${esc(l)}</span>`).join('')}</div></div>
+        <button type="button" class="btn ${x.ended ? 'ghost' : 'primary'}" data-tog-join="${x.id}">${x.ended ? '📼 Смотреть' : 'Присоединиться'}</button></div>`).join('');
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">👥 Занятия вместе с учителем</h2>
+      <p class="fm-note">Всё, что решали вместе, сохраняется: у каждого задания — код, доска, пометки на условии и вывод программы. Открой запись и посмотри на досуге.</p>
+      ${rows ? `<div class="tgh-list">${rows}</div>` : '<p class="fm-muted">Пока не было ни одного занятия.</p>'}`;
+    $('#forecastModal').hidden = false;
+  }
+  $('#togCard')?.addEventListener('click', () => togHistory(true));
   // ═══════ src/app/13-live.js
   // ------------------------------------------------------------ живые обновления (SSE)
   /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя, support — ответ техподдержки,
@@ -9400,7 +9428,7 @@
       }).catch(() => {});
     }
     else if (topic === 'support') liveSupport();
-    else if (topic === 'together') togCheck(true);         // учитель позвал в общий сеанс (или завершил его)
+    else if (topic === 'together') { togCheck(true); togHistory(false); }         // учитель позвал в общий сеанс (или завершил его)
     else if (topic === 'pyc') pycLive();
     else if (topic === 'gift') giftLive();
     else if (topic === 'sound') {                    // учитель переключил звуки у класса
@@ -9495,6 +9523,7 @@
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
+      setTimeout(() => togHistory(false), 1600);                      // записи занятий — кнопка 👥 слева
       if (!fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
     }

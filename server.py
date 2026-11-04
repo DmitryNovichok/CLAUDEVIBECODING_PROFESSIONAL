@@ -2142,7 +2142,8 @@ def tog_public(db, r, sid=None):
     cur = pages.get(st.get("cur")) or {}
     task = tog_task(cur.get("task"), sid is None) if cur.get("task") else None
     out = {"id": r["id"], "created": r["created"], "ended": r["ended"], "mode": st.get("mode") or "both",
-           "task": task["label"] if task else None, "pages": len(pages)}
+           "task": task["label"] if task else None, "pages": len(pages),
+           "labels": [(tog_task(x.get("task"), sid is None) or {}).get("label") or "чистая страница" for x in pages.values()]}
     if sid is None:
         ids = json.loads(r["students"] or "[]")
         names = {x["id"]: x["name"] for x in db.q(f"SELECT id, name FROM students WHERE id IN ({','.join('?' * len(ids)) or 'NULL'})", ids)}
@@ -3470,6 +3471,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             rows = db.q("SELECT * FROM together WHERE ended IS NULL AND created > ? ORDER BY created DESC",
                         (time.time() - TOG_ACTIVE_SEC,))
             mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")]
+            return self.send_json({"sessions": mine})
+
+        if path == "/api/together/history":
+            # занятия «Вместе», где был ученик: код, доска и пометки каждого задания сохранены — посмотреть на досуге
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            rows = db.q("SELECT * FROM together ORDER BY created DESC LIMIT 300")
+            mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")][:60]
             return self.send_json({"sessions": mine})
 
         if path == "/api/assignments":
