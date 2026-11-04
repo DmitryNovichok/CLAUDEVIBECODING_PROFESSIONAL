@@ -593,28 +593,42 @@ def gen8(R, k):
     add(8, k, q, ans, topic, code(sol), lv=lv)
 
 
-def run(nums=None, start=None):
-    """По PER заданий на каждый номер; у номера свой генератор случайных чисел (сид не зависит от других номеров)."""
+# волны: (сид, сколько заданий на номер). Новая волна — новая строка в конце: прежние задания не меняются,
+# номера заданий продолжаются (у №1–5 до волн уже было 10 заданий первого выпуска)
+WAVES = [(SEED, PER), (20261105, 50)]
+
+
+def run(nums=None):
+    """По каждой волне — задания на каждый номер; у номера в волне свой генератор случайных чисел."""
+    seen2 = {t["html"] for t in G.TASKS if t["n"] == 2}
     for n in nums or [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23]:
-        R = random.Random(SEED + n)
-        first = (G.PER_NUM + 1) if n <= 5 else 1 if start is None else start
-        for k in range(first, first + PER):
-            while True:
-                try:
-                    if n <= 5:
-                        G.R = R                       # №1–5 — генераторы первой волны, но со своим сидом
-                        before = len(G.TASKS)
-                        getattr(G, f"gen{n}")(k)
-                        t = G.TASKS[-1]
-                        if len(G.TASKS) == before + 1 and not t.get("att") and is_dup(n, t["html"]):
-                            G.TASKS.pop()
-                            continue
-                        t["dt"] = "2026-11-04"
-                    else:
-                        globals()[f"gen{n}"](R, k)
-                    break
-                except Dup:
-                    continue
+        k = G.PER_NUM if n <= 5 else 0
+        for seed, cnt in WAVES:
+            R = random.Random(seed + n)
+            for _ in range(cnt):
+                k += 1
+                for tries in range(5000):
+                    try:
+                        if n <= 5:
+                            G.R = R                       # №1–5 — генераторы первой волны, но со своим сидом
+                            before = len(G.TASKS)
+                            getattr(G, f"gen{n}")(k)
+                            t = G.TASKS[-1]
+                            # №2: в условии только нули и единицы таблицы — по числам задания не различить,
+                            # сравниваем текст целиком (формула + таблица); вторая волна — как была выпущена
+                            dup = (t["html"] in seen2) if n == 2 and seed != SEED else is_dup(n, t["html"])
+                            seen2.add(t["html"])
+                            if len(G.TASKS) == before + 1 and not t.get("att") and dup:
+                                G.TASKS.pop()
+                                continue
+                            t["dt"] = "2026-11-04"
+                        else:
+                            globals()[f"gen{n}"](R, k)
+                        break
+                    except Dup:
+                        continue
+                else:
+                    raise RuntimeError(f"№{n}, задание {k}: не удаётся получить новое (одни повторы)")
 
 
 # ============================================================ №9 — электронная таблица (решается по 9.txt, его даёт сайт)
