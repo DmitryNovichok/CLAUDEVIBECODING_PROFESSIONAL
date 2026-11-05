@@ -2976,11 +2976,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "game": game_summary(db, s["id"])})
 
         if path == "/api/forbes":
-            # Forbes класса: самые богатые (кошелёк + подарки), самый дорогой подарок, самая дорогая и самая редкая коллекция
+            # Forbes — общий для учеников всех учителей: самые богатые (кошелёк + подарки), самый дорогой подарок,
+            # самая дорогая и самая редкая коллекция
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            return self.send_json(forbes_view(forbes_data(db, teacher_of(s)["id"]), s["id"]))
+            return self.send_json(forbes_view(forbes_data(db), s["id"]))
 
         if path == "/api/gifts/price":
             # график цены подарка в магазине за PRICE_DAYS дней: по дням и сейчас, с числом покупок за неделю
@@ -3558,8 +3559,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json({"ok": True, "badges": keys})
             sid = to_int(qs.get("sid")) or s["id"]
             m = s if sid == s["id"] else mates.get(sid)
+            if not m and any(r["sid"] == sid for r in forbes_data(db)["rows"]):
+                # Forbes общий на весь сайт: из него открывается профиль ученика и другого учителя;
+                # его короны и значки считаются среди учеников его учителя
+                m = db.q("SELECT * FROM students WHERE id=?", (sid,), one=True)
+                ids = [x["id"] for x in teacher_students(db, teacher_of(m)["id"])]
             if not m:
-                return self.err(404, "Профиль не найден — смотреть можно только учеников своего учителя")
+                return self.err(404, "Профиль не найден — смотреть можно учеников своего учителя и участников Forbes")
             g = game_summary(db, sid)
             lg = league_row(db, sid)["league"]
             crowns = crown_counts(db, ids)
@@ -7359,10 +7365,9 @@ def econ(db, fresh=False):
              "mode": "auto" if auto else "manual", "bank": bank, "tax_from": round(TAX_FROM * target), "limited": limited_now(db, now),
              "op_fee": op_fee({"fee": lv["fee"]})}
         _ECON.update(t=now, v=v, db=db)
-        if db.setting("forbes_day") != day:          # раз в день — снимок Forbes всех классов (для роста за неделю)
+        if db.setting("forbes_day") != day:          # раз в день — снимок общего Forbes (для роста за неделю)
             db.setting("forbes_day", day)
-            for t in db.q("SELECT id FROM teachers"):
-                forbes_data(db, t["id"], e=v)
+            forbes_data(db, e=v)
         db.x("""INSERT INTO econ_hist(day, idx, avg, total, active, med, earn, fee, tax, bank, r, s_avg, s_med) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(day) DO UPDATE SET idx=excluded.idx, avg=excluded.avg, total=excluded.total, active=excluded.active,
                 med=excluded.med, earn=excluded.earn, fee=excluded.fee, tax=excluded.tax, bank=excluded.bank, r=excluded.r,
@@ -8322,13 +8327,13 @@ def gift_value(rows, e, dem):
             "top": [{k: r[k] for k in ("id", "gift", "i", "t", "uniq", "rar", "sell", "worth")} for r in top]}
 
 
-# Forbes класса: среди учеников одного учителя. Состояние = биткоины + оценка подарков (сколько дадут, если продать все сейчас);
+# Forbes — общий на весь сайт: среди учеников всех учителей (кроме убранных из рейтингов). Состояние = биткоины + оценка подарков (сколько дадут, если продать все сейчас);
 # вкладки — самый дорогой подарок, самая дорогая коллекция (только подарки) и самая редкая коллекция (очки редкости).
 FORBES_TOP = 10
 FORBES_NEW_DAYS = 14                    # «новичок» — в тренажёре меньше двух недель
 RARE_SCORE = {"common": 0, "uncommon": 0.5, "rare": 1, "epic": 2, "legend": 3, "limited": 8,
               "u:rare": 4, "u:epic": 10, "u:legend": 30, "u:myth": 100}
-_FORBES = {}                            # учитель → (когда, база, данные)
+_FORBES = {}                            # учитель (None — общий по всем учителям) → (когда, база, данные)
 
 
 def gift_rk(g):
@@ -8355,16 +8360,18 @@ def gift_tile(g):
             "uniq": {k: u[k] for k in ("n", "c1", "c2", "ch", "fx", "pose", "rar", "img", "st") if k in u} if u else None}
 
 
-def forbes_data(db, tid, e=None):
-    """Forbes учеников учителя tid (пересчёт раз в 10 минут): все с биткоинами или подарками — состояние, рост за неделю (по снимкам
-    forbes_hist), лучшие подарки, редкость коллекции; сегодняшний снимок записывается."""
+def forbes_data(db, tid=None, e=None):
+    """Forbes (пересчёт раз в 10 минут): по умолчанию — общий по ученикам всех учителей, с tid — только учеников учителя tid.
+    Все с биткоинами или подарками — состояние, рост за неделю (по снимкам forbes_hist), лучшие подарки, редкость коллекции;
+    сегодняшний снимок записывается."""
     now = time.time()
     hit = _FORBES.get(tid)
     if hit and hit[1] is db and now - hit[0] < 600:
         return hit[2]
     e = e or econ(db)
     issued, dem = uniq_issued(db), gift_demand(db)
-    studs = rank_students(db, tid)
+    studs = rank_students(db, tid) if tid is not None else \
+        db.q("SELECT id, name FROM students WHERE COALESCE(is_teacher, 0) = 0 AND COALESCE(no_rank, 0) = 0")
     created = {r["id"]: r["created"] or 0 for r in db.q("SELECT id, created FROM students WHERE COALESCE(is_teacher, 0) = 0")}
     rows = []
     for m in studs:

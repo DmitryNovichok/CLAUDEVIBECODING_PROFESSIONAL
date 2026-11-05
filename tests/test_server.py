@@ -3246,6 +3246,30 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE day=? AND student_id=?", (today.isoformat(), sidA), one=True)["total"], A["total"])
         self.assertEqual(self.req("GET", "/api/forbes")[0], 401)
 
+    def test_forbes_all_teachers(self):
+        # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;
+        # убранный из рейтингов в Forbes не попадает
+        db = server.APP.db
+        tokA, tokB = self.login("Общефорбсов Олег"), self.login("Чужефорбсова Чара")
+        sidA = self.req("GET", "/api/me", token=tokA)[1]["sid"]
+        sidB = self.req("GET", "/api/me", token=tokB)[1]["sid"]
+        tid = db.x("INSERT INTO teachers(name, login, invite, created) VALUES('Второй учитель', 'second_forbes', 'inv-forbes-2', ?)",
+                   (time.time(),))
+        db.x("UPDATE students SET teacher_id=? WHERE id=?", (tid, sidB))      # Чара — у другого учителя
+        for sid in (sidA, sidB):
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 5000))
+        server._FORBES.clear()
+        F = self.req("GET", "/api/forbes", token=tokA)[1]
+        self.assertTrue({sidA, sidB} <= {r["sid"] for r in F["rich"]})
+        st, prof = self.req("GET", f"/api/profile?sid={sidB}", token=tokA)
+        self.assertEqual(st, 200, prof)
+        db.x("UPDATE students SET no_rank=1 WHERE id=?", (sidB,))
+        server._FORBES.clear()
+        self.assertNotIn(sidB, {r["sid"] for r in self.req("GET", "/api/forbes", token=tokA)[1]["rich"]})
+        self.assertEqual(self.req("GET", f"/api/profile?sid={sidB}", token=tokA)[0], 404)
+        db.x("UPDATE students SET no_rank=0 WHERE id=?", (sidB,))
+        server._FORBES.clear()
+
     def test_gift_ops_fee(self):
         # с покупки, улучшения и продажи сразу — комиссия до 5 % в банк (четверть комиссии рынка, вниз до целого)
         db = server.APP.db
