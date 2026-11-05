@@ -600,8 +600,9 @@ def gen8(R, k):
 
 # волны: (сид, сколько заданий на номер). Новая волна — новая строка в конце: прежние задания не меняются,
 # номера заданий продолжаются (у №1–5 до волн уже было 10 заданий первого выпуска)
-WAVES = [(SEED, PER), (20261105, 50), (20261106, 50)]
-NEW_FORMS = 20261106                  # с этой волны — только новые формулировки (tools/egeshka_w4.py)
+WAVES = [(SEED, PER), (20261105, 50), (20261106, 50), (20261107, 50)]
+# волны с собственными генераторами новых формулировок: сид → модуль
+NEW_FORMS = {20261106: "egeshka_w4", 20261107: "egeshka_w5"}
 
 
 def run(nums=None):
@@ -615,9 +616,14 @@ def run(nums=None):
                 k += 1
                 for tries in range(5000):
                     try:
-                        if seed == NEW_FORMS:
-                            import egeshka_w4
-                            getattr(egeshka_w4, f"gen{n}")(R, k)
+                        if seed in NEW_FORMS:
+                            import importlib
+                            getattr(importlib.import_module(NEW_FORMS[seed]), f"gen{n}")(R, k)
+                            if n == 19:                   # игры не проходят через add(): повторы ловим по тексту здесь
+                                if G.TASKS[-1]["html"] in _SEEN_TEXT:
+                                    G.TASKS.pop()
+                                    continue
+                                _SEEN_TEXT.add(G.TASKS[-1]["html"])
                             G.TASKS[-1]["dt"] = "2026-11-05"
                         elif n <= 5:
                             G.R = R                       # №1–5 — генераторы первой волны, но со своим сидом
