@@ -56,8 +56,9 @@ def run_one(t):
 
 
 def check_solutions(tasks, nums=None, jobs=8):
-    # у №2 разбор печатает таблицу истинности для сопоставления со столбцами, а не сам ответ — его не сверяем
-    todo = [t for t in tasks if (nums is None or t["n"] in nums) and t["n"] != 2]
+    # у №2 первых волн (до e2-90) разбор печатает таблицу истинности для сопоставления, а не сам ответ — их не сверяем
+    old2 = lambda t: t["n"] == 2 and int(t["id"].rsplit("-", 1)[1]) <= 90
+    todo = [t for t in tasks if (nums is None or t["n"] in nums) and not old2(t)]
     bad = 0
     with ThreadPoolExecutor(jobs) as ex:
         for tid, ok, msg in ex.map(run_one, todo):

@@ -28,6 +28,7 @@ class Dup(Exception):
 
 
 _BANK = None
+_SEEN_TEXT = set()
 
 
 def _plain(h):
@@ -73,8 +74,12 @@ def is_dup(n, body):
     return False
 
 
-def add(n, k, body, ans, topic, sol=None, att=None, lv=2):
-    if not att and is_dup(n, body):            # у заданий с файлом текст может совпадать — различаются данные
+def add(n, k, body, ans, topic, sol=None, att=None, lv=2, by_text=False):
+    if by_text:                                # только нули и единицы — по числам не различить, сравниваем текст целиком
+        if body in _SEEN_TEXT:
+            raise Dup()
+        _SEEN_TEXT.add(body)
+    elif not att and is_dup(n, body):            # у заданий с файлом текст может совпадать — различаются данные
         raise Dup()
     G.add(n, k, body, ans, topic, sol, att)
     G.TASKS[-1]["lv"] = LV[lv]
@@ -595,7 +600,8 @@ def gen8(R, k):
 
 # волны: (сид, сколько заданий на номер). Новая волна — новая строка в конце: прежние задания не меняются,
 # номера заданий продолжаются (у №1–5 до волн уже было 10 заданий первого выпуска)
-WAVES = [(SEED, PER), (20261105, 50)]
+WAVES = [(SEED, PER), (20261105, 50), (20261106, 50)]
+NEW_FORMS = 20261106                  # с этой волны — только новые формулировки (tools/egeshka_w4.py)
 
 
 def run(nums=None):
@@ -609,7 +615,11 @@ def run(nums=None):
                 k += 1
                 for tries in range(5000):
                     try:
-                        if n <= 5:
+                        if seed == NEW_FORMS:
+                            import egeshka_w4
+                            getattr(egeshka_w4, f"gen{n}")(R, k)
+                            G.TASKS[-1]["dt"] = "2026-11-05"
+                        elif n <= 5:
                             G.R = R                       # №1–5 — генераторы первой волны, но со своим сидом
                             before = len(G.TASKS)
                             getattr(G, f"gen{n}")(k)
