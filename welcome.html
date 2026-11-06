@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Egeshka — тренажёр ЕГЭ по информатике для учителя и класса</title>
+<meta name="description" content="Тренажёр ЕГЭ по информатике: банк заданий 1–27 с разборами, подборки и контрольные за минуту, журнал и сводка класса, архив работ в PDF. 7 дней бесплатно для учителя.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#58cc02">
+<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="welcome.css">
+<script defer src="welcome.js"></script>
+</head>
+<body>
+<header class="w-top">
+  <div class="w-wrap w-top-in">
+    <a class="w-brand" href="/welcome" aria-label="Egeshka — на главную">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="4" y="9" width="56" height="51" rx="16" fill="#58a700"/><rect x="4" y="4" width="56" height="51" rx="16" fill="#58cc02"/><rect x="20" y="15" width="9" height="29" rx="4" fill="#fff"/><rect x="20" y="15" width="24" height="8.5" rx="4.25" fill="#fff"/><rect x="20" y="25.5" width="19" height="8" rx="4" fill="#fff"/><rect x="20" y="35.5" width="24" height="8.5" rx="4.25" fill="#fff"/><circle cx="48.5" cy="43" r="5" fill="#1cb0f6" stroke="#fff" stroke-width="2.5"/></svg>
+      <span><b>Ege</b>shka</span>
+    </a>
+    <nav class="w-nav" aria-label="Разделы">
+      <a href="#features">Возможности</a><a href="#shots">Как выглядит</a><a href="#prices">Тарифы</a><a href="#contacts">Контакты</a>
+    </nav>
+    <div class="w-top-act">
+      <a class="w-btn ghost sm" href="/?login=1">Я ученик</a>
+      <a class="w-btn ghost sm" href="/admin">Вход учителя</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="w-hero">
+    <div class="w-wrap w-hero-in">
+      <div class="w-hero-txt">
+        <p class="w-kicker">Тренажёр ЕГЭ по информатике</p>
+        <h1>Класс решает — вы&nbsp;видите каждый ответ</h1>
+        <p class="w-lead">Банк заданий всех номеров 1–27 с разборами, подборки и контрольные за минуту, журнал с прогнозом балла
+          и сводка «кто отстаёт». Ученики занимаются сами — с уровнями, лигами и дуэлями.</p>
+        <div class="w-cta">
+          <button type="button" class="w-btn primary lg" data-signup>Я учитель — попробовать <span id="trialDays">7</span> дней бесплатно</button>
+          <a class="w-btn lg" href="/?login=1">Я ученик — войти по коду</a>
+        </div>
+        <p class="w-guest"><button type="button" class="w-link" id="guestBtn">Посмотреть панель без регистрации</button>
+          — гостевой доступ на <span id="guestMin">60</span> минут с демо-классом.
+          <small>Нажимая, вы принимаете <a href="terms.html" target="_blank" rel="noopener">соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">политику</a>.</small></p>
+        <p class="w-err" id="guestErr" role="alert"></p>
+      </div>
+      <figure class="w-hero-shot">
+        <img src="promo/digest.png" alt="Сводка класса в панели учителя: средний прогноз балла, слабые номера, кто не занимался" width="1280" height="800" loading="eager">
+      </figure>
+    </div>
+  </section>
+
+  <section class="w-sec" id="features">
+    <div class="w-wrap">
+      <h2>Что умеет Egeshka</h2>
+      <div class="w-grid">
+        <article class="w-card"><i>📚</i><h3>Банк заданий 1–27</h3><p>Задания всех номеров ЕГЭ с ответами и разборами, по типам и сложности. Файлы к заданиям, проверка ответа сразу.</p></article>
+        <article class="w-card"><i>⚡</i><h3>Подборка за минуту</h3><p>Шаблоны в один клик: вариант ЕГЭ, 10 заданий на номер, работа над ошибками класса. Или соберите сами по фильтрам.</p></article>
+        <article class="w-card"><i>📝</i><h3>Контрольные без списывания</h3><p>Одна попытка, полный экран, уходы со вкладки видны вам онлайн. Ответы нейросети и вставка из буфера помечаются.</p></article>
+        <article class="w-card"><i>📊</i><h3>Журнал и сводка класса</h3><p>Оценки за каждую работу, прогноз балла и его динамика, слабые номера класса, кто отстаёт и кто давно не заходил.</p></article>
+        <article class="w-card"><i>🗂</i><h3>Архив работ в PDF</h3><p>Одним файлом: сводная таблица, КИМ с ответами и по каждому ученику — ответы, время на задание и код программы.</p></article>
+        <article class="w-card"><i>👥</i><h3>Вместе</h3><p>Разбираете задачу с учеником в одном окне: общий код и доска. Ответ засчитывается ученику.</p></article>
+        <article class="w-card"><i>🏆</i><h3>Ученики занимаются сами</h3><p>Уровни, огонёк дней подряд, лиги, дуэли и задание дня. Тренажёр подбирает то, что получается хуже.</p></article>
+        <article class="w-card"><i>📬</i><h3>Итоги недели на почту</h3><p>По понедельникам — короткий отчёт по каждому классу: кто занимался, кто просел, что не сдано в срок.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="w-sec alt" id="shots">
+    <div class="w-wrap">
+      <h2>Как это выглядит</h2>
+      <div class="w-tabs" role="tablist">
+        <button type="button" role="tab" class="on" data-shot="digest">Сводка класса</button>
+        <button type="button" role="tab" data-shot="journal">Журнал</button>
+        <button type="button" role="tab" data-shot="build">Создать подборку</button>
+        <button type="button" role="tab" data-shot="archive">Архив в PDF</button>
+      </div>
+      <figure class="w-shot"><img id="shotImg" src="promo/digest.png" alt="Сводка класса" width="1280" height="800" loading="lazy">
+        <figcaption id="shotCap">Сводка недели: средний прогноз, слабые номера класса, кто отстаёт и кто не занимался. Кнопка — подборка по слабым номерам.</figcaption></figure>
+      <p class="w-note">На снимках — демо-класс с вымышленными учениками.</p>
+    </div>
+  </section>
+
+  <section class="w-sec" id="start">
+    <div class="w-wrap">
+      <h2>Как начать</h2>
+      <ol class="w-steps">
+        <li><b>Зарегистрируйтесь</b><span>ФИО, почта и пароль — и панель учителя открыта. <span class="trial-txt">7 дней</span> бесплатно, без карты.</span></li>
+        <li><b>Создайте класс и позовите учеников</b><span>Ссылка-приглашение или QR-код на доске: ученик регистрируется и сразу попадает к вам.</span></li>
+        <li><b>Выдайте первую подборку</b><span>Шаблон «Вариант ЕГЭ» или «10 заданий на номер» — и смотрите ответы в журнале.</span></li>
+      </ol>
+      <div class="w-cta center"><button type="button" class="w-btn primary lg" data-signup>Начать бесплатно</button></div>
+    </div>
+  </section>
+
+  <section class="w-sec alt" id="prices">
+    <div class="w-wrap">
+      <h2>Тарифы</h2>
+      <div class="w-prices" id="prices-list"></div>
+      <p class="w-note">По окончании пробного периода панель остаётся открытой для просмотра: ученики, журнал и работы никуда не пропадут.
+        Ученики занимаются в тренажёре как обычно.</p>
+    </div>
+  </section>
+
+  <section class="w-sec" id="contacts">
+    <div class="w-wrap">
+      <h2>Контакты</h2>
+      <p class="w-lead">Подключение школы, оплата и вопросы — напишите нам.</p>
+      <div class="w-contacts" id="contacts-list"><p class="w-note">Контакты появятся здесь.</p></div>
+    </div>
+  </section>
+</main>
+
+<footer class="w-foot">
+  <div class="w-wrap w-foot-in">
+    <span>© Egeshka by Malevin</span>
+    <span><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика обработки данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></span>
+  </div>
+</footer>
+
+<div class="w-modal" id="signupModal" hidden>
+  <form class="w-dialog" id="signupForm" role="dialog" aria-modal="true" aria-labelledby="signupTitle" autocomplete="on">
+    <button type="button" class="w-x" data-close aria-label="Закрыть">×</button>
+    <h2 id="signupTitle">Регистрация учителя</h2>
+    <p class="w-note"><span class="trial-txt">7 дней</span> бесплатно, все возможности. Карта не нужна.</p>
+    <label>Фамилия, имя и отчество<input id="suName" name="name" autocomplete="name" maxlength="80" required placeholder="Иванова Мария Сергеевна"></label>
+    <label>Почта <small>— для входа и отчётов</small><input id="suEmail" name="email" type="email" autocomplete="email" maxlength="120" required placeholder="you@school.ru"></label>
+    <label>Пароль <small>— не короче 8 символов</small><input id="suPass" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="200" required></label>
+    <label class="w-check"><input type="checkbox" id="suAccept" required>
+      <span>Принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">Политику</a>, даю <a href="consent.html" target="_blank" rel="noopener">согласие на обработку персональных данных</a></span></label>
+    <button class="w-btn primary lg block" type="submit">Создать аккаунт</button>
+    <p class="w-err" id="suErr" role="alert"></p>
+    <p class="w-note center">Уже зарегистрированы? <a href="/admin">Войти</a></p>
+  </form>
+</div>
+</body>
+</html>

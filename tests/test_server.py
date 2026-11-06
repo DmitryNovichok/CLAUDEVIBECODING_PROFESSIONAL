@@ -3272,6 +3272,152 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE day=? AND student_id=?", (today.isoformat(), sidA), one=True)["total"], A["total"])
         self.assertEqual(self.req("GET", "/api/forbes")[0], 401)
 
+    # ------------------------------------------------------------ учитель сам: регистрация, пробный период, гость
+    def creq(self, method, path, body=None, cookie=None, ip="203.0.113.9"):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+        h = {"Content-Type": "application/json", "X-Forwarded-For": ip}
+        if cookie:
+            h["Cookie"] = cookie
+        c.request(method, path, body=json.dumps(body) if body is not None else None, headers=h)
+        r = c.getresponse()
+        raw = r.read()
+        c.close()
+        try:
+            data = json.loads(raw or b"null")
+        except ValueError:
+            data = raw.decode("utf-8", "replace")
+        ck = (r.getheader("Set-Cookie") or "").split(";")[0]
+        return r.status, data, ck
+
+    def test_teacher_signup_trial_readonly_and_extend(self):
+        db = server.APP.db
+        st, d, _ = self.creq("POST", "/api/teacher/signup", {"name": "Учитель", "email": "x@y.ru", "password": "longpass1", "accept": True})
+        self.assertEqual(st, 400)                                    # нужны фамилия и имя
+        st, d, _ = self.creq("POST", "/api/teacher/signup", {"name": "Новикова Ольга", "email": "bad", "password": "longpass1", "accept": True})
+        self.assertEqual(st, 400)
+        st, d, ck = self.creq("POST", "/api/teacher/signup", {"name": "Новикова  Ольга Петровна", "email": "Olga@Example.ru",
+                                                              "password": "longpass1", "accept": True})
+        self.assertEqual(st, 200, d)
+        self.assertTrue(ck.startswith("egeadm="))
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertEqual(me["access"]["state"], "trial")
+        self.assertAlmostEqual(me["access"]["left"], server.TRIAL_DAYS * 86400, delta=60)
+        self.assertEqual(me["steps"], {"class": False, "students": 0, "asg": False})
+        self.assertFalse(me["consent_needed"])                      # согласие дано при регистрации
+        self.assertEqual(me["email"], "olga@example.ru")
+        st, d, _ = self.creq("POST", "/api/teacher/signup", {"name": "Другая Ольга", "email": "olga@example.ru",
+                                                             "password": "longpass1", "accept": True}, ip="203.0.113.10")
+        self.assertEqual(st, 409)
+        st, d, ck2 = self.creq("POST", "/api/admin/login", {"login": "OLGA@example.ru", "password": "longpass1"})
+        self.assertEqual(st, 200, d)                                 # вход по почте
+        st, d, _ = self.creq("POST", "/api/admin/class/save", {"name": "10 Б"}, cookie=ck)
+        self.assertEqual(st, 200, d)
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertTrue(me["steps"]["class"])
+        tid = me["id"]
+        db.x("UPDATE teachers SET until=? WHERE id=?", (time.time() - 5, tid))
+        st, d, _ = self.creq("POST", "/api/admin/class/save", {"name": "10 В"}, cookie=ck)
+        self.assertEqual(st, 402)                                    # срок вышел — только чтение
+        self.assertTrue(d["expired"])
+        st, d, _ = self.creq("GET", "/api/admin/classes", cookie=ck)
+        self.assertEqual(st, 200)                                    # смотреть можно
+        st, d, _ = self.creq("POST", "/api/admin/renew", {"note": "оплачу картой"}, cookie=ck)
+        self.assertEqual(st, 200, d)
+        st, d = self.admin("GET", "/api/admin/teachers")
+        row = next(t for t in d["teachers"] if t["id"] == tid)
+        self.assertTrue(row["renew_ts"] and row["access"]["expired"])
+        self.assertEqual(row["renew_note"], "оплачу картой")
+        st, d = self.admin("POST", "/api/admin/teacher/extend", {"id": tid, "days": 30})
+        self.assertEqual(st, 200, d)
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertEqual(me["access"]["state"], "paid")
+        self.assertAlmostEqual(me["access"]["left"], 30 * 86400, delta=60)
+        st, d, _ = self.creq("POST", "/api/admin/class/save", {"name": "10 В"}, cookie=ck)
+        self.assertEqual(st, 200, d)
+        st, d = self.admin("POST", "/api/admin/teacher/extend", {"id": tid, "days": 0})
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertEqual(me["access"]["state"], "full")
+        st, d, _ = self.creq("GET", "/api/public/offer")
+        self.assertEqual(d["trial_days"], server.TRIAL_DAYS)
+        self.assertTrue(d["tariffs"])
+        st, d = self.admin("POST", "/api/admin/offer", {"tariffs": [{"name": "Учитель", "price": "990 ₽", "per": "месяц", "items": "всё"}],
+                                                        "contacts": {"email": "sale@egeshka.test"}})
+        self.assertEqual(st, 200, d)
+        st, d, _ = self.creq("GET", "/api/public/offer")
+        self.assertEqual(d["tariffs"][0]["price"], "990 ₽")
+        self.assertEqual(d["contacts"]["email"], "sale@egeshka.test")
+        for c in db.q("SELECT id FROM classes WHERE teacher_id=?", (tid,)):
+            server.drop_class(db, c["id"])
+        db.x("DELETE FROM teachers WHERE id=?", (tid,))
+        db.x("DELETE FROM settings WHERE key='offer'")
+
+    def test_guest_teacher_demo_and_signup_keeps_account(self):
+        db = server.APP.db
+        st, d, ck = self.creq("POST", "/api/teacher/guest", {})
+        self.assertEqual(st, 200, d)
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertTrue(me["guest"])
+        self.assertEqual(me["access"]["state"], "guest")
+        self.assertAlmostEqual(me["access"]["left"], server.GUEST_SECONDS, delta=60)
+        tid = me["id"]
+        st, d, _ = self.creq("GET", "/api/admin/classes", cookie=ck)
+        demo = next(c for c in d["classes"] if c["name"] == server.DEMO_CLASS)
+        self.assertEqual(demo["students"], len(server.DEMO_NAMES))
+        st, dg, _ = self.creq("GET", f"/api/admin/class/digest?class_id={demo['id']}", cookie=ck)
+        self.assertEqual(st, 200, dg)
+        self.assertIsNotNone(dg["forecast_avg"])
+        self.assertEqual(len(dg["inactive"]), 2)                     # двое демо-учеников давно не заходили
+        self.assertFalse(me["steps"]["class"])                       # демо-класс не считается шагом
+        st, d, _ = self.creq("GET", "/api/admin/students?class_id=all", cookie=ck)
+        self.assertTrue(all(s["no_rank"] for s in d["students"]))   # демо-ученики вне рейтингов
+        # гость регистрируется — аккаунт тот же, демо-класс уходит
+        st, d, ck2 = self.creq("POST", "/api/teacher/signup", {"name": "Гостев Глеб", "email": "gleb@example.ru",
+                                                               "password": "longpass1", "accept": True}, cookie=ck)
+        self.assertEqual(st, 200, d)
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck2)
+        self.assertEqual((me["id"], me["guest"], me["access"]["state"]), (tid, False, "trial"))
+        self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{tid}:%",)))
+        self.assertFalse(db.q("SELECT 1 FROM classes WHERE teacher_id=?", (tid,)))
+        # закончившийся гость стирается через сутки
+        st, d, ck3 = self.creq("POST", "/api/teacher/guest", {}, ip="203.0.113.77")
+        st, me3, _ = self.creq("GET", "/api/admin/me", cookie=ck3)
+        db.x("UPDATE teachers SET until=? WHERE id=?", (time.time() - server.GUEST_KEEP_SECONDS - 10, me3["id"]))
+        server.purge_guests(db)
+        self.assertFalse(db.q("SELECT 1 FROM teachers WHERE id=?", (me3["id"],)))
+        self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{me3['id']}:%",)))
+        db.x("DELETE FROM teachers WHERE id=?", (tid,))
+
+    def test_weekly_report_mail(self):
+        db = server.APP.db
+        main = server.main_teacher()
+        cid = db.x("INSERT INTO classes(name, created, teacher_id) VALUES('Отчётный', ?, ?)", (time.time(), main["id"]))
+        tok = self.login("Отчётов Олег")
+        sid = db.q("SELECT id FROM students WHERE token=? OR id=(SELECT MAX(id) FROM students)", (tok,), one=True)["id"]
+        db.x("UPDATE students SET class_id=? WHERE id=?", (cid, sid))
+        st, d = self.admin("POST", "/api/admin/report", {"email": "main@example.ru", "on": True})
+        self.assertEqual(st, 200, d)
+        sent = []
+        since = time.time() - 100                                   # «понедельник, 8:00» — только что
+        with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+             mock.patch.object(server, "report_due_since", lambda now=None: since), \
+             mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, subj, h, t)) or True):
+            db.x("UPDATE teachers SET report_ts=NULL")
+            self.assertEqual(server.report_tick(db, "https://egeshka.test"), 1)
+            self.assertEqual(server.report_tick(db, "https://egeshka.test"), 0)      # второй раз за неделю — нет
+        to, subj, h, t = sent[0]
+        self.assertEqual(to, "main@example.ru")
+        self.assertIn("Отчётный", t)
+        self.assertIn("Не занимались за неделю: Отчётов Олег", t)
+        self.assertIn("https://egeshka.test/admin", h)
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        c.request("GET", "/api/admin/report/preview", headers={"Cookie": "egeadm=admtest"})
+        r = c.getresponse()
+        self.assertIn("Отчётный", r.read().decode())
+        c.close()
+        db.x("UPDATE teachers SET email=NULL, report_ts=NULL WHERE id=?", (main["id"],))
+        server.drop_class(db, cid)
+
     def test_forbes_all_teachers(self):
         # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;
         # убранный из рейтингов в Forbes не попадает

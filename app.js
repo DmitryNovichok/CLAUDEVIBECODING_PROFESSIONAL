@@ -424,7 +424,10 @@
         }
       }).catch(() => { /* нет связи — как обычно */ });
       m.hidden = false;
-      setTab(last ? 'login' : 'reg', note || '');
+      // ссылка-приглашение учителя: /?invite=КОД — код уже вписан, открыта регистрация
+      const inv = new URLSearchParams(location.search).get('invite');
+      if (inv) $('#regCode').value = inv.replace(/\s+/g, '').slice(0, 40);
+      setTab(last && !inv ? 'login' : 'reg', note || '');
 
       const run = async (form, body) => {
         const btn = form.querySelector('button[type="submit"]');
@@ -471,6 +474,17 @@
     });
   }
 
+  /** Впервые на сайте (в этом браузере никто не входил), пришёл не по ссылке-приглашению и не из школьной сети —
+      сначала главная страница: что за сервис, вход ученика и учителя. true — уходим на /welcome. */
+  async function maybeWelcome() {
+    const qp = new URLSearchParams(location.search);
+    if (readJSON(LAST_NAME_STORE) || qp.has('invite') || qp.has('login')) return false;
+    const shared = await fetch('api/net', { cache: 'no-store' }).then(r => r.json()).then(n => !!n.shared).catch(() => true);
+    if (shared) return false;
+    location.replace('/welcome');
+    return true;
+  }
+
   /** Задания закрыты: сначала вход, потом перезагрузка страницы. */
   async function gate() {
     $('#grid').innerHTML = Array.from({ length: 27 }, (_, i) =>
@@ -487,6 +501,7 @@
         return;
       } catch (e) { /* токен устарел — войдём заново */ }
     }
+    if (!tried && await maybeWelcome()) return;
     const r = await loginDialog(tried ? 'Браузер не сохранил вход. Разрешите cookie для этого сайта и войдите ещё раз.' : '');
     writeStudent({ sid: r.sid, name: r.name, token: r.token });
     try { sessionStorage.setItem('egeTrainer.relogin', '1'); } catch (e2) { /* нет доступа */ }
@@ -9758,6 +9773,7 @@
       }
       if (!ok) {
         ui.currentId = null;
+        if (await maybeWelcome()) return;
         await askName();
       }
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); abandonCurrent(true); flushSync(true); });

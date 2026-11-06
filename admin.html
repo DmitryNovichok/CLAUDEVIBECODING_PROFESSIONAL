@@ -31,13 +31,17 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
 <section class="adm-login" id="loginView" hidden>
   <form class="modal-panel adm-login-panel" id="admLoginForm">
     <h1 class="fm-title">Панель учителя</h1>
-    <p class="fm-note">Логин и пароль выдаёт главный учитель. Главный учитель входит с логином <code>admin</code> (или с пустым логином) и паролем, напечатанным в окне сервера при первом запуске.</p>
+    <p class="fm-note">Войдите по почте (или логину) и паролю.</p>
     <div class="login-form login-stack">
-      <input class="inp" id="admLogin" name="username" placeholder="Логин" autocomplete="username" autocapitalize="off" spellcheck="false">
+      <input class="inp" id="admLogin" name="username" placeholder="Почта или логин" autocomplete="username" autocapitalize="off" spellcheck="false">
       <input class="inp" type="password" id="admPassword" name="password" placeholder="Пароль" autocomplete="current-password" required>
       <button class="btn primary" type="submit">Войти</button>
     </div>
     <div class="login-err" id="admLoginErr" role="alert"></div>
+    <div class="adm-login-new">
+      <a class="btn btn-block" href="/welcome#signup">Зарегистрироваться — 7 дней бесплатно</a>
+      <a class="link-btn" href="/welcome">Что такое Egeshka и тарифы</a>
+    </div>
     <p class="login-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика персональных данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></p>
   </form>
 </section>
@@ -85,6 +89,8 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
 
   <main class="adm-main">
     <div class="adm-warn" id="mediaWarn" role="alert" hidden></div>
+    <div class="adm-access" id="accessBar" hidden></div>
+    <div class="adm-steps" id="stepsCard" hidden></div>
     <!-- Ученики -->
     <section class="adm-view" id="view-students">
       <div class="adm-toolbar">
@@ -133,8 +139,21 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
         <div class="bld-main">
           <div class="adm-toolbar"><h2 class="adm-h">Создать подборку</h2>
             <button type="button" class="btn ghost" id="bldReset">Сбросить фильтры</button></div>
-          <p class="adm-hint" style="margin:0 0 10px">Задания разбиты по типам внутри номера и по сложности от 1 (очень лёгкое) до 5 (очень сложное).
-            «Решают» — доля верных ответов с первой попытки у всех учеников тренажёра.</p>
+          <p class="adm-hint" style="margin:0 0 10px">Возьмите шаблон или выберите номер в фильтре — появятся задания. Они разбиты по типам внутри номера
+            и по сложности от 1 (очень лёгкое) до 5 (очень сложное). «Решают» — доля верных ответов с первой попытки у всех учеников тренажёра.</p>
+          <div class="adm-box bld-tpl" id="bldTpl">
+            <h3 class="adm-h3">Быстрый старт — шаблон в один клик</h3>
+            <div class="bld-tpl-row">
+              <button type="button" class="bld-tpl-btn" data-tpl="variant"><b>🎯 Вариант ЕГЭ</b><small>по заданию на каждый номер 1–27</small></button>
+              <div class="bld-tpl-btn as-div"><b>🔟 10 заданий на №</b>
+                <span class="bld-tpl-ctl"><select class="adm-select" id="tplN" aria-label="Номер задания"></select>
+                <button type="button" class="btn primary sm" data-tpl="ten">Добавить</button></span></div>
+              <div class="bld-tpl-btn as-div"><b>🔧 Работа над ошибками класса</b>
+                <span class="bld-tpl-ctl"><select class="adm-select" id="tplClass" aria-label="Класс"></select>
+                <button type="button" class="btn primary sm" data-tpl="fix">Собрать</button></span>
+                <small>новые задания тех типов, где класс ошибался за 2 недели</small></div>
+            </div>
+          </div>
           <div class="adm-box bld-filters" id="bldFilters"><p class="adm-hint">Загружаю…</p></div>
           <div class="bld-bar" id="bldBar"></div>
           <div class="bld-list" id="bldList"></div>
@@ -289,9 +308,10 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
 
     <section class="adm-view" id="view-teachers" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Учителя</h2></div>
-      <p class="adm-hint" style="margin:0 0 12px">У каждого учителя свой логин, пароль и код приглашения. Ученик, который зарегистрировался по коду учителя, попадает к нему. Каждый учитель — и главный тоже — видит только своих учеников, классы, подборки и ленту. По всему сайту у главного — вкладка «Статистика сайта».</p>
+      <p class="adm-hint" id="teachersSum" style="margin:0 0 8px"></p>
+      <p class="adm-hint" style="margin:0 0 12px">Учителя регистрируются сами на главной странице (<a href="/welcome" target="_blank" rel="noopener">/welcome</a>) — пробный период, затем панель только для чтения, пока вы не продлите доступ (кнопки «+30 дн», «+год», «∞»). У каждого учителя свой логин, пароль и код приглашения. Ученик, который зарегистрировался по коду учителя, попадает к нему. Каждый учитель — и главный тоже — видит только своих учеников, классы, подборки и ленту. По всему сайту у главного — вкладка «Статистика сайта».</p>
       <div class="adm-table-wrap"><table class="adm-table" id="teachersTable">
-        <thead><tr><th>Учитель</th><th>Логин</th><th>Код приглашения</th><th class="num">Учеников</th><th class="num">Классов</th><th></th></tr></thead>
+        <thead><tr><th>Учитель</th><th>Почта / логин</th><th>Доступ</th><th class="num">Учеников</th><th class="num">Классов</th><th></th></tr></thead>
         <tbody></tbody></table></div>
       <form class="adm-box adm-teacher-form" id="teacherForm">
         <h3 class="adm-h3" style="margin:0" id="teacherFormTitle">Добавить учителя</h3>
@@ -306,7 +326,19 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
           <button type="button" class="btn ghost" id="tCancel" hidden>Отмена</button>
           <span class="login-err" id="tMsg"></span>
         </div>
-        <p class="adm-hint" style="margin:0">Передайте учителю адрес панели (…/admin), логин и пароль, а его ученикам — его код приглашения. При изменении пароль можно оставить пустым — тогда он не меняется.</p>
+        <p class="adm-hint" style="margin:0">Передайте учителю адрес панели (…/admin), логин и пароль, а его ученикам — его код приглашения. При изменении пароль можно оставить пустым — тогда он не меняется. Добавленные вручную учителя работают без срока.</p>
+      </form>
+      <form class="adm-box offer-form" id="offerForm">
+        <h3 class="adm-h3" style="margin:0">Тарифы и контакты на главной странице</h3>
+        <p class="adm-hint" style="margin:0">Видны всем на /welcome и учителю в окне «Продлить». Пункты тарифа — каждый с новой строки.</p>
+        <div class="offer-grid" id="offerTariffs"></div>
+        <div class="adm-draft-row">
+          <input class="inp" id="ofEmail" placeholder="Почта для связи" maxlength="120">
+          <input class="inp" id="ofTg" placeholder="Telegram, например @egeshka" maxlength="120">
+          <input class="inp" id="ofPhone" placeholder="Телефон" maxlength="120">
+        </div>
+        <div class="adm-draft-row"><button type="submit" class="btn primary">Сохранить тарифы и контакты</button>
+          <span class="login-err" id="ofMsg"></span></div>
       </form>
     </section>
 
@@ -450,6 +482,19 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
             <button class="btn primary" type="submit">Сохранить</button>
           </div>
           <div class="login-err" id="inviteMsg"></div>
+          <div class="inv-link"><span class="adm-hint">Ссылка-приглашение:</span> <code id="inviteLinkSet"></code>
+            <span class="adm-row-btns"><button type="button" class="btn ghost" data-inv-copy>Скопировать ссылку</button>
+            <button type="button" class="btn ghost" data-inv-qr>QR для доски</button></span></div>
+        </form>
+        <form class="adm-box" id="reportForm">
+          <h3 class="adm-h3">Отчёт на почту</h3>
+          <p class="fm-note">По понедельникам — итоги недели по каждому классу: кто занимался, средний прогноз, слабые номера, кто отстаёт и что не сдано в срок.</p>
+          <input class="inp" id="reportEmail" type="email" maxlength="120" placeholder="почта учителя" autocomplete="email">
+          <label class="adm-switch"><input type="checkbox" id="reportOn"> Присылать отчёт каждую неделю</label>
+          <div class="adm-row-btns"><button class="btn primary" type="submit">Сохранить</button>
+            <a class="btn ghost" href="api/admin/report/preview" target="_blank" rel="noopener">Посмотреть отчёт сейчас</a></div>
+          <p class="fm-note" id="reportState"></p>
+          <div class="login-err" id="reportMsg"></div>
         </form>
         <form class="adm-box" id="pwForm">
           <h3 class="adm-h3">Сменить пароль</h3>
@@ -495,6 +540,32 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
   </div>
 </div>
 
+<div class="modal" id="renewModal" hidden>
+  <div class="modal-panel renew-panel" role="dialog" aria-modal="true" aria-labelledby="renewTitle">
+    <button type="button" class="icon-btn renew-x" data-close-modal aria-label="Закрыть">×</button>
+    <h2 class="fm-title" id="renewTitle">Продлить доступ</h2>
+    <p class="fm-note" id="renewNote"></p>
+    <div class="renew-prices" id="renewPrices"></div>
+    <div class="renew-contacts" id="renewContacts"></div>
+    <form class="login-form login-stack" id="renewForm">
+      <textarea class="inp" id="renewText" rows="2" maxlength="300" placeholder="Комментарий: тариф, школа, удобный способ связи"></textarea>
+      <button class="btn primary btn-block" type="submit">Отправить заявку на продление</button>
+      <div class="login-err" id="renewMsg" role="alert"></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="qrModal" hidden>
+  <div class="modal-panel qr-panel" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
+    <button type="button" class="icon-btn renew-x" data-close-modal aria-label="Закрыть">×</button>
+    <h2 class="qr-title" id="qrTitle">Наведите камеру телефона</h2>
+    <div class="qr-box" id="qrBox"></div>
+    <p class="qr-link" id="qrLink"></p>
+    <p class="fm-note qr-hint">Ученик откроет ссылку, придумает пароль — и сразу попадёт в ваш список учеников. Код приглашения: <b id="qrCode"></b></p>
+  </div>
+</div>
+
+<script src="qr.js"></script>
 <script src="changelog.js"></script>
 <script src="admin.js"></script>
 </body>

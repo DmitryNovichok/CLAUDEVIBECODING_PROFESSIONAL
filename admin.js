@@ -98,6 +98,12 @@
     let data = {};
     try { data = await r.json(); } catch (e) { /* пусто */ }
     if (r.status === 401) { showLogin(); throw Object.assign(new Error('auth'), { status: 401 }); }
+    if (r.status === 402) {                 // пробный период (или гостевой час) закончился — только чтение
+      if (ME.access) ME.access.expired = true;
+      renderAccess();
+      openRenew();
+      throw Object.assign(new Error(data.error || 'Доступ закончился'), { status: 402 });
+    }
     if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status });
     return data;
   }
@@ -160,7 +166,123 @@
     errBadge(ME.jserr_new || 0);
     sndSwitch();
     if (ME.is_main) { try { teachers = (await api('teachers')).teachers; } catch (e) { teachers = []; } }
+    renderAccess();
+    renderSteps();
     await askConsent();
+  }
+
+  // ------------------------------------------------------------ доступ: пробный период, гость, только чтение
+  const inviteLink = () => `${location.origin}/?invite=${encodeURIComponent(ME.invite || '')}`;
+  const daysWord = n => plural(n, 'день', 'дня', 'дней');
+  let accessTimer = 0;
+  function renderAccess() {
+    const a = ME.access || { state: 'full' }, bar = $('#accessBar');
+    document.body.classList.toggle('ro', !!a.expired);
+    clearTimeout(accessTimer);
+    if (a.state === 'full' || (a.state === 'paid' && !a.expired && a.left > 7 * 86400)) { bar.hidden = true; return; }
+    const left = Math.max(0, (a.until || 0) - Date.now() / 1000), till = fmtDate(a.until);
+    const signup = '<a class="btn primary" href="/welcome#signup">Зарегистрироваться — бесплатно</a>';
+    const renew = '<button type="button" class="btn primary" data-renew>Продлить</button>';
+    let cls = 'info', txt = '', act = renew;
+    if (a.state === 'guest') {
+      act = signup;
+      if (left <= 0) { cls = 'bad'; txt = '<b>Гостевой час закончился.</b> Панель открыта только для просмотра. Зарегистрируйтесь — классы и подборки, которые вы создали, останутся, а пробный период начнётся заново.'; }
+      else {
+        txt = `<b>👀 Гостевой доступ: осталось ${Math.ceil(left / 60)} мин.</b> «${esc(DEMO_CLASS)}» — демо-класс с вымышленными учениками: откройте сводку, журнал и архив работ. Регистрация сохранит всё, что вы создали.`;
+        accessTimer = setTimeout(renderAccess, 30000);
+      }
+    } else if (a.expired) {
+      cls = 'bad';
+      txt = `<b>${a.state === 'paid' ? 'Оплаченный доступ' : 'Пробный период'} закончился ${till}.</b> Панель открыта только для чтения: ученики, журнал и работы на месте, ученики занимаются как обычно. Чтобы снова выдавать подборки и менять настройки — продлите доступ.`;
+      if (ME.renew_ts) txt += ` <span class="muted">Заявка отправлена ${fmtWhen(ME.renew_ts)}.</span>`;
+    } else {
+      const d = Math.ceil(left / 86400);
+      cls = d <= 2 ? 'warn' : 'info';
+      txt = a.state === 'trial' ? `<b>🎁 Пробный период: осталось ${d} ${daysWord(d)}</b> (до ${till}). Все возможности открыты.`
+        : `<b>Доступ оплачен до ${till}</b> — осталось ${d} ${daysWord(d)}.`;
+    }
+    bar.className = 'adm-access ' + cls;
+    bar.innerHTML = `<span>${txt}</span><span class="adm-access-act">${act}</span>`;
+    bar.hidden = false;
+  }
+  const DEMO_CLASS = '11 «Демо»';
+  function openRenew() {
+    if (ME.guest) { if (confirm('Гостевой доступ только для просмотра. Зарегистрироваться? Всё, что вы создали, сохранится.')) location.href = '/welcome#signup'; return; }
+    const o = ME.offer || { tariffs: [], contacts: {} }, a = ME.access || {};
+    $('#renewNote').textContent = a.expired ? 'Пока доступ не продлён, панель открыта только для чтения. Выберите тариф и отправьте заявку — мы свяжемся с вами.'
+      : `Доступ действует до ${fmtDate(a.until)}. Продлить можно заранее — дни добавятся к сроку.`;
+    $('#renewPrices').innerHTML = (o.tariffs || []).filter((t, i) => i > 0 || o.tariffs.length === 1).map(t => `<div class="renew-price">
+      <b>${esc(t.name)}</b><span class="rp">${esc(t.price)}${t.per ? ` <small>/ ${esc(t.per)}</small>` : ''}</span>
+      <small>${String(t.items || '').split('\n').filter(Boolean).map(esc).join(' · ')}</small></div>`).join('');
+    const c = o.contacts || {}, l = [];
+    if (c.email) l.push(`<a href="mailto:${esc(c.email)}">✉️ ${esc(c.email)}</a>`);
+    if (c.telegram) { const tg = c.telegram.replace(/^@/, '').replace(/^https?:\/\/t\.me\//, ''); l.push(`<a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener">💬 @${esc(tg)}</a>`); }
+    if (c.phone) l.push(`<a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">📞 ${esc(c.phone)}</a>`);
+    $('#renewContacts').innerHTML = l.join('');
+    $('#renewMsg').textContent = '';
+    $('#renewModal').hidden = false;
+  }
+  $('#renewForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = $('#renewMsg');
+    msg.className = 'login-err';
+    try {
+      await api('renew', { note: $('#renewText').value });
+      ME.renew_ts = Date.now() / 1000;
+      msg.className = 'login-err ok';
+      msg.textContent = 'Заявка отправлена — мы свяжемся с вами. Можно также написать по контактам выше.';
+      renderAccess();
+    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
+  });
+  document.addEventListener('click', e => {
+    if (e.target.closest('[data-renew]')) { openRenew(); return; }
+    if (e.target.closest('[data-close-modal]') || (e.target.classList && e.target.classList.contains('modal') && ['renewModal', 'qrModal'].includes(e.target.id))) {
+      $('#renewModal').hidden = true; $('#qrModal').hidden = true; return;
+    }
+    if (e.target.closest('[data-inv-copy]')) {
+      const link = inviteLink();
+      try { navigator.clipboard.writeText(link).then(() => toast('Ссылка скопирована: отправьте её ученикам в чат класса'), () => prompt('Скопируйте ссылку:', link)); }
+      catch (x) { prompt('Скопируйте ссылку:', link); }
+      return;
+    }
+    if (e.target.closest('[data-inv-qr]')) { openQR(); return; }
+    if (e.target.closest('[data-step-go]')) { go(e.target.closest('[data-step-go]').dataset.stepGo); return; }
+    if (e.target.closest('[data-steps-off]')) {
+      ME.steps_off = true; renderSteps();
+      api('steps-off', {}).catch(() => {});
+      toast('Карточка скрыта. Ссылка-приглашение и QR всегда есть в «Настройках»', 4000);
+    }
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#renewModal').hidden = true; $('#qrModal').hidden = true; } });
+  function openQR() {
+    const link = inviteLink();
+    $('#qrBox').innerHTML = window.egeQRsvg ? window.egeQRsvg(link, 420) : '';
+    $('#qrLink').textContent = link.replace(/^https?:\/\//, '');
+    $('#qrCode').textContent = ME.invite || '';
+    $('#qrModal').hidden = false;
+  }
+
+  // ------------------------------------------------------------ «Первые шаги»: класс → приглашение → первая подборка
+  function renderSteps() {
+    const box = $('#stepsCard'), st = ME.steps;
+    if (!st || ME.steps_off || ME.is_main && st.asg || (tab !== 'students' && tab !== 'settings')) { box.hidden = true; return; }
+    const done = [st.class, st.students > 0, st.asg];
+    if (done.every(Boolean)) { box.hidden = true; return; }
+    const step = (k, ok, title, body) => `<li class="${ok ? 'ok' : ''}"><span class="st-mark">${ok ? '✓' : k}</span><div><b>${title}</b>${body}</div></li>`;
+    box.innerHTML = `<div class="steps-head"><h3>🚀 Первые шаги</h3><span class="muted">${done.filter(Boolean).length} из 3</span>
+        <button type="button" class="link-btn" data-steps-off>скрыть</button></div>
+      <ol class="steps-list">
+        ${step(1, st.class, 'Создайте класс', st.class ? '<p class="muted">Готово.</p>' : '<p class="muted">Например, «11 А». Класс — это журнал, сводка и подборки на всех учеников сразу.</p><button type="button" class="btn" data-step-go="classes">Создать класс</button>')}
+        ${step(2, st.students > 0, 'Отправьте ученикам ссылку-приглашение', `<p class="muted">${st.students ? `Уже зарегистрировались: <b>${st.students}</b>. ` : ''}Ученик открывает ссылку, придумывает пароль — и попадает в ваш список. Новых учеников перенесите в класс на вкладке «Ученики».</p>
+          <div class="inv-row"><code>${esc(inviteLink().replace(/^https?:\/\//, ''))}</code><button type="button" class="btn sm" data-inv-copy>Скопировать</button><button type="button" class="btn sm" data-inv-qr>QR для доски</button></div>`)}
+        ${step(3, st.asg, 'Выдайте первую подборку', st.asg ? '<p class="muted">Готово.</p>' : '<p class="muted">Шаблоны в один клик: «Вариант ЕГЭ», «10 заданий на номер» или «Работа над ошибками класса».</p><button type="button" class="btn" data-step-go="build">Собрать подборку</button>')}
+      </ol>`;
+    box.hidden = false;
+  }
+  async function refreshSteps() {
+    renderSteps();
+    if (!ME.steps || ME.steps_off || $('#stepsCard').hidden) return;
+    try { const m = await api('me'); ME.steps = m.steps; ME.invite = m.invite; renderSteps(); } catch (e) { /* не страшно */ }
   }
   /** Рубильник звуков у учеников (фон 🎧 и звуки кейса): на уроке — выключить, замолкнут сразу. */
   function sndSwitch() {
@@ -219,7 +341,7 @@
       $('#admPassword').value = '';
       await loadMe();
       showApp();
-      go('students');
+      go(ME.guest ? 'classes' : 'students');
       startFeed();
       api('info').then(showMediaWarning).catch(() => {});
     } catch (err) {
@@ -447,11 +569,61 @@
     if (!BLD.cat) {
       try { BLD.cat = await api('bank/catalog'); } catch (err) { if (err.status !== 401) $('#bldFilters').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     }
+    renderTpl();
     renderBldFilters();
     renderBldDraft();
     if (BLD.d.class_id) loadBldAsg();
     bldSearch();
   }
+  // ---- шаблоны: «Вариант ЕГЭ», «10 заданий на №…», «Работа над ошибками класса»
+  function renderTpl() {
+    const C = BLD.cat, nSel = $('#tplN'), cSel = $('#tplClass');
+    if (!nSel.options.length) {
+      for (let n = 1; n <= 27; n++) if (n !== 20 && n !== 21) nSel.insertAdjacentHTML('beforeend', `<option value="${n}">${n === 19 ? '19–21' : n}</option>`);
+    }
+    const cur = cSel.value || BLD.d.class_id;
+    cSel.innerHTML = C.classes.length ? C.classes.map(c => `<option value="${c.id}"${String(c.id) === String(cur) ? ' selected' : ''}>${esc(c.name)}</option>`).join('')
+      : '<option value="">нет классов</option>';
+  }
+  function bldSetClass(cid) {
+    if (cid && String(BLD.d.class_id) !== String(cid)) { BLD.d.class_id = String(cid); BLD.d.id = null; bldSave(); loadBldAsg(); }
+  }
+  $('#bldTpl').addEventListener('click', async e => {
+    const b = e.target.closest('[data-tpl]');
+    if (!b) return;
+    const kind = b.dataset.tpl;
+    b.disabled = true;
+    try {
+      if (kind === 'variant') { await bldPerNum(true); return; }
+      if (kind === 'ten') {
+        const n = $('#tplN').value, saved = BLD.f;
+        BLD.f = Object.assign({}, saved, { n: [n], c: [], q: '', sort: 'random' });
+        const pool = await bldSearch(true, true);
+        BLD.f = Object.assign({}, saved, { n: [n], c: [], q: '' });
+        if (!pool) return;
+        const have = new Set(BLD.d.tasks.map(t => t.id)), free = pool.filter(x => x.n === +n && !have.has(x.id));
+        for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
+        const got = bldAdd(free.slice(0, 10));
+        if (!BLD.d.title) { BLD.d.title = `№${n === '19' ? '19–21' : n}: 10 заданий`; bldSave(); renderBldDraft(); }
+        await bldSearch();
+        toast(got ? `Добавлено: ${got} на №${n === '19' ? '19–21' : n}` : 'Все подходящие задания уже в подборке');
+        return;
+      }
+      if (kind === 'fix') {
+        const cid = $('#tplClass').value;
+        if (!cid) { toast('Сначала создайте класс на вкладке «Классы»'); return; }
+        const r = await api('bank/fix?class_id=' + cid + '&k=10');
+        if (!r.tasks.length) { toast('За две недели класс не ошибался — или новых заданий тех же типов нет', 4500); return; }
+        bldSetClass(cid);
+        const got = bldAdd(r.tasks);
+        if (!BLD.d.title) BLD.d.title = 'Работа над ошибками класса';
+        BLD.d.kind = BLD.d.kind || 'practice';
+        bldSave(); renderBldDraft();
+        toast(`Добавлено: ${got}. Типы с ошибками: ${r.why.map(w => `№${w.n === 19 ? '19–21' : w.n} «${w.cname}» (${w.errors})`).join(', ')}`, 7000);
+      }
+    } catch (err) { if (err.status !== 401) toast(err.message); }
+    finally { b.disabled = false; }
+  });
   function chip(group, val, label, on, count) {
     return `<button type="button" class="bld-chip${on ? ' on' : ''}" data-f="${group}" data-v="${esc(String(val))}">${label}${count != null ? ` <small>${count}</small>` : ''}</button>`;
   }
@@ -494,6 +666,13 @@
   }
   function renderBldList() {
     const d = BLD.res, inDraft = new Set(BLD.d.tasks.map(t => t.id));
+    if (!(BLD.f.n.length || BLD.f.c.length || BLD.f.q)) {
+      $('#bldBar').innerHTML = `<p class="bld-pick">👆 Выберите номер в фильтре или возьмите шаблон — задания появятся здесь.
+        <span class="adm-hint">По остальным фильтрам в банке ${d.total} ${plural(d.total, 'задание', 'задания', 'заданий')}.</span>
+        <button type="button" class="btn ghost" id="bldVariant">🎯 Вариант ЕГЭ</button></p>`;
+      $('#bldList').hidden = true; $('#bldPages').hidden = true;
+      return;
+    }
     $('#bldBar').innerHTML = `<b>Найдено: ${d.total}</b>
       <label class="adm-hint">порядок <select class="adm-select" id="bldSort">${[['rank', 'по номеру и сложности ↑'], ['hard', 'по номеру, сначала сложные'], ['rate', 'сначала трудные для учеников'], ['new', 'сначала новые'], ['random', 'случайно']]
         .map(([v, t]) => `<option value="${v}"${BLD.f.sort === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
@@ -501,6 +680,9 @@
       <button type="button" class="btn" id="bldPerN"${d.total ? '' : ' disabled'} title="Из найденных — столько случайных заданий каждого номера">+ по стольку на каждый номер</button>
       <button type="button" class="btn ghost" id="bldAddPage"${d.tasks.length ? '' : ' disabled'}>+ все на странице</button>
       <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 с выбранными сложностью, банком, годами и решаемостью (номера и типы фильтра не важны). Номер, для которого с такими фильтрами заданий нет, — из всего банка">Вариант ЕГЭ</button></span>`;
+    const picked = BLD.f.n.length || BLD.f.c.length || BLD.f.q;
+    $('#bldList').hidden = !picked;
+    $('#bldPages').hidden = !picked;
     $('#bldList').innerHTML = d.tasks.length ? d.tasks.map(x => `<div class="bld-item${inDraft.has(x.id) ? ' in' : ''}">
         <span class="num-badge sm">${x.n === 19 ? '19–21' : x.n}</span>
         <div class="bld-item-main"><div class="bld-meta"><button type="button" class="bld-id" data-copy="${esc(idOf(x.id))}" title="Номер задания — нажмите, чтобы скопировать">№ ${esc(idOf(x.id))}</button>
@@ -516,6 +698,47 @@
     $('#bldPages').innerHTML = pages > 1 ? `<button type="button" class="btn ghost" data-page="${d.page - 1}"${d.page ? '' : ' disabled'}>← назад</button>
       <span class="adm-hint">страница ${d.page + 1} из ${pages}</span>
       <button type="button" class="btn ghost" data-page="${d.page + 1}"${d.page + 1 < pages ? '' : ' disabled'}>дальше →</button>` : '';
+  }
+  /** «+ по стольку на каждый номер» и «Вариант ЕГЭ» (по одному на номер 1–27 с выбранными сложностью, банком и годами). */
+  async function bldPerNum(variant) {
+      const k = variant ? 1 : Math.max(1, Math.min(20, +(($('#bldK') || {}).value) || 1));
+      let pool, filled = [];
+      if (variant) {
+        // вариант — по выбранным сложности, банку, годам, формату и решаемости (номера, типы и текст не важны: нужны все 1–27);
+        // номер, где с такими фильтрами пусто, добирается из всего актуального банка
+        const saved = BLD.f;
+        BLD.f = Object.assign({}, saved, { n: [], c: [], q: '', sort: 'random' });
+        pool = await bldSearch(true, true);
+        const got = new Set((pool || []).map(x => x.n));
+        const miss = [];
+        for (let n = 1; n <= 27; n++) if (!(n >= 20 && n <= 21) && !got.has(n)) miss.push(n);
+        if (pool && miss.length && (saved.r.length || saved.bank.length || saved.y0 || saved.y1 || saved.rate || saved.fmt !== 'actual')) {
+          BLD.f = { n: miss.map(String), c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: saved.notsolved, q: '', sort: 'random' };
+          const more = await bldSearch(true, true);
+          if (more) { pool = pool.concat(more); filled = [...new Set(more.map(x => x.n))].sort((a, b) => a - b); }
+        }
+        BLD.f = saved;
+      } else pool = await bldSearch(true, true);
+      if (!pool) return;
+      const have = new Set(BLD.d.tasks.map(t => t.id)), byN = {};
+      for (const x of pool) if (!have.has(x.id)) (byN[x.n] = byN[x.n] || []).push(x);
+      const add = [];
+      for (const n of Object.keys(byN).sort((a, b) => a - b)) {
+        const l = byN[n];
+        for (let i = l.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [l[i], l[j]] = [l[j], l[i]]; }
+        add.push(...l.slice(0, k));
+      }
+      const n = bldAdd(add);
+      if (variant && !BLD.d.title) {
+        const f = BLD.f, bits = [];
+        if (f.r.length) bits.push('сложность ' + f.r.slice().sort().join(', '));
+        if (f.bank.length) bits.push(f.bank.map(b => (BLD.cat.banks.find(x => x.id === b) || {}).title || b).join(', '));
+        BLD.d.title = 'Вариант ЕГЭ' + (bits.length ? ` (${bits.join('; ')})` : '');
+        bldSave(); renderBldDraft();
+      }
+      toast(n ? `Добавлено: ${n}${variant ? ' — по одному на номер' : ` — по ${k} на номер`}`
+        + (filled.length ? `. С выбранными фильтрами нет заданий №${filled.join(', ')} — они взяты из всего банка` : '')
+        : 'Все подходящие задания уже в подборке', filled.length ? 7000 : undefined);
   }
   const slim = x => ({ id: x.id, n: x.n, c: x.c, cname: x.cname, r: x.r, snip: x.snip, rate: x.rate });
   function bldAdd(list) {
@@ -597,45 +820,7 @@
   $('#bldBar').addEventListener('click', async e => {
     if (e.target.closest('#bldAddPage')) { toast(`Добавлено: ${bldAdd(BLD.res.tasks)}`); return; }
     if (e.target.closest('#bldPerN') || e.target.closest('#bldVariant')) {
-      const variant = !!e.target.closest('#bldVariant');
-      const k = variant ? 1 : Math.max(1, Math.min(20, +$('#bldK').value || 1));
-      let pool, filled = [];
-      if (variant) {
-        // вариант — по выбранным сложности, банку, годам, формату и решаемости (номера, типы и текст не важны: нужны все 1–27);
-        // номер, где с такими фильтрами пусто, добирается из всего актуального банка
-        const saved = BLD.f;
-        BLD.f = Object.assign({}, saved, { n: [], c: [], q: '', sort: 'random' });
-        pool = await bldSearch(true, true);
-        const got = new Set((pool || []).map(x => x.n));
-        const miss = [];
-        for (let n = 1; n <= 27; n++) if (!(n >= 20 && n <= 21) && !got.has(n)) miss.push(n);
-        if (pool && miss.length && (saved.r.length || saved.bank.length || saved.y0 || saved.y1 || saved.rate || saved.fmt !== 'actual')) {
-          BLD.f = { n: miss.map(String), c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: saved.notsolved, q: '', sort: 'random' };
-          const more = await bldSearch(true, true);
-          if (more) { pool = pool.concat(more); filled = [...new Set(more.map(x => x.n))].sort((a, b) => a - b); }
-        }
-        BLD.f = saved;
-      } else pool = await bldSearch(true, true);
-      if (!pool) return;
-      const have = new Set(BLD.d.tasks.map(t => t.id)), byN = {};
-      for (const x of pool) if (!have.has(x.id)) (byN[x.n] = byN[x.n] || []).push(x);
-      const add = [];
-      for (const n of Object.keys(byN).sort((a, b) => a - b)) {
-        const l = byN[n];
-        for (let i = l.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [l[i], l[j]] = [l[j], l[i]]; }
-        add.push(...l.slice(0, k));
-      }
-      const n = bldAdd(add);
-      if (variant && !BLD.d.title) {
-        const f = BLD.f, bits = [];
-        if (f.r.length) bits.push('сложность ' + f.r.slice().sort().join(', '));
-        if (f.bank.length) bits.push(f.bank.map(b => (BLD.cat.banks.find(x => x.id === b) || {}).title || b).join(', '));
-        BLD.d.title = 'Вариант ЕГЭ' + (bits.length ? ` (${bits.join('; ')})` : '');
-        bldSave(); renderBldDraft();
-      }
-      toast(n ? `Добавлено: ${n}${variant ? ' — по одному на номер' : ` — по ${k} на номер`}`
-        + (filled.length ? `. С выбранными фильтрами нет заданий №${filled.join(', ')} — они взяты из всего банка` : '')
-        : 'Все подходящие задания уже в подборке', filled.length ? 7000 : undefined);
+      await bldPerNum(!!e.target.closest('#bldVariant'));
       return;
     }
     if (e.target.closest('#bldRand')) {
@@ -1735,6 +1920,7 @@
     if (t === 'feed') { $('#feedDot').hidden = true; renderFeed(); }
     if (t === 'settings') loadSettings();
     if (t === 'comp') loadComp();
+    refreshSteps();
     window.scrollTo({ top: 0 });
   }
   $('#tabs').addEventListener('click', e => {
@@ -1950,17 +2136,65 @@
 
   // ------------------------------------------------------------ учителя (главный)
   let editTeacher = null;
+  function accessCell(t) {
+    const a = t.access || { state: 'full' };
+    if (t.is_main) return '<span class="muted">—</span>';
+    const ext = `<span class="t-ext"><button type="button" class="btn sm" data-text="${t.id}" data-days="30">+30 дн</button>
+      <button type="button" class="btn sm" data-text="${t.id}" data-days="365">+год</button>
+      <button type="button" class="btn sm ghost" data-text="${t.id}" data-days="0" title="Без срока">∞</button>
+      ${a.state !== 'full' && !a.expired ? `<button type="button" class="link-btn" data-text="${t.id}" data-days="-${Math.ceil(a.left / 86400)}" title="Закрыть доступ сейчас (только чтение)">закрыть</button>` : ''}</span>`;
+    let st;
+    if (a.state === 'full') st = '<span class="chip good">без срока</span>';
+    else if (a.expired) st = `<span class="chip weak">${a.state === 'paid' ? 'оплата' : 'пробный'} кончился ${fmtDate(a.until)}</span>`;
+    else st = `<span class="chip ${a.state === 'paid' ? 'good' : ''}">${a.state === 'paid' ? 'оплачен' : 'пробный'} до ${fmtDate(a.until)}</span>`;
+    const req = t.renew_ts ? `<div class="t-req">🔔 просит продлить ${fmtWhen(t.renew_ts)}${t.renew_note ? `: «${esc(t.renew_note)}»` : ''}</div>` : '';
+    return st + req + ext;
+  }
+  let offer = null;
   async function loadTeachers() {
-    try { teachers = (await api('teachers')).teachers; } catch (e) { if (e.status !== 401) toast(e.message); return; }
-    $('#teachersTable tbody').innerHTML = teachers.map(t => `<tr>
-      <td class="name">${esc(t.name)}${t.is_main ? ' <span class="chip">главный</span>' : ''}</td>
-      <td><code>${esc(t.login)}</code></td>
-      <td><code>${esc(t.invite)}</code></td>
+    let d;
+    try { d = await api('teachers'); teachers = d.teachers; } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    const req = teachers.filter(t => t.renew_ts).length;
+    $('#teachersSum').innerHTML = `Учителей: <b>${teachers.length}</b>${d.guests_now ? ` · сейчас в гостевом доступе: <b>${d.guests_now}</b>` : ''}${req ? ` · <b style="color:var(--review)">просят продлить: ${req}</b>` : ''}${d.mail_on ? '' : ' · <span class="muted">письма с сервера не отправляются (SMTP не настроен)</span>'}`;
+    $('#teachersTable tbody').innerHTML = teachers.map(t => `<tr${t.renew_ts ? ' class="t-renew"' : ''}>
+      <td class="name">${esc(t.name)}${t.is_main ? ' <span class="chip">главный</span>' : ''}<div class="muted t-sub">код: <code>${esc(t.invite)}</code>${t.created ? ` · с ${fmtDate(t.created)}` : ''}</div></td>
+      <td>${t.email ? `<a href="mailto:${esc(t.email)}">${esc(t.email)}</a>` : `<code>${esc(t.login)}</code>`}</td>
+      <td class="t-acc">${accessCell(t)}</td>
       <td class="num">${t.students}</td>
       <td class="num">${t.classes}</td>
       <td class="num" style="white-space:nowrap">${t.is_main ? '' : `<button type="button" class="link-btn" data-tedit="${t.id}">изменить</button>
         <button type="button" class="link-btn danger" data-tdel="${t.id}">удалить</button>`}</td></tr>`).join('');
+    offer = d.offer;
+    renderOffer();
   }
+  function renderOffer() {
+    if (!offer) return;
+    const T = offer.tariffs.slice(0, 3);
+    while (T.length < 3) T.push({ name: '', price: '', per: '', items: '' });
+    $('#offerTariffs').innerHTML = T.map((t, i) => `<div class="offer-t" data-of="${i}">
+      <input class="inp" data-k="name" placeholder="Название" value="${esc(t.name)}" maxlength="60">
+      <div class="adm-draft-row"><input class="inp" data-k="price" placeholder="Цена, например 990 ₽" value="${esc(t.price)}" maxlength="40">
+        <input class="inp" data-k="per" placeholder="за что: месяц" value="${esc(t.per)}" maxlength="40"></div>
+      <textarea class="inp" data-k="items" rows="3" placeholder="Что входит — по пункту на строку" maxlength="400">${esc(t.items)}</textarea></div>`).join('');
+    const c = offer.contacts || {};
+    $('#ofEmail').value = c.email || ''; $('#ofTg').value = c.telegram || ''; $('#ofPhone').value = c.phone || '';
+  }
+  $('#offerForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = $('#ofMsg');
+    msg.className = 'login-err';
+    const tariffs = $$('#offerTariffs [data-of]').map(b => {
+      const o = {};
+      b.querySelectorAll('[data-k]').forEach(x => { o[x.dataset.k] = x.value.trim(); });
+      return o;
+    }).filter(t => t.name);
+    try {
+      const r = await api('offer', { tariffs, contacts: { email: $('#ofEmail').value.trim(), telegram: $('#ofTg').value.trim(), phone: $('#ofPhone').value.trim() } });
+      offer = r.offer; ME.offer = r.offer;
+      msg.className = 'login-err ok';
+      msg.textContent = 'Сохранено — уже на главной странице';
+    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
+  });
   function fillTeacherForm(t) {
     editTeacher = t;
     $('#teacherFormTitle').textContent = t ? `Изменить: ${t.name}` : 'Добавить учителя';
@@ -1974,6 +2208,14 @@
     $('#tMsg').textContent = '';
   }
   $('#teachersTable tbody').addEventListener('click', async e => {
+    const x = e.target.closest('[data-text]');
+    if (x) {
+      const t = teachers.find(y => y.id === +x.dataset.text), days = +x.dataset.days;
+      const what = days === 0 ? 'сделать доступ без срока' : days < 0 ? 'закрыть доступ сейчас (панель станет только для чтения)' : `продлить доступ на ${days} ${plural(days, 'день', 'дня', 'дней')}`;
+      if (!confirm(`${t.name}: ${what}?`)) return;
+      try { await api('teacher/extend', { id: t.id, days }); toast('Готово'); loadTeachers(); } catch (err) { if (err.status !== 401) toast(err.message); }
+      return;
+    }
     const ed = e.target.closest('[data-tedit]');
     if (ed) { fillTeacherForm(teachers.find(t => t.id === +ed.dataset.tedit)); $('#tName').focus(); return; }
     const del = e.target.closest('[data-tdel]');
@@ -2170,7 +2412,19 @@
     const sec = (ico, title, cls, body, empty) => `<div class="dg-card ${cls}"><h4>${ico} ${title}</h4>${body || `<p class="adm-hint">${empty}</p>`}</div>`;
     const drop = {};
     d.dropped.forEach(x => (drop[x.id] = drop[x.id] || { name: x.name, list: [] }).list.push(x));
-    box.innerHTML = `<p class="adm-hint">${fmtDate(d.from)} — ${fmtDate(d.to)} · занимались <b>${d.active}</b> из ${d.total}. Сравнение — с предыдущими 30 днями.</p>
+    const fcd = d.forecast_avg != null && d.forecast_then != null ? d.forecast_avg - d.forecast_then : 0;
+    const kpi = (label, val, sub, cls) => `<div class="dg-kpi ${cls || ''}"><span>${label}</span><b>${val}</b><small>${sub || ''}</small></div>`;
+    box.dataset.weak = (d.weak || []).map(w => w.n).join(',');
+    box.innerHTML = `<div class="dg-kpis">
+        ${kpi('Средний прогноз балла', d.forecast_avg != null ? d.forecast_avg : '—', d.forecast_avg == null ? 'появится после 10 ответов' : fcd ? `<span class="${fcd > 0 ? 'up' : 'down'}">${fcd > 0 ? '▲ +' : '▼ '}${fcd}</span> за месяц` : 'без изменений за месяц')}
+        ${kpi('Занимались за неделю', `${d.active} <small>из ${d.total}</small>`, d.inactive.length ? `не заходили: ${d.inactive.length}` : 'все в деле', d.inactive.length ? 'warn' : 'ok')}
+        ${kpi('Отстают от класса', d.behind.length, d.behind.length ? 'прогноз на 10+ ниже среднего' : 'таких нет', d.behind.length ? 'warn' : 'ok')}
+        ${kpi('Слабые номера', d.weak.length, d.weak.length ? d.weak.map(w => '№' + nl(w.n)).join(', ') + ' — меньше 50% верно за 30 дней' : 'нет — точность ≥ 50% везде', d.weak.length ? 'warn' : 'ok')}
+      </div>
+      ${d.weak.length ? `<div class="dg-weak"><div>${d.weak.map(w => `<span class="dg-wn"><b>№${nl(w.n)}</b> ${w.pct}% <small>· ${w.answers} отв.</small></span>`).join('')}</div>
+        <button type="button" class="btn primary" data-weak-build>📝 Собрать подборку по слабым номерам</button></div>` : ''}
+      ${d.behind.length ? `<p class="dg-behind">Отстают: ${d.behind.map(x => `${who(x.id, x.name)} <b class="dg-bad">${x.forecast}</b>`).join(', ')} <span class="muted">· средний по классу ${d.forecast_avg}</span></p>` : ''}
+      <p class="adm-hint">${fmtDate(d.from)} — ${fmtDate(d.to)} · занимались <b>${d.active}</b> из ${d.total}. Сравнение — с предыдущими 30 днями.</p>
       <div class="dg-grid">
         ${sec('😴', 'Не занимались за неделю', d.inactive.length ? 'warn' : 'ok', d.inactive.length ? `<ul>${d.inactive.map(x => `<li>${who(x.id, x.name)} <span class="muted">${x.last ? 'последний раз ' + fmtWhen(x.last) : 'ни разу'}</span></li>`).join('')}</ul>` : '', 'Все занимались — отлично!')}
         ${sec('📉', 'Просели по номерам', Object.keys(drop).length ? 'warn' : 'ok', Object.keys(drop).length ? `<ul>${Object.entries(drop).map(([sid, v]) => `<li>${who(sid, v.name)}: ${v.list.map(x => `<b>№${nl(x.n)}</b> <span class="muted">${x.was}% → </span><b class="dg-bad">${x.now}%</b>`).join(', ')}</li>`).join('')}</ul>` : '', 'Ни у кого заметного спада нет.')}
@@ -2179,6 +2433,34 @@
       </div>
       <div class="dg-actions"><button type="button" class="btn primary" data-weak>🎯 Выдать каждому подборку по его слабым местам</button>
         <span class="adm-hint">По 3 задания на 3 самых слабых номера у каждого ученика — у всех своя подборка, срок неделя.</span></div>`;
+  }
+  /** Одна подборка всему классу: по 3 задания на каждый слабый номер класса. */
+  async function buildWeakSet(nums) {
+    if (!nums.length) return;
+    try { if (!BLD.cat) BLD.cat = await api('bank/catalog'); } catch (e) { return; }
+    const cid = curClass.id;
+    if (BLD.d.tasks.length && String(BLD.d.class_id) === String(cid) && !BLD.d.id
+        && !confirm('В черновике подборки уже есть задания. Добавить к ним задания по слабым номерам?')) return;
+    const saved = BLD.f;
+    BLD.f = Object.assign({}, saved, { n: nums.map(String), c: [], q: '', sort: 'random', notsolved: '' });
+    const pool = await bldSearch(true, true);
+    BLD.f = Object.assign({}, saved, { n: nums.map(String), c: [], q: '' });
+    if (!pool) return;
+    if (String(BLD.d.class_id) !== String(cid)) { BLD.d.class_id = String(cid); BLD.d.id = null; }
+    const have = new Set(BLD.d.tasks.map(t => t.id)), byN = {};
+    for (const x of pool) if (!have.has(x.id)) (byN[x.n] = byN[x.n] || []).push(x);
+    const add = [];
+    for (const n of nums) {
+      const l = byN[n] || [];
+      for (let i = l.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [l[i], l[j]] = [l[j], l[i]]; }
+      add.push(...l.slice(0, 3));
+    }
+    BLD.d.title = BLD.d.title || `Слабые номера: ${nums.map(n => '№' + (n === 19 ? '19–21' : n)).join(', ')}`;
+    BLD.d.kind = BLD.d.kind || 'practice';
+    const got = bldAdd(add);
+    bldSave();
+    go('build');
+    toast(`В черновике ${got} ${plural(got, 'задание', 'задания', 'заданий')} — по 3 на номер. Проверьте и нажмите «Отправить классу»`, 5000);
   }
   async function giveWeakSets() {
     if (!confirm('Выдать каждому ученику класса личную подборку: по 3 задания на его 3 самых слабых номера, срок — неделя?')) return;
@@ -2573,6 +2855,7 @@
       return;
     }
     if (t.closest('[data-weak]')) { giveWeakSets(); return; }
+    if (t.closest('[data-weak-build]')) { buildWeakSet(($('#clsDigest').dataset.weak || '').split(',').filter(Boolean).map(Number)); return; }
     const bd = t.closest('[data-batch-del]');
     if (bd) {
       if (!confirm('Удалить эти личные подборки у всех учеников? Решённое останется в журнале.')) return;
@@ -3372,6 +3655,13 @@
       showMediaWarning(d);
       $('#infoLine').textContent = `В банке ${d.tasks} заданий · учеников: ${d.students} · записей в журнале: ${d.attempts}. Резервная копия — файл trainer/server_data/trainer.db.`;
       $('#inviteCode').value = d.invite || '';
+      ME.invite = d.invite || ME.invite;
+      $('#inviteLinkSet').textContent = inviteLink().replace(/^https?:\/\//, '');
+      $('#reportEmail').value = ME.email || '';
+      $('#reportOn').checked = ME.report !== false;
+      $('#reportState').textContent = ME.mail_on ? '' : (ME.is_main
+        ? 'Отправка писем на сервере не настроена — отчёты не уходят. Настройка SMTP — в deploy/DEPLOY.md.'
+        : 'Отправка писем на сервере пока не включена — отчёт можно посмотреть кнопкой выше.');
       courseState(d.course_set, d.course_students);
       $('#authoredOn').checked = d.authored_on !== false;
       $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
@@ -3443,8 +3733,22 @@
     try {
       const r = await api('invite', { code: $('#inviteCode').value });
       $('#inviteCode').value = r.code;
+      ME.invite = r.code;
+      $('#inviteLinkSet').textContent = inviteLink().replace(/^https?:\/\//, '');
+      renderSteps();
       msg.className = 'login-err ok';
-      msg.textContent = 'Код сохранён';
+      msg.textContent = 'Код сохранён. Старая ссылка-приглашение больше не работает';
+    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
+  });
+  $('#reportForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = $('#reportMsg');
+    msg.className = 'login-err';
+    try {
+      await api('report', { email: $('#reportEmail').value, on: $('#reportOn').checked });
+      ME.email = $('#reportEmail').value.trim().toLowerCase(); ME.report = $('#reportOn').checked;
+      msg.className = 'login-err ok';
+      msg.textContent = ME.report && ME.email ? 'Сохранено: отчёт придёт в понедельник утром' : 'Сохранено';
     } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
   });
   $('#pwForm').addEventListener('submit', async e => {
@@ -3478,7 +3782,7 @@
       showMediaWarning(await api('info'));
       await loadMe();
       showApp();
-      go('students');
+      go(ME.guest ? 'classes' : 'students');       // гость — сразу в демо-класс со сводкой
       startFeed();
     } catch (e) {
       if (e.status !== 401) {

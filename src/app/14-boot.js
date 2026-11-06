@@ -292,6 +292,7 @@
       }
       if (!ok) {
         ui.currentId = null;
+        if (await maybeWelcome()) return;
         await askName();
       }
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); abandonCurrent(true); flushSync(true); });
