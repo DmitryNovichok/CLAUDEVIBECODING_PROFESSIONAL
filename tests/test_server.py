@@ -596,6 +596,20 @@ class ServerTest(unittest.TestCase):
         # учитель видит задания работы и итог по каждому: верно, со 2-й попытки, неверно
         self.assertEqual([x["id"] for x in live["items"]], ["b:5", "b:6", "b:27"])
         self.assertEqual(row["cells"], [1, 0.5, 0])
+        # архив работ для печати / PDF: сводка, КИМ с ответами, раздел ученика с его ответами и временем
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", f"/api/admin/asg/archive?id={aid}", headers={"Cookie": "egeadm=admtest"})
+        r = c.getresponse()
+        page = r.read().decode("utf-8")
+        c.close()
+        self.assertEqual(r.status, 200)
+        me_name = server.APP.db.q("SELECT name FROM students WHERE id=?", (me,), one=True)["name"]
+        for piece in ("КИМ ПОДБОРКИ", me_name, "Ответ ученика: 12", "Эталон: 12", "Затраченное время", "Верно", "Половина"):
+            self.assertIn(piece, page)
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", f"/api/admin/asg/archive?id={aid}")
+        self.assertEqual(c.getresponse().status, 401)                      # без входа учителя — нельзя
+        c.close()
         st, d = self.admin("GET", f"/api/admin/assignments?class_id={cid}")
         self.assertEqual(d["assignments"][0]["kind"], "practice")
         # журнал класса: оценка за подборку и точность по номерам
@@ -755,6 +769,15 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((r["result"]["ok"], r["result"]["half"], r["result"]["bad"], r["result"]["pct"], r["result"]["grade"]),
                          (2, 1, 1, 63, 4))                                    # 2.5 из 4 = 63% → «4» (порог 60)
         self.assertEqual(self.req("POST", "/api/asg/finish", {"id": aid}, tok)[1]["result"]["grade"], 4)   # повторно — то же
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", f"/api/admin/asg/archive?id={aid}", headers={"Cookie": "egeadm=admtest"})
+        r = c.getresponse()
+        page = r.read().decode("utf-8")
+        c.close()
+        self.assertEqual(r.status, 200)
+        self.assertIn("Результат: 2.5 / 4 баллов", page)                   # самостоятельная: итог и уходы со вкладки
+        self.assertIn("Уходы со вкладки: 1", page)
+        self.assertIn("print(12)", page)                                    # прикреплённое решение
         n = server.APP.db.q("SELECT COUNT(*) AS c FROM attempts WHERE student_id=? AND reason='work'", (me,), one=True)["c"]
         self.assertEqual(n, 4)                                               # в журнал — один раз
         self.assertEqual(self.check(tok, pid5, answer="12")[0], 200)          # после сдачи — обычная тренировка

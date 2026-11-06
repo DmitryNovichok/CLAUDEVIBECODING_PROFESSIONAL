@@ -2068,7 +2068,8 @@
         <div class="adm-asg-head"><b>${esc(a.title)}</b>
           <span class="adm-hint">${total} ${plural(total, 'задание', 'задания', 'заданий')} · выдано ${fmtDate(a.created)}${a.due ? ` · срок <span style="${late ? 'color:var(--weak)' : ''}">${fmtDate(a.due)}</span>` : ''}</span>
           <span class="adm-actions">
-          <button type="button" class="btn ghost" data-asg-edit="${a.id}">Изменить</button>
+          <a class="btn ghost" href="/api/admin/asg/archive?id=${a.id}" target="_blank" rel="noopener" title="Сводка, КИМ и работа каждого ученика с ответами, временем и кодом — одна страница для печати или PDF">🗂 Архив PDF</a>
+        <button type="button" class="btn ghost" data-asg-edit="${a.id}">Изменить</button>
           <button type="button" class="btn ghost danger" data-asg-del="${a.id}">Удалить</button></span></div>
         <div class="adm-hint" style="margin:0 0 8px">Обычная подборка: ответ проверяется сразу, две попытки. Сделали всё: <b>${done}</b> из ${a.progress.length}${zero ? ` · не начинали: ${zero}` : ''}</div>
         <div class="adm-asg-prog">${a.progress.map(p => `<span class="adm-asg-st${p.done >= total ? ' full' : p.done ? '' : ' zero'}" data-open-st="${p.id}" title="${esc(p.name)}: ${p.done} из ${total}">
@@ -2137,6 +2138,7 @@
         ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : b.batch.startsWith('own') ? '⭐' : '🎯'} ${esc(b.title)}</b>
           <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
           <span class="adm-actions"><button type="button" class="btn${batchOpen === b.batch ? ' primary' : ''}" data-batch-stats="${esc(b.batch)}" data-ids="${(b.ids || []).join(',')}">📊 Результаты</button>
+          <a class="btn ghost" href="/api/admin/asg/archive?ids=${(b.ids || []).join(',')}" target="_blank" rel="noopener" title="Работы всех учеников этой пачки — одна страница для печати или PDF">🗂 Архив PDF</a>
           <select class="adm-select" data-batch-kind="${esc(b.batch)}" data-was="${esc(b.kind || 'self')}" title="Тип работы — сразу у всех учеников этой подборки">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(b.kind || 'self') === k ? ' selected' : ''}>${v.ico} ${v.name}</option>`).join('')}</select>
           <button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div>
           <div class="adm-live" data-batch-box="${esc(b.batch)}"></div></div>`).join('')}` : ''}

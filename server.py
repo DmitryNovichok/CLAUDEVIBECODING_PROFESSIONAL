@@ -5977,6 +5977,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             live_class(db, a["class_id"])
             return self.send_json({"ok": True})
 
+        if path == "/api/admin/asg/archive":
+            # архив работ для печати / PDF: одна подборка (id) или личные подборки пачки (ids=1,2,3)
+            ids = [to_int(x) for x in str(qs.get("ids") or qs.get("id") or "").split(",") if to_int(x)]
+            ok = [i for i in ids if (lambda a: a and self.sees_class(a["class_id"]))(
+                db.q("SELECT class_id FROM assignments WHERE id=?", (i,), one=True))]
+            body = asg_archive_html(db, self.T, ok) if ok else None
+            if not body:
+                return self.err(404, "подборка не найдена")
+            return self.send_bytes(200, body.encode("utf-8"), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+
         if path in ("/api/admin/asg/live", "/api/admin/asg/close"):
             # контрольная онлайн: кто пишет, сколько сдал, сколько верно; «Завершить для всех»
             aid = to_int(qs.get("id") or data.get("id"))
@@ -9950,6 +9960,159 @@ def practice_score(db, a, sid, real):
             "bad": sum(1 for v in vals if v == 0), "pct": pct, "grade": asg_grade(pct, asg_grading(a)) if first else None,
             "final": final, "attempts": attempts, "total": len(items),
             "items": {APP.bank.pid(k): first.get(k) for k in items}}
+
+
+# ---------- архив работ: одна страница для печати (в браузере — «Сохранить как PDF»): сводка, КИМ, разделы по ученикам
+def _hm(ts):
+    return datetime.fromtimestamp(ts).strftime("%d.%m.%Y, %H:%M:%S") if ts else "—"
+
+
+def _dur(ms):
+    if not ms:
+        return "—"
+    sec = int(round(ms / 1000))
+    return f"{sec // 3600} ч {sec % 3600 // 60} мин {sec % 60} с" if sec >= 3600 else f"{sec // 60} мин {sec % 60} с"
+
+
+def asg_archive_html(db, teacher, asg_ids):
+    """Архив работ по подборкам asg_ids (одна общая подборка или личные подборки пачки): сводная таблица, КИМ
+    (условия и ответы, у 19–21 — игра целиком), затем по ученику на страницу — статус, время, баллы и по каждому
+    заданию ответ, эталон, затраченное время, момент сдачи и прикреплённый код."""
+    import clusters
+    from html import escape as E
+    APP.bank.ensure()
+    tasks = APP.bank.tasks
+    asgs = [a for a in (db.q("SELECT * FROM assignments WHERE id=?", (i,), one=True) for i in asg_ids) if a]
+    if not asgs:
+        return None
+    cls = db.q("SELECT name FROM classes WHERE id=?", (asgs[0]["class_id"],), one=True)
+    title = asgs[0]["title"]
+    kind = ASG_KINDS.get(asgs[0]["kind"] or "self", "Работа")
+    label = lambda t: dict(clusters.labels(t.get("n"))).get(t.get("c"), "")
+    # КИМ: задания всех подборок по порядку (у личных подборок — объединение), игры 19–21 — один раз
+    kim, seen = [], set()
+    for a in asgs:
+        for i in json.loads(a["tasks"] or "[]"):
+            t = tasks.get(i)
+            if t and i not in seen:
+                seen.add(i)
+                kim.append(t)
+    num_of = {t["id"]: k + 1 for k, t in enumerate(kim)}
+    people, rows_html = [], []
+    for a in asgs:
+        real = [i for i in json.loads(a["tasks"] or "[]") if i in tasks]
+        items = asg_items(real)
+        studs = db.q("SELECT id, name FROM students WHERE class_id=? AND (? IS NULL OR id=?) ORDER BY name",
+                     (a["class_id"], a["student_id"], a["student_id"]))
+        sols = {}
+        if real:
+            for x in db.q(f"""SELECT student_id, task_id, code, ts FROM solutions WHERE task_id IN ({','.join('?' * len(real))})
+                              AND ts >= ?""", (*real, a["created"] or 0)):
+                sols[(x["student_id"], x["task_id"])] = x
+        for m in studs:
+            per = []                                   # по каждому заданию: (задание, итог, ответ, мс, когда, попыток, код)
+            started = finished = None
+            status = "не начинал"
+            if a["strict"]:
+                run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], m["id"]), one=True)
+                answers = json.loads(run["answers"] or "{}") if run else {}
+                res = (json.loads(run["result"]) if run and run["finished"] else asg_score(answers, items)) if run else {}
+                if run:
+                    started, finished = run["started"], run["finished"]
+                    status = "завершено" + (" (завершил учитель)" if run["forced"] else "") if run["finished"] else "выполняет"
+                for k in items:
+                    x = answers.get(k) or {}
+                    per.append((k, res.get(k) if k in answers else None, x.get("a"), x.get("ms"), x.get("ts"), 1 if x else 0))
+                away, fs = (run["away"] or 0, run["fs"] or 0) if run else (0, 0)
+                grade, pct = (run["grade"], run["pct"]) if run else (None, None)
+            else:
+                at = {}
+                for r in db.q(f"""SELECT task_id, score, answers, spent_ms, ts FROM attempts WHERE student_id=? AND ts>=? AND exam IS NULL
+                                  AND task_id IN ({','.join('?' * len(items)) or "''"}) ORDER BY ts, id""",
+                              (m["id"], a["created"] or 0, *items)):
+                    at.setdefault(r["task_id"], []).append(r)
+                for k in items:
+                    rs = at.get(k) or []
+                    first = rs[0] if rs else None
+                    try:
+                        ans = " ".join(json.loads(first["answers"] or "[]")) if first else None
+                    except (ValueError, TypeError):
+                        ans = first["answers"] if first else None
+                    per.append((k, (first["score"] or 0) if first else None, ans, sum(r["spent_ms"] or 0 for r in rs) or None,
+                                rs[-1]["ts"] if rs else None, len(rs)))
+                tried = [p for p in per if p[1] is not None]
+                if tried:
+                    started = min(p[4] for p in tried) if tried else None
+                    finished = max(p[4] for p in tried) if len(tried) == len(per) else None
+                    status = "сделал все задания" if len(tried) == len(per) else "решает"
+                sc = practice_score(db, a, m["id"], real)
+                grade, pct, away, fs = sc["grade"], sc["pct"], 0, 0
+            got = sum(p[1] or 0 for p in per)
+            answered = sum(1 for p in per if p[2] not in (None, ""))
+            people.append((m["name"], status, got, len(per), answered, grade, pct))
+            # раздел ученика
+            out = [f'<section class="st"><div class="bar"></div><div class="brand">EGESHKA · РЕЗУЛЬТАТЫ РАБОТЫ</div>'
+                   f'<h2>{E(m["name"])}</h2><div class="sub">{E(a["title"])}</div>'
+                   f'<p class="meta">ЕГЭ · информатика · {E(ASG_KINDS.get(a["kind"] or "self", ""))} · {E(cls["name"] if cls else "")}<br>'
+                   f'Учитель: {E(teacher["name"] or "")}<br>Статус: {E(status)}<br>'
+                   f'Начало: {_hm(started)} · Завершение: {_hm(finished)}<br>'
+                   f'<b>Результат: {got:g} / {len(per)} баллов · С ответом: {answered} / {len(per)}'
+                   + (f' · {pct}% · оценка «{grade}»' if grade else '') + '</b>'
+                   + (f'<br>Уходы со вкладки: {away} · выходы из полного экрана: {fs}' if a["strict"] else '')
+                   + f'<br>Сформировано: {_hm(time.time())}</p>']
+            for j, (k, val, ans, ms, ts, cnt) in enumerate(per, 1):
+                t = tasks.get(k) or {}
+                grp = t.get("group") or k
+                st_word = "не решал" if val is None else "Верно" if val == 1 else "Половина" if val == 0.5 else "Неверно"
+                code = sols.get((m["id"], grp)) or sols.get((m["id"], k))
+                lab = label(tasks.get(grp) or t)
+                out.append(f'<div class="task"><h3>Задание {j} · № {t.get("n", "?")}'
+                           + (f' · {E(lab)}' if lab else '') + f' <span class="kim">(КИМ, задание {num_of.get(grp, "?")})</span></h3>'
+                           f'<p>Статус: <b class="{"ok" if val == 1 else "half" if val == 0.5 else "bad" if val is not None else ""}">{st_word}</b>'
+                           f' · Баллы: {(val or 0):g} / 1<br>Ответ ученика: {E(str(ans)) if ans not in (None, "") else "не введён"}<br>'
+                           f'Эталон: {E(str(t.get("ans", "")))}<br>Затраченное время: {_dur(ms)}'
+                           + (f' · попыток: {cnt}' if not a["strict"] and cnt > 1 else '') +
+                           f'<br>Последнее сохранение / сдача: {_hm(ts)}</p>'
+                           + (f'<div class="prog">Программа · python</div><pre>{E(code["code"] or "")}</pre>' if code and code["code"] else '')
+                           + '</div>')
+            out.append("</section>")
+            rows_html.append("".join(out))
+    # КИМ
+    kim_html = []
+    for k, t in enumerate(kim, 1):
+        pub = APP.bank.pubs.get(t["id"]) or {}
+        ans = (" | ".join(f"{p.get('n')}: {p.get('ans', '')}" for p in t["parts"]) if t.get("parts") else t.get("ans", ""))
+        att = "".join(f'<a href="{E(x["href"])}">{E(x["name"])}</a> ' for x in pub.get("att") or [])
+        kim_html.append(f'<div class="ktask"><h3>{k}. № {"19–21" if t.get("parts") else t.get("n")}'
+                        + (f' · {E(label(t))}' if label(t) else '') + f' <span class="kim">{E(APP.bank.pid(t["id"]))}</span></h3>'
+                        f'<div class="cond">{pub.get("html") or ""}</div>' + (f'<p class="files">Файлы: {att}</p>' if att else '')
+                        + f'<p class="ans">Ответ: <b>{E(str(ans))}</b></p></div>')
+    summary = "".join(f'<tr><td>{k}</td><td>{E(n)}</td><td>{E(st)}</td><td>{g:g} / {tot}</td><td>{an} / {tot}</td>'
+                      f'<td>{"" if p is None else str(p) + "%"}</td><td>{gr or ""}</td></tr>'
+                      for k, (n, st, g, tot, an, gr, p) in enumerate(sorted(people), 1))
+    css = """body{font:14px/1.45 Arial,sans-serif;color:#1f2937;background:#f3f5f9;margin:0}
+.wrap{max-width:900px;margin:0 auto;padding:20px}.tools{position:sticky;top:0;background:#fff;padding:10px 20px;border-bottom:1px solid #dde;z-index:2}
+.tools button{font:700 14px Arial;padding:8px 16px;border-radius:8px;border:0;background:#1667c4;color:#fff;cursor:pointer}
+section{background:#fff;padding:24px 28px;margin:18px 0;border-radius:6px}.bar{height:6px;background:#0f5bb5;margin:-24px -28px 14px}
+.brand{color:#0f5bb5;font-weight:700;font-size:13px;letter-spacing:.02em}h1{margin:0 0 6px}h2{margin:6px 0 2px;font-size:22px}
+.sub{color:#6b7280}.meta{font-size:13px}.task{margin:14px 0;padding-top:10px;border-top:1px solid #eef}h3{font-size:15px;color:#0f5bb5;margin:0 0 4px}
+.kim{color:#9aa;font-weight:400;font-size:12px}.ok{color:#15803d}.half{color:#b7791f}.bad{color:#c53030}
+pre{background:#f7f8fb;border:1px solid #e5e7eb;padding:8px 10px;white-space:pre-wrap;font:12px/1.45 Consolas,monospace}
+.prog{color:#0f5bb5;font-weight:700;font-size:13px}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #d6dae3;padding:4px 8px;text-align:left}
+.cond img{max-width:100%}.cond table{width:auto}.ktask{margin:16px 0;padding-top:10px;border-top:1px solid #eef}.ans{color:#15803d}
+@media print{body{background:#fff}.tools{display:none}.wrap{padding:0;max-width:none}section{margin:0;border-radius:0;page-break-after:always;padding:0 4mm}
+.bar{margin:0 0 10px}.task,.ktask{break-inside:avoid}}"""
+    head = (f'<section><div class="bar"></div><div class="brand">EGESHKA · АРХИВ РАБОТ</div><h1>{E(title)}</h1>'
+            f'<p class="meta">{E(kind)} · {E(cls["name"] if cls else "")} · учитель: {E(teacher["name"] or "")}<br>'
+            f'Выдана: {_hm(asgs[0]["created"])}' + (f' · срок: {_hm(asgs[0]["due"])}' if asgs[0]["due"] else '')
+            + f' · учеников: {len(people)} · сформировано: {_hm(time.time())}</p>'
+            f'<table><tr><th>№</th><th>Ученик</th><th>Статус</th><th>Баллы</th><th>С ответом</th><th>%</th><th>Оценка</th></tr>{summary}</table></section>'
+            f'<section><div class="bar"></div><div class="brand">КИМ ПОДБОРКИ</div><h1>{E(title)}</h1>{"".join(kim_html)}</section>')
+    return (f'<!doctype html><html lang="ru"><head><meta charset="utf-8"><base href="/"><title>Архив работ — {E(title)}</title>'
+            f'<link rel="stylesheet" href="vendor/katex/katex.min.css"><style>{css}</style></head><body>'
+            '<div class="tools"><button type="button" onclick="window.print()">🖨 Сохранить в PDF / напечатать</button> '
+            '<span style="color:#667;font-size:13px">В окне печати выберите «Сохранить как PDF». Каждый ученик — с новой страницы.</span></div>'
+            f'<div class="wrap">{head}{"".join(rows_html)}</div></body></html>')
 
 
 def asg_items(real):
