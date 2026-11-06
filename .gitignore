@@ -1,2 +1,15 @@
 __pycache__/
 *.pyc
+server_data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.csv
+*backup*/
+*.bak
+.env
+.env.*
+*.pem
+*.key
+private_config.json

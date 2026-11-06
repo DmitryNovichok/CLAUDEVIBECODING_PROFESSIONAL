@@ -91,7 +91,7 @@
   let gfMkOpen = false;                   // в шторке своего подарка открыта строка «выставить на рынок»
   let gfSel = null;                       // «Мои подарки»: режим выбора нескольких — Set id выбранных (null — обычный режим)
   let gfFresh = 0;                        // только что улучшенный подарок — плитка «раскрывается»
-  let FB = null, fbTab = 'rich';          // Forbes класса и его вкладка
+  let FB = null, fbTab = 'rich';          // Forbes (общий для учеников всех учителей) и его вкладка
   let gfFind = '';                        // поиск одноклассника в шторке «Купить» (список длинный — выпадающий не листается)
   const PH = {};                          // графики цены подарков: gift → { pts, at } (с сервера, на 5 минут)
   const num = v => Number(v || 0).toLocaleString('ru-RU');
@@ -226,7 +226,7 @@
     return `${sum.length ? `<div class="bx-sum">${sum.map(x => `<span>${x}</span>`).join('')}</div>` : ''}
       ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Биткоины за опыт приходят сами — их здесь нет</small></div>'}`;
   }
-  // ---- Forbes класса: обложка журнала, список и вкладки
+  // ---- Forbes (общий на весь сайт): обложка журнала, список и вкладки
   const fbAv = (r, s) => (r.avatar && !r.avatar.uniq ? `<span class="fb-av img r-limited" style="--s:${s}px">${giftImg(r.avatar.img)}</span>`   // лимитка без улучшения
     : r.avatar ? `<span class="fb-av${r.avatar.uniq.img ? ' img' : ''} r-${r.avatar.uniq.rar.k}" style="--c1:${r.avatar.uniq.c1};--c2:${r.avatar.uniq.c2};--s:${s}px">${r.avatar.uniq.img ? giftImg(r.avatar.uniq.img) : r.avatar.i}</span>`
     : `<span class="fb-av plain" style="--s:${s}px">${esc(r.name[0] || '?')}</span>`);
@@ -236,7 +236,7 @@
   const RK_T = { limited: 'лимитка', 'u:myth': 'мифич.', 'u:legend': 'легенд.', 'u:epic': 'эпич.', 'u:rare': 'редк.' };
   function forbesTab() {
     const subs = [['rich', '💰 Состояние'], ['gift', '🎁 Подарок'], ['coll', '🖼 Коллекция'], ['rare', '💎 Редкость']];
-    const head = `<div class="fb-head"><div class="fb-title">FORBES <i>Egeshka</i></div><small>Самые богатые в классе · ${FB ? FB.month : ''}</small></div>
+    const head = `<div class="fb-head"><div class="fb-title">FORBES <i>Egeshka</i></div><small>Самые богатые на Egeshka · ${FB ? FB.month : ''}</small></div>
       <div class="fb-subs">${subs.map(([k, t]) => `<button type="button" class="${fbTab === k ? 'on' : ''}" data-fb-tab="${k}">${t}</button>`).join('')}</div>`;
     if (!FB) return head + '<p class="fm-muted">Загружаю…</p>';
     const gap = (list, i) => (i && list[i].rank > list[i - 1].rank + 1 ? '<div class="fb-gap">…</div>' : '');
@@ -603,7 +603,7 @@
   });
   $('#coinCard')?.addEventListener('click', () => openGifts(undefined, undefined, 'shop'));
   $('#whoGifts')?.addEventListener('click', () => { setWhoMenu(false); openGifts(undefined, undefined, 'shop'); });
-  /** Forbes класса — вкладка окна «Биткоины» (и возврат к ней из профиля). */
+  /** Forbes — вкладка окна «Биткоины» (и возврат к ней из профиля). */
   const openForbes = () => openGifts(undefined, undefined, 'forbes');
   document.addEventListener('click', e => {
     const to = e.target.closest('[data-gift-to]');

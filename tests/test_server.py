@@ -48,6 +48,8 @@ def fmt_day(ts):
 class ServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.saved_rewards = server.TASK_BTC
+        server.TASK_BTC = {n: server.Fraction(n, 10) for n in range(1, 28)}  # synthetic policy, never production values
         cls.tmp = Path(tempfile.mkdtemp())
         (cls.tmp / "data").mkdir()
         (cls.tmp / "data" / "bank.js").write_text("window.EGE_BANK = " + json.dumps(BANK) + ";", encoding="utf-8")
@@ -87,6 +89,7 @@ class ServerTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.httpd.shutdown()
+        server.TASK_BTC = cls.saved_rewards
         for k, v in cls.saved.items():
             setattr(server, k, v)
         shutil.rmtree(cls.tmp, ignore_errors=True)
@@ -2196,7 +2199,7 @@ class ServerTest(unittest.TestCase):
         lb = self.req("GET", "/api/leaderboard", token=stud)[1]
         self.assertNotIn(me["name"], [r["name"] for r in lb["boards"]["week"]["top"]])
         for t in (stud, tok):
-            self.req("POST", "/api/dev/unlock", {"code": "20011608"}, t)
+            self.req("POST", "/api/dev/unlock", {"code": server.DEV_CODE}, t)
         self.assertNotIn(tsid, [m["sid"] for m in self.req("GET", "/api/duels", token=stud)[1]["mates"]])
         self.assertEqual(self.req("GET", "/api/duels", token=tok)[1]["mates"], [])
         st, d = self.admin("GET", "/api/admin/students?class_id=all")
@@ -2931,9 +2934,9 @@ class ServerTest(unittest.TestCase):
         self.assertIn("№24 — решено быстрее 10 минут", whys)
         self.assertIn("№26 — решено быстрее 20 минут", whys)
         self.assertNotIn("№27 — решено быстрее 25 минут", whys)
-        self.assertEqual((g["btc_fast"], g["task_coins"]), (2, 25 + 10))
+        self.assertEqual((g["btc_fast"], g["task_coins"]), (2, math.floor(server.TASK_BTC[24] + server.TASK_BTC[25])))
         att("h:24a", 24, 12)                   # то же задание потом вдумчиво — засчитано
-        self.assertEqual(server.game_summary(db, sid)["task_coins"], 25 + 10 + 25)
+        self.assertEqual(server.game_summary(db, sid)["task_coins"], math.floor(2 * server.TASK_BTC[24] + server.TASK_BTC[25]))
         # ответ сразу после открытия — в ответе сервера «быстро» и сколько минут нужно
         pid27 = server.APP.bank.pid("b:27")
         self.req("POST", "/api/open", {"task": pid27}, tok)
@@ -3245,6 +3248,30 @@ class ServerTest(unittest.TestCase):
         self.assertGreater(server.rare_score(castle), server.rare_score(ck) * 9)          # мифический замок весит в 10 раз больше
         self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE day=? AND student_id=?", (today.isoformat(), sidA), one=True)["total"], A["total"])
         self.assertEqual(self.req("GET", "/api/forbes")[0], 401)
+
+    def test_forbes_all_teachers(self):
+        # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;
+        # убранный из рейтингов в Forbes не попадает
+        db = server.APP.db
+        tokA, tokB = self.login("Общефорбсов Олег"), self.login("Чужефорбсова Чара")
+        sidA = self.req("GET", "/api/me", token=tokA)[1]["sid"]
+        sidB = self.req("GET", "/api/me", token=tokB)[1]["sid"]
+        tid = db.x("INSERT INTO teachers(name, login, invite, created) VALUES('Второй учитель', 'second_forbes', 'inv-forbes-2', ?)",
+                   (time.time(),))
+        db.x("UPDATE students SET teacher_id=? WHERE id=?", (tid, sidB))      # Чара — у другого учителя
+        for sid in (sidA, sidB):
+            db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time(), 5000))
+        server._FORBES.clear()
+        F = self.req("GET", "/api/forbes", token=tokA)[1]
+        self.assertTrue({sidA, sidB} <= {r["sid"] for r in F["rich"]})
+        st, prof = self.req("GET", f"/api/profile?sid={sidB}", token=tokA)
+        self.assertEqual(st, 200, prof)
+        db.x("UPDATE students SET no_rank=1 WHERE id=?", (sidB,))
+        server._FORBES.clear()
+        self.assertNotIn(sidB, {r["sid"] for r in self.req("GET", "/api/forbes", token=tokA)[1]["rich"]})
+        self.assertEqual(self.req("GET", f"/api/profile?sid={sidB}", token=tokA)[0], 404)
+        db.x("UPDATE students SET no_rank=0 WHERE id=?", (sidB,))
+        server._FORBES.clear()
 
     def test_gift_ops_fee(self):
         # с покупки, улучшения и продажи сразу — комиссия до 5 % в банк (четверть комиссии рынка, вниз до целого)
@@ -3911,7 +3938,7 @@ class ServerTest(unittest.TestCase):
         att("x:25", 25, reason="work")                 # из самостоятельной — она считается целиком
         att("x:23", 23, exam="e1")                     # из варианта — у варианта свой бонус
         g = server.game_summary(db, sid)
-        self.assertEqual(g["task_coins"], math.floor(2.5 + 50 + 20 + 5))
+        self.assertEqual(g["task_coins"], math.floor(server.TASK_BTC[10] + server.TASK_BTC[26] + server.TASK_BTC[27] / 2 + sum(server.TASK_BTC[n] for n in (19, 20, 21))))
         self.assertEqual(g["btc_fast"], 1)                              # ответ быстрее 30 секунд — ещё и −1 ₿
         self.assertEqual((g["coins"], g["exam_coins"]), (g["mined"] + g["task_coins"] - 1, 0))
         # самостоятельная — как вариант: полный вариант по тестовому баллу, короче — по проценту и пропорционально
@@ -3927,7 +3954,7 @@ class ServerTest(unittest.TestCase):
         w = self.admin("GET", f"/api/admin/gifts/student?id={sid}")[1]["wallet"]
         self.assertEqual((w["task"], w["exam"]), (g["task_coins"], g["exam_coins"]))
         d = self.req("GET", "/api/gifts", token=tok)[1]
-        self.assertEqual(d["task_coins"], 77)
+        self.assertEqual(d["task_coins"], g["task_coins"])
         self.assertNotIn("task_btc", json.dumps(d))                    # таблицу бонусов ученику не отдаём
 
     def test_promo(self):

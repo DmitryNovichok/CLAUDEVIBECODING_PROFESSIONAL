@@ -49,6 +49,14 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from auth import hash_pw, check_pw, revoke_access
+from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
+from private_config import read_private, private_rewards, require_private
+PRIVATE_CONFIG = read_private()
+from storage import Transactional, STATE_LOCK
+from economy import atomic, financial_path, atomic_response
+import signal
+
 import clusters                                   # noqa: E402  тип задания и сложность (clusters.py рядом с сервером)
 import together                                   # noqa: E402  совместный сеанс: код и доска (together.py рядом с сервером)
 
@@ -77,7 +85,7 @@ BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".
             ".pdf", ".zip", ".rar", ".7z", ".py", ".pas", ".cpp", ".dat"}
 MAX_BODY = 4_000_000
 ADMIN_SESSION_DAYS = 14
-DEFAULT_INVITE = "16082001"        # пригласительный код для учеников (меняется в панели учителя)
+DEFAULT_INVITE = PRIVATE_CONFIG.get("DEFAULT_INVITE") or secrets.token_hex(12)
 STUDENT_COOKIE_DAYS = 30                 # вход живёт месяц с последнего захода
 # Вход — свой на каждом устройстве (student_sessions): «Выйти» отзывает его на сервере, «Выйти везде» — все сразу.
 # Школьная сеть: с адреса за SHARED_DAYS дней входили или решали SHARED_MIN+ разных учеников — компьютеры общие.
@@ -139,12 +147,6 @@ mimetypes.add_type("application/vnd.oasis.opendocument.text", ".odt")
 
 
 # ================================================================ ответы (как в app.js)
-def clean_ans(a):
-    """Ответ из банка: в КомпЕГЭ перенос строки иногда записан двумя символами «\\n» — делаем настоящим.
-    Иначе у №25 и 27 форма ответа строилась неверно, а верный ответ не засчитывался."""
-    if not isinstance(a, str):
-        return a
-    return a.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "").replace("\r\n", "\n").strip()
 
 
 # Ошибки в ответах банков, проверенные вручную: id задания → верный ответ. Банк на сервере собирается из папок,
@@ -156,10 +158,6 @@ ANS_FIX = {
 }
 
 
-def tokens(s):
-    s = str(s or "").replace("\\n", " ").lower().replace("ё", "е")
-    s = re.sub("[−–—]", "-", s)
-    return [x for x in re.split(r"[\s;|,]+", s) if x]
 
 
 def bot_reasons(m):
@@ -210,52 +208,18 @@ def trap_hit(db, s, t, ans):
 ALT_RE = re.compile(r"\s+или\s+", re.I)
 
 
-def alternatives(ans):
-    return [x for x in ALT_RE.split(str(ans or "")) if x.strip()] or [str(ans or "")]
 
 
-def shape_of(ans, n=None):
-    if n == 25 and len(tokens(alternatives(ans)[0])) > 1:
-        return {"type": "grid", "rows": 10, "cols": 2}     # №25 на ЕГЭ — всегда таблица 10 × 2
-    rows = [tokens(r) for r in alternatives(ans)[0].split("\n")]
-    rows = [r for r in rows if r]
-    total = sum(len(r) for r in rows)
-    if total <= 1:
-        return {"type": "single"}
-    cols = max(len(r) for r in rows)
-    nr = len(rows)
-    if nr >= 3:
-        nr = max(nr, 10)
-    return {"type": "grid", "rows": nr, "cols": cols}
 
 
 def think_sec(n):
     return THINK_SEC_HARD if (n or 0) >= 24 else THINK_SEC_DEFAULT
 
 
-def ege_points(n):
-    return 2 if (n or 0) >= 26 else 1
 
 
-def answer_credit(n, expected, answer, cells=None):
-    """1 — верно, 0 — неверно. У №26 и 27 ответ из двух половин (два числа или две пары):
-    верна ровно одна половина — 0.5, на экзамене это 1 балл из 2. «A или B» — верен любой."""
-    return max(_credit(n, alt, answer, cells) for alt in alternatives(expected))
 
 
-def _credit(n, expected, answer, cells=None):
-    a = tokens(expected)
-    b = tokens(answer)
-    if a and a == b:
-        return 1.0
-    if (n or 0) < 26 or len(a) < 2 or len(a) % 2:
-        return 0.0
-    if cells is not None and len(cells) == len(a):       # пустые ячейки сохраняют позиции чисел
-        b = [(tokens(c) or [""])[0] for c in cells]
-    if len(b) != len(a):
-        return 0.0
-    h = len(a) // 2
-    return ((a[:h] == b[:h]) + (a[h:] == b[h:])) / 2
 
 
 def norm_name(name):
@@ -1462,12 +1426,13 @@ def html_text(h):
 
 
 # ================================================================ база
-class DB:
+class DB(Transactional):
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        self.lock = threading.Lock()
+        self.lock = STATE_LOCK
+        self._tx_depth = 0
         with self.lock:
             c = self.conn
             c.execute("PRAGMA journal_mode=WAL")
@@ -1870,14 +1835,16 @@ class DB:
     def x(self, sql, args=()):
         with self.lock:
             cur = self.conn.execute(sql, args)
-            self.conn.commit()
+            if not self._tx_depth:
+                self.conn.commit()
             return cur.lastrowid
 
     def xn(self, sql, args=()):
         """Как x, но возвращает число изменённых строк."""
         with self.lock:
             cur = self.conn.execute(sql, args)
-            self.conn.commit()
+            if not self._tx_depth:
+                self.conn.commit()
             return cur.rowcount
 
     def setting(self, key, value=None):
@@ -1897,17 +1864,8 @@ def teacher_of(s):
     return t or main_teacher()
 
 
-def hash_pw(pw, salt=None):
-    salt = salt or secrets.token_hex(16)
-    h = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt.encode(), 200_000).hex()
-    return f"{salt}${h}"
 
 
-def check_pw(pw, stored):
-    if not stored or "$" not in stored:
-        return False
-    salt, _ = stored.split("$", 1)
-    return hmac.compare_digest(hash_pw(pw, salt), stored)
 
 
 # ================================================================ HTTP
@@ -2867,6 +2825,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     def api(self, method, path, qs, data):
         try:
+            if financial_path(path):
+                return atomic_response(self, APP.db, lambda: self.api_route(method, path, qs, data))
             return self.api_route(method, path, qs, data)
         finally:
             if method == "POST" and ("/tour" in path or "/duel" in path):
@@ -2976,11 +2936,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "game": game_summary(db, s["id"])})
 
         if path == "/api/forbes":
-            # Forbes класса: самые богатые (кошелёк + подарки), самый дорогой подарок, самая дорогая и самая редкая коллекция
+            # Forbes — общий для учеников всех учителей: самые богатые (кошелёк + подарки), самый дорогой подарок,
+            # самая дорогая и самая редкая коллекция
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            return self.send_json(forbes_view(forbes_data(db, teacher_of(s)["id"]), s["id"]))
+            return self.send_json(forbes_view(forbes_data(db), s["id"]))
 
         if path == "/api/gifts/price":
             # график цены подарка в магазине за PRICE_DAYS дней: по дням и сейчас, с числом покупок за неделю
@@ -3558,8 +3519,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json({"ok": True, "badges": keys})
             sid = to_int(qs.get("sid")) or s["id"]
             m = s if sid == s["id"] else mates.get(sid)
+            if not m and any(r["sid"] == sid for r in forbes_data(db)["rows"]):
+                # Forbes общий на весь сайт: из него открывается профиль ученика и другого учителя;
+                # его короны и значки считаются среди учеников его учителя
+                m = db.q("SELECT * FROM students WHERE id=?", (sid,), one=True)
+                ids = [x["id"] for x in teacher_students(db, teacher_of(m)["id"])]
             if not m:
-                return self.err(404, "Профиль не найден — смотреть можно только учеников своего учителя")
+                return self.err(404, "Профиль не найден — смотреть можно учеников своего учителя и участников Forbes")
             g = game_summary(db, sid)
             lg = league_row(db, sid)["league"]
             crowns = crown_counts(db, ids)
@@ -6139,6 +6105,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             else:
                 db.x("UPDATE together SET ended=? WHERE id=? AND ended IS NULL", (now, tid))
                 TOG.forget(tid)
+                TOG.flush()
             LIVE.send(json.loads(r["students"] or "[]"), "together")
             return self.send_json({"ok": True})
 
@@ -6521,11 +6488,7 @@ def day_end(day):
 
 # бонус ₿ за впервые решённое задание (сверх биткоинов за опыт) по номеру; со 2-й попытки — половина.
 # На сайте таблицу не показываем — ученику только «чем сложнее задание, тем больше».
-TASK_BTC = {**{n: Fraction(n, 4) for n in range(1, 11)},                 # №1–10 — 25 % от номера
-            **{n: Fraction(35 * n, 100) for n in range(11, 16)},          # №11–15 — 35 %
-            16: Fraction(4), 17: Fraction(17, 2), 18: Fraction(63, 10),   # 25 %, 50 %, 35 %
-            19: Fraction(5, 3), 20: Fraction(5, 3), 21: Fraction(5, 3),   # игра 19–21 — 5 ₿ за все три вопроса
-            22: Fraction(7), 23: Fraction(10), 24: Fraction(25), 25: Fraction(10), 26: Fraction(50), 27: Fraction(40)}
+TASK_BTC = private_rewards(PRIVATE_CONFIG)
 
 
 def work_btc(items):
@@ -6671,7 +6634,7 @@ def week_key(ts=None):
 # после каждого ответа. Пересчёт по всему журналу дорогой — кэшируем, пока у ученика не появилось новых
 # ответов, поправок опыта или вариантов (и не дольше 5 минут: окна «неделя/месяц» скользят).
 _GS_CACHE = {}
-_GS_LOCK = threading.Lock()
+_GS_LOCK = STATE_LOCK
 
 
 def _gs_stamp(db, sid):
@@ -6786,7 +6749,7 @@ def pyc_norm(ans):
 
 
 _LB_PEOPLE = {}                         # учитель → (когда собран, строки рейтинга)
-_LB_BUILD = threading.Lock()            # собирает один запрос, остальные не дублируют работу
+_LB_BUILD = STATE_LOCK            # собирает один запрос, остальные не дублируют работу
 LB_TTL = 15
 
 
@@ -6889,7 +6852,7 @@ GIFTS_SHOW = 5                         # сколько подарков вид�
 GIFTS_PER_DAY = 10 ** 9                # подарков в сутки: без ограничения (поле осталось для старых страниц)
 GIFT_NOTE_MAX = 80
 COINS_GRANT_MAX = 1000                 # биткоинов за одно начисление учителем
-_GIFT_LOCK = threading.Lock()          # проверка баланса, покупка и номер уникального подарка — одним шагом
+_GIFT_LOCK = STATE_LOCK          # проверка баланса, покупка и номер уникального подарка — одним шагом
 
 # Улучшение делает подарок уникальным: случайные фон, узор и эффект (у каждого — своя редкость) и номер среди
 # улучшенных подарков этого вида. Сочетание «фон + узор + эффект» у одного вида не повторяется.
@@ -6958,7 +6921,7 @@ BANK_START = 10000                     # стартовый капитал ба�
 LABOR_BANK, LABOR_DAYS = 0.5, 7
 BANK_MOVE_MAX = 100000                 # пополнить или изъять за раз — не больше
 _ECON = {"t": 0.0, "v": None, "db": None}
-_ECON_LOCK = threading.Lock()
+_ECON_LOCK = STATE_LOCK
 _THERMO = {"db": None, "ts": [], "earn": [], "last": None}
 # Продажа сразу (подарок сгорает): цена — за сколько подарок достался, но не дороже, чем он сейчас в магазине (иначе выгодно
 # скупить одинаковые, поднять спрос и сдать дороже); у уникального — плюс доля базовой цены улучшения (без надбавки за тираж)
@@ -7207,10 +7170,8 @@ def thermo_add(db, ts, who, **lv):
 def thermo_goal(avg, med, target):
     """Куда тянет термостат при таком состоянии учеников (кошелёк + подарки): r — среднее к норме, m — полусумма среднего и медианы к норме
     (медиана — чтобы пара «копилок» не делала дорого всем)."""
-    r, m = avg / target, (avg + med) / 2 / target
-    return {"idx": min(IDX_MAX, max(IDX_MIN, m ** 0.5 if m > 0 else IDX_MIN)),
-            "earn": min(EARN_MAX, max(EARN_MIN, r ** -0.7 if r > 0 else EARN_MAX)),
-            "fee": round(FEE_MIN + (FEE_MAX - FEE_MIN) * min(1, max(0, (r - 0.6) / 1.4)), 3)}
+    return _economy.thermostat_goal(avg, med, target, idx=(IDX_MIN, IDX_MAX),
+                                     earn=(EARN_MIN, EARN_MAX), fee=(FEE_MIN, FEE_MAX))
 
 
 def bank_balance(db):
@@ -7308,6 +7269,7 @@ def labor_accrue(db, sids, now):
     return added
 
 
+@atomic
 def econ(db, fresh=False):
     """Экономика сейчас: состояние активных учеников (решали что-то за 30 дней; кошелёк + сколько дадут за подарки) и их кошельки,
     рычаги термостата, банк рынка и лимитка.
@@ -7359,10 +7321,9 @@ def econ(db, fresh=False):
              "mode": "auto" if auto else "manual", "bank": bank, "tax_from": round(TAX_FROM * target), "limited": limited_now(db, now),
              "op_fee": op_fee({"fee": lv["fee"]})}
         _ECON.update(t=now, v=v, db=db)
-        if db.setting("forbes_day") != day:          # раз в день — снимок Forbes всех классов (для роста за неделю)
+        if db.setting("forbes_day") != day:          # раз в день — снимок общего Forbes (для роста за неделю)
             db.setting("forbes_day", day)
-            for t in db.q("SELECT id FROM teachers"):
-                forbes_data(db, t["id"], e=v)
+            forbes_data(db, e=v)
         db.x("""INSERT INTO econ_hist(day, idx, avg, total, active, med, earn, fee, tax, bank, r, s_avg, s_med) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(day) DO UPDATE SET idx=excluded.idx, avg=excluded.avg, total=excluded.total, active=excluded.active,
                 med=excluded.med, earn=excluded.earn, fee=excluded.fee, tax=excluded.tax, bank=excluded.bank, r=excluded.r,
@@ -7415,6 +7376,7 @@ def btc_rate_at(db, ts):
     return _BTC_RATES["k"][i] if i >= 0 else COIN_XP
 
 
+@atomic
 def btc_rate_now(db):
     """Курс сейчас: раз в минуту считает, сколько учеников верно решали за последние BTC_RATE_WINDOW; изменился — записывает.
     → (XP за 1 ₿, сколько занимается)."""
@@ -7719,6 +7681,7 @@ def auc_refund(db, r, now, why="перебили"):
     LIVE.send([r["bid_sid"]], "gift")
 
 
+@atomic
 def auc_deal(db, r, buyer, amount, now, e, seen=0):
     """Сделка по лоту r (под _GIFT_LOCK): подарок — buyer, его замороженная ставка amount становится покупкой ('mbuy'),
     продавцу — amount минус комиссия, комиссия — в банк рынка. Возвращает комиссию; None — лот уже ушёл."""
@@ -7766,6 +7729,7 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
 _AUC = {"t": 0.0}
 
 
+@atomic
 def market_expire(db, force=True):
     """Торги, у которых вышло время, подводятся: есть ставка — сделка, нет — лот снимается. Прежние лоты с ценой (до аукциона)
     один раз становятся аукционом: старт — продажа сразу, их цена — «купить сразу». force=False — не чаще раза в 10 секунд."""
@@ -8322,13 +8286,13 @@ def gift_value(rows, e, dem):
             "top": [{k: r[k] for k in ("id", "gift", "i", "t", "uniq", "rar", "sell", "worth")} for r in top]}
 
 
-# Forbes класса: среди учеников одного учителя. Состояние = биткоины + оценка подарков (сколько дадут, если продать все сейчас);
+# Forbes — общий на весь сайт: среди учеников всех учителей (кроме убранных из рейтингов). Состояние = биткоины + оценка подарков (сколько дадут, если продать все сейчас);
 # вкладки — самый дорогой подарок, самая дорогая коллекция (только подарки) и самая редкая коллекция (очки редкости).
 FORBES_TOP = 10
 FORBES_NEW_DAYS = 14                    # «новичок» — в тренажёре меньше двух недель
 RARE_SCORE = {"common": 0, "uncommon": 0.5, "rare": 1, "epic": 2, "legend": 3, "limited": 8,
               "u:rare": 4, "u:epic": 10, "u:legend": 30, "u:myth": 100}
-_FORBES = {}                            # учитель → (когда, база, данные)
+_FORBES = {}                            # учитель (None — общий по всем учителям) → (когда, база, данные)
 
 
 def gift_rk(g):
@@ -8355,21 +8319,24 @@ def gift_tile(g):
             "uniq": {k: u[k] for k in ("n", "c1", "c2", "ch", "fx", "pose", "rar", "img", "st") if k in u} if u else None}
 
 
-def forbes_data(db, tid, e=None):
-    """Forbes учеников учителя tid (пересчёт раз в 10 минут): все с биткоинами или подарками — состояние, рост за неделю (по снимкам
-    forbes_hist), лучшие подарки, редкость коллекции; сегодняшний снимок записывается."""
+@atomic
+def forbes_data(db, tid=None, e=None):
+    """Forbes (пересчёт раз в 10 минут): по умолчанию — общий по ученикам всех учителей, с tid — только учеников учителя tid.
+    Все с биткоинами или подарками — состояние, рост за неделю (по снимкам forbes_hist), лучшие подарки, редкость коллекции;
+    сегодняшний снимок записывается."""
     now = time.time()
     hit = _FORBES.get(tid)
     if hit and hit[1] is db and now - hit[0] < 600:
         return hit[2]
     e = e or econ(db)
     issued, dem = uniq_issued(db), gift_demand(db)
-    studs = rank_students(db, tid)
+    studs = rank_students(db, tid) if tid is not None else \
+        db.q("SELECT id, name FROM students WHERE COALESCE(is_teacher, 0) = 0 AND COALESCE(no_rank, 0) = 0")
     created = {r["id"]: r["created"] or 0 for r in db.q("SELECT id, created FROM students WHERE COALESCE(is_teacher, 0) = 0")}
     rows = []
     for m in studs:
         wallet = game_summary(db, m["id"], brief=True)["coins"]
-        gifts = gift_rows(db, m["id"], prices=(e, issued, dem))
+        gifts = gift_rows(db, m["id"], limit=-1, prices=(e, issued, dem))
         if not wallet and not gifts:
             continue
         gifts.sort(key=lambda g: -g["worth"])
@@ -8999,7 +8966,7 @@ DUEL_STAKE_LATE = DUEL_PLAY_XP
 DUEL_HOURS = 24
 DUEL_MAX_OPEN = 3
 DUEL_PER_DAY = 10          # дуэлей в сутки на одного ученика
-_COMP_LOCK = threading.Lock()
+_COMP_LOCK = STATE_LOCK
 _DAILY_CACHE = {}
 
 
@@ -9174,7 +9141,7 @@ def daily_crown(db, ids):
     return r["student_id"] if r else None
 
 
-DEV_CODE = "20011608"       # код входа в разделы «в разработке» (турнир)
+DEV_CODE = PRIVATE_CONFIG.get("DEV_CODE") or secrets.token_urlsafe(24)
 _DEV_TRIES = {}
 
 
@@ -9845,6 +9812,7 @@ def duel_solved(db, sid, tasks, t0, t1):
     return len(rows)
 
 
+@atomic
 def duel_settle(db, d):
     """Дуэль окончена, когда оба закончили или прошли сутки. Больше решённых — победа, поровну — быстрее."""
     now = time.time()
@@ -10387,19 +10355,43 @@ def lan_ips():
     return sorted(ip for ip in ips if not ip.startswith("127."))
 
 
+def invalidate_economy():
+    # Failed transactions may have populated these caches with transient rows.
+    _FORBES.clear()
+    _GS_CACHE.clear()
+    _LB_PEOPLE.clear()
+    for cache in (_ECON, _SUPPLY, _PRICE_HIST, _SITE_ECON, _MKT):
+        cache.update(t=0.0, v=None, db=None)
+    _MKT_TYP.update(day=None, v=None, db=None)
+    _THERMO.update(db=None, ts=[], earn=[], last=None)
+    _BTC_RATES.update(db=None, ts=[], k=[], tick=0.0, active=0)
+    _PROMO.update(db=None, v=None, h=[], n=0)
+    _SINCE.clear()
+    _AUC['t'] = 0.0
+
+import economy as _economy
+_economy.on_rollback = invalidate_economy
+
+
 def main():
     global APP
     ap = argparse.ArgumentParser(description="Сервер тренажёра ЕГЭ с журналом для учителя")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="0.0.0.0", help="0.0.0.0 — доступен из сети, 127.0.0.1 — только с этого компьютера")
+    ap.add_argument("--revoke-access", action="store_true", help="отозвать все сессии и сменить коды приглашений (сервер остановить)")
     ap.add_argument("--password", help="задать пароль учителя и выйти")
     ap.add_argument("--invite", help="задать код приглашения для учеников и выйти")
     ap.add_argument("--banks", help="папка, где лежат банки (ege_bank, kompege_bank, …); запоминается")
     ap.add_argument("--fire", nargs=2, metavar=("ФАМИЛИЯ", "ДНЕЙ"),
                     help='восстановить огонёк ученику и выйти, например --fire "Мегрелидзе" 5')
     args = ap.parse_args()
+    require_private(PRIVATE_CONFIG)
 
     db = DB(DB_PATH)
+    if args.revoke_access:
+        revoke_access(db)
+        print("Сессии отозваны; коды приглашений заменены. Пароли учителей и учеников смените отдельно.")
+        return
     if not db.setting("invite_code"):
         db.setting("invite_code", DEFAULT_INVITE)
     if args.invite:
@@ -10464,10 +10456,17 @@ def main():
         print(f"\n  Пароль учителя: {first_pw}")
         print("  (сохраните его; сменить можно в панели или командой: python server.py --password НОВЫЙ)")
     print("\nОстановить: Ctrl+C\n", flush=True)
+    def stop(signum, frame):
+        # shutdown must run outside serve_forever's thread.
+        threading.Thread(target=httpd.shutdown, daemon=True).start()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     try:
         httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\nСервер остановлен.")
+    finally:
+        TOG.close()
+        httpd.server_close()
+        print("\nСервер остановлен; занятия сохранены.")
 
 
 if __name__ == "__main__":

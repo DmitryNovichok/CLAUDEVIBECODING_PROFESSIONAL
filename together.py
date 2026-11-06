@@ -10,6 +10,7 @@
 Доска: штрих — объект {id, c (цвет), w (толщина), k (p — ручка, l — прямая, t — текст), p: [[x, y], …], txt, fs};
 координаты — в «листе» шириной BOARD_W, у всех одинаковые, браузер масштабирует под свой экран.
 """
+import copy
 import base64
 import hashlib
 import json
@@ -353,10 +354,14 @@ class Hub:
         self.lock = threading.Lock()
         self.sessions = {}
         self.saver = None
+        self.stopping = threading.Event()
+        self.flush_lock = threading.Lock()
 
     # ---------- сеансы в памяти
     def get(self, sid):
         with self.lock:
+            if self.stopping.is_set():
+                return None
             s = self.sessions.get(sid)
             if s:
                 return s
@@ -395,11 +400,26 @@ class Hub:
             return sorted({c.who for c in s.conns if c.alive}, key=str)
 
     def _saver(self):
-        while True:
-            time.sleep(SAVE_EVERY)
+        while not self.stopping.wait(SAVE_EVERY):
             self.flush()
 
-    def flush(self):
+    def close(self):
+        self.stopping.set()
+        with self.lock:
+            ss = list(self.sessions.values())
+        for s in ss:
+            with s.lock:
+                for c in list(s.conns):
+                    c.close()
+        if self.saver and self.saver is not threading.current_thread():
+            self.saver.join()
+        self.flush(strict=True)
+
+    def flush(self, strict=False):
+        with self.flush_lock:
+            self._flush(strict)
+
+    def _flush(self, strict=False):
         with self.lock:
             ss = list(self.sessions.values())
         for s in ss:
@@ -410,11 +430,14 @@ class Hub:
                             self.sessions.pop(s.id, None)       # никого нет и всё сохранено — из памяти долой
                     continue
                 s.dirty = False
-                state = s.dump()
+                state = copy.deepcopy(s.dump())
             try:
                 self.save_fn(s.id, state)
             except Exception as e:                               # база занята — попробуем в следующий раз
-                s.dirty = True
+                with s.lock:
+                    s.dirty = True
+                if strict:
+                    raise
                 print(f"[сеанс] не сохранён: {e!r}", flush=True)
 
     # ---------- рассылка
@@ -464,6 +487,8 @@ class Hub:
     # ---------- одно соединение: читаем сообщения, пока не закроют
     def run(self, s, who, sock, rfile, cid):
         with s.lock:
+            if self.stopping.is_set():
+                return
             c = Conn(sock, rfile, who, self.name_fn(who), self._color(s, who), cid)
             s.conns.append(c)
             c.send(self._snap(s, c))
@@ -498,6 +523,8 @@ class Hub:
             c.send({"t": "pong", "ts": m.get("ts")})
             return
         with s.lock:
+            if self.stopping.is_set():
+                return
             if t == "peek":                          # посмотреть другую страницу занятия, не меняя её у остальных
                 key = m.get("key")                  # (завершённое занятие — всем; идущее — только учителю)
                 if key in s.pages and (s.ended or teacher):
