@@ -2926,8 +2926,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if s:
                         return self.send_json({"error": "Пароль ещё не задан", "need": "set_password"}, 409)
                     return self.err(404, "Такого ученика нет. Если вы здесь впервые — откройте вкладку «Регистрация».")
-                teacher = next((t for t in db.q("SELECT id, invite FROM teachers")
+                teacher = next((t for t in db.q("SELECT id, invite, guest FROM teachers")
                                 if hmac.compare_digest(code.encode(), t["invite"].encode())), None)
+                if teacher and teacher["guest"]:
+                    # гостевой час учителя — демо: настоящие ученики по его коду не регистрируются
+                    return self.err(403, "Это код демо-доступа учителя. Попросите у учителя код после его регистрации")
                 if not teacher:
                     THROTTLE.fail("invite", ip)
                     time.sleep(1.0)
@@ -5560,15 +5563,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             # учитель просит продлить доступ: главный увидит заявку во вкладке «Учителя»
             note = re.sub(r"\s+", " ", str(data.get("note") or "")).strip()[:300]
             db.x("UPDATE teachers SET renew_ts=?, renew_note=? WHERE id=?", (time.time(), note, self.T["id"]))
-            main = main_teacher()
-            if main["email"] and main["id"] != self.T["id"]:
-                try:
-                    send_mail(main["email"], f"Egeshka: {self.T['name']} просит продлить доступ",
-                              f"<p>{html_mod.escape(self.T['name'])} ({html_mod.escape(self.T['email'] or self.T['login'])}) просит продлить доступ."
-                              f"</p><p>{html_mod.escape(note)}</p>",
-                              f"{self.T['name']} ({self.T['email'] or self.T['login']}) просит продлить доступ.\n{note}")
-                except Exception as e:
-                    print(f"[заявка на продление] {e!r}", flush=True)
+            main, me = main_teacher(), self.T
+            if main["email"] and main["id"] != me["id"]:
+                who = f"{me['name']} ({me['email'] or me['login']})"
+
+                def mail():                      # почта бывает медленной — заявка не ждёт письма
+                    try:
+                        send_mail(main["email"], f"Egeshka: {me['name']} просит продлить доступ",
+                                  f"<p>{html_mod.escape(who)} просит продлить доступ.</p><p>{html_mod.escape(note)}</p>",
+                                  f"{who} просит продлить доступ.\n{note}")
+                    except Exception as e:
+                        print(f"[заявка на продление] {e!r}", flush=True)
+                threading.Thread(target=mail, daemon=True).start()
             return self.send_json({"ok": True})
 
         if path == "/api/admin/report" and method == "POST":
@@ -5614,18 +5620,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(403, "только для главного учителя")
             now = time.time()
             d0 = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-            real = "COALESCE(is_teacher, 0) = 0"
+            real = "COALESCE(is_teacher, 0) = 0 AND name_key NOT LIKE 'demo:%'"   # демо-ученики гостей не в счёт
+            nodemo = "student_id NOT IN (SELECT id FROM students WHERE name_key LIKE 'demo:%')"
             one = lambda sql, *a: db.q(sql, a, one=True)
             st = one(f"""SELECT COUNT(*) AS users, SUM(created >= ?) AS new_today, SUM(created >= ?) AS new_week,
                                 SUM(last_seen >= ?) AS online, SUM(last_seen >= ?) AS seen_today, SUM(course = 1) AS course
                          FROM students WHERE {real}""", d0, now - 7 * 86400, now - 300, d0)
             act = lambda since: one(f"""SELECT COUNT(DISTINCT a.student_id) c FROM attempts a JOIN students s ON s.id = a.student_id
-                                        WHERE a.ts >= ? AND COALESCE(s.is_teacher, 0) = 0""", since)["c"]
-            att = one("""SELECT COUNT(*) AS answers, SUM(score > 0) AS solved, SUM(score = 1) AS first,
+                                        WHERE a.ts >= ? AND COALESCE(s.is_teacher, 0) = 0 AND s.name_key NOT LIKE 'demo:%'""", since)["c"]
+            att = one(f"""SELECT COUNT(*) AS answers, SUM(score > 0) AS solved, SUM(score = 1) AS first,
                                 COUNT(DISTINCT COALESCE(grp, task_id)) AS tasks,
                                 SUM(ts >= ? AND score > 0) AS solved_today, SUM(ts >= ? AND score > 0) AS solved_week,
                                 SUM(COALESCE(spent_ms, 0)) AS spent
-                         FROM attempts""", d0, now - 7 * 86400)
+                         FROM attempts WHERE {nodemo}""", d0, now - 7 * 86400)
             vis = lambda since_day: one("SELECT COUNT(*) c FROM visits WHERE day >= ?", since_day)["c"]
             vis_u = lambda since_day: one("SELECT COUNT(DISTINCT vid) c FROM visits WHERE day >= ?", since_day)["c"]
             day = lambda k: (datetime.now() - timedelta(days=k)).strftime("%Y-%m-%d")
@@ -5635,24 +5642,24 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 a0 = datetime.strptime(dd, "%Y-%m-%d").timestamp()
                 r = one(f"""SELECT SUM(a.score > 0) AS solved, COUNT(DISTINCT a.student_id) AS active
                             FROM attempts a JOIN students s ON s.id = a.student_id
-                            WHERE a.ts >= ? AND a.ts < ? AND COALESCE(s.is_teacher, 0) = 0""", a0, a0 + 86400)
+                            WHERE a.ts >= ? AND a.ts < ? AND COALESCE(s.is_teacher, 0) = 0 AND s.name_key NOT LIKE 'demo:%'""", a0, a0 + 86400)
                 series.append({"day": dd, "solved": r["solved"] or 0, "active": r["active"] or 0,
                                "visitors": one("SELECT COUNT(*) c FROM visits WHERE day = ?", dd)["c"]})
-            nums = [dict(r) for r in db.q("""SELECT n, COUNT(*) AS answers, SUM(score > 0) AS solved FROM attempts
-                                             WHERE n IS NOT NULL AND exam IS NULL GROUP BY n ORDER BY n""")]
+            nums = [dict(r) for r in db.q(f"""SELECT n, COUNT(*) AS answers, SUM(score > 0) AS solved FROM attempts
+                                             WHERE n IS NOT NULL AND exam IS NULL AND {nodemo} GROUP BY n ORDER BY n""")]
             main_id = main_teacher()["id"]
             teachers = [dict(r) for r in db.q(f"""SELECT t.id, t.name, t.is_main,
                     (SELECT COUNT(*) FROM students s WHERE COALESCE(s.teacher_id, ?) = t.id AND {real}) AS students,
                     (SELECT COUNT(DISTINCT a.student_id) FROM attempts a JOIN students s ON s.id = a.student_id
-                       WHERE COALESCE(s.teacher_id, ?) = t.id AND COALESCE(s.is_teacher, 0) = 0 AND a.ts >= ?) AS active_week,
+                       WHERE COALESCE(s.teacher_id, ?) = t.id AND COALESCE(s.is_teacher, 0) = 0 AND s.name_key NOT LIKE 'demo:%' AND a.ts >= ?) AS active_week,
                     (SELECT COUNT(*) FROM attempts a JOIN students s ON s.id = a.student_id
-                       WHERE COALESCE(s.teacher_id, ?) = t.id AND COALESCE(s.is_teacher, 0) = 0 AND a.ts >= ? AND a.score > 0) AS solved_week
-                    FROM teachers t ORDER BY t.is_main DESC, t.name""", (main_id, main_id, now - 7 * 86400, main_id, now - 7 * 86400))]
+                       WHERE COALESCE(s.teacher_id, ?) = t.id AND COALESCE(s.is_teacher, 0) = 0 AND s.name_key NOT LIKE 'demo:%' AND a.ts >= ? AND a.score > 0) AS solved_week
+                    FROM teachers t WHERE COALESCE(t.guest, 0) = 0 ORDER BY t.is_main DESC, t.name""", (main_id, main_id, now - 7 * 86400, main_id, now - 7 * 86400))]
             ex = one("SELECT COUNT(*) AS n, AVG(test_score) AS avg FROM exams WHERE finished IS NOT NULL")
             return self.send_json({
                 "users": st["users"] or 0, "new_today": st["new_today"] or 0, "new_week": st["new_week"] or 0,
                 "online": st["online"] or 0, "seen_today": st["seen_today"] or 0, "course": st["course"] or 0,
-                "teachers": one("SELECT COUNT(*) c FROM teachers")["c"],
+                "teachers": one("SELECT COUNT(*) c FROM teachers WHERE COALESCE(guest, 0) = 0")["c"],
                 "active_today": act(d0), "active_week": act(now - 7 * 86400), "active_month": act(now - 30 * 86400),
                 "answers": att["answers"] or 0, "solved": att["solved"] or 0, "first": att["first"] or 0,
                 "tasks": att["tasks"] or 0, "solved_today": att["solved_today"] or 0, "solved_week": att["solved_week"] or 0,
@@ -10120,7 +10127,9 @@ def task_rates(db):
     if time.time() - _RATES["ts"] > 600:
         data = {}
         for r in db.q("""SELECT COALESCE(grp, task_id) AS t, COUNT(*) AS n, SUM(score = 1) AS ok FROM attempts
-                         WHERE gave_up = 0 OR gave_up IS NULL GROUP BY COALESCE(grp, task_id)"""):
+                         WHERE (gave_up = 0 OR gave_up IS NULL)
+                         AND student_id NOT IN (SELECT id FROM students WHERE name_key LIKE 'demo:%')
+                         GROUP BY COALESCE(grp, task_id)"""):
             data[r["t"]] = (r["n"], r["ok"] or 0)
         _RATES.update(ts=time.time(), data=data)
     return _RATES["data"]

@@ -3368,6 +3368,20 @@ class ServerTest(unittest.TestCase):
         self.assertIsNotNone(dg["forecast_avg"])
         self.assertEqual(len(dg["inactive"]), 2)                     # двое демо-учеников давно не заходили
         self.assertFalse(me["steps"]["class"])                       # демо-класс не считается шагом
+        # настоящий ученик по коду гостя не регистрируется
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": me["invite"], "name": "Гостевой Ученик",
+                                                "new_password": "secret1"})
+        self.assertEqual(st, 403)
+        # демо-ответы не попадают в статистику сайта и в «решают %» конструктора
+        server._RATES["ts"] = 0
+        demo_ids = {r["task_id"] for r in db.q("SELECT task_id FROM attempts a JOIN students s ON s.id=a.student_id WHERE s.name_key LIKE ?",
+                                               (f"demo:{tid}:%",))}
+        real_ids = {r["task_id"] for r in db.q("SELECT task_id FROM attempts a JOIN students s ON s.id=a.student_id WHERE s.name_key NOT LIKE 'demo:%'")}
+        self.assertFalse((demo_ids - real_ids) & set(server.task_rates(db)))
+        st, ss = self.admin("GET", "/api/admin/site-stats")
+        self.assertEqual(st, 200, ss)
+        self.assertFalse(any(t["name"] == "Гость" for t in ss["by_teacher"]))
+        self.assertEqual(ss["users"], db.q("SELECT COUNT(*) c FROM students WHERE COALESCE(is_teacher,0)=0 AND name_key NOT LIKE 'demo:%'", one=True)["c"])
         st, d, _ = self.creq("GET", "/api/admin/students?class_id=all", cookie=ck)
         self.assertTrue(all(s["no_rank"] for s in d["students"]))   # демо-ученики вне рейтингов
         # гость регистрируется — аккаунт тот же, демо-класс уходит
