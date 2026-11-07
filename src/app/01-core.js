@@ -442,12 +442,12 @@
           if (r.shared) { try { sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ } }   // компьютер в классе
           if (!temp && !r.shared) writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
-          ['#loginPass', '#regPass', '#regPass2', '#regCode'].forEach(sel => { $(sel).value = ''; });
+          ['#loginPass', '#regPass', '#regPass2', '#regCode', '#regLogin', '#regEmail'].forEach(sel => { $(sel).value = ''; });
           resolve(r);
         } catch (err) {
           if (err.data && err.data.need === 'set_password') {
             $('#regName').value = body.name;
-            setTab('reg', `У ученика «${body.name}» ещё нет пароля. Введите код приглашения и придумайте пароль — прогресс и журнал сохранятся.`, true);
+            setTab('reg', `У ученика «${body.name}» ещё нет пароля. Введите код приглашения, придумайте логин и пароль — прогресс и журнал сохранятся.`, true);
           } else {
             errEl.classList.remove('info');
             errEl.textContent = err.status ? err.message : 'Нет связи с сервером. Проверьте адрес и попробуйте ещё раз.';
@@ -458,10 +458,30 @@
       };
       forms.login.onsubmit = e => {
         e.preventDefault();
-        const name = cleanName($('#loginName').value);
-        if (name.split(' ').length < 2) { errEl.textContent = 'Введите фамилию и имя через пробел.'; $('#loginName').focus(); return; }
+        const raw = $('#loginName').value.trim();
+        const isLogin = /^[a-z0-9][a-z0-9._-]{2,31}$/i.test(raw);          // логин — латиницей без пробелов, иначе ФИО
+        const name = isLogin ? raw.toLowerCase() : cleanName(raw);
+        if (!isLogin && name.split(' ').length < 2) { errEl.textContent = 'Введите логин или фамилию и имя через пробел.'; $('#loginName').focus(); return; }
         run(forms.login, { mode: 'login', name, password: $('#loginPass').value });
       };
+      // «Забыли пароль?»: ссылка на почту
+      $('#forgotOpen').onclick = () => { $('#forgotBox').hidden = !$('#forgotBox').hidden; if (!$('#forgotBox').hidden) $('#forgotWho').focus(); };
+      $('#forgotSend').onclick = async () => {
+        const who = $('#forgotWho').value.trim() || $('#loginName').value.trim();
+        if (!who) { errEl.textContent = 'Введите логин, почту или ФИО'; return; }
+        $('#forgotSend').disabled = true;
+        try {
+          const r = await fetch('api/pw/forgot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ who }) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || 'Не получилось');
+          errEl.classList.add('info');
+          errEl.textContent = 'Если у этого аккаунта есть почта — письмо со ссылкой уже в пути (проверьте «Спам»). Ссылка действует 1 час.';
+        } catch (x) { errEl.classList.remove('info'); errEl.textContent = x.message; }
+        finally { $('#forgotSend').disabled = false; }
+      };
+      const regSub = () => { $('#regEmailSub').textContent = $('#regCode').value.trim() ? 'необязательно: пароль сбросит и учитель' : 'обязательно без кода учителя — чтобы восстановить пароль'; };
+      $('#regCode').oninput = regSub;
+      regSub();
       forms.reg.onsubmit = e => {
         e.preventDefault();
         const name = cleanName($('#regName').value);
@@ -469,8 +489,11 @@
         if (name.split(' ').length < 2) { errEl.textContent = 'Введите фамилию и имя через пробел.'; $('#regName').focus(); return; }
         if (pw.length < 6) { errEl.textContent = 'Пароль — не короче 6 символов.'; $('#regPass').focus(); return; }
         if (pw !== $('#regPass2').value) { errEl.textContent = 'Пароли не совпадают.'; $('#regPass2').select(); return; }
+        const login = $('#regLogin').value.trim().toLowerCase(), email = $('#regEmail').value.trim(), code = $('#regCode').value.trim();
+        if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(login)) { errEl.textContent = 'Логин — 3–32 латинские буквы, цифры, точка, дефис или подчёркивание.'; $('#regLogin').focus(); return; }
+        if (!code && !email) { errEl.textContent = 'Укажите почту — без кода учителя только по ней можно восстановить пароль.'; $('#regEmail').focus(); return; }
         if (!$('#regTerms').checked || !$('#regConsent').checked) { errEl.textContent = 'Отметьте обе галочки: соглашение и согласие на обработку персональных данных.'; return; }
-        run(forms.reg, { mode: 'register', code: $('#regCode').value.trim(), name, new_password: pw, consent: true });
+        run(forms.reg, { mode: 'register', code, name, login, email, new_password: pw, consent: true });
       };
     });
   }

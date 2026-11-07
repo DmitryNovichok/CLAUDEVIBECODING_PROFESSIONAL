@@ -195,6 +195,42 @@
   }
 
   // ---- пароль ученика: смена, а у старых учеников без пароля — задать его
+  /** Почта для восстановления пароля, логин и переход к учителю по коду (если зарегистрировался без кода). */
+  let ACCT = { login: '', email: '', self_reg: false, teacher_name: '' };
+  async function openAccount() {
+    try { const me = await api('me'); ACCT = { login: me.login, email: me.email, self_reg: me.self_reg, teacher_name: me.teacher_name }; } catch (e) { /* покажем, что знаем */ }
+    const body = $('#forecastBody');
+    body.innerHTML = `<h2 class="fm-title">Почта, логин и учитель</h2>
+      <div class="login-form login-stack">
+        <label class="login-field">Логин${ACCT.login ? '' : ' <span class="login-sub">придумайте — латиницей, для входа</span>'}
+          <input class="inp" id="acLogin" maxlength="32" autocapitalize="off" spellcheck="false" value="${esc(ACCT.login)}"${ACCT.login ? ' disabled' : ''}></label>
+        <label class="login-field">Почта <span class="login-sub">для восстановления пароля</span>
+          <input class="inp" id="acEmail" type="email" maxlength="120" autocapitalize="off" spellcheck="false" value="${esc(ACCT.email)}"></label>
+        ${ACCT.self_reg ? `<label class="login-field">Код учителя <span class="login-sub">учитель дал код — введите, и вы попадёте к нему в список</span>
+          <input class="inp" id="acCode" maxlength="40" autocapitalize="characters"></label>`
+          : `<p class="fm-note">Ваш учитель: <b>${esc(ACCT.teacher_name || '—')}</b></p>`}
+        <button type="button" class="btn primary btn-block" id="acSave">Сохранить</button>
+        <button type="button" class="btn ghost btn-block" id="acClose">Закрыть</button>
+        <div class="login-err" id="acMsg" role="alert"></div>
+      </div>`;
+    $('#forecastModal').hidden = false;
+    $('#acClose').onclick = closeForecast;
+    $('#acSave').onclick = async () => {
+      const msg = $('#acMsg');
+      msg.className = 'login-err';
+      msg.textContent = '';
+      const body2 = { email: $('#acEmail').value.trim() };
+      if (!ACCT.login && $('#acLogin').value.trim()) body2.login = $('#acLogin').value.trim();
+      if ($('#acCode') && $('#acCode').value.trim()) body2.code = $('#acCode').value.trim();
+      try {
+        const r = await api('account', body2);
+        ACCT = { login: r.login, email: r.email, self_reg: r.self_reg, teacher_name: r.teacher };
+        msg.className = 'login-err ok';
+        msg.textContent = body2.code ? `Готово: теперь вы ученик учителя «${r.teacher}»` : 'Сохранено';
+        if (body2.code) setTimeout(() => location.reload(), 1200);
+      } catch (e) { msg.textContent = e.message || 'Нет связи с сервером'; }
+    };
+  }
   function openPasswordDialog(mustSet) {
     const m = $('#pwModal'), errEl = $('#pwErr');
     $('#pwTitle').textContent = mustSet ? 'Задайте пароль' : 'Сменить пароль';

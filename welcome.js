@@ -16,10 +16,6 @@
     $('#trialDays').textContent = o.trial_days;
     document.querySelectorAll('.trial-txt').forEach(e => { e.textContent = days(o.trial_days); });
     $('#guestMin').textContent = o.guest_minutes;
-    $('#prices-list').innerHTML = (o.tariffs || []).map((t, i) => `<div class="w-price${i === 1 ? ' hl' : ''}">
-        <h3>${esc(t.name)}</h3><div class="p">${esc(t.price)}${t.per ? ` <small>/ ${esc(t.per)}</small>` : ''}</div>
-        <ul>${String(t.items || '').split('\n').filter(Boolean).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
-        ${i === 0 ? '<button type="button" class="w-btn primary" data-signup>Попробовать</button>' : '<a class="w-btn" href="#contacts">Связаться</a>'}</div>`).join('');
     const c = o.contacts || {}, links = [];
     if (c.email) links.push(`<a href="mailto:${esc(c.email)}">✉️ ${esc(c.email)}</a>`);
     if (c.telegram) {

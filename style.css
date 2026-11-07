@@ -3424,3 +3424,5 @@ body.kege-on #trainer { max-width: none !important; margin: 0 !important; paddin
 }
 .kg-task .cond { background: none; border: 0; padding: 0; box-shadow: none; font-weight: 400; }
 .kg-task .cond b, .kg-task .cond strong { font-weight: 700; }
+.forgot-box { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.forgot-box[hidden] { display: none; }

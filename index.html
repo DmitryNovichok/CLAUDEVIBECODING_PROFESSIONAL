@@ -120,6 +120,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
             <button type="button" class="wm-item" id="whoGifts">🎁 Биткоины и подарки</button>
             <button type="button" class="wm-item" id="whoTheme">🎨 Тема оформления</button>
             <button type="button" class="wm-item" id="pwBtn">🔑 Пароль и входы</button>
+            <button type="button" class="wm-item" id="acctBtn">✉️ Почта, логин и учитель</button>
             <button type="button" class="wm-item danger" id="logoutBtn">↪ Выйти</button>
           </div>
         </div>
@@ -247,23 +248,34 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
 
     <!-- вход: браузер не должен сохранять ФИО и пароль — за компьютером класса сидят разные ученики -->
     <form id="loginForm" class="login-form login-stack" autocomplete="off" hidden>
-      <label class="login-field">Фамилия и имя
-        <input class="inp" id="loginName" autocomplete="off" placeholder="Иванов Иван" maxlength="80" required>
+      <label class="login-field">Логин или фамилия и имя
+        <input class="inp" id="loginName" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ivanov или Иванов Иван" maxlength="80" required>
       </label>
       <label class="login-field">Пароль
         <input class="inp secret" id="loginPass" type="password" autocomplete="off" maxlength="200" required>
       </label>
       <button class="btn primary btn-block" type="submit">Войти</button>
-      <p class="fm-note login-hint">Забыли пароль — попросите учителя сбросить его, затем зарегистрируйтесь заново с тем же ФИО: прогресс сохранится.</p>
+      <p class="fm-note login-hint"><button type="button" class="link-btn" id="forgotOpen">Забыли пароль?</button></p>
+      <div class="forgot-box" id="forgotBox" hidden>
+        <p class="fm-note">Введите логин, почту или ФИО — пришлём на почту ссылку, чтобы задать новый пароль. Почты нет — попросите учителя сбросить пароль.</p>
+        <input class="inp" id="forgotWho" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="логин, почта или ФИО">
+        <button class="btn btn-block" type="button" id="forgotSend">Прислать ссылку</button>
+      </div>
     </form>
 
     <!-- регистрация (и старый ученик без пароля) -->
     <form id="regForm" class="login-form login-stack" autocomplete="off" hidden>
-      <label class="login-field">Код приглашения <span class="login-sub">его выдаёт учитель</span>
-        <input class="inp" id="regCode" name="code" inputmode="numeric" autocomplete="off" maxlength="40" required>
-      </label>
       <label class="login-field">Фамилия и имя <span class="login-sub">полностью — так учитель увидит ваши результаты</span>
         <input class="inp" id="regName" autocomplete="off" placeholder="Иванов Иван Иванович" maxlength="80" required>
+      </label>
+      <label class="login-field">Логин <span class="login-sub">латиницей, для входа: например ivanov2008</span>
+        <input class="inp" id="regLogin" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" placeholder="ivanov" required>
+      </label>
+      <label class="login-field">Почта <span class="login-sub" id="regEmailSub">чтобы восстановить пароль, если забудете</span>
+        <input class="inp" id="regEmail" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="ivanov@mail.ru">
+      </label>
+      <label class="login-field">Код учителя <span class="login-sub">необязательно — если учитель его дал</span>
+        <input class="inp" id="regCode" name="code" autocomplete="off" autocapitalize="characters" maxlength="40">
       </label>
       <label class="login-field">Придумайте пароль <span class="login-sub">не короче 6 символов</span>
         <input class="inp secret" id="regPass" type="password" autocomplete="off" minlength="6" maxlength="200" required>
@@ -288,7 +300,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
 <div class="modal login-modal" id="consentModal" hidden>
   <div class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
     <h2 class="fm-title" id="consentTitle">Мы обновили правила</h2>
-    <p class="fm-note">Чтобы продолжить заниматься, ознакомьтесь с документами и подтвердите согласие. Мы храним только то, что нужно для занятий: фамилию и имя, результаты и ответы — их видит ваш учитель. Почту, телефон и паспортные данные не собираем, сторонних счётчиков и рекламы на сайте нет.</p>
+    <p class="fm-note">Чтобы продолжить заниматься, ознакомьтесь с документами и подтвердите согласие. Что изменилось: регистрация без кода учителя, логин и почта для восстановления пароля, отчёт для родителей по ссылке от учителя, общий рейтинг «Forbes». Мы храним только то, что нужно для занятий: фамилию и имя, логин, почту (если вы её указали), результаты и ответы. Телефон и паспортные данные не собираем, сторонних счётчиков и рекламы на сайте нет.</p>
     <form id="consentForm" class="login-form login-stack">
       <label class="login-check"><input type="checkbox" id="cnTerms" required>
         <span>Принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">Политику обработки персональных данных</a></span></label>
