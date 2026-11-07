@@ -45,6 +45,7 @@
     exam_per_day: 3,
     exam_min_for_answers: 20 * 60,
     authored: true,             // давать ли авторские задания в подборках и вариантах
+    hints: false,               // подсказки по шагам вместо «Показать ответ» (включает учитель)
   };
   const thinkSec = n => (n >= 24 ? RULES.think_hard : RULES.think);
   const DAY = 864e5;
@@ -424,9 +425,10 @@
       }).catch(() => { /* нет связи — как обычно */ });
       m.hidden = false;
       // ссылка-приглашение учителя: /?invite=КОД — код уже вписан, открыта регистрация
-      const inv = new URLSearchParams(location.search).get('invite');
+      const qp = new URLSearchParams(location.search), inv = qp.get('invite'), nn = qp.get('n');
       if (inv) $('#regCode').value = inv.replace(/\s+/g, '').slice(0, 40);
-      setTab(last && !inv ? 'login' : 'reg', note || '');
+      if (nn) $('#loginName').value = nn.slice(0, 80);           // карточка входа от учителя: ФИО уже вписано
+      setTab(nn || (last && !inv) ? 'login' : 'reg', note || '');
 
       const run = async (form, body) => {
         const btn = form.querySelector('button[type="submit"]');
@@ -477,7 +479,7 @@
       сначала главная страница: что за сервис, вход ученика и учителя. true — уходим на /welcome. */
   async function maybeWelcome() {
     const qp = new URLSearchParams(location.search);
-    if (readJSON(LAST_NAME_STORE) || qp.has('invite') || qp.has('login')) return false;
+    if (readJSON(LAST_NAME_STORE) || qp.has('invite') || qp.has('login') || qp.has('n')) return false;
     const shared = await fetch('api/net', { cache: 'no-store' }).then(r => r.json()).then(n => !!n.shared).catch(() => true);
     if (shared) return false;
     location.replace('/welcome');

@@ -120,16 +120,15 @@
     return { cls: 'res-bad', text: 'неверно' + half, bad: true };
   }
   /** Отметки попытки: ⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — ответ вставлен из буфера;
-      🤖 — ответ «верный + K»: так отвечает нейросеть, которой дали условие со скрытой строкой-ловушкой;
-      🦾 — похоже, решала программа, которая сама управляет экраном (детектор ботов; ученику не показывается). */
+      🤖 — ответ «верный + K»: так отвечает нейросеть, которой дали условие со скрытой строкой-ловушкой. */
   const flagsOf = a => String(a.flags || '').split(',').filter(Boolean);
   function flagsHtml(a) {
     const f = flagsOf(a);
     return (f.includes('sus') ? ' <span class="flag sus" title="Ушёл со страницы на 30 секунд или дольше и сразу после возвращения ответил верно">⚠ ушёл и сразу верно</span>' : '')
       + (f.includes('paste') ? ' <span class="flag paste" title="Ответ не набран, а вставлен из буфера обмена (не из окна Python тренажёра)">📋 вставлен</span>' : '')
       + (f.includes('ai') ? ' <span class="flag ai" title="Ответ — верный, увеличенный на число из скрытой строки-ловушки в условии. Ученик её не видит, а нейросеть, которой дали условие, читает и выполняет">🤖 ответ нейросети</span>' : '')
-      + (a.reason === 'tog' ? ' <span class="flag tog" title="Ответ сдан самим учеником на совместном занятии «Вместе»">👥 решено с учителем</span>' : '')
-      + (f.includes('bot') ? ` <span class="flag bot" title="Похоже, решала программа, которая сама управляет экраном: ${esc(a.bot_why || '')}. Ученик об этой проверке не знает">🦾 похоже на бота</span>` : '');
+      + (f.includes('hint') ? ' <span class="flag hint" title="Ученик взял подсказку по шагам — засчитано как со второй попытки">💡 с подсказкой</span>' : '')
+      + (a.reason === 'tog' ? ' <span class="flag tog" title="Ответ сдан самим учеником на совместном занятии «Вместе»">👥 решено с учителем</span>' : '');
   }
   /** Подозрительно много показанных ответов: так выкачивают ответы, а не решают. */
   function suspicion(s) {
@@ -236,8 +235,8 @@
   });
   document.addEventListener('click', e => {
     if (e.target.closest('[data-renew]')) { openRenew(); return; }
-    if (e.target.closest('[data-close-modal]') || (e.target.classList && e.target.classList.contains('modal') && ['renewModal', 'qrModal'].includes(e.target.id))) {
-      $('#renewModal').hidden = true; $('#qrModal').hidden = true; return;
+    if (e.target.closest('[data-close-modal]') || (e.target.classList && e.target.classList.contains('modal') && ['renewModal', 'qrModal', 'parentModal'].includes(e.target.id))) {
+      $('#renewModal').hidden = true; $('#qrModal').hidden = true; $('#parentModal').hidden = true; return;
     }
     if (e.target.closest('[data-inv-copy]')) {
       const link = inviteLink();
@@ -253,7 +252,7 @@
       toast('Карточка скрыта. Ссылка-приглашение и QR всегда есть в «Настройках»', 4000);
     }
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#renewModal').hidden = true; $('#qrModal').hidden = true; } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#renewModal').hidden = true; $('#qrModal').hidden = true; $('#parentModal').hidden = true; } });
   function openQR() {
     const link = inviteLink();
     $('#qrBox').innerHTML = window.egeQRsvg ? window.egeQRsvg(link, 420) : '';
@@ -2325,6 +2324,9 @@
       <nav class="cls-tabs" id="clsTabs">${CLS_PANES.map(([k, l]) => `<button type="button" data-pane="${k}" class="${clsPane === k ? 'on' : ''}">${l}</button>`).join('')}</nav>
       <div class="cls-pane" data-pane="digest"${clsPane === 'digest' ? '' : ' hidden'}><div id="clsDigest"><p class="adm-hint">Собираю сводку…</p></div></div>
       <div class="cls-pane" data-pane="members"${clsPane === 'members' ? '' : ' hidden'}>
+      <div class="dg-actions"><button type="button" class="btn" data-cls-parents>👪 Ссылки для родителей</button>
+        <button type="button" class="btn" data-cls-import>📋 Добавить список учеников</button>
+        <span class="adm-hint">Ссылки — родителям, только просмотр. Список — из Excel: ученики с паролями и карточки для входа.</span></div>
       ${studs.length ? `<div class="adm-table-wrap"><table class="adm-table" id="classTable"><thead><tr>
         <th>Ученик</th><th class="num">Ур.</th><th>Был(а)</th><th class="num">За 7 дней</th><th class="num">Верно с 1-й</th>
         <th class="num" title="Уходил со вкладки за 7 дней">Уходил</th><th class="num">Прогноз</th><th></th></tr></thead><tbody>${members}</tbody></table></div>`
@@ -2769,7 +2771,7 @@
         <td class="num">${r.tasks ? pct(csPercent(r)) + '%' : '<span class="muted">—</span>'}</td>
         <td class="num">${r.spent ? fmtSpent(r.spent) : ''}</td>
         <td class="num">${r.out_n ? `<span style="color:var(--review)" title="уходов со страницы: ${r.out_n}">${r.out_n} · ${fmtSpent(r.out_sec * 1000) || '0 с'}</span>` : ''}</td>
-        <td class="num">${r.sus || r.paste || r.ai || r.bot ? `<span style="color:var(--weak)" title="⚠ ушёл на 30+ с и сразу верно · 📋 вставил ответ · 🤖 ответ нейросети (ловушка) · 🦾 похоже на бота">${[r.sus ? '⚠' + r.sus : '', r.paste ? '📋' + r.paste : '', r.ai ? '🤖' + r.ai : '', r.bot ? '🦾' + r.bot : ''].filter(Boolean).join(' ')}</span>` : ''}</td>
+        <td class="num">${r.sus || r.paste || r.ai ? `<span style="color:var(--weak)" title="⚠ ушёл на 30+ с и сразу верно · 📋 вставил ответ · 🤖 ответ нейросети (ловушка)">${[r.sus ? '⚠' + r.sus : '', r.paste ? '📋' + r.paste : '', r.ai ? '🤖' + r.ai : ''].filter(Boolean).join(' ')}</span>` : ''}</td>
         <td class="muted">${r.nums.join(', ')}</td>
         <td class="num">${r.exam != null ? r.exam : ''}</td>
         <td class="num cs-grade">${g ? `<b class="g${g}">${g}</b>` : ''}</td></tr>`;
@@ -2781,16 +2783,16 @@
         <th>Ученик</th><th class="num">${asg ? 'Решено из подборки' : 'Решено'}</th><th class="num" title="Разных заданий, к которым приступал">Начал</th>
         <th class="num">С 1-й</th><th class="num">Со 2-й</th><th class="num">Неверно</th><th class="num" title="Открыл ответ, не решив">Ответ показан</th>
         <th class="num">%</th><th class="num">Время</th><th class="num" title="Сколько раз уходил со страницы и сколько всего был вне тренажёра">Вне тренажёра</th>
-        <th class="num" title="⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — вставил ответ из буфера; 🤖 — ответ нейросети (сработала ловушка); 🦾 — похоже на бота">Отметки</th><th>Номера</th>
+        <th class="num" title="⚠ — ушёл со страницы на 30+ с и сразу ответил верно; 📋 — вставил ответ из буфера; 🤖 — ответ нейросети (сработала ловушка)">Отметки</th><th>Номера</th>
         <th class="num">Вариант</th><th class="num">Оценка</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   function csCsv() {
     if (!csData) return;
     const asg = csData.asg_total != null;
-    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходов со страницы', 'Вне тренажёра, мин', 'Ушёл и сразу верно', 'Вставил ответ', 'Ответ нейросети', 'Похоже на бота', 'Номера', 'Вариант', 'Оценка (подсказка)'];
+    const head = ['Ученик', asg ? 'Решено из подборки' : 'Решено', 'Начал', 'Верно с 1-й', 'Со 2-й', 'Неверно', 'Ответ показан', '%', 'Время, мин', 'Уходов со страницы', 'Вне тренажёра, мин', 'Ушёл и сразу верно', 'Вставил ответ', 'Ответ нейросети', 'Номера', 'Вариант', 'Оценка (подсказка)'];
     const q = v => { v = String(v == null ? '' : v); if (/^[=+\-@]/.test(v)) v = "'" + v; return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     const lines = [head, ...csData.rows.map(r => [r.name, asg ? `${r.solved} из ${csData.asg_total}` : r.solved, r.tasks, r.ok1, r.ok2, r.bad, r.shown,
-      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.out_n, Math.round(r.out_sec / 60), r.sus, r.paste, r.ai, r.bot, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
+      r.tasks ? pct(csPercent(r)) : '', Math.round(r.spent / 60000), r.out_n, Math.round(r.out_sec / 60), r.sus, r.paste, r.ai, r.nums.join(' '), r.exam == null ? '' : r.exam, csGrade(r)])];
     const csv = '﻿' + lines.map(l => l.map(q).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -2855,6 +2857,8 @@
       return;
     }
     if (t.closest('[data-weak]')) { giveWeakSets(); return; }
+    if (t.closest('[data-cls-parents]')) { openClassParents(curClass.id, (classes.find(c => c.id === curClass.id) || {}).name || ''); return; }
+    if (t.closest('[data-cls-import]')) { openImport(curClass.id, (classes.find(c => c.id === curClass.id) || {}).name || ''); return; }
     if (t.closest('[data-weak-build]')) { buildWeakSet(($('#clsDigest').dataset.weak || '').split(',').filter(Boolean).map(Number)); return; }
     const bd = t.closest('[data-batch-del]');
     if (bd) {
@@ -3033,7 +3037,7 @@
     const rv = st.reveals || { granted: 0, blocked: 0, early: 0 };
     const act = st.activity || {};
     const nSus = A.filter(a => flagsOf(a).includes('sus')).length, nPaste = A.filter(a => flagsOf(a).includes('paste')).length,
-      nAi = A.filter(a => flagsOf(a).includes('ai')).length, nBot = A.filter(a => flagsOf(a).includes('bot')).length;
+      nAi = A.filter(a => flagsOf(a).includes('ai')).length;
     $('#stClass').innerHTML = '<option value="0">Без класса</option>' + classes
       .filter(c => !ME.is_main || c.teacher_id === s.teacher_id)
       .map(c => `<option value="${c.id}" ${c.id === s.class_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
@@ -3061,10 +3065,9 @@
         nSus ? `<span style="color:var(--weak)">⚠ ушёл и сразу верно: ${nSus}</span>` : '',
         nPaste ? `<span style="color:var(--weak)">📋 вставил ответ: ${nPaste}</span>` : '',
         nAi ? `<span style="color:var(--weak)">🤖 ответ нейросети: ${nAi}</span>` : '',
-        nBot ? `<span style="color:var(--weak)">🦾 похоже на бота: ${nBot}</span>` : '',
         act.away && act.away.exam ? `<span style="color:var(--weak)">во время варианта: ${act.away.exam}</span>` : '',
         act.shot ? `<span style="color:var(--weak)">клавиши снимка экрана: ${act.shot.count}</span>` : ''].filter(Boolean).join(' · '),
-        (act.shot && act.shot.count) || (act.away && act.away.exam) || nSus || nPaste || nAi || nBot ? 'var(--weak)' : ''),
+        (act.shot && act.shot.count) || (act.away && act.away.exam) || nSus || nPaste || nAi ? 'var(--weak)' : ''),
       card('Варианты ЕГЭ', exams.length ? exams[0].test_score : '—', exams.length
         ? `последний ${fmtDate(exams[0].finished)}: ${exams[0].primary_score} перв. · ${fmtMinutes((exams[0].finished - exams[0].started) * 1000)}${exams.length > 1 ? ` · всего ${exams.length}, лучший ${Math.max(...exams.map(e => e.test_score))}` : ''}`
           + (exams[0].away || exams[0].fs || exams[0].paste
@@ -3368,6 +3371,148 @@
       toast(r.ended ? `Вышли на компьютерах класса: ${r.ended} ${pluralRu(r.ended, 'вход', 'входа', 'входов')}` : 'С этого адреса сейчас никто не вошёл');
     } catch (e) { if (e.status !== 401) toast(e.message); }
   });
+  // ---- отчёт родителям: ссылка «только просмотр» и почта для письма раз в неделю
+  const parentLink = tok => `${location.origin}/parent?t=${tok}`;
+  function copyText(text, ok) {
+    try { navigator.clipboard.writeText(text).then(() => toast(ok), () => prompt('Скопируйте:', text)); } catch (x) { prompt('Скопируйте:', text); }
+  }
+  async function openParent(sid, name) {
+    let d;
+    try { d = await api('student/parent', { id: sid }); } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    const box = $('#parentBody');
+    $('#parentTitle').textContent = 'Отчёт для родителей';
+    const draw = () => {
+      box.innerHTML = `<p class="fm-note"><b>${esc(name)}</b>: родитель видит занятия за 4 недели, прогноз балла, работы с оценками и что не сдано,
+          слабые номера. Только этого ученика, ничего нельзя изменить.</p>
+        <div class="inv-row"><code>${esc(parentLink(d.token).replace(/^https?:\/\//, ''))}</code></div>
+        <div class="adm-row-btns"><button type="button" class="btn primary" data-pcopy>Скопировать ссылку</button>
+          <a class="btn ghost" href="${esc(parentLink(d.token))}" target="_blank" rel="noopener">Открыть</a>
+          <button type="button" class="btn ghost" data-pnew title="Старая ссылка перестанет работать">Новая ссылка</button></div>
+        <h3 class="adm-h3" style="margin-top:14px">Письмо родителю раз в неделю</h3>
+        <div class="login-form"><input class="inp" id="parentEmail" type="email" maxlength="120" placeholder="почта родителя" value="${esc(d.email)}">
+          <button type="button" class="btn primary" data-pmail>Сохранить</button></div>
+        <p class="fm-note">${d.mail_on ? 'По понедельникам — итоги недели и ссылка на отчёт. Пусто — письма не приходят.' : 'Отправка писем на сервере пока не настроена — сохраните почту, письма начнут приходить, когда её включат.'}
+          Почту родителя вписывайте только с его согласия.</p>
+        <div class="login-err" id="parentMsg"></div>`;
+    };
+    draw();
+    box.onclick = async e => {
+      if (e.target.closest('[data-pcopy]')) copyText(parentLink(d.token), 'Ссылка для родителей скопирована');
+      if (e.target.closest('[data-pnew]')) {
+        if (!confirm('Выпустить новую ссылку? Старая перестанет открываться.')) return;
+        try { d = await api('student/parent', { id: sid, new: true }); draw(); toast('Новая ссылка готова'); } catch (x) { toast(x.message); }
+      }
+      if (e.target.closest('[data-pmail]')) {
+        const msg = $('#parentMsg');
+        msg.className = 'login-err';
+        try {
+          d = await api('student/parent', { id: sid, email: $('#parentEmail').value });
+          draw();
+          $('#parentMsg').className = 'login-err ok';
+          $('#parentMsg').textContent = d.email ? 'Сохранено: письмо придёт в понедельник' : 'Письма родителю отключены';
+        } catch (x) { if (x.status !== 401) msg.textContent = x.message; }
+      }
+    };
+    $('#parentModal').hidden = false;
+  }
+  async function openClassParents(cid, cname) {
+    let d;
+    try { d = await api('class/parents?class_id=' + cid); } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    const all = d.students.map(x => `${x.name}: ${parentLink(x.token)}`).join('\n');
+    const box = $('#parentBody');
+    $('#parentTitle').textContent = 'Ссылки для родителей';
+    box.innerHTML = `<p class="fm-note">Ссылки для родителей класса <b>${esc(cname)}</b>: у каждого ученика своя, открывает только его отчёт.
+        Отправьте каждому родителю его ссылку — в личные сообщения, не в общий чат.</p>
+      <div class="adm-row-btns"><button type="button" class="btn primary" data-pall>Скопировать все (имя — ссылка)</button></div>
+      <div class="parent-list">${d.students.map(x => `<div><span>${esc(x.name)}${x.email ? ` <small class="muted">· письмо: ${esc(x.email)}</small>` : ''}</span>
+        <button type="button" class="btn sm" data-pone="${esc(parentLink(x.token))}">Скопировать</button>
+        <button type="button" class="link-btn" data-pst="${x.id}" data-pname="${esc(x.name)}">почта…</button></div>`).join('') || '<p class="adm-hint">В классе нет учеников.</p>'}</div>`;
+    box.onclick = e => {
+      if (e.target.closest('[data-pall]')) copyText(all, 'Ссылки всего класса скопированы');
+      const one = e.target.closest('[data-pone]');
+      if (one) copyText(one.dataset.pone, 'Ссылка скопирована');
+      const pst = e.target.closest('[data-pst]');
+      if (pst) openParent(+pst.dataset.pst, pst.dataset.pname);
+    };
+    $('#parentModal').hidden = false;
+  }
+  $('#stParent').addEventListener('click', () => openParent(st.student.id, st.student.name));
+
+  // ---- список класса из Excel и карточки входа с QR
+  function parseNames(text) {
+    return String(text || '').split(/\r?\n/).map(l => l.split('\t').map(x => x.trim()).filter(Boolean)
+      .filter(x => !/^\d+[.)]?$/.test(x)).join(' ').replace(/\s+/g, ' ').trim())
+      .filter(x => x && !/^(фио|ф\.и\.о\.?|фамилия|ученик|учащийся|имя)(?=[\s:,.]|$)/i.test(x));
+  }
+  function openImport(cid, cname) {
+    const box = $('#parentBody');
+    $('#parentTitle').textContent = 'Добавить список учеников';
+    box.innerHTML = `<p class="fm-note">Скопируйте столбец с ФИО из Excel или электронного журнала и вставьте сюда — каждый ученик с новой строки.
+        Столбцы «Фамилия» и «Имя» тоже подойдут. Ученики появятся в классе <b>${esc(cname)}</b> сразу с паролями, а вы распечатаете карточки входа.</p>
+      <textarea class="inp imp-text" id="impText" rows="9" placeholder="Иванов Иван&#10;Петрова Мария&#10;…"></textarea>
+      <p class="adm-hint" id="impCount">Учеников: 0</p>
+      <div class="adm-row-btns"><button type="button" class="btn primary" data-imp-go disabled>Создать учеников и карточки</button></div>
+      <div class="login-err" id="impMsg"></div><div id="impRes"></div>`;
+    const upd = () => { const n = parseNames($('#impText').value).length; $('#impCount').textContent = `Учеников: ${n}`; box.querySelector('[data-imp-go]').disabled = !n; };
+    $('#impText').addEventListener('input', upd);
+    box.onclick = async e => {
+      const go = e.target.closest('[data-imp-go]');
+      if (go) {
+        go.disabled = true;
+        let r;
+        try { r = await api('class/import', { class_id: cid, names: parseNames($('#impText').value) }); }
+        catch (x) { if (x.status !== 401) $('#impMsg').textContent = x.message; go.disabled = false; return; }
+        const made = r.rows.filter(x => x.status === 'new'), moved = r.rows.filter(x => x.status === 'mine');
+        const taken = r.rows.filter(x => x.status === 'taken'), bad = r.rows.filter(x => x.status === 'bad');
+        IMP_CARDS = made.map(x => ({ name: x.name, password: x.password }));
+        $('#impRes').innerHTML = `<p class="fm-note"><b>Создано: ${made.length}</b>${moved.length ? ` · уже были вашими, перенесены в класс: ${moved.length}` : ''}</p>
+          ${taken.length ? `<p class="fm-note" style="color:var(--weak)">Такое ФИО уже есть у другого учителя — не добавлены: ${taken.map(x => esc(x.name)).join(', ')}. Допишите отчество или вторую букву имени.</p>` : ''}
+          ${bad.length ? `<p class="fm-note" style="color:var(--weak)">Не похоже на «Фамилия Имя»: ${bad.map(x => esc(x.name)).join(', ')}</p>` : ''}
+          ${made.length ? `<div class="adm-row-btns"><button type="button" class="btn primary" data-imp-print>🖨 Распечатать карточки входа</button></div>
+          <p class="adm-hint">Пароли видно только сейчас — распечатайте карточки или сохраните их в PDF. Забыл пароль — «Новый пароль и карточка» в карточке ученика.</p>` : ''}`;
+        $('#impText').value = '';
+        upd();
+        loadClasses();
+        return;
+      }
+      if (e.target.closest('[data-imp-print]')) printCards(IMP_CARDS, cname);
+    };
+    $('#parentModal').hidden = false;
+    setTimeout(() => $('#impText').focus(), 30);
+  }
+  let IMP_CARDS = [];
+  function printCards(cards, cname) {
+    const w = window.open('', '_blank');
+    if (!w) { toast('Браузер заблокировал новое окно — разрешите всплывающие окна для этого сайта'); return; }
+    const host = location.host, card = c => {
+      const link = `${location.origin}/?n=${encodeURIComponent(c.name)}`;
+      return `<div class="c"><div class="t"><b>Egeshka</b><span>${esc(cname || '')}</span></div>
+        <div class="b"><div class="q">${window.egeQRsvg ? window.egeQRsvg(link, 120) : ''}</div>
+        <div><div class="n">${esc(c.name)}</div><div class="l">Сайт: <b>${esc(host)}</b></div>
+        <div class="l">Пароль: <b class="p">${esc(c.password)}</b></div>
+        <div class="h">Наведи камеру на код или открой сайт → «Вход» → ФИО и пароль. Пароль можно сменить в меню с именем.</div></div></div></div>`;
+    };
+    w.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Карточки входа — ${esc(cname || '')}</title>
+      <style>@page{size:A4;margin:10mm}body{margin:0;font-family:Arial,sans-serif;color:#111}
+      .g{display:grid;grid-template-columns:1fr 1fr;gap:0}
+      .c{border:1px dashed #999;padding:10px 12px;height:53mm;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid}
+      .t{display:flex;justify-content:space-between;font-size:12px;color:#2f8f2f;margin-bottom:6px}.t span{color:#666}
+      .b{display:flex;gap:10px;align-items:flex-start}.q svg{width:36mm;height:36mm}
+      .n{font-size:16px;font-weight:bold;margin-bottom:6px}.l{font-size:13px;margin:2px 0}.p{font-family:Consolas,monospace;font-size:17px;letter-spacing:1px}
+      .h{font-size:10.5px;color:#555;margin-top:6px}.bar{padding:10px;font-family:Arial}@media print{.bar{display:none}}</style></head>
+      <body><div class="bar"><button onclick="print()">Распечатать</button> Разрежьте по пунктиру и раздайте ученикам.</div>
+      <div class="g">${cards.map(card).join('')}</div></body></html>`);
+    w.document.close();
+  }
+  $('#stNewPw').addEventListener('click', async () => {
+    const s = st.student;
+    if (!confirm(`Выдать «${s.name}» новый пароль? Старый перестанет работать, входы на всех устройствах закроются.`)) return;
+    try {
+      const r = await api('student/newpw', { id: s.id });
+      const cls = classes.find(c => c.id === s.class_id);
+      printCards([{ name: r.name, password: r.password }], cls ? cls.name : '');
+    } catch (e) { if (e.status !== 401) toast(e.message); }
+  });
   $('#stPwReset').addEventListener('click', async () => {
     const s = st.student;
     if (!confirm(`Сбросить пароль ученика «${s.name}»?\n\nОн войдёт через «Регистрацию» с тем же ФИО и кодом приглашения и придумает новый пароль. Журнал и прогресс сохранятся.`)) return;
@@ -3431,8 +3576,8 @@
       feedEvents(d.events, !evPolled);
       evPolled = true;
       // подозрительные ответы (ушёл со страницы и сразу верно, вставка ответа) — тоже в уведомления
-      ntfAdd(d.attempts.filter(a => /sus|paste|ai|bot/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
-        text: `${/\bbot\b/.test(a.flags) ? `🦾 похоже, решает программа (${a.bot_why || 'бот'})` : /\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
+      ntfAdd(d.attempts.filter(a => /sus|paste|ai/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
+        text: `${/\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
       if (d.attempts.length) {
         const first = feedSince === 0;
         d.attempts.forEach(a => { if (!first) freshIds.add(a.id); });
@@ -3657,6 +3802,7 @@
       $('#inviteCode').value = d.invite || '';
       ME.invite = d.invite || ME.invite;
       $('#inviteLinkSet').textContent = inviteLink().replace(/^https?:\/\//, '');
+      $('#hintsOn').checked = !!ME.hints;
       $('#reportEmail').value = ME.email || '';
       $('#reportOn').checked = ME.report !== false;
       $('#reportState').textContent = ME.mail_on ? '' : (ME.is_main
@@ -3667,6 +3813,17 @@
       $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
     } catch (e) { /* не страшно */ }
   }
+  $('#hintsOn').addEventListener('change', async e => {
+    const msg = $('#hintsMsg');
+    msg.className = 'login-err';
+    msg.textContent = '';
+    try {
+      const r = await api('hints', { on: e.target.checked });
+      ME.hints = e.target.checked = r.on;
+      msg.className = 'login-err ok';
+      msg.textContent = r.on ? 'Подсказки включены — ученики увидят их, когда обновят страницу' : 'Подсказки выключены: снова кнопка «Показать ответ»';
+    } catch (err) { e.target.checked = !e.target.checked; if (err.status !== 401) msg.textContent = err.message; }
+  });
   $('#authoredOn').addEventListener('change', async e => {
     const msg = $('#authoredMsg');
     msg.className = 'login-err';

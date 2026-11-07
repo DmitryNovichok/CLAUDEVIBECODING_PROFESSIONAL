@@ -724,12 +724,17 @@
       setTimeout(() => $('#nextBtn') && $('#nextBtn').focus({ preventScroll: true }), 0);
       return;
     }
+    const hintMode = SERVER && RULES.hints && !cur.group;
+    const hintsUsed = (cur.hints || []).length;
+    hintBoxRender(a);
     a.innerHTML = `
       <button class="btn primary" id="checkBtn" type="button">Проверить<kbd>Enter</kbd></button>
-      <button class="btn" id="giveUpBtn" type="button">Показать ответ</button>
+      ${hintMode && hintsUsed < 2 ? `<button class="btn" id="hintBtn" type="button" title="Подсказка: сначала идея, потом план решения. С подсказкой задание засчитается как со второй попытки">💡 Подсказка ${hintsUsed + 1} из 2</button>` : ''}
+      <button class="btn${hintMode && hintsUsed < 2 ? ' ghost' : ''}" id="giveUpBtn" type="button"${hintMode && hintsUsed < 2 ? ' hidden' : ''}>Показать ответ</button>
       ${cur.attempt === 0 ? '<button class="btn ghost" id="skipBtn" type="button" title="Пропустить без штрафа">Пропустить →</button>' : ''}`;
     $('#checkBtn').addEventListener('click', check);
     $('#giveUpBtn').addEventListener('click', giveUp);
+    if ($('#hintBtn')) $('#hintBtn').addEventListener('click', getHint);
     const sk = $('#skipBtn');
     if (sk) sk.addEventListener('click', next);
     // «Показать ответ» доступна не сразу: сначала нужно попробовать решить
@@ -905,8 +910,7 @@
   function payloadFor(obj, extra) {
     const rk = cur.group ? cur.revKey : (cur.why.type === 'review' ? cur.why.r.key : '');
     return Object.assign({ task: obj.id, reason: cur.why.type, rk, spent_ms: Date.now() - cur.started, away: cur.away || 0,
-      away_sec: Math.round(cur.awaySec || 0), back_sec: cur.backAt ? (Date.now() - cur.backAt) / 1000 : null, paste: cur.paste ? 1 : 0,
-      bot: botPayload(cur.task.id) }, extra);
+      away_sec: Math.round(cur.awaySec || 0), back_sec: cur.backAt ? (Date.now() - cur.backAt) / 1000 : null, paste: cur.paste ? 1 : 0 }, extra);
   }
   async function callCheck(obj, extra) {              // может выбросить ошибку сети
     if (!SERVER) return localCheck(obj, extra);
@@ -1003,6 +1007,26 @@
       return;
     }
     finish(0, false, res);
+  }
+
+  // ---- подсказки по шагам (если учитель включил): 1 — идея, 2 — план, потом «Показать ответ»
+  function hintBoxRender(actions) {
+    let box = $('#hintBox');
+    const list = (cur && cur.hints) || [];
+    if (!list.length) { if (box) box.remove(); return; }
+    if (!box) { box = document.createElement('div'); box.id = 'hintBox'; box.className = 'hint-box'; actions.insertAdjacentElement('beforebegin', box); }
+    box.innerHTML = list.map(h => `<div class="hint-step"><b>💡 ${esc(h.title)}</b>${h.type ? ` <small>· ${esc(h.type)}</small>` : ''}<p>${esc(h.text)}</p></div>`).join('')
+      + '<p class="hint-note">С подсказкой верный ответ засчитается как со второй попытки.</p>';
+  }
+  async function getHint() {
+    if (!cur || cur.done || busy) return;
+    const task = cur.task.id;
+    try {
+      const h = await api('hint', { task });
+      if (!cur || cur.task.id !== task) return;
+      cur.hints = (cur.hints || []).concat([h]);
+      renderActions();
+    } catch (e) { toast(e.message || 'Подсказка недоступна'); }
   }
 
   async function giveUp() {

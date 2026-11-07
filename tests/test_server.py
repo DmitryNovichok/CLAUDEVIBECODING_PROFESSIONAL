@@ -2026,36 +2026,18 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(db.q("SELECT COUNT(*) c FROM coins WHERE reason='class'", one=True)["c"], n_coins)
         self.assertEqual(math.ceil(5000 / 15), 334)
 
-    def test_bot_detector(self):
-        # детектор ботов: признаки программы — отметка bot с причиной (учителю), ученику в ответе — ничего; человек и планшет — без отметки
-        R = server.bot_reasons
-        human = {"mv": 180, "clk": 2, "tclk": 0, "keys": 3, "kstd": 60, "inst": 0, "synth": 0, "touch": 0, "wd": 0}
-        self.assertEqual(R(human), [])
-        self.assertEqual(R(None), [])
-        self.assertEqual(R({"mv": 0, "clk": 0, "touch": 4, "inst": 1}), [])                     # планшет: без мыши — не признак
-        self.assertEqual(len(R({"mv": 3, "clk": 3, "tclk": 3})), 1)                              # три «прыжка» — сразу
-        self.assertEqual(R({"mv": 2, "clk": 2, "tclk": 2}), [])                                  # один слабый признак — мало
-        self.assertEqual(len(R({"mv": 2, "clk": 2, "tclk": 2, "keys": 8, "kstd": 1.5})), 2)      # два слабых — отметка
-        self.assertIn("браузер под управлением программы", R({"wd": 1}))
+    def test_no_bot_detector(self):
+        # детектор ботов убран: присланные счётчики игнорируются, отметок «бот» нет
+        self.assertFalse(hasattr(server, "bot_reasons"))
         tok = self.login("Роботов Роман")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
-        p5, p6 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:6")
+        p5 = server.APP.bank.pid("b:5")
         self.req("POST", "/api/open", {"task": p5}, tok)
-        st, d = self.check(tok, p5, answer="12", bot={"mv": 1, "clk": 3, "tclk": 3, "keys": 6, "kstd": 0.8})
+        st, d = self.check(tok, p5, answer="12", bot={"mv": 1, "clk": 3, "tclk": 3, "wd": 1})
         self.assertEqual(st, 200)
-        self.assertNotIn("bot", json.dumps(d))                                                  # скрыто: ученик ничего не узнаёт
-        self.req("POST", "/api/open", {"task": p6}, tok)
-        self.check(tok, p6, answer="7", bot=human)
         at = {a["task_id"]: a for a in self.admin("GET", f"/api/admin/student?id={sid}&from=0")[1]["attempts"]}
-        self.assertEqual(at["b:5"]["flags"], "bot")
-        self.assertIn("клики без движения мыши", at["b:5"]["bot_why"])
-        self.assertIsNone(at["b:6"]["flags"])
-        # вариант: метрики приходят с каждым ответом
-        st, e = self.req("POST", "/api/exam/start", {}, tok)
-        self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [{"task": "b:5", "answer": "12", "bot": {"wd": 1}}]}, tok)
-        row = server.APP.db.q("SELECT flags, bot_why FROM attempts WHERE exam=?", (e["exam_id"],), one=True)
-        if row:                                                                                # b:5 мог не попасть в вариант
-            self.assertEqual((row["flags"], row["bot_why"]), ("bot", "браузер под управлением программы"))
+        self.assertIsNone(at["b:5"]["flags"])
+        self.assertIsNone(at["b:5"]["bot_why"])
 
     def test_integrity_flags(self):
         # ⚠ — вернулся после долгого ухода и сразу верно; 📋 — ответ вставлен; сводка «вне тренажёра» и строгий режим варианта
@@ -3431,6 +3413,84 @@ class ServerTest(unittest.TestCase):
         c.close()
         db.x("UPDATE teachers SET email=NULL, report_ts=NULL WHERE id=?", (main["id"],))
         server.drop_class(db, cid)
+
+    def test_parent_link_and_class_import(self):
+        db = server.APP.db
+        main = server.main_teacher()
+        cid = db.x("INSERT INTO classes(name, created, teacher_id) VALUES('Импорт', ?, ?)", (time.time(), main["id"]))
+        tok = self.login("Занятов Захар")                       # уже есть у главного — перенесётся в класс
+        st, d = self.admin("POST", "/api/admin/class/import", {"class_id": cid, "names": [
+            "Новикова\tАнна", "  петров   пётр ", "Занятов Захар", "петров пётр", "123", "Х"]})
+        self.assertEqual(st, 200, d)
+        by = {r["name"]: r for r in d["rows"]}
+        self.assertEqual(by["Новикова Анна"]["status"], "new")
+        self.assertRegex(by["Новикова Анна"]["password"], r"^[a-z]{3}[2-9]{3}$")
+        self.assertEqual(by["Петров Пётр"]["status"], "new")
+        self.assertEqual(by["Занятов Захар"]["status"], "mine")
+        self.assertEqual(sum(1 for r in d["rows"] if r["name"] == "Петров Пётр"), 1)          # повтор в списке — один раз
+        self.assertEqual(sum(1 for r in d["rows"] if r["status"] == "bad"), 2)
+        st, lg = self.req("POST", "/api/login", {"mode": "login", "name": "Новикова Анна", "password": by["Новикова Анна"]["password"]})
+        self.assertEqual(st, 200, lg)                            # входит по карточке
+        self.assertTrue(lg["consent_needed"])                    # документы принимает при первом входе
+        sid = by["Новикова Анна"]["id"]
+        self.assertEqual(db.q("SELECT class_id FROM students WHERE id=?", (sid,), one=True)["class_id"], cid)
+        st, np = self.admin("POST", "/api/admin/student/newpw", {"id": sid})
+        self.assertEqual(st, 200)
+        st, _ = self.req("POST", "/api/login", {"mode": "login", "name": "Новикова Анна", "password": by["Новикова Анна"]["password"]})
+        self.assertEqual(st, 403)                                # старый пароль больше не подходит
+        st, _ = self.req("POST", "/api/login", {"mode": "login", "name": "Новикова Анна", "password": np["password"]})
+        self.assertEqual(st, 200)
+        # ссылка для родителей
+        st, p = self.admin("POST", "/api/admin/student/parent", {"id": sid, "email": "mama@example.ru"})
+        self.assertEqual((st, p["email"]), (200, "mama@example.ru"))
+        st, r = self.req("GET", "/api/parent?t=" + p["token"])
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r["name"], "Новикова Анна")
+        self.assertEqual(r["class"], "Импорт")
+        self.assertEqual(len(r["days"]), 28)
+        self.assertNotIn("Занятов", json.dumps(r, ensure_ascii=False))     # одноклассников родитель не видит
+        st, p2 = self.admin("POST", "/api/admin/student/parent", {"id": sid, "new": True})
+        self.assertNotEqual(p2["token"], p["token"])
+        self.assertEqual(self.req("GET", "/api/parent?t=" + p["token"])[0], 404)   # старая ссылка не работает
+        self.assertEqual(self.req("GET", "/api/parent?t=x")[0], 404)
+        st, cl = self.admin("GET", f"/api/admin/class/parents?class_id={cid}")
+        self.assertEqual({x["name"] for x in cl["students"]}, {"Новикова Анна", "Петров Пётр", "Занятов Захар"})
+        # письмо родителю раз в неделю
+        sent = []
+        with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+             mock.patch.object(server, "report_due_since", lambda now=None: time.time() - 100), \
+             mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, subj, t)) or True):
+            self.assertEqual(server.parent_tick(db, "https://egeshka.test"), 1)
+            self.assertEqual(server.parent_tick(db, "https://egeshka.test"), 0)
+        self.assertEqual(sent[0][0], "mama@example.ru")
+        self.assertIn("https://egeshka.test/parent?t=" + p2["token"], sent[0][2])
+        for x in d["rows"]:
+            if x.get("id") and x["status"] == "new":
+                server.delete_student(db, x["id"])
+        server.drop_class(db, cid)
+
+    def test_step_hints(self):
+        db = server.APP.db
+        tok = self.login("Подсказкин Пётр")
+        p5 = server.APP.bank.pid("b:5")
+        self.req("POST", "/api/open", {"task": p5}, tok)
+        self.assertEqual(self.req("POST", "/api/hint", {"task": p5}, tok)[0], 403)        # учитель не включил
+        self.assertEqual(self.admin("POST", "/api/admin/hints", {"on": True})[1]["on"], True)
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["hints"])
+        st, h1 = self.req("POST", "/api/hint", {"task": p5}, tok)
+        self.assertEqual((st, h1["step"], h1["title"]), (200, 1, "Идея"))
+        st, h2 = self.req("POST", "/api/hint", {"task": p5}, tok)
+        self.assertEqual(h2["step"], 2)
+        self.assertNotIn("12", h1["text"] + h2["text"])                                  # ответ подсказка не выдаёт
+        self.assertEqual(self.req("POST", "/api/hint", {"task": p5}, tok)[1]["step"], 2) # дальше — только «Показать ответ»
+        st, d = self.check(tok, p5, answer="12")
+        self.assertEqual((st, d["correct"], d["score"]), (200, True, 0.5))                # с подсказкой — как со 2-й попытки
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        row = db.q("SELECT flags, score FROM attempts WHERE student_id=? ORDER BY id DESC LIMIT 1", (sid,), one=True)
+        self.assertEqual((row["flags"], row["score"]), ("hint", 0.5))
+        self.assertEqual(self.req("POST", "/api/hint", {"task": p5}, tok)[0], 409)       # уже решено
+        self.assertTrue(all(server.hints_mod.hint(n, k) for n in list(range(1, 20)) + list(range(22, 28)) for k in (1, 2)))
+        self.admin("POST", "/api/admin/hints", {"on": False})
 
     def test_forbes_all_teachers(self):
         # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;

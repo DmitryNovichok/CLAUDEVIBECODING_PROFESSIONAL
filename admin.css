@@ -829,3 +829,10 @@ tr.t-renew td { background: var(--review-soft); }
 @media (max-width: 1000px) { .offer-grid { grid-template-columns: 1fr; } }
 .adm-access a.btn, .adm-steps a.btn { text-decoration: none; }
 #renewText { height: 64px; min-height: 64px; resize: vertical; }
+
+/* ---------- родителям, список класса */
+.parent-panel { max-width: 640px; }
+.parent-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow: auto; margin-top: 10px; }
+.parent-list > div { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+.parent-list > div > span { flex: 1; }
+.imp-text { width: 100%; min-height: 180px; font-family: var(--font); resize: vertical; }

@@ -279,6 +279,7 @@
     if (!confirm('Выйти из варианта? Ответы сохранятся, но время идёт. Вернуться — кнопкой «Вариант ЕГЭ».')) return false;
     saveExamInputs();
     examShown = false;
+    document.body.classList.remove('kege-on');
     exStrictLeave();
     cur = null;
     return true;

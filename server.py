@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import hash_pw, check_pw, revoke_access
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
 from private_config import read_private, private_rewards, require_private
+import hints as hints_mod
 PRIVATE_CONFIG = read_private()
 from storage import Transactional, STATE_LOCK
 from economy import atomic, financial_path, atomic_response
@@ -71,7 +72,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "changelog.js",
-              "together.html", "together.js", "welcome.html", "welcome.css", "welcome.js", "qr.js",
+              "together.html", "together.js", "parent.html", "welcome.html", "welcome.css", "welcome.js", "qr.js",
               "terms.html", "privacy.html", "consent.html", "legal.css",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
               "favicon.ico", "favicon.svg", "favicon-96.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "site.webmanifest"}
@@ -121,12 +122,6 @@ SUS_BACK_SEC = 60                   # …и ответил верно не по�
 # у каждого ученика и задания своё K (TRAP_MIN … TRAP_MIN + TRAP_SPAN − 1, не круглое). Решает сам — строки не видит;
 # скормил текст нейросети — она прибавит K. Пришло «верный ответ + K» — попытка с отметкой ai (учителю — 🤖), ученику — «неверно».
 TRAP_MIN, TRAP_SPAN = 11, 79
-# Детектор ботов (скрыто — ученику ничего не показываем): программа, которая сама управляет экраном, видит то же, что ученик,
-# но работает иначе. С ответом приходят только счётчики по заданию (bot): движений мыши mv, кликов мышью clk, из них «прыжком»
-# (без движения перед кликом) tclk, нажатий клавиш keys и разброс интервалов между ними kstd (мс), ответов, появившихся в поле
-# целиком без нажатий, inst, событий, созданных скриптом, synth, касаний touch, флаг автоматизации браузера wd. bot_reasons —
-# причины; есть — у попытки отметка bot (учителю — 🦾 с причиной).
-BOT_KSTD_MS = 6                            # печать ровнее этого (разброс интервалов, мс) — так печатает программа
 ACTIVITY_PER_HOUR = 300
 MAX_SOLUTION = 50_000                 # символов в решении (код или текст)
 ATTEMPTS_PER_TASK = 2               # попыток на задание; считает сервер, а не страница
@@ -166,27 +161,6 @@ ANS_FIX = {
 }
 
 
-
-
-def bot_reasons(m):
-    """Почему ответ похож на работу программы (см. BOT_KSTD_MS): сильный признак — сразу, слабых — нужно два; иначе []."""
-    if not isinstance(m, dict):
-        return []
-    n = lambda k: to_float(m.get(k)) or 0
-    strong, weak = [], []
-    if m.get("wd"):
-        strong.append("браузер под управлением программы")
-    if n("synth") >= 1:
-        strong.append("нажатия созданы скриптом")
-    if not n("touch"):                                   # планшет и телефон — без мыши, это не признак
-        clicks = n("fclk") if "fclk" in m else n("clk")            # клики в новое место (тройной клик в одно — один)
-        if clicks >= 2 and n("tclk") >= clicks and n("mv") <= 2 * clicks:
-            (strong if clicks >= 3 else weak).append("клики без движения мыши — курсор «прыгает» на кнопки")
-        if n("inst") >= 1:
-            weak.append("ответ появился в поле целиком, без нажатий клавиш")
-    if n("keys") >= 5 and n("kstd") < BOT_KSTD_MS:
-        weak.append("печать с одинаковым до миллисекунды интервалом")
-    return strong + weak if strong or len(weak) >= 2 else []
 
 
 def trap_k(db, s, t):
@@ -1696,6 +1670,10 @@ class DB(Transactional):
                     ("teachers", "consent_ts", "REAL"),
                     ("teachers", "consent_ip", "TEXT"),
                     ("teachers", "sounds", "INTEGER DEFAULT 1"),      # 0 — учитель выключил звуки на сайте у своих учеников (урок)
+                    ("students", "parent_token", "TEXT"),            # секретная ссылка для родителей (только просмотр)
+                    ("students", "parent_email", "TEXT"),            # почта родителя для письма раз в неделю (вписывает учитель)
+                    ("students", "parent_report_ts", "REAL"),
+                    ("teachers", "hints", "INTEGER DEFAULT 0"),      # 1 — подсказки по шагам вместо «Показать ответ» у учеников
                     ("teachers", "email", "TEXT"),                    # почта: вход учителя, сам зарегистрировался, еженедельный отчёт
                     ("teachers", "until", "REAL"),                    # доступ до (пробный или оплаченный); NULL — без срока
                     ("teachers", "paid", "INTEGER DEFAULT 0"),        # 1 — доступ оплачен (продлил главный учитель)
@@ -1839,6 +1817,12 @@ class DB(Transactional):
                 main_id = c.execute("SELECT id FROM teachers WHERE is_main=1").fetchone()[0]
                 c.execute("INSERT OR IGNORE INTO tsolutions(teacher_id, task_id, text, ts) SELECT ?, task_id, text, ts FROM teacher_solutions",
                           (main_id,))
+            # детектор ботов убран (2.24): прежние отметки «похоже на бота» стираем один раз
+            if not c.execute("SELECT 1 FROM settings WHERE key='bot_flags_cleared'").fetchone():
+                c.execute("""UPDATE attempts SET bot_why=NULL,
+                             flags=NULLIF(TRIM(REPLACE(',' || flags || ',', ',bot,', ','), ','), '')
+                             WHERE ',' || COALESCE(flags, '') || ',' LIKE '%,bot,%' OR bot_why IS NOT NULL""")
+                c.execute("INSERT INTO settings(key, value) VALUES('bot_flags_cleared', '1')")
             # прежние версии записывали нетронутые задания варианта как ошибки — убираем их из журнала
             c.execute("DELETE FROM attempts WHERE reason='exam' AND answers='[]'")
             c.commit()
@@ -2301,6 +2285,8 @@ class Handler(BaseHTTPRequestHandler):
             path = "/together.html"
         if path in ("/welcome", "/welcome/", "/teachers", "/teachers/"):
             path = "/welcome.html"
+        if path in ("/parent", "/parent/"):
+            path = "/parent.html"
         rel = path.lstrip("/")
         # «..», обратные слэши и пустые части пути не нужны ни одному честному запросу
         segs = rel.split("/")
@@ -2315,7 +2301,7 @@ class Handler(BaseHTTPRequestHandler):
         # файлы сайта
         if rel in ("index.html", "welcome.html"):
             self.count_visit()
-        if rel in ("index.html", "admin.html", "together.html", "welcome.html"):
+        if rel in ("index.html", "admin.html", "together.html", "welcome.html", "parent.html"):
             return self.serve_page(rel)
         if rel in SITE_FILES:
             return self.serve_file(HERE, rel, html=rel.endswith(".html"))
@@ -2619,11 +2605,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     # ---------- журнал и показ ответов
     def log_attempt(self, s, t, answers, score, *, gave_up=False, abandoned=False, reason="", rk=None,
-                    part=None, revealed=0, spent=None, exam=None, away=None, st=None, ai=False, bot=None):
+                    part=None, revealed=0, spent=None, exam=None, away=None, st=None, ai=False):
         away_sec, fl = None, []
-        bot = bot or (st and st.get("bot")) or None
-        if bot:                                    # детектор ботов: причины — учителю, ученику не показываем
-            fl.append("bot")
+        if st and st.get("hints"):
+            fl.append("hint")
         if st:
             away_sec = st.get("away_sec") or None
             if score > 0 and st.get("back_sec") is not None and st["back_sec"] <= SUS_BACK_SEC:
@@ -2639,7 +2624,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         (s["id"], time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps(answers, ensure_ascii=False),
                          t.get("ans", ""), score, int(gave_up), int(abandoned), spent, reason, rk, part,
                          t.get("group"), int(revealed), exam, self.client_ip(), away or None, away_sec, flags,
-                         "; ".join(bot) if bot else None))
+                         None))
         live_teacher(s)                          # учитель видит ответ в ленте сразу
         LIVE.send([s["id"]], "mine")             # другие вкладки и устройства ученика: опыт, уровень, плитки номеров
         if score > 0 and not s["is_teacher"]:
@@ -2709,6 +2694,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "attempts": ATTEMPTS_PER_TASK, "exam_sec": EXAM_LIMIT_SEC, "exam_per_day": EXAM_PER_DAY,
                 "exam_min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "authored": authored,
                 "sounds": bool(teacher_of(s)["sounds"]) if s else True,       # рубильник звуков учителя
+                "hints": bool(teacher_of(s)["hints"]) if s else False,        # подсказки по шагам (решает учитель)
                 "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file(),
                 "repeat_since": 0}
 
@@ -3421,6 +3407,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE students SET prefs=?, progress_ts=? WHERE id=?", (raw, time.time(), s["id"]))
             return self.send_json({"ok": True})
 
+        if path == "/api/hint" and method == "POST":
+            path, data = "/api/check", dict(data, hint=True)        # подсказка — через те же проверки задания
         if path in ("/api/open", "/api/check", "/api/reveal") and method == "POST":
             s = self.student(data)
             if not s:
@@ -3438,6 +3426,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(400, "вопросы 19–21 проверяются по отдельности")
             if path == "/api/reveal":
                 return self.api_reveal(s, t)
+            if data.get("hint"):
+                return self.api_hint(s, t)
             return self.api_check(s, t, data)
 
         if path == "/api/find":
@@ -3884,6 +3874,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/public/offer":
             return self.send_json(dict(offer_get(db), trial_days=TRIAL_DAYS, guest_minutes=GUEST_SECONDS // 60))
 
+        if path == "/api/parent":
+            # отчёт родителю по секретной ссылке: только этот ученик, только просмотр
+            ip = self.client_ip()
+            wait = THROTTLE.blocked("find", ip)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
+            tok = str(qs.get("t") or "")
+            s = db.q("SELECT * FROM students WHERE parent_token=? AND COALESCE(is_teacher, 0)=0", (tok,), one=True) if len(tok) >= 16 else None
+            if not s:
+                THROTTLE.fail("find", ip)
+                return self.err(404, "Ссылка устарела — попросите у учителя новую")
+            return self.send_json(parent_report(db, s))
+
         if path == "/api/teacher/signup" and method == "POST":
             ip = self.client_ip()
             wait = THROTTLE.blocked("signup", ip)
@@ -4287,7 +4290,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         back = data.get("back_sec")
         st["back_sec"] = round(min(max(float(back), 0), 86400), 1) if isinstance(back, (int, float)) else None
         st["paste"] = bool(st.get("paste") or data.get("paste"))
-        st["bot"] = bot_reasons(data.get("bot")) or st.get("bot")      # детектор ботов — скрыто, только учителю
         n = t.get("n") or 0
 
         if data.get("abandoned"):
@@ -4316,7 +4318,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if len(st["tries"]) == 1:
                 st["part"] = credit          # на экзамене попытка одна — частичный балл считаем по первой
             if credit == 1.0:
-                score = 1.0 if len(st["tries"]) == 1 else 0.5
+                score = 1.0 if len(st["tries"]) == 1 and not st.get("hints") else 0.5      # с подсказкой — как со 2-й
                 daily_fast = score == 1.0 and is_daily_of(s["id"], t["id"]) and self.daily_result(s, t, st)
                 self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
                                  revealed=1, spent=spent, away=st["away"], st=st)
@@ -4345,6 +4347,23 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         st["final"] = res
         st["aid"] = aid
         return self.send_json(res)
+
+    def api_hint(self, s, t):
+        """Следующая подсказка (1 — идея, 2 — план). С подсказкой верный ответ засчитывается как со второй попытки."""
+        if not teacher_of(s)["hints"]:
+            return self.err(403, "Подсказки выключены учителем")
+        st = OPENED.get(s["id"], t["id"])
+        if st["final"] is not None:
+            return self.err(409, "Задание уже решено")
+        step = min(2, (st.get("hints") or 0) + 1)
+        text = hints_mod.hint(t.get("n"), step)
+        if not text:
+            return self.err(404, "Для этого номера подсказок нет")
+        st["hints"] = step
+        kind = clusters.labels(t.get("n")) if t.get("n") else []
+        label = dict(kind).get(t.get("c"), "") if kind else ""
+        return self.send_json({"step": step, "of": 2, "title": "Идея" if step == 1 else "План решения",
+                               "type": label if step == 1 else "", "text": text})
 
     def api_reveal(self, s, t):
         """Ответ был скрыт (рано или исчерпан лимит) — показать, если теперь можно."""
@@ -4463,10 +4482,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if not data.get("change"):
                     return self.err(409, "Ответ на это задание уже сдан")
                 old = answers[tid]
-                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": old.get("ms"), "ch": 1, "prev": old.get("a"),
-                                "bot": bot_reasons(data.get("bot")) or old.get("bot")}
+                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": old.get("ms"), "ch": 1, "prev": old.get("a")}
             else:
-                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None, "bot": bot_reasons(data.get("bot"))}
+                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None}
             db.x("UPDATE asg_runs SET answers=?, last=? WHERE asg_id=? AND student_id=?",
                  (json.dumps(answers, ensure_ascii=False), now, aid, s["id"]))
             live_teacher(s)                      # «● Онлайн» у учителя: сдано на одно задание больше
@@ -4512,8 +4530,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             primary += pts
             if not blank:                     # нетронутое задание варианта — не ошибка: в журнал и статистику не идёт
                 self.log_attempt(s, t, [ans], 1.0 if credit == 1.0 else 0.0, reason="exam",
-                                 part=credit, revealed=int(show), exam=e["id"], ai=credit < 1.0 and trap_hit(db, s, t, ans),
-                                 bot=bot_reasons(it.get("bot")))
+                                 part=credit, revealed=int(show), exam=e["id"], ai=credit < 1.0 and trap_hit(db, s, t, ans))
             r = {"task": APP.bank.pid(tid), "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank}
             if show and not blank:
                 r["answer"] = t.get("ans", "")
@@ -5022,6 +5039,73 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "ученик не найден")
             delete_student(db, sid)
             return self.send_json({"ok": True})
+
+        if path == "/api/admin/student/parent" and method == "POST":
+            # ссылка для родителей ученика (new — выпустить новую, старая перестанет работать) и почта для писем
+            sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
+            if "email" in data:
+                email = str(data.get("email") or "").strip().lower()[:120]
+                if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s.]{2,}", email):
+                    return self.err(400, "Проверьте адрес почты")
+                db.x("UPDATE students SET parent_email=? WHERE id=?", (email or None, sid))
+            tok = parent_token(db, sid, bool(data.get("new")))
+            r = db.q("SELECT parent_email FROM students WHERE id=?", (sid,), one=True)
+            return self.send_json({"token": tok, "email": r["parent_email"] or "", "mail_on": bool(smtp_conf())})
+
+        if path == "/api/admin/class/import" and method == "POST":
+            # список класса из Excel: ученики создаются сразу с паролями (их видно один раз — для карточек входа)
+            cid = to_int(data.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            names = data.get("names") if isinstance(data.get("names"), list) else []
+            if not names or len(names) > IMPORT_MAX:
+                return self.err(400, f"Вставьте от 1 до {IMPORT_MAX} учеников")
+            out, seen, now = [], set(), time.time()
+            for raw in names:
+                pretty, key = norm_name(str(raw or "")[:120])
+                if not pretty:
+                    continue
+                if not NAME_RE.match(pretty) or len(pretty.split()) < 2:
+                    out.append({"name": pretty[:80], "status": "bad"})
+                    continue
+                if key in seen:
+                    continue
+                seen.add(key)
+                ex = db.q("SELECT id, teacher_id FROM students WHERE name_key=?", (key,), one=True)
+                if ex:
+                    if self.sees_student(ex["id"]):                  # свой ученик — просто в этот класс
+                        db.x("UPDATE students SET class_id=? WHERE id=?", (cid, ex["id"]))
+                        out.append({"name": pretty, "status": "mine", "id": ex["id"]})
+                    else:
+                        out.append({"name": pretty, "status": "taken"})
+                    continue
+                pw = new_student_pw()
+                sid = db.x("""INSERT INTO students(name, name_key, token, created, last_seen, pw, teacher_id, class_id)
+                              VALUES(?,?,?,?,?,?,?,?)""", (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw), self.T["id"], cid))
+                out.append({"name": pretty, "status": "new", "id": sid, "password": pw})
+            return self.send_json({"rows": out})
+
+        if path == "/api/admin/student/newpw" and method == "POST":
+            # новый пароль для карточки входа (ученик забыл): прежний перестаёт действовать, входы закрываются
+            sid = to_int(data.get("id"))
+            if not self.sees_student(sid):
+                return self.err(404, "ученик не найден")
+            pw = new_student_pw()
+            db.x("UPDATE students SET pw=? WHERE id=?", (hash_pw(pw), sid))
+            db.x("DELETE FROM student_sessions WHERE student_id=?", (sid,))
+            r = db.q("SELECT name FROM students WHERE id=?", (sid,), one=True)
+            return self.send_json({"name": r["name"], "password": pw})
+
+        if path == "/api/admin/class/parents":
+            # ссылки для родителей всего класса (недостающие создаются)
+            cid = to_int(qs.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            rows = db.q("SELECT id, name, parent_email FROM students WHERE class_id=? AND COALESCE(is_teacher, 0)=0 ORDER BY name", (cid,))
+            return self.send_json({"students": [{"id": r["id"], "name": r["name"], "email": r["parent_email"] or "",
+                                                 "token": parent_token(db, r["id"])} for r in rows]})
 
         if path == "/api/admin/invite" and method == "POST":
             code = re.sub(r"\s+", "", str(data.get("code") or ""))
@@ -5535,6 +5619,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("UPDATE js_errors SET fixed_ts=? WHERE id=?", (time.time() if data.get("fixed") else None, to_int(data.get("id"))))
             return self.send_json({"errors": jserr_list(db), "new": jserr_new(db), "seen": seen})
 
+        if path == "/api/admin/hints" and method == "POST":
+            # рубильник подсказок по шагам у учеников этого учителя
+            on = 1 if data.get("on") else 0
+            db.x("UPDATE teachers SET hints=? WHERE id=?", (on, self.T["id"]))
+            return self.send_json({"ok": True, "on": bool(on)})
+
         if path == "/api/admin/sounds" and method == "POST":
             # рубильник звуков: у учеников этого учителя замолкают фон и звуки кейса — сразу, без перезагрузки
             on = 1 if data.get("on") else 0
@@ -5545,6 +5635,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/admin/me":
             out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")}
             out["sounds"] = bool(self.T["sounds"])
+            out["hints"] = bool(self.T["hints"])
             if self.T["is_main"]:
                 out["jserr_new"] = jserr_new(db)
             row = db.q("SELECT consent_ver FROM teachers WHERE id=?", (self.T["id"],), one=True)
@@ -5917,7 +6008,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                          SUM(',' || COALESCE(flags, '') || ',' LIKE '%,sus,%') AS sus,
                                          SUM(',' || COALESCE(flags, '') || ',' LIKE '%,paste,%') AS paste,
                                          SUM(',' || COALESCE(flags, '') || ',' LIKE '%,ai,%') AS ai,
-                                         SUM(',' || COALESCE(flags, '') || ',' LIKE '%,bot,%') AS bot,
                                          MIN(ts) AS first, MAX(ts) AS last, GROUP_CONCAT(DISTINCT n) AS nums
                                   FROM attempts WHERE {cond} GROUP BY student_id""", args):
                     rows[r["student_id"]] = dict(r)
@@ -5936,7 +6026,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             "solved": r.get("solved") or 0, "ok1": r.get("ok1") or 0, "ok2": r.get("ok2") or 0,
                             "bad": r.get("bad") or 0, "shown": r.get("shown") or 0, "spent": r.get("spent") or 0,
                             "away": r.get("away") or 0, "first": r.get("first"), "last": r.get("last"), "nums": nums,
-                            "exam": r.get("exam"), "sus": r.get("sus") or 0, "paste": r.get("paste") or 0, "ai": r.get("ai") or 0, "bot": r.get("bot") or 0,
+                            "exam": r.get("exam"), "sus": r.get("sus") or 0, "paste": r.get("paste") or 0, "ai": r.get("ai") or 0,
                             "out_n": r.get("out_n") or 0, "out_sec": r.get("out_sec") or 0})
             return self.send_json({"rows": out, "asg_total": len(asg_tasks) if asg_tasks is not None else None})
 
@@ -9473,8 +9563,6 @@ def comp_flags(db, row, side):
             out.add("уходил со страницы")
         if "ai" in fl:
             out.add("ответ нейросети")
-        if "bot" in fl:
-            out.add("похоже на бота")
         if (a["score"] or 0) > 0 and a["spent_ms"] is not None and a["spent_ms"] < SUS_FAST_MS:
             out.add("ответ за секунды")
     return sorted(out)
@@ -10395,7 +10483,7 @@ def asg_finish_run(handler, db, a, s, real, forced=0):
         t = APP.bank.tasks.get(k)
         x = answers[k]
         handler.log_attempt(s, t, [x.get("a") or ""], 1.0 if credit == 1 else 0.0, reason=WORK_REASON, part=credit,
-                            spent=x.get("ms"), ai=credit != 1 and trap_hit(db, s, t, x.get("a") or ""), bot=x.get("bot"))
+                            spent=x.get("ms"), ai=credit != 1 and trap_hit(db, s, t, x.get("a") or ""))
     db.x("UPDATE asg_runs SET xp=? WHERE asg_id=? AND student_id=?", (game_summary(db, s["id"])["xp"] - xp0, a["id"], s["id"]))
     make_fix_set(db, a, s, res)                    # ошибки — сразу в личную «работу над ошибками»
 
@@ -10945,9 +11033,134 @@ def report_loop(site):
         try:
             if APP:
                 report_tick(APP.db, site())
+                parent_tick(APP.db, site())
                 purge_guests(APP.db)
         except Exception as e:
             print(f"[еженедельные отчёты] {e!r}", flush=True)
+
+
+# ---------- отчёт родителям: ссылка «только просмотр» и письмо раз в неделю
+IMPORT_MAX = 60                          # учеников за один раз в «Добавить список учеников»
+PW_LETTERS, PW_DIGITS = "abcdefhkmnprstuvxyz", "23456789"     # без похожих: 0/o, 1/l/i, g/q
+
+
+def new_student_pw():
+    """Пароль для карточки: 3 буквы и 3 цифры без похожих символов — легко переписать с бумаги."""
+    r = secrets.SystemRandom()
+    return "".join(r.choice(PW_LETTERS) for _ in range(3)) + "".join(r.choice(PW_DIGITS) for _ in range(3))
+
+
+def parent_token(db, sid, new=False):
+    """Секретная ссылка родителя ученика (создаётся по запросу; new — старая перестаёт работать)."""
+    r = db.q("SELECT parent_token FROM students WHERE id=?", (sid,), one=True)
+    if r and r["parent_token"] and not new:
+        return r["parent_token"]
+    tok = secrets.token_urlsafe(18)
+    db.x("UPDATE students SET parent_token=? WHERE id=?", (tok, sid))
+    return tok
+
+
+def parent_report(db, s):
+    """Что видит родитель: активность за 4 недели, прогноз и его динамика, варианты ЕГЭ, работы учителя и оценки, слабые номера.
+    Только этот ученик — без имён одноклассников."""
+    now = time.time()
+    APP.bank.ensure()
+    t = teacher_of(s)
+    cls = db.q("SELECT id, name FROM classes WHERE id=?", (s["class_id"],), one=True) if s["class_id"] else None
+    d0 = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    days = []
+    for k in range(27, -1, -1):
+        a = (d0 - timedelta(days=k)).timestamp()
+        r = db.q("""SELECT COUNT(*) n, SUM(score > 0) ok, SUM(COALESCE(spent_ms, 0)) ms FROM attempts
+                    WHERE student_id=? AND ts>=? AND ts<?""", (s["id"], a, a + 86400), one=True)
+        days.append({"d": (d0 - timedelta(days=k)).strftime("%Y-%m-%d"), "n": r["n"] or 0, "ok": r["ok"] or 0,
+                     "min": round((r["ms"] or 0) / 60000)})
+    week, month = days[-7:], days
+    fc = forecast_trend(s)
+    by_n = {}
+    for r in db.q("""SELECT n, COUNT(*) a, SUM(score = 1) ok FROM attempts WHERE student_id=? AND ts>? AND n IS NOT NULL
+                     AND exam IS NULL AND COALESCE(gave_up, 0)=0 GROUP BY n""", (s["id"], now - 30 * 86400)):
+        v = by_n.setdefault(n_key(r["n"]), [0, 0])
+        v[0] += r["a"]
+        v[1] += r["ok"] or 0
+    weak = sorted(({"n": n, "pct": round(100 * v[1] / v[0])} for n, v in by_n.items() if v[0] >= 3 and v[1] / v[0] < 0.5),
+                  key=lambda x: x["pct"])[:5]
+    strong = sorted(({"n": n, "pct": round(100 * v[1] / v[0])} for n, v in by_n.items() if v[0] >= 3 and v[1] / v[0] >= 0.8),
+                    key=lambda x: -x["pct"])[:5]
+    works = []
+    if cls:
+        for a in db.q("""SELECT * FROM assignments WHERE class_id=? AND (student_id IS NULL OR student_id=?)
+                         ORDER BY created DESC LIMIT 15""", (cls["id"], s["id"])):
+            real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+            c = asg_cell(db, a, s["id"], real)
+            works.append({"title": batch_title(a) if a["student_id"] else a["title"], "created": a["created"], "due": a["due"],
+                          "st": c["st"], "grade": c.get("grade"), "pct": c.get("pct"), "tried": c.get("tried"),
+                          "total": len(asg_items(real))})
+    exams = [{"ts": r["finished"], "score": r["test_score"]} for r in
+             db.q("""SELECT finished, test_score FROM exams WHERE student_id=? AND finished IS NOT NULL
+                     ORDER BY finished DESC LIMIT 10""", (s["id"],))]
+    last = db.q("SELECT MAX(ts) t FROM attempts WHERE student_id=?", (s["id"],), one=True)["t"]
+    return {"name": s["name"], "teacher": t["name"] if t else "", "class": cls["name"] if cls else "",
+            "last": last, "now": now, "days": days,
+            "week": {"answers": sum(x["n"] for x in week), "solved": sum(x["ok"] for x in week), "min": sum(x["min"] for x in week),
+                     "active_days": sum(1 for x in week if x["n"])},
+            "month": {"answers": sum(x["n"] for x in month), "solved": sum(x["ok"] for x in month), "min": sum(x["min"] for x in month),
+                      "active_days": sum(1 for x in month if x["n"])},
+            "forecast": fc, "weak": weak, "strong": strong, "works": works, "exams": exams}
+
+
+def parent_mail(r, link):
+    """Письмо родителю: (тема, HTML, текст)."""
+    import html as _h
+    e = _h.escape
+    fc = r["forecast"]
+    fct = "пока нет (нужно больше решённых заданий)" if fc["now"] is None else str(fc["now"]) + (
+        f" ({'+' if fc['now'] - fc['then'] > 0 else ''}{fc['now'] - fc['then']} за месяц)" if fc["then"] is not None and fc["now"] != fc["then"] else "")
+    w = r["week"]
+    lines = [f"Занимался(ась) {w['active_days']} из 7 дней, около {w['min']} мин", f"Решено заданий: {w['solved']} (ответов: {w['answers']})",
+             f"Прогноз балла ЕГЭ: {fct}"]
+    miss = [x for x in r["works"] if x["st"] == "miss"]
+    if miss:
+        lines.append("Не сдано в срок: " + ", ".join(f"«{x['title']}»" for x in miss[:5]))
+    graded = [x for x in r["works"] if x["st"] == "done" and x["grade"]][:5]
+    if graded:
+        lines.append("Оценки за работы: " + ", ".join(f"«{x['title']}» — {x['grade']}" for x in graded))
+    if r["weak"]:
+        lines.append("Над чем поработать: " + ", ".join(f"№{19 if x['n'] == 19 else x['n']}" for x in r["weak"]))
+    subj = f"Egeshka: неделя {r['name']} — подготовка к ЕГЭ по информатике"
+    html_body = (f"<div style='font-family:Arial,sans-serif;font-size:15px;color:#222;max-width:600px'>"
+                 f"<h2 style='margin:0 0 6px'>Как прошла неделя: {e(r['name'])}</h2>"
+                 f"<p style='color:#666;margin:0 0 12px'>Учитель: {e(r['teacher'])}{' · ' + e(r['class']) if r['class'] else ''}</p><ul>"
+                 + "".join(f"<li style='margin:4px 0'>{e(x)}</li>" for x in lines)
+                 + f"</ul><p><a href='{e(link)}' style='background:#2f8f2f;color:#fff;padding:10px 16px;border-radius:8px;"
+                   f"text-decoration:none'>Подробный отчёт</a></p>"
+                 f"<p style='color:#999;font-size:12px'>Письмо приходит по понедельникам, адрес указал учитель. "
+                 f"Чтобы отписаться, напишите учителю.</p></div>")
+    text = f"Как прошла неделя: {r['name']}\n\n" + "\n".join("— " + x for x in lines) + f"\n\nПодробный отчёт: {link}"
+    return subj, html_body, text
+
+
+def parent_tick(db, site):
+    """Письма родителям раз в неделю (с понедельника 8:00), только если учитель с действующим доступом."""
+    if not smtp_conf() or not site:
+        return 0
+    since = report_due_since()
+    if time.time() < since:
+        return 0
+    sent = 0
+    for s in db.q("""SELECT * FROM students WHERE parent_email IS NOT NULL AND parent_email<>''
+                     AND (parent_report_ts IS NULL OR parent_report_ts < ?) AND COALESCE(is_teacher, 0)=0""", (since,)):
+        t = teacher_of(s)
+        db.x("UPDATE students SET parent_report_ts=? WHERE id=?", (time.time(), s["id"]))
+        if not t or teacher_access(t)["expired"] or t["guest"]:
+            continue
+        try:
+            link = f"{site}/parent?t={parent_token(db, s['id'])}"
+            if send_mail(s["parent_email"], *parent_mail(parent_report(db, s), link)):
+                sent += 1
+        except Exception as e:
+            print(f"[письмо родителю {s['id']}] {e!r}", flush=True)
+    return sent
 
 
 def exam_pick(db, s):

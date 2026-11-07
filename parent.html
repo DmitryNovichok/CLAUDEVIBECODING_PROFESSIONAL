@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Egeshka · отчёт для родителей</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<style>
+:root { --ink: #0f1b2d; --mut: #5b6678; --line: #e3e7ee; --tint: #f4f6f9; --acc: #2f8f2f; --bad: #b42318; --warn: #a15c00; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--ink); font: 500 16px/1.5 "Nunito", system-ui, sans-serif; }
+.wrap { max-width: 880px; margin: 0 auto; padding: 24px 16px 48px; }
+.top { display: flex; align-items: center; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.top svg { width: 30px; height: 30px; }
+.top b { font-size: 19px; }
+.top .print { margin-left: auto; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+h1 { font-size: 28px; margin: 22px 0 2px; }
+.sub { color: var(--mut); margin: 0 0 20px; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.kpi { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.kpi span { color: var(--mut); font-size: 13px; }
+.kpi b { display: block; font-size: 28px; line-height: 1.2; margin-top: 2px; }
+.kpi small { color: var(--mut); font-size: 13px; }
+.up { color: var(--acc); font-weight: 700; } .down { color: var(--bad); font-weight: 700; }
+h2 { font-size: 19px; margin: 30px 0 10px; }
+.chart { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 8px; }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 110px; }
+.bars i { flex: 1; background: var(--acc); border-radius: 3px 3px 0 0; min-height: 2px; position: relative; }
+.bars i.zero { background: var(--line); }
+.axis { display: flex; justify-content: space-between; color: var(--mut); font-size: 12px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th { text-align: left; color: var(--mut); font-weight: 600; font-size: 13px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+td { padding: 10px; border-bottom: 1px solid var(--line); }
+td.r, th.r { text-align: right; }
+.st { font-size: 13px; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
+.st.ok { background: #e6f4e6; color: #23742a; } .st.miss { background: #fdecec; color: var(--bad); }
+.st.work { background: #fff3dc; color: var(--warn); } .st.none { background: var(--tint); color: var(--mut); }
+.g { font-weight: 800; }
+.nums { display: flex; flex-wrap: wrap; gap: 8px; }
+.nums span { border-radius: 8px; padding: 4px 10px; font-size: 14px; }
+.nums.weak span { background: #fdecec; color: var(--bad); } .nums.strong span { background: #e6f4e6; color: #23742a; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.note { color: var(--mut); font-size: 13px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+.err { padding: 60px 0; text-align: center; color: var(--mut); }
+@media (max-width: 640px) { .kpis { grid-template-columns: 1fr 1fr; } .cols { grid-template-columns: 1fr; } h1 { font-size: 23px; } }
+@media print { .print { display: none; } .wrap { padding: 0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="4" y="9" width="56" height="51" rx="16" fill="#58a700"/><rect x="4" y="4" width="56" height="51" rx="16" fill="#58cc02"/><rect x="20" y="15" width="9" height="29" rx="4" fill="#fff"/><rect x="20" y="15" width="24" height="8.5" rx="4.25" fill="#fff"/><rect x="20" y="25.5" width="19" height="8" rx="4" fill="#fff"/><rect x="20" y="35.5" width="24" height="8.5" rx="4.25" fill="#fff"/><circle cx="48.5" cy="43" r="5" fill="#1cb0f6" stroke="#fff" stroke-width="2.5"/></svg>
+    <b>Egeshka</b><span style="color:var(--mut)">· отчёт для родителей</span>
+    <button type="button" class="print" onclick="print()">Распечатать</button>
+  </div>
+  <div id="out"><p class="err">Загружаю отчёт…</p></div>
+</div>
+<script>
+(function () {
+  'use strict';
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const dt = ts => { const d = new Date(ts * 1000); return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }); };
+  const nl = n => n === 19 ? '19–21' : n;
+  const pl = (n, a, b, c) => { const x = n % 10, y = n % 100; return x === 1 && y !== 11 ? a : x >= 2 && x <= 4 && (y < 10 || y >= 20) ? b : c; };
+  const t = new URLSearchParams(location.search).get('t') || '';
+  fetch('api/parent?t=' + encodeURIComponent(t), { cache: 'no-store' }).then(async r => {
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Не получилось открыть отчёт');
+    return d;
+  }).then(render).catch(e => { document.getElementById('out').innerHTML = `<p class="err">${esc(e.message)}</p>`; });
+
+  function render(d) {
+    document.title = `${d.name} · отчёт Egeshka`;
+    const fc = d.forecast || {}, w = d.week, m = d.month;
+    const dlt = fc.now != null && fc.then != null ? fc.now - fc.then : 0;
+    const max = Math.max(1, ...d.days.map(x => x.n));
+    const status = x => x.st === 'done' ? `<span class="st ok">сдано</span>` : x.st === 'miss' ? '<span class="st miss">не сдано в срок</span>'
+      : x.st === 'work' ? `<span class="st work">в работе${x.tried != null ? `: ${x.tried} из ${x.total}` : ''}</span>` : '<span class="st none">не начато</span>';
+    document.getElementById('out').innerHTML = `
+      <h1>${esc(d.name)}</h1>
+      <p class="sub">Подготовка к ЕГЭ по информатике${d.teacher ? ` · учитель ${esc(d.teacher)}` : ''}${d.class ? ` · ${esc(d.class)}` : ''}<br>
+        ${d.last ? `Последний раз занимался(ась) ${dt(d.last)}` : 'Пока не занимался(ась)'} · отчёт на ${dt(d.now)}</p>
+      <div class="kpis">
+        <div class="kpi"><span>Занимался(ась) за неделю</span><b>${w.active_days} <small>из 7 дней</small></b><small>около ${w.min} мин</small></div>
+        <div class="kpi"><span>Решено за неделю</span><b>${w.solved}</b><small>за 4 недели — ${m.solved}</small></div>
+        <div class="kpi"><span>Прогноз балла ЕГЭ</span><b>${fc.now != null ? fc.now : '—'}</b><small>${fc.now == null ? 'появится после 10 решённых' : dlt ? `<span class="${dlt > 0 ? 'up' : 'down'}">${dlt > 0 ? '+' : ''}${dlt}</span> за месяц` : 'без изменений за месяц'}</small></div>
+        <div class="kpi"><span>Варианты ЕГЭ</span><b>${d.exams.length ? d.exams[0].score : '—'}</b><small>${d.exams.length ? `последний · лучший ${Math.max(...d.exams.map(x => x.score || 0))}` : 'пока не решал(а)'}</small></div>
+      </div>
+      <h2>Занятия за 4 недели</h2>
+      <div class="chart"><div class="bars">${d.days.map(x => `<i class="${x.n ? '' : 'zero'}" style="height:${Math.max(2, x.n / max * 100)}%" title="${x.d.split('-').reverse().join('.')}: ${x.n} ${pl(x.n, 'ответ', 'ответа', 'ответов')}, решено ${x.ok}, ${x.min} мин"></i>`).join('')}</div>
+        <div class="axis"><span>${dt(Date.parse(d.days[0].d) / 1000)}</span><span>сегодня</span></div></div>
+      <h2>Работы от учителя</h2>
+      ${d.works.length ? `<table><thead><tr><th>Работа</th><th>Срок</th><th>Статус</th><th class="r">Оценка</th></tr></thead><tbody>
+        ${d.works.map(x => `<tr><td>${esc(x.title)}</td><td>${x.due ? dt(x.due) : '—'}</td><td>${status(x)}</td>
+          <td class="r">${x.grade ? `<span class="g">${x.grade}</span> <small>${x.pct}%</small>` : '—'}</td></tr>`).join('')}</tbody></table>`
+        : '<p class="sub">Учитель пока не выдавал работ.</p>'}
+      <div class="cols">
+        <div><h2>Над чем поработать</h2>${d.weak.length ? `<div class="nums weak">${d.weak.map(x => `<span>№${nl(x.n)} · ${x.pct}% верно</span>`).join('')}</div>` : '<p class="sub">Слабых номеров за месяц нет или мало данных.</p>'}</div>
+        <div><h2>Получается хорошо</h2>${d.strong.length ? `<div class="nums strong">${d.strong.map(x => `<span>№${nl(x.n)} · ${x.pct}%</span>`).join('')}</div>` : '<p class="sub">Пока мало данных.</p>'}</div>
+      </div>
+      <p class="note">«Прогноз балла» — оценка по решённым заданиям, а не результат экзамена. Номера — задания ЕГЭ по информатике (1–27).
+        Ссылку выдал учитель; она открывает только этот отчёт и ничего не позволяет менять.</p>`;
+  }
+})();
+</script>
+</body>
+</html>
