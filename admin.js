@@ -2522,6 +2522,16 @@
     const who = (sid, name) => `<button type="button" class="task-link" data-open-st="${sid}">${esc(name)}</button>`;
     const nl = n => n === 19 ? '19–21' : n;
     const sec = (ico, title, cls, body, empty) => `<div class="dg-card ${cls}"><h4>${title}</h4>${body || `<p class="adm-hint">${empty}</p>`}</div>`;
+    /** Просрочки — по одной строке на ученика: число работ, список раскрывается. Больше 6 учеников — остальные под «ещё». */
+    const overdueList = items => {
+      const by = new Map();
+      items.forEach(x => { if (!by.has(x.id)) by.set(x.id, { name: x.name, list: [] }); by.get(x.id).list.push(x); });
+      const row = ([sid, v]) => `<li><details class="dg-od"><summary>${who(sid, v.name)} <span class="dg-od-n">${v.list.length} ${plural(v.list.length, 'работа', 'работы', 'работ')}</span></summary>
+        <ul>${v.list.map(x => `<li>«${esc(x.title)}» <span class="muted">до ${fmtDate(x.due)}: ${esc(x.state)}</span></li>`).join('')}</ul></details></li>`;
+      const all = [...by.entries()].sort((a, b) => b[1].list.length - a[1].list.length);
+      const head = all.slice(0, 6), rest = all.slice(6);
+      return `<ul class="dg-od-list">${head.map(row).join('')}</ul>${rest.length ? `<details class="dg-more"><summary>ещё ${rest.length} ${plural(rest.length, 'ученик', 'ученика', 'учеников')}</summary><ul class="dg-od-list">${rest.map(row).join('')}</ul></details>` : ''}`;
+    };
     const drop = {};
     d.dropped.forEach(x => (drop[x.id] = drop[x.id] || { name: x.name, list: [] }).list.push(x));
     const fcd = d.forecast_avg != null && d.forecast_then != null ? d.forecast_avg - d.forecast_then : 0;
@@ -2540,7 +2550,7 @@
       <div class="dg-grid">
         ${sec('😴', 'Не занимались за неделю', d.inactive.length ? 'warn' : 'ok', d.inactive.length ? `<ul>${d.inactive.map(x => `<li>${who(x.id, x.name)} <span class="muted">${x.last ? 'последний раз ' + fmtWhen(x.last) : 'ни разу'}</span></li>`).join('')}</ul>` : '', 'Все занимались — отлично!')}
         ${sec('📉', 'Просели по номерам', Object.keys(drop).length ? 'warn' : 'ok', Object.keys(drop).length ? `<ul>${Object.entries(drop).map(([sid, v]) => `<li>${who(sid, v.name)}: ${v.list.map(x => `<b>№${nl(x.n)}</b> <span class="muted">${x.was}% → </span><b class="dg-bad">${x.now}%</b>`).join(', ')}</li>`).join('')}</ul>` : '', 'Ни у кого заметного спада нет.')}
-        ${sec('⌛', 'Не сдали в срок', d.overdue.length ? 'warn' : 'ok', d.overdue.length ? `<ul>${d.overdue.map(x => `<li>${who(x.id, x.name)} — «${esc(x.title)}» <span class="muted">до ${fmtDate(x.due)}: ${esc(x.state)}</span></li>`).join('')}</ul>` : '', 'Все работы с прошедшим сроком сданы.')}
+        ${sec('⌛', 'Не сдали в срок', d.overdue.length ? 'warn' : 'ok', d.overdue.length ? overdueList(d.overdue) : '', 'Все работы с прошедшим сроком сданы.')}
         ${sec('🏆', 'Молодцы недели', 'ok', d.top.length ? `<ol>${d.top.map(x => `<li>${who(x.id, x.name)} — решено <b>${x.solved}</b> из ${x.answers}</li>`).join('')}</ol>` : '', 'Пока никто не решал.')}
       </div>
       <div class="dg-actions"><button type="button" class="btn primary" data-weak>Выдать каждому подборку по его слабым местам</button>

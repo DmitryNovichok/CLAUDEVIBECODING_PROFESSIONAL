@@ -270,3 +270,21 @@ body.admin .arc-act .btn { margin-left: 4px; text-decoration: none; }
 @media (max-width: 860px) {
   body.admin .adm-classes { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* сводка недели: карточки по высоте содержимого, просрочки свёрнуты по ученикам */
+body.admin .dg-grid { align-items: start; }
+body.admin .dg-od-list { list-style: none; padding-left: 0 !important; }
+body.admin .dg-od > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 8px; }
+body.admin .dg-od > summary::-webkit-details-marker { display: none; }
+body.admin .dg-od > summary::before { content: '▸'; color: var(--muted); font-size: 12px; transition: transform .15s; }
+body.admin .dg-od[open] > summary::before { transform: rotate(90deg); }
+body.admin .dg-od-n { margin-left: auto; color: var(--weak); font-weight: 600; font-size: 13px; white-space: nowrap; }
+body.admin .dg-od ul { margin: 4px 0 6px 18px; padding-left: 14px; font-size: 13px; }
+body.admin .dg-more { margin-top: 6px; }
+body.admin .dg-more > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+
+/* конструктор: «Найдено», порядок и кнопки добавления — верхняя строка панели фильтров */
+body.admin .bld-panel .bld-bar { margin: 0 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+body.admin .bld-panel .bld-bar:empty { display: none; }
+body.admin .bld-panel .bld-bar-act { flex-wrap: wrap; }
+body.admin .bld-panel .bld-bar-act .btn { white-space: nowrap; }
