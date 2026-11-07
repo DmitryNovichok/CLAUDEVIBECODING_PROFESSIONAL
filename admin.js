@@ -1925,6 +1925,7 @@
   let tab = 'students';
   let backTab = 'students';            // куда вернуться из карточки ученика
   function go(t) {
+    if (t !== 'classes') document.body.classList.remove('jr-full');
     if (t !== 'student') backTab = t;
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
@@ -2301,8 +2302,16 @@
   }
   $('#classList').addEventListener('click', e => {
     const b = e.target.closest('[data-class]');
-    if (b) { curClass = { id: +b.dataset.class }; renderClassList(); openClass(curClass.id); }
+    if (b) { curClass = { id: +b.dataset.class }; renderClassList(); holdHeight(); openClass(curClass.id); }
   });
+  /** Пока новый класс загружается, тело держит прежнюю высоту — прокрутка не сбрасывается, список классов не прыгает. */
+  let holdTimer = 0;
+  function holdHeight() {
+    const body = $('#classBody');
+    body.style.minHeight = body.offsetHeight + 'px';
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => { body.style.minHeight = ''; }, 2500);
+  }
   $('#classNewForm').addEventListener('submit', async e => {
     e.preventDefault();
     try {
@@ -2433,7 +2442,14 @@
   const CLS_PANES = [['digest', 'Сводка недели'], ['members', 'Ученики'], ['journal', 'Журнал'], ['nums', 'По номерам'], ['period', 'За период'], ['asg', 'Подборки'], ['battle', 'Битва классов']];
   let clsPane = (() => { try { return localStorage.getItem('egeAdmin.clsPane') || 'digest'; } catch (e) { return 'digest'; } })();
   if (!CLS_PANES.some(p => p[0] === clsPane)) clsPane = 'digest';
+  /** Журнал на весь экран: прячутся меню и список классов, таблица получает всю ширину. Esc — свернуть. */
+  function jrFull(on) {
+    document.body.classList.toggle('jr-full', on);
+    $$('[data-jr-full]').forEach(b => { b.textContent = on ? 'Свернуть журнал' : 'Развернуть журнал на весь экран'; });
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('jr-full')) jrFull(false); });
   function showClsPane(k) {
+    if (k !== 'journal' && k !== 'nums') jrFull(false);
     clsPane = k;
     try { localStorage.setItem('egeAdmin.clsPane', k); } catch (e) { /* не страшно */ }
     $$('#clsTabs [data-pane]').forEach(b => b.classList.toggle('on', b.dataset.pane === k));
@@ -2474,6 +2490,7 @@
       </div>
       <div class="dg-actions"><button type="button" class="btn primary" data-weak>Выдать каждому подборку по его слабым местам</button>
         <span class="adm-hint">По 3 задания на 3 самых слабых номера у каждого ученика — у всех своя подборка, срок неделя.</span></div>`;
+    requestAnimationFrame(() => { $('#classBody').style.minHeight = ''; });       // новый класс показан — высота свободна
   }
   /** Одна подборка всему классу: по 3 задания на каждый слабый номер класса. */
   async function buildWeakSet(nums) {
@@ -2568,7 +2585,8 @@
       const m = avg(gs);
       return `<td class="num jr-foot" title="сдали ${done} из ${S.length}">${m == null ? '' : `<b>${m.toFixed(1).replace('.', ',')}</b><br>`}<small>${done}/${S.length}</small></td>`;
     }).join('');
-    box.innerHTML = `<p class="adm-hint">Оценки за все подборки класса. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
+    box.innerHTML = `<div class="jr-top"><button type="button" class="btn" data-jr-full>${document.body.classList.contains('jr-full') ? 'Свернуть журнал' : 'Развернуть журнал на весь экран'}</button></div>
+      <p class="adm-hint">Оценки за все подборки класса. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
         Нажмите на название подборки, чтобы открыть её результаты, на имя — карточку ученика.</p>
       <div class="dg-actions"><button type="button" class="btn" data-weak>Каждому — по 3 задания на его 3 слабых номера</button>
         <span class="adm-hint">У каждого ученика своя подборка; появится в журнале отдельной колонкой.</span></div>
@@ -2896,6 +2914,7 @@
       return;
     }
     if (t.closest('[data-weak]')) { giveWeakSets(); return; }
+    if (t.closest('[data-jr-full]')) { jrFull(!document.body.classList.contains('jr-full')); return; }
     if (t.closest('[data-cls-parents]')) { openClassParents(curClass.id, (classes.find(c => c.id === curClass.id) || {}).name || ''); return; }
     if (t.closest('[data-cls-import]')) { openImport(curClass.id, (classes.find(c => c.id === curClass.id) || {}).name || ''); return; }
     if (t.closest('[data-weak-build]')) { buildWeakSet(($('#clsDigest').dataset.weak || '').split(',').filter(Boolean).map(Number)); return; }

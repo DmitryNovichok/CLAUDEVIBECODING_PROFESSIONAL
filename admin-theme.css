@@ -220,3 +220,31 @@ body.admin .adm-access-act { flex-wrap: wrap; }
 :root[data-theme="dark"][data-adm-theme="light"] body.admin .adm-side-me .adm-who,
 :root[data-theme="dark"][data-adm-theme="light"] body.admin .adm-side .adm-tabs button:hover,
 :root[data-theme="dark"][data-adm-theme="light"] body.admin .adm-side .adm-tabs button.on { color: #fff; }
+
+
+/* ---------- классы: список не прыгает, журнал помещается */
+body.admin .adm-main { max-width: 1600px; }
+body.admin .adm-classes { grid-template-columns: 210px minmax(0, 1fr); gap: 22px; }
+body.admin .adm-class-list { top: 20px; }
+body.admin .adm-class-body { min-width: 0; }
+body.admin .jr-wrap, body.admin .hm-wrap { max-width: 100%; }
+body.admin .jr-table { font-size: 13px; }
+body.admin .jr-table td, body.admin .jr-table th { padding: 7px 8px; }
+body.admin .jr-h { min-width: 74px; max-width: 120px; white-space: normal; line-height: 1.25; }
+body.admin .jr-h .jr-asg { white-space: normal; text-align: center; }
+body.admin .jr-top { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+/* журнал на весь экран */
+body.admin.jr-full .adm-app:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
+body.admin.jr-full .adm-side, body.admin.jr-full .adm-class-list, body.admin.jr-full #accessBar, body.admin.jr-full #stepsCard { display: none !important; }
+body.admin.jr-full .adm-classes { grid-template-columns: minmax(0, 1fr); }
+body.admin.jr-full .adm-main { max-width: none; padding: 18px 20px 40px; }
+body.admin.jr-full .jr-wrap { max-height: calc(100vh - 220px); overflow: auto; }
+body.admin.jr-full .jr-table thead th { position: sticky; top: 0; z-index: 2; background: var(--card-hover); }
+body.admin.jr-full .jr-table thead th:first-child { z-index: 3; }
+/* прогноз в журнале — в одну строку: число, изменение, мини-график */
+body.admin .jr-table td.jr-fc { white-space: nowrap; }
+body.admin .jr-table td.jr-fc b, body.admin .jr-table td.jr-fc small, body.admin .jr-table td.jr-fc .jr-spark { display: inline-block; vertical-align: middle; margin: 0 3px; }
+body.admin .jr-table td.jr-c small { display: inline; margin-left: 4px; }
+body.admin .jr-table td.jr-c { vertical-align: middle; }
+body.admin .jr-table tfoot td { text-align: center; }
+body.admin .jr-table tfoot td:first-child { text-align: left; }
