@@ -1986,7 +1986,7 @@
 
   // ------------------------------------------------------------ история версий (changelog.js): для учителя и для учеников
   const CL = window.EGE_CHANGELOG || { student: [], teacher: [] };
-  const CL_NOW = (CL.student[0] || [''])[0];
+  const CL_NOW = (CL.teacher[0] || CL.student[0] || [''])[0];
   if ($('#admVerBtn')) $('#admVerBtn').textContent = `Версия ${CL_NOW} · что нового`;
   function renderVer(kind) {
     const list = CL[kind] || [];
@@ -1994,7 +1994,7 @@
     const ul = arr => `<ul>${arr.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
     $('#verBody').innerHTML = `<p class="adm-hint">${kind === 'teacher' ? 'Что менялось в панели учителя и на сервере — с версии 1.0.0.' : 'Что видят ученики в «Что нового» на сайте.'}</p>
       <div class="ver-list">${list.map(([v, d, added, changed], i) => `<section class="ver-item">
-        <h3><b>${esc(v)}</b> <span class="muted">${esc(d)}</span>${v === CL_NOW ? ' <span class="ver-now">сейчас</span>' : ''}</h3>
+        <h3><b>${esc(v)}</b> <span class="muted">${esc(d)}</span>${i === 0 ? ' <span class="ver-now">сейчас</span>' : ''}</h3>
         ${(added || []).length ? `<div class="ver-k ver-add">✨ Добавлено</div>${ul(added)}` : ''}
         ${(changed || []).length ? `<div class="ver-k ver-chg">🔧 Изменено</div>${ul(changed)}` : ''}</section>`).join('')}</div>`;
   }
@@ -2023,8 +2023,7 @@
       const cl = classes.find(c => String(c.id) === String(cid || saved)) || classes.find(c => c.teacher_id === ME.id) || classes[0];
       if (!cl) {
         box.innerHTML = `<div class="adm-box ov-empty"><h2>Начните с первого класса</h2><p class="adm-hint">Создайте класс, добавьте учеников и выдайте первую работу. Здесь появятся задания и результаты.</p>
-          <button type="button" class="btn primary" data-ov-go="classes">Создать класс</button>
-          <button type="button" class="btn" data-ov-go="tog">Открыть занятие без учеников</button></div>`;
+          <button type="button" class="btn primary" data-ov-go="classes">Создать класс</button></div>`;
         return;
       }
       const [s, a] = await Promise.all([api('students?class_id=' + cl.id), api('assignments?class_id=' + cl.id)]);
@@ -2056,7 +2055,7 @@
     $('#overviewBody').innerHTML = `<div class="ov-head"><div><label class="ov-kicker" for="ovClass">Мой класс</label>
       <select id="ovClass" class="adm-select">${classes.map(c => `<option value="${c.id}"${c.id === cl.id ? ' selected' : ''}>${esc(c.name)}${ME.is_main && c.teacher_id !== ME.id ? ' · ' + esc(c.teacher || '') : ''}</option>`).join('')}</select>
       <p class="adm-hint">${ss.length} ${plural(ss.length, 'ученик', 'ученика', 'учеников')} · ${active.length} ${plural(active.length, 'текущая работа', 'текущие работы', 'текущих работ')}</p></div>
-      <div class="ov-actions"><button type="button" class="btn primary" data-ov-build>+ Выдать работу</button><button type="button" class="btn" data-ov-go="tog">Начать занятие</button>
+      <div class="ov-actions"><button type="button" class="btn primary" data-ov-build>+ Выдать работу</button>
         <button type="button" class="btn ghost" data-ov-class="members">Управление классом</button></div></div>
       ${today.length ? `<div class="ov-notice"><span>Сегодня срок сдачи: ${today.length} ${plural(today.length, 'работа', 'работы', 'работ')}</span><button type="button" class="link-btn" data-ov-results="${today[0].id}">Открыть →</button></div>` : ''}
       <div class="ov-metrics"><div class="adm-box"><b>${ss.length}</b><span>Учеников</span></div><div class="adm-box"><b>${active.length}</b><span>Текущие работы класса</span></div>
@@ -2069,11 +2068,11 @@
         ${batches.length ? `<p class="ov-personal"><button type="button" class="link-btn" data-ov-class="asg">Личные подборки учеников: ${batches.length} →</button></p>` : ''}</section>
         <section class="adm-box"><div class="ov-section-head"><h3>Ученики</h3><button type="button" class="link-btn" data-ov-class="members">Все ${ss.length} →</button></div>
           ${ss.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru')).slice(0, 5).map(s => `<div class="ov-student"><button type="button" class="task-link" data-ov-student="${s.id}">${esc(s.name)}</button><small>${s.total ? `${s.week || 0} ответов за неделю` : 'Пока нет решений'}</small></div>`).join('') || '<p class="adm-hint">Добавьте учеников в класс, чтобы видеть их результаты.</p>'}</section></div>
-        <div class="ov-column"><section class="adm-box ov-lesson"><span class="ov-board" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="7" y="6" width="34" height="25" rx="3"/><path d="m16 42 8-11 8 11M24 2v4"/></svg></span><h3>Совместное занятие</h3><p class="adm-hint">Откройте доску для подготовки или пригласите ученика.</p><button type="button" class="btn" data-ov-board>Открыть доску</button></section>
+        <div class="ov-column">
           <section class="adm-box ov-progress"><h3>Прогресс класса</h3>${attempts ? `<b class="ov-forecast">${forecasts.length ? Math.round(forecasts.reduce((n, s) => n + s.forecast, 0) / forecasts.length) + ' / 100' : 'Прогноз ещё не готов'}</b><p class="adm-hint">${forecasts.length ? `Средний прогноз по ${forecasts.length} из ${ss.length} учеников.` : 'Нужно больше ответов для прогноза балла.'}</p><button type="button" class="link-btn" data-ov-class="digest">Открыть сводку →</button>` : '<b class="ov-no-data">Недостаточно данных</b><p class="adm-hint">После первых решений здесь появится прогресс класса.</p>'}</section></div></div>`;
   }
   $('#overviewBody').addEventListener('change', e => { if (e.target.id === 'ovClass') { overviewDone = false; loadOverview(+e.target.value); } });
-  $('#overviewBody').addEventListener('click', async e => {
+  $('#overviewBody').addEventListener('click', e => {
     const t = e.target;
     if (t.closest('[data-ov-retry]')) { loadOverview(); return; }
     const route = t.closest('[data-ov-go]');
@@ -2089,14 +2088,6 @@
       curClass = { id: cl.id }; clsPane = result ? 'asg' : pane.dataset.ovClass;
       overviewTarget = result ? { cid: cl.id, id: +result.dataset.ovResults } : null;
       go('classes'); return;
-    }
-    const board = t.closest('[data-ov-board]');
-    if (board && !board.disabled) {
-      board.disabled = true;
-      const win = window.open('', '_blank');
-      try { const s = await api('together/new', { students: [], mode: 'board', task: null }); togOpen(s.id, win); }
-      catch (err) { if (win) win.close(); if (err.status !== 401) toast(err.message); }
-      finally { board.disabled = false; }
     }
   });
 
@@ -2562,7 +2553,6 @@
     $('#classBody').innerHTML = `
       <div class="adm-toolbar"><h2 class="adm-h">${esc(c.name)} <span class="adm-count">· ${studs.length}</span></h2>
         <span class="adm-actions"><button type="button" class="btn primary" id="classBuild">Выдать работу</button>
-        <button type="button" class="btn" id="classTogether">Начать занятие</button>
         <details class="cls-manage"><summary aria-label="Настройки класса">⋯</summary><div><button type="button" class="btn ghost" id="classRename">Переименовать</button>
         <button type="button" class="btn ghost danger" id="classDelete">Удалить класс</button></div></details></span></div>
       <nav class="cls-tabs" id="clsTabs">${CLS_PANES.map(([k, l]) => `<button type="button" data-pane="${k}" class="${clsPane === k ? 'on' : ''}">${l}</button>`).join('')}</nav>
@@ -3094,7 +3084,6 @@
     if (!c) return;
     const t = e.target;
     if (t.closest('#classBuild')) { openBuilderFor(c.id); return; }
-    if (t.closest('#classTogether')) { go('tog'); return; }
     if (t.closest('#classRename')) {
       const name = prompt('Название класса', c.name);
       if (!name) return;
