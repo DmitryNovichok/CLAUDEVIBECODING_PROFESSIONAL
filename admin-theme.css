@@ -248,3 +248,21 @@ body.admin .jr-table td.jr-c small { display: inline; margin-left: 4px; }
 body.admin .jr-table td.jr-c { vertical-align: middle; }
 body.admin .jr-table tfoot td { text-align: center; }
 body.admin .jr-table tfoot td:first-child { text-align: left; }
+
+
+/* ---------- кнопки контрастнее: заметные края у всех, в том числе у прозрачных */
+body.admin { --btn-border: #9aa3b2; }
+:root[data-theme="dark"] body.admin { --btn-border: #4b5563; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.admin { --btn-border: #4b5563; } }
+body.admin .btn { border-color: var(--btn-border); }
+body.admin .btn:hover:not(:disabled) { border-color: var(--text); }
+body.admin .btn.primary { border-color: var(--accent-strong); }
+body.admin .btn.ghost { border-color: var(--btn-border); background: transparent; color: var(--text); }
+body.admin .btn.ghost.danger, body.admin .btn.danger { color: var(--weak); border-color: color-mix(in srgb, var(--weak) 55%, var(--btn-border)); }
+body.admin .adm-side-foot .btn, body.admin .adm-side-foot .icon-btn { border-color: #4b5563; }
+body.admin .inp, body.admin .adm-select { border-color: var(--btn-border); }
+
+/* ---------- архив подборок */
+body.admin .arc-table td { vertical-align: middle; }
+body.admin .arc-act { white-space: nowrap; text-align: right; }
+body.admin .arc-act .btn { margin-left: 4px; text-decoration: none; }

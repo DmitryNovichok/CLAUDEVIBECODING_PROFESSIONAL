@@ -61,6 +61,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <button type="button" data-tab="tog"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></i>Вместе</button>
       <div class="nav-h">Задания</div>
       <button type="button" data-tab="build"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg></i>Создать подборку</button>
+      <button type="button" data-tab="archive"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/></svg></i>Архив подборок</button>
       <button type="button" data-tab="course" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5M22 9v6"/></svg></i>Курс</button>
       <button type="button" data-tab="pyc"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></i>Программирование</button>
       <button type="button" class="nav-grp" id="navMotiv" aria-expanded="false" aria-controls="navMotivList"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></i>Мотивация учеников<svg class="nav-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
@@ -169,6 +170,15 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       </div>
     </section>
 
+    <section class="adm-view" id="view-archive" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Архив подборок</h2>
+        <input class="inp adm-search" id="arcQ" placeholder="Поиск по названию или классу" autocomplete="off">
+        <select class="adm-select" id="arcClass" title="Класс"><option value="">Все классы</option></select></div>
+      <p class="adm-hint" style="margin:0 0 12px">Все подборки, которые вы выдавали, — новые сверху. «Отправить снова» открывает подборку в конструкторе как новую:
+        выберите другой класс или отметьте учеников — и отправьте. «Во «Вместе»» — разобрать её задания на совместном занятии.</p>
+      <div id="arcBody"><p class="adm-hint">Загружаю…</p></div>
+    </section>
+
     <section class="adm-view" id="view-course" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Прогресс курса</h2>
         <input class="inp" id="cpFind" placeholder="Поиск по ФИО" style="max-width:240px">
@@ -256,7 +266,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
 
     <!-- Совместная работа: общий код и доска с учениками -->
     <section class="adm-view" id="view-tog" hidden>
-      <div class="adm-toolbar"><h2 class="adm-h">👥 Совместная работа</h2></div>
+      <div class="adm-toolbar"><h2 class="adm-h">Совместная работа</h2></div>
       <p class="tog-hint">Доску и редактор Python можно открыть для себя — просто не выбирайте учеников.
         Подготовьте материал или работайте самостоятельно; учеников можно позвать позже прямо из сеанса.
         Если отметить учеников сейчас, они получат приглашение. Войти смогут только приглашённые.</p>
@@ -280,7 +290,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     </section>
 
     <section class="adm-view" id="view-supply" hidden>
-      <div class="adm-toolbar"><h2 class="adm-h">📦 Тиражи подарков</h2>
+      <div class="adm-toolbar"><h2 class="adm-h">Тиражи подарков</h2>
         <select class="inp" id="supGift" title="График — по всем подаркам или по одному"><option value="">Все подарки</option></select>
         <button type="button" class="btn ghost" id="supReload">Обновить</button></div>
       <p class="adm-hint" style="margin:0 0 12px">У каждого подарка — свой тираж на весь сайт. Проданные сразу, удалённые и улучшенные в тираж не

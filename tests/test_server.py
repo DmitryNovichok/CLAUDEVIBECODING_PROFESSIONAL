@@ -3573,6 +3573,46 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.admin("GET", "/api/admin/me")[1]["ui_theme"], "violet")
         self.admin("POST", "/api/admin/ui", {"theme": "blue"})
 
+    def test_assignment_archive_resend_and_together_sets(self):
+        db = server.APP.db
+        main = server.main_teacher()
+        c1 = db.x("INSERT INTO classes(name, created, teacher_id) VALUES('Архив А', ?, ?)", (time.time(), main["id"]))
+        c2 = db.x("INSERT INTO classes(name, created, teacher_id) VALUES('Архив Б', ?, ?)", (time.time(), main["id"]))
+        a1 = db.x("INSERT INTO assignments(class_id,title,tasks,created,kind) VALUES(?,?,?,?,?)",
+                  (c1, "Контрольная по пятым", json.dumps(["b:5", "b:6"]), time.time() - 100, "self"))
+        tok = self.login("Архивов Андрей")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        db.x("INSERT INTO assignments(class_id,title,tasks,created,kind,student_id,batch) VALUES(?,?,?,?,?,?,?)",
+             (c2, "Персональная: повтор", json.dumps(["b:6"]), time.time(), "practice", sid, "own:1"))
+        st, d = self.admin("GET", "/api/admin/asg/all")
+        self.assertEqual(st, 200, d)
+        titles = [x["title"] for x in d["items"]]
+        self.assertIn("Контрольная по пятым", titles)
+        self.assertTrue(any(x["personal"] and x["class_name"] == "Архив Б" for x in d["items"]))
+        self.assertEqual([x["title"] for x in self.admin("GET", "/api/admin/asg/all?q=" + quote("пятым"))[1]["items"]], ["Контрольная по пятым"])
+        self.assertTrue(all(x["class_id"] == c2 for x in self.admin("GET", f"/api/admin/asg/all?class_id={c2}")[1]["items"]))
+        st, t = self.admin("GET", f"/api/admin/asg/tasks?id={a1}")
+        self.assertEqual((st, t["title"], [x["id"] for x in t["tasks"]]), (200, "Контрольная по пятым", ["b:5", "b:6"]))
+        # отправить снова — другому классу
+        st, r = self.admin("POST", "/api/admin/assignment/save", {"class_id": c2, "title": t["title"], "tasks": ["b:5", "b:6"], "kind": "self"})
+        self.assertEqual(st, 200, r)
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM assignments WHERE class_id=? AND title=?", (c2, "Контрольная по пятым"), one=True)["c"], 1)
+        # «Вместе»: подборки и их задания
+        st, s = self.admin("POST", "/api/admin/together/new", {"students": [], "mode": "both"})
+        self.assertEqual(st, 200, s)
+        st, sets = self.admin("GET", f"/api/admin/together/tasks?id={s['id']}&kind=sets")
+        self.assertTrue(any(x["id"] == a1 for x in sets["sets"]))
+        st, ts = self.admin("GET", f"/api/admin/together/tasks?id={s['id']}&kind=sets&asg={a1}")
+        self.assertEqual([x["id"] for x in ts["tasks"]], ["b:5", "b:6"])
+        other = db.x("INSERT INTO teachers(name, login, pw, invite, is_main, created) VALUES('Чужой', 'alien', 'x', 'ALIEN1', 0, ?)", (time.time(),))
+        c3 = db.x("INSERT INTO classes(name, created, teacher_id) VALUES('Чужой класс', ?, ?)", (time.time(), other))
+        a3 = db.x("INSERT INTO assignments(class_id,title,tasks,created,kind) VALUES(?,?,?,?,?)", (c3, "Чужая", "[]", time.time(), "self"))
+        self.assertEqual(self.admin("GET", f"/api/admin/asg/tasks?id={a3}")[0], 404)          # чужие подборки не видны
+        self.assertNotIn("Чужая", [x["title"] for x in self.admin("GET", "/api/admin/asg/all")[1]["items"]])
+        for cid in (c1, c2, c3):
+            server.drop_class(db, cid)
+        db.x("DELETE FROM teachers WHERE id=?", (other,))
+
     def test_forbes_all_teachers(self):
         # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;
         # убранный из рейтингов в Forbes не попадает

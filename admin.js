@@ -607,6 +607,57 @@
     if (BLD.d.class_id) loadBldAsg();
     bldSearch();
   }
+  // ---- архив выданных подборок: отправить снова, PDF, во «Вместе»
+  const ARC_KIND = { self: 'самостоятельная', practice: 'практическая', home: 'домашняя' };
+  let arcT = 0;
+  async function loadArchive() {
+    const sel = $('#arcClass'), cur = sel.value;
+    try {
+      if (!classes.length) await fetchClasses();
+      sel.innerHTML = '<option value="">Все классы</option>' + classes.map(c => `<option value="${c.id}"${String(c.id) === cur ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+      const d = await api(`asg/all?q=${encodeURIComponent($('#arcQ').value.trim())}&class_id=${sel.value || ''}`);
+      const box = $('#arcBody');
+      if (!d.items.length) { box.innerHTML = '<p class="adm-empty">Подборок пока нет — создайте первую во вкладке «Создать подборку».</p>'; return; }
+      box.innerHTML = `<div class="adm-table-wrap"><table class="adm-table arc-table"><thead><tr><th>Подборка</th><th>Кому</th><th>Тип</th><th>Выдана</th><th>Срок</th>
+        <th class="num">Заданий</th><th></th></tr></thead><tbody>${d.items.map(x => `<tr>
+          <td class="name">${esc(x.title)}</td>
+          <td>${esc(x.class_name)}${x.personal ? ` <span class="chip">лично · ${x.students}</span>` : ''}</td>
+          <td class="muted">${esc(ARC_KIND[x.kind] || x.kind)}${x.closed ? ' · завершена' : ''}</td>
+          <td class="muted">${fmtDate(x.created)}</td><td class="muted">${x.due ? fmtDate(x.due) : '—'}</td>
+          <td class="num">${x.tasks}</td>
+          <td class="arc-act"><button type="button" class="btn sm primary" data-arc-send="${x.id}">Отправить снова</button>
+            <a class="btn sm" href="/api/admin/asg/archive?ids=${x.ids.join(',')}" target="_blank" rel="noopener" title="Сводная таблица, КИМ и работы учеников — для печати или PDF">PDF</a>
+            <button type="button" class="btn sm" data-arc-tog="${x.id}" title="Открыть совместное занятие с заданиями этой подборки">Во «Вместе»</button></td></tr>`).join('')}</tbody></table></div>`;
+    } catch (e) { if (e.status !== 401) toast(e.message); }
+  }
+  $('#arcQ').addEventListener('input', () => { clearTimeout(arcT); arcT = setTimeout(loadArchive, 300); });
+  $('#arcClass').addEventListener('change', loadArchive);
+  $('#arcBody').addEventListener('click', async e => {
+    const send = e.target.closest('[data-arc-send]');
+    if (send) {
+      let d;
+      try { d = await api('asg/tasks?id=' + send.dataset.arcSend); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      if (BLD.d.tasks.length && !BLD.d.id && !confirm('В черновике конструктора уже есть задания. Заменить их заданиями этой подборки?')) return;
+      Object.assign(BLD.d, { id: null, class_id: '', title: d.title, kind: d.kind, due: '', to: 'class', students: [],
+        tasks: d.tasks.map(t => ({ id: t.id, n: t.n, c: t.c, cname: t.cname, r: t.r, snip: t.snip })) });
+      bldSave();
+      go('build');
+      toast(`«${d.title}» в конструкторе: выберите класс или учеников и отправьте${d.missing ? `. Заданий нет в банке: ${d.missing}` : ''}`, 6000);
+      return;
+    }
+    const tog = e.target.closest('[data-arc-tog]');
+    if (tog) {
+      const win = window.open('', '_blank');
+      try {
+        const d = await api('asg/tasks?id=' + tog.dataset.arcTog);
+        const first = d.tasks[0];
+        const s = await api('together/new', { students: [], mode: 'both', task: first ? first.id : null });
+        togOpen(s.id, win);
+        toast('Сеанс открыт с первым заданием подборки. Остальные — в сеансе: «Задание» → «Подборки»', 6000);
+      } catch (err) { if (win) win.close(); if (err.status !== 401) toast(err.message); }
+    }
+  });
+
   // ---- шаблоны: «Вариант ЕГЭ», «10 заданий на №…», «Работа над ошибками класса»
   function renderTpl() {
     const C = BLD.cat, nSel = $('#tplN'), cSel = $('#tplClass');
@@ -1930,7 +1981,7 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
     if (t === 'course') loadCourseProgress();
@@ -1940,6 +1991,7 @@
     if (t === 'supply') loadSupply();
     if (t === 'site') loadSite();
     if (t === 'build') openBuilder();
+    if (t === 'archive') loadArchive();
     if (t === 'teachers') loadTeachers();
     if (t === 'students') loadStudents();
     if (t === 'classes') loadClasses();

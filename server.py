@@ -6475,6 +6475,25 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             live_class(db, a["class_id"])
             return self.send_json({"ok": True})
 
+        if path == "/api/admin/asg/all":
+            # архив выданных подборок: все классы учителя, поиск по названию и классу
+            APP.bank.ensure()
+            cid = to_int(qs.get("class_id"))
+            if cid and not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            return self.send_json({"items": teacher_asg_archive(db, self.T["id"], qs.get("q") or "", cid)})
+
+        if path == "/api/admin/asg/tasks":
+            # задания одной выданной подборки — чтобы отправить её снова (другому классу или ученикам)
+            APP.bank.ensure()
+            a = db.q("SELECT * FROM assignments WHERE id=?", (to_int(qs.get("id")),), one=True)
+            if not a or not self.sees_class(a["class_id"]):
+                return self.err(404, "подборка не найдена")
+            ids = json.loads(a["tasks"] or "[]")
+            rows = asg_task_rows(ids)
+            return self.send_json({"id": a["id"], "title": batch_title(a) if a["student_id"] else a["title"], "kind": a["kind"] or "self",
+                                   "tasks": rows, "missing": len(ids) - len(rows)})
+
         if path == "/api/admin/asg/archive":
             # архив работ для печати / PDF: одна подборка (id) или личные подборки пачки (ids=1,2,3)
             ids = [to_int(x) for x in str(qs.get("ids") or qs.get("id") or "").split(",") if to_int(x)]
@@ -6628,6 +6647,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             kind, q = qs.get("kind") or "recent", str(qs.get("q") or "").strip().lstrip("№").strip()
             item = lambda i, mark="": {"id": i, "n": APP.bank.tasks[i].get("n"), "snip": APP.bank.snippet(i)[:140],
                                        "label": f"№ {APP.bank.tasks[i].get('n')} · {i.split(':', 1)[-1]}", "mark": mark}
+            if kind == "sets":
+                # архив выданных подборок: сначала список подборок, затем задания выбранной
+                aid = to_int(qs.get("asg"))
+                if aid:
+                    a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
+                    if not a or not self.sees_class(a["class_id"]):
+                        return self.err(404, "подборка не найдена")
+                    ids = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+                    return self.send_json({"tasks": [item(i, f"{k + 1} из {len(ids)}") for k, i in enumerate(ids)],
+                                           "title": batch_title(a) if a["student_id"] else a["title"]})
+                return self.send_json({"sets": [{"id": x["id"], "title": x["title"], "class_name": x["class_name"], "tasks": x["tasks"],
+                                                 "created": x["created"], "personal": x["personal"]}
+                                                for x in teacher_asg_archive(db, self.T["id"], q, None, 80)]})
             if q:
                 n = to_int(q)
                 if n and 1 <= n <= 27 and q.isdigit():
@@ -10540,6 +10572,56 @@ def _dur(ms):
         return "—"
     sec = int(round(ms / 1000))
     return f"{sec // 3600} ч {sec % 3600 // 60} мин {sec % 60} с" if sec >= 3600 else f"{sec // 60} мин {sec % 60} с"
+
+
+def teacher_asg_archive(db, tid, q="", class_id=None, limit=400):
+    """Все выданные подборки учителя по всем классам — новые сверху. Личные подборки одной серии — одной строкой."""
+    main_id = main_teacher()["id"]
+    args = [main_id, tid]
+    cond = "COALESCE(c.teacher_id, ?) = ?"
+    if class_id:
+        cond += " AND c.id = ?"
+        args.append(class_id)
+    rows = db.q(f"""SELECT a.*, c.name AS class_name FROM assignments a JOIN classes c ON c.id = a.class_id
+                    WHERE {cond} ORDER BY a.created DESC LIMIT 2000""", args)
+    out, batches = [], {}
+    ql = (q or "").strip().lower()
+    for a in rows:
+        title = batch_title(a) if a["student_id"] else a["title"]
+        if ql and ql not in title.lower() and ql not in (a["class_name"] or "").lower():
+            continue
+        tasks = json.loads(a["tasks"] or "[]")
+        if a["student_id"]:
+            key = (a["class_id"], a["batch"] or f"one:{a['id']}")
+            b = batches.get(key)
+            if b:
+                b["students"] += 1
+                b["ids"].append(a["id"])
+                continue
+            b = batches[key] = {"id": a["id"], "ids": [a["id"]], "title": title, "class_id": a["class_id"], "class_name": a["class_name"],
+                                "kind": a["kind"] or "practice", "created": a["created"], "due": a["due"], "closed": a["closed"],
+                                "tasks": len(tasks), "personal": True, "students": 1, "strict": bool(a["strict"])}
+            out.append(b)
+        else:
+            out.append({"id": a["id"], "ids": [a["id"]], "title": title, "class_id": a["class_id"], "class_name": a["class_name"],
+                        "kind": a["kind"] or "self", "created": a["created"], "due": a["due"], "closed": a["closed"],
+                        "tasks": len(tasks), "personal": False, "students": None, "strict": bool(a["strict"])})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def asg_task_rows(ids):
+    """Задания подборки для конструктора и «Вместе»: номер, тип, сложность, начало условия."""
+    out = []
+    for i in ids:
+        t = APP.bank.tasks.get(i)
+        if not t:
+            continue
+        out.append({"id": i, "n": t.get("n"), "c": t.get("c"), "r": t.get("r"),
+                    "cname": dict(clusters.labels(t.get("n"))).get(t.get("c"), "") if t.get("n") else "",
+                    "snip": APP.bank.snippet(i)})
+    return out
 
 
 def asg_archive_html(db, teacher, asg_ids):
