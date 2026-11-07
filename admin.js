@@ -183,10 +183,11 @@
     if (a.state === 'full' || (a.state === 'paid' && !a.expired && a.left > 7 * 86400)) { bar.hidden = true; return; }
     const left = Math.max(0, (a.until || 0) - Date.now() / 1000), till = fmtDate(a.until);
     const signup = '<a class="btn primary" href="/welcome#signup">Зарегистрироваться — бесплатно</a>';
-    const renew = '<button type="button" class="btn primary" data-renew>Продлить</button>';
+    const other = '<button type="button" class="btn ghost" data-switch title="Выйти и войти по своей почте или логину">Войти в другой аккаунт</button>';
+    const renew = '<button type="button" class="btn primary" data-renew>Продлить</button>' + other;
     let cls = 'info', txt = '', act = renew;
     if (a.state === 'guest') {
-      act = signup;
+      act = signup + '<button type="button" class="btn ghost" data-guest-end title="Демо-класс удалится, откроется вход">Завершить гостевой доступ</button>' + other;
       if (left <= 0) { cls = 'bad'; txt = '<b>Гостевой час закончился.</b> Панель открыта только для просмотра. Зарегистрируйтесь — классы и подборки, которые вы создали, останутся, а пробный период начнётся заново.'; }
       else {
         txt = `<b>👀 Гостевой доступ: осталось ${Math.ceil(left / 60)} мин.</b> «${esc(DEMO_CLASS)}» — демо-класс с вымышленными учениками: откройте сводку, журнал и архив работ. Регистрация сохранит всё, что вы создали.`;
@@ -237,6 +238,15 @@
   });
   document.addEventListener('click', e => {
     if (e.target.closest('[data-renew]')) { openRenew(); return; }
+    if (e.target.closest('[data-guest-end]')) {
+      if (!confirm('Завершить гостевой доступ? Демо-класс и всё, что вы создали в гостевом режиме, удалятся.')) return;
+      api('logout', { end: true }).catch(() => {}).finally(() => { location.href = '/admin'; });
+      return;
+    }
+    if (e.target.closest('[data-switch]')) {
+      api('logout', {}).catch(() => {}).finally(() => { location.href = '/admin'; });
+      return;
+    }
     if (e.target.closest('[data-close-modal]') || (e.target.classList && e.target.classList.contains('modal') && ['renewModal', 'qrModal', 'parentModal'].includes(e.target.id))) {
       $('#renewModal').hidden = true; $('#qrModal').hidden = true; $('#parentModal').hidden = true; return;
     }
@@ -3950,6 +3960,21 @@
 
   // ------------------------------------------------------------ старт
   (async () => {
+    const params = new URLSearchParams(location.search);
+    if (params.has('switch')) {
+      history.replaceState(null, '', location.pathname);
+      let who = null;
+      try { const r = await fetch('api/admin/me', { credentials: 'same-origin' }); if (r.ok) who = await r.json(); } catch (e) { /* не вошёл */ }
+      showLogin();
+      if (who) {
+        const el = $('#admAlready');
+        el.innerHTML = `Сейчас открыт аккаунт <b>${esc(who.name)}</b>${who.guest ? ' (гостевой доступ)' : ''}.
+          <button type="button" class="link-btn" id="admBack">Вернуться в него</button>`;
+        el.hidden = false;
+        $('#admBack').onclick = () => { location.href = '/admin'; };
+      }
+      return;
+    }
     try {
       showMediaWarning(await api('info'));
       await loadMe();
