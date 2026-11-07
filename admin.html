@@ -38,6 +38,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
       <button class="btn primary" type="submit">Войти</button>
     </div>
     <div class="login-err" id="admLoginErr" role="alert"></div>
+    <p class="fm-note" style="margin:6px 0 0"><button type="button" class="link-btn" id="admForgot">Забыли пароль?</button></p>
     <div class="adm-login-new">
       <a class="btn btn-block" href="/welcome#signup">Зарегистрироваться — 7 дней бесплатно</a>
       <a class="link-btn" href="/welcome">Что такое Egeshka и тарифы</a>
@@ -329,8 +330,8 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
         <p class="adm-hint" style="margin:0">Передайте учителю адрес панели (…/admin), логин и пароль, а его ученикам — его код приглашения. При изменении пароль можно оставить пустым — тогда он не меняется. Добавленные вручную учителя работают без срока.</p>
       </form>
       <form class="adm-box offer-form" id="offerForm">
-        <h3 class="adm-h3" style="margin:0">Тарифы и контакты на главной странице</h3>
-        <p class="adm-hint" style="margin:0">Видны всем на /welcome и учителю в окне «Продлить». Пункты тарифа — каждый с новой строки.</p>
+        <h3 class="adm-h3" style="margin:0">Тарифы и контакты</h3>
+        <p class="adm-hint" style="margin:0">Тарифы видит учитель в окне «Продлить» (на главной странице их пока нет), контакты — и на главной /welcome. Пункты тарифа — каждый с новой строки.</p>
         <div class="offer-grid" id="offerTariffs"></div>
         <div class="adm-draft-row">
           <input class="inp" id="ofEmail" placeholder="Почта для связи" maxlength="120">
@@ -536,7 +537,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
 <div class="modal login-modal" id="admConsentModal" hidden>
   <div class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="admConsentTitle">
     <h2 class="fm-title" id="admConsentTitle">Документы сервиса</h2>
-    <p class="fm-note">Чтобы работать в панели учителя, ознакомьтесь с документами и подтвердите согласие на обработку ваших данных: ФИО, логина и действий в панели.</p>
+    <p class="fm-note">Чтобы работать в панели учителя, ознакомьтесь с документами и подтвердите согласие на обработку ваших данных: ФИО, почты, логина и действий в панели.</p>
     <form id="admConsentForm" class="login-form login-stack">
       <label class="login-check"><input type="checkbox" id="acTerms" required>
         <span>Принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">Политику обработки персональных данных</a></span></label>

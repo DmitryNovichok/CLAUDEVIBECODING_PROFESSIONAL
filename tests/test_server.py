@@ -3492,6 +3492,66 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(all(server.hints_mod.hint(n, k) for n in list(range(1, 20)) + list(range(22, 28)) for k in (1, 2)))
         self.admin("POST", "/api/admin/hints", {"on": False})
 
+    def test_self_registration_login_and_password_reset(self):
+        db = server.APP.db
+        reg = lambda **kw: self.req("POST", "/api/login", dict({"mode": "register", "consent": True, "new_password": "secret1"}, **kw))
+        st, d = reg(name="Самов Сергей", login="samov")
+        self.assertEqual(st, 400)                                        # без кода учителя нужна почта
+        st, d = reg(name="Самов Сергей", login="Плохой логин", email="s@example.ru")
+        self.assertEqual(st, 400)
+        st, d = reg(name="Самов Сергей", login="samov", email="Sam@Example.ru")
+        self.assertEqual(st, 200, d)
+        self.assertEqual((d["login"], d["email"], d["self_reg"]), ("samov", "sam@example.ru", True))
+        row = db.q("SELECT * FROM students WHERE login='samov'", one=True)
+        self.assertEqual(row["teacher_id"], server.main_teacher()["id"])         # без кода — у главного учителя
+        self.assertEqual(reg(name="Другов Дмитрий", login="SAMOV", email="d@example.ru")[0], 409)   # логин занят
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "samov", "password": "secret1"})
+        self.assertEqual(st, 200, d)                                     # вход по логину
+        tok = d["token"]
+        st, d = self.req("POST", "/api/login", {"mode": "login", "name": "Самов Сергей", "password": "secret1"})
+        self.assertEqual(st, 200)                                        # и по ФИО, как раньше
+        # с кодом учителя логин можно не указывать — придумывается из фамилии
+        st, d = reg(name="Кодов Кирилл", code="1234")
+        self.assertEqual(st, 200, d)
+        self.assertRegex(d["login"], r"^kodov\d*$")
+        logins = [d["login"]]
+        st, d = reg(name="Кодова Ксения", code="1234")
+        self.assertRegex(d["login"], r"^kodova\d*$")
+        logins.append(d["login"])
+        # присоединиться к учителю по коду
+        tid = db.x("INSERT INTO teachers(name, login, pw, invite, is_main, created) VALUES('Второй Учитель', 'second', 'x', 'JOIN42', 0, ?)",
+                   (time.time(),))
+        self.assertEqual(self.req("POST", "/api/account", {"code": "BAD"}, tok)[0], 403)
+        st, d = self.req("POST", "/api/account", {"code": "JOIN42", "email": "new@example.ru"}, tok)
+        self.assertEqual((st, d["teacher"], d["self_reg"], d["email"]), (200, "Второй Учитель", False, "new@example.ru"))
+        self.assertEqual(self.req("POST", "/api/account", {"code": "1234"}, tok)[0], 403)   # дальше учителя меняет только учитель
+        # восстановление пароля по почте
+        sent = []
+        with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+             mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, t)) or True):
+            st, d = self.req("POST", "/api/pw/forgot", {"who": "new@example.ru"})
+            self.assertEqual(st, 200)
+            st, d = self.req("POST", "/api/pw/forgot", {"who": "nobody@example.ru"})
+            self.assertEqual((st, d), (200, {"ok": True}))                # ответ тот же — аккаунты не перебрать
+            for _ in range(50):
+                if sent:
+                    break
+                time.sleep(0.05)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][0], "new@example.ru")
+        link = re.search(r"/reset\?t=(\S+)", sent[0][1]).group(1)
+        self.assertEqual(self.req("POST", "/api/pw/reset", {"t": link, "password": "123"})[0], 400)
+        st, d = self.req("POST", "/api/pw/reset", {"t": link, "password": "newpass1"})
+        self.assertEqual((st, d["kind"]), (200, "s"))
+        self.assertEqual(self.req("POST", "/api/pw/reset", {"t": link, "password": "newpass2"})[0], 404)   # ссылка одноразовая
+        self.assertEqual(self.req("GET", "/api/me", token=tok)[0], 401)  # входы закрыты
+        self.assertEqual(self.req("POST", "/api/login", {"mode": "login", "name": "samov", "password": "newpass1"})[0], 200)
+        with mock.patch.object(server, "smtp_conf", lambda: None):
+            self.assertEqual(self.req("POST", "/api/pw/forgot", {"who": "samov"})[0], 503)   # без почты — честно говорим
+        for lg in ["samov"] + logins:
+            server.delete_student(db, db.q("SELECT id FROM students WHERE login=?", (lg,), one=True)["id"])
+        db.x("DELETE FROM teachers WHERE id=?", (tid,))
+
     def test_forbes_all_teachers(self):
         # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;
         # убранный из рейтингов в Forbes не попадает

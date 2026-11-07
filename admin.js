@@ -351,6 +351,18 @@
       btn.disabled = false;
     }
   });
+  $('#admForgot').addEventListener('click', async () => {
+    const who = ($('#admLogin').value.trim() || prompt('Почта или логин, с которыми вы входите:') || '').trim();
+    const err = $('#admLoginErr');
+    if (!who) return;
+    try {
+      const r = await fetch('api/pw/forgot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ who, kind: 't' }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Не получилось');
+      err.className = 'login-err ok';
+      err.textContent = 'Если у этого аккаунта есть почта — письмо со ссылкой уже в пути (проверьте «Спам»). Ссылка действует 1 час.';
+    } catch (x) { err.className = 'login-err'; err.textContent = x.message; }
+  });
   $('#logoutBtn').addEventListener('click', async () => {
     try { await api('logout', {}); } catch (e) { /* всё равно выходим */ }
     location.reload();                 // с нуля: остановить опрос ленты и живое соединение прежнего учителя
@@ -3474,7 +3486,7 @@
         catch (x) { if (x.status !== 401) $('#impMsg').textContent = x.message; go.disabled = false; return; }
         const made = r.rows.filter(x => x.status === 'new'), moved = r.rows.filter(x => x.status === 'mine');
         const taken = r.rows.filter(x => x.status === 'taken'), bad = r.rows.filter(x => x.status === 'bad');
-        IMP_CARDS = made.map(x => ({ name: x.name, password: x.password }));
+        IMP_CARDS = made.map(x => ({ name: x.name, password: x.password, login: x.login }));
         $('#impRes').innerHTML = `<p class="fm-note"><b>Создано: ${made.length}</b>${moved.length ? ` · уже были вашими, перенесены в класс: ${moved.length}` : ''}</p>
           ${taken.length ? `<p class="fm-note" style="color:var(--weak)">Такое ФИО уже есть у другого учителя — не добавлены: ${taken.map(x => esc(x.name)).join(', ')}. Допишите отчество или вторую букву имени.</p>` : ''}
           ${bad.length ? `<p class="fm-note" style="color:var(--weak)">Не похоже на «Фамилия Имя»: ${bad.map(x => esc(x.name)).join(', ')}</p>` : ''}
@@ -3495,12 +3507,13 @@
     const w = window.open('', '_blank');
     if (!w) { toast('Браузер заблокировал новое окно — разрешите всплывающие окна для этого сайта'); return; }
     const host = location.host, card = c => {
-      const link = `${location.origin}/?n=${encodeURIComponent(c.name)}`;
+      const link = `${location.origin}/?n=${encodeURIComponent(c.login || c.name)}`;
       return `<div class="c"><div class="t"><b>Egeshka</b><span>${esc(cname || '')}</span></div>
         <div class="b"><div class="q">${window.egeQRsvg ? window.egeQRsvg(link, 120) : ''}</div>
         <div><div class="n">${esc(c.name)}</div><div class="l">Сайт: <b>${esc(host)}</b></div>
+        ${c.login ? `<div class="l">Логин: <b class="p">${esc(c.login)}</b></div>` : ''}
         <div class="l">Пароль: <b class="p">${esc(c.password)}</b></div>
-        <div class="h">Наведи камеру на код или открой сайт → «Вход» → ФИО и пароль. Пароль можно сменить в меню с именем.</div></div></div></div>`;
+        <div class="h">Наведи камеру на код или открой сайт → «Вход» → логин и пароль. Добавь почту в меню с именем — сможешь сам восстановить пароль.</div></div></div></div>`;
     };
     w.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Карточки входа — ${esc(cname || '')}</title>
       <style>@page{size:A4;margin:10mm}body{margin:0;font-family:Arial,sans-serif;color:#111}
@@ -3520,7 +3533,7 @@
     try {
       const r = await api('student/newpw', { id: s.id });
       const cls = classes.find(c => c.id === s.class_id);
-      printCards([{ name: r.name, password: r.password }], cls ? cls.name : '');
+      printCards([{ name: r.name, password: r.password, login: r.login }], cls ? cls.name : '');
     } catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#stPwReset').addEventListener('click', async () => {

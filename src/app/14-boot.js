@@ -301,6 +301,7 @@
         if (confirm('Выйти? Прогресс сохранён на сервере, войти можно снова по ФИО и паролю.')) logout();
       });
       $('#pwBtn').addEventListener('click', () => openPasswordDialog(false));
+      $('#acctBtn').addEventListener('click', openAccount);
       if (mustSetPw) setTimeout(() => openPasswordDialog(true), 400);
     } else {
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); });

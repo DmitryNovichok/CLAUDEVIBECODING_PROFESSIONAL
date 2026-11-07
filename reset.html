@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Egeshka · новый пароль</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6f9; color: #0f1b2d; font: 500 16px/1.5 "Nunito", system-ui, sans-serif; padding: 16px; }
+form { background: #fff; border: 1px solid #e3e7ee; border-radius: 16px; padding: 28px; width: min(420px, 100%); display: flex; flex-direction: column; gap: 12px; }
+h1 { margin: 0; font-size: 24px; }
+p { margin: 0; color: #5b6678; font-size: 14.5px; }
+label { display: flex; flex-direction: column; gap: 6px; font-weight: 700; font-size: 14px; }
+input { border: 2px solid #e3e7ee; border-radius: 10px; padding: 11px 13px; font: 600 16px "Nunito", system-ui, sans-serif; }
+input:focus { outline: none; border-color: #1cb0f6; }
+button { background: #2f8f2f; color: #fff; border: 0; border-radius: 10px; padding: 12px; font: 800 16px "Nunito", system-ui, sans-serif; cursor: pointer; }
+button:disabled { opacity: .6; }
+.err { color: #b42318; font-weight: 700; min-height: 1em; }
+.ok { color: #23742a; }
+a { color: #1899d6; font-weight: 700; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h1>Новый пароль</h1>
+  <p>Придумайте новый пароль. После сохранения вход на других устройствах закроется — войдите заново.</p>
+  <label>Новый пароль<input type="password" id="p1" autocomplete="new-password" minlength="6" maxlength="200" required></label>
+  <label>Повторите пароль<input type="password" id="p2" autocomplete="new-password" minlength="6" maxlength="200" required></label>
+  <button type="submit" id="go">Сохранить пароль</button>
+  <p class="err" id="msg" role="alert"></p>
+</form>
+<script>
+(function () {
+  'use strict';
+  const t = new URLSearchParams(location.search).get('t') || '';
+  const msg = document.getElementById('msg');
+  document.getElementById('f').addEventListener('submit', async e => {
+    e.preventDefault();
+    const p1 = document.getElementById('p1').value, p2 = document.getElementById('p2').value;
+    msg.className = 'err';
+    if (p1 !== p2) { msg.textContent = 'Пароли не совпадают'; return; }
+    const go = document.getElementById('go');
+    go.disabled = true;
+    try {
+      const r = await fetch('api/pw/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t, password: p1 }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Не получилось — попробуйте ещё раз');
+      msg.className = 'err ok';
+      msg.innerHTML = `Пароль сохранён. <a href="${d.kind === 't' ? '/admin' : '/?login=1'}">Войти</a>`;
+      history.replaceState(null, '', location.pathname);
+    } catch (x) { msg.textContent = x.message; go.disabled = false; }
+  });
+})();
+</script>
+</body>
+</html>
