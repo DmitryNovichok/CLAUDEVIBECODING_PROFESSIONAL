@@ -158,6 +158,7 @@
   let spTab = 'help';
   const spIdea = x => x.kind === 'idea';
   const spNew = x => x.answer && !x.seen;
+  const SUPPORT_ICON = '<svg class="support-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.6 3.6m5.6 5.6 3.6 3.6m0-12.8-3.6 3.6m-5.6 5.6-3.6 3.6"/></svg>';
   /** tab: 'help' | 'idea' | 'auto' (кнопка «Техподдержка»: новый ответ только в пожеланиях — сразу туда); иначе — та же вкладка. */
   async function openSupport(tab) {
     if (isNarrow()) setSideOpen(false);
@@ -193,9 +194,9 @@
         <div class="sp-row">${t ? `<label class="sp-att"><input type="checkbox" id="spTask" checked> приложить задание №${numLabel(t.n)} (${esc(t.id)})</label>` : '<span></span>'}
           ${SP_PICK}<button type="submit" class="btn primary">Отправить</button></div>
       </form>`;
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">🛟 Техподдержка</h2>
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">${SUPPORT_ICON} Техподдержка</h2>
       <div class="sp-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected="${!idea}" class="${idea ? '' : 'on'}" data-sp-tab="help">🛟 Обращения${dot(false)}</button>
+        <button type="button" role="tab" aria-selected="${!idea}" class="${idea ? '' : 'on'}" data-sp-tab="help">${SUPPORT_ICON} Обращения${dot(false)}</button>
         <button type="button" role="tab" aria-selected="${idea}" class="${idea ? 'on' : ''}" data-sp-tab="idea">💡 Пожелания${dot(true)}</button>
       </div>
       ${form}
