@@ -169,6 +169,7 @@
     if (ME.is_main) { try { teachers = (await api('teachers')).teachers; } catch (e) { teachers = []; } }
     renderAccess();
     renderSteps();
+    applyUiTheme(ME.ui_theme);
     await askConsent();
   }
 
@@ -606,6 +607,57 @@
     if (BLD.d.class_id) loadBldAsg();
     bldSearch();
   }
+  // ---- архив выданных подборок: отправить снова, PDF, во «Вместе»
+  const ARC_KIND = { self: 'самостоятельная', practice: 'практическая', home: 'домашняя' };
+  let arcT = 0;
+  async function loadArchive() {
+    const sel = $('#arcClass'), cur = sel.value;
+    try {
+      if (!classes.length) await fetchClasses();
+      sel.innerHTML = '<option value="">Все классы</option>' + classes.map(c => `<option value="${c.id}"${String(c.id) === cur ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+      const d = await api(`asg/all?q=${encodeURIComponent($('#arcQ').value.trim())}&class_id=${sel.value || ''}`);
+      const box = $('#arcBody');
+      if (!d.items.length) { box.innerHTML = '<p class="adm-empty">Подборок пока нет — создайте первую во вкладке «Создать подборку».</p>'; return; }
+      box.innerHTML = `<div class="adm-table-wrap"><table class="adm-table arc-table"><thead><tr><th>Подборка</th><th>Кому</th><th>Тип</th><th>Выдана</th><th>Срок</th>
+        <th class="num">Заданий</th><th></th></tr></thead><tbody>${d.items.map(x => `<tr>
+          <td class="name">${esc(x.title)}</td>
+          <td>${esc(x.class_name)}${x.personal ? ` <span class="chip">лично · ${x.students}</span>` : ''}</td>
+          <td class="muted">${esc(ARC_KIND[x.kind] || x.kind)}${x.closed ? ' · завершена' : ''}</td>
+          <td class="muted">${fmtDate(x.created)}</td><td class="muted">${x.due ? fmtDate(x.due) : '—'}</td>
+          <td class="num">${x.tasks}</td>
+          <td class="arc-act"><button type="button" class="btn sm primary" data-arc-send="${x.id}">Отправить снова</button>
+            <a class="btn sm" href="/api/admin/asg/archive?ids=${x.ids.join(',')}" target="_blank" rel="noopener" title="Сводная таблица, КИМ и работы учеников — для печати или PDF">PDF</a>
+            <button type="button" class="btn sm" data-arc-tog="${x.id}" title="Открыть совместное занятие с заданиями этой подборки">Во «Вместе»</button></td></tr>`).join('')}</tbody></table></div>`;
+    } catch (e) { if (e.status !== 401) toast(e.message); }
+  }
+  $('#arcQ').addEventListener('input', () => { clearTimeout(arcT); arcT = setTimeout(loadArchive, 300); });
+  $('#arcClass').addEventListener('change', loadArchive);
+  $('#arcBody').addEventListener('click', async e => {
+    const send = e.target.closest('[data-arc-send]');
+    if (send) {
+      let d;
+      try { d = await api('asg/tasks?id=' + send.dataset.arcSend); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      if (BLD.d.tasks.length && !BLD.d.id && !confirm('В черновике конструктора уже есть задания. Заменить их заданиями этой подборки?')) return;
+      Object.assign(BLD.d, { id: null, class_id: '', title: d.title, kind: d.kind, due: '', to: 'class', students: [],
+        tasks: d.tasks.map(t => ({ id: t.id, n: t.n, c: t.c, cname: t.cname, r: t.r, snip: t.snip })) });
+      bldSave();
+      go('build');
+      toast(`«${d.title}» в конструкторе: выберите класс или учеников и отправьте${d.missing ? `. Заданий нет в банке: ${d.missing}` : ''}`, 6000);
+      return;
+    }
+    const tog = e.target.closest('[data-arc-tog]');
+    if (tog) {
+      const win = window.open('', '_blank');
+      try {
+        const d = await api('asg/tasks?id=' + tog.dataset.arcTog);
+        const first = d.tasks[0];
+        const s = await api('together/new', { students: [], mode: 'both', task: first ? first.id : null });
+        togOpen(s.id, win);
+        toast('Сеанс открыт с первым заданием подборки. Остальные — в сеансе: «Задание» → «Подборки»', 6000);
+      } catch (err) { if (win) win.close(); if (err.status !== 401) toast(err.message); }
+    }
+  });
+
   // ---- шаблоны: «Вариант ЕГЭ», «10 заданий на №…», «Работа над ошибками класса»
   function renderTpl() {
     const C = BLD.cat, nSel = $('#tplN'), cSel = $('#tplClass');
@@ -1924,11 +1976,12 @@
   let tab = 'students';
   let backTab = 'students';            // куда вернуться из карточки ученика
   function go(t) {
+    if (t !== 'classes') document.body.classList.remove('jr-full');
     if (t !== 'student') backTab = t;
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
     if (t === 'course') loadCourseProgress();
@@ -1938,6 +1991,7 @@
     if (t === 'supply') loadSupply();
     if (t === 'site') loadSite();
     if (t === 'build') openBuilder();
+    if (t === 'archive') loadArchive();
     if (t === 'teachers') loadTeachers();
     if (t === 'students') loadStudents();
     if (t === 'classes') loadClasses();
@@ -1971,17 +2025,22 @@
     clearInterval(TOGS.timer);
     TOGS.timer = setInterval(() => { if (tab === 'tog' && !document.hidden) togList(); else clearInterval(TOGS.timer); }, 15000);
     try { TOGS.students = (await api('together/students')).students; } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    TOGS.sel = new Set([...TOGS.sel].filter(id => TOGS.students.some(s => s.id === id)));
     togStudents();
     togList();
   }
+  function togStartLabel() {
+    $('#togGo').textContent = TOGS.sel.size ? 'Позвать и открыть сеанс →' : 'Открыть без учеников →';
+  }
   function togStudents() {
+    togStartLabel();
     const q = $('#togSearch').value.trim().toLowerCase().replace(/ё/g, 'е');
     const ago = ts => !ts ? 'не заходил(а)' : fmtWhen(ts);
     const rows = TOGS.students.filter(s => !q || s.name.toLowerCase().replace(/ё/g, 'е').includes(q));
     $('#togStu').innerHTML = rows.map(s => `<label class="${TOGS.sel.has(s.id) ? 'on' : ''}"><input type="checkbox" value="${s.id}"${TOGS.sel.has(s.id) ? ' checked' : ''}>
       <span>${esc(s.name)}${s.cls ? `<br><small style="color:var(--muted)">${esc(s.cls)}</small>` : ''}</span>
       <span class="st${s.on ? ' live' : ''}">${s.on ? '● на сайте' : esc(ago(s.seen))}</span></label>`).join('')
-      || '<p class="tog-hint">Учеников не нашлось.</p>';
+      || `<p class="tog-hint">${TOGS.students.length ? 'По запросу никого не найдено.' : 'Учеников пока нет. Доску и код можно открыть для себя.'}</p>`;
   }
   $('#togSearch').addEventListener('input', togStudents);
   $('#togStu').addEventListener('change', e => {
@@ -1989,6 +2048,7 @@
     if (!i) return;
     if (i.checked) TOGS.sel.add(+i.value); else TOGS.sel.delete(+i.value);
     i.closest('label').classList.toggle('on', i.checked);
+    togStartLabel();
   });
   $('#togMode').addEventListener('click', e => {
     const b = e.target.closest('[data-m]');
@@ -2012,7 +2072,6 @@
     }, 350);
   });
   $('#togGo').addEventListener('click', async () => {
-    if (!TOGS.sel.size) return toast('Отметьте учеников, которых позвать');
     if ($('#togTask').value.trim() && !TOGS.task) return toast('Задание не найдено — очистите поле или выберите задание в сеансе');
     const win = window.open('', '_blank');
     try {
@@ -2029,11 +2088,11 @@
     try { d = await api('together/list'); } catch (e) { return; }
     const modes = { both: 'код + доска', code: 'код', board: 'доска' };
     $('#togList').innerHTML = d.sessions.length ? d.sessions.map(s => `<div class="tog-row">
-        <div class="who"><b>${s.students.map(x => `${x.on ? '<i class="dot" title="в сеансе"></i>' : ''}${esc(x.name)}`).join(', ')}</b>
+        <div class="who"><b>${s.students.map(x => `${x.on ? '<i class="dot" title="в сеансе"></i>' : ''}${esc(x.name)}`).join(', ') || 'Только учитель'}</b>
           <div class="meta">${esc(fmtWhen(s.created))} · ${esc(modes[s.mode] || '')}${s.task ? ' · ' + esc(s.task) : ''}${s.pages > 1 ? ` · страниц: ${s.pages}` : ''}</div></div>
         ${s.ended ? '<span class="meta">завершён</span>' : '<span class="live">● идёт</span>'}
         <button type="button" class="btn${s.ended ? '' : ' primary'}" data-tog-open="${s.id}">${s.ended ? 'Посмотреть' : 'Открыть'}</button>
-        ${s.ended ? `<button type="button" class="btn" data-tog-again="${s.id}" title="Снова позвать тех же учеников — код и доска продолжатся">Продолжить</button>`
+        ${s.ended ? `<button type="button" class="btn" data-tog-again="${s.id}" title="Продолжить работу — код и доска сохранятся">Продолжить</button>`
           : `<button type="button" class="btn ghost" data-tog-end="${s.id}">Завершить</button>`}
         <button type="button" class="link-btn" data-tog-del="${s.id}" title="Удалить сеанс вместе с кодом и доской">Удалить</button>
       </div>`).join('') : '<p class="tog-hint">Сеансов пока не было.</p>';
@@ -2295,8 +2354,16 @@
   }
   $('#classList').addEventListener('click', e => {
     const b = e.target.closest('[data-class]');
-    if (b) { curClass = { id: +b.dataset.class }; renderClassList(); openClass(curClass.id); }
+    if (b) { curClass = { id: +b.dataset.class }; renderClassList(); holdHeight(); openClass(curClass.id); }
   });
+  /** Пока новый класс загружается, тело держит прежнюю высоту — прокрутка не сбрасывается, список классов не прыгает. */
+  let holdTimer = 0;
+  function holdHeight() {
+    const body = $('#classBody');
+    body.style.minHeight = body.offsetHeight + 'px';
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => { body.style.minHeight = ''; }, 2500);
+  }
   $('#classNewForm').addEventListener('submit', async e => {
     e.preventDefault();
     try {
@@ -2427,7 +2494,14 @@
   const CLS_PANES = [['digest', 'Сводка недели'], ['members', 'Ученики'], ['journal', 'Журнал'], ['nums', 'По номерам'], ['period', 'За период'], ['asg', 'Подборки'], ['battle', 'Битва классов']];
   let clsPane = (() => { try { return localStorage.getItem('egeAdmin.clsPane') || 'digest'; } catch (e) { return 'digest'; } })();
   if (!CLS_PANES.some(p => p[0] === clsPane)) clsPane = 'digest';
+  /** Журнал на весь экран: прячутся меню и список классов, таблица получает всю ширину. Esc — свернуть. */
+  function jrFull(on) {
+    document.body.classList.toggle('jr-full', on);
+    $$('[data-jr-full]').forEach(b => { b.textContent = on ? 'Свернуть журнал' : 'Развернуть журнал на весь экран'; });
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('jr-full')) jrFull(false); });
   function showClsPane(k) {
+    if (k !== 'journal' && k !== 'nums') jrFull(false);
     clsPane = k;
     try { localStorage.setItem('egeAdmin.clsPane', k); } catch (e) { /* не страшно */ }
     $$('#clsTabs [data-pane]').forEach(b => b.classList.toggle('on', b.dataset.pane === k));
@@ -2468,6 +2542,7 @@
       </div>
       <div class="dg-actions"><button type="button" class="btn primary" data-weak>Выдать каждому подборку по его слабым местам</button>
         <span class="adm-hint">По 3 задания на 3 самых слабых номера у каждого ученика — у всех своя подборка, срок неделя.</span></div>`;
+    requestAnimationFrame(() => { $('#classBody').style.minHeight = ''; });       // новый класс показан — высота свободна
   }
   /** Одна подборка всему классу: по 3 задания на каждый слабый номер класса. */
   async function buildWeakSet(nums) {
@@ -2562,7 +2637,8 @@
       const m = avg(gs);
       return `<td class="num jr-foot" title="сдали ${done} из ${S.length}">${m == null ? '' : `<b>${m.toFixed(1).replace('.', ',')}</b><br>`}<small>${done}/${S.length}</small></td>`;
     }).join('');
-    box.innerHTML = `<p class="adm-hint">Оценки за все подборки класса. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
+    box.innerHTML = `<div class="jr-top"><button type="button" class="btn" data-jr-full>${document.body.classList.contains('jr-full') ? 'Свернуть журнал' : 'Развернуть журнал на весь экран'}</button></div>
+      <p class="adm-hint">Оценки за все подборки класса. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
         Нажмите на название подборки, чтобы открыть её результаты, на имя — карточку ученика.</p>
       <div class="dg-actions"><button type="button" class="btn" data-weak>Каждому — по 3 задания на его 3 слабых номера</button>
         <span class="adm-hint">У каждого ученика своя подборка; появится в журнале отдельной колонкой.</span></div>
@@ -2890,6 +2966,7 @@
       return;
     }
     if (t.closest('[data-weak]')) { giveWeakSets(); return; }
+    if (t.closest('[data-jr-full]')) { jrFull(!document.body.classList.contains('jr-full')); return; }
     if (t.closest('[data-cls-parents]')) { openClassParents(curClass.id, (classes.find(c => c.id === curClass.id) || {}).name || ''); return; }
     if (t.closest('[data-cls-import]')) { openImport(curClass.id, (classes.find(c => c.id === curClass.id) || {}).name || ''); return; }
     if (t.closest('[data-weak-build]')) { buildWeakSet(($('#clsDigest').dataset.weak || '').split(',').filter(Boolean).map(Number)); return; }
@@ -3847,6 +3924,21 @@
       $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
     } catch (e) { /* не страшно */ }
   }
+  // ---- темы оформления панели
+  function applyUiTheme(t) {
+    t = t || 'blue';
+    if (t === 'blue') delete document.documentElement.dataset.admTheme; else document.documentElement.dataset.admTheme = t;
+    try { localStorage.setItem('egeAdmin.uiTheme', t === 'blue' ? '' : t); } catch (e) { /* нет доступа */ }
+    $$('#uiThemes .ui-theme').forEach(b => b.classList.toggle('on', b.dataset.ui === t));
+  }
+  $('#uiThemes').addEventListener('click', async e => {
+    const b = e.target.closest('[data-ui]');
+    if (!b) return;
+    const prev = ME.ui_theme || 'blue';
+    ME.ui_theme = b.dataset.ui;
+    applyUiTheme(ME.ui_theme);                       // сразу — без ожидания сервера
+    try { await api('ui', { theme: ME.ui_theme }); } catch (err) { if (err.status !== 401) { toast(err.message); ME.ui_theme = prev; applyUiTheme(prev); } }
+  });
   $('#hintsOn').addEventListener('change', async e => {
     const msg = $('#hintsMsg');
     msg.className = 'login-err';

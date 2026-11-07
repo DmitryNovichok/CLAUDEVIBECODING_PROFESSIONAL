@@ -163,3 +163,106 @@ body.admin .adm-access-act { flex-wrap: wrap; }
   body.admin .adm-side .nav-sub button { padding-left: 10px; }
   body.admin .adm-side .nav-sub button i { display: inline-grid; }
 }
+
+
+/* ---------- темы оформления: цвет акцента и меню (Настройки → «Оформление панели») */
+:root[data-adm-theme="green"] body.admin { --accent: #2e8b2e; --accent-strong: #236f23; --side-bg: #0f2118; --side-hover: #183324; --side-on: #1d3d2b; }
+:root[data-adm-theme="violet"] body.admin { --accent: #6d4ad8; --accent-strong: #5634c0; --side-bg: #1b1535; --side-hover: #261e48; --side-on: #2e2455; }
+:root[data-adm-theme="teal"] body.admin { --accent: #0e8a8c; --accent-strong: #0a6d6f; --side-bg: #0b2a31; --side-hover: #113a43; --side-on: #15454f; }
+:root[data-adm-theme="graphite"] body.admin { --accent: #374151; --accent-strong: #1f2937; --side-bg: #0b0b0d; --side-hover: #18181b; --side-on: #222226; }
+:root[data-adm-theme="light"] body.admin { --side-bg: #ffffff; --side-text: #374151; --side-mute: #9ca3af; --side-hover: #f3f4f6; --side-on: #e8f1fb; }
+:root[data-adm-theme] body.admin { --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent); --accent-text: var(--accent);
+  --link: var(--accent); --sel: var(--accent-soft); --sel-border: var(--accent); --sel-text: var(--accent-strong); }
+:root[data-adm-theme="graphite"] body.admin { --accent-text: #111827; --link: #1f2937; }
+/* светлое меню: тёмный текст, выделение акцентом */
+:root[data-adm-theme="light"] body.admin .adm-side { border-right: 1px solid var(--border); }
+:root[data-adm-theme="light"] body.admin .adm-side .adm-brand .brand-title,
+:root[data-adm-theme="light"] body.admin .adm-side .adm-brand .brand-title b,
+:root[data-adm-theme="light"] body.admin .adm-side-me .adm-who { color: #111827; }
+:root[data-adm-theme="light"] body.admin .adm-side .adm-tabs button:hover { color: #111827; }
+:root[data-adm-theme="light"] body.admin .adm-side .adm-tabs button.on { color: var(--accent-strong); }
+:root[data-adm-theme="light"] body.admin .adm-side-foot { border-top-color: var(--border); }
+:root[data-adm-theme="light"] body.admin .adm-side-foot .btn:not(.primary),
+:root[data-adm-theme="light"] body.admin .adm-side-foot .icon-btn { border-color: var(--border-strong); color: #374151; }
+:root[data-adm-theme="light"] body.admin .adm-side-foot .btn:hover:not(:disabled) { color: #111827; }
+/* в тёмном режиме акцент светлее, светлое меню — тёмное */
+@media (prefers-color-scheme: dark) {
+  :root[data-adm-theme]:not([data-theme="light"]) body.admin { --accent-text: color-mix(in srgb, var(--accent) 60%, white); --link: var(--accent-text); }
+  :root[data-adm-theme="graphite"]:not([data-theme="light"]) body.admin { --accent: #6b7280; --accent-strong: #9ca3af; }
+  :root[data-adm-theme="light"]:not([data-theme="light"]) body.admin { --side-bg: #12151c; --side-text: #d1d5db; --side-hover: #1d222c; --side-on: #232937; }
+}
+:root[data-theme="dark"][data-adm-theme] body.admin { --accent-text: color-mix(in srgb, var(--accent) 60%, white); --link: var(--accent-text); }
+:root[data-theme="dark"][data-adm-theme="graphite"] body.admin { --accent: #6b7280; --accent-strong: #9ca3af; }
+:root[data-theme="dark"][data-adm-theme="light"] body.admin { --side-bg: #12151c; --side-text: #d1d5db; --side-hover: #1d222c; --side-on: #232937; }
+
+/* выбор темы в настройках */
+.ui-themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.ui-theme { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px; text-align: left; cursor: pointer;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font: inherit; }
+.ui-theme:hover { border-color: var(--border-strong); }
+.ui-theme.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ui-theme small { color: var(--muted); font-size: 12px; }
+.ui-name { font-weight: 600; font-size: 14px; }
+.ui-sw { display: grid; grid-template-columns: 34% 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; width: 100%; height: 56px; padding: 0;
+  border-radius: 6px; overflow: hidden; background: #f5f7fa; border: 1px solid var(--border); margin-bottom: 4px; }
+.ui-sw i { grid-row: 1 / 4; background: var(--sw-side); border-right: 1px solid #e5e7eb; }
+.ui-sw b { background: #fff; margin: 6px 8px 0 0; border-radius: 3px; border: 1px solid #e5e7eb; }
+.ui-sw em { background: var(--sw-acc); margin: 4px 40% 6px 0; border-radius: 3px; }
+@media (prefers-color-scheme: dark) {
+  :root[data-adm-theme="light"]:not([data-theme="light"]) body.admin .adm-side .adm-brand .brand-title,
+  :root[data-adm-theme="light"]:not([data-theme="light"]) body.admin .adm-side .adm-brand .brand-title b,
+  :root[data-adm-theme="light"]:not([data-theme="light"]) body.admin .adm-side-me .adm-who,
+  :root[data-adm-theme="light"]:not([data-theme="light"]) body.admin .adm-side .adm-tabs button:hover { color: #fff; }
+  :root[data-adm-theme="light"]:not([data-theme="light"]) body.admin .adm-side .adm-tabs button.on { color: #fff; }
+}
+:root[data-theme="dark"][data-adm-theme="light"] body.admin .adm-side .adm-brand .brand-title,
+:root[data-theme="dark"][data-adm-theme="light"] body.admin .adm-side .adm-brand .brand-title b,
+:root[data-theme="dark"][data-adm-theme="light"] body.admin .adm-side-me .adm-who,
+:root[data-theme="dark"][data-adm-theme="light"] body.admin .adm-side .adm-tabs button:hover,
+:root[data-theme="dark"][data-adm-theme="light"] body.admin .adm-side .adm-tabs button.on { color: #fff; }
+
+
+/* ---------- классы: список не прыгает, журнал помещается */
+body.admin .adm-main { max-width: 1600px; }
+body.admin .adm-classes { grid-template-columns: 210px minmax(0, 1fr); gap: 22px; }
+body.admin .adm-class-list { top: 20px; }
+body.admin .adm-class-body { min-width: 0; }
+body.admin .jr-wrap, body.admin .hm-wrap { max-width: 100%; }
+body.admin .jr-table { font-size: 13px; }
+body.admin .jr-table td, body.admin .jr-table th { padding: 7px 8px; }
+body.admin .jr-h { min-width: 74px; max-width: 120px; white-space: normal; line-height: 1.25; }
+body.admin .jr-h .jr-asg { white-space: normal; text-align: center; }
+body.admin .jr-top { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+/* журнал на весь экран */
+body.admin.jr-full .adm-app:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
+body.admin.jr-full .adm-side, body.admin.jr-full .adm-class-list, body.admin.jr-full #accessBar, body.admin.jr-full #stepsCard { display: none !important; }
+body.admin.jr-full .adm-classes { grid-template-columns: minmax(0, 1fr); }
+body.admin.jr-full .adm-main { max-width: none; padding: 18px 20px 40px; }
+body.admin.jr-full .jr-wrap { max-height: calc(100vh - 220px); overflow: auto; }
+body.admin.jr-full .jr-table thead th { position: sticky; top: 0; z-index: 2; background: var(--card-hover); }
+body.admin.jr-full .jr-table thead th:first-child { z-index: 3; }
+/* прогноз в журнале — в одну строку: число, изменение, мини-график */
+body.admin .jr-table td.jr-fc { white-space: nowrap; }
+body.admin .jr-table td.jr-fc b, body.admin .jr-table td.jr-fc small, body.admin .jr-table td.jr-fc .jr-spark { display: inline-block; vertical-align: middle; margin: 0 3px; }
+body.admin .jr-table td.jr-c small { display: inline; margin-left: 4px; }
+body.admin .jr-table td.jr-c { vertical-align: middle; }
+body.admin .jr-table tfoot td { text-align: center; }
+body.admin .jr-table tfoot td:first-child { text-align: left; }
+
+
+/* ---------- кнопки контрастнее: заметные края у всех, в том числе у прозрачных */
+body.admin { --btn-border: #9aa3b2; }
+:root[data-theme="dark"] body.admin { --btn-border: #4b5563; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.admin { --btn-border: #4b5563; } }
+body.admin .btn { border-color: var(--btn-border); }
+body.admin .btn:hover:not(:disabled) { border-color: var(--text); }
+body.admin .btn.primary { border-color: var(--accent-strong); }
+body.admin .btn.ghost { border-color: var(--btn-border); background: transparent; color: var(--text); }
+body.admin .btn.ghost.danger, body.admin .btn.danger { color: var(--weak); border-color: color-mix(in srgb, var(--weak) 55%, var(--btn-border)); }
+body.admin .adm-side-foot .btn, body.admin .adm-side-foot .icon-btn { border-color: #4b5563; }
+body.admin .inp, body.admin .adm-select { border-color: var(--btn-border); }
+
+/* ---------- архив подборок */
+body.admin .arc-table td { vertical-align: middle; }
+body.admin .arc-act { white-space: nowrap; text-align: right; }
+body.admin .arc-act .btn { margin-left: 4px; text-decoration: none; }

@@ -105,6 +105,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
       <div class="scope-info" id="scopeInfo"></div>
       <div class="session-info" id="sessionInfo"></div>
       <div class="me-box">
+        <a class="teacher-back" id="teacherBack" href="/admin" hidden title="Вы решаете как ученик. Вернуться в панель учителя">← Панель учителя</a>
         <button type="button" class="lvl-pill" id="lvlCard" title="Уровень, опыт и достижения" hidden>
           <span class="lvl-star" aria-hidden="true">★</span><span class="lvl-txt">Ур. <b id="lvlNum">1</b></span>
           <span class="lvl-info"><i class="xp-bar"><b id="xpBar"></b></i><small id="lvlXp">0 / 100 XP</small></span>
@@ -119,6 +120,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
             <button type="button" class="wm-item" id="whoLvl">🏅 Уровень и достижения</button>
             <button type="button" class="wm-item" id="whoGifts">🎁 Биткоины и подарки</button>
             <button type="button" class="wm-item" id="whoTheme">🎨 Тема оформления</button>
+            <a class="wm-item" id="teacherBackMenu" href="/admin" hidden>🧑‍🏫 Вернуться в панель учителя</a>
             <button type="button" class="wm-item" id="pwBtn">🔑 Пароль и входы</button>
             <button type="button" class="wm-item" id="acctBtn">✉️ Почта, логин и учитель</button>
             <button type="button" class="wm-item danger" id="logoutBtn">↪ Выйти</button>

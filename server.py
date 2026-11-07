@@ -1704,7 +1704,8 @@ class DB(Transactional):
                     ("students", "parent_token", "TEXT"),            # секретная ссылка для родителей (только просмотр)
                     ("students", "parent_email", "TEXT"),            # почта родителя для письма раз в неделю (вписывает учитель)
                     ("students", "parent_report_ts", "REAL"),
-                    ("teachers", "hints", "INTEGER DEFAULT 0"),      # 1 — подсказки по шагам вместо «Показать ответ» у учеников
+                    ("teachers", "hints", "INTEGER DEFAULT 0"),
+                    ("teachers", "ui_theme", "TEXT"),                # тема оформления панели учителя (blue, green, …)      # 1 — подсказки по шагам вместо «Показать ответ» у учеников
                     ("teachers", "email", "TEXT"),                    # почта: вход учителя, сам зарегистрировался, еженедельный отчёт
                     ("teachers", "until", "REAL"),                    # доступ до (пробный или оплаченный); NULL — без срока
                     ("teachers", "paid", "INTEGER DEFAULT 0"),        # 1 — доступ оплачен (продлил главный учитель)
@@ -3682,7 +3683,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            rows = db.q("SELECT * FROM together WHERE ended IS NULL AND created > ? ORDER BY created DESC",
+            rows = db.q("SELECT * FROM together WHERE ended IS NULL AND COALESCE(updated, created) > ? ORDER BY updated DESC, created DESC",
                         (time.time() - TOG_ACTIVE_SEC,))
             mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")]
             return self.send_json({"sessions": mine})
@@ -5840,6 +5841,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("UPDATE js_errors SET fixed_ts=? WHERE id=?", (time.time() if data.get("fixed") else None, to_int(data.get("id"))))
             return self.send_json({"errors": jserr_list(db), "new": jserr_new(db), "seen": seen})
 
+        if path == "/api/admin/ui" and method == "POST":
+            # тема оформления панели — у учителя на всех устройствах
+            theme = str(data.get("theme") or "")
+            if theme not in UI_THEMES:
+                return self.err(400, "нет такой темы")
+            db.x("UPDATE teachers SET ui_theme=? WHERE id=?", (theme, self.T["id"]))
+            return self.send_json({"ok": True, "theme": theme})
+
         if path == "/api/admin/hints" and method == "POST":
             # рубильник подсказок по шагам у учеников этого учителя
             on = 1 if data.get("on") else 0
@@ -5857,6 +5866,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite", "created")}
             out["sounds"] = bool(self.T["sounds"])
             out["hints"] = bool(self.T["hints"])
+            out["ui_theme"] = self.T["ui_theme"] or "blue"
             if self.T["is_main"]:
                 out["jserr_new"] = jserr_new(db)
             row = db.q("SELECT consent_ver FROM teachers WHERE id=?", (self.T["id"],), one=True)
@@ -6465,6 +6475,25 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             live_class(db, a["class_id"])
             return self.send_json({"ok": True})
 
+        if path == "/api/admin/asg/all":
+            # архив выданных подборок: все классы учителя, поиск по названию и классу
+            APP.bank.ensure()
+            cid = to_int(qs.get("class_id"))
+            if cid and not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            return self.send_json({"items": teacher_asg_archive(db, self.T["id"], qs.get("q") or "", cid)})
+
+        if path == "/api/admin/asg/tasks":
+            # задания одной выданной подборки — чтобы отправить её снова (другому классу или ученикам)
+            APP.bank.ensure()
+            a = db.q("SELECT * FROM assignments WHERE id=?", (to_int(qs.get("id")),), one=True)
+            if not a or not self.sees_class(a["class_id"]):
+                return self.err(404, "подборка не найдена")
+            ids = json.loads(a["tasks"] or "[]")
+            rows = asg_task_rows(ids)
+            return self.send_json({"id": a["id"], "title": batch_title(a) if a["student_id"] else a["title"], "kind": a["kind"] or "self",
+                                   "tasks": rows, "missing": len(ids) - len(rows)})
+
         if path == "/api/admin/asg/archive":
             # архив работ для печати / PDF: одна подборка (id) или личные подборки пачки (ids=1,2,3)
             ids = [to_int(x) for x in str(qs.get("ids") or qs.get("id") or "").split(",") if to_int(x)]
@@ -6562,10 +6591,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"sessions": [tog_public(db, r) for r in rows], "now": now})
 
         if path in ("/api/admin/together/new", "/api/admin/together/invite") and method == "POST":
-            ids = [to_int(x) for x in (data.get("students") or []) if to_int(x)]
-            ids = sorted({i for i in ids if self.sees_student(i)})
-            if not ids:
-                return self.err(400, "Отметьте хотя бы одного своего ученика")
+            selected = data.get("students", [])
+            if not isinstance(selected, list):
+                return self.err(400, "Список учеников должен быть массивом")
+            ids = sorted({to_int(x) for x in selected if to_int(x) and self.sees_student(to_int(x))})
+            if selected and not ids:
+                return self.err(400, "Выберите учеников из своего списка или откройте сеанс без учеников")
             if len(ids) > 30:
                 return self.err(400, "Слишком много учеников для одного сеанса")
             if path.endswith("/new"):
@@ -6585,7 +6616,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if not r:
                     return self.err(404, "Сеанс не найден")
                 ids = sorted(set(json.loads(r["students"] or "[]")) | set(ids))
-                db.x("UPDATE together SET students=?, ended=NULL, created=? WHERE id=?", (json.dumps(ids), now, tid))
+                db.x("UPDATE together SET students=?, ended=NULL, updated=? WHERE id=?", (json.dumps(ids), now, tid))
                 TOG.forget(tid)
             LIVE.send(ids, "together")                       # у учеников на сайте приглашение всплывёт сразу
             return self.send_json({"ok": True, "id": tid})
@@ -6616,6 +6647,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             kind, q = qs.get("kind") or "recent", str(qs.get("q") or "").strip().lstrip("№").strip()
             item = lambda i, mark="": {"id": i, "n": APP.bank.tasks[i].get("n"), "snip": APP.bank.snippet(i)[:140],
                                        "label": f"№ {APP.bank.tasks[i].get('n')} · {i.split(':', 1)[-1]}", "mark": mark}
+            if kind == "sets":
+                # архив выданных подборок: сначала список подборок, затем задания выбранной
+                aid = to_int(qs.get("asg"))
+                if aid:
+                    a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
+                    if not a or not self.sees_class(a["class_id"]):
+                        return self.err(404, "подборка не найдена")
+                    ids = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
+                    return self.send_json({"tasks": [item(i, f"{k + 1} из {len(ids)}") for k, i in enumerate(ids)],
+                                           "title": batch_title(a) if a["student_id"] else a["title"]})
+                return self.send_json({"sets": [{"id": x["id"], "title": x["title"], "class_name": x["class_name"], "tasks": x["tasks"],
+                                                 "created": x["created"], "personal": x["personal"]}
+                                                for x in teacher_asg_archive(db, self.T["id"], q, None, 80)]})
             if q:
                 n = to_int(q)
                 if n and 1 <= n <= 27 and q.isdigit():
@@ -10530,6 +10574,56 @@ def _dur(ms):
     return f"{sec // 3600} ч {sec % 3600 // 60} мин {sec % 60} с" if sec >= 3600 else f"{sec // 60} мин {sec % 60} с"
 
 
+def teacher_asg_archive(db, tid, q="", class_id=None, limit=400):
+    """Все выданные подборки учителя по всем классам — новые сверху. Личные подборки одной серии — одной строкой."""
+    main_id = main_teacher()["id"]
+    args = [main_id, tid]
+    cond = "COALESCE(c.teacher_id, ?) = ?"
+    if class_id:
+        cond += " AND c.id = ?"
+        args.append(class_id)
+    rows = db.q(f"""SELECT a.*, c.name AS class_name FROM assignments a JOIN classes c ON c.id = a.class_id
+                    WHERE {cond} ORDER BY a.created DESC LIMIT 2000""", args)
+    out, batches = [], {}
+    ql = (q or "").strip().lower()
+    for a in rows:
+        title = batch_title(a) if a["student_id"] else a["title"]
+        if ql and ql not in title.lower() and ql not in (a["class_name"] or "").lower():
+            continue
+        tasks = json.loads(a["tasks"] or "[]")
+        if a["student_id"]:
+            key = (a["class_id"], a["batch"] or f"one:{a['id']}")
+            b = batches.get(key)
+            if b:
+                b["students"] += 1
+                b["ids"].append(a["id"])
+                continue
+            b = batches[key] = {"id": a["id"], "ids": [a["id"]], "title": title, "class_id": a["class_id"], "class_name": a["class_name"],
+                                "kind": a["kind"] or "practice", "created": a["created"], "due": a["due"], "closed": a["closed"],
+                                "tasks": len(tasks), "personal": True, "students": 1, "strict": bool(a["strict"])}
+            out.append(b)
+        else:
+            out.append({"id": a["id"], "ids": [a["id"]], "title": title, "class_id": a["class_id"], "class_name": a["class_name"],
+                        "kind": a["kind"] or "self", "created": a["created"], "due": a["due"], "closed": a["closed"],
+                        "tasks": len(tasks), "personal": False, "students": None, "strict": bool(a["strict"])})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def asg_task_rows(ids):
+    """Задания подборки для конструктора и «Вместе»: номер, тип, сложность, начало условия."""
+    out = []
+    for i in ids:
+        t = APP.bank.tasks.get(i)
+        if not t:
+            continue
+        out.append({"id": i, "n": t.get("n"), "c": t.get("c"), "r": t.get("r"),
+                    "cname": dict(clusters.labels(t.get("n"))).get(t.get("c"), "") if t.get("n") else "",
+                    "snip": APP.bank.snippet(i)})
+    return out
+
+
 def asg_archive_html(db, teacher, asg_ids):
     """Архив работ по подборкам asg_ids (одна общая подборка или личные подборки пачки): сводная таблица, КИМ
     (условия и ответы, у 19–21 — игра целиком), затем по ученику на страницу — статус, время, баллы и по каждому
@@ -11016,7 +11110,8 @@ def class_digest(db, cid):
 
 
 # ---------- доступ учителя: сам зарегистрировался — пробный период; кончился — панель только для чтения
-ACCESS_RO_OK = {"/api/admin/logout", "/api/admin/consent", "/api/admin/renew", "/api/admin/report", "/api/admin/steps-off",
+UI_THEMES = {"blue", "green", "violet", "teal", "graphite", "light"}
+ACCESS_RO_OK = {"/api/admin/ui", "/api/admin/logout", "/api/admin/consent", "/api/admin/renew", "/api/admin/report", "/api/admin/steps-off",
                 "/api/admin/password"}
 DEMO_CLASS = "11 «Демо»"
 DEMO_NAMES = ("Соколова Анна", "Петров Илья", "Ким Дарья", "Орлов Максим", "Белова Софья", "Захаров Тимур",

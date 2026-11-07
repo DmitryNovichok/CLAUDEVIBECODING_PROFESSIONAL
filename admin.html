@@ -18,7 +18,8 @@ var k=m+'|'+s;if(sent[k])return;sent[k]=1;n++;var v='',h={'Content-Type':'applic
 fetch('api/jserr',{method:'POST',keepalive:true,headers:h,body:JSON.stringify({app:'admin',msg:m,src:s,stack:String(st||'').slice(0,2000),page:location.pathname+location.hash,ver:v})}).catch(function(){});}catch(e){}}
 addEventListener('error',function(e){if(e.target&&e.target!==window)return;rep(e.message,e.filename?e.filename+':'+e.lineno+':'+e.colno:'',e.error&&e.error.stack);},true);
 addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)return;rep('Promise: '+(r&&r.message||r),'',r&&r.stack);});})();</script>
-<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;
+var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dataset.admTheme=u;}catch(e){}</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
@@ -60,6 +61,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
       <button type="button" data-tab="tog"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></i>Вместе</button>
       <div class="nav-h">Задания</div>
       <button type="button" data-tab="build"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg></i>Создать подборку</button>
+      <button type="button" data-tab="archive"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/></svg></i>Архив подборок</button>
       <button type="button" data-tab="course" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5M22 9v6"/></svg></i>Курс</button>
       <button type="button" data-tab="pyc"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></i>Программирование</button>
       <button type="button" class="nav-grp" id="navMotiv" aria-expanded="false" aria-controls="navMotivList"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></i>Мотивация учеников<svg class="nav-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
@@ -168,6 +170,15 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
       </div>
     </section>
 
+    <section class="adm-view" id="view-archive" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Архив подборок</h2>
+        <input class="inp adm-search" id="arcQ" placeholder="Поиск по названию или классу" autocomplete="off">
+        <select class="adm-select" id="arcClass" title="Класс"><option value="">Все классы</option></select></div>
+      <p class="adm-hint" style="margin:0 0 12px">Все подборки, которые вы выдавали, — новые сверху. «Отправить снова» открывает подборку в конструкторе как новую:
+        выберите другой класс или отметьте учеников — и отправьте. «Во «Вместе»» — разобрать её задания на совместном занятии.</p>
+      <div id="arcBody"><p class="adm-hint">Загружаю…</p></div>
+    </section>
+
     <section class="adm-view" id="view-course" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Прогресс курса</h2>
         <input class="inp" id="cpFind" placeholder="Поиск по ФИО" style="max-width:240px">
@@ -255,12 +266,13 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
 
     <!-- Совместная работа: общий код и доска с учениками -->
     <section class="adm-view" id="view-tog" hidden>
-      <div class="adm-toolbar"><h2 class="adm-h">👥 Совместная работа</h2></div>
-      <p class="tog-hint">Общий код Python и большая доска с учениками в реальном времени: пишете и рисуете одновременно, всё видно сразу у всех.
-        Войти смогут только те, кого вы отметите. У учеников, которые сейчас на сайте, приглашение всплывёт сразу; остальные увидят его, когда зайдут.</p>
+      <div class="adm-toolbar"><h2 class="adm-h">Совместная работа</h2></div>
+      <p class="tog-hint">Доску и редактор Python можно открыть для себя — просто не выбирайте учеников.
+        Подготовьте материал или работайте самостоятельно; учеников можно позвать позже прямо из сеанса.
+        Если отметить учеников сейчас, они получат приглашение. Войти смогут только приглашённые.</p>
       <div class="tog-new">
         <div class="tog-col">
-          <div class="tog-lbl">Кого позвать</div>
+          <div class="tog-lbl">Кого позвать (необязательно)</div>
           <input class="inp" id="togSearch" placeholder="Поиск по ФИО" autocomplete="off">
           <div class="tog-stu" id="togStu"></div>
         </div>
@@ -270,7 +282,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
           <div class="tog-lbl">Задание (необязательно)</div>
           <input class="inp" id="togTask" placeholder="Номер или id задания — можно выбрать и в сеансе" autocomplete="off">
           <div class="tog-task" id="togTaskInfo"></div>
-          <button type="button" class="btn primary tog-go" id="togGo">Позвать и открыть сеанс →</button>
+          <button type="button" class="btn primary tog-go" id="togGo">Открыть без учеников →</button>
         </div>
       </div>
       <h3 class="tog-h">Сеансы</h3>
@@ -278,7 +290,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
     </section>
 
     <section class="adm-view" id="view-supply" hidden>
-      <div class="adm-toolbar"><h2 class="adm-h">📦 Тиражи подарков</h2>
+      <div class="adm-toolbar"><h2 class="adm-h">Тиражи подарков</h2>
         <select class="inp" id="supGift" title="График — по всем подаркам или по одному"><option value="">Все подарки</option></select>
         <button type="button" class="btn ghost" id="supReload">Обновить</button></div>
       <p class="adm-hint" style="margin:0 0 12px">У каждого подарка — свой тираж на весь сайт. Проданные сразу, удалённые и улучшенные в тираж не
@@ -455,6 +467,24 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
           <p>Адрес для учеников: <code id="siteUrl"></code></p>
           <p class="fm-note">Если открываете панель по адресу <code>localhost</code>, ученикам нужен адрес этого компьютера в сети — он напечатан в окне сервера («Для учеников в сети»).</p>
           <p class="fm-note" id="infoLine"></p>
+        </div>
+        <div class="adm-box ui-themes-box">
+          <h3 class="adm-h3">Оформление панели</h3>
+          <p class="fm-note">Цвет меню и кнопок. Тема запоминается для вашего аккаунта на всех устройствах; светлый или тёмный режим — кнопкой с луной внизу меню.</p>
+          <div class="ui-themes" id="uiThemes">
+            <button type="button" class="ui-theme" data-ui="blue" style="--sw-acc:#1677d2;--sw-side:#111827"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Синяя</span><small>спокойная деловая — по умолчанию</small></button>
+            <button type="button" class="ui-theme" data-ui="green" style="--sw-acc:#2e8b2e;--sw-side:#0f2118"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Egeshka</span><small>фирменный зелёный</small></button>
+            <button type="button" class="ui-theme" data-ui="violet" style="--sw-acc:#6d4ad8;--sw-side:#1b1535"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Фиолетовая</span><small>мягкая и яркая</small></button>
+            <button type="button" class="ui-theme" data-ui="teal" style="--sw-acc:#0e8a8c;--sw-side:#0b2a31"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Бирюзовая</span><small>свежая, морская</small></button>
+            <button type="button" class="ui-theme" data-ui="graphite" style="--sw-acc:#374151;--sw-side:#0b0b0d"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Графит</span><small>строгая, почти без цвета</small></button>
+            <button type="button" class="ui-theme" data-ui="light" style="--sw-acc:#1677d2;--sw-side:#ffffff"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Светлое меню</span><small>белое меню, синие акценты</small></button>
+          </div>
         </div>
         <div class="adm-box">
           <h3 class="adm-h3">Подсказки ученикам</h3>
