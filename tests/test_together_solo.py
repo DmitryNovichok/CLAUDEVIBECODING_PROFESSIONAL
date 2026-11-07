@@ -1,5 +1,6 @@
 """Teacher-only lessons: private access, durable work, and later invitations."""
 import contextlib
+import hashlib
 import io
 import json
 import time
@@ -147,6 +148,23 @@ class TogetherSoloTest(unittest.TestCase):
         row = self.db.q('SELECT * FROM together WHERE id=?', (sid,), one=True)
         self.assertEqual(row['created'], old)
         self.assertEqual(json.loads(row['state'])['pages']['p1']['code'], 'print(42)\n')
+
+    def test_password_recovery_revokes_running_websocket(self):
+        token = self.c.login('Макетов Отзыв')
+        pupil = self.c.req('GET', '/api/me', token=token)[1]['sid']
+        sid = self.create(students=[pupil])
+        sock, reader, status = self.connect(sid, token=token, teacher=False)
+        self.assertIn(' 101', status)
+        self.c.recv(reader, 'snap')
+        row = self.db.q('SELECT * FROM students WHERE id=?', (pupil,), one=True)
+        reset = 'synthetic-recovery-link'
+        self.db.x('INSERT INTO pw_resets(token,kind,uid,expires,account_state) VALUES(?,?,?,?,?)',
+                  (hashlib.sha256(reset.encode()).hexdigest(), 's', pupil, time.time() + 600, server.reset_fingerprint(row)))
+        self.assertEqual(self.c.req('POST', '/api/pw/reset', {'t': reset, 'password': 'replacement-pass'})[0], 200)
+        self.c.send(sock, {'t': 'op', 'rev': 0, 'ops': ['unauthorized edit']})
+        with self.assertRaises(EOFError):
+            self.c.recv(reader, 'ack')
+        self.assertEqual(server.TOG.get(sid).pages['p1'].code, '')
 
 
 if __name__ == '__main__':

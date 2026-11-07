@@ -8,7 +8,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="/vendor/fonts/fonts.css">
 <style>
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6f9; color: #0f1b2d; font: 500 16px/1.5 "Nunito", system-ui, sans-serif; padding: 16px; }
@@ -47,7 +47,7 @@ a { color: #1899d6; font-weight: 700; }
     const go = document.getElementById('go');
     go.disabled = true;
     try {
-      const r = await fetch('api/pw/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t, password: p1 }) });
+      const r = await fetch('/api/pw/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t, password: p1 }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Не получилось — попробуйте ещё раз');
       msg.className = 'err ok';

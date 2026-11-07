@@ -183,8 +183,8 @@ body.admin .adm-access-act { flex-wrap: wrap; }
 :root[data-adm-theme="light"] body.admin .adm-side .adm-tabs button.on { color: var(--accent-strong); }
 :root[data-adm-theme="light"] body.admin .adm-side-foot { border-top-color: var(--border); }
 :root[data-adm-theme="light"] body.admin .adm-side-foot .btn:not(.primary),
-:root[data-adm-theme="light"] body.admin .adm-side-foot .icon-btn { border-color: var(--border-strong); color: #374151; }
-:root[data-adm-theme="light"] body.admin .adm-side-foot .btn:hover:not(:disabled) { color: #111827; }
+:root[data-adm-theme="light"] body.admin .adm-side-foot .icon-btn { border-color: var(--border-strong); color: var(--side-text); }
+:root[data-adm-theme="light"] body.admin .adm-side-foot .btn:hover:not(.primary):not(:disabled) { color: var(--text); }
 /* в тёмном режиме акцент светлее, светлое меню — тёмное */
 @media (prefers-color-scheme: dark) {
   :root[data-adm-theme]:not([data-theme="light"]) body.admin { --accent-text: color-mix(in srgb, var(--accent) 60%, white); --link: var(--accent-text); }
@@ -258,6 +258,7 @@ body.admin .btn { border-color: var(--btn-border); }
 body.admin .btn:hover:not(:disabled) { border-color: var(--text); }
 body.admin .btn.primary { border-color: var(--accent-strong); }
 body.admin .btn.ghost { border-color: var(--btn-border); background: transparent; color: var(--text); }
+body.admin .adm-side-foot .btn.ghost { color: var(--side-text); }
 body.admin .btn.ghost.danger, body.admin .btn.danger { color: var(--weak); border-color: color-mix(in srgb, var(--weak) 55%, var(--btn-border)); }
 body.admin .adm-side-foot .btn, body.admin .adm-side-foot .icon-btn { border-color: #4b5563; }
 body.admin .inp, body.admin .adm-select { border-color: var(--btn-border); }
@@ -266,3 +267,6 @@ body.admin .inp, body.admin .adm-select { border-color: var(--btn-border); }
 body.admin .arc-table td { vertical-align: middle; }
 body.admin .arc-act { white-space: nowrap; text-align: right; }
 body.admin .arc-act .btn { margin-left: 4px; text-decoration: none; }
+@media (max-width: 860px) {
+  body.admin .adm-classes { grid-template-columns: minmax(0, 1fr); }
+}

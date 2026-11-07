@@ -223,13 +223,19 @@
       const body2 = { email: $('#acEmail').value.trim() };
       if (!ACCT.login && $('#acLogin').value.trim()) body2.login = $('#acLogin').value.trim();
       if ($('#acCode') && $('#acCode').value.trim()) body2.code = $('#acCode').value.trim();
+      const save = $('#acSave'), loginInput = $('#acLogin'), emailInput = $('#acEmail');
+      save.disabled = true;
       try {
         const r = await api('account', body2);
         ACCT = { login: r.login, email: r.email, self_reg: r.self_reg, teacher_name: r.teacher };
+        loginInput.value = r.login;
+        loginInput.disabled = !!r.login;
+        emailInput.value = r.email;
         msg.className = 'login-err ok';
         msg.textContent = body2.code ? `Готово: теперь вы ученик учителя «${r.teacher}»` : 'Сохранено';
         if (body2.code) setTimeout(() => location.reload(), 1200);
       } catch (e) { msg.textContent = e.message || 'Нет связи с сервером'; }
+      finally { save.disabled = false; }
     };
   }
   function openPasswordDialog(mustSet) {

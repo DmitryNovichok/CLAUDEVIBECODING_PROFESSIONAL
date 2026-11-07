@@ -2373,13 +2373,16 @@
       loadClasses();
     } catch (err) { if (err.status !== 401) toast(err.message); }
   });
+  let classLoadVersion = 0;
   async function openClass(id) {
+    const request = ++classLoadVersion;
     try {
       const [s, a] = await Promise.all([api('students?class_id=' + id), api('assignments?class_id=' + id)]);
+      if (request !== classLoadVersion || tab !== 'classes' || curClass?.id !== id) return;
       const cl = classes.find(c => c.id === id) || {};
       curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0, battle: !!cl.battle,
         students: s.students, assignments: a.assignments, batches: a.batches || [] };
-    } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    } catch (e) { if (request === classLoadVersion && e.status !== 401) toast(e.message); return; }
     renderClass();
     setCsPreset('today');
   }
@@ -3931,13 +3934,17 @@
     try { localStorage.setItem('egeAdmin.uiTheme', t === 'blue' ? '' : t); } catch (e) { /* нет доступа */ }
     $$('#uiThemes .ui-theme').forEach(b => b.classList.toggle('on', b.dataset.ui === t));
   }
+  let uiThemeSaving = false;
   $('#uiThemes').addEventListener('click', async e => {
     const b = e.target.closest('[data-ui]');
-    if (!b) return;
+    if (!b || uiThemeSaving) return;
+    uiThemeSaving = true;
+    $$('#uiThemes .ui-theme').forEach(button => { button.disabled = true; });
     const prev = ME.ui_theme || 'blue';
     ME.ui_theme = b.dataset.ui;
     applyUiTheme(ME.ui_theme);                       // сразу — без ожидания сервера
     try { await api('ui', { theme: ME.ui_theme }); } catch (err) { if (err.status !== 401) { toast(err.message); ME.ui_theme = prev; applyUiTheme(prev); } }
+    finally { uiThemeSaving = false; $$('#uiThemes .ui-theme').forEach(button => { button.disabled = false; }); }
   });
   $('#hintsOn').addEventListener('change', async e => {
     const msg = $('#hintsMsg');

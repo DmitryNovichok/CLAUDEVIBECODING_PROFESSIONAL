@@ -1,8 +1,38 @@
 """Пароли и отзыв доступа; без зависимости от HTTP-сервера."""
 import hashlib
 import hmac
+import json
 import secrets
 import time
+from urllib.parse import urlsplit
+
+
+# Keep validation, writes and token consumption in a single transaction.
+ACCOUNT_WRITE_PATHS = frozenset({
+    '/api/login', '/api/account', '/api/password', '/api/pw/reset',
+    '/api/admin/password', '/api/admin/class/import',
+    '/api/admin/student/newpw', '/api/admin/student/password-reset',
+})
+
+
+def reset_fingerprint(account):
+    """A recovery link belongs to this account and its current password/email."""
+    state = [account[k] for k in ('id', 'created', 'pw', 'email')]
+    return hashlib.sha256(json.dumps(state, ensure_ascii=False).encode()).hexdigest()
+
+
+def recovery_origin(configured_url):
+    """Never construct credential links from request-controlled Host headers."""
+    value = str(configured_url or '').rstrip('/')
+    try:
+        parts = urlsplit(value)
+        if (parts.scheme not in ('https', 'http') or not parts.hostname
+                or parts.username or parts.password or parts.query or parts.fragment
+                or parts.path or any(c.isspace() for c in value)):
+            return None
+    except ValueError:
+        return None
+    return value
 
 def hash_pw(pw, salt=None):
     salt = salt or secrets.token_hex(16)

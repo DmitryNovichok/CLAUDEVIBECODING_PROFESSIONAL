@@ -402,10 +402,8 @@
         Object.entries(forms).forEach(([kk, f]) => { f.hidden = kk !== k; });
         errEl.textContent = msg || '';
         errEl.classList.toggle('info', !!info);
-        setTimeout(() => {
-          const empty = Array.from(forms[k].querySelectorAll('input')).find(i => !i.value);
-          (empty || forms[k].querySelector('input')).focus();
-        }, 30);
+        const empty = Array.from(forms[k].querySelectorAll('input')).find(i => !i.value);
+        (empty || forms[k].querySelector('input')).focus();
       };
       tabs.forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
       const last = readJSON(LAST_NAME_STORE);
@@ -429,7 +427,7 @@
       const qp = new URLSearchParams(location.search), inv = qp.get('invite'), nn = qp.get('n');
       if (inv) $('#regCode').value = inv.replace(/\s+/g, '').slice(0, 40);
       if (nn) $('#loginName').value = nn.slice(0, 80);           // карточка входа от учителя: ФИО уже вписано
-      setTab(nn || (last && !inv) ? 'login' : 'reg', note || '');
+      setTab(nn || qp.has('login') || (last && !inv) ? 'login' : 'reg', note || '');
 
       const run = async (form, body) => {
         const btn = form.querySelector('button[type="submit"]');
@@ -447,8 +445,10 @@
           resolve(r);
         } catch (err) {
           if (err.data && err.data.need === 'set_password') {
-            $('#regName').value = body.name;
-            setTab('reg', `У ученика «${body.name}» ещё нет пароля. Введите код приглашения, придумайте логин и пароль — прогресс и журнал сохранятся.`, true);
+            const name = err.data.name || body.name;
+            $('#regName').value = name;
+            $('#regLogin').value = err.data.login || '';
+            setTab('reg', `У ученика «${name}» ещё нет пароля. Введите код приглашения и придумайте пароль — прогресс и журнал сохранятся.`, true);
           } else {
             errEl.classList.remove('info');
             errEl.textContent = err.status ? err.message : 'Нет связи с сервером. Проверьте адрес и попробуйте ещё раз.';
@@ -4333,13 +4333,19 @@
       const body2 = { email: $('#acEmail').value.trim() };
       if (!ACCT.login && $('#acLogin').value.trim()) body2.login = $('#acLogin').value.trim();
       if ($('#acCode') && $('#acCode').value.trim()) body2.code = $('#acCode').value.trim();
+      const save = $('#acSave'), loginInput = $('#acLogin'), emailInput = $('#acEmail');
+      save.disabled = true;
       try {
         const r = await api('account', body2);
         ACCT = { login: r.login, email: r.email, self_reg: r.self_reg, teacher_name: r.teacher };
+        loginInput.value = r.login;
+        loginInput.disabled = !!r.login;
+        emailInput.value = r.email;
         msg.className = 'login-err ok';
         msg.textContent = body2.code ? `Готово: теперь вы ученик учителя «${r.teacher}»` : 'Сохранено';
         if (body2.code) setTimeout(() => location.reload(), 1200);
       } catch (e) { msg.textContent = e.message || 'Нет связи с сервером'; }
+      finally { save.disabled = false; }
     };
   }
   function openPasswordDialog(mustSet) {
