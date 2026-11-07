@@ -1704,7 +1704,8 @@ class DB(Transactional):
                     ("students", "parent_token", "TEXT"),            # секретная ссылка для родителей (только просмотр)
                     ("students", "parent_email", "TEXT"),            # почта родителя для письма раз в неделю (вписывает учитель)
                     ("students", "parent_report_ts", "REAL"),
-                    ("teachers", "hints", "INTEGER DEFAULT 0"),      # 1 — подсказки по шагам вместо «Показать ответ» у учеников
+                    ("teachers", "hints", "INTEGER DEFAULT 0"),
+                    ("teachers", "ui_theme", "TEXT"),                # тема оформления панели учителя (blue, green, …)      # 1 — подсказки по шагам вместо «Показать ответ» у учеников
                     ("teachers", "email", "TEXT"),                    # почта: вход учителя, сам зарегистрировался, еженедельный отчёт
                     ("teachers", "until", "REAL"),                    # доступ до (пробный или оплаченный); NULL — без срока
                     ("teachers", "paid", "INTEGER DEFAULT 0"),        # 1 — доступ оплачен (продлил главный учитель)
@@ -5840,6 +5841,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x("UPDATE js_errors SET fixed_ts=? WHERE id=?", (time.time() if data.get("fixed") else None, to_int(data.get("id"))))
             return self.send_json({"errors": jserr_list(db), "new": jserr_new(db), "seen": seen})
 
+        if path == "/api/admin/ui" and method == "POST":
+            # тема оформления панели — у учителя на всех устройствах
+            theme = str(data.get("theme") or "")
+            if theme not in UI_THEMES:
+                return self.err(400, "нет такой темы")
+            db.x("UPDATE teachers SET ui_theme=? WHERE id=?", (theme, self.T["id"]))
+            return self.send_json({"ok": True, "theme": theme})
+
         if path == "/api/admin/hints" and method == "POST":
             # рубильник подсказок по шагам у учеников этого учителя
             on = 1 if data.get("on") else 0
@@ -5857,6 +5866,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite", "created")}
             out["sounds"] = bool(self.T["sounds"])
             out["hints"] = bool(self.T["hints"])
+            out["ui_theme"] = self.T["ui_theme"] or "blue"
             if self.T["is_main"]:
                 out["jserr_new"] = jserr_new(db)
             row = db.q("SELECT consent_ver FROM teachers WHERE id=?", (self.T["id"],), one=True)
@@ -11016,7 +11026,8 @@ def class_digest(db, cid):
 
 
 # ---------- доступ учителя: сам зарегистрировался — пробный период; кончился — панель только для чтения
-ACCESS_RO_OK = {"/api/admin/logout", "/api/admin/consent", "/api/admin/renew", "/api/admin/report", "/api/admin/steps-off",
+UI_THEMES = {"blue", "green", "violet", "teal", "graphite", "light"}
+ACCESS_RO_OK = {"/api/admin/ui", "/api/admin/logout", "/api/admin/consent", "/api/admin/renew", "/api/admin/report", "/api/admin/steps-off",
                 "/api/admin/password"}
 DEMO_CLASS = "11 «Демо»"
 DEMO_NAMES = ("Соколова Анна", "Петров Илья", "Ким Дарья", "Орлов Максим", "Белова Софья", "Захаров Тимур",

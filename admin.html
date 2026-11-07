@@ -18,7 +18,8 @@ var k=m+'|'+s;if(sent[k])return;sent[k]=1;n++;var v='',h={'Content-Type':'applic
 fetch('api/jserr',{method:'POST',keepalive:true,headers:h,body:JSON.stringify({app:'admin',msg:m,src:s,stack:String(st||'').slice(0,2000),page:location.pathname+location.hash,ver:v})}).catch(function(){});}catch(e){}}
 addEventListener('error',function(e){if(e.target&&e.target!==window)return;rep(e.message,e.filename?e.filename+':'+e.lineno+':'+e.colno:'',e.error&&e.error.stack);},true);
 addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)return;rep('Promise: '+(r&&r.message||r),'',r&&r.stack);});})();</script>
-<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;
+var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dataset.admTheme=u;}catch(e){}</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
@@ -455,6 +456,24 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
           <p>Адрес для учеников: <code id="siteUrl"></code></p>
           <p class="fm-note">Если открываете панель по адресу <code>localhost</code>, ученикам нужен адрес этого компьютера в сети — он напечатан в окне сервера («Для учеников в сети»).</p>
           <p class="fm-note" id="infoLine"></p>
+        </div>
+        <div class="adm-box ui-themes-box">
+          <h3 class="adm-h3">Оформление панели</h3>
+          <p class="fm-note">Цвет меню и кнопок. Тема запоминается для вашего аккаунта на всех устройствах; светлый или тёмный режим — кнопкой с луной внизу меню.</p>
+          <div class="ui-themes" id="uiThemes">
+            <button type="button" class="ui-theme" data-ui="blue" style="--sw-acc:#1677d2;--sw-side:#111827"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Синяя</span><small>спокойная деловая — по умолчанию</small></button>
+            <button type="button" class="ui-theme" data-ui="green" style="--sw-acc:#2e8b2e;--sw-side:#0f2118"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Egeshka</span><small>фирменный зелёный</small></button>
+            <button type="button" class="ui-theme" data-ui="violet" style="--sw-acc:#6d4ad8;--sw-side:#1b1535"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Фиолетовая</span><small>мягкая и яркая</small></button>
+            <button type="button" class="ui-theme" data-ui="teal" style="--sw-acc:#0e8a8c;--sw-side:#0b2a31"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Бирюзовая</span><small>свежая, морская</small></button>
+            <button type="button" class="ui-theme" data-ui="graphite" style="--sw-acc:#374151;--sw-side:#0b0b0d"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Графит</span><small>строгая, почти без цвета</small></button>
+            <button type="button" class="ui-theme" data-ui="light" style="--sw-acc:#1677d2;--sw-side:#ffffff"><span class="ui-sw"><i></i><b></b><b></b><em></em></span>
+              <span class="ui-name">Светлое меню</span><small>белое меню, синие акценты</small></button>
+          </div>
         </div>
         <div class="adm-box">
           <h3 class="adm-h3">Подсказки ученикам</h3>

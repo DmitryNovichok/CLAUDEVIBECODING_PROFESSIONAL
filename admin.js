@@ -169,6 +169,7 @@
     if (ME.is_main) { try { teachers = (await api('teachers')).teachers; } catch (e) { teachers = []; } }
     renderAccess();
     renderSteps();
+    applyUiTheme(ME.ui_theme);
     await askConsent();
   }
 
@@ -3847,6 +3848,21 @@
       $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
     } catch (e) { /* не страшно */ }
   }
+  // ---- темы оформления панели
+  function applyUiTheme(t) {
+    t = t || 'blue';
+    if (t === 'blue') delete document.documentElement.dataset.admTheme; else document.documentElement.dataset.admTheme = t;
+    try { localStorage.setItem('egeAdmin.uiTheme', t === 'blue' ? '' : t); } catch (e) { /* нет доступа */ }
+    $$('#uiThemes .ui-theme').forEach(b => b.classList.toggle('on', b.dataset.ui === t));
+  }
+  $('#uiThemes').addEventListener('click', async e => {
+    const b = e.target.closest('[data-ui]');
+    if (!b) return;
+    const prev = ME.ui_theme || 'blue';
+    ME.ui_theme = b.dataset.ui;
+    applyUiTheme(ME.ui_theme);                       // сразу — без ожидания сервера
+    try { await api('ui', { theme: ME.ui_theme }); } catch (err) { if (err.status !== 401) { toast(err.message); ME.ui_theme = prev; applyUiTheme(prev); } }
+  });
   $('#hintsOn').addEventListener('change', async e => {
     const msg = $('#hintsMsg');
     msg.className = 'login-err';

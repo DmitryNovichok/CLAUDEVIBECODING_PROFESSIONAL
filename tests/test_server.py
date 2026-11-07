@@ -3565,6 +3565,14 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{gid}:%",)))
         self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[0], 401)
 
+    def test_admin_ui_theme(self):
+        self.assertEqual(self.admin("GET", "/api/admin/me")[1]["ui_theme"], "blue")
+        self.assertEqual(self.admin("POST", "/api/admin/ui", {"theme": "nope"})[0], 400)
+        st, d = self.admin("POST", "/api/admin/ui", {"theme": "violet"})
+        self.assertEqual((st, d["theme"]), (200, "violet"))
+        self.assertEqual(self.admin("GET", "/api/admin/me")[1]["ui_theme"], "violet")
+        self.admin("POST", "/api/admin/ui", {"theme": "blue"})
+
     def test_forbes_all_teachers(self):
         # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;
         # убранный из рейтингов в Forbes не попадает
