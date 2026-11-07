@@ -3434,3 +3434,71 @@ body.kege-on #trainer { max-width: none !important; margin: 0 !important; paddin
 .teacher-back[hidden], #teacherBackMenu[hidden] { display: none; }
 a.wm-item { text-decoration: none; color: inherit; display: block; }
 @media (max-width: 600px) { .teacher-back { padding: 6px 9px; font-size: 12px; } }
+
+/* Задания от учителя: работа и срок видны до прокрутки. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.ap-ico svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ap-heading { margin: 0 0 20px; }
+.ap-heading h2 { margin: 0 0 6px; font-size: 30px; font-weight: 900; }
+.ap-heading p { margin: 0; color: var(--muted); }
+.ap-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.ap-tabs button { min-height: 44px; padding: 10px 18px; border: 2px solid transparent; border-radius: 14px; background: var(--bg); color: var(--muted); font: 800 15px var(--font); cursor: pointer; }
+.ap-tabs button.on { background: var(--good-soft); color: var(--text); border-color: var(--good); }
+.ap-tabs button:focus-visible, .mobile-nav button:focus-visible, .mobile-more button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ap-help { margin-top: 22px; color: var(--muted); font-size: 14px; }
+.ap-help summary { cursor: pointer; padding: 10px 0; }
+.ap-help p { line-height: 1.7; max-width: 750px; }
+.ap-due-badge { display: inline-block; padding: 3px 8px; margin: 4px 0; font-size: 12px; font-weight: 800; color: var(--review); background: var(--review-soft); border-radius: 8px; }
+.ap-due-badge.late { color: var(--weak); background: var(--weak-soft); }
+.ap-card:has(.ap-due-badge):not(.done) { border-color: color-mix(in srgb, var(--review) 45%, var(--border)); }
+.asg-page .ap-btns .btn.primary { color: #173600; }
+.ap-empty { border: 2px dashed var(--border); border-radius: 14px; padding: 24px; }
+.mobile-nav, .mobile-brand { display: none; }
+.mobile-more { color: var(--text); background: var(--card); border: 2px solid var(--border); border-radius: 20px; padding: 20px; width: min(450px, calc(100vw - 24px)); max-height: min(80dvh, 720px); overflow: auto; }
+.mobile-more::backdrop { background: rgba(0, 0, 0, .45); }
+.mobile-more-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.mobile-more h2 { font-size: 22px; margin: 0; }
+.mobile-more-head button { min-width: 44px; min-height: 44px; }
+#mobileMoreLinks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#mobileMoreLinks button { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: 700 14px var(--font); cursor: pointer; }
+#mobileMoreLinks span { color: var(--muted); }
+@media (max-width: 860px) {
+  body:not(.admin) .main { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .mobile-nav:not([hidden]) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); position: fixed; z-index: 25; bottom: 0; left: 0; right: 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--card); border-top: 2px solid var(--border); box-shadow: 0 -4px 16px rgba(0, 0, 0, .04); }
+  .mobile-nav button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; border: 0; border-radius: 12px; color: var(--muted); background: transparent; font: 800 11px var(--font); cursor: pointer; padding: 5px 2px; }
+  .mobile-nav button.on { color: var(--text); background: var(--good-soft); }
+  .mobile-nav svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .mobile-nav .has-work::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--review); position: absolute; top: 5px; right: calc(50% - 20px); }
+  .sidebar .rail { height: 0; min-height: 0; padding: 0; overflow: visible; border: 0; }
+  .sidebar .rail > button, .sidebar .rail > .rail-sp { display: none; }
+  .sidebar:not(.open) { border: 0; gap: 0; }
+  .sidebar.open .side-panel { max-height: calc(100dvh - 90px); overflow: auto; }
+  .sidebar .snd-menu { position: fixed; bottom: 80px; top: auto !important; left: 12px !important; right: 12px; width: auto; max-height: calc(100dvh - 100px); overflow: auto; }
+  .mobile-brand { display: inline-block; font: 900 19px var(--font); color: var(--accent); flex: none; }
+  .mobile-brand b { color: var(--good); }
+  body.asg-wide .topbar { padding: 12px 16px; gap: 8px; }
+  body.asg-wide .topbar .forecast, body.asg-wide .scope-info, body.asg-wide .session-info { display: none; }
+  body.asg-wide .me-box { gap: 7px; order: 0; }
+  body.asg-wide .lvl-info, body.asg-wide .promo-pill { display: none; }
+  body.asg-wide .topbar .teacher-back { display: none; }
+  body.asg-wide .trainer { padding: 20px 16px; }
+  .asg-page .ap-heading h2 { font-size: 28px; }
+  .asg-page .ap-heading { margin-bottom: 16px; }
+  .asg-page .ap-tabs { gap: 6px; margin-bottom: 16px; }
+  .asg-page .ap-tabs button { padding: 9px 12px; font-size: 14px; }
+  .asg-page .ap-card { grid-template-columns: 1fr; padding: 16px; gap: 12px; }
+  .asg-page .ap-top { gap: 10px; }
+  .asg-page .ap-top > div { min-width: 0; }
+  .asg-page .ap-top b { overflow-wrap: anywhere; font-size: 18px; line-height: 1.3; }
+  .asg-page .ap-top small { font-size: 13px; display: block; margin-top: 5px; }
+  .asg-page .ap-state { font-size: 13px; }
+  .asg-page .ap-dates { padding: 0; background: transparent; gap: 12px; }
+  .asg-page .ap-dates > div:first-child { display: none; }
+  .asg-page .ap-dates > div { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+  .asg-page .ap-dates span { font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .asg-page .ap-dates b { font-size: 13px; }
+  .asg-page .ap-dates em { display: none; }
+  .asg-page .ap-btns { flex-direction: row; }
+  .asg-page .ap-btns .btn { flex: 1; min-height: 48px; text-transform: none; font-size: 16px; }
+  .asg-page .ap-card:not(:first-child) .ap-btns .btn.primary { background: var(--card); color: var(--text); border-color: var(--good); }
+}

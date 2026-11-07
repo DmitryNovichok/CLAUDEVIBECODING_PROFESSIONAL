@@ -196,6 +196,7 @@
   }
 
   function renderSidebar() {
+    renderMobileNav();
     const counts = countByNum();
     const total = counts.reduce((a, b) => a + b, 0);
     $('#allCount').textContent = total;
