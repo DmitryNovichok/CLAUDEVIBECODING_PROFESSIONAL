@@ -806,16 +806,16 @@
       <div class="bld-sum"><b>${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
         ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${n}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
       ${total ? `<div class="bld-rbar" title="Распределение по сложности">${byR.map((c, r) => r && c ? `<i class="rk${r}" style="flex:${c}" title="${RANK_SHORT[r]}: ${c}"></i>` : '').join('')}</div>` : ''}
+      <button type="button" class="btn primary bld-send" id="bdSend"${total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : 'Отправить классу'}</button>
+      ${D.class_id ? '' : '<p class="adm-hint">Выберите класс, которому отправить подборку.</p>'}
+      ${total > 1 ? `<div class="bld-tools"><button type="button" class="link-btn" data-sortd="rank">по сложности ↑</button>
+        <button type="button" class="link-btn" data-sortd="num">по номерам</button><button type="button" class="link-btn" data-sortd="shuffle">перемешать</button>
+        <button type="button" class="link-btn danger" data-sortd="clear">очистить</button></div>` : ''}
       <ol class="bld-dlist">${D.tasks.map((t, i) => `<li><span class="num-badge sm">${t.n === 19 ? '19–21' : t.n}</span>
         <button type="button" class="task-link" data-task="${esc(t.id)}" title="${esc(t.snip || '')}">${esc(t.cname || '')} ${rankDots(t.r)}<small>${esc((t.snip || '').slice(0, 70))}…</small></button>
         <span class="bld-dtools"><button type="button" class="link-btn" data-mv="${i}:-1" title="Выше">↑</button><button type="button" class="link-btn" data-mv="${i}:1" title="Ниже">↓</button>
         <button type="button" class="link-btn danger" data-del="${i}" title="Убрать">×</button></span></li>`).join('')}</ol>
-      ${total ? '' : '<p class="adm-hint">Добавляйте задания слева: по одному, все со страницы или случайные из найденного.</p>'}
-      ${total > 1 ? `<div class="bld-tools"><button type="button" class="link-btn" data-sortd="rank">по сложности ↑</button>
-        <button type="button" class="link-btn" data-sortd="num">по номерам</button><button type="button" class="link-btn" data-sortd="shuffle">перемешать</button>
-        <button type="button" class="link-btn danger" data-sortd="clear">очистить</button></div>` : ''}
-      <button type="button" class="btn primary bld-send" id="bdSend"${total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : 'Отправить классу'}</button>
-      ${D.class_id ? '' : '<p class="adm-hint">Выберите класс, которому отправить подборку.</p>'}`;
+      ${total ? '' : '<p class="adm-hint">Добавляйте задания слева: по одному, все со страницы или случайные из найденного.</p>'}`;
   }
   $('#bldFilters').addEventListener('click', e => {
     const b = e.target.closest('[data-f]');
