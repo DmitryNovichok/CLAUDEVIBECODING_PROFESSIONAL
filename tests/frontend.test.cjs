@@ -55,3 +55,114 @@ test('teacher drafts are isolated across accounts and reused IDs', () => {
   c.ME = {id:10,created:300}; vm.runInContext('bldLoad()',c);
   assert.equal(vm.runInContext('BLD.d.title',c),'');
 });
+
+function sourceBetween(file, start, end) {
+  const source = fs.readFileSync(file, 'utf8');
+  const pos = source.indexOf(start);
+  assert.ok(pos >= 0 && source.indexOf(end, pos) > pos);
+  return source.slice(pos, source.indexOf(end, pos));
+}
+
+test('closed practice is finished and does not absorb later training', () => {
+  const c = vm.createContext({P:{log:[{id:'second',s:1,t:3000}]},partToGroup:new Map(),byId:new Map()});
+  vm.runInContext(sourceBetween('src/app/12-sets.js','  function asgLeft','  async function loadAssignments'),c);
+  c.a = {tasks:['first','second'],done:['first'],created:1,closed:2,score:{final:true}};
+  assert.equal(vm.runInContext('asgLeft(a).length',c),1);
+  assert.equal(vm.runInContext('asgFinished(a)',c),true);
+});
+
+test('homework game progress requires all questions and ignores exam answers', () => {
+  const c=vm.createContext({P:{log:[{id:'p19',s:1,t:2000},{id:'plain',s:1,t:2000,x:1}]},
+    partToGroup:new Map([['p19','game'],['p20','game']]),byId:new Map([['game',{parts:[{id:'p19'},{id:'p20'}]}]])});
+  vm.runInContext(sourceBetween('src/app/12-sets.js','  function asgLeft','  async function loadAssignments'),c);
+  c.a={tasks:['game','plain'],done:[],created:1};
+  assert.equal(vm.runInContext('asgLeft(a).length',c),2);
+  c.P.log.push({id:'p20',s:1,t:2500});
+  assert.equal(vm.runInContext('asgLeft(a).length',c),1);
+});
+
+test('practice answer markers keep the result at closing time', () => {
+  const c=vm.createContext({P:{log:[{id:'late',t:3000,s:1}]}});
+  vm.runInContext(sourceBetween('src/app/12-sets.js','  function pkFirst(a)', '  function pkState('),c);
+  c.a={created:1,closed:2,score:{items:{early:0.5,late:null}}};
+  assert.equal(vm.runInContext('pkFirst(a).has("late")',c),false);
+  assert.equal(vm.runInContext('pkFirst(a).get("early")',c),0.5);
+});
+
+test('assignment due labels use calendar days and exact expiry', () => {
+  const now = new Date(2026, 10, 8, 12).getTime();
+  class Clock extends Date { static now() { return now; } }
+  const c = vm.createContext({Date:Clock,pad2:x=>String(x).padStart(2,'0'),plural:()=> 'дня'});
+  vm.runInContext(sourceBetween('src/app/12-sets.js',"  const WD =",'  /** Карточка практической'),c);
+  for (const [due,word] of [[now+3600000,'сегодня'],[now+13*3600000,'завтра'],[now-60000,'срок прошёл']]) {
+    c.a = {created:now/1000-86400,due:due/1000};
+    assert.match(vm.runInContext('apDates(a,null,false)',c),new RegExp(word));
+  }
+});
+
+test('late Together search cannot overwrite the selected assignment tab', async () => {
+  const nodes = {'#tgPickL':{innerHTML:''},'#tgPickQ':{value:''}};
+  const requests=[];
+  const c = vm.createContext({$:s=>nodes[s],S:{pages:[]},SID:1,esc:String,
+    adminGet:url=>new Promise((resolve,reject)=>requests.push({url,resolve,reject}))});
+  vm.runInContext("let pickKind='recent', pickAsg=0, pickVersion=0;",c);
+  vm.runInContext(sourceBetween('together.js','  async function loadPick()',"  $('#tgPickL').addEventListener"),c);
+  const first=vm.runInContext('loadPick()',c);
+  const last=vm.runInContext("pickKind='sets'; loadPick()",c);
+  requests[1].resolve({sets:[{id:2,title:'Нужная подборка',class_name:'Демо',tasks:1,created:1}]});
+  await last;
+  requests[0].resolve({tasks:[{id:'old',label:'5',snip:'Устаревшее задание'}]});
+  await first;
+  assert.match(nodes['#tgPickL'].innerHTML,/Нужная подборка/);
+  assert.doesNotMatch(nodes['#tgPickL'].innerHTML,/Устаревшее/);
+});
+
+test('late archive filter cannot restore the previous class', async () => {
+  const nodes={'#arcClass':{value:'1'},'#arcQ':{value:''},'#arcBody':{innerHTML:''}};
+  const requests=[];
+  const c=vm.createContext({$:s=>nodes[s],classes:[{id:1,name:'Демо А'},{id:2,name:'Демо Б'}],esc:String,
+    api:()=>new Promise(resolve=>requests.push(resolve)),fmtDate:String,toast:()=>{},ARC_KIND:{self:'Самостоятельная'}});
+  vm.runInContext('let arcVersion=0;',c);
+  vm.runInContext(sourceBetween('admin.js','  async function loadArchive()',"  $('#arcQ').addEventListener"),c);
+  const first=vm.runInContext('loadArchive()',c);
+  nodes['#arcClass'].value='2';
+  const last=vm.runInContext('loadArchive()',c);
+  const item=(id,title)=>({id,ids:[id],title,class_name:title,tasks:1,kind:'self',created:1});
+  requests[1]({items:[item(2,'Демо Б')]}); await last;
+  requests[0]({items:[item(1,'Демо А')]}); await first;
+  assert.match(nodes['#arcBody'].innerHTML,/Демо Б/);
+  assert.doesNotMatch(nodes['#arcBody'].innerHTML,/Демо А/);
+});
+
+test('builder ignores pupils and assignments loaded for an earlier class', async () => {
+  const requests=[];
+  const c=vm.createContext({BLD:{d:{class_id:'1'}},renderBldDraft:()=>{},
+    api:url=>new Promise(resolve=>requests.push({url,resolve}))});
+  vm.runInContext('let bldLoadVersion=0;',c);
+  vm.runInContext(sourceBetween('admin.js','  async function loadBldAsg()', '  function renderBldDraft()'),c);
+  const first=vm.runInContext('loadBldAsg()',c);
+  const last=vm.runInContext("BLD.d.class_id='2'; loadBldAsg()",c);
+  requests[2].resolve({assignments:[{id:2}]});requests[3].resolve({students:[{id:2,name:'Макетов Второй'}]});await last;
+  requests[0].resolve({assignments:[{id:1}]});requests[1].resolve({students:[{id:1,name:'Макетов Первый'}]});await first;
+  assert.equal(c.BLD.members[0].id,2);
+  assert.equal(c.BLD.asg[0].id,2);
+});
+
+test('double send creates one assignment and preserves a newer draft', async () => {
+  let handler;
+  const requests=[];
+  const c=vm.createContext({BLD:{d:{class_id:'1',id:null,title:'Старая',kind:'practice',tasks:[{id:'test'}],students:[],to:'class'},cat:{classes:[{id:1,name:'Демо'}]}},
+    $:()=>({addEventListener:(_,h)=>{handler=h;}}),toast:()=>{},kindChangeOk:()=>true,grades:()=>({}),
+    bldSave:()=>{},renderBldDraft:()=>{},loadBldAsg:()=>{},renderBldList:()=>{},
+    api:()=>new Promise(resolve=>requests.push(resolve))});
+  vm.runInContext('let bldSending=false;',c);
+  vm.runInContext(sourceBetween('admin.js',"  $('#bldDraft').addEventListener('click'",'  // ------------------------------------------------------------ прогресс курса'),c);
+  const event={target:{closest:s=>s==='#bdSend'?{}:null}};
+  const first=handler(event), second=handler(event);
+  c.BLD.d.title='Новый черновик';
+  const count=requests.length;
+  for(const resolve of requests)resolve({id:42});
+  await Promise.all([first,second]);
+  assert.equal(count,1);
+  assert.equal(c.BLD.d.title,'Новый черновик');
+});

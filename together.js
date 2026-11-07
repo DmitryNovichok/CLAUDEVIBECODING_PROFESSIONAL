@@ -678,7 +678,7 @@
   $('#tgCond').addEventListener('dragstart', e => { if (!S.teacher) e.preventDefault(); });
 
   // ---------- выбор задания (учитель)
-  let pickKind = 'recent', pickT = 0, pickAsg = 0;
+  let pickKind = 'recent', pickT = 0, pickAsg = 0, pickVersion = 0;
   $('#tgPick').onclick = () => { $('#tgPickM').hidden = false; $('#tgPickQ').value = ''; loadPick(); setTimeout(() => $('#tgPickQ').focus(), 30); };
   $$('.tg-modal').forEach(m => m.addEventListener('click', e => { if (e.target === m || e.target.closest('[data-close]')) m.hidden = true; }));
   document.addEventListener('keydown', e => { if (e.key === 'Escape') $$('.tg-modal').forEach(m => { m.hidden = true; }); });
@@ -695,6 +695,8 @@
   $('#tgPickQ').addEventListener('input', () => { clearTimeout(pickT); pickT = setTimeout(loadPick, 250); });
   async function loadPick() {
     const L = $('#tgPickL'), q = $('#tgPickQ').value.trim();
+    const request = ++pickVersion, kind = pickKind, asg = pickAsg;
+    const current = () => request === pickVersion && kind === pickKind && asg === pickAsg && q === $('#tgPickQ').value.trim();
     if (!q && pickKind === 'pages') {
       L.innerHTML = S.pages.map((p, i) => `<li data-key="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"><span class="tg-num">${i + 1}</span><span class="tx">${esc(p.task || 'Чистая страница')}</span>${p.key === S.page ? '<span class="mk">сейчас</span>' : ''}</li>`).join('');
       return;
@@ -703,8 +705,9 @@
     if (pickKind === 'sets') {
       // архив выданных подборок: подборка → её задания
       try {
-        const d = await adminGet(`together/tasks?id=${SID}&kind=sets&asg=${pickAsg || ''}&q=${encodeURIComponent(pickAsg ? '' : q)}`);
-        if (pickAsg) {
+        const d = await adminGet(`together/tasks?id=${SID}&kind=sets&asg=${asg || ''}&q=${encodeURIComponent(asg ? '' : q)}`);
+        if (!current()) return;
+        if (asg) {
           L.innerHTML = `<li class="back" data-back="1"><span class="tx">← Все подборки · <b>${esc(d.title || '')}</b></span></li>`
             + (d.tasks.map(t => `<li data-task="${esc(t.id)}"><span class="tg-num">${esc(t.label)}</span><span class="tx">${esc(t.snip)}</span><span class="mk">${esc(t.mark || '')}</span></li>`).join('')
               || '<li class="empty">В подборке нет заданий из банка.</li>');
@@ -712,14 +715,15 @@
           L.innerHTML = d.sets.map(x => `<li data-asg="${x.id}"><span class="tg-num">${x.tasks} зад.</span><span class="tx"><b>${esc(x.title)}</b> · ${esc(x.class_name)}${x.personal ? ' · лично' : ''}</span><span class="mk">${new Date(x.created * 1000).toLocaleDateString('ru-RU')}</span></li>`).join('')
             || `<li class="empty">${q ? 'Подборок с таким названием нет.' : 'Вы ещё не выдавали подборок.'}</li>`;
         }
-      } catch (e) { L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
+      } catch (e) { if (current()) L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
       return;
     }
     try {
       const d = await adminGet(`together/tasks?id=${SID}&kind=${pickKind === 'errors' ? 'errors' : 'recent'}&q=${encodeURIComponent(q)}`);
+      if (!current()) return;
       L.innerHTML = d.tasks.length ? d.tasks.map(t => `<li data-task="${esc(t.id)}"><span class="tg-num">${esc(t.label)}</span><span class="tx">${esc(t.snip)}</span><span class="mk">${esc(t.mark || '')}</span></li>`).join('')
         : `<li class="empty">${q ? 'Ничего не нашлось. Напишите номер ЕГЭ (например, 8) или номер задания.' : 'У учеников сеанса пока нет таких заданий. Найдите задание поиском выше.'}</li>`;
-    } catch (e) { L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
+    } catch (e) { if (current()) L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
   }
   $('#tgPickL').addEventListener('click', e => {
     const set = e.target.closest('li[data-asg]');

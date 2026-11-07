@@ -609,15 +609,18 @@
   }
   // ---- архив выданных подборок: отправить снова, PDF, во «Вместе»
   const ARC_KIND = { self: 'самостоятельная', practice: 'практическая', home: 'домашняя' };
-  let arcT = 0;
+  let arcT = 0, arcVersion = 0;
   async function loadArchive() {
-    const sel = $('#arcClass'), cur = sel.value;
+    const sel = $('#arcClass'), cur = sel.value, q = $('#arcQ').value.trim(), request = ++arcVersion;
     try {
       if (!classes.length) await fetchClasses();
+      if (request !== arcVersion || cur !== sel.value || q !== $('#arcQ').value.trim()) return;
       sel.innerHTML = '<option value="">Все классы</option>' + classes.map(c => `<option value="${c.id}"${String(c.id) === cur ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
-      const d = await api(`asg/all?q=${encodeURIComponent($('#arcQ').value.trim())}&class_id=${sel.value || ''}`);
+      const cid = sel.value;
+      const d = await api(`asg/all?q=${encodeURIComponent(q)}&class_id=${cid || ''}`);
+      if (request !== arcVersion || cid !== sel.value || q !== $('#arcQ').value.trim()) return;
       const box = $('#arcBody');
-      if (!d.items.length) { box.innerHTML = '<p class="adm-empty">Подборок пока нет — создайте первую во вкладке «Создать подборку».</p>'; return; }
+      if (!d.items.length) { box.innerHTML = `<p class="adm-empty">${q || cid ? 'По выбранным условиям подборки не найдены.' : 'Подборок пока нет — создайте первую во вкладке «Создать подборку».'}</p>`; return; }
       box.innerHTML = `<div class="adm-table-wrap"><table class="adm-table arc-table"><thead><tr><th>Подборка</th><th>Кому</th><th>Тип</th><th>Выдана</th><th>Срок</th>
         <th class="num">Заданий</th><th></th></tr></thead><tbody>${d.items.map(x => `<tr>
           <td class="name">${esc(x.title)}</td>
@@ -628,7 +631,7 @@
           <td class="arc-act"><button type="button" class="btn sm primary" data-arc-send="${x.id}">Отправить снова</button>
             <a class="btn sm" href="/api/admin/asg/archive?ids=${x.ids.join(',')}" target="_blank" rel="noopener" title="Сводная таблица, КИМ и работы учеников — для печати или PDF">PDF</a>
             <button type="button" class="btn sm" data-arc-tog="${x.id}" title="Открыть совместное занятие с заданиями этой подборки">Во «Вместе»</button></td></tr>`).join('')}</tbody></table></div>`;
-    } catch (e) { if (e.status !== 401) toast(e.message); }
+    } catch (e) { if (request === arcVersion && e.status !== 401) toast(e.message); }
   }
   $('#arcQ').addEventListener('input', () => { clearTimeout(arcT); arcT = setTimeout(loadArchive, 300); });
   $('#arcClass').addEventListener('change', loadArchive);
@@ -826,15 +829,18 @@
     bldSave(); renderBldDraft(); if (BLD.res) renderBldList();
     return k;
   }
+  let bldLoadVersion = 0, bldSending = false;
   async function loadBldAsg() {
+    const request = ++bldLoadVersion, cid = BLD.d.class_id;
     BLD.asg = [];
     BLD.members = [];
-    if (!BLD.d.class_id) return;
+    if (!cid) return;
     try {
-      const [a, m] = await Promise.all([api('assignments?class_id=' + BLD.d.class_id), api('students?class_id=' + BLD.d.class_id)]);
+      const [a, m] = await Promise.all([api('assignments?class_id=' + cid), api('students?class_id=' + cid)]);
+      if (request !== bldLoadVersion || cid !== BLD.d.class_id) return;
       BLD.asg = a.assignments || [];
       BLD.members = (m.students || []).map(x => ({ id: x.id, name: x.name })).sort((x, y) => x.name.localeCompare(y.name, 'ru'));
-    } catch (e) { BLD.asg = []; }
+    } catch (e) { if (request !== bldLoadVersion || cid !== BLD.d.class_id) return; BLD.asg = []; }
     renderBldDraft();
   }
   function renderBldDraft() {
@@ -858,7 +864,7 @@
       <div class="bld-sum"><b>${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
         ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${n}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
       ${total ? `<div class="bld-rbar" title="Распределение по сложности">${byR.map((c, r) => r && c ? `<i class="rk${r}" style="flex:${c}" title="${RANK_SHORT[r]}: ${c}"></i>` : '').join('')}</div>` : ''}
-      <button type="button" class="btn primary bld-send" id="bdSend"${total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : 'Отправить классу'}</button>
+      <button type="button" class="btn primary bld-send" id="bdSend"${!bldSending && total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${bldSending ? 'Отправляю…' : D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : 'Отправить классу'}</button>
       ${D.class_id ? '' : '<p class="adm-hint">Выберите класс, которому отправить подборку.</p>'}
       ${total > 1 ? `<div class="bld-tools"><button type="button" class="link-btn" data-sortd="rank">по сложности ↑</button>
         <button type="button" class="link-btn" data-sortd="num">по номерам</button><button type="button" class="link-btn" data-sortd="shuffle">перемешать</button>
@@ -991,19 +997,25 @@
       return;
     }
     if (e.target.closest('#bdSend')) {
+      if (bldSending) return;
       if (!D.title.trim()) { toast('Введите название подборки'); $('#bdTitle').focus(); return; }
+      const prevKind = D.id && ((BLD.asg || []).find(x => x.id === D.id) || {}).kind;
+      if (!kindChangeOk(prevKind, D.kind || 'self')) return;
+      const sent = JSON.stringify(D), snapshot = JSON.parse(sent);
+      bldSending = true;
+      renderBldDraft();
       try {
         const pers = !D.id && D.to === 'some';
-        const prevKind = D.id && ((BLD.asg || []).find(x => x.id === D.id) || {}).kind;
-        if (!kindChangeOk(prevKind, D.kind || 'self')) return;
         const r = await api('assignment/save', { id: D.id, class_id: +D.class_id, title: D.title, kind: D.kind || 'self', grading: grades(),
           due: D.due ? new Date(D.due + 'T23:59:00').getTime() / 1000 : null, tasks: D.tasks.map(t => t.id),
           students: pers ? D.students : null });
-        const cls = (BLD.cat.classes.find(c => String(c.id) === String(D.class_id)) || {}).name || '';
-        toast(D.id ? 'Подборка сохранена' + keptNote(r) : pers ? `Персональная подборка отправлена: ${D.students.length} ${plural(D.students.length, 'ученику', 'ученикам', 'ученикам')}` : `Подборка отправлена классу ${cls}`);
-        BLD.d = { class_id: D.class_id, id: null, title: '', due: '', tasks: [], to: D.to, students: [] };
+        const cls = (BLD.cat.classes.find(c => String(c.id) === String(snapshot.class_id)) || {}).name || '';
+        toast(snapshot.id ? 'Подборка сохранена' + keptNote(r) : pers ? `Персональная подборка отправлена: ${snapshot.students.length} ${plural(snapshot.students.length, 'ученику', 'ученикам', 'ученикам')}` : `Подборка отправлена классу ${cls}`);
+        if (BLD.d === D && JSON.stringify(D) === sent)
+          BLD.d = { class_id: snapshot.class_id, id: null, title: '', due: '', tasks: [], to: snapshot.to, kind: snapshot.kind, students: [] };
         bldSave(); renderBldDraft(); loadBldAsg(); if (BLD.res) renderBldList();
       } catch (err) { if (err.status !== 401) toast(err.message); }
+      finally { bldSending = false; renderBldDraft(); }
     }
   });
 
