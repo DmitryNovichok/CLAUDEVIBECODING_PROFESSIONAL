@@ -183,6 +183,7 @@
       case 'people': S.people = m.people || []; return renderPeople();
       case 'gone': S.carets.delete(m.cid); dropPtr(m.cid); return renderCarets();
       case 'page': return setPage(m, !!m.peek);
+      case 'expired': S.expired = true; if (m.page) setPage(m.page, true); renderBars(); toast('Доступ учителя закончился. Запись занятия доступна для просмотра'); return;
       case 'resync': if (m.page) setPage(m.page, true); if (m.why === 'ro') toast('🔒 Учитель включил «Только смотреть»'); if (m.why === 'long') toast('Код слишком длинный'); return;
       case 'ack': return onAck(m);
       case 'op': return onOp(m);
@@ -222,7 +223,7 @@
     S.snapped = true;
     S.me = m.me;
     S.teacher = !!m.me.teacher;
-    S.ro = m.ro; S.follow = m.follow; S.pyLocal = !!m.py_local; S.created = m.created || 0; S.ended = m.ended;
+    S.expired = !!m.expired; S.ro = m.ro; S.follow = m.follow; S.pyLocal = !!m.py_local; S.created = m.created || 0; S.ended = m.ended;
     if (!S.color) S.color = m.me.color;
     document.body.classList.toggle('stu', !S.teacher);
     document.body.style.setProperty('--me', m.me.color);
@@ -243,14 +244,14 @@
     $('#tgPeople').innerHTML = S.people.map(p => `<span class="tg-av${p.on ? ' on' : ''}" style="background:${esc(p.color)}" title="${esc(p.name)}${p.teacher ? ' — учитель' : ''}${p.on ? ' · в сеансе' : ' · не в сеансе'}">${esc(initials(p.name))}</span>`).join('');
   }
   function renderBars() {
-    $('#tgTBar').hidden = !S.teacher;
+    $('#tgTBar').hidden = !S.teacher || S.expired;
     $('#tgSBar').hidden = S.teacher;
     $('#tgFollow').classList.toggle('on', S.follow);
     $('#tgRo').classList.toggle('on', S.ro);
     $('#tgLead').hidden = !S.follow || S.ro;
     $('#tgRoTag').hidden = !S.ro;
-    $('#tgPick').hidden = !S.teacher;
-    const ro = !S.teacher && S.ro;
+    $('#tgPick').hidden = !S.teacher || S.expired;
+    const ro = S.expired || (!S.teacher && S.ro);
     $('#tgTa').readOnly = ro || S.ended;
     $('#tgAnsIn').readOnly = ro || S.ended;
     $('#tgChk').disabled = ro || S.ended;
@@ -258,7 +259,7 @@
     $('#tgSheet').classList.toggle('ro', ro || S.ended);
     $('#tgTools').style.display = ro || S.ended ? 'none' : '';
   }
-  const canWrite = () => !S.ended && (S.teacher || !S.ro);
+  const canWrite = () => !S.ended && !S.expired && (S.teacher || !S.ro);
   setInterval(() => {
     if (!S.created) return;
     const s = Math.max(0, Math.floor(Date.now() / 1000 - S.created)), h = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60, ss = s % 60;
@@ -411,7 +412,7 @@
       requestAnimationFrame(condLayout);
     }
     $('#tgCDraw').hidden = !t || S.ended;
-    $('#tgPages').innerHTML = S.ended && S.pages.length > 1 ? S.pages.map((p, i) => `<button type="button" data-peek="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"
+    $('#tgPages').innerHTML = (S.ended || S.expired) && S.pages.length > 1 ? S.pages.map((p, i) => `<button type="button" data-peek="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"
       title="${esc(p.task || 'чистая страница')}">${i + 1}${p.task ? ' · ' + esc(p.task.split(' · ')[0]) : ''}</button>`).join('') : '';
     renderFiles();
     $('#tgAtt').innerHTML = t && t.att && t.att.length ? '📎 ' + t.att.map(a => `<a href="${esc(a.href)}" download>${esc(a.name)}</a>`).join(' · ') : '';
@@ -647,6 +648,7 @@
     typingT = setTimeout(() => { $('#tgTyping').textContent = ''; }, 2500);
   }
   function onRes(m) {
+    if (m.save_failed) toast('Не удалось сохранить ответ в журнал. Нажми «Проверить» ещё раз');
     if (m.limit) return toast('На это задание уже много проверок в этом сеансе');
     $('#tgAnsIn').value = m.v;
     $('#tgTyping').textContent = '';

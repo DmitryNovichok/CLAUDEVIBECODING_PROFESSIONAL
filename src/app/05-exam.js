@@ -2,6 +2,29 @@
   let EX = null;          // идущий вариант: { id, started, deadline, items: [{ id, n }], ans: { id: { answer, cells } }, cur }
   let examShown = false;
   let exTimer = null;
+  let exSaveTimer = null;
+  let exSaveWarned = false;
+  const examAnswerList = () => EX.items.flatMap(x => {
+    const t = byId.get(x.id);
+    return t ? examKeys(t).map(k => ({ task: k, answer: (EX.ans[k] || {}).answer || '',
+      cells: (EX.ans[k] || {}).cells || null })) : [];
+  });
+  async function syncExamAnswers() {
+    clearTimeout(exSaveTimer);
+    if (!SERVER || !EX || EX.finishing) return;
+    const ex = EX;
+    ex.rev = Math.max(Date.now(), (ex.rev || 0) + 1);
+    writeJSON(examKey(), ex);
+    try {
+      const r = await api('exam/save', { exam_id: ex.id, rev: ex.rev, answers: examAnswerList() });
+      if (r.expired && EX === ex && !ex.finishing) finishExam(true);
+      exSaveWarned = false;
+    } catch (e) {
+      if (!exSaveWarned) toast('Ответы сохранены в браузере. Нет связи с сервером — восстанови её до конца варианта', 6000);
+      exSaveWarned = true;
+      if (EX === ex && !ex.finishing) exSaveTimer = setTimeout(syncExamAnswers, 3000);
+    }
+  }
 
   /** По заданию на каждый номер: актуального формата, по возможности новое для ученика и свежее. */
   /** Задания, решённые верно в последних VARIANT_GAP вариантах: снова попадут в вариант не раньше, чем через столько вариантов.
@@ -45,8 +68,27 @@
     return items;
   }
   const examKeys = t => (t.parts ? t.parts.map(p => p.id) : [t.id]);
-  const answeredItem = x => { const t = byId.get(x.id); return !!t && examKeys(t).some(k => EX.ans[k] && EX.ans[k].answer); };
-  const saveExam = () => writeJSON(examKey(), EX);
+  const hasExamAnswer = x => {
+    const t = byId.get(x.id);
+    return !!t && examKeys(t).some(k => String((EX.ans[k] || {}).answer || '').trim());
+  };
+  const answeredItem = x => {
+    const t = byId.get(x.id);
+    return !!t && examKeys(t).every(k => {
+      const a = EX.ans[k], obj = byId.get(k) || (t.parts || []).find(p => p.id === k) || t;
+      if (!a || !String(a.answer || '').trim()) return false;
+      const sh = shapeOf(obj);
+      if (sh.type === 'single' || !a.cells) return true;
+      if (sh.rows < 3) return a.cells.length === sh.rows * sh.cols && a.cells.every(c => String(c).trim());
+      // Variable-length tables: each started row must be filled; trailing empty rows are allowed.
+      return a.cells.every((c, i, cells) => String(c).trim() || !cells.slice(i - i % sh.cols, i - i % sh.cols + sh.cols).some(v => String(v).trim()));
+    });
+  };
+  const saveExam = () => {
+    writeJSON(examKey(), EX);
+    clearTimeout(exSaveTimer);
+    if (SERVER && EX && !EX.finishing) exSaveTimer = setTimeout(syncExamAnswers, 250);
+  };
 
   function openExamIntro() {
     if (EX) { resumeExam(); return; }
@@ -62,17 +104,25 @@
       </ul>
       <div class="actions">
         <button type="button" class="btn primary" id="exStart">Начать вариант</button>
+        <button type="button" class="btn" id="exStartKege" title="Экран как на компьютерном экзамене: ряд номеров, окно ответа, ответ засчитывается только после «Сохранить ответ»">🖥 Как на КЕГЭ</button>
         <button type="button" class="btn ghost" id="exCancel">Отмена</button>
-      </div>`;
+      </div>
+      <p class="fm-note"><b>Как на КЕГЭ</b> — тот же вариант на экране, похожем на экзаменационную станцию: без меню сайта, номера заданий вверху,
+        ответ нужно сохранить кнопкой — несохранённый ответ не засчитается, как на настоящем экзамене.</p>`;
     $('#forecastModal').hidden = false;
     $('#exCancel').addEventListener('click', closeForecast);
     $('#exStart').addEventListener('click', async e => {
       e.target.disabled = true;
       try { await beginExam(); } finally { e.target.disabled = false; }
     });
+    $('#exStartKege').addEventListener('click', async e => {
+      e.target.disabled = true;
+      try { await beginExam(true); } finally { e.target.disabled = false; }
+    });
   }
 
-  async function beginExam() {
+  async function beginExam(kege) {
+    const started = Date.now();
     let items = SERVER ? [] : pickVariant();
     let id = 'local-' + Date.now(), limit = RULES.exam_sec;
     if (SERVER) {
@@ -88,7 +138,7 @@
     abandonCurrent();
     leaveCourse();                         // со страницы «Мои варианты» — прямо в вариант
     cur = null;
-    EX = { id, started: Date.now(), deadline: Date.now() + limit * 1000, items, ans: {}, cur: 0 };
+    EX = { id, started, deadline: started + limit * 1000, items, ans: {}, cur: 0, kege: !!kege };
     saveExam();
     closeForecast();
     examShown = true;
@@ -149,8 +199,9 @@
     $$('.cell', row).forEach((c, i) => { c.value = (saved.cells && saved.cells[i]) || ''; });
   }
 
-  function saveExamInputs() {
+  function saveExamInputs(force) {
     if (!EX || !examShown) return;
+    if (EX.kege && !force) return;            // как на КЕГЭ: ответ сохраняет только кнопка «Сохранить ответ»
     $$('#trainer .answer-row[data-key]').forEach(row => {
       const t = byId.get(row.dataset.key) || TASKS.find(x => (x.parts || []).some(p => p.id === row.dataset.key));
       const obj = byId.get(row.dataset.key) || (t && t.parts.find(p => p.id === row.dataset.key));
@@ -165,13 +216,76 @@
 
   function exGo(i) {
     if (!EX) return;
+    if (EX.kege && kgDirty() && !confirm('Ответ на это задание не сохранён. Перейти без сохранения?')) return;
     saveExamInputs();
     EX.cur = Math.max(0, Math.min(EX.items.length - 1, i));
     saveExam();
     renderExam();
   }
 
+  // ---- «как на КЕГЭ»: экран без меню сайта, ряд номеров, окно ответа и явное сохранение
+  function kgDirty() {
+    return $$('#trainer .answer-row[data-key]').some(row => {
+      const obj = byId.get(row.dataset.key) || (TASKS.find(x => (x.parts || []).some(p => p.id === row.dataset.key)) || { parts: [] }).parts.find(p => p.id === row.dataset.key);
+      if (!obj) return false;
+      return readAnswerIn(row, shapeOf(obj)).join(' ') !== ((EX.ans[row.dataset.key] || {}).answer || '');
+    });
+  }
+  function kgState() {
+    const el = $('#kgState');
+    if (!el) return;
+    const it = EX.items[EX.cur], dirty = kgDirty(), saved = answeredItem(it);
+    el.className = 'kg-state ' + (dirty ? 'dirty' : saved ? 'ok' : '');
+    el.textContent = dirty ? 'Ответ изменён и не сохранён' : saved ? 'Ответ сохранён'
+      : hasExamAnswer(it) ? 'Часть ответа сохранена — заполните остальные поля' : 'Ответ не дан';
+  }
+  function renderKege() {
+    document.body.classList.add('kege-on');
+    const it = EX.items[EX.cur], t = byId.get(it.id);
+    const left = (EX.deadline - Date.now()) / 1000, last = EX.cur === EX.items.length - 1;
+    const nums = EX.items.map((x, i) => `<button type="button" class="ex-nav-btn kg-n${i === EX.cur ? ' on' : ''}${answeredItem(x) ? ' done' : ''}" data-i="${i}" title="Задание ${numLabel(x.n)}${answeredItem(x) ? ' — ответ сохранён' : ''}">${numLabel(x.n)}</button>`).join('');
+    const answerHtml = t.parts ? t.parts.map(exPartHtml).join('') : `<div class="answer-row" data-key="${esc(t.id)}">${inputsHtml(shapeOf(t))}</div>`;
+    trainerEl.innerHTML = `<div class="kege">
+      <header class="kg-top"><div class="kg-title"><b>Экзамен · Информатика</b><small>тренировка в режиме, похожем на КЕГЭ</small></div>
+        <div class="kg-who">${esc(student ? student.name : '')}</div>
+        <div class="kg-clock"><small>осталось</small><span id="exClock">${fmtClock(left)}</span></div>
+        <button type="button" class="kg-end" id="exFinish">Завершить экзамен</button></header>
+      <nav class="kg-nums" aria-label="Задания">${nums}</nav>
+      <section class="kg-body">
+        <div class="kg-task"><h2>Задание ${numLabel(t.n)}</h2>
+          <article class="cond" id="cond">${safeHtml(t.html)}</article>${filesHtml(t)}</div>
+        <aside class="kg-ans"><div class="kg-ans-h">${t.parts ? 'Ответы на вопросы 19, 20, 21' : 'Ответ'}</div>
+          ${answerHtml}
+          <div class="kg-state" id="kgState"></div>
+          <button type="button" class="kg-save" id="kgSave">Сохранить ответ</button>
+          <div class="kg-pn"><button type="button" id="exPrev"${EX.cur ? '' : ' disabled'}>← Предыдущее</button>
+            <button type="button" id="exNext"${last ? ' disabled' : ''}>Следующее →</button></div>
+          <div class="kg-tools">${PY_BTN}${CALC_BTN}</div>
+          <button type="button" class="kg-quit" id="kgQuit">Прервать экзамен</button></aside>
+      </section></div>`;
+    $$('#trainer .answer-row[data-key]').forEach(row => fillRow(row, EX.ans[row.dataset.key]));
+    dropDuplicateFileLinks($('#cond'), t.att || []);
+    decorateCondition($('#cond'), t);
+    guardDecorate($('#cond'), it.trap);
+    bindInputs(() => kgSave());
+    kgState();
+    const first = $('#trainer .answer-row input');
+    if (first && !pyOpen()) first.focus({ preventScroll: true });
+    window.scrollTo({ top: 0 });
+    pySync();
+  }
+  function kgSave() {
+    if (!EX) return;
+    saveExamInputs(true);
+    $$('.kg-n').forEach(b => b.classList.toggle('done', answeredItem(EX.items[+b.dataset.i])));
+    kgState();
+    toast(answeredItem(EX.items[EX.cur]) ? 'Ответ сохранён'
+      : hasExamAnswer(EX.items[EX.cur]) ? 'Ответ сохранён частично' : 'Ответ очищен', 1500);
+  }
+
   function renderExam() {
+    if (EX.kege) return renderKege();
+    document.body.classList.remove('kege-on');
     const it = EX.items[EX.cur];
     const t = byId.get(it.id);
     if (!t) { EX.items.splice(EX.cur, 1); EX.cur = 0; saveExam(); if (EX.items.length) renderExam(); return; }
@@ -252,17 +366,15 @@
     if (!examShown) abandonCurrent();      // время вышло, пока решал задание в тренировке
     saveExamInputs();
     const left = EX.items.filter(x => !answeredItem(x)).length;
-    if (!auto && !confirm(left ? `Без ответа заданий: ${left}. Завершить вариант и узнать результат?` : 'Завершить вариант и узнать результат?')) return;
+    const unsaved = EX.kege && kgDirty() ? 'Ответ на текущее задание не сохранён и не засчитается. ' : '';
+    if (!auto && !confirm(unsaved + (left ? `Без ответа заданий: ${left}. Завершить вариант и узнать результат?` : 'Завершить вариант и узнать результат?'))) return;
     EX.finishing = true;
-    const list = [];
-    for (const x of EX.items) {
-      const t = byId.get(x.id);
-      if (!t) continue;
-      for (const k of examKeys(t)) list.push({ task: k, answer: (EX.ans[k] || {}).answer || '', cells: (EX.ans[k] || {}).cells || null, bot: botPayload(x.id) });
-    }
+    clearTimeout(exSaveTimer);
+    const list = examAnswerList();
     let res;
     try {
       res = SERVER ? await api('exam/finish', { exam_id: EX.id, answers: list }) : localExamResult(list);
+      if (res && res.expired) toast('Время вышло. Учтены ответы, сохранённые на сервере до окончания варианта', 6000);
       if (res && res.game) setTimeout(() => onGame(res.game), 800);
     } catch (e) {
       EX.finishing = false;
@@ -273,6 +385,7 @@
     const done = EX;
     EX = null;
     examShown = false;
+    document.body.classList.remove('kege-on');
     exStrictLeave();
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     recordExam(res);
@@ -284,6 +397,7 @@
     clearInterval(exTimer);
     EX = null;
     examShown = false;
+    document.body.classList.remove('kege-on');
     exStrictLeave();
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     cur = null;
@@ -295,7 +409,7 @@
     cur = null;
     const full = res.results.filter(r => r.points === r.max).length;
     const rows = res.results.map(r => {
-      const mine = (ex.ans[r.task] || {}).answer || '';
+      const mine = r.mine != null ? r.mine : (ex.ans[r.task] || {}).answer || '';
       const cls = r.points === r.max ? 'lv-good' : r.points ? 'lv-mid' : 'lv-weak';
       return `<tr class="${cls}">
         <td class="fm-n"><b>${r.n}</b></td>
@@ -494,6 +608,8 @@
       const nb = e.target.closest('.ex-nav-btn');
       if (nb) { exGo(+nb.dataset.i); return; }
       if (id === 'exFsBtn') { exStrictEnter(); return; }
+      if (id === 'kgSave') { kgSave(); return; }
+      if (id === 'kgQuit') { quitExam(); return; }
       if (id === 'exPrev') exGo(EX.cur - 1);
       else if (id === 'exNext') exGo(EX.cur + 1);
       else if (id === 'exFinish') finishExam(false);
@@ -517,6 +633,7 @@
     }
   });
   trainerEl.addEventListener('input', e => {
+    if (examShown && EX && EX.kege && e.target.closest('.answer-row[data-key]')) { kgState(); return; }
     if (examShown && EX && e.target.closest('.answer-row[data-key]')) {
       saveExamInputs();
       $$('.ex-nav-btn').forEach(b => b.classList.toggle('done', answeredItem(EX.items[+b.dataset.i])));

@@ -19,7 +19,13 @@ def atomic(fn):
 
 
 def financial_path(path):
-    return (path.startswith('/api/gifts') or path in ('/api/forbes', '/api/freeze/buy')
+    # These JSON workflows also read, modify and write shared state.
+    return (path.startswith(('/api/asg/', '/api/exam/', '/api/duel/'))
+            or (path.startswith('/api/admin/asg/') and path != '/api/admin/asg/archive')
+            or path.startswith('/api/admin/batch/')
+            or path in ('/api/teacher/signup', '/api/teacher/guest', '/api/admin/teacher/delete',
+                        '/api/solution', '/api/assignments', '/api/admin/assignment/save')
+            or path.startswith('/api/gifts') or path in ('/api/forbes', '/api/freeze/buy')
             or path.startswith('/api/admin/gifts')
             or path in ('/api/admin/bank', '/api/admin/thermo', '/api/admin/promo'))
 
@@ -41,7 +47,7 @@ def atomic_response(handler, db, run):
                 with db.transaction():
                     run()
                     if not response:
-                        raise RuntimeError('financial endpoint did not return JSON')
+                        raise RuntimeError('transactional endpoint did not return JSON')
                     if response[1] >= 400:
                         raise Rejected()
             except Rejected:

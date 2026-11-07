@@ -46,6 +46,7 @@
     exam_per_day: 3,
     exam_min_for_answers: 20 * 60,
     authored: true,             // давать ли авторские задания в подборках и вариантах
+    hints: false,               // подсказки по шагам вместо «Показать ответ» (включает учитель)
   };
   const thinkSec = n => (n >= 24 ? RULES.think_hard : RULES.think);
   const DAY = 864e5;
@@ -424,7 +425,11 @@
         }
       }).catch(() => { /* нет связи — как обычно */ });
       m.hidden = false;
-      setTab(last ? 'login' : 'reg', note || '');
+      // ссылка-приглашение учителя: /?invite=КОД — код уже вписан, открыта регистрация
+      const qp = new URLSearchParams(location.search), inv = qp.get('invite'), nn = qp.get('n');
+      if (inv) $('#regCode').value = inv.replace(/\s+/g, '').slice(0, 40);
+      if (nn) $('#loginName').value = nn.slice(0, 80);           // карточка входа от учителя: ФИО уже вписано
+      setTab(nn || (last && !inv) ? 'login' : 'reg', note || '');
 
       const run = async (form, body) => {
         const btn = form.querySelector('button[type="submit"]');
@@ -471,6 +476,17 @@
     });
   }
 
+  /** Впервые на сайте (в этом браузере никто не входил), пришёл не по ссылке-приглашению и не из школьной сети —
+      сначала главная страница: что за сервис, вход ученика и учителя. true — уходим на /welcome. */
+  async function maybeWelcome() {
+    const qp = new URLSearchParams(location.search);
+    if (readJSON(LAST_NAME_STORE) || qp.has('invite') || qp.has('login') || qp.has('n')) return false;
+    const shared = await fetch('api/net', { cache: 'no-store' }).then(r => r.json()).then(n => !!n.shared).catch(() => true);
+    if (shared) return false;
+    location.replace('/welcome');
+    return true;
+  }
+
   /** Задания закрыты: сначала вход, потом перезагрузка страницы. */
   async function gate() {
     $('#grid').innerHTML = Array.from({ length: 27 }, (_, i) =>
@@ -487,6 +503,7 @@
         return;
       } catch (e) { /* токен устарел — войдём заново */ }
     }
+    if (!tried && await maybeWelcome()) return;
     const r = await loginDialog(tried ? 'Браузер не сохранил вход. Разрешите cookie для этого сайта и войдите ещё раз.' : '');
     writeStudent({ sid: r.sid, name: r.name, token: r.token });
     try { sessionStorage.setItem('egeTrainer.relogin', '1'); } catch (e2) { /* нет доступа */ }
@@ -1348,12 +1365,17 @@
       setTimeout(() => $('#nextBtn') && $('#nextBtn').focus({ preventScroll: true }), 0);
       return;
     }
+    const hintMode = SERVER && RULES.hints && !cur.group;
+    const hintsUsed = (cur.hints || []).length;
+    hintBoxRender(a);
     a.innerHTML = `
       <button class="btn primary" id="checkBtn" type="button">Проверить<kbd>Enter</kbd></button>
-      <button class="btn" id="giveUpBtn" type="button">Показать ответ</button>
+      ${hintMode && hintsUsed < 2 ? `<button class="btn" id="hintBtn" type="button" title="Подсказка: сначала идея, потом план решения. С подсказкой задание засчитается как со второй попытки">💡 Подсказка ${hintsUsed + 1} из 2</button>` : ''}
+      <button class="btn${hintMode && hintsUsed < 2 ? ' ghost' : ''}" id="giveUpBtn" type="button"${hintMode && hintsUsed < 2 ? ' hidden' : ''}>Показать ответ</button>
       ${cur.attempt === 0 ? '<button class="btn ghost" id="skipBtn" type="button" title="Пропустить без штрафа">Пропустить →</button>' : ''}`;
     $('#checkBtn').addEventListener('click', check);
     $('#giveUpBtn').addEventListener('click', giveUp);
+    if ($('#hintBtn')) $('#hintBtn').addEventListener('click', getHint);
     const sk = $('#skipBtn');
     if (sk) sk.addEventListener('click', next);
     // «Показать ответ» доступна не сразу: сначала нужно попробовать решить
@@ -1529,8 +1551,7 @@
   function payloadFor(obj, extra) {
     const rk = cur.group ? cur.revKey : (cur.why.type === 'review' ? cur.why.r.key : '');
     return Object.assign({ task: obj.id, reason: cur.why.type, rk, spent_ms: Date.now() - cur.started, away: cur.away || 0,
-      away_sec: Math.round(cur.awaySec || 0), back_sec: cur.backAt ? (Date.now() - cur.backAt) / 1000 : null, paste: cur.paste ? 1 : 0,
-      bot: botPayload(cur.task.id) }, extra);
+      away_sec: Math.round(cur.awaySec || 0), back_sec: cur.backAt ? (Date.now() - cur.backAt) / 1000 : null, paste: cur.paste ? 1 : 0 }, extra);
   }
   async function callCheck(obj, extra) {              // может выбросить ошибку сети
     if (!SERVER) return localCheck(obj, extra);
@@ -1627,6 +1648,26 @@
       return;
     }
     finish(0, false, res);
+  }
+
+  // ---- подсказки по шагам (если учитель включил): 1 — идея, 2 — план, потом «Показать ответ»
+  function hintBoxRender(actions) {
+    let box = $('#hintBox');
+    const list = (cur && cur.hints) || [];
+    if (!list.length) { if (box) box.remove(); return; }
+    if (!box) { box = document.createElement('div'); box.id = 'hintBox'; box.className = 'hint-box'; actions.insertAdjacentElement('beforebegin', box); }
+    box.innerHTML = list.map(h => `<div class="hint-step"><b>💡 ${esc(h.title)}</b>${h.type ? ` <small>· ${esc(h.type)}</small>` : ''}<p>${esc(h.text)}</p></div>`).join('')
+      + '<p class="hint-note">С подсказкой верный ответ засчитается как со второй попытки.</p>';
+  }
+  async function getHint() {
+    if (!cur || cur.done || busy) return;
+    const task = cur.task.id;
+    try {
+      const h = await api('hint', { task });
+      if (!cur || cur.task.id !== task) return;
+      cur.hints = (cur.hints || []).concat([h]);
+      renderActions();
+    } catch (e) { toast(e.message || 'Подсказка недоступна'); }
   }
 
   async function giveUp() {
@@ -3001,6 +3042,7 @@
     if (!confirm('Выйти из варианта? Ответы сохранятся, но время идёт. Вернуться — кнопкой «Вариант ЕГЭ».')) return false;
     saveExamInputs();
     examShown = false;
+    document.body.classList.remove('kege-on');
     exStrictLeave();
     cur = null;
     return true;
@@ -3263,6 +3305,29 @@
   let EX = null;          // идущий вариант: { id, started, deadline, items: [{ id, n }], ans: { id: { answer, cells } }, cur }
   let examShown = false;
   let exTimer = null;
+  let exSaveTimer = null;
+  let exSaveWarned = false;
+  const examAnswerList = () => EX.items.flatMap(x => {
+    const t = byId.get(x.id);
+    return t ? examKeys(t).map(k => ({ task: k, answer: (EX.ans[k] || {}).answer || '',
+      cells: (EX.ans[k] || {}).cells || null })) : [];
+  });
+  async function syncExamAnswers() {
+    clearTimeout(exSaveTimer);
+    if (!SERVER || !EX || EX.finishing) return;
+    const ex = EX;
+    ex.rev = Math.max(Date.now(), (ex.rev || 0) + 1);
+    writeJSON(examKey(), ex);
+    try {
+      const r = await api('exam/save', { exam_id: ex.id, rev: ex.rev, answers: examAnswerList() });
+      if (r.expired && EX === ex && !ex.finishing) finishExam(true);
+      exSaveWarned = false;
+    } catch (e) {
+      if (!exSaveWarned) toast('Ответы сохранены в браузере. Нет связи с сервером — восстанови её до конца варианта', 6000);
+      exSaveWarned = true;
+      if (EX === ex && !ex.finishing) exSaveTimer = setTimeout(syncExamAnswers, 3000);
+    }
+  }
 
   /** По заданию на каждый номер: актуального формата, по возможности новое для ученика и свежее. */
   /** Задания, решённые верно в последних VARIANT_GAP вариантах: снова попадут в вариант не раньше, чем через столько вариантов.
@@ -3306,8 +3371,27 @@
     return items;
   }
   const examKeys = t => (t.parts ? t.parts.map(p => p.id) : [t.id]);
-  const answeredItem = x => { const t = byId.get(x.id); return !!t && examKeys(t).some(k => EX.ans[k] && EX.ans[k].answer); };
-  const saveExam = () => writeJSON(examKey(), EX);
+  const hasExamAnswer = x => {
+    const t = byId.get(x.id);
+    return !!t && examKeys(t).some(k => String((EX.ans[k] || {}).answer || '').trim());
+  };
+  const answeredItem = x => {
+    const t = byId.get(x.id);
+    return !!t && examKeys(t).every(k => {
+      const a = EX.ans[k], obj = byId.get(k) || (t.parts || []).find(p => p.id === k) || t;
+      if (!a || !String(a.answer || '').trim()) return false;
+      const sh = shapeOf(obj);
+      if (sh.type === 'single' || !a.cells) return true;
+      if (sh.rows < 3) return a.cells.length === sh.rows * sh.cols && a.cells.every(c => String(c).trim());
+      // Variable-length tables: each started row must be filled; trailing empty rows are allowed.
+      return a.cells.every((c, i, cells) => String(c).trim() || !cells.slice(i - i % sh.cols, i - i % sh.cols + sh.cols).some(v => String(v).trim()));
+    });
+  };
+  const saveExam = () => {
+    writeJSON(examKey(), EX);
+    clearTimeout(exSaveTimer);
+    if (SERVER && EX && !EX.finishing) exSaveTimer = setTimeout(syncExamAnswers, 250);
+  };
 
   function openExamIntro() {
     if (EX) { resumeExam(); return; }
@@ -3323,17 +3407,25 @@
       </ul>
       <div class="actions">
         <button type="button" class="btn primary" id="exStart">Начать вариант</button>
+        <button type="button" class="btn" id="exStartKege" title="Экран как на компьютерном экзамене: ряд номеров, окно ответа, ответ засчитывается только после «Сохранить ответ»">🖥 Как на КЕГЭ</button>
         <button type="button" class="btn ghost" id="exCancel">Отмена</button>
-      </div>`;
+      </div>
+      <p class="fm-note"><b>Как на КЕГЭ</b> — тот же вариант на экране, похожем на экзаменационную станцию: без меню сайта, номера заданий вверху,
+        ответ нужно сохранить кнопкой — несохранённый ответ не засчитается, как на настоящем экзамене.</p>`;
     $('#forecastModal').hidden = false;
     $('#exCancel').addEventListener('click', closeForecast);
     $('#exStart').addEventListener('click', async e => {
       e.target.disabled = true;
       try { await beginExam(); } finally { e.target.disabled = false; }
     });
+    $('#exStartKege').addEventListener('click', async e => {
+      e.target.disabled = true;
+      try { await beginExam(true); } finally { e.target.disabled = false; }
+    });
   }
 
-  async function beginExam() {
+  async function beginExam(kege) {
+    const started = Date.now();
     let items = SERVER ? [] : pickVariant();
     let id = 'local-' + Date.now(), limit = RULES.exam_sec;
     if (SERVER) {
@@ -3349,7 +3441,7 @@
     abandonCurrent();
     leaveCourse();                         // со страницы «Мои варианты» — прямо в вариант
     cur = null;
-    EX = { id, started: Date.now(), deadline: Date.now() + limit * 1000, items, ans: {}, cur: 0 };
+    EX = { id, started, deadline: started + limit * 1000, items, ans: {}, cur: 0, kege: !!kege };
     saveExam();
     closeForecast();
     examShown = true;
@@ -3410,8 +3502,9 @@
     $$('.cell', row).forEach((c, i) => { c.value = (saved.cells && saved.cells[i]) || ''; });
   }
 
-  function saveExamInputs() {
+  function saveExamInputs(force) {
     if (!EX || !examShown) return;
+    if (EX.kege && !force) return;            // как на КЕГЭ: ответ сохраняет только кнопка «Сохранить ответ»
     $$('#trainer .answer-row[data-key]').forEach(row => {
       const t = byId.get(row.dataset.key) || TASKS.find(x => (x.parts || []).some(p => p.id === row.dataset.key));
       const obj = byId.get(row.dataset.key) || (t && t.parts.find(p => p.id === row.dataset.key));
@@ -3426,13 +3519,76 @@
 
   function exGo(i) {
     if (!EX) return;
+    if (EX.kege && kgDirty() && !confirm('Ответ на это задание не сохранён. Перейти без сохранения?')) return;
     saveExamInputs();
     EX.cur = Math.max(0, Math.min(EX.items.length - 1, i));
     saveExam();
     renderExam();
   }
 
+  // ---- «как на КЕГЭ»: экран без меню сайта, ряд номеров, окно ответа и явное сохранение
+  function kgDirty() {
+    return $$('#trainer .answer-row[data-key]').some(row => {
+      const obj = byId.get(row.dataset.key) || (TASKS.find(x => (x.parts || []).some(p => p.id === row.dataset.key)) || { parts: [] }).parts.find(p => p.id === row.dataset.key);
+      if (!obj) return false;
+      return readAnswerIn(row, shapeOf(obj)).join(' ') !== ((EX.ans[row.dataset.key] || {}).answer || '');
+    });
+  }
+  function kgState() {
+    const el = $('#kgState');
+    if (!el) return;
+    const it = EX.items[EX.cur], dirty = kgDirty(), saved = answeredItem(it);
+    el.className = 'kg-state ' + (dirty ? 'dirty' : saved ? 'ok' : '');
+    el.textContent = dirty ? 'Ответ изменён и не сохранён' : saved ? 'Ответ сохранён'
+      : hasExamAnswer(it) ? 'Часть ответа сохранена — заполните остальные поля' : 'Ответ не дан';
+  }
+  function renderKege() {
+    document.body.classList.add('kege-on');
+    const it = EX.items[EX.cur], t = byId.get(it.id);
+    const left = (EX.deadline - Date.now()) / 1000, last = EX.cur === EX.items.length - 1;
+    const nums = EX.items.map((x, i) => `<button type="button" class="ex-nav-btn kg-n${i === EX.cur ? ' on' : ''}${answeredItem(x) ? ' done' : ''}" data-i="${i}" title="Задание ${numLabel(x.n)}${answeredItem(x) ? ' — ответ сохранён' : ''}">${numLabel(x.n)}</button>`).join('');
+    const answerHtml = t.parts ? t.parts.map(exPartHtml).join('') : `<div class="answer-row" data-key="${esc(t.id)}">${inputsHtml(shapeOf(t))}</div>`;
+    trainerEl.innerHTML = `<div class="kege">
+      <header class="kg-top"><div class="kg-title"><b>Экзамен · Информатика</b><small>тренировка в режиме, похожем на КЕГЭ</small></div>
+        <div class="kg-who">${esc(student ? student.name : '')}</div>
+        <div class="kg-clock"><small>осталось</small><span id="exClock">${fmtClock(left)}</span></div>
+        <button type="button" class="kg-end" id="exFinish">Завершить экзамен</button></header>
+      <nav class="kg-nums" aria-label="Задания">${nums}</nav>
+      <section class="kg-body">
+        <div class="kg-task"><h2>Задание ${numLabel(t.n)}</h2>
+          <article class="cond" id="cond">${safeHtml(t.html)}</article>${filesHtml(t)}</div>
+        <aside class="kg-ans"><div class="kg-ans-h">${t.parts ? 'Ответы на вопросы 19, 20, 21' : 'Ответ'}</div>
+          ${answerHtml}
+          <div class="kg-state" id="kgState"></div>
+          <button type="button" class="kg-save" id="kgSave">Сохранить ответ</button>
+          <div class="kg-pn"><button type="button" id="exPrev"${EX.cur ? '' : ' disabled'}>← Предыдущее</button>
+            <button type="button" id="exNext"${last ? ' disabled' : ''}>Следующее →</button></div>
+          <div class="kg-tools">${PY_BTN}${CALC_BTN}</div>
+          <button type="button" class="kg-quit" id="kgQuit">Прервать экзамен</button></aside>
+      </section></div>`;
+    $$('#trainer .answer-row[data-key]').forEach(row => fillRow(row, EX.ans[row.dataset.key]));
+    dropDuplicateFileLinks($('#cond'), t.att || []);
+    decorateCondition($('#cond'), t);
+    guardDecorate($('#cond'), it.trap);
+    bindInputs(() => kgSave());
+    kgState();
+    const first = $('#trainer .answer-row input');
+    if (first && !pyOpen()) first.focus({ preventScroll: true });
+    window.scrollTo({ top: 0 });
+    pySync();
+  }
+  function kgSave() {
+    if (!EX) return;
+    saveExamInputs(true);
+    $$('.kg-n').forEach(b => b.classList.toggle('done', answeredItem(EX.items[+b.dataset.i])));
+    kgState();
+    toast(answeredItem(EX.items[EX.cur]) ? 'Ответ сохранён'
+      : hasExamAnswer(EX.items[EX.cur]) ? 'Ответ сохранён частично' : 'Ответ очищен', 1500);
+  }
+
   function renderExam() {
+    if (EX.kege) return renderKege();
+    document.body.classList.remove('kege-on');
     const it = EX.items[EX.cur];
     const t = byId.get(it.id);
     if (!t) { EX.items.splice(EX.cur, 1); EX.cur = 0; saveExam(); if (EX.items.length) renderExam(); return; }
@@ -3513,17 +3669,15 @@
     if (!examShown) abandonCurrent();      // время вышло, пока решал задание в тренировке
     saveExamInputs();
     const left = EX.items.filter(x => !answeredItem(x)).length;
-    if (!auto && !confirm(left ? `Без ответа заданий: ${left}. Завершить вариант и узнать результат?` : 'Завершить вариант и узнать результат?')) return;
+    const unsaved = EX.kege && kgDirty() ? 'Ответ на текущее задание не сохранён и не засчитается. ' : '';
+    if (!auto && !confirm(unsaved + (left ? `Без ответа заданий: ${left}. Завершить вариант и узнать результат?` : 'Завершить вариант и узнать результат?'))) return;
     EX.finishing = true;
-    const list = [];
-    for (const x of EX.items) {
-      const t = byId.get(x.id);
-      if (!t) continue;
-      for (const k of examKeys(t)) list.push({ task: k, answer: (EX.ans[k] || {}).answer || '', cells: (EX.ans[k] || {}).cells || null, bot: botPayload(x.id) });
-    }
+    clearTimeout(exSaveTimer);
+    const list = examAnswerList();
     let res;
     try {
       res = SERVER ? await api('exam/finish', { exam_id: EX.id, answers: list }) : localExamResult(list);
+      if (res && res.expired) toast('Время вышло. Учтены ответы, сохранённые на сервере до окончания варианта', 6000);
       if (res && res.game) setTimeout(() => onGame(res.game), 800);
     } catch (e) {
       EX.finishing = false;
@@ -3534,6 +3688,7 @@
     const done = EX;
     EX = null;
     examShown = false;
+    document.body.classList.remove('kege-on');
     exStrictLeave();
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     recordExam(res);
@@ -3545,6 +3700,7 @@
     clearInterval(exTimer);
     EX = null;
     examShown = false;
+    document.body.classList.remove('kege-on');
     exStrictLeave();
     try { if (storage) storage.removeItem(examKey()); } catch (e) { /* не страшно */ }
     cur = null;
@@ -3556,7 +3712,7 @@
     cur = null;
     const full = res.results.filter(r => r.points === r.max).length;
     const rows = res.results.map(r => {
-      const mine = (ex.ans[r.task] || {}).answer || '';
+      const mine = r.mine != null ? r.mine : (ex.ans[r.task] || {}).answer || '';
       const cls = r.points === r.max ? 'lv-good' : r.points ? 'lv-mid' : 'lv-weak';
       return `<tr class="${cls}">
         <td class="fm-n"><b>${r.n}</b></td>
@@ -3755,6 +3911,8 @@
       const nb = e.target.closest('.ex-nav-btn');
       if (nb) { exGo(+nb.dataset.i); return; }
       if (id === 'exFsBtn') { exStrictEnter(); return; }
+      if (id === 'kgSave') { kgSave(); return; }
+      if (id === 'kgQuit') { quitExam(); return; }
       if (id === 'exPrev') exGo(EX.cur - 1);
       else if (id === 'exNext') exGo(EX.cur + 1);
       else if (id === 'exFinish') finishExam(false);
@@ -3778,6 +3936,7 @@
     }
   });
   trainerEl.addEventListener('input', e => {
+    if (examShown && EX && EX.kege && e.target.closest('.answer-row[data-key]')) { kgState(); return; }
     if (examShown && EX && e.target.closest('.answer-row[data-key]')) {
       saveExamInputs();
       $$('.ex-nav-btn').forEach(b => b.classList.toggle('done', answeredItem(EX.items[+b.dataset.i])));
@@ -7270,7 +7429,7 @@
     setBusy(true);
     let r = null;
     try {
-      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing, bot: botPayload(cur.task.id) }, x));
+      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing }, x));
     } catch (e) {
       setBusy(false);
       if (e.status === 409) { await wkRefresh(a); if (!wkLive()) return; toast(e.message, 4000); next(); return; }
@@ -9155,65 +9314,6 @@
     ['pointerdown', 'keydown'].forEach(t => document.addEventListener(t, go, true));
   }
   sndRender();
-  // ═══════ src/app/12h-bot.js
-  // ------------------------------------------------------------ детектор ботов (скрыто: ученику ничего не показываем)
-  // Программа, которая сама управляет экраном (смотрит снимки экрана, двигает мышь и печатает), видит то же, что ученик, —
-  // запретить её нельзя, но работает она иначе: курсор «прыгает» прямо на кнопку без промежуточных движений, буквы идут
-  // с одинаковым до миллисекунды интервалом или ответ появляется в поле целиком, нажатия бывают созданы скриптом
-  // (isTrusted = false), у браузера под автоматизацией — navigator.webdriver. По каждому заданию копим только счётчики
-  // и интервалы — не что печатали — и отправляем с ответом (botPayload); решает сервер (bot_reasons), учитель видит 🦾.
-  const BOT = { tasks: {}, dx: null, dy: null, since: 0, lastKey: 0 };     // dx, dy — где был прошлый клик; since — движений после него
-  const botTask = () => { const id = openTaskId(); return id ? (BOT.tasks[id] = BOT.tasks[id] || { mv: 0, clk: 0, fclk: 0, tclk: 0, keys: 0, gaps: [], inst: 0, synth: 0, touch: 0, kt: 0 }) : null; };
-  const botField = el => !!(el && el.closest && el.closest('#trainer .answer-row, #pyCode'));
-  /** Счётчики задания id для отправки с ответом: разброс интервалов печати — в мс. */
-  function botPayload(id) {
-    const m = BOT.tasks[id];
-    if (!m) return navigator.webdriver ? { wd: 1 } : null;
-    const g = m.gaps, mean = g.length ? g.reduce((a, b) => a + b, 0) / g.length : 0;
-    const std = g.length ? Math.sqrt(g.reduce((a, b) => a + (b - mean) * (b - mean), 0) / g.length) : 0;
-    return { mv: m.mv, clk: m.clk, fclk: m.fclk, tclk: m.tclk, keys: m.keys, kstd: Math.round(std * 10) / 10, inst: m.inst, synth: m.synth, touch: m.touch,
-      wd: navigator.webdriver ? 1 : 0 };
-  }
-  document.addEventListener('pointermove', e => {
-    if (e.pointerType !== 'mouse') return;
-    const m = botTask();
-    BOT.since++;
-    if (m) m.mv++;
-  }, { capture: true, passive: true });
-  document.addEventListener('pointerdown', e => {
-    const m = botTask();
-    if (m && !e.isTrusted) { m.synth++; return; }
-    if (e.pointerType !== 'mouse') { if (m) m.touch++; return; }
-    // курсор оказался на новом месте, а движений после прошлого клика — одно-два: к кнопке не вели, он «прыгнул»
-    const far = BOT.dx == null || Math.hypot(e.clientX - BOT.dx, e.clientY - BOT.dy) > 40;
-    if (m) {
-      m.clk++;
-      if (far) m.fclk++;                                       // клик в новое место (тройной клик в одно — не в счёт)
-      if (far && BOT.since <= 1) m.tclk++;
-    }
-    BOT.dx = e.clientX;                                          // и вне задания: следующий клик сравнивается с этим
-    BOT.dy = e.clientY;
-    BOT.since = 0;
-  }, { capture: true, passive: true });
-  document.addEventListener('keydown', e => {
-    if (!botField(e.target)) return;
-    const m = botTask();
-    if (!m) return;
-    if (!e.isTrusted) { m.synth++; return; }
-    BOT.lastKey = performance.now();
-    if (!e.key || e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
-    m.keys++;
-    if (m.kt && BOT.lastKey - m.kt < 600 && m.gaps.length < 60) m.gaps.push(BOT.lastKey - m.kt);   // паузы между словами — не в счёт
-    m.kt = BOT.lastKey;
-  }, { capture: true, passive: true });
-  document.addEventListener('input', e => {
-    if (!botField(e.target)) return;
-    const m = botTask();
-    if (!m) return;
-    if (!e.isTrusted) { m.synth++; return; }
-    // ответ появился целиком без нажатий (не вставка из буфера, не набор через IME) — так заполняет поле программа
-    if (/^insert(Text|ReplacementText)$/.test(e.inputType || '') && (e.data || '').length >= 3 && performance.now() - BOT.lastKey > 80) m.inst++;
-  }, { capture: true, passive: true });
   // ═══════ src/app/12i-together.js
   // ------------------------------------------------------------ совместный сеанс: приглашение от учителя
   /* Учитель позвал в общий сеанс (код и доска, together.html) — карточка «Учитель зовёт в общий сеанс» всплывает сразу
@@ -9758,6 +9858,7 @@
       }
       if (!ok) {
         ui.currentId = null;
+        if (await maybeWelcome()) return;
         await askName();
       }
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); abandonCurrent(true); flushSync(true); });

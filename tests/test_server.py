@@ -596,6 +596,20 @@ class ServerTest(unittest.TestCase):
         # учитель видит задания работы и итог по каждому: верно, со 2-й попытки, неверно
         self.assertEqual([x["id"] for x in live["items"]], ["b:5", "b:6", "b:27"])
         self.assertEqual(row["cells"], [1, 0.5, 0])
+        # архив работ для печати / PDF: сводка, КИМ с ответами, раздел ученика с его ответами и временем
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", f"/api/admin/asg/archive?id={aid}", headers={"Cookie": "egeadm=admtest"})
+        r = c.getresponse()
+        page = r.read().decode("utf-8")
+        c.close()
+        self.assertEqual(r.status, 200)
+        me_name = server.APP.db.q("SELECT name FROM students WHERE id=?", (me,), one=True)["name"]
+        for piece in ("КИМ ПОДБОРКИ", me_name, "Ответ ученика: 12", "Эталон: 12", "Затраченное время", "Верно", "Половина"):
+            self.assertIn(piece, page)
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", f"/api/admin/asg/archive?id={aid}")
+        self.assertEqual(c.getresponse().status, 401)                      # без входа учителя — нельзя
+        c.close()
         st, d = self.admin("GET", f"/api/admin/assignments?class_id={cid}")
         self.assertEqual(d["assignments"][0]["kind"], "practice")
         # журнал класса: оценка за подборку и точность по номерам
@@ -755,6 +769,15 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((r["result"]["ok"], r["result"]["half"], r["result"]["bad"], r["result"]["pct"], r["result"]["grade"]),
                          (2, 1, 1, 63, 4))                                    # 2.5 из 4 = 63% → «4» (порог 60)
         self.assertEqual(self.req("POST", "/api/asg/finish", {"id": aid}, tok)[1]["result"]["grade"], 4)   # повторно — то же
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", f"/api/admin/asg/archive?id={aid}", headers={"Cookie": "egeadm=admtest"})
+        r = c.getresponse()
+        page = r.read().decode("utf-8")
+        c.close()
+        self.assertEqual(r.status, 200)
+        self.assertIn("Результат: 2.5 / 4 баллов", page)                   # самостоятельная: итог и уходы со вкладки
+        self.assertIn("Уходы со вкладки: 1", page)
+        self.assertIn("print(12)", page)                                    # прикреплённое решение
         n = server.APP.db.q("SELECT COUNT(*) AS c FROM attempts WHERE student_id=? AND reason='work'", (me,), one=True)["c"]
         self.assertEqual(n, 4)                                               # в журнал — один раз
         self.assertEqual(self.check(tok, pid5, answer="12")[0], 200)          # после сдачи — обычная тренировка
@@ -2003,36 +2026,18 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(db.q("SELECT COUNT(*) c FROM coins WHERE reason='class'", one=True)["c"], n_coins)
         self.assertEqual(math.ceil(5000 / 15), 334)
 
-    def test_bot_detector(self):
-        # детектор ботов: признаки программы — отметка bot с причиной (учителю), ученику в ответе — ничего; человек и планшет — без отметки
-        R = server.bot_reasons
-        human = {"mv": 180, "clk": 2, "tclk": 0, "keys": 3, "kstd": 60, "inst": 0, "synth": 0, "touch": 0, "wd": 0}
-        self.assertEqual(R(human), [])
-        self.assertEqual(R(None), [])
-        self.assertEqual(R({"mv": 0, "clk": 0, "touch": 4, "inst": 1}), [])                     # планшет: без мыши — не признак
-        self.assertEqual(len(R({"mv": 3, "clk": 3, "tclk": 3})), 1)                              # три «прыжка» — сразу
-        self.assertEqual(R({"mv": 2, "clk": 2, "tclk": 2}), [])                                  # один слабый признак — мало
-        self.assertEqual(len(R({"mv": 2, "clk": 2, "tclk": 2, "keys": 8, "kstd": 1.5})), 2)      # два слабых — отметка
-        self.assertIn("браузер под управлением программы", R({"wd": 1}))
+    def test_no_bot_detector(self):
+        # детектор ботов убран: присланные счётчики игнорируются, отметок «бот» нет
+        self.assertFalse(hasattr(server, "bot_reasons"))
         tok = self.login("Роботов Роман")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
-        p5, p6 = server.APP.bank.pid("b:5"), server.APP.bank.pid("b:6")
+        p5 = server.APP.bank.pid("b:5")
         self.req("POST", "/api/open", {"task": p5}, tok)
-        st, d = self.check(tok, p5, answer="12", bot={"mv": 1, "clk": 3, "tclk": 3, "keys": 6, "kstd": 0.8})
+        st, d = self.check(tok, p5, answer="12", bot={"mv": 1, "clk": 3, "tclk": 3, "wd": 1})
         self.assertEqual(st, 200)
-        self.assertNotIn("bot", json.dumps(d))                                                  # скрыто: ученик ничего не узнаёт
-        self.req("POST", "/api/open", {"task": p6}, tok)
-        self.check(tok, p6, answer="7", bot=human)
         at = {a["task_id"]: a for a in self.admin("GET", f"/api/admin/student?id={sid}&from=0")[1]["attempts"]}
-        self.assertEqual(at["b:5"]["flags"], "bot")
-        self.assertIn("клики без движения мыши", at["b:5"]["bot_why"])
-        self.assertIsNone(at["b:6"]["flags"])
-        # вариант: метрики приходят с каждым ответом
-        st, e = self.req("POST", "/api/exam/start", {}, tok)
-        self.req("POST", "/api/exam/finish", {"exam_id": e["exam_id"], "answers": [{"task": "b:5", "answer": "12", "bot": {"wd": 1}}]}, tok)
-        row = server.APP.db.q("SELECT flags, bot_why FROM attempts WHERE exam=?", (e["exam_id"],), one=True)
-        if row:                                                                                # b:5 мог не попасть в вариант
-            self.assertEqual((row["flags"], row["bot_why"]), ("bot", "браузер под управлением программы"))
+        self.assertIsNone(at["b:5"]["flags"])
+        self.assertIsNone(at["b:5"]["bot_why"])
 
     def test_integrity_flags(self):
         # ⚠ — вернулся после долгого ухода и сразу верно; 📋 — ответ вставлен; сводка «вне тренажёра» и строгий режим варианта
@@ -3248,6 +3253,244 @@ class ServerTest(unittest.TestCase):
         self.assertGreater(server.rare_score(castle), server.rare_score(ck) * 9)          # мифический замок весит в 10 раз больше
         self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE day=? AND student_id=?", (today.isoformat(), sidA), one=True)["total"], A["total"])
         self.assertEqual(self.req("GET", "/api/forbes")[0], 401)
+
+    # ------------------------------------------------------------ учитель сам: регистрация, пробный период, гость
+    def creq(self, method, path, body=None, cookie=None, ip="203.0.113.9"):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+        h = {"Content-Type": "application/json", "X-Forwarded-For": ip}
+        if cookie:
+            h["Cookie"] = cookie
+        c.request(method, path, body=json.dumps(body) if body is not None else None, headers=h)
+        r = c.getresponse()
+        raw = r.read()
+        c.close()
+        try:
+            data = json.loads(raw or b"null")
+        except ValueError:
+            data = raw.decode("utf-8", "replace")
+        ck = (r.getheader("Set-Cookie") or "").split(";")[0]
+        return r.status, data, ck
+
+    def test_teacher_signup_trial_readonly_and_extend(self):
+        db = server.APP.db
+        st, d, _ = self.creq("POST", "/api/teacher/signup", {"name": "Учитель", "email": "x@y.ru", "password": "longpass1", "accept": True})
+        self.assertEqual(st, 400)                                    # нужны фамилия и имя
+        st, d, _ = self.creq("POST", "/api/teacher/signup", {"name": "Новикова Ольга", "email": "bad", "password": "longpass1", "accept": True})
+        self.assertEqual(st, 400)
+        st, d, ck = self.creq("POST", "/api/teacher/signup", {"name": "Новикова  Ольга Петровна", "email": "Olga@Example.ru",
+                                                              "password": "longpass1", "accept": True})
+        self.assertEqual(st, 200, d)
+        self.assertTrue(ck.startswith("egeadm="))
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertEqual(me["access"]["state"], "trial")
+        self.assertAlmostEqual(me["access"]["left"], server.TRIAL_DAYS * 86400, delta=60)
+        self.assertEqual(me["steps"], {"class": False, "students": 0, "asg": False})
+        self.assertFalse(me["consent_needed"])                      # согласие дано при регистрации
+        self.assertEqual(me["email"], "olga@example.ru")
+        st, d, _ = self.creq("POST", "/api/teacher/signup", {"name": "Другая Ольга", "email": "olga@example.ru",
+                                                             "password": "longpass1", "accept": True}, ip="203.0.113.10")
+        self.assertEqual(st, 409)
+        st, d, ck2 = self.creq("POST", "/api/admin/login", {"login": "OLGA@example.ru", "password": "longpass1"})
+        self.assertEqual(st, 200, d)                                 # вход по почте
+        st, d, _ = self.creq("POST", "/api/admin/class/save", {"name": "10 Б"}, cookie=ck)
+        self.assertEqual(st, 200, d)
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertTrue(me["steps"]["class"])
+        tid = me["id"]
+        db.x("UPDATE teachers SET until=? WHERE id=?", (time.time() - 5, tid))
+        st, d, _ = self.creq("POST", "/api/admin/class/save", {"name": "10 В"}, cookie=ck)
+        self.assertEqual(st, 402)                                    # срок вышел — только чтение
+        self.assertTrue(d["expired"])
+        st, d, _ = self.creq("GET", "/api/admin/classes", cookie=ck)
+        self.assertEqual(st, 200)                                    # смотреть можно
+        st, d, _ = self.creq("POST", "/api/admin/renew", {"note": "оплачу картой"}, cookie=ck)
+        self.assertEqual(st, 200, d)
+        st, d = self.admin("GET", "/api/admin/teachers")
+        row = next(t for t in d["teachers"] if t["id"] == tid)
+        self.assertTrue(row["renew_ts"] and row["access"]["expired"])
+        self.assertEqual(row["renew_note"], "оплачу картой")
+        st, d = self.admin("POST", "/api/admin/teacher/extend", {"id": tid, "days": 30})
+        self.assertEqual(st, 200, d)
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertEqual(me["access"]["state"], "paid")
+        self.assertAlmostEqual(me["access"]["left"], 30 * 86400, delta=60)
+        st, d, _ = self.creq("POST", "/api/admin/class/save", {"name": "10 В"}, cookie=ck)
+        self.assertEqual(st, 200, d)
+        st, d = self.admin("POST", "/api/admin/teacher/extend", {"id": tid, "days": 0})
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertEqual(me["access"]["state"], "full")
+        st, d, _ = self.creq("GET", "/api/public/offer")
+        self.assertEqual(d["trial_days"], server.TRIAL_DAYS)
+        self.assertTrue(d["tariffs"])
+        st, d = self.admin("POST", "/api/admin/offer", {"tariffs": [{"name": "Учитель", "price": "990 ₽", "per": "месяц", "items": "всё"}],
+                                                        "contacts": {"email": "sale@egeshka.test"}})
+        self.assertEqual(st, 200, d)
+        st, d, _ = self.creq("GET", "/api/public/offer")
+        self.assertEqual(d["tariffs"][0]["price"], "990 ₽")
+        self.assertEqual(d["contacts"]["email"], "sale@egeshka.test")
+        for c in db.q("SELECT id FROM classes WHERE teacher_id=?", (tid,)):
+            server.drop_class(db, c["id"])
+        db.x("DELETE FROM teachers WHERE id=?", (tid,))
+        db.x("DELETE FROM settings WHERE key='offer'")
+
+    def test_guest_teacher_demo_and_signup_keeps_account(self):
+        db = server.APP.db
+        st, d, ck = self.creq("POST", "/api/teacher/guest", {})
+        self.assertEqual(st, 200, d)
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertTrue(me["guest"])
+        self.assertEqual(me["access"]["state"], "guest")
+        self.assertAlmostEqual(me["access"]["left"], server.GUEST_SECONDS, delta=60)
+        tid = me["id"]
+        st, d, _ = self.creq("GET", "/api/admin/classes", cookie=ck)
+        demo = next(c for c in d["classes"] if c["name"] == server.DEMO_CLASS)
+        self.assertEqual(demo["students"], len(server.DEMO_NAMES))
+        st, dg, _ = self.creq("GET", f"/api/admin/class/digest?class_id={demo['id']}", cookie=ck)
+        self.assertEqual(st, 200, dg)
+        self.assertIsNotNone(dg["forecast_avg"])
+        self.assertEqual(len(dg["inactive"]), 2)                     # двое демо-учеников давно не заходили
+        self.assertFalse(me["steps"]["class"])                       # демо-класс не считается шагом
+        # настоящий ученик по коду гостя не регистрируется
+        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": me["invite"], "name": "Гостевой Ученик",
+                                                "new_password": "secret1"})
+        self.assertEqual(st, 403)
+        # демо-ответы не попадают в статистику сайта и в «решают %» конструктора
+        server._RATES["ts"] = 0
+        demo_ids = {r["task_id"] for r in db.q("SELECT task_id FROM attempts a JOIN students s ON s.id=a.student_id WHERE s.name_key LIKE ?",
+                                               (f"demo:{tid}:%",))}
+        real_ids = {r["task_id"] for r in db.q("SELECT task_id FROM attempts a JOIN students s ON s.id=a.student_id WHERE s.name_key NOT LIKE 'demo:%'")}
+        self.assertFalse((demo_ids - real_ids) & set(server.task_rates(db)))
+        st, ss = self.admin("GET", "/api/admin/site-stats")
+        self.assertEqual(st, 200, ss)
+        self.assertFalse(any(t["name"] == "Гость" for t in ss["by_teacher"]))
+        self.assertEqual(ss["users"], db.q("SELECT COUNT(*) c FROM students WHERE COALESCE(is_teacher,0)=0 AND name_key NOT LIKE 'demo:%'", one=True)["c"])
+        st, d, _ = self.creq("GET", "/api/admin/students?class_id=all", cookie=ck)
+        self.assertTrue(all(s["no_rank"] for s in d["students"]))   # демо-ученики вне рейтингов
+        # гость регистрируется — аккаунт тот же, демо-класс уходит
+        st, d, ck2 = self.creq("POST", "/api/teacher/signup", {"name": "Гостев Глеб", "email": "gleb@example.ru",
+                                                               "password": "longpass1", "accept": True}, cookie=ck)
+        self.assertEqual(st, 200, d)
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck2)
+        self.assertEqual((me["id"], me["guest"], me["access"]["state"]), (tid, False, "trial"))
+        self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{tid}:%",)))
+        self.assertFalse(db.q("SELECT 1 FROM classes WHERE teacher_id=?", (tid,)))
+        # закончившийся гость стирается через сутки
+        st, d, ck3 = self.creq("POST", "/api/teacher/guest", {}, ip="203.0.113.77")
+        st, me3, _ = self.creq("GET", "/api/admin/me", cookie=ck3)
+        db.x("UPDATE teachers SET until=? WHERE id=?", (time.time() - server.GUEST_KEEP_SECONDS - 10, me3["id"]))
+        server.purge_guests(db)
+        self.assertFalse(db.q("SELECT 1 FROM teachers WHERE id=?", (me3["id"],)))
+        self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{me3['id']}:%",)))
+        db.x("DELETE FROM teachers WHERE id=?", (tid,))
+
+    def test_weekly_report_mail(self):
+        db = server.APP.db
+        main = server.main_teacher()
+        cid = db.x("INSERT INTO classes(name, created, teacher_id) VALUES('Отчётный', ?, ?)", (time.time(), main["id"]))
+        tok = self.login("Отчётов Олег")
+        sid = db.q("SELECT id FROM students WHERE token=? OR id=(SELECT MAX(id) FROM students)", (tok,), one=True)["id"]
+        db.x("UPDATE students SET class_id=? WHERE id=?", (cid, sid))
+        st, d = self.admin("POST", "/api/admin/report", {"email": "main@example.ru", "on": True})
+        self.assertEqual(st, 200, d)
+        sent = []
+        since = time.time() - 100                                   # «понедельник, 8:00» — только что
+        with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+             mock.patch.object(server, "report_due_since", lambda now=None: since), \
+             mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, subj, h, t)) or True):
+            db.x("UPDATE teachers SET report_ts=NULL")
+            self.assertEqual(server.report_tick(db, "https://egeshka.test"), 1)
+            self.assertEqual(server.report_tick(db, "https://egeshka.test"), 0)      # второй раз за неделю — нет
+        to, subj, h, t = sent[0]
+        self.assertEqual(to, "main@example.ru")
+        self.assertIn("Отчётный", t)
+        self.assertIn("Не занимались за неделю: Отчётов Олег", t)
+        self.assertIn("https://egeshka.test/admin", h)
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        c.request("GET", "/api/admin/report/preview", headers={"Cookie": "egeadm=admtest"})
+        r = c.getresponse()
+        self.assertIn("Отчётный", r.read().decode())
+        c.close()
+        db.x("UPDATE teachers SET email=NULL, report_ts=NULL WHERE id=?", (main["id"],))
+        server.drop_class(db, cid)
+
+    def test_parent_link_and_class_import(self):
+        db = server.APP.db
+        main = server.main_teacher()
+        cid = db.x("INSERT INTO classes(name, created, teacher_id) VALUES('Импорт', ?, ?)", (time.time(), main["id"]))
+        tok = self.login("Занятов Захар")                       # уже есть у главного — перенесётся в класс
+        st, d = self.admin("POST", "/api/admin/class/import", {"class_id": cid, "names": [
+            "Новикова\tАнна", "  петров   пётр ", "Занятов Захар", "петров пётр", "123", "Х"]})
+        self.assertEqual(st, 200, d)
+        by = {r["name"]: r for r in d["rows"]}
+        self.assertEqual(by["Новикова Анна"]["status"], "new")
+        self.assertRegex(by["Новикова Анна"]["password"], r"^[a-z]{3}[2-9]{3}$")
+        self.assertEqual(by["Петров Пётр"]["status"], "new")
+        self.assertEqual(by["Занятов Захар"]["status"], "mine")
+        self.assertEqual(sum(1 for r in d["rows"] if r["name"] == "Петров Пётр"), 1)          # повтор в списке — один раз
+        self.assertEqual(sum(1 for r in d["rows"] if r["status"] == "bad"), 2)
+        st, lg = self.req("POST", "/api/login", {"mode": "login", "name": "Новикова Анна", "password": by["Новикова Анна"]["password"]})
+        self.assertEqual(st, 200, lg)                            # входит по карточке
+        self.assertTrue(lg["consent_needed"])                    # документы принимает при первом входе
+        sid = by["Новикова Анна"]["id"]
+        self.assertEqual(db.q("SELECT class_id FROM students WHERE id=?", (sid,), one=True)["class_id"], cid)
+        st, np = self.admin("POST", "/api/admin/student/newpw", {"id": sid})
+        self.assertEqual(st, 200)
+        st, _ = self.req("POST", "/api/login", {"mode": "login", "name": "Новикова Анна", "password": by["Новикова Анна"]["password"]})
+        self.assertEqual(st, 403)                                # старый пароль больше не подходит
+        st, _ = self.req("POST", "/api/login", {"mode": "login", "name": "Новикова Анна", "password": np["password"]})
+        self.assertEqual(st, 200)
+        # ссылка для родителей
+        st, p = self.admin("POST", "/api/admin/student/parent", {"id": sid, "email": "mama@example.ru"})
+        self.assertEqual((st, p["email"]), (200, "mama@example.ru"))
+        st, r = self.req("GET", "/api/parent?t=" + p["token"])
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r["name"], "Новикова Анна")
+        self.assertEqual(r["class"], "Импорт")
+        self.assertEqual(len(r["days"]), 28)
+        self.assertNotIn("Занятов", json.dumps(r, ensure_ascii=False))     # одноклассников родитель не видит
+        st, p2 = self.admin("POST", "/api/admin/student/parent", {"id": sid, "new": True})
+        self.assertNotEqual(p2["token"], p["token"])
+        self.assertEqual(self.req("GET", "/api/parent?t=" + p["token"])[0], 404)   # старая ссылка не работает
+        self.assertEqual(self.req("GET", "/api/parent?t=x")[0], 404)
+        st, cl = self.admin("GET", f"/api/admin/class/parents?class_id={cid}")
+        self.assertEqual({x["name"] for x in cl["students"]}, {"Новикова Анна", "Петров Пётр", "Занятов Захар"})
+        # письмо родителю раз в неделю
+        sent = []
+        with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+             mock.patch.object(server, "report_due_since", lambda now=None: time.time() - 100), \
+             mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, subj, t)) or True):
+            self.assertEqual(server.parent_tick(db, "https://egeshka.test"), 1)
+            self.assertEqual(server.parent_tick(db, "https://egeshka.test"), 0)
+        self.assertEqual(sent[0][0], "mama@example.ru")
+        self.assertIn("https://egeshka.test/parent?t=" + p2["token"], sent[0][2])
+        for x in d["rows"]:
+            if x.get("id") and x["status"] == "new":
+                server.delete_student(db, x["id"])
+        server.drop_class(db, cid)
+
+    def test_step_hints(self):
+        db = server.APP.db
+        tok = self.login("Подсказкин Пётр")
+        p5 = server.APP.bank.pid("b:5")
+        self.req("POST", "/api/open", {"task": p5}, tok)
+        self.assertEqual(self.req("POST", "/api/hint", {"task": p5}, tok)[0], 403)        # учитель не включил
+        self.assertEqual(self.admin("POST", "/api/admin/hints", {"on": True})[1]["on"], True)
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["hints"])
+        st, h1 = self.req("POST", "/api/hint", {"task": p5}, tok)
+        self.assertEqual((st, h1["step"], h1["title"]), (200, 1, "Идея"))
+        st, h2 = self.req("POST", "/api/hint", {"task": p5}, tok)
+        self.assertEqual(h2["step"], 2)
+        self.assertNotIn("12", h1["text"] + h2["text"])                                  # ответ подсказка не выдаёт
+        self.assertEqual(self.req("POST", "/api/hint", {"task": p5}, tok)[1]["step"], 2) # дальше — только «Показать ответ»
+        st, d = self.check(tok, p5, answer="12")
+        self.assertEqual((st, d["correct"], d["score"]), (200, True, 0.5))                # с подсказкой — как со 2-й попытки
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        row = db.q("SELECT flags, score FROM attempts WHERE student_id=? ORDER BY id DESC LIMIT 1", (sid,), one=True)
+        self.assertEqual((row["flags"], row["score"]), ("hint", 0.5))
+        self.assertEqual(self.req("POST", "/api/hint", {"task": p5}, tok)[0], 409)       # уже решено
+        self.assertTrue(all(server.hints_mod.hint(n, k) for n in list(range(1, 20)) + list(range(22, 28)) for k in (1, 2)))
+        self.admin("POST", "/api/admin/hints", {"on": False})
 
     def test_forbes_all_teachers(self):
         # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;
