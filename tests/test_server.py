@@ -1677,6 +1677,8 @@ class ServerTest(unittest.TestCase):
         loser_tok = toks[sids.index(fin["b"]["sid"] if fin["a"]["sid"] == sids[0] else fin["a"]["sid"])]
         self.assertEqual(self.req("POST", "/api/tour/start", {"match": fin["id"]}, loser_tok)[0], 200)   # в плей-офф — снова можно
         # не больше трёх турниров каждого вида в сутки
+        # Выше старт сдвинут на 200 секунд для проверки неявки. После полуночи это уже вчера.
+        db.x("UPDATE tournaments SET started=? WHERE id=?", (time.time(), T["id"]))
         for _ in range(2):
             db.x("INSERT INTO tournaments(teacher_id, size, title, status, created, started, fmt) VALUES(?,?,?,?,?,?,2)",
                  (server.main_teacher()["id"], 4, "x", "done", time.time(), time.time()))
@@ -3192,9 +3194,11 @@ class ServerTest(unittest.TestCase):
 
         server.econ(db, fresh=True)
         self.assertEqual(labor_today(), want())
+        attempt_ts = time.time()
+        today = datetime.datetime.fromtimestamp(attempt_ts).date().isoformat()
         for j in range(6):
             db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,7,1,90000)",
-                 (sid, time.time() - 600 + j, f"{ids[j % len(ids)]}#lab{j}"))
+                 (sid, attempt_ts, f"{ids[j % len(ids)]}#lab{j}"))  # один день, в том числе в первые минуты после полуночи
         coins = server.game_summary(db, sid)["coins"]
         self.assertGreater(server.game_summary(db, sid, brief=True)["btc_days"][today][0], 0)
         server.econ(db, fresh=True)
@@ -3528,6 +3532,7 @@ class ServerTest(unittest.TestCase):
         # восстановление пароля по почте
         sent = []
         with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+             mock.patch.object(server, "SITE_URL", "https://trainer.example.test"), \
              mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, t)) or True):
             st, d = self.req("POST", "/api/pw/forgot", {"who": "new@example.ru"})
             self.assertEqual(st, 200)

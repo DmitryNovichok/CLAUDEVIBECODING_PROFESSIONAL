@@ -401,10 +401,8 @@
         Object.entries(forms).forEach(([kk, f]) => { f.hidden = kk !== k; });
         errEl.textContent = msg || '';
         errEl.classList.toggle('info', !!info);
-        setTimeout(() => {
-          const empty = Array.from(forms[k].querySelectorAll('input')).find(i => !i.value);
-          (empty || forms[k].querySelector('input')).focus();
-        }, 30);
+        const empty = Array.from(forms[k].querySelectorAll('input')).find(i => !i.value);
+        (empty || forms[k].querySelector('input')).focus();
       };
       tabs.forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
       const last = readJSON(LAST_NAME_STORE);
@@ -428,7 +426,7 @@
       const qp = new URLSearchParams(location.search), inv = qp.get('invite'), nn = qp.get('n');
       if (inv) $('#regCode').value = inv.replace(/\s+/g, '').slice(0, 40);
       if (nn) $('#loginName').value = nn.slice(0, 80);           // карточка входа от учителя: ФИО уже вписано
-      setTab(nn || (last && !inv) ? 'login' : 'reg', note || '');
+      setTab(nn || qp.has('login') || (last && !inv) ? 'login' : 'reg', note || '');
 
       const run = async (form, body) => {
         const btn = form.querySelector('button[type="submit"]');
@@ -446,8 +444,10 @@
           resolve(r);
         } catch (err) {
           if (err.data && err.data.need === 'set_password') {
-            $('#regName').value = body.name;
-            setTab('reg', `У ученика «${body.name}» ещё нет пароля. Введите код приглашения, придумайте логин и пароль — прогресс и журнал сохранятся.`, true);
+            const name = err.data.name || body.name;
+            $('#regName').value = name;
+            $('#regLogin').value = err.data.login || '';
+            setTab('reg', `У ученика «${name}» ещё нет пароля. Введите код приглашения и придумайте пароль — прогресс и журнал сохранятся.`, true);
           } else {
             errEl.classList.remove('info');
             errEl.textContent = err.status ? err.message : 'Нет связи с сервером. Проверьте адрес и попробуйте ещё раз.';

@@ -201,9 +201,10 @@ class Conn:
     """Участник на одном соединении. Отправка — своим потоком из очереди: медленная связь одного участника
     не задерживает остальных, а порядок сообщений сохраняется."""
 
-    def __init__(self, sock, rfile, who, name, color, cid):
+    def __init__(self, sock, rfile, who, name, color, cid, authorize=None):
         self.sock, self.rfile = sock, rfile
         self.who, self.name, self.color, self.cid = who, name, color, cid
+        self.authorize = authorize or (lambda: True)
         self.q = queue.SimpleQueue()
         self.n = 0
         self.alive = True
@@ -224,6 +225,8 @@ class Conn:
             while True:
                 m = self.q.get()
                 if m is None:
+                    break
+                if not self.authorize():
                     break
                 batch = [ws_frame(m)]
                 while len(batch) < 64:         # пачка, что успела накопиться, — одной отправкой
@@ -499,14 +502,14 @@ class Hub:
                 "board_w": BOARD_W, "py_local": bool(PY_LOCAL()), "page": self._page_msg(s, s.pages[s.cur], s.cur, teacher)}
 
     # ---------- одно соединение: читаем сообщения, пока не закроют
-    def run(self, s, who, sock, rfile, cid):
+    def run(self, s, who, sock, rfile, cid, authorize=None):
         access = self.access_fn(s, who)
         if access is None:
             return
         with s.lock:
             if self.stopping.is_set():
                 return
-            c = Conn(sock, rfile, who, self.name_fn(who), self._color(s, who), cid)
+            c = Conn(sock, rfile, who, self.name_fn(who), self._color(s, who), cid, authorize=authorize)
             s.conns.append(c)
             c.send(dict(self._snap(s, c), expired=not access))
             self._people(s)
@@ -534,6 +537,9 @@ class Hub:
                 self._people(s)
 
     def handle(self, s, c, m):
+        if not c.authorize():
+            c.close()
+            return
         t = m.get("t")
         teacher = c.who[0] == "t"
         access = self.access_fn(s, c.who)
