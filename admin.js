@@ -190,7 +190,7 @@
       act = signup + '<button type="button" class="btn ghost" data-guest-end title="Демо-класс удалится, откроется вход">Завершить гостевой доступ</button>' + other;
       if (left <= 0) { cls = 'bad'; txt = '<b>Гостевой час закончился.</b> Панель открыта только для просмотра. Зарегистрируйтесь — классы и подборки, которые вы создали, останутся, а пробный период начнётся заново.'; }
       else {
-        txt = `<b>👀 Гостевой доступ: осталось ${Math.ceil(left / 60)} мин.</b> «${esc(DEMO_CLASS)}» — демо-класс с вымышленными учениками: откройте сводку, журнал и архив работ. Регистрация сохранит всё, что вы создали.`;
+        txt = `<b>Гостевой доступ: осталось ${Math.ceil(left / 60)} мин.</b> «${esc(DEMO_CLASS)}» — демо-класс с вымышленными учениками: откройте сводку, журнал и архив работ. Регистрация сохранит всё, что вы создали.`;
         accessTimer = setTimeout(renderAccess, 30000);
       }
     } else if (a.expired) {
@@ -200,7 +200,7 @@
     } else {
       const d = Math.ceil(left / 86400);
       cls = d <= 2 ? 'warn' : 'info';
-      txt = a.state === 'trial' ? `<b>🎁 Пробный период: осталось ${d} ${daysWord(d)}</b> (до ${till}). Все возможности открыты.`
+      txt = a.state === 'trial' ? `<b>Пробный период: осталось ${d} ${daysWord(d)}</b> (до ${till}). Все возможности открыты.`
         : `<b>Доступ оплачен до ${till}</b> — осталось ${d} ${daysWord(d)}.`;
     }
     bar.className = 'adm-access ' + cls;
@@ -217,9 +217,9 @@
       <b>${esc(t.name)}</b><span class="rp">${esc(t.price)}${t.per ? ` <small>/ ${esc(t.per)}</small>` : ''}</span>
       <small>${String(t.items || '').split('\n').filter(Boolean).map(esc).join(' · ')}</small></div>`).join('');
     const c = o.contacts || {}, l = [];
-    if (c.email) l.push(`<a href="mailto:${esc(c.email)}">✉️ ${esc(c.email)}</a>`);
-    if (c.telegram) { const tg = c.telegram.replace(/^@/, '').replace(/^https?:\/\/t\.me\//, ''); l.push(`<a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener">💬 @${esc(tg)}</a>`); }
-    if (c.phone) l.push(`<a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">📞 ${esc(c.phone)}</a>`);
+    if (c.email) l.push(`<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`);
+    if (c.telegram) { const tg = c.telegram.replace(/^@/, '').replace(/^https?:\/\/t\.me\//, ''); l.push(`<a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener">@${esc(tg)}</a>`); }
+    if (c.phone) l.push(`<a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">${esc(c.phone)}</a>`);
     $('#renewContacts').innerHTML = l.join('');
     $('#renewMsg').textContent = '';
     $('#renewModal').hidden = false;
@@ -280,7 +280,7 @@
     const done = [st.class, st.students > 0, st.asg];
     if (done.every(Boolean)) { box.hidden = true; return; }
     const step = (k, ok, title, body) => `<li class="${ok ? 'ok' : ''}"><span class="st-mark">${ok ? '✓' : k}</span><div><b>${title}</b>${body}</div></li>`;
-    box.innerHTML = `<div class="steps-head"><h3>🚀 Первые шаги</h3><span class="muted">${done.filter(Boolean).length} из 3</span>
+    box.innerHTML = `<div class="steps-head"><h3>Первые шаги</h3><span class="muted">${done.filter(Boolean).length} из 3</span>
         <button type="button" class="link-btn" data-steps-off>скрыть</button></div>
       <ol class="steps-list">
         ${step(1, st.class, 'Создайте класс', st.class ? '<p class="muted">Готово.</p>' : '<p class="muted">Например, «11 А». Класс — это журнал, сводка и подборки на всех учеников сразу.</p><button type="button" class="btn" data-step-go="classes">Создать класс</button>')}
@@ -524,7 +524,7 @@
       ${x.status === 'closed' ? `<div class="sp-a-btns"><span class="muted">Тема закрыта — ученик может только создать новое обращение.</span>
           <button type="button" class="btn ghost" data-sp-reopen>Открыть снова</button><button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div>`
         : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке» и сможет ответить в этой теме). Скриншот — Ctrl+V или 📎"></textarea>
-        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-pick title="Приложить картинку — или вставьте скриншот в поле через Ctrl+V">📎 Картинка</button><span class="sp-prev" hidden></span><button type="button" class="btn ghost" data-sp-close title="Ученик больше не сможет писать в эту тему">Закрыть тему</button>
+        <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-pick title="Приложить картинку — или вставьте скриншот в поле через Ctrl+V">Картинка</button><span class="sp-prev" hidden></span><button type="button" class="btn ghost" data-sp-close title="Ученик больше не сможет писать в эту тему">Закрыть тему</button>
           <button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div></div>`}
     </div>`).join('');
     const closed = list.filter(x => x.status === 'closed').length;
@@ -1403,8 +1403,8 @@
         <button type="button" class="btn" id="thLimited" data-lim="${L ? 'stop' : 'start'}">${L ? '⏹ Остановить лимитку' : '🎆 Запустить лимитку недели'}</button>
         <label>Банк, ₿<input class="inp" id="bankSum" type="number" min="1" max="100000" placeholder="1000"></label>
         <label class="th-note">Причина<input class="inp" id="bankNote" maxlength="80" placeholder="Например: призовой фонд турнира"></label>
-        <button type="button" class="btn" data-bank="1">➕ Пополнить банк</button>
-        <button type="button" class="btn ghost" data-bank="-1">🔥 Изъять</button>
+        <button type="button" class="btn" data-bank="1">Пополнить банк</button>
+        <button type="button" class="btn ghost" data-bank="-1">Изъять</button>
       </div>
       <div class="login-err" id="thMsg"></div>`;
     const levers = `<details class="ch-table"><summary>История рычагов</summary><div class="adm-table-wrap"><table class="adm-table">
@@ -1418,7 +1418,7 @@
     const PN = T.promo_now, PS = T.promo || PN;
     const pday = ts => new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const iso = ts => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-    const promo = `<div class="adm-box th-promo"><h3 class="adm-h3">⚡ Акция ${PN ? `идёт: «${esc(PN.title)}»` : '— сейчас нет'}</h3>
+    const promo = `<div class="adm-box th-promo"><h3 class="adm-h3">Акция ${PN ? `идёт: «${esc(PN.title)}»` : '— сейчас нет'}</h3>
       <p class="fm-note">${PN ? `Биткоины за задания ×${xfmt(PN.task)}, за вариант ЕГЭ ×${xfmt(PN.exam)} — до ${pday(PN.to)} включительно. `
         + 'Ученик видит объявление при входе (раз в день) и значок ⚡ вверху; бонус — только за заработанное во время акции.'
         : 'Во время акции биткоины за задания (опыт за решение, бонус за задание, самостоятельные) и за вариант ЕГЭ — в N раз больше.'}</p>
@@ -1430,7 +1430,7 @@
         <button class="btn primary" type="submit">${PN ? 'Сохранить' : '⚡ Запустить'}</button>
         ${PN ? '<button class="btn ghost" type="button" id="promoStop">⏹ Закончить сейчас</button>' : ''}</form>`
         : '<p class="fm-note">Акции запускает главный учитель.</p>'}</div>`;
-    return `${promo}<div class="adm-box th-box"><h3 class="adm-h3">🌡 Термостат экономики и банк рынка</h3>
+    return `${promo}<div class="adm-box th-box"><h3 class="adm-h3">Термостат экономики и банк рынка</h3>
       <div class="adm-cards">${cards}</div>${how}${ctl}${levers}${bank}</div>`;
   }
   async function thermoSend(path, body, ok) {
@@ -1494,7 +1494,7 @@
     const kind = $('#econKind') ? $('#econKind').value : '';
     const S = d.site;
     // весь сайт — главному учителю: подарки, биткоины, курс, популярное и самое редкое
-    const site = !S ? '' : `<div class="adm-box eco-site"><h3 class="adm-h3">🌍 Весь сайт</h3>
+    const site = !S ? '' : `<div class="adm-box eco-site"><h3 class="adm-h3">Весь сайт</h3>
       <div class="adm-cards">
         ${card('Подарков на сайте', S.gifts.on_hand, `уникальных ${S.gifts.uniq_on_hand}, у ${S.gifts.owners} ${pluralRu(S.gifts.owners, 'ученика', 'учеников', 'учеников')} · в каталоге ${S.catalog}`)}
         ${card('Куплено подарков', S.gifts.bought, `за 7 дней ${S.gifts.bought_week}, в подарок одноклассникам ${S.gifts.to_mates}`)}
@@ -1513,7 +1513,7 @@
           <td><span class="eco-rar r-${g.rar.k}">${esc(g.rar.t)}</span> <span class="muted">1 из ${g.rar.one_in.toLocaleString('ru-RU')}</span></td><td class="muted">${esc(g.who)}</td></tr>`).join('')}</table>` : '<p class="adm-empty">Уникальных пока нет.</p>'}</div>
       </div></div>`;
     $('#econBody').innerHTML = `<div id="thermoBox">${thermoHtml(d.thermo)}</div>
-      <h3 class="adm-h3" style="margin:14px 0 4px">📈 Рынок всего сайта</h3><div id="mktCharts">${marketChartsHtml(d.market)}</div>
+      <h3 class="adm-h3" style="margin:14px 0 4px">Рынок всего сайта</h3><div id="mktCharts">${marketChartsHtml(d.market)}</div>
       ${site}<h3 class="adm-h3" style="margin:6px 0 8px">Ваши ученики</h3><div class="adm-cards">
         ${card('Цены и заработок', `×${xfmt(E.idx)} · ×${xfmt(E.earn)}`, `термостат: среднее состояние (кошелёк + подарки) активных учеников сайта — ${E.avg} ₿ при норме ${E.target} ₿`)}
         ${card('Биткоинов на руках', T.balance, `у ${d.with_coins} из ${d.students} ваших учеников`)}
@@ -1613,7 +1613,7 @@
         <span class="gift-own-ic"${g.uniq ? ` style="background:radial-gradient(circle at 50% 38%, ${g.uniq.c1}, ${g.uniq.c2})"` : ''}>${g.i}</span>
         <span class="gift-own-t"><b>${esc(g.t)}${g.uniq ? ' #' + g.uniq.n : ''}</b><small>${esc(g.uniq ? g.uniq.rar.t : g.rar.t)} · ${esc(from(g))} · ${fmtWhen(g.ts)}</small>
           ${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>
-        <button type="button" class="btn ghost small" data-gift-del="${g.id}" title="Удалить из профиля">✕ Удалить</button></div>`).join('')}</div>`
+        <button type="button" class="btn ghost small" data-gift-del="${g.id}" title="Удалить из профиля">Удалить</button></div>`).join('')}</div>`
       : '<p class="adm-empty">У ученика пока нет подарков.</p>';
   }
   $('#giftOwner').addEventListener('change', loadOwnedGifts);
@@ -1926,7 +1926,8 @@
   function go(t) {
     if (t !== 'student') backTab = t;
     tab = t;
-    $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
+    if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
+    $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
     ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
@@ -1947,9 +1948,17 @@
     window.scrollTo({ top: 0 });
   }
   $('#tabs').addEventListener('click', e => {
+    if (e.target.closest('#navMotiv')) { navMotiv(!!$('#navMotivList').hidden, true); return; }
     const b = e.target.closest('button[data-tab]');
     if (b) go(b.dataset.tab);
   });
+  /** Группа «Мотивация учеников» (дуэли, подарки, экономика, тиражи): свёрнута, пока не нужна. */
+  function navMotiv(open, remember) {
+    $('#navMotivList').hidden = !open;
+    $('#navMotiv').setAttribute('aria-expanded', String(open));
+    if (remember) { try { localStorage.setItem('egeAdmin.navMotiv', open ? '1' : '0'); } catch (e) { /* нет доступа */ } }
+  }
+  try { if (localStorage.getItem('egeAdmin.navMotiv') === '1') navMotiv(true); } catch (e) { /* нет доступа */ }
   // ------------------------------------------------------------ совместная работа (общий код и доска)
   const TOGS = { mode: 'both', sel: new Set(), students: [], task: null, taskT: 0, timer: 0 };
   /** Новая вкладка — сразу по нажатию (иначе браузер сочтёт её всплывающим окном), адрес — когда сеанс создан. */
@@ -2333,7 +2342,7 @@
         <div class="adm-asg-head"><b>${esc(a.title)}</b>
           <span class="adm-hint">${total} ${plural(total, 'задание', 'задания', 'заданий')} · выдано ${fmtDate(a.created)}${a.due ? ` · срок <span style="${late ? 'color:var(--weak)' : ''}">${fmtDate(a.due)}</span>` : ''}</span>
           <span class="adm-actions">
-          <a class="btn ghost" href="/api/admin/asg/archive?id=${a.id}" target="_blank" rel="noopener" title="Сводка, КИМ и работа каждого ученика с ответами, временем и кодом — одна страница для печати или PDF">🗂 Архив PDF</a>
+          <a class="btn ghost" href="/api/admin/asg/archive?id=${a.id}" target="_blank" rel="noopener" title="Сводка, КИМ и работа каждого ученика с ответами, временем и кодом — одна страница для печати или PDF">Архив PDF</a>
         <button type="button" class="btn ghost" data-asg-edit="${a.id}">Изменить</button>
           <button type="button" class="btn ghost danger" data-asg-del="${a.id}">Удалить</button></span></div>
         <div class="adm-hint" style="margin:0 0 8px">Обычная подборка: ответ проверяется сразу, две попытки. Сделали всё: <b>${done}</b> из ${a.progress.length}${zero ? ` · не начинали: ${zero}` : ''}</div>
@@ -2348,8 +2357,8 @@
       <nav class="cls-tabs" id="clsTabs">${CLS_PANES.map(([k, l]) => `<button type="button" data-pane="${k}" class="${clsPane === k ? 'on' : ''}">${l}</button>`).join('')}</nav>
       <div class="cls-pane" data-pane="digest"${clsPane === 'digest' ? '' : ' hidden'}><div id="clsDigest"><p class="adm-hint">Собираю сводку…</p></div></div>
       <div class="cls-pane" data-pane="members"${clsPane === 'members' ? '' : ' hidden'}>
-      <div class="dg-actions"><button type="button" class="btn" data-cls-parents>👪 Ссылки для родителей</button>
-        <button type="button" class="btn" data-cls-import>📋 Добавить список учеников</button>
+      <div class="dg-actions"><button type="button" class="btn" data-cls-parents>Ссылки для родителей</button>
+        <button type="button" class="btn" data-cls-import>Добавить список учеников</button>
         <span class="adm-hint">Ссылки — родителям, только просмотр. Список — из Excel: ученики с паролями и карточки для входа.</span></div>
       ${studs.length ? `<div class="adm-table-wrap"><table class="adm-table" id="classTable"><thead><tr>
         <th>Ученик</th><th class="num">Ур.</th><th>Был(а)</th><th class="num">За 7 дней</th><th class="num">Верно с 1-й</th>
@@ -2405,8 +2414,8 @@
         <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке, ⭐ персональная — в «Создать подборку» → «Кому: персонально». Результаты — кнопка «📊 Результаты»: у каждого ученика видны его задания и какие он решил верно, а какие нет.</p>
         ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : b.batch.startsWith('own') ? '⭐' : '🎯'} ${esc(b.title)}</b>
           <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
-          <span class="adm-actions"><button type="button" class="btn${batchOpen === b.batch ? ' primary' : ''}" data-batch-stats="${esc(b.batch)}" data-ids="${(b.ids || []).join(',')}">📊 Результаты</button>
-          <a class="btn ghost" href="/api/admin/asg/archive?ids=${(b.ids || []).join(',')}" target="_blank" rel="noopener" title="Работы всех учеников этой пачки — одна страница для печати или PDF">🗂 Архив PDF</a>
+          <span class="adm-actions"><button type="button" class="btn${batchOpen === b.batch ? ' primary' : ''}" data-batch-stats="${esc(b.batch)}" data-ids="${(b.ids || []).join(',')}">Результаты</button>
+          <a class="btn ghost" href="/api/admin/asg/archive?ids=${(b.ids || []).join(',')}" target="_blank" rel="noopener" title="Работы всех учеников этой пачки — одна страница для печати или PDF">Архив PDF</a>
           <select class="adm-select" data-batch-kind="${esc(b.batch)}" data-was="${esc(b.kind || 'self')}" title="Тип работы — сразу у всех учеников этой подборки">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(b.kind || 'self') === k ? ' selected' : ''}>${v.ico} ${v.name}</option>`).join('')}</select>
           <button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div>
           <div class="adm-live" data-batch-box="${esc(b.batch)}"></div></div>`).join('')}` : ''}
@@ -2435,7 +2444,7 @@
     if (!box || !curClass || curClass.id !== id) return;
     const who = (sid, name) => `<button type="button" class="task-link" data-open-st="${sid}">${esc(name)}</button>`;
     const nl = n => n === 19 ? '19–21' : n;
-    const sec = (ico, title, cls, body, empty) => `<div class="dg-card ${cls}"><h4>${ico} ${title}</h4>${body || `<p class="adm-hint">${empty}</p>`}</div>`;
+    const sec = (ico, title, cls, body, empty) => `<div class="dg-card ${cls}"><h4>${title}</h4>${body || `<p class="adm-hint">${empty}</p>`}</div>`;
     const drop = {};
     d.dropped.forEach(x => (drop[x.id] = drop[x.id] || { name: x.name, list: [] }).list.push(x));
     const fcd = d.forecast_avg != null && d.forecast_then != null ? d.forecast_avg - d.forecast_then : 0;
@@ -2448,7 +2457,7 @@
         ${kpi('Слабые номера', d.weak.length, d.weak.length ? d.weak.map(w => '№' + nl(w.n)).join(', ') + ' — меньше 50% верно за 30 дней' : 'нет — точность ≥ 50% везде', d.weak.length ? 'warn' : 'ok')}
       </div>
       ${d.weak.length ? `<div class="dg-weak"><div>${d.weak.map(w => `<span class="dg-wn"><b>№${nl(w.n)}</b> ${w.pct}% <small>· ${w.answers} отв.</small></span>`).join('')}</div>
-        <button type="button" class="btn primary" data-weak-build>📝 Собрать подборку по слабым номерам</button></div>` : ''}
+        <button type="button" class="btn primary" data-weak-build>Собрать подборку по слабым номерам</button></div>` : ''}
       ${d.behind.length ? `<p class="dg-behind">Отстают: ${d.behind.map(x => `${who(x.id, x.name)} <b class="dg-bad">${x.forecast}</b>`).join(', ')} <span class="muted">· средний по классу ${d.forecast_avg}</span></p>` : ''}
       <p class="adm-hint">${fmtDate(d.from)} — ${fmtDate(d.to)} · занимались <b>${d.active}</b> из ${d.total}. Сравнение — с предыдущими 30 днями.</p>
       <div class="dg-grid">
@@ -2457,7 +2466,7 @@
         ${sec('⌛', 'Не сдали в срок', d.overdue.length ? 'warn' : 'ok', d.overdue.length ? `<ul>${d.overdue.map(x => `<li>${who(x.id, x.name)} — «${esc(x.title)}» <span class="muted">до ${fmtDate(x.due)}: ${esc(x.state)}</span></li>`).join('')}</ul>` : '', 'Все работы с прошедшим сроком сданы.')}
         ${sec('🏆', 'Молодцы недели', 'ok', d.top.length ? `<ol>${d.top.map(x => `<li>${who(x.id, x.name)} — решено <b>${x.solved}</b> из ${x.answers}</li>`).join('')}</ol>` : '', 'Пока никто не решал.')}
       </div>
-      <div class="dg-actions"><button type="button" class="btn primary" data-weak>🎯 Выдать каждому подборку по его слабым местам</button>
+      <div class="dg-actions"><button type="button" class="btn primary" data-weak>Выдать каждому подборку по его слабым местам</button>
         <span class="adm-hint">По 3 задания на 3 самых слабых номера у каждого ученика — у всех своя подборка, срок неделя.</span></div>`;
   }
   /** Одна подборка всему классу: по 3 задания на каждый слабый номер класса. */
@@ -2555,7 +2564,7 @@
     }).join('');
     box.innerHTML = `<p class="adm-hint">Оценки за все подборки класса. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
         Нажмите на название подборки, чтобы открыть её результаты, на имя — карточку ученика.</p>
-      <div class="dg-actions"><button type="button" class="btn" data-weak>🎯 Каждому — по 3 задания на его 3 слабых номера</button>
+      <div class="dg-actions"><button type="button" class="btn" data-weak>Каждому — по 3 задания на его 3 слабых номера</button>
         <span class="adm-hint">У каждого ученика своя подборка; появится в журнале отдельной колонкой.</span></div>
       <div class="adm-table-wrap jr-wrap"><table class="adm-table jr-table"><thead><tr><th>Ученик</th><th class="jr-h" title="Прогноз балла ЕГЭ: сейчас и изменение за месяц">Прогноз<small>за 30 дней</small></th><th class="jr-h" title="Варианты ЕГЭ, которые ученик решил сам">Вариант ЕГЭ<small>последний</small></th>
         ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : a.title.startsWith('Персональная') ? '⭐' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
@@ -3326,7 +3335,7 @@
       <button type="button" class="btn ghost" data-void-undo="${esc(v.batch)}">↺ Вернуть</button></div>`).join('')}</div>` : '';
     if (!voidOpen) { box.innerHTML = past ? `<div class="adm-box void-box">${past}</div>` : ''; return; }
     const now = Date.now() / 1000, P = voidPrev;
-    box.innerHTML = `<div class="adm-box void-box"><h3 class="adm-h3" style="margin-top:0">🧹 Отменить ответы за промежуток</h3>
+    box.innerHTML = `<div class="adm-box void-box"><h3 class="adm-h3" style="margin-top:0">Отменить ответы за промежуток</h3>
       <p class="adm-hint">Если в аккаунт зашёл кто-то другой: его ответы уберутся из журнала, а опыт, биткоины за задания, точность, огонёк,
         прогноз и место в рейтингах пересчитаются сами. Отменённое хранится — его можно вернуть. Время — по журналу ниже (с точностью до минуты, конец включительно).</p>
       <div class="th-form"><label>С<input class="inp" type="datetime-local" id="voidFrom" value="${esc(P ? P.from_v : dtLocal(now - 3600))}"></label>
@@ -3339,7 +3348,7 @@
           <tbody>${P.list.map(a => `<tr><td class="muted">${new Date(a.ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
             <td class="num">${a.n || ''}</td><td><code>${esc(a.answer)}</code>${a.exam ? ' <span class="muted">· вариант</span>' : ''}</td>
             <td>${a.score >= 1 ? '✅' : a.score > 0 ? '½' : '❌'}</td></tr>`).join('')}${P.n > P.list.length ? `<tr><td colspan="4" class="muted">и ещё ${P.n - P.list.length}…</td></tr>` : ''}</tbody></table></div>
-        <div class="th-form"><button type="button" class="btn danger" id="voidGo">🧹 Отменить ${P.n} ${pluralRu(P.n, 'ответ', 'ответа', 'ответов')}</button></div>`
+        <div class="th-form"><button type="button" class="btn danger" id="voidGo">Отменить ${P.n} ${pluralRu(P.n, 'ответ', 'ответа', 'ответов')}</button></div>`
         : '<p class="adm-empty">За этот промежуток ответов нет.</p>') : ''}
       ${past}</div>`;
   }
@@ -3492,7 +3501,7 @@
         $('#impRes').innerHTML = `<p class="fm-note"><b>Создано: ${made.length}</b>${moved.length ? ` · уже были вашими, перенесены в класс: ${moved.length}` : ''}</p>
           ${taken.length ? `<p class="fm-note" style="color:var(--weak)">Такое ФИО уже есть у другого учителя — не добавлены: ${taken.map(x => esc(x.name)).join(', ')}. Допишите отчество или вторую букву имени.</p>` : ''}
           ${bad.length ? `<p class="fm-note" style="color:var(--weak)">Не похоже на «Фамилия Имя»: ${bad.map(x => esc(x.name)).join(', ')}</p>` : ''}
-          ${made.length ? `<div class="adm-row-btns"><button type="button" class="btn primary" data-imp-print>🖨 Распечатать карточки входа</button></div>
+          ${made.length ? `<div class="adm-row-btns"><button type="button" class="btn primary" data-imp-print>Распечатать карточки входа</button></div>
           <p class="adm-hint">Пароли видно только сейчас — распечатайте карточки или сохраните их в PDF. Забыл пароль — «Новый пароль и карточка» в карточке ученика.</p>` : ''}`;
         $('#impText').value = '';
         upd();
