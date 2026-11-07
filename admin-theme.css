@@ -282,3 +282,9 @@ body.admin .dg-od-n { margin-left: auto; color: var(--weak); font-weight: 600; f
 body.admin .dg-od ul { margin: 4px 0 6px 18px; padding-left: 14px; font-size: 13px; }
 body.admin .dg-more { margin-top: 6px; }
 body.admin .dg-more > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+
+/* конструктор: «Найдено», порядок и кнопки добавления — верхняя строка панели фильтров */
+body.admin .bld-panel .bld-bar { margin: 0 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+body.admin .bld-panel .bld-bar:empty { display: none; }
+body.admin .bld-panel .bld-bar-act { flex-wrap: wrap; }
+body.admin .bld-panel .bld-bar-act .btn { white-space: nowrap; }
