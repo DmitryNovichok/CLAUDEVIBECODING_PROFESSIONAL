@@ -687,13 +687,6 @@
   }
   function renderBldList() {
     const d = BLD.res, inDraft = new Set(BLD.d.tasks.map(t => t.id));
-    if (!(BLD.f.n.length || BLD.f.c.length || BLD.f.q)) {
-      $('#bldBar').innerHTML = `<p class="bld-pick">👆 Выберите номер в фильтре или возьмите шаблон — задания появятся здесь.
-        <span class="adm-hint">По остальным фильтрам в банке ${d.total} ${plural(d.total, 'задание', 'задания', 'заданий')}.</span>
-        <button type="button" class="btn ghost" id="bldVariant">🎯 Вариант ЕГЭ</button></p>`;
-      $('#bldList').hidden = true; $('#bldPages').hidden = true;
-      return;
-    }
     $('#bldBar').innerHTML = `<b>Найдено: ${d.total}</b>
       <label class="adm-hint">порядок <select class="adm-select" id="bldSort">${[['rank', 'по номеру и сложности ↑'], ['hard', 'по номеру, сначала сложные'], ['rate', 'сначала трудные для учеников'], ['new', 'сначала новые'], ['random', 'случайно']]
         .map(([v, t]) => `<option value="${v}"${BLD.f.sort === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
@@ -701,9 +694,8 @@
       <button type="button" class="btn" id="bldPerN"${d.total ? '' : ' disabled'} title="Из найденных — столько случайных заданий каждого номера">+ по стольку на каждый номер</button>
       <button type="button" class="btn ghost" id="bldAddPage"${d.tasks.length ? '' : ' disabled'}>+ все на странице</button>
       <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 с выбранными сложностью, банком, годами и решаемостью (номера и типы фильтра не важны). Номер, для которого с такими фильтрами заданий нет, — из всего банка">Вариант ЕГЭ</button></span>`;
-    const picked = BLD.f.n.length || BLD.f.c.length || BLD.f.q;
-    $('#bldList').hidden = !picked;
-    $('#bldPages').hidden = !picked;
+    $('#bldList').hidden = false;                 // лента заданий открыта сразу, без выбора номера
+    $('#bldPages').hidden = false;
     $('#bldList').innerHTML = d.tasks.length ? d.tasks.map(x => `<div class="bld-item${inDraft.has(x.id) ? ' in' : ''}">
         <span class="num-badge sm">${x.n === 19 ? '19–21' : x.n}</span>
         <div class="bld-item-main"><div class="bld-meta"><button type="button" class="bld-id" data-copy="${esc(idOf(x.id))}" title="Номер задания — нажмите, чтобы скопировать">№ ${esc(idOf(x.id))}</button>
