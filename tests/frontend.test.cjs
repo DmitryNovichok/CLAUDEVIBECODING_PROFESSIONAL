@@ -63,6 +63,42 @@ function sourceBetween(file, start, end) {
   return source.slice(pos, source.indexOf(end, pos));
 }
 
+test('assigned work is ordered by deadline, then started work, without mutating input', () => {
+  const c = vm.createContext({});
+  vm.runInContext(sourceBetween('src/app/12-sets.js', '  function asgOrder(', '  function asgDueBadge('), c);
+  c.items = [{id:1,created:100}, {id:2,due:400,created:90}, {id:3,due:200}, {id:4,score:{tried:1}}, {id:5,due:400,started:1}];
+  assert.equal(vm.runInContext('items.slice().sort(asgOrder).map(x => x.id).join(",")', c), '3,5,2,4,1');
+  assert.equal(c.items[0].id, 1);
+});
+
+test('closed work has no urgent badge, tomorrow uses a calendar day', () => {
+  const now = new Date(2026,10,8,23,30).getTime();
+  class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } }
+  const c = vm.createContext({Date:Clock,asgFinished:a=>!!a.closed});
+  vm.runInContext(sourceBetween('src/app/12-sets.js', '  function asgDueBadge(', '  let asgTab'), c);
+  c.a = {due:(now+3600000)/1000};
+  assert.match(vm.runInContext('asgDueBadge(a)',c),/Сдать завтра/);
+  c.a.closed = now/1000;
+  assert.equal(vm.runInContext('asgDueBadge(a)',c),'');
+  c.a = {due:(now-60000)/1000};
+  assert.match(vm.runInContext('asgDueBadge(a)',c),/Срок прошёл/);
+});
+
+test('slow builder search does not overwrite a newer filter result', async () => {
+  const pending = [], rendered = [];
+  const c = vm.createContext({URLSearchParams,BLD:{page:0,f:{n:[],c:[],r:[],bank:[],q:'old'}},
+    api:()=>new Promise(resolve=>pending.push(resolve)),toast:()=>{},renderBldFilters:()=>{},
+    renderBldList:()=>rendered.push(c.BLD.res.total)});
+  vm.runInContext(sourceBetween('admin.js','  let bldSearchVersion','  function renderBldList()'),c);
+  const old = vm.runInContext('bldSearch()',c);
+  c.BLD.f.q = 'new';
+  const fresh = vm.runInContext('bldSearch()',c);
+  pending[1]({total:2}); await fresh;
+  pending[0]({total:1}); await old;
+  assert.deepEqual(rendered,[2]);
+  assert.equal(c.BLD.res.total,2);
+});
+
 test('closed practice is finished and does not absorb later training', () => {
   const c = vm.createContext({P:{log:[{id:'second',s:1,t:3000}]},partToGroup:new Map(),byId:new Map()});
   vm.runInContext(sourceBetween('src/app/12-sets.js','  function asgLeft','  async function loadAssignments'),c);

@@ -19,6 +19,20 @@
     return a.tasks.filter(id => !done.has(id));
   }
   function asgFinished(a) { return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final)); }
+  // Срок — первый приоритет; при одинаковом сроке сначала начатая работа.
+  function asgOrder(a, b) {
+    const started = x => !!(x.started || x.score?.tried || x.done?.length);
+    return (a.due || Infinity) - (b.due || Infinity) || Number(started(b)) - Number(started(a)) || (b.created || 0) - (a.created || 0) || a.id - b.id;
+  }
+  function asgDueBadge(a) {
+    if (!a.due || asgFinished(a)) return '';
+    const due = new Date(a.due * 1000), now = new Date();
+    if (due <= now) return '<span class="ap-due-badge late">Срок прошёл</span>';
+    if (due.toDateString() === now.toDateString()) return '<span class="ap-due-badge">Сдать сегодня</span>';
+    const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
+    return due.toDateString() === tomorrow.toDateString() ? '<span class="ap-due-badge">Сдать завтра</span>' : '';
+  }
+  let asgTab = 'active';
   async function loadAssignments() {
     if (!SERVER) return;
     const duels = ASG.filter(a => a.duel || a.course);
@@ -52,7 +66,7 @@
       say.push(`⏰ Срок «${a.title}» — ${when}: осталось ${left} ${plural(left, 'задание', 'задания', 'заданий')}. После срока работа закроется.`);
     }
     writeJSON(key, seen);
-    say.slice(0, 3).forEach((t, i) => setTimeout(() => toast(t, 6000), 1200 + i * 6200));
+    say.slice(0, 3).forEach((t, i) => setTimeout(() => { if (pageKind !== 'asg') toast(t, 6000); }, 1200 + i * 6200));
   }
   function renderAsgCard() {
     const card = $('#asgCard');
@@ -66,6 +80,12 @@
     $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : pending.length ? 'всё решено' : 'нет активных подборок';
   }
   const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
+  function asgIcon(a) {
+    const paths = a.kind === 'home' ? '<path d="M3 4h7a2 2 0 0 1 2 2v15a3 3 0 0 0-3-2H3zM21 4h-7a2 2 0 0 0-2 2v15a3 3 0 0 1 3-2h6z"/>'
+      : a.kind === 'practice' ? '<rect x="4" y="3" width="16" height="14" rx="1"/><path d="m4 17-2 4h20l-2-4"/>'
+        : '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>';
+    return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+  }
   const PERSONAL = { fix: ['🔧', 'Работа над ошибками'], weak: ['🎯', 'Слабые места'] };
   const kindOf = a => PERSONAL[a.personal] || KINDS[a.kind] || KINDS.self;
   /** Подборка только для этого ученика (выдана учителем лично или собрана по его ошибкам) — зелёная надпись. */
@@ -87,7 +107,7 @@
     if (!courseShown || pageKind !== 'asg') return;
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = asgFinished;
-    const active = list.filter(a => !isDone(a)), done = list.filter(isDone);
+    const active = list.filter(a => !isDone(a)).sort(asgOrder), done = list.filter(isDone).sort((a, b) => (b.finished || b.closed || b.created || 0) - (a.finished || a.closed || a.created || 0));
     const left = active.reduce((n, a) => n + asgLeft(a).length, 0);
     const card = a => {
       if (!a.strict) return practiceCard(a);
@@ -99,26 +119,36 @@
           : a.started ? `идёт · сдано ${n} из ${total}` : 'ещё не начата';
       const btns = r ? `<button type="button" class="btn" data-asg="${a.id}">Результат</button><button type="button" class="btn" data-review="${a.id}">Разбор</button>`
         : a.closed ? '' : `<button type="button" class="btn primary" data-asg="${a.id}">${a.started ? 'Продолжить' : 'Начать'}</button>`;
-      return `<div class="ap-card${r || a.closed ? ' done' : ''}${a.started && !r ? ' going' : ''}${late ? ' late' : ''}">
+      return `<div data-assignment="${a.id}" class="ap-card${r || a.closed ? ' done' : ''}${a.started && !r ? ' going' : ''}${late ? ' late' : ''}">
         <div class="ap-main">
-          <div class="ap-top"><span class="ap-ico">${r ? '✓' : a.closed ? '⌛' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span>${persTag(a)}<b>${esc(a.title)}</b>
+          <div class="ap-top"><span class="ap-ico">${r ? '✓' : a.closed ? '—' : asgIcon(a)}</span><div><span class="ap-kind">${kindOf(a)[1]}</span>${persTag(a)}${asgDueBadge(a)}<b>${esc(a.title)}</b>
             <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}</small></div></div>
           <div class="ap-state">${state}</div>
-          ${r ? '' : `<i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i>`}</div>
+          ${r || !n ? '' : `<i class="xp-bar"><b style="width:${pct(n / total)}%"></b></i>`}</div>
         ${apDates(a, a.finished, !!(r || a.closed))}
         <div class="ap-btns">${btns}</div></div>`;
     };
     $('#scopeInfo').innerHTML = '<span class="scope-title">Задания от учителя</span>';
     document.body.classList.add('asg-wide');
+    const visible = asgTab === 'done' ? done : active;
     trainerEl.innerHTML = `<div class="course asg-page">
-      <div class="crs-hero"><div><div class="crs-kicker">Задания от учителя</div><h2>Подборки твоего класса</h2>
-        <p>Новые подборки появляются здесь сами. <b>Самостоятельная</b> — проверка после сдачи, ответ можно изменить один раз. <b>Практическая</b> и <b>домашняя</b> — верно или нет видно сразу, оценка ставится сама по попыткам.</p></div>
-        <div class="crs-prog"><b>${active.length}</b><span>${active.length ? `${plural(active.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'новых подборок нет'}</span></div></div>
-      <h3 class="ap-h">Сейчас</h3>
-      ${active.length ? `<div class="ap-grid">${active.map(card).join('')}</div>` : '<p class="fm-note">Новых подборок нет — когда учитель выдаст, они появятся здесь.</p>'}
-      ${done.length ? `<h3 class="ap-h">Пройденные</h3><div class="ap-grid">${done.map(card).join('')}</div>` : ''}
+      <header class="ap-heading"><h2>От учителя</h2><p>${active.length} ${plural(active.length, 'работа', 'работы', 'работ')} · осталось ${left} ${plural(left, 'задание', 'задания', 'заданий')}</p></header>
+      <div class="ap-tabs" aria-label="Статус работ">
+        <button type="button" data-asg-tab="active" aria-pressed="${asgTab === 'active'}" class="${asgTab === 'active' ? 'on' : ''}">Текущие ${active.length}</button>
+        <button type="button" data-asg-tab="done" aria-pressed="${asgTab === 'done'}" class="${asgTab === 'done' ? 'on' : ''}">Завершённые ${done.length}</button></div>
+      ${visible.length ? `<div class="ap-grid">${visible.map(card).join('')}</div>` : `<p class="fm-note ap-empty">${asgTab === 'done' ? 'Завершённых работ пока нет.' : 'Новых работ нет. Когда учитель выдаст подборку, она появится здесь.'}</p>`}
+      <details class="ap-help"><summary>Как проверяются работы?</summary><p>Самостоятельная — проверка после сдачи, ответ можно изменить один раз. В практической и домашней работе результат виден сразу, оценка ставится по попыткам.</p></details>
     </div>`;
+    renderMobileNav();
   }
+  trainerEl.addEventListener('click', e => {
+    const tab = e.target.closest('[data-asg-tab]');
+    if (!tab) return;
+    asgTab = tab.dataset.asgTab === 'done' ? 'done' : 'active';
+    renderAsgPage();
+    $(`[data-asg-tab="${asgTab}"]`)?.focus({ preventScroll: true });
+  });
+
   const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
   const apDay = sec => { const d = new Date(sec * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} <small>${WD[d.getDay()]}</small>`; };
   const apTime = sec => { const d = new Date(sec * 1000); return `${apDay(sec)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -143,21 +173,21 @@
     const late = a.due && a.due * 1000 < Date.now() && !sc.final;
     const grade = sc.grade ? `${sc.final ? 'оценка' : 'оценка сейчас'} <b>${sc.grade}</b> · ${sc.pct}%`
       : a.closed ? `${a.due && a.closed >= a.due ? 'срок прошёл' : 'завершена учителем'} — <b class="ap-late">не сделана</b>` : 'ещё не начата';
-    return `<div class="ap-card${sc.final ? ' done' : ''}${sc.tried && !sc.final ? ' going' : ''}${late ? ' late' : ''}">
+    return `<div data-assignment="${a.id}" class="ap-card${sc.final || a.closed ? ' done' : ''}${sc.tried && !sc.final ? ' going' : ''}${late ? ' late' : ''}">
       <div class="ap-main">
-        <div class="ap-top"><span class="ap-ico">${sc.final && sc.tried ? '✓' : a.closed ? '⌛' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span>${persTag(a)}<b>${esc(a.title)}</b>
+        <div class="ap-top"><span class="ap-ico">${sc.final && sc.tried ? '✓' : a.closed ? '—' : asgIcon(a)}</span><div><span class="ap-kind">${kindOf(a)[1]}</span>${persTag(a)}${asgDueBadge(a)}<b>${esc(a.title)}</b>
           <small>${total} ${plural(total, 'задание', 'задания', 'заданий')}${nums.length ? ` · №${nums.map(numLabel).join(', ')}` : ''}</small></div></div>
         <div class="ap-state">${grade}${sc.tried ? ` · сделано ${sc.tried} из ${sc.total}: верно ${sc.ok}${sc.half ? `, со 2-й попытки ${sc.half}` : ''}${sc.bad ? `, неверно ${sc.bad}` : ''}` : ''}</div>
-        <i class="xp-bar"><b style="width:${pct((sc.tried || 0) / (sc.total || total))}%"></b></i>
+        ${sc.tried ? `<i class="xp-bar"><b style="width:${pct(sc.tried / (sc.total || total))}%"></b></i>` : ''}
         ${a.personal === 'fix' ? '<p class="ap-note">Похожие задания того же типа на те, где ты ошибся в самостоятельной. Разберись — и закрепи.</p>' : ''}
         ${a.personal === 'weak' ? '<p class="ap-note">Подборка только для тебя — по номерам, где у тебя пока меньше всего верных ответов.</p>' : ''}</div>
-      ${apDates(a, null, sc.final)}
+      ${apDates(a, null, sc.final || a.closed)}
       <div class="ap-btns"><button type="button" class="btn ${sc.final || a.closed ? '' : 'primary'}" data-asg="${a.id}">${sc.final || a.closed ? 'Потренироваться' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
   }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = asgFinished;
-    const active = list.filter(a => !isDone(a)), done = list.filter(isDone);
+    const active = list.filter(a => !isDone(a)).sort(asgOrder), done = list.filter(isDone).sort((a, b) => (b.finished || b.closed || b.created || 0) - (a.finished || a.closed || a.created || 0));
     const doneRows = done.map(a => {
       if (!a.strict) return practiceCard(a);
       const r = a.result;

@@ -353,7 +353,7 @@
       $('#admPassword').value = '';
       await loadMe();
       showApp();
-      go(ME.guest ? 'classes' : 'students');
+      go('overview');
       startFeed();
       api('info').then(showMediaWarning).catch(() => {});
     } catch (err) {
@@ -585,7 +585,7 @@
     d: { class_id: '', id: null, title: '', due: '', tasks: [] } };
   function bldLoad() {
     BLD.d = { class_id: '', id: null, title: '', due: '', tasks: [] };
-    BLD.cat = null; BLD.res = null; BLD.asg = []; BLD.full = {}; BLD.open.clear();
+    BLD.cat = null; BLD.res = null; BLD.asg = []; BLD.members = []; BLD.full = {}; BLD.open.clear();
     try {
       localStorage.removeItem('egeAdmin.bldDraft');
       const v = JSON.parse(localStorage.getItem(bldKey()));
@@ -628,7 +628,7 @@
           <td class="muted">${esc(ARC_KIND[x.kind] || x.kind)}${x.closed ? ' · завершена' : ''}</td>
           <td class="muted">${fmtDate(x.created)}</td><td class="muted">${x.due ? fmtDate(x.due) : '—'}</td>
           <td class="num">${x.tasks}</td>
-          <td class="arc-act"><button type="button" class="btn sm primary" data-arc-send="${x.id}">Отправить снова</button>
+          <td class="arc-act"><button type="button" class="btn sm primary" data-arc-send="${x.id}">Создать копию</button>
             <a class="btn sm" href="/api/admin/asg/archive?ids=${x.ids.join(',')}" target="_blank" rel="noopener" title="Сводная таблица, КИМ и работы учеников — для печати или PDF">PDF</a>
             <button type="button" class="btn sm" data-arc-tog="${x.id}" title="Открыть совместное занятие с заданиями этой подборки">Во «Вместе»</button></td></tr>`).join('')}</tbody></table></div>`;
     } catch (e) { if (request === arcVersion && e.status !== 401) toast(e.message); }
@@ -715,6 +715,7 @@
   }
   function renderBldFilters() {
     const C = BLD.cat, f = BLD.f, fc = (BLD.res && BLD.res.facets) || { c: {}, r: {} };
+    const focused = document.activeElement?.id === 'bldQ' ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
     const nums = [];
     for (let n = 1; n <= 27; n++) if (n !== 20 && n !== 21) nums.push(chip('n', n, n === 19 ? '19–21' : n, f.n.includes(String(n))));
     const types = f.n.length ? f.n.map(n => `<div class="bld-types"><b>№${n === '19' ? '19–21' : n}</b>${(C.clusters[n] || []).map(([k, lbl]) => {
@@ -723,21 +724,30 @@
     }).join('')}</div>`).join('') : '<span class="adm-hint">Выберите номер — появятся типы заданий внутри него.</span>';
     const sel = (id, opts, val) => `<select class="adm-select" id="${id}">${opts.map(([v, t]) => `<option value="${esc(String(v))}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
     const years = [['', 'любой']].concat(C.years.map(y => [y, y]));
+    const open = new Set($$('#bldFilters details[open]').map(x => x.dataset.filter));
+    const fold = (key, title, body) => `<details class="bld-filter-group" data-filter="${key}"${open.has(key) ? ' open' : ''}><summary>${title}</summary><div class="bld-filter-body">${body}</div></details>`;
+    const advanced = f.c.length + f.bank.length + Number(!!f.y0) + Number(!!f.y1) + Number(f.fmt !== 'actual') + Number(!!f.rate) + Number(!!f.notsolved);
     $('#bldFilters').innerHTML = `
-      <div class="bld-row"><span class="bld-lbl">Номер</span><div class="bld-chips">${nums.join('')}</div></div>
-      <div class="bld-row"><span class="bld-lbl">Тип</span><div class="bld-chips col">${types}</div></div>
-      <div class="bld-row"><span class="bld-lbl">Сложность</span><div class="bld-chips">${[1, 2, 3, 4, 5].map(r => chip('r', r, `${rankDots(r)} ${RANK_SHORT[r]}`, f.r.includes(String(r)), fc.r[r] || 0)).join('')}</div></div>
-      <div class="bld-row"><span class="bld-lbl">Банк</span><div class="bld-chips">${C.banks.map(b => chip('bank', b.id, esc(b.title), f.bank.includes(b.id), b.count)).join('')}</div></div>
-      <div class="bld-row bld-sel">
-        <label>Годы ${sel('bldY0', years, f.y0)} — ${sel('bldY1', years, f.y1)}</label>
-        <label>Формат ${sel('bldFmt', [['actual', 'актуальный'], ['old', 'только старый'], ['all', 'любой']], f.fmt)}</label>
-        <label>Решают ${sel('bldRate', [['', 'любые'], ['lo', 'трудные: < 40%'], ['mid', 'средние: 40–75%'], ['hi', 'простые: ≥ 75%'], ['none', 'ещё никто не решал']], f.rate)}</label>
-        <label>Класс ещё не решал ${sel('bldNot', [['', '—']].concat(C.classes.map(c => [c.id, c.name])), f.notsolved)}</label>
-        <input class="inp" id="bldQ" placeholder="Текст условия, например «Черепаха» или «маска»" value="${esc(f.q)}">
+      <label class="bld-search"><span class="sr-only">Поиск заданий</span><input class="inp" type="search" id="bldQ" placeholder="Поиск по тексту или номеру задания" value="${esc(f.q)}" autocomplete="off"></label>
+      <div class="bld-filter-row">
+        ${fold('number', `Номер ЕГЭ: ${f.n.length ? f.n.map(n => n === '19' ? '19–21' : n).join(', ') : 'любой'}`, `<div class="bld-chips">${nums.join('')}</div>`)}
+        ${fold('rank', `Сложность: ${f.r.length ? f.r.map(r => RANK_SHORT[r]).join(', ') : 'любая'}`, `<div class="bld-chips">${[1, 2, 3, 4, 5].map(r => chip('r', r, `${rankDots(r)} ${RANK_SHORT[r]}`, f.r.includes(String(r)), fc.r[r] || 0)).join('')}</div>`)}
+        ${fold('advanced', `Ещё фильтры${advanced ? ' · ' + advanced : ''}`, `
+          <div class="bld-row"><span class="bld-lbl">Тип</span><div class="bld-chips col">${types}</div></div>
+          <div class="bld-row"><span class="bld-lbl">Банк</span><div class="bld-chips">${C.banks.map(b => chip('bank', b.id, esc(b.title), f.bank.includes(b.id), b.count)).join('')}</div></div>
+          <div class="bld-sel">
+            <label>Годы ${sel('bldY0', years, f.y0)} — ${sel('bldY1', years, f.y1)}</label>
+            <label>Формат ${sel('bldFmt', [['actual', 'актуальный'], ['old', 'только старый'], ['all', 'любой']], f.fmt)}</label>
+            <label>Решают ${sel('bldRate', [['', 'любые'], ['lo', 'трудные: < 40%'], ['mid', 'средние: 40–75%'], ['hi', 'простые: ≥ 75%'], ['none', 'ещё никто не решал']], f.rate)}</label>
+            <label>Класс ещё не решал ${sel('bldNot', [['', '—']].concat(C.classes.map(c => [c.id, c.name])), f.notsolved)}</label>
+          </div><p class="adm-hint">«Решают» — доля верных ответов с первой попытки у учеников тренажёра.</p>`)}
       </div>`;
+    if (focused) { const q = $('#bldQ'); q.focus({ preventScroll: true }); q.setSelectionRange(...focused); }
   }
+  let bldSearchVersion = 0;
+
   async function bldSearch(keepPage, pool) {
-    const f = BLD.f;
+    const f = BLD.f, request = pool ? 0 : ++bldSearchVersion;
     if (!keepPage) BLD.page = 0;
     const p = new URLSearchParams({ n: f.n.join(','), c: f.c.join(','), r: f.r.join(','), bank: f.bank.join(','), y0: f.y0, y1: f.y1,
       fmt: f.fmt, rate: f.rate, notsolved: f.notsolved, q: f.q, sort: f.sort, page: BLD.page });
@@ -745,6 +755,7 @@
     let d;
     try { d = await api('bank/search?' + p.toString()); } catch (err) { if (err.status !== 401) toast(err.message); return null; }
     if (pool) return d.pool || [];
+    if (request !== bldSearchVersion) return null;
     BLD.res = d;
     renderBldFilters();
     renderBldList();
@@ -752,13 +763,14 @@
   }
   function renderBldList() {
     const d = BLD.res, inDraft = new Set(BLD.d.tasks.map(t => t.id));
+    const bulkOpen = !!$('#bldBulk')?.open;
     $('#bldBar').innerHTML = `<b>Найдено: ${d.total}</b>
       <label class="adm-hint">порядок <select class="adm-select" id="bldSort">${[['rank', 'по номеру и сложности ↑'], ['hard', 'по номеру, сначала сложные'], ['rate', 'сначала трудные для учеников'], ['new', 'сначала новые'], ['random', 'случайно']]
         .map(([v, t]) => `<option value="${v}"${BLD.f.sort === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
-      <span class="bld-bar-act"><input class="inp" type="number" id="bldK" min="1" max="50" value="5"> <button type="button" class="btn" id="bldRand"${d.total ? '' : ' disabled'}>+ случайных из найденных</button>
+      <details class="bld-bulk" id="bldBulk"${bulkOpen ? ' open' : ''}><summary>Добавить несколько</summary><div class="bld-bar-act"><input class="inp" type="number" id="bldK" min="1" max="50" value="5"> <button type="button" class="btn" id="bldRand"${d.total ? '' : ' disabled'}>+ случайных из найденных</button>
       <button type="button" class="btn" id="bldPerN"${d.total ? '' : ' disabled'} title="Из найденных — столько случайных заданий каждого номера">+ по стольку на каждый номер</button>
       <button type="button" class="btn ghost" id="bldAddPage"${d.tasks.length ? '' : ' disabled'}>+ все на странице</button>
-      <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 с выбранными сложностью, банком, годами и решаемостью (номера и типы фильтра не важны). Номер, для которого с такими фильтрами заданий нет, — из всего банка">Вариант ЕГЭ</button></span>`;
+      <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 с выбранными сложностью, банком, годами и решаемостью (номера и типы фильтра не важны). Номер, для которого с такими фильтрами заданий нет, — из всего банка">Вариант ЕГЭ</button></div></details>`;
     $('#bldList').hidden = false;                 // лента заданий открыта сразу, без выбора номера
     $('#bldPages').hidden = false;
     $('#bldList').innerHTML = d.tasks.length ? d.tasks.map(x => `<div class="bld-item${inDraft.has(x.id) ? ' in' : ''}">
@@ -849,10 +861,11 @@
     const byN = {}, byR = [0, 0, 0, 0, 0, 0];
     D.tasks.forEach(t => { byN[t.n] = (byN[t.n] || 0) + 1; if (t.r) byR[t.r]++; });
     const total = D.tasks.length;
-    $('#bldDraft').innerHTML = `<h3 class="adm-h3" style="margin:0">${D.id ? 'Изменить подборку' : 'Новая подборка'}</h3>
+    $('#bldMobileSummary').textContent = `Выбрано ${total} ${plural(total, 'задание', 'задания', 'заданий')} · К выдаче →`;
+    $('#bldDraft').innerHTML = `<h3 class="adm-h3" style="margin:0">${D.id ? 'Изменить подборку' : 'Ваша подборка'}</h3>
+      <label class="bld-f">Название<input class="inp" id="bdTitle" maxlength="80" placeholder="Например, «Алгоритмы и программирование»" value="${esc(D.title)}"></label>
       <label class="bld-f">Класс <select class="adm-select" id="bdClass"><option value="">— выберите —</option>${C.classes.map(c => `<option value="${c.id}"${String(c.id) === String(D.class_id) ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
       ${D.class_id && BLD.asg.length ? `<label class="bld-f">Изменить готовую <select class="adm-select" id="bdLoad"><option value="">— новая подборка —</option>${BLD.asg.map(a => `<option value="${a.id}"${a.id === D.id ? ' selected' : ''}>${esc(a.title)} (${a.tasks.length})</option>`).join('')}</select></label>` : ''}
-      <input class="inp" id="bdTitle" maxlength="80" placeholder="Название, например «№5: двоичная запись»" value="${esc(D.title)}">
       <label class="bld-f">Срок <input class="inp" type="date" id="bdDue" value="${esc(D.due || '')}"${D.id ? '' : ` min="${todayIso()}"`}></label>
       ${D.class_id && !D.id ? `<div class="bld-to"><span class="bld-f">Кому</span>
         <label><input type="radio" name="bdTo" value="class"${D.to !== 'some' ? ' checked' : ''}> всему классу</label>
@@ -860,11 +873,11 @@
         ${D.to === 'some' ? `<div class="bld-who">${(BLD.members || []).map(m => `<label><input type="checkbox" data-who="${m.id}"${(D.students || []).includes(m.id) ? ' checked' : ''}> ${esc(m.name)}</label>`).join('') || '<span class="adm-hint">В классе нет учеников</span>'}</div>
           <p class="adm-hint">Подборку увидят только выбранные — у них она отмечена зелёной надписью «Персональная подборка». В журнале класса — отдельная колонка.</p>` : ''}</div>` : ''}
 <label class="adm-hint">Тип работы <select class="adm-select" id="bdKind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(D.kind || 'self') === k ? ' selected' : ''}>${v.name}</option>`).join('')}</select></label>
-      <p class="adm-hint" id="bdKindHint">${KINDS[D.kind || 'self'].hint}</p>
-      <div class="bld-sum"><b>${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
+      <details class="bld-rules"><summary>Как проверяется работа</summary><p class="adm-hint" id="bdKindHint">${KINDS[D.kind || 'self'].hint}</p></details>
+      <div class="bld-sum"><b>Выбрано ${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
         ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${n}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
       ${total ? `<div class="bld-rbar" title="Распределение по сложности">${byR.map((c, r) => r && c ? `<i class="rk${r}" style="flex:${c}" title="${RANK_SHORT[r]}: ${c}"></i>` : '').join('')}</div>` : ''}
-      <button type="button" class="btn primary bld-send" id="bdSend"${!bldSending && total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${bldSending ? 'Отправляю…' : D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : 'Отправить классу'}</button>
+      <button type="button" class="btn primary bld-send" id="bdSend"${!bldSending && total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${bldSending ? 'Отправляю…' : D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : BLD.members?.length ? `Выдать ${BLD.members.length} ученикам` : 'Выдать классу'}</button>
       ${D.class_id ? '' : '<p class="adm-hint">Выберите класс, которому отправить подборку.</p>'}
       ${total > 1 ? `<div class="bld-tools"><button type="button" class="link-btn" data-sortd="rank">по сложности ↑</button>
         <button type="button" class="link-btn" data-sortd="num">по номерам</button><button type="button" class="link-btn" data-sortd="shuffle">перемешать</button>
@@ -875,6 +888,13 @@
         <button type="button" class="link-btn danger" data-del="${i}" title="Убрать">×</button></span></li>`).join('')}</ol>
       ${total ? '' : '<p class="adm-hint">Добавляйте задания слева: по одному, все со страницы или случайные из найденного.</p>'}`;
   }
+  $('#bldMobileSummary').addEventListener('click', () => {
+    const draft = $('#bldDraft'), side = $('#admSide');
+    const top = innerWidth <= 860 && getComputedStyle(side).position === 'sticky' ? side.offsetHeight + 12 : 16;
+    draft.style.scrollMarginTop = top + 'px';
+    draft.scrollIntoView({ block: 'start' });
+    draft.focus({ preventScroll: true });
+  });
   $('#bldFilters').addEventListener('click', e => {
     const b = e.target.closest('[data-f]');
     if (!b) return;
@@ -890,8 +910,9 @@
   $('#bldFilters').addEventListener('input', e => {
     if (e.target.id !== 'bldQ') return;
     BLD.f.q = e.target.value;
+    bldSearchVersion++;
     clearTimeout(BLD.timer);
-    BLD.timer = setTimeout(() => { bldSearch().then(() => { const q = $('#bldQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }); }, 400);
+    BLD.timer = setTimeout(() => bldSearch(), 400);
   });
   $('#bldReset').addEventListener('click', () => {
     BLD.f = { n: [], c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: '', q: '', sort: BLD.f.sort };
@@ -1984,16 +2005,113 @@
     if (e.target.id === 'verModal' || e.target.closest('.fm-close')) $('#verModal').hidden = true;
   });
 
+  // ------------------------------------------------------------ обзор выбранного класса
+  const overviewKey = () => `egeAdmin.lastClass.${ME.id}.${ME.created || ME.login}`;
+  let overviewVersion = 0, overviewData = null, overviewDone = false, overviewTarget = null;
+  const overviewClosed = a => !!(a.closed || (a.due && a.due * 1000 <= Date.now()));
+  const overviewToday = a => !overviewClosed(a) && a.due && new Date(a.due * 1000).toDateString() === new Date().toDateString();
+  function rememberClass(id) { try { localStorage.setItem(overviewKey(), String(id)); } catch (e) { /* хранилище недоступно */ } }
+  async function loadOverview(cid) {
+    const request = ++overviewVersion, box = $('#overviewBody');
+    overviewData = null;
+    box.innerHTML = '<p class="adm-empty" role="status">Загружаю обзор класса…</p>';
+    try {
+      await fetchClasses();
+      if (request !== overviewVersion || tab !== 'overview') return;
+      let saved;
+      try { saved = localStorage.getItem(overviewKey()); } catch (e) { /* первый вход */ }
+      const cl = classes.find(c => String(c.id) === String(cid || saved)) || classes.find(c => c.teacher_id === ME.id) || classes[0];
+      if (!cl) {
+        box.innerHTML = `<div class="adm-box ov-empty"><h2>Начните с первого класса</h2><p class="adm-hint">Создайте класс, добавьте учеников и выдайте первую работу. Здесь появятся задания и результаты.</p>
+          <button type="button" class="btn primary" data-ov-go="classes">Создать класс</button>
+          <button type="button" class="btn" data-ov-go="tog">Открыть занятие без учеников</button></div>`;
+        return;
+      }
+      const [s, a] = await Promise.all([api('students?class_id=' + cl.id), api('assignments?class_id=' + cl.id)]);
+      if (request !== overviewVersion || tab !== 'overview') return;
+      rememberClass(cl.id);
+      overviewData = { cl, students: s.students || [], assignments: a.assignments || [], batches: a.batches || [] };
+      renderOverview();
+    } catch (e) {
+      if (request === overviewVersion && tab === 'overview' && e.status !== 401)
+        box.innerHTML = `<div class="adm-box ov-empty"><h2>Не удалось загрузить обзор</h2><p class="adm-hint">${esc(e.message)}</p><button type="button" class="btn" data-ov-retry>Попробовать снова</button></div>`;
+    }
+  }
+  function renderOverview() {
+    if (!overviewData || tab !== 'overview') return;
+    const { cl, students: ss, assignments: aa, batches } = overviewData;
+    const active = aa.filter(a => !overviewClosed(a)).sort((a, b) => (a.due || Infinity) - (b.due || Infinity) || b.created - a.created);
+    const done = aa.filter(overviewClosed).sort((a, b) => (b.closed || b.due || b.created) - (a.closed || a.due || a.created));
+    const today = active.filter(overviewToday), attempts = ss.reduce((n, s) => n + (s.total || 0), 0);
+    const week = ss.reduce((n, s) => n + (s.week || 0), 0), forecasts = ss.filter(s => s.forecast != null);
+    const work = a => {
+      const progress = a.progress || [], total = a.tasks.length;
+      const finished = progress.filter(p => p.finished || (total && p.done >= total)).length;
+      const started = progress.filter(p => p.started || p.done || p.answered).length;
+      return `<article class="ov-work${overviewToday(a) ? ' due' : ''}"><div><b>${esc(a.title)}</b>
+        <small>${esc((KINDS[a.kind] || KINDS.self).name)} · ${total} ${plural(total, 'задание', 'задания', 'заданий')} · ${a.due ? 'до ' + fmtDate(a.due) : 'без срока'}</small>
+        <span class="ov-status">${overviewToday(a) ? '<span class="ov-due">Сдать сегодня</span> ' : ''}${!progress.length ? 'В классе пока нет учеников' : finished ? `Решили все задания: ${finished} из ${progress.length}` : started ? `Есть верные решения: ${started} из ${progress.length}` : 'Пока нет верных решений'}</span></div>
+        <button type="button" class="link-btn" data-ov-results="${a.id}" aria-label="Результаты: ${esc(a.title)}">Результаты →</button></article>`;
+    };
+    $('#overviewBody').innerHTML = `<div class="ov-head"><div><label class="ov-kicker" for="ovClass">Мой класс</label>
+      <select id="ovClass" class="adm-select">${classes.map(c => `<option value="${c.id}"${c.id === cl.id ? ' selected' : ''}>${esc(c.name)}${ME.is_main && c.teacher_id !== ME.id ? ' · ' + esc(c.teacher || '') : ''}</option>`).join('')}</select>
+      <p class="adm-hint">${ss.length} ${plural(ss.length, 'ученик', 'ученика', 'учеников')} · ${active.length} ${plural(active.length, 'текущая работа', 'текущие работы', 'текущих работ')}</p></div>
+      <div class="ov-actions"><button type="button" class="btn primary" data-ov-build>+ Выдать работу</button><button type="button" class="btn" data-ov-go="tog">Начать занятие</button>
+        <button type="button" class="btn ghost" data-ov-class="members">Управление классом</button></div></div>
+      ${today.length ? `<div class="ov-notice"><span>Сегодня срок сдачи: ${today.length} ${plural(today.length, 'работа', 'работы', 'работ')}</span><button type="button" class="link-btn" data-ov-results="${today[0].id}">Открыть →</button></div>` : ''}
+      <div class="ov-metrics"><div class="adm-box"><b>${ss.length}</b><span>Учеников</span></div><div class="adm-box"><b>${active.length}</b><span>Текущие работы класса</span></div>
+        <div class="adm-box"><b>${attempts ? week : 'Нет попыток'}</b><span>${attempts ? 'Ответов за 7 дней' : 'Результаты появятся после решения'}</span></div></div>
+      <div class="ov-grid"><div class="ov-column"><section class="adm-box ov-works"><div class="ov-section-head"><h3>Работы класса</h3><div class="ov-tabs" aria-label="Статус работ">
+        <button type="button" data-ov-status="active" aria-pressed="${!overviewDone}" class="${overviewDone ? '' : 'on'}">Текущие ${active.length}</button>
+        <button type="button" data-ov-status="done" aria-pressed="${overviewDone}" class="${overviewDone ? 'on' : ''}">Завершённые ${done.length}</button></div></div>
+        ${(overviewDone ? done : active).slice(0, 6).map(work).join('') || `<p class="adm-empty">${overviewDone ? 'Завершённых работ пока нет.' : 'Текущих работ нет. Выдайте новую подборку классу.'}</p>`}
+        ${(overviewDone ? done : active).length > 6 ? '<button type="button" class="link-btn" data-ov-class="asg">Все работы →</button>' : ''}
+        ${batches.length ? `<p class="ov-personal"><button type="button" class="link-btn" data-ov-class="asg">Личные подборки учеников: ${batches.length} →</button></p>` : ''}</section>
+        <section class="adm-box"><div class="ov-section-head"><h3>Ученики</h3><button type="button" class="link-btn" data-ov-class="members">Все ${ss.length} →</button></div>
+          ${ss.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru')).slice(0, 5).map(s => `<div class="ov-student"><button type="button" class="task-link" data-ov-student="${s.id}">${esc(s.name)}</button><small>${s.total ? `${s.week || 0} ответов за неделю` : 'Пока нет решений'}</small></div>`).join('') || '<p class="adm-hint">Добавьте учеников в класс, чтобы видеть их результаты.</p>'}</section></div>
+        <div class="ov-column"><section class="adm-box ov-lesson"><span class="ov-board" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="7" y="6" width="34" height="25" rx="3"/><path d="m16 42 8-11 8 11M24 2v4"/></svg></span><h3>Совместное занятие</h3><p class="adm-hint">Откройте доску для подготовки или пригласите ученика.</p><button type="button" class="btn" data-ov-board>Открыть доску</button></section>
+          <section class="adm-box ov-progress"><h3>Прогресс класса</h3>${attempts ? `<b class="ov-forecast">${forecasts.length ? Math.round(forecasts.reduce((n, s) => n + s.forecast, 0) / forecasts.length) + ' / 100' : 'Прогноз ещё не готов'}</b><p class="adm-hint">${forecasts.length ? `Средний прогноз по ${forecasts.length} из ${ss.length} учеников.` : 'Нужно больше ответов для прогноза балла.'}</p><button type="button" class="link-btn" data-ov-class="digest">Открыть сводку →</button>` : '<b class="ov-no-data">Недостаточно данных</b><p class="adm-hint">После первых решений здесь появится прогресс класса.</p>'}</section></div></div>`;
+  }
+  $('#overviewBody').addEventListener('change', e => { if (e.target.id === 'ovClass') { overviewDone = false; loadOverview(+e.target.value); } });
+  $('#overviewBody').addEventListener('click', async e => {
+    const t = e.target;
+    if (t.closest('[data-ov-retry]')) { loadOverview(); return; }
+    const route = t.closest('[data-ov-go]');
+    if (route) { go(route.dataset.ovGo); return; }
+    if (!overviewData) return;
+    const cl = overviewData.cl, status = t.closest('[data-ov-status]');
+    if (status) { overviewDone = status.dataset.ovStatus === 'done'; renderOverview(); return; }
+    if (t.closest('[data-ov-build]')) { openBuilderFor(cl.id); return; }
+    const st = t.closest('[data-ov-student]');
+    if (st) { openStudent(+st.dataset.ovStudent); return; }
+    const result = t.closest('[data-ov-results]'), pane = t.closest('[data-ov-class]');
+    if (result || pane) {
+      curClass = { id: cl.id }; clsPane = result ? 'asg' : pane.dataset.ovClass;
+      overviewTarget = result ? { cid: cl.id, id: +result.dataset.ovResults } : null;
+      go('classes'); return;
+    }
+    const board = t.closest('[data-ov-board]');
+    if (board && !board.disabled) {
+      board.disabled = true;
+      const win = window.open('', '_blank');
+      try { const s = await api('together/new', { students: [], mode: 'board', task: null }); togOpen(s.id, win); }
+      catch (err) { if (win) win.close(); if (err.status !== 401) toast(err.message); }
+      finally { board.disabled = false; }
+    }
+  });
+
   // ------------------------------------------------------------ вкладки
-  let tab = 'students';
-  let backTab = 'students';            // куда вернуться из карточки ученика
+  let tab = 'overview';
+  let backTab = 'overview';            // куда вернуться из карточки ученика
   function go(t) {
     if (t !== 'classes') document.body.classList.remove('jr-full');
     if (t !== 'student') backTab = t;
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    document.body.classList.toggle('builder-open', t === 'build');
+    if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
     if (t === 'course') loadCourseProgress();
@@ -2132,7 +2250,7 @@
 
   /** Из класса — в конструктор: черновик для этого класса, по номеру n (если задан). */
   function openBuilderFor(classId, n) {
-    if (String(BLD.d.class_id) !== String(classId)) { BLD.d.class_id = String(classId); BLD.d.id = null; }
+    if (String(BLD.d.class_id) !== String(classId)) { BLD.d.class_id = String(classId); BLD.d.id = null; BLD.d.students = []; BLD.d.to = 'class'; BLD.members = []; }
     if (n) { BLD.f.n = [String(n)]; BLD.f.c = []; BLD.page = 0; }
     bldSave();
     go('build');
@@ -2357,7 +2475,15 @@
     if (curClass && !classes.some(c => c.id === curClass.id)) curClass = null;
     if (!curClass && classes.length) curClass = { id: classes[0].id };
     renderClassList();
-    if (curClass) openClass(curClass.id); else $('#classBody').innerHTML = '<p class="adm-empty">Создайте класс слева, затем перенесите в него учеников со вкладки «Ученики».</p>';
+    if (curClass) {
+      const id = curClass.id;
+      await openClass(id);
+      if (tab === 'classes' && curClass?.id === id && overviewTarget?.cid === id) {
+        const target = overviewTarget; overviewTarget = null;
+        const button = $(`[data-live="${target.id}"]`);
+        if (button) { if (liveId !== target.id) button.click(); button.scrollIntoView({ block: 'center' }); }
+      }
+    } else $('#classBody').innerHTML = '<p class="adm-empty">Создайте класс слева, затем перенесите в него учеников со вкладки «Ученики».</p>';
   }
   function renderClassList() {
     $('#classList').innerHTML = classes.map(c => `<button type="button" class="adm-class${curClass && curClass.id === c.id ? ' on' : ''}" data-class="${c.id}">
@@ -2395,6 +2521,7 @@
       curClass = { id, name: cl.name || '', goal: cl.goal_tasks || 0, reward: cl.goal_reward || '', weekSolved: cl.week_solved || 0, battle: !!cl.battle,
         students: s.students, assignments: a.assignments, batches: a.batches || [] };
     } catch (e) { if (request === classLoadVersion && e.status !== 401) toast(e.message); return; }
+    rememberClass(id);
     renderClass();
     setCsPreset('today');
   }
@@ -2434,8 +2561,10 @@
     }).join('');
     $('#classBody').innerHTML = `
       <div class="adm-toolbar"><h2 class="adm-h">${esc(c.name)} <span class="adm-count">· ${studs.length}</span></h2>
-        <span class="adm-actions"><button type="button" class="btn ghost" id="classRename">Переименовать</button>
-        <button type="button" class="btn ghost danger" id="classDelete">Удалить класс</button></span></div>
+        <span class="adm-actions"><button type="button" class="btn primary" id="classBuild">Выдать работу</button>
+        <button type="button" class="btn" id="classTogether">Начать занятие</button>
+        <details class="cls-manage"><summary aria-label="Настройки класса">⋯</summary><div><button type="button" class="btn ghost" id="classRename">Переименовать</button>
+        <button type="button" class="btn ghost danger" id="classDelete">Удалить класс</button></div></details></span></div>
       <nav class="cls-tabs" id="clsTabs">${CLS_PANES.map(([k, l]) => `<button type="button" data-pane="${k}" class="${clsPane === k ? 'on' : ''}">${l}</button>`).join('')}</nav>
       <div class="cls-pane" data-pane="digest"${clsPane === 'digest' ? '' : ' hidden'}><div id="clsDigest"><p class="adm-hint">Собираю сводку…</p></div></div>
       <div class="cls-pane" data-pane="members"${clsPane === 'members' ? '' : ' hidden'}>
@@ -2546,14 +2675,15 @@
     };
     const drop = {};
     d.dropped.forEach(x => (drop[x.id] = drop[x.id] || { name: x.name, list: [] }).list.push(x));
+    const hasAttempts = curClass.students.some(s => s.total);
     const fcd = d.forecast_avg != null && d.forecast_then != null ? d.forecast_avg - d.forecast_then : 0;
     const kpi = (label, val, sub, cls) => `<div class="dg-kpi ${cls || ''}"><span>${label}</span><b>${val}</b><small>${sub || ''}</small></div>`;
     box.dataset.weak = (d.weak || []).map(w => w.n).join(',');
     box.innerHTML = `<div class="dg-kpis">
         ${kpi('Средний прогноз балла', d.forecast_avg != null ? d.forecast_avg : '—', d.forecast_avg == null ? 'появится после 10 ответов' : fcd ? `<span class="${fcd > 0 ? 'up' : 'down'}">${fcd > 0 ? '▲ +' : '▼ '}${fcd}</span> за месяц` : 'без изменений за месяц')}
         ${kpi('Занимались за неделю', `${d.active} <small>из ${d.total}</small>`, d.inactive.length ? `не заходили: ${d.inactive.length}` : 'все в деле', d.inactive.length ? 'warn' : 'ok')}
-        ${kpi('Отстают от класса', d.behind.length, d.behind.length ? 'прогноз на 10+ ниже среднего' : 'таких нет', d.behind.length ? 'warn' : 'ok')}
-        ${kpi('Слабые номера', d.weak.length, d.weak.length ? d.weak.map(w => '№' + nl(w.n)).join(', ') + ' — меньше 50% верно за 30 дней' : 'нет — точность ≥ 50% везде', d.weak.length ? 'warn' : 'ok')}
+        ${kpi('Отстают от класса', d.forecast_avg == null ? '—' : d.behind.length, d.forecast_avg == null ? 'недостаточно данных' : d.behind.length ? 'прогноз на 10+ ниже среднего' : 'по имеющимся прогнозам не выявлены', d.behind.length ? 'warn' : '')}
+        ${kpi('Слабые номера', hasAttempts ? d.weak.length : '—', !hasAttempts ? 'недостаточно данных' : d.weak.length ? d.weak.map(w => '№' + nl(w.n)).join(', ') + ' — меньше 50% верно за 30 дней' : 'по номерам с достаточным числом ответов не выявлены', d.weak.length ? 'warn' : '')}
       </div>
       ${d.weak.length ? `<div class="dg-weak"><div>${d.weak.map(w => `<span class="dg-wn"><b>№${nl(w.n)}</b> ${w.pct}% <small>· ${w.answers} отв.</small></span>`).join('')}</div>
         <button type="button" class="btn primary" data-weak-build>Собрать подборку по слабым номерам</button></div>` : ''}
@@ -2561,7 +2691,7 @@
       <p class="adm-hint">${fmtDate(d.from)} — ${fmtDate(d.to)} · занимались <b>${d.active}</b> из ${d.total}. Сравнение — с предыдущими 30 днями.</p>
       <div class="dg-grid">
         ${sec('😴', 'Не занимались за неделю', d.inactive.length ? 'warn' : 'ok', d.inactive.length ? `<ul>${d.inactive.map(x => `<li>${who(x.id, x.name)} <span class="muted">${x.last ? 'последний раз ' + fmtWhen(x.last) : 'ни разу'}</span></li>`).join('')}</ul>` : '', 'Все занимались — отлично!')}
-        ${sec('📉', 'Просели по номерам', Object.keys(drop).length ? 'warn' : 'ok', Object.keys(drop).length ? `<ul>${Object.entries(drop).map(([sid, v]) => `<li>${who(sid, v.name)}: ${v.list.map(x => `<b>№${nl(x.n)}</b> <span class="muted">${x.was}% → </span><b class="dg-bad">${x.now}%</b>`).join(', ')}</li>`).join('')}</ul>` : '', 'Ни у кого заметного спада нет.')}
+        ${sec('📉', 'Просели по номерам', Object.keys(drop).length ? 'warn' : 'ok', Object.keys(drop).length ? `<ul>${Object.entries(drop).map(([sid, v]) => `<li>${who(sid, v.name)}: ${v.list.map(x => `<b>№${nl(x.n)}</b> <span class="muted">${x.was}% → </span><b class="dg-bad">${x.now}%</b>`).join(', ')}</li>`).join('')}</ul>` : '', hasAttempts ? 'По номерам с достаточным числом ответов спад не выявлен.' : 'Недостаточно данных: ученики ещё не решали задания.')}
         ${sec('⌛', 'Не сдали в срок', d.overdue.length ? 'warn' : 'ok', d.overdue.length ? overdueList(d.overdue) : '', 'Все работы с прошедшим сроком сданы.')}
         ${sec('🏆', 'Молодцы недели', 'ok', d.top.length ? `<ol>${d.top.map(x => `<li>${who(x.id, x.name)} — решено <b>${x.solved}</b> из ${x.answers}</li>`).join('')}</ol>` : '', 'Пока никто не решал.')}
       </div>
@@ -2963,6 +3093,8 @@
     const c = curClass;
     if (!c) return;
     const t = e.target;
+    if (t.closest('#classBuild')) { openBuilderFor(c.id); return; }
+    if (t.closest('#classTogether')) { go('tog'); return; }
     if (t.closest('#classRename')) {
       const name = prompt('Название класса', c.name);
       if (!name) return;
@@ -4109,7 +4241,7 @@
       showMediaWarning(await api('info'));
       await loadMe();
       showApp();
-      go(ME.guest ? 'classes' : 'students');       // гость — сразу в демо-класс со сводкой
+      go('overview');       // обзор последнего класса, для гостя — демо-класса
       startFeed();
     } catch (e) {
       if (e.status !== 401) {

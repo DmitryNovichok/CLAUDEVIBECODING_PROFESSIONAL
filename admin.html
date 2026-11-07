@@ -55,13 +55,14 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <div class="adm-brand"><span class="brand-mark" aria-hidden="true"><svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="4" y="9" width="56" height="51" rx="16" fill="#58a700"/><rect x="4" y="4" width="56" height="51" rx="16" fill="#58cc02"/><rect x="20" y="15" width="9" height="29" rx="4" fill="#fff"/><rect x="20" y="15" width="24" height="8.5" rx="4.25" fill="#fff"/><rect x="20" y="25.5" width="19" height="8" rx="4" fill="#fff"/><rect x="20" y="35.5" width="24" height="8.5" rx="4.25" fill="#fff"/><circle cx="48.5" cy="43" r="5" fill="#1cb0f6" stroke="#fff" stroke-width="2.5"/></svg></span><span class="brand-title"><b>Ege</b>shka<i class="brand-cursor" aria-hidden="true"></i></span><span>панель учителя</span></div>
     <nav class="adm-tabs" id="tabs" aria-label="Разделы панели">
       <div class="nav-h">Класс</div>
-      <button type="button" data-tab="students" class="on"><i aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.4 3.4 0 0 1 0 6.8M18 14.7c2 .7 3.2 2.5 3.5 5.3"/></svg></i>Ученики</button>
+      <button type="button" data-tab="overview" class="on"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3zM9 20v-7h6v7"/></svg></i>Обзор</button>
+      <button type="button" data-tab="students"><i aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.4 3.4 0 0 1 0 6.8M18 14.7c2 .7 3.2 2.5 3.5 5.3"/></svg></i>Ученики</button>
       <button type="button" data-tab="classes"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10l9-5 9 5-9 5-9-5z"/><path d="M7 12.2V17c1.4 1.3 3 2 5 2s3.6-.7 5-2v-4.8"/></svg></i>Классы</button>
       <button type="button" data-tab="feed"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></i>Лента <span class="tab-dot" id="feedDot" hidden></span></button>
       <button type="button" data-tab="tog"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></i>Вместе</button>
       <div class="nav-h">Задания</div>
       <button type="button" data-tab="build"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg></i>Создать подборку</button>
-      <button type="button" data-tab="archive"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/></svg></i>Архив подборок</button>
+      <button type="button" data-tab="archive"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/></svg></i>Мои работы</button>
       <button type="button" data-tab="course" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5M22 9v6"/></svg></i>Курс</button>
       <button type="button" data-tab="pyc"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></i>Программирование</button>
       <button type="button" class="nav-grp" id="navMotiv" aria-expanded="false" aria-controls="navMotivList"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></i>Мотивация учеников<svg class="nav-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
@@ -98,8 +99,9 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <div class="adm-warn" id="mediaWarn" role="alert" hidden></div>
     <div class="adm-access" id="accessBar" hidden></div>
     <div class="adm-steps" id="stepsCard" hidden></div>
+    <section class="adm-view" id="view-overview"><div id="overviewBody" aria-live="polite"><p class="adm-hint">Загружаю обзор…</p></div></section>
     <!-- Ученики -->
-    <section class="adm-view" id="view-students">
+    <section class="adm-view" id="view-students" hidden>
       <div class="adm-toolbar">
         <h2 class="adm-h"><span id="studentsTitle">Новые ученики</span> <span class="adm-count" id="studentsCount"></span></h2>
         <input class="inp adm-search" id="studentSearch" placeholder="Поиск по ФИО">
@@ -146,10 +148,12 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
         <div class="bld-main">
           <div class="adm-toolbar"><h2 class="adm-h">Создать подборку</h2>
             <button type="button" class="btn ghost" id="bldReset">Сбросить фильтры</button></div>
-          <p class="adm-hint" style="margin:0 0 10px">Возьмите шаблон или выберите номер в фильтре. Задания разбиты по типам внутри номера
-            и по сложности от 1 (очень лёгкое) до 5 (очень сложное). «Решают» — доля верных ответов с первой попытки у всех учеников тренажёра.</p>
-          <div class="adm-box bld-tpl" id="bldTpl">
-            <h3 class="adm-h3">Быстрый старт — шаблон в один клик</h3>
+          <p class="adm-hint bld-intro">Выберите задания, затем проверьте получателей и срок справа.</p>
+          <div class="adm-box bld-panel">
+            <div class="bld-filters" id="bldFilters"><p class="adm-hint">Загружаю…</p></div>
+          </div>
+          <details class="adm-box bld-tpl" id="bldTpl">
+            <summary>Быстро собрать по шаблону</summary>
             <div class="bld-tpl-row">
               <button type="button" class="bld-tpl-btn" data-tpl="variant"><b>Вариант ЕГЭ</b><small>по заданию на каждый номер 1–27</small></button>
               <div class="bld-tpl-btn as-div"><b>10 заданий на №</b>
@@ -160,23 +164,21 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
                 <button type="button" class="btn primary sm" data-tpl="fix">Собрать</button></span>
                 <small>новые задания тех типов, где класс ошибался за 2 недели</small></div>
             </div>
-          </div>
-          <div class="adm-box bld-panel">
-            <div class="bld-bar" id="bldBar"></div>
-            <div class="bld-filters" id="bldFilters"><p class="adm-hint">Загружаю…</p></div>
-          </div>
+          </details>
+          <div class="bld-bar" id="bldBar"></div>
           <div class="bld-list" id="bldList"></div>
           <div class="bld-pages" id="bldPages"></div>
         </div>
-        <aside class="adm-box bld-draft" id="bldDraft"></aside>
+        <aside class="adm-box bld-draft" id="bldDraft" tabindex="-1" aria-label="Ваша подборка"></aside>
       </div>
+      <button type="button" class="bld-mobile-summary" id="bldMobileSummary" aria-controls="bldDraft">Выбрано 0 заданий →</button>
     </section>
 
     <section class="adm-view" id="view-archive" hidden>
-      <div class="adm-toolbar"><h2 class="adm-h">Архив подборок</h2>
+      <div class="adm-toolbar"><h2 class="adm-h">Мои работы</h2>
         <input class="inp adm-search" id="arcQ" placeholder="Поиск по названию или классу" autocomplete="off">
         <select class="adm-select" id="arcClass" title="Класс"><option value="">Все классы</option></select></div>
-      <p class="adm-hint" style="margin:0 0 12px">Все подборки, которые вы выдавали, — новые сверху. «Отправить снова» открывает подборку в конструкторе как новую:
+      <p class="adm-hint" style="margin:0 0 12px">Все подборки, которые вы выдавали, — новые сверху. «Создать копию» открывает подборку в конструкторе как новую:
         выберите другой класс или отметьте учеников — и отправьте. «Во «Вместе»» — разобрать её задания на совместном занятии.</p>
       <div id="arcBody"><p class="adm-hint">Загружаю…</p></div>
     </section>

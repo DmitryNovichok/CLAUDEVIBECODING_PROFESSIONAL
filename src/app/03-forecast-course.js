@@ -478,6 +478,7 @@
     courseShown = false;
     pageKind = null;
     document.body.classList.remove('asg-wide');
+    renderMobileNav();
     $('#courseCard')?.classList.remove('on');
   }
   function lessonState(n) {
