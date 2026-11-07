@@ -333,13 +333,11 @@ body.admin .ov-metrics b { font-size: 28px; font-weight: 700; }
 .bld-panel { display: grid; gap: 16px; margin-bottom: 14px; }
 .bld-panel h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
 .bld-search .inp { width: 100%; min-height: 44px; }
-.bld-filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
-.bld-filter-group { flex: 1 1 150px; min-width: 0; }
-.bld-filter-group summary, .bld-rules > summary { cursor: pointer; font-size: 13px; font-weight: 500; }
-.bld-filter-group summary { padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; }
-.bld-filter-group[open] { flex-basis: 100%; }
-.bld-filter-group[open] summary { color: var(--accent-text); background: var(--accent-soft); }
-.bld-filter-body { padding: 14px 0 2px; display: grid; gap: 12px; }
+.bld-filter-row { display: grid; gap: 18px; }
+.bld-filter-group { min-width: 0; }
+.bld-panel .bld-filter-group > h3 { color: var(--muted); font-size: 13px; font-weight: 500; }
+.bld-rules > summary { cursor: pointer; font-size: 13px; font-weight: 500; }
+.bld-filter-body { display: grid; gap: 12px; }
 .bld-filter-body .adm-select { max-width: 100%; }
 body.admin .bld-tpl { padding: 16px 0 0; margin: 0; border-top: 1px solid var(--border); }
 .bld-tpl-row { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px 24px; }

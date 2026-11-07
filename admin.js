@@ -723,15 +723,14 @@
     }).join('')}</div>`).join('') : '<span class="adm-hint">Выберите номер — появятся типы заданий внутри него.</span>';
     const sel = (id, opts, val) => `<select class="adm-select" id="${id}">${opts.map(([v, t]) => `<option value="${esc(String(v))}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
     const years = [['', 'любой']].concat(C.years.map(y => [y, y]));
-    const open = new Set($$('#bldFilters details[open]').map(x => x.dataset.filter));
-    const fold = (key, title, body) => `<details class="bld-filter-group" data-filter="${key}"${open.has(key) ? ' open' : ''}><summary>${title}</summary><div class="bld-filter-body">${body}</div></details>`;
+    const group = (key, title, body) => `<section class="bld-filter-group" data-filter="${key}" aria-labelledby="bldFilter-${key}"><h3 id="bldFilter-${key}">${title}</h3><div class="bld-filter-body">${body}</div></section>`;
     const advanced = f.c.length + f.bank.length + Number(!!f.y0) + Number(!!f.y1) + Number(f.fmt !== 'actual') + Number(!!f.rate) + Number(!!f.notsolved);
     $('#bldFilters').innerHTML = `
       <label class="bld-search"><span class="sr-only">Поиск заданий</span><input class="inp" type="search" id="bldQ" placeholder="Поиск по тексту или номеру задания" value="${esc(f.q)}" autocomplete="off"></label>
       <div class="bld-filter-row">
-        ${fold('number', `Номер ЕГЭ: ${f.n.length ? f.n.map(n => n === '19' ? '19–21' : n).join(', ') : 'любой'}`, `<div class="bld-chips">${nums.join('')}</div>`)}
-        ${fold('rank', `Сложность: ${f.r.length ? f.r.map(r => RANK_SHORT[r]).join(', ') : 'любая'}`, `<div class="bld-chips">${[1, 2, 3, 4, 5].map(r => chip('r', r, `${rankDots(r)} ${RANK_SHORT[r]}`, f.r.includes(String(r)), fc.r[r] || 0)).join('')}</div>`)}
-        ${fold('advanced', `Ещё фильтры${advanced ? ' · ' + advanced : ''}`, `
+        ${group('number', `Номер ЕГЭ: ${f.n.length ? f.n.map(n => n === '19' ? '19–21' : n).join(', ') : 'любой'}`, `<div class="bld-chips">${nums.join('')}</div>`)}
+        ${group('rank', `Сложность: ${f.r.length ? f.r.map(r => RANK_SHORT[r]).join(', ') : 'любая'}`, `<div class="bld-chips">${[1, 2, 3, 4, 5].map(r => chip('r', r, `${rankDots(r)} ${RANK_SHORT[r]}`, f.r.includes(String(r)), fc.r[r] || 0)).join('')}</div>`)}
+        ${group('advanced', `Другие фильтры${advanced ? ' · ' + advanced : ''}`, `
           <div class="bld-row"><span class="bld-lbl">Тип</span><div class="bld-chips col">${types}</div></div>
           <div class="bld-row"><span class="bld-lbl">Банк</span><div class="bld-chips">${C.banks.map(b => chip('bank', b.id, esc(b.title), f.bank.includes(b.id), b.count)).join('')}</div></div>
           <div class="bld-sel">
