@@ -150,22 +150,31 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
             <button type="button" class="btn ghost" id="bldReset">Сбросить фильтры</button></div>
           <p class="adm-hint bld-intro">Выберите задания, затем проверьте получателей и срок справа.</p>
           <div class="adm-box bld-panel">
+            <section class="bld-bulk" id="bldBulk" aria-labelledby="bldBulkTitle">
+              <h3 id="bldBulkTitle">Добавить несколько</h3>
+              <div class="bld-bar-act">
+                <label class="bld-quantity">Количество <input class="inp" type="number" id="bldK" min="1" max="50" value="5"></label>
+                <button type="button" class="btn" id="bldRand" disabled>+ случайных из найденных</button>
+                <button type="button" class="btn" id="bldPerN" disabled title="Из найденных — столько случайных заданий каждого номера">+ по стольку на каждый номер</button>
+                <button type="button" class="btn ghost" id="bldAddPage" disabled>+ все на странице</button>
+                <button type="button" class="btn ghost" id="bldVariant" disabled title="По одному случайному заданию на каждый номер 1–27 с выбранными сложностью, банком, годами и решаемостью (номера и типы фильтра не важны). Номер, для которого с такими фильтрами заданий нет, — из всего банка">Вариант ЕГЭ</button>
+              </div>
+            </section>
             <div class="bld-filters" id="bldFilters"><p class="adm-hint">Загружаю…</p></div>
+            <section class="bld-tpl" id="bldTpl" aria-labelledby="bldTplTitle">
+              <h3 id="bldTplTitle">Быстро собрать по шаблону</h3>
+              <div class="bld-tpl-row">
+                <div class="bld-tpl-option"><label for="tplN">10 заданий на №</label>
+                  <span class="bld-tpl-ctl"><select class="adm-select" id="tplN"></select>
+                  <button type="button" class="btn sm" data-tpl="ten">Добавить</button></span></div>
+                <div class="bld-tpl-option"><label for="tplClass">Работа над ошибками класса</label>
+                  <span class="bld-tpl-ctl"><select class="adm-select" id="tplClass" aria-describedby="tplFixHint"></select>
+                  <button type="button" class="btn sm" data-tpl="fix">Собрать</button></span>
+                  <small id="tplFixHint">Новые задания по типам с ошибками за 2 недели</small></div>
+              </div>
+            </section>
+            <div class="bld-bar" id="bldBar"></div>
           </div>
-          <details class="adm-box bld-tpl" id="bldTpl">
-            <summary>Быстро собрать по шаблону</summary>
-            <div class="bld-tpl-row">
-              <button type="button" class="bld-tpl-btn" data-tpl="variant"><b>Вариант ЕГЭ</b><small>по заданию на каждый номер 1–27</small></button>
-              <div class="bld-tpl-btn as-div"><b>10 заданий на №</b>
-                <span class="bld-tpl-ctl"><select class="adm-select" id="tplN" aria-label="Номер задания"></select>
-                <button type="button" class="btn primary sm" data-tpl="ten">Добавить</button></span></div>
-              <div class="bld-tpl-btn as-div"><b>Работа над ошибками класса</b>
-                <span class="bld-tpl-ctl"><select class="adm-select" id="tplClass" aria-label="Класс"></select>
-                <button type="button" class="btn primary sm" data-tpl="fix">Собрать</button></span>
-                <small>новые задания тех типов, где класс ошибался за 2 недели</small></div>
-            </div>
-          </details>
-          <div class="bld-bar" id="bldBar"></div>
           <div class="bld-list" id="bldList"></div>
           <div class="bld-pages" id="bldPages"></div>
         </div>
