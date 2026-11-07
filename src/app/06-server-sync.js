@@ -65,6 +65,7 @@
     COURSE_OK = !!me.course;
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
     document.body.classList.toggle('teacher-mode', TEACHER);
+    ['#teacherBack', '#teacherBackMenu'].forEach(sel => { const el = $(sel); if (el) el.hidden = !TEACHER; });   // учитель решает как ученик — путь назад
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     pycSetAccess(me.pyc, me.pyc_pw);
     giftNotify(me.gifts_new);

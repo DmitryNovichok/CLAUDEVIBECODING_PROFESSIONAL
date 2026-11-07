@@ -3426,3 +3426,11 @@ body.kege-on #trainer { max-width: none !important; margin: 0 !important; paddin
 .kg-task .cond b, .kg-task .cond strong { font-weight: 700; }
 .forgot-box { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .forgot-box[hidden] { display: none; }
+
+/* учитель решает как ученик — кнопка назад в панель */
+.teacher-back { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 10px; white-space: nowrap;
+  background: #1677d2; color: #fff; font-weight: 800; font-size: 13.5px; text-decoration: none; border: 0; }
+.teacher-back:hover { background: #0f5fae; }
+.teacher-back[hidden], #teacherBackMenu[hidden] { display: none; }
+a.wm-item { text-decoration: none; color: inherit; display: block; }
+@media (max-width: 600px) { .teacher-back { padding: 6px 9px; font-size: 12px; } }

@@ -274,7 +274,7 @@
           const me = await api('me');
           applyMe(me);
           await askConsent();                          // новая редакция документов — подтвердить перед занятиями
-          mustSetPw = me.has_password === false;      // вошёл раньше, когда пароля ещё не было
+          mustSetPw = me.has_password === false && !me.teacher;   // учитель входит из панели — пароль ученика ему не нужен      // вошёл раньше, когда пароля ещё не было
           await loadHistory();
           await loadAssignments();
           await loadCourseSets();
