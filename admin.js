@@ -159,7 +159,9 @@
   let ME = { is_main: 1 };
   let teachers = [];
   async function loadMe() {
+    const previous = bldKey();
     ME = await api('me');
+    if (previous !== bldKey()) bldLoad();
     document.body.classList.toggle('is-main', !!ME.is_main);
     $('#admWho').textContent = ME.name + (ME.is_main ? ' · главный' : '');
     errBadge(ME.jserr_new || 0);
@@ -553,13 +555,21 @@
   // ------------------------------------------------------------ конструктор подборки
   // Слева — широкий фильтр по банку (номер, тип задания, сложность, банк, годы, решаемость, текст), справа — черновик.
   // Черновик живёт в браузере, пока его не отправят классу.
-  const BLD_KEY = 'egeAdmin.bldDraft';
+  const bldKey = () => ME.id ? `egeAdmin.bldDraft.${ME.id}.${ME.created || ME.login}` : null;
   const RANK_SHORT = ['', 'очень лёгкое', 'лёгкое', 'среднее', 'сложное', 'очень сложное'];
   const BLD = { cat: null, page: 0, res: null, timer: 0, asg: [], open: new Set(), full: {},
     f: { n: [], c: [], r: [], bank: [], y0: '', y1: '', fmt: 'actual', rate: '', notsolved: '', q: '', sort: 'rank' },
     d: { class_id: '', id: null, title: '', due: '', tasks: [] } };
-  try { const v = JSON.parse(localStorage.getItem(BLD_KEY)); if (v && Array.isArray(v.tasks)) BLD.d = Object.assign(BLD.d, v); } catch (e) { /* пусто */ }
-  const bldSave = () => { try { localStorage.setItem(BLD_KEY, JSON.stringify(BLD.d)); } catch (e) { /* нет доступа */ } };
+  function bldLoad() {
+    BLD.d = { class_id: '', id: null, title: '', due: '', tasks: [] };
+    BLD.cat = null; BLD.res = null; BLD.asg = []; BLD.full = {}; BLD.open.clear();
+    try {
+      localStorage.removeItem('egeAdmin.bldDraft');
+      const v = JSON.parse(localStorage.getItem(bldKey()));
+      if (v && Array.isArray(v.tasks)) BLD.d = Object.assign(BLD.d, v);
+    } catch (e) { /* пусто */ }
+  }
+  const bldSave = () => { try { if (bldKey()) localStorage.setItem(bldKey(), JSON.stringify(BLD.d)); } catch (e) { /* нет доступа */ } };
   const rankDots = r => r ? `<span class="rk rk${r}" title="Сложность ${r} из 5 — ${RANK_SHORT[r]}">${'●'.repeat(r)}${'○'.repeat(5 - r)}</span>` : '';
   const rateHtml = x => x.rate == null ? `<span class="muted" title="Ответов у учеников: ${x.tries || 0}">решают: мало данных</span>`
     : `<span class="bld-rate ${x.rate < 0.4 ? 'lo' : x.rate < 0.75 ? 'mid' : 'hi'}" title="${x.tries} ответов">решают ${Math.round(x.rate * 100)}%</span>`;

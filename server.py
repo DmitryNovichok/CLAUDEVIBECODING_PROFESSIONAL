@@ -1466,6 +1466,9 @@ class DB(Transactional):
             CREATE TABLE IF NOT EXISTS solutions(
                 student_id INTEGER NOT NULL, task_id TEXT NOT NULL, code TEXT, ts REAL,
                 PRIMARY KEY(student_id, task_id));
+            CREATE TABLE IF NOT EXISTS solution_history(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, task_id TEXT NOT NULL, code TEXT, ts REAL NOT NULL);
+            CREATE INDEX IF NOT EXISTS solution_history_lookup ON solution_history(student_id, task_id, ts);
             CREATE TABLE IF NOT EXISTS teacher_solutions(task_id TEXT PRIMARY KEY, text TEXT, ts REAL);
             CREATE TABLE IF NOT EXISTS teachers(
                 id INTEGER PRIMARY KEY, name TEXT NOT NULL, login TEXT UNIQUE NOT NULL, pw TEXT,
@@ -1621,6 +1624,10 @@ class DB(Transactional):
                     ("attempts", "bot_why", "TEXT"),       # детектор ботов: почему похоже на программу (видит только учитель)
                     ("students", "teacher_id", "INTEGER"), # учитель, по чьему коду зарегистрировался; NULL — главный
                     ("classes", "teacher_id", "INTEGER"),
+                    ("classes", "is_demo", "INTEGER DEFAULT 0"),
+                    ("exams", "saved_answers", "TEXT"),
+                    ("exams", "saved_rev", "INTEGER DEFAULT 0"),
+                    ("exams", "save_protocol", "INTEGER DEFAULT 0"),
                     ("admin_sessions", "teacher_id", "INTEGER"),
                     ("classes", "goal_tasks", "INTEGER"),  # цель класса на неделю (заданий) — битва классов
                     ("classes", "goal_reward", "TEXT"),    # награда за цель, её задаёт учитель
@@ -1716,6 +1723,17 @@ class DB(Transactional):
                     ("econ_hist", "s_med", "REAL")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            # Stable demo identity survives renames. Never infer it from a class name.
+            if not c.execute("SELECT 1 FROM settings WHERE key='demo_identity_seeded'").fetchone():
+                # Legacy demo classes were created exactly 40 days before the guest account.
+                # Membership and names are editable, so neither identifies the original class safely.
+                c.execute("""UPDATE classes SET is_demo=1 WHERE EXISTS (SELECT 1 FROM teachers t
+                    WHERE t.id=classes.teacher_id AND t.guest=1
+                    AND classes.created BETWEEN t.created-3456600 AND t.created-3455400)""")
+                c.execute("INSERT INTO settings(key,value) VALUES('demo_identity_seeded','1')")
+            if not c.execute("SELECT 1 FROM settings WHERE key='solution_history_seeded'").fetchone():
+                c.execute("INSERT INTO solution_history(student_id,task_id,code,ts) SELECT student_id,task_id,code,ts FROM solutions WHERE ts IS NOT NULL")
+                c.execute("INSERT INTO settings(key,value) VALUES('solution_history_seeded','1')")
             # любая подборка учителя — контрольная (одна попытка, результат после сдачи); прежние тоже переводим
             # тип работы: прежние подборки — самостоятельные; «строгий» режим (проверка после сдачи) — только у них
             # турниры прежнего формата (без групп) закрываются, наборы — пересоздаются в новом
@@ -1858,7 +1876,11 @@ class DB(Transactional):
 def delete_student(db, sid):
     """Удаление учётной записи стирает все данные ученика (152-ФЗ); в чужих турнирах и дуэлях
     остаются только счёт и номер без имени — соперникам не ломаем таблицы."""
-    for table in ("attempts", "reveal_log", "exams", "activity", "solutions", "daily_starts", "daily_results",
+    for row in db.q("SELECT id, students FROM together"):
+        members = json.loads(row["students"] or "[]")
+        if sid in members:
+            db.x("UPDATE together SET students=? WHERE id=?", (json.dumps([x for x in members if x != sid]), row["id"]))
+    for table in ("student_sessions", "attempts", "reveal_log", "exams", "activity", "solutions", "solution_history", "daily_starts", "daily_results",
                   "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue"):
         db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
     db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
@@ -2066,8 +2088,8 @@ def tog_load(sid):
 
 
 def tog_save(sid, state):
-    APP.db.x("UPDATE together SET state=?, updated=? WHERE id=?",
-             (json.dumps(state, ensure_ascii=False, separators=(",", ":")), time.time(), sid))
+    APP.db.x("UPDATE together SET state=?, updated=? WHERE id=? AND created=?",
+             (json.dumps(state, ensure_ascii=False, separators=(",", ":")), time.time(), sid, state.get("session_created")))
 
 
 def tog_task(real, teacher):
@@ -2109,7 +2131,7 @@ def tog_credit(sid, real, ans, score):
     t = APP.bank.tasks.get(real) if APP.bank.ensure() else None
     s = APP.db.q("SELECT * FROM students WHERE id=?", (sid,), one=True)
     if not t or not s:
-        return
+        raise ValueError("student or task no longer exists")
     APP.db.x("""INSERT INTO attempts(student_id,ts,task_id,n,bank,answers,correct,score,gave_up,abandoned,reason,grp,revealed)
                 VALUES(?,?,?,?,?,?,?,?,0,0,'tog',?,0)""",
              (sid, time.time(), t["id"], t.get("n"), t.get("bank"), json.dumps([ans], ensure_ascii=False),
@@ -2120,7 +2142,20 @@ def tog_credit(sid, real, ans, score):
         LIVE.rate(s["teacher_id"] or main_teacher()["id"])
 
 
-TOG = together.Hub(tog_load, tog_save, tog_task, tog_check, tog_name, tog_credit)
+def tog_access(session, who):
+    r = APP.db.q("SELECT * FROM together WHERE id=?", (session.id,), one=True)
+    if not r or r["created"] != session.created or r["teacher_id"] != session.teacher:
+        return None
+    if who[0] == "t":
+        if who[1] != r["teacher_id"]:
+            return None
+    elif who[1] not in json.loads(r["students"] or "[]"):
+        return None
+    t = APP.db.q("SELECT * FROM teachers WHERE id=?", (r["teacher_id"],), one=True)
+    return None if not t else not teacher_access(t)["expired"]
+
+
+TOG = together.Hub(tog_load, tog_save, tog_task, tog_check, tog_name, tog_credit, access=tog_access)
 together.PY_LOCAL = lambda: (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()      # Python с самого сервера (школьная сеть)
 
 
@@ -2861,6 +2896,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     def api(self, method, path, qs, data):
         try:
+            if method == "POST" and path == "/api/teacher/guest":
+                purge_guests(APP.db)  # Hub locks are acquired outside the request's DB transaction.
             if financial_path(path):
                 return atomic_response(self, APP.db, lambda: self.api_route(method, path, qs, data))
             return self.api_route(method, path, qs, data)
@@ -3046,9 +3083,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         return self.err(409, f"«{g[2]}» раскупили: все {sup['cap']} штук у учеников — теперь только на рынке")
                     if not lim and not box and sup["left"] <= 0:
                         return self.err(409, f"«{g[2]}» распродан: все {sup['cap']} штук выпущены — купить можно только на рынке")
-                    if not box and own_count(db, rcpt["id"], g[0]) >= sup["own_max"]:
+                    if not box and own_reserved(db, rcpt["id"], g[0]) >= sup["own_max"]:
                         return self.err(409, f"У {'тебя' if rcpt['id'] == s['id'] else short_name(rcpt['name'])} уже {sup['own_max']} «{g[2]}» — "
-                                             f"больше одному ученику нельзя (это {round(OWN_SHARE * 100)}% тиража)")
+                                             "больше одному ученику нельзя. Учитываются и текущие ставки")
                     have = game_summary(db, s["id"])["coins"]
                     if have < price:
                         return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
@@ -3183,9 +3220,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         if r["buy_now"] and (r["bid_amt"] or 0) < r["buy_now"] <= amount:
                             amount = int(r["buy_now"])              # не дороже «купить сразу»: это покупка
                     om = gift_supply(db)[r["gift"]]["own_max"]
-                    if own_count(db, s["id"], r["gift"]) >= om:
+                    if own_reserved(db, s["id"], r["gift"], exclude_bid=r["id"]) >= om:
                         return self.err(409, f"У тебя уже {om} «{GIFT_BY[r['gift']][2]}» — больше одному ученику нельзя "
-                                             f"(это {round(OWN_SHARE * 100)}% тиража)")
+                                             "Учитываются и текущие ставки")
                     have, total = game_summary(db, s["id"])["coins"], amount + buy_fee(amount)   # ставка и сбор покупателя
                     if have < total:
                         return self.err(400, f"Не хватает биткоинов: нужно {total} ₿, у тебя {have} ₿")
@@ -3474,10 +3511,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 code = str(data.get("code") or "")
                 if len(code) > MAX_SOLUTION:
                     return self.err(413, "Решение слишком длинное (больше 50 000 символов)")
+                now = time.time()
+                db.x("INSERT INTO solution_history(student_id, task_id, code, ts) VALUES(?,?,?,?)", (s["id"], tid, code, now))
                 if code.strip():
                     db.x("""INSERT INTO solutions(student_id, task_id, code, ts) VALUES(?,?,?,?)
                             ON CONFLICT(student_id, task_id) DO UPDATE SET code=excluded.code, ts=excluded.ts""",
-                         (s["id"], tid, code, time.time()))
+                         (s["id"], tid, code, now))
                 else:
                     db.x("DELETE FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid))
                 return self.send_json({"ok": True})
@@ -3522,7 +3561,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         item["tasks"] = [APP.bank.pid(i) for i in real]
                         item.update(asg_run_public(db, a, s["id"], real))
                     else:
-                        done = assignment_done(db, s["id"], real, a["created"])
+                        done = assignment_done(db, s["id"], real, a["created"], asg_cutoff(a))
                         item["done"] = [APP.bank.pid(i) for i in real if i in done]
                         item["score"] = practice_score(db, a, s["id"], real)      # практическая и домашняя: оценка сама
                     out.append(item)
@@ -3862,6 +3901,21 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 x["mine"] = mine.get(x.get("task"), "")
             return self.send_json(dict(r, id=e["id"], started=e["started"], finished=e["finished"]))
 
+        if path == "/api/exam/save" and method == "POST":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            e = db.q("SELECT * FROM exams WHERE id=? AND student_id=?", (str(data.get("exam_id") or ""), s["id"]), one=True)
+            if not e:
+                return self.err(404, "Вариант не найден")
+            if e["finished"] or time.time() > e["started"] + EXAM_LIMIT_SEC:
+                return self.send_json({"saved": False, "expired": True})
+            rev = to_int(data.get("rev"))
+            if rev > (e["saved_rev"] or 0):
+                db.x("UPDATE exams SET saved_answers=?, saved_rev=? WHERE id=?",
+                     (json.dumps(exam_input(data), ensure_ascii=False), rev, e["id"]))
+            return self.send_json({"saved": True, "rev": max(rev, e["saved_rev"] or 0)})
+
         if path == "/api/exam/finish" and method == "POST":
             s = self.student(data)
             if not s:
@@ -3912,9 +3966,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if guest:                                # гость регистрируется — его классы и подборки остаются, демо-класс уходит
                 drop_demo(db, guest["id"])
                 tid = guest["id"]
-                db.x("""UPDATE teachers SET name=?, login=?, email=?, pw=?, guest=0, paid=0, until=?, created=?,
+                db.x("""UPDATE teachers SET name=?, login=?, email=?, pw=?, guest=0, paid=0, until=?,
                         consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?""",
-                     (name, email, email, hash_pw(pw), until, now, LEGAL_VERSION, now, ip, tid))
+                     (name, email, email, hash_pw(pw), until, LEGAL_VERSION, now, ip, tid))
                 db.x("UPDATE students SET name=? WHERE is_teacher=1 AND teacher_id=?", (name, tid))
                 db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
             else:
@@ -3931,7 +3985,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not APP.bank.ensure():
                 return self.err(503, "банк заданий не собран")
             THROTTLE.fail("guest", ip)
-            purge_guests(db)
             now = time.time()
             tid = db.x("""INSERT INTO teachers(name, login, pw, invite, is_main, created, guest, until, report, consent_ver, consent_ts, consent_ip)
                           VALUES('Гость', ?, ?, ?, 0, ?, 1, ?, 0, ?, ?, ?)""",
@@ -4160,8 +4213,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             now = time.time()
             with _COMP_LOCK:
                 # пока ждали, нас подобрал другой ищущий — дуэль уже создана
-                hit = db.q("""SELECT id FROM duels WHERE status='active' AND a=? AND quick=1 AND accepted>=?
-                              ORDER BY id DESC LIMIT 1""", (s["id"], now - DUEL_QUEUE_TTL * 2), one=True)
+                hit = db.q("""SELECT id FROM duels WHERE status='active' AND (a=? OR b=?) AND quick=1 AND accepted>=?
+                              ORDER BY id DESC LIMIT 1""", (s["id"], s["id"], now - DUEL_QUEUE_TTL * 2), one=True)
                 if hit and not db.q("SELECT 1 FROM duel_queue WHERE student_id=?", (s["id"],), one=True):
                     return self.send_json({"matched": hit["id"]})
                 if db.q("SELECT COUNT(*) AS c FROM duels WHERE status IN ('pending','active') AND (a=? OR b=?)",
@@ -4396,7 +4449,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if not tasks:
             return self.err(503, "В банке нет заданий для варианта")
         eid = secrets.token_urlsafe(9)
-        db.x("INSERT INTO exams(id,student_id,ip,started,tasks) VALUES(?,?,?,?,?)", (eid, s["id"], ip, now, json.dumps(tasks)))
+        db.x("INSERT INTO exams(id,student_id,ip,started,tasks,save_protocol) VALUES(?,?,?,?,?,1)", (eid, s["id"], ip, now, json.dumps(tasks)))
         return self.send_json({"exam_id": eid, "started": now, "limit": EXAM_LIMIT_SEC,
                                "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS,
                                "items": [{"id": APP.bank.pid(i), "n": n_key(APP.bank.tasks[i].get("n")), "trap": trap_k(db, s, APP.bank.tasks[i])}
@@ -4430,7 +4483,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             for k in asg_items(real):
                 t = APP.bank.tasks.get(k) or {}
                 top = t.get("group") or k
-                code = db.q("SELECT code FROM solutions WHERE student_id=? AND task_id=?", (s["id"], top), one=True)
+                code = asg_code(db, a, s["id"], top, run)
                 it = self.with_answer_s(s, {"task": APP.bank.pid(k), "top": APP.bank.pid(top), "n": t.get("n"),
                                             "mine": (answers.get(k) or {}).get("a") or "", "credit": res.get(k),
                                             "code": code["code"] if code else ""}, t)
@@ -4502,10 +4555,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if e["finished"]:
             return self.send_json(json.loads(e["result"] or "{}"))
         now = time.time()
-        spent = now - e["started"]
+        elapsed = max(0, now - e["started"])
+        # Exams already running during the upgrade keep their old submission protocol once.
+        spent = min(elapsed, EXAM_LIMIT_SEC) if e["save_protocol"] else elapsed
+        expired = bool(e["save_protocol"]) and elapsed > EXAM_LIMIT_SEC
         show = spent >= EXAM_MIN_SEC_FOR_ANSWERS
-        items = data.get("answers") if isinstance(data.get("answers"), list) else []
+        items = json.loads(e["saved_answers"] or "[]") if expired else exam_input(data)
         issued = set(json.loads(e["tasks"])) if e["tasks"] else None    # задания, выданные сервером при старте
+        present = {APP.bank.real(it.get("task")) for it in items}
+        for tid in asg_items(json.loads(e["tasks"] or "[]")):
+            if tid not in present:
+                items.append({"task": APP.bank.pid(tid), "answer": ""})
         results, primary, seen, nums = [], 0, set(), set()
         for it in items[:40]:
             if not isinstance(it, dict):
@@ -4531,15 +4591,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not blank:                     # нетронутое задание варианта — не ошибка: в журнал и статистику не идёт
                 self.log_attempt(s, t, [ans], 1.0 if credit == 1.0 else 0.0, reason="exam",
                                  part=credit, revealed=int(show), exam=e["id"], ai=credit < 1.0 and trap_hit(db, s, t, ans))
-            r = {"task": APP.bank.pid(tid), "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank}
+            r = {"task": APP.bank.pid(tid), "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank, "mine": ans}
             if show and not blank:
                 r["answer"] = t.get("ans", "")
             results.append(r)
         test = EGE_SCALE[min(primary, len(EGE_SCALE) - 1)]
         out = {"results": results, "primary": primary, "test": test, "spent": int(spent), "shown": show,
-               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS}
+               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "expired": expired}
         db.x("UPDATE exams SET finished=?, items=?, primary_score=?, test_score=?, result=? WHERE id=?",
-             (now, len(results), primary, test, json.dumps(out, ensure_ascii=False), e["id"]))
+             (e["started"] + spent, len(results), primary, test, json.dumps(out, ensure_ascii=False), e["id"]))
         live_teacher(s)
         return self.send_json(dict(out, game=game_summary(db, s["id"])))
 
@@ -4922,6 +4982,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     db.x(f"UPDATE {table} SET student_id=? WHERE student_id=?", (other["id"], sid))
                 db.x("UPDATE OR IGNORE solutions SET student_id=? WHERE student_id=?", (other["id"], sid))
                 db.x("DELETE FROM solutions WHERE student_id=?", (sid,))
+                db.x("UPDATE solution_history SET student_id=? WHERE student_id=?", (other["id"], sid))
                 db.x("DELETE FROM students WHERE id=?", (sid,))
                 return self.send_json({"ok": True, "merged_into": other["id"]})
             db.x("UPDATE students SET name=?, name_key=? WHERE id=?", (pretty, key, sid))
@@ -5633,7 +5694,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "on": bool(on)})
 
         if path == "/api/admin/me":
-            out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite")}
+            out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite", "created")}
             out["sounds"] = bool(self.T["sounds"])
             out["hints"] = bool(self.T["hints"])
             if self.T["is_main"]:
@@ -5897,6 +5958,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             # ученики, классы и подборки остаются — переходят главному учителю
             db.x("UPDATE students SET teacher_id=? WHERE teacher_id=?", (main_id, tid))
             db.x("UPDATE classes SET teacher_id=? WHERE teacher_id=?", (main_id, tid))
+            db.x("UPDATE together SET teacher_id=? WHERE teacher_id=?", (main_id, tid))
             db.x("DELETE FROM tsolutions WHERE teacher_id=?", (tid,))
             db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
             db.x("DELETE FROM teachers WHERE id=?", (tid,))
@@ -6047,10 +6109,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 b["ids"].append(a["id"])
                 b["students"] += 1
                 b["tasks"] += len(real)
-                b["done"] += len(assignment_done(db, a["student_id"], real, a["created"])) >= len(real) > 0
+                b["done"] += len(assignment_done(db, a["student_id"], real, a["created"], asg_cutoff(a))) >= len(real) > 0
             for a in db.q("SELECT * FROM assignments WHERE class_id=? AND student_id IS NULL ORDER BY created DESC", (cid,)):
                 real = json.loads(a["tasks"] or "[]")
-                prog = [{"id": m["id"], "name": m["name"], "done": len(assignment_done(db, m["id"], real, a["created"]))}
+                prog = [{"id": m["id"], "name": m["name"], "done": len(assignment_done(db, m["id"], real, a["created"], asg_cutoff(a)))}
                         for m in members]
                 out.append({"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
                             "strict": bool(a["strict"]), "kind": a["kind"] or "self", "closed": a["closed"], "grading": asg_grading(a),
@@ -7599,7 +7661,7 @@ def econ(db, fresh=False):
         if not fresh and _ECON["v"] and _ECON["db"] is db and time.time() - _ECON["t"] < 600:
             return _ECON["v"]                      # пока ждали, посчитал другой запрос
         sids = [r["student_id"] for r in db.q("""SELECT DISTINCT a.student_id FROM attempts a JOIN students s ON s.id = a.student_id
-                                                  WHERE a.ts > ? AND COALESCE(s.is_teacher, 0) = 0""", (now - 30 * 86400,))]
+                                                  WHERE a.ts > ? AND COALESCE(s.is_teacher, 0) = 0 AND s.name_key NOT LIKE 'demo:%'""", (now - 30 * 86400,))]
         coins = {sid: game_summary(db, sid, brief=True)["coins"] for sid in sids}
         wallets = sorted(coins.values())
         total, n = sum(wallets), len(wallets)
@@ -7702,7 +7764,8 @@ def btc_rate_now(db):
     if now - _BTC_RATES["tick"] >= 60:
         _BTC_RATES["tick"] = now
         active = db.q("""SELECT COUNT(DISTINCT a.student_id) c FROM attempts a JOIN students s ON s.id = a.student_id
-                         WHERE a.ts > ? AND a.score > 0 AND COALESCE(s.is_teacher, 0) = 0""", (now - BTC_RATE_WINDOW,), one=True)["c"]
+                         WHERE a.ts > ? AND a.score > 0 AND COALESCE(s.is_teacher, 0) = 0
+                         AND s.name_key NOT LIKE 'demo:%'""", (now - BTC_RATE_WINDOW,), one=True)["c"]
         _BTC_RATES["active"] = active
         k = min(BTC_RATE_MAX, COIN_XP + max(0, -(-(active - BTC_RATE_FREE) // BTC_RATE_STEP)))
         if k != btc_rate_at(db, now):
@@ -7756,6 +7819,11 @@ def own_max(cap):
 def own_count(db, sid, gid):
     """Сколько подарков вида gid сейчас у ученика sid (обычных и уникальных)."""
     return db.q("SELECT COUNT(*) c FROM gifts WHERE student_id=? AND gift=? AND sold IS NULL", (sid, gid), one=True)["c"]
+
+
+def own_reserved(db, sid, gid, exclude_bid=0):
+    return own_count(db, sid, gid) + db.q("""SELECT COUNT(*) c FROM gifts WHERE bid_sid=? AND gift=?
+        AND sold IS NULL AND listed IS NOT NULL AND id<>?""", (sid, gid, exclude_bid), one=True)["c"]
 
 
 def gift_supply(db, fresh=False):
@@ -8002,6 +8070,17 @@ def auc_refund(db, r, now, why="перебили"):
 def auc_deal(db, r, buyer, amount, now, e, seen=0):
     """Сделка по лоту r (под _GIFT_LOCK): подарок — buyer, его замороженная ставка amount становится покупкой ('mbuy'),
     продавцу — amount минус комиссия, комиссия — в банк рынка. Возвращает комиссию; None — лот уже ушёл."""
+    current = db.q("SELECT * FROM gifts WHERE id=? AND listed IS NOT NULL AND sold IS NULL AND student_id=?",
+                   (r["id"], r["student_id"]), one=True)
+    if not current:
+        return None
+    if own_count(db, buyer, r["gift"]) >= gift_supply(db)[r["gift"]]["own_max"]:
+        # Legacy overlapping bids, or a cap changed by the teacher: return the entire reservation.
+        auc_refund(db, current, now, "достигнут лимит владения")
+        db.x("""UPDATE gifts SET listed=NULL, listed_ts=NULL, auc_end=NULL, buy_now=NULL,
+                bid_sid=NULL, bid_amt=NULL, bid_n=0 WHERE id=?""", (r["id"],))
+        LIVE.send([buyer, r["student_id"]], "gift")
+        return None
     names = {x["id"]: short_name(x["name"]) for x in db.q("SELECT id, name FROM students WHERE id IN (?, ?)", (buyer, r["student_id"]))}
     if not db.xn("""UPDATE gifts SET student_id=?, listed=NULL, listed_ts=NULL, auc_end=NULL, buy_now=NULL, bid_sid=NULL, bid_amt=NULL,
                            bid_n=0, market_from=?, market_ts=?, first_sid=COALESCE(first_sid, ?), seen=?, paid=?
@@ -8475,7 +8554,7 @@ def gift_random(rng=None, db=None, hw_sid=None):
         r, ch = (rng or random).random(), hw_box_chance(db) / 100
         sup = gift_supply(db, fresh=True)
         for k, gid in enumerate(HW_BOXABLE):
-            if k * ch <= r < (k + 1) * ch and sup[gid]["left"] > 0 and own_count(db, hw_sid, gid) < sup[gid]["own_max"]:
+            if k * ch <= r < (k + 1) * ch and sup[gid]["left"] > 0 and own_reserved(db, hw_sid, gid) < sup[gid]["own_max"]:
                 return GIFT_BY[gid]
     pool, sup = GIFTS, _SUPPLY["v"] or {}
     if db is not None:
@@ -10223,14 +10302,14 @@ def task_rates(db):
     return _RATES["data"]
 
 
-def assignment_done(db, sid, task_ids, since):
+def assignment_done(db, sid, task_ids, since, until=None):
     """Задания подборки, которые ученик решил после того, как учитель её выдал (для 19–21 — любую часть)."""
     if not task_ids:
         return set()
     marks = ",".join("?" * len(task_ids))
     rows = db.q(f"""SELECT DISTINCT COALESCE(CASE WHEN grp IN ({marks}) THEN grp END, task_id) AS t FROM attempts
-                    WHERE student_id=? AND ts>=? AND score>0 AND (task_id IN ({marks}) OR grp IN ({marks}))""",
-                (*task_ids, sid, since or 0, *task_ids, *task_ids))
+                    WHERE student_id=? AND ts>=? AND ts<=? AND score>0 AND (task_id IN ({marks}) OR grp IN ({marks}))""",
+                (*task_ids, sid, since or 0, until or time.time(), *task_ids, *task_ids))
     return {r["t"] for r in rows}
 
 
@@ -10247,6 +10326,16 @@ def asg_order(real, aid, sid):
 ASG_KINDS = {"self": "Самостоятельная", "practice": "Практическая", "home": "Домашняя работа"}
 
 
+def asg_cutoff(a, run=None):
+    ends = [x for x in (a["closed"], a["due"], run["finished"] if run else None) if x]
+    return min([time.time()] + ends)
+
+
+def asg_code(db, a, sid, task, run=None):
+    return db.q("""SELECT code, ts FROM solution_history WHERE student_id=? AND task_id=? AND ts>=? AND ts<=?
+                   ORDER BY ts DESC, id DESC LIMIT 1""", (sid, task, a["created"] or 0, asg_cutoff(a, run)), one=True)
+
+
 def practice_score(db, a, sid, real):
     """Практическая и домашняя: оценка ставится сама по ответам после выдачи. За задание — первый итог:
     верно с 1-й попытки — 1, со 2-й — 0.5, неверно или «Показать ответ» — 0; не решал — 0 (пока работа идёт — не в счёт)."""
@@ -10254,8 +10343,8 @@ def practice_score(db, a, sid, real):
     keys = set(items)
     first, attempts = {}, 0
     if items:
-        for r in db.q(f"""SELECT task_id, score FROM attempts WHERE student_id=? AND ts>=? AND exam IS NULL
-                          AND task_id IN ({','.join('?' * len(items))}) ORDER BY ts, id""", (sid, a["created"] or 0, *items)):
+        for r in db.q(f"""SELECT task_id, score FROM attempts WHERE student_id=? AND ts>=? AND ts<=? AND exam IS NULL
+                          AND task_id IN ({','.join('?' * len(items))}) ORDER BY ts, id""", (sid, a["created"] or 0, asg_cutoff(a), *items)):
             attempts += 1
             if r["task_id"] in keys and r["task_id"] not in first:
                 first[r["task_id"]] = r["score"] or 0
@@ -10311,14 +10400,9 @@ def asg_archive_html(db, teacher, asg_ids):
         items = asg_items(real)
         studs = db.q("SELECT id, name FROM students WHERE class_id=? AND (? IS NULL OR id=?) ORDER BY name",
                      (a["class_id"], a["student_id"], a["student_id"]))
-        sols = {}
-        if real:
-            for x in db.q(f"""SELECT student_id, task_id, code, ts FROM solutions WHERE task_id IN ({','.join('?' * len(real))})
-                              AND ts >= ?""", (*real, a["created"] or 0)):
-                sols[(x["student_id"], x["task_id"])] = x
         for m in studs:
             per = []                                   # по каждому заданию: (задание, итог, ответ, мс, когда, попыток, код)
-            started = finished = None
+            started = finished = run = None
             status = "не начинал"
             if a["strict"]:
                 run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], m["id"]), one=True)
@@ -10334,9 +10418,9 @@ def asg_archive_html(db, teacher, asg_ids):
                 grade, pct = (run["grade"], run["pct"]) if run else (None, None)
             else:
                 at = {}
-                for r in db.q(f"""SELECT task_id, score, answers, spent_ms, ts FROM attempts WHERE student_id=? AND ts>=? AND exam IS NULL
+                for r in db.q(f"""SELECT task_id, score, answers, spent_ms, ts FROM attempts WHERE student_id=? AND ts>=? AND ts<=? AND exam IS NULL
                                   AND task_id IN ({','.join('?' * len(items)) or "''"}) ORDER BY ts, id""",
-                              (m["id"], a["created"] or 0, *items)):
+                              (m["id"], a["created"] or 0, asg_cutoff(a), *items)):
                     at.setdefault(r["task_id"], []).append(r)
                 for k in items:
                     rs = at.get(k) or []
@@ -10371,7 +10455,7 @@ def asg_archive_html(db, teacher, asg_ids):
                 t = tasks.get(k) or {}
                 grp = t.get("group") or k
                 st_word = "не решал" if val is None else "Верно" if val == 1 else "Половина" if val == 0.5 else "Неверно"
-                code = sols.get((m["id"], grp)) or sols.get((m["id"], k))
+                code = asg_code(db, a, m["id"], grp, run) or asg_code(db, a, m["id"], k, run)
                 lab = label(tasks.get(grp) or t)
                 out.append(f'<div class="task"><h3>Задание {j} · № {t.get("n", "?")}'
                            + (f' · {E(lab)}' if lab else '') + f' <span class="kim">(КИМ, задание {num_of.get(grp, "?")})</span></h3>'
@@ -10458,6 +10542,11 @@ def asg_score(answers, items):
 
 
 def asg_finish_run(handler, db, a, s, real, forced=0):
+    with db.transaction():
+        return _asg_finish_run(handler, db, a, s, real, forced)
+
+
+def _asg_finish_run(handler, db, a, s, real, forced=0):
     """Сдать контрольную: проверить все ответы, поставить оценку, записать ответы в журнал."""
     run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], s["id"]), one=True)
     if not run or run["finished"]:
@@ -10522,7 +10611,8 @@ def asg_review_locked(db, a):
     """Почему разбор (правильные ответы) пока закрыт; None — открыт: учитель завершил, прошёл срок или сдал весь класс."""
     if a["closed"] or (a["due"] and time.time() > a["due"]):
         return None
-    members = [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=? AND COALESCE(is_teacher, 0) = 0", (a["class_id"],))]
+    members = ([a["student_id"]] if a["student_id"] else
+               [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=? AND COALESCE(is_teacher, 0)=0", (a["class_id"],))])
     done = {r["student_id"] for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NOT NULL", (a["id"],))}
     if members and all(m in done for m in members):
         return None
@@ -10578,6 +10668,11 @@ def batch_title(a):
 
 
 def asg_expire(handler, db, class_id):
+    with db.transaction():
+        return _asg_expire(handler, db, class_id)
+
+
+def _asg_expire(handler, db, class_id):
     """Срок работы прошёл — она закрывается: начатые самостоятельные сдаются по уже данным ответам."""
     now = time.time()
     for a in db.q("SELECT * FROM assignments WHERE class_id=? AND closed IS NULL AND due IS NOT NULL AND due < ?", (class_id, now)):
@@ -10814,11 +10909,11 @@ def new_invite(db):
 def teacher_steps(db, tid):
     """«Первые шаги» учителя: класс, ученики по приглашению, первая подборка (демо-класс гостя не в счёт)."""
     main_id = main_teacher()["id"]
-    cls = db.q("SELECT COUNT(*) c FROM classes WHERE COALESCE(teacher_id, ?)=? AND name<>?", (main_id, tid, DEMO_CLASS), one=True)["c"]
+    cls = db.q("SELECT COUNT(*) c FROM classes WHERE COALESCE(teacher_id, ?)=? AND COALESCE(is_demo,0)=0", (main_id, tid), one=True)["c"]
     stu = db.q("""SELECT COUNT(*) c FROM students WHERE COALESCE(teacher_id, ?)=? AND COALESCE(is_teacher, 0)=0
                   AND name_key NOT LIKE 'demo:%'""", (main_id, tid), one=True)["c"]
     asg = db.q("""SELECT COUNT(*) c FROM assignments a JOIN classes c ON c.id=a.class_id
-                  WHERE COALESCE(c.teacher_id, ?)=? AND c.name<>?""", (main_id, tid, DEMO_CLASS), one=True)["c"]
+                  WHERE COALESCE(c.teacher_id, ?)=? AND COALESCE(c.is_demo,0)=0""", (main_id, tid), one=True)["c"]
     return {"class": cls > 0, "students": stu, "asg": asg > 0}
 
 
@@ -10835,7 +10930,7 @@ def drop_demo(db, tid):
     """Убрать демо-класс гостя: вымышленные ученики, их ответы и демо-подборка."""
     for r in db.q("SELECT id FROM students WHERE name_key LIKE ?", (f"demo:{tid}:%",)):
         delete_student(db, r["id"])
-    for c in db.q("SELECT id FROM classes WHERE teacher_id=? AND name=?", (tid, DEMO_CLASS)):
+    for c in db.q("SELECT id FROM classes WHERE teacher_id=? AND is_demo=1", (tid,)):
         drop_class(db, c["id"])
 
 
@@ -10849,7 +10944,7 @@ def seed_demo(db, tid):
     pools = {n: p for n, p in pools.items() if p}
     if not pools:
         return
-    cid = db.x("INSERT INTO classes(name, created, teacher_id) VALUES(?,?,?)", (DEMO_CLASS, now - 40 * 86400, tid))
+    cid = db.x("INSERT INTO classes(name, created, teacher_id, is_demo) VALUES(?,?,?,1)", (DEMO_CLASS, now - 40 * 86400, tid))
     asg_nums = [n for n in (2, 5, 8, 12, 15, 16, 23) if n in pools][:6] or list(pools)[:6]
     asg_tasks = [rnd.choice(pools[n]) for n in asg_nums]
     a_created = now - 3 * 86400
@@ -10894,7 +10989,8 @@ def seed_demo(db, tid):
         with db.lock:
             db.conn.executemany("""INSERT INTO attempts(student_id, ts, task_id, n, bank, answers, correct, score, spent_ms)
                                    VALUES(?,?,?,?,?,?,?,?,?)""", rows)
-            db.conn.commit()
+            if not db._tx_depth:
+                db.conn.commit()
         base = int(38 + sk * 52)
         hist, s = [], base - rnd.randint(2, 9)
         for k in range(30, -1, -2):
@@ -10904,10 +11000,21 @@ def seed_demo(db, tid):
 
 
 def purge_guests(db):
+    removed = []
+    with db.transaction():
+        removed = [r['id'] for r in db.q("""SELECT s.id FROM together s JOIN teachers t ON t.id=s.teacher_id
+            WHERE t.guest=1 AND t.until < ?""", (time.time() - GUEST_KEEP_SECONDS,))]
+        _purge_guests(db)
+    for sid in removed:
+        TOG.forget(sid)
+
+
+def _purge_guests(db):
     """Закончившиеся гостевые аккаунты стираются через сутки. Настоящие ученики, которые всё же
     зарегистрировались по коду гостя, переходят главному учителю — как при удалении учителя."""
     main_id = main_teacher()["id"]
     for t in db.q("SELECT id FROM teachers WHERE guest=1 AND until < ?", (time.time() - GUEST_KEEP_SECONDS,)):
+        db.x("DELETE FROM together WHERE teacher_id=?", (t["id"],))
         drop_demo(db, t["id"])
         for r in db.q("SELECT id FROM students WHERE teacher_id=? AND is_teacher=1", (t["id"],)):
             delete_student(db, r["id"])
@@ -11005,7 +11112,16 @@ def report_due_since(now=None):
     return mon.timestamp()
 
 
+_REPORT_LOCK = threading.Lock()
+
+
 def report_tick(db, site=""):
+    # SMTP runs outside the SQLite lock; concurrent ticks cannot send the same report.
+    with _REPORT_LOCK:
+        return _report_tick(db, site)
+
+
+def _report_tick(db, site=""):
     """Разослать отчёты, которые положены на этой неделе (с понедельника 8:00). Возвращает число отправленных."""
     if not smtp_conf():
         return 0
@@ -11017,10 +11133,10 @@ def report_tick(db, site=""):
                      AND email<>'' AND (report_ts IS NULL OR report_ts < ?)""", (since,)):
         if teacher_access(t)["expired"]:
             continue
-        db.x("UPDATE teachers SET report_ts=? WHERE id=?", (time.time(), t["id"]))    # не слать дважды, даже если письмо не ушло
         try:
             r = weekly_report(db, t, site)
             if r and send_mail(t["email"], *r):
+                db.x("UPDATE teachers SET report_ts=? WHERE id=?", (time.time(), t["id"]))
                 sent += 1
         except Exception as e:
             print(f"[отчёт учителю {t['id']}] {e!r}", flush=True)
@@ -11141,6 +11257,11 @@ def parent_mail(r, link):
 
 
 def parent_tick(db, site):
+    with _REPORT_LOCK:
+        return _parent_tick(db, site)
+
+
+def _parent_tick(db, site):
     """Письма родителям раз в неделю (с понедельника 8:00), только если учитель с действующим доступом."""
     if not smtp_conf() or not site:
         return 0
@@ -11151,16 +11272,23 @@ def parent_tick(db, site):
     for s in db.q("""SELECT * FROM students WHERE parent_email IS NOT NULL AND parent_email<>''
                      AND (parent_report_ts IS NULL OR parent_report_ts < ?) AND COALESCE(is_teacher, 0)=0""", (since,)):
         t = teacher_of(s)
-        db.x("UPDATE students SET parent_report_ts=? WHERE id=?", (time.time(), s["id"]))
         if not t or teacher_access(t)["expired"] or t["guest"]:
             continue
         try:
             link = f"{site}/parent?t={parent_token(db, s['id'])}"
             if send_mail(s["parent_email"], *parent_mail(parent_report(db, s), link)):
+                db.x("UPDATE students SET parent_report_ts=? WHERE id=?", (time.time(), s["id"]))
                 sent += 1
         except Exception as e:
             print(f"[письмо родителю {s['id']}] {e!r}", flush=True)
     return sent
+
+
+def exam_input(data):
+    raw = data.get("answers")
+    return [{"task": str(x.get("task") or "")[:200], "answer": str(x.get("answer") or "")[:400],
+             "cells": [str(c)[:100] for c in x["cells"][:40]] if isinstance(x.get("cells"), list) else None}
+            for x in (raw[:40] if isinstance(raw, list) else []) if isinstance(x, dict)]
 
 
 def exam_pick(db, s):

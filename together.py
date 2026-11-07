@@ -307,12 +307,16 @@ class Page:
         self.res = d.get("res") or []
         self.out = d.get("out") or ""
         self.checks = int(d.get("checks") or 0)
-        self.got = dict(d.get("got") or {})   # ученик ("s12") → 1: его верный ответ уже засчитан в журнал
+        self.got = dict(d.get("got") or {})
+        if not d.get("credit_version"):
+            # Old releases marked a half-answer as fully credited.
+            self.got = {k: (1 if any(r.get("mine") == int(k[1:]) and r.get("ok") for r in self.res) else 0.5)
+                        for k in self.got if k.startswith("s") and k[1:].isdigit()}   # ученик ("s12") → 1: его верный ответ уже засчитан в журнал
 
     def dump(self):
         return {"task": self.task, "code": self.code, "rev": self.rev, "strokes": list(self.strokes.values()),
                 "ans": self.ans, "res": self.res[-50:], "out": self.out, "checks": self.checks,
-                "got": self.got}
+                "got": self.got, "credit_version": 2}
 
 
 class Session:
@@ -339,7 +343,7 @@ class Session:
         self.colors = st.get("colors") or {}      # участник -> цвет (одинаковый во всех заходах)
 
     def dump(self):
-        return {"mode": self.mode, "ro": self.ro, "follow": self.follow, "view": self.view, "cur": self.cur,
+        return {"session_created": self.created, "mode": self.mode, "ro": self.ro, "follow": self.follow, "view": self.view, "cur": self.cur,
                 "pages": {k: p.dump() for k, p in self.pages.items()}, "colors": self.colors}
 
 
@@ -348,9 +352,10 @@ class Hub:
     task(real_id, teacher) -> {…} | None — задание для показа, check(real_id, answer) -> 0..1, name(who) -> имя,
     credit(student_id, real_id, answer, score) — ученик сам сдал ответ: попытка в его журнал."""
 
-    def __init__(self, load, save, task, check, name, credit=None):
+    def __init__(self, load, save, task, check, name, credit=None, access=None):
         self.load, self.save_fn, self.task_fn, self.check_fn, self.name_fn = load, save, task, check, name
         self.credit_fn = credit
+        self.access_fn = access or (lambda session, who: True)
         self.lock = threading.Lock()
         self.sessions = {}
         self.saver = None
@@ -383,6 +388,15 @@ class Hub:
             return
         got = self.load(sid)
         with s.lock:
+            if not got or got[0]["created"] != s.created or got[0]["teacher_id"] != s.teacher:
+                s.ended = time.time()
+                s.dirty = False
+                for c in list(s.conns):
+                    c.close()
+                with self.lock:
+                    if self.sessions.get(sid) is s:
+                        self.sessions.pop(sid, None)
+                return
             if got:
                 s.students = set(json.loads(got[0]["students"] or "[]"))
                 s.ended = got[0]["ended"]
@@ -486,12 +500,15 @@ class Hub:
 
     # ---------- одно соединение: читаем сообщения, пока не закроют
     def run(self, s, who, sock, rfile, cid):
+        access = self.access_fn(s, who)
+        if access is None:
+            return
         with s.lock:
             if self.stopping.is_set():
                 return
             c = Conn(sock, rfile, who, self.name_fn(who), self._color(s, who), cid)
             s.conns.append(c)
-            c.send(self._snap(s, c))
+            c.send(dict(self._snap(s, c), expired=not access))
             self._people(s)
         try:
             while c.alive:
@@ -519,6 +536,14 @@ class Hub:
     def handle(self, s, c, m):
         t = m.get("t")
         teacher = c.who[0] == "t"
+        access = self.access_fn(s, c.who)
+        if access is None:
+            c.close()
+            return
+        if not access and t not in ("ping", "peek", "cur"):
+            with s.lock:
+                c.send({"t": "expired", "page": self._page_msg(s, s.pages[s.cur], s.cur, teacher)})
+            return
         if t == "ping":
             c.send({"t": "pong", "ts": m.get("ts")})
             return
@@ -527,7 +552,7 @@ class Hub:
                 return
             if t == "peek":                          # посмотреть другую страницу занятия, не меняя её у остальных
                 key = m.get("key")                  # (завершённое занятие — всем; идущее — только учителю)
-                if key in s.pages and (s.ended or teacher):
+                if key in s.pages and (s.ended or teacher or not access):
                     c.send(dict(self._page_msg(s, s.pages[key], key, teacher), peek=True))
                 return
             if s.ended:
@@ -622,16 +647,16 @@ class Hub:
                     return
                 r = {"v": ans, "ok": credit >= 1, "half": 0 < credit < 1, "by": c.name, "ts": time.time()}
                 me = f"s{c.who[1]}"
-                if c.who[0] == "s" and self.credit_fn and me not in p.got:
+                if c.who[0] == "s" and self.credit_fn and p.got.get(me, 0) < 1:
                     # ответ сдал сам ученик — попытка в его журнал («решено с учителем»): опыт и ₿ — как в тренажёре;
                     # после верного ответа на этой странице больше не пишем
                     try:
                         self.credit_fn(c.who[1], p.task, ans, credit)
                         r["mine"] = c.who[1]
-                    except Exception:                  # журнал не должен ронять сеанс
-                        pass
-                    if credit > 0:
-                        p.got[me] = 1
+                        if credit > 0:
+                            p.got[me] = credit
+                    except Exception:                  # разрешаем повторить после сбоя сохранения
+                        r["save_failed"] = True
                 p.ans = ans
                 p.res.append(r)
                 s.dirty = True

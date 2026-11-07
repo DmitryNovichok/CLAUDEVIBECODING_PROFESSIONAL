@@ -2,6 +2,29 @@
   let EX = null;          // идущий вариант: { id, started, deadline, items: [{ id, n }], ans: { id: { answer, cells } }, cur }
   let examShown = false;
   let exTimer = null;
+  let exSaveTimer = null;
+  let exSaveWarned = false;
+  const examAnswerList = () => EX.items.flatMap(x => {
+    const t = byId.get(x.id);
+    return t ? examKeys(t).map(k => ({ task: k, answer: (EX.ans[k] || {}).answer || '',
+      cells: (EX.ans[k] || {}).cells || null })) : [];
+  });
+  async function syncExamAnswers() {
+    clearTimeout(exSaveTimer);
+    if (!SERVER || !EX || EX.finishing) return;
+    const ex = EX;
+    ex.rev = Math.max(Date.now(), (ex.rev || 0) + 1);
+    writeJSON(examKey(), ex);
+    try {
+      const r = await api('exam/save', { exam_id: ex.id, rev: ex.rev, answers: examAnswerList() });
+      if (r.expired && EX === ex && !ex.finishing) finishExam(true);
+      exSaveWarned = false;
+    } catch (e) {
+      if (!exSaveWarned) toast('Ответы сохранены в браузере. Нет связи с сервером — восстанови её до конца варианта', 6000);
+      exSaveWarned = true;
+      if (EX === ex && !ex.finishing) exSaveTimer = setTimeout(syncExamAnswers, 3000);
+    }
+  }
 
   /** По заданию на каждый номер: актуального формата, по возможности новое для ученика и свежее. */
   /** Задания, решённые верно в последних VARIANT_GAP вариантах: снова попадут в вариант не раньше, чем через столько вариантов.
@@ -45,8 +68,27 @@
     return items;
   }
   const examKeys = t => (t.parts ? t.parts.map(p => p.id) : [t.id]);
-  const answeredItem = x => { const t = byId.get(x.id); return !!t && examKeys(t).some(k => EX.ans[k] && EX.ans[k].answer); };
-  const saveExam = () => writeJSON(examKey(), EX);
+  const hasExamAnswer = x => {
+    const t = byId.get(x.id);
+    return !!t && examKeys(t).some(k => String((EX.ans[k] || {}).answer || '').trim());
+  };
+  const answeredItem = x => {
+    const t = byId.get(x.id);
+    return !!t && examKeys(t).every(k => {
+      const a = EX.ans[k], obj = byId.get(k) || (t.parts || []).find(p => p.id === k) || t;
+      if (!a || !String(a.answer || '').trim()) return false;
+      const sh = shapeOf(obj);
+      if (sh.type === 'single' || !a.cells) return true;
+      if (sh.rows < 3) return a.cells.length === sh.rows * sh.cols && a.cells.every(c => String(c).trim());
+      // Variable-length tables: each started row must be filled; trailing empty rows are allowed.
+      return a.cells.every((c, i, cells) => String(c).trim() || !cells.slice(i - i % sh.cols, i - i % sh.cols + sh.cols).some(v => String(v).trim()));
+    });
+  };
+  const saveExam = () => {
+    writeJSON(examKey(), EX);
+    clearTimeout(exSaveTimer);
+    if (SERVER && EX && !EX.finishing) exSaveTimer = setTimeout(syncExamAnswers, 250);
+  };
 
   function openExamIntro() {
     if (EX) { resumeExam(); return; }
@@ -80,6 +122,7 @@
   }
 
   async function beginExam(kege) {
+    const started = Date.now();
     let items = SERVER ? [] : pickVariant();
     let id = 'local-' + Date.now(), limit = RULES.exam_sec;
     if (SERVER) {
@@ -95,7 +138,7 @@
     abandonCurrent();
     leaveCourse();                         // со страницы «Мои варианты» — прямо в вариант
     cur = null;
-    EX = { id, started: Date.now(), deadline: Date.now() + limit * 1000, items, ans: {}, cur: 0, kege: !!kege };
+    EX = { id, started, deadline: started + limit * 1000, items, ans: {}, cur: 0, kege: !!kege };
     saveExam();
     closeForecast();
     examShown = true;
@@ -193,7 +236,8 @@
     if (!el) return;
     const it = EX.items[EX.cur], dirty = kgDirty(), saved = answeredItem(it);
     el.className = 'kg-state ' + (dirty ? 'dirty' : saved ? 'ok' : '');
-    el.textContent = dirty ? 'Ответ изменён и не сохранён' : saved ? 'Ответ сохранён' : 'Ответ не дан';
+    el.textContent = dirty ? 'Ответ изменён и не сохранён' : saved ? 'Ответ сохранён'
+      : hasExamAnswer(it) ? 'Часть ответа сохранена — заполните остальные поля' : 'Ответ не дан';
   }
   function renderKege() {
     document.body.classList.add('kege-on');
@@ -235,7 +279,8 @@
     saveExamInputs(true);
     $$('.kg-n').forEach(b => b.classList.toggle('done', answeredItem(EX.items[+b.dataset.i])));
     kgState();
-    toast(answeredItem(EX.items[EX.cur]) ? 'Ответ сохранён' : 'Ответ очищен', 1500);
+    toast(answeredItem(EX.items[EX.cur]) ? 'Ответ сохранён'
+      : hasExamAnswer(EX.items[EX.cur]) ? 'Ответ сохранён частично' : 'Ответ очищен', 1500);
   }
 
   function renderExam() {
@@ -324,15 +369,12 @@
     const unsaved = EX.kege && kgDirty() ? 'Ответ на текущее задание не сохранён и не засчитается. ' : '';
     if (!auto && !confirm(unsaved + (left ? `Без ответа заданий: ${left}. Завершить вариант и узнать результат?` : 'Завершить вариант и узнать результат?'))) return;
     EX.finishing = true;
-    const list = [];
-    for (const x of EX.items) {
-      const t = byId.get(x.id);
-      if (!t) continue;
-      for (const k of examKeys(t)) list.push({ task: k, answer: (EX.ans[k] || {}).answer || '', cells: (EX.ans[k] || {}).cells || null });
-    }
+    clearTimeout(exSaveTimer);
+    const list = examAnswerList();
     let res;
     try {
       res = SERVER ? await api('exam/finish', { exam_id: EX.id, answers: list }) : localExamResult(list);
+      if (res && res.expired) toast('Время вышло. Учтены ответы, сохранённые на сервере до окончания варианта', 6000);
       if (res && res.game) setTimeout(() => onGame(res.game), 800);
     } catch (e) {
       EX.finishing = false;
@@ -367,7 +409,7 @@
     cur = null;
     const full = res.results.filter(r => r.points === r.max).length;
     const rows = res.results.map(r => {
-      const mine = (ex.ans[r.task] || {}).answer || '';
+      const mine = r.mine != null ? r.mine : (ex.ans[r.task] || {}).answer || '';
       const cls = r.points === r.max ? 'lv-good' : r.points ? 'lv-mid' : 'lv-weak';
       return `<tr class="${cls}">
         <td class="fm-n"><b>${r.n}</b></td>
