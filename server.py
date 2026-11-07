@@ -3683,7 +3683,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            rows = db.q("SELECT * FROM together WHERE ended IS NULL AND created > ? ORDER BY created DESC",
+            rows = db.q("SELECT * FROM together WHERE ended IS NULL AND COALESCE(updated, created) > ? ORDER BY updated DESC, created DESC",
                         (time.time() - TOG_ACTIVE_SEC,))
             mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")]
             return self.send_json({"sessions": mine})
@@ -6572,10 +6572,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"sessions": [tog_public(db, r) for r in rows], "now": now})
 
         if path in ("/api/admin/together/new", "/api/admin/together/invite") and method == "POST":
-            ids = [to_int(x) for x in (data.get("students") or []) if to_int(x)]
-            ids = sorted({i for i in ids if self.sees_student(i)})
-            if not ids:
-                return self.err(400, "Отметьте хотя бы одного своего ученика")
+            selected = data.get("students", [])
+            if not isinstance(selected, list):
+                return self.err(400, "Список учеников должен быть массивом")
+            ids = sorted({to_int(x) for x in selected if to_int(x) and self.sees_student(to_int(x))})
+            if selected and not ids:
+                return self.err(400, "Выберите учеников из своего списка или откройте сеанс без учеников")
             if len(ids) > 30:
                 return self.err(400, "Слишком много учеников для одного сеанса")
             if path.endswith("/new"):
@@ -6595,7 +6597,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if not r:
                     return self.err(404, "Сеанс не найден")
                 ids = sorted(set(json.loads(r["students"] or "[]")) | set(ids))
-                db.x("UPDATE together SET students=?, ended=NULL, created=? WHERE id=?", (json.dumps(ids), now, tid))
+                db.x("UPDATE together SET students=?, ended=NULL, updated=? WHERE id=?", (json.dumps(ids), now, tid))
                 TOG.forget(tid)
             LIVE.send(ids, "together")                       # у учеников на сайте приглашение всплывёт сразу
             return self.send_json({"ok": True, "id": tid})

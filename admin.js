@@ -1972,17 +1972,22 @@
     clearInterval(TOGS.timer);
     TOGS.timer = setInterval(() => { if (tab === 'tog' && !document.hidden) togList(); else clearInterval(TOGS.timer); }, 15000);
     try { TOGS.students = (await api('together/students')).students; } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    TOGS.sel = new Set([...TOGS.sel].filter(id => TOGS.students.some(s => s.id === id)));
     togStudents();
     togList();
   }
+  function togStartLabel() {
+    $('#togGo').textContent = TOGS.sel.size ? 'Позвать и открыть сеанс →' : 'Открыть без учеников →';
+  }
   function togStudents() {
+    togStartLabel();
     const q = $('#togSearch').value.trim().toLowerCase().replace(/ё/g, 'е');
     const ago = ts => !ts ? 'не заходил(а)' : fmtWhen(ts);
     const rows = TOGS.students.filter(s => !q || s.name.toLowerCase().replace(/ё/g, 'е').includes(q));
     $('#togStu').innerHTML = rows.map(s => `<label class="${TOGS.sel.has(s.id) ? 'on' : ''}"><input type="checkbox" value="${s.id}"${TOGS.sel.has(s.id) ? ' checked' : ''}>
       <span>${esc(s.name)}${s.cls ? `<br><small style="color:var(--muted)">${esc(s.cls)}</small>` : ''}</span>
       <span class="st${s.on ? ' live' : ''}">${s.on ? '● на сайте' : esc(ago(s.seen))}</span></label>`).join('')
-      || '<p class="tog-hint">Учеников не нашлось.</p>';
+      || `<p class="tog-hint">${TOGS.students.length ? 'По запросу никого не найдено.' : 'Учеников пока нет. Доску и код можно открыть для себя.'}</p>`;
   }
   $('#togSearch').addEventListener('input', togStudents);
   $('#togStu').addEventListener('change', e => {
@@ -1990,6 +1995,7 @@
     if (!i) return;
     if (i.checked) TOGS.sel.add(+i.value); else TOGS.sel.delete(+i.value);
     i.closest('label').classList.toggle('on', i.checked);
+    togStartLabel();
   });
   $('#togMode').addEventListener('click', e => {
     const b = e.target.closest('[data-m]');
@@ -2013,7 +2019,6 @@
     }, 350);
   });
   $('#togGo').addEventListener('click', async () => {
-    if (!TOGS.sel.size) return toast('Отметьте учеников, которых позвать');
     if ($('#togTask').value.trim() && !TOGS.task) return toast('Задание не найдено — очистите поле или выберите задание в сеансе');
     const win = window.open('', '_blank');
     try {
@@ -2030,11 +2035,11 @@
     try { d = await api('together/list'); } catch (e) { return; }
     const modes = { both: 'код + доска', code: 'код', board: 'доска' };
     $('#togList').innerHTML = d.sessions.length ? d.sessions.map(s => `<div class="tog-row">
-        <div class="who"><b>${s.students.map(x => `${x.on ? '<i class="dot" title="в сеансе"></i>' : ''}${esc(x.name)}`).join(', ')}</b>
+        <div class="who"><b>${s.students.map(x => `${x.on ? '<i class="dot" title="в сеансе"></i>' : ''}${esc(x.name)}`).join(', ') || 'Только учитель'}</b>
           <div class="meta">${esc(fmtWhen(s.created))} · ${esc(modes[s.mode] || '')}${s.task ? ' · ' + esc(s.task) : ''}${s.pages > 1 ? ` · страниц: ${s.pages}` : ''}</div></div>
         ${s.ended ? '<span class="meta">завершён</span>' : '<span class="live">● идёт</span>'}
         <button type="button" class="btn${s.ended ? '' : ' primary'}" data-tog-open="${s.id}">${s.ended ? 'Посмотреть' : 'Открыть'}</button>
-        ${s.ended ? `<button type="button" class="btn" data-tog-again="${s.id}" title="Снова позвать тех же учеников — код и доска продолжатся">Продолжить</button>`
+        ${s.ended ? `<button type="button" class="btn" data-tog-again="${s.id}" title="Продолжить работу — код и доска сохранятся">Продолжить</button>`
           : `<button type="button" class="btn ghost" data-tog-end="${s.id}">Завершить</button>`}
         <button type="button" class="link-btn" data-tog-del="${s.id}" title="Удалить сеанс вместе с кодом и доской">Удалить</button>
       </div>`).join('') : '<p class="tog-hint">Сеансов пока не было.</p>';

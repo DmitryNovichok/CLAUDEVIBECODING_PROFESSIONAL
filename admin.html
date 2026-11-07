@@ -257,11 +257,12 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <!-- Совместная работа: общий код и доска с учениками -->
     <section class="adm-view" id="view-tog" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">👥 Совместная работа</h2></div>
-      <p class="tog-hint">Общий код Python и большая доска с учениками в реальном времени: пишете и рисуете одновременно, всё видно сразу у всех.
-        Войти смогут только те, кого вы отметите. У учеников, которые сейчас на сайте, приглашение всплывёт сразу; остальные увидят его, когда зайдут.</p>
+      <p class="tog-hint">Доску и редактор Python можно открыть для себя — просто не выбирайте учеников.
+        Подготовьте материал или работайте самостоятельно; учеников можно позвать позже прямо из сеанса.
+        Если отметить учеников сейчас, они получат приглашение. Войти смогут только приглашённые.</p>
       <div class="tog-new">
         <div class="tog-col">
-          <div class="tog-lbl">Кого позвать</div>
+          <div class="tog-lbl">Кого позвать (необязательно)</div>
           <input class="inp" id="togSearch" placeholder="Поиск по ФИО" autocomplete="off">
           <div class="tog-stu" id="togStu"></div>
         </div>
@@ -271,7 +272,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
           <div class="tog-lbl">Задание (необязательно)</div>
           <input class="inp" id="togTask" placeholder="Номер или id задания — можно выбрать и в сеансе" autocomplete="off">
           <div class="tog-task" id="togTaskInfo"></div>
-          <button type="button" class="btn primary tog-go" id="togGo">Позвать и открыть сеанс →</button>
+          <button type="button" class="btn primary tog-go" id="togGo">Открыть без учеников →</button>
         </div>
       </div>
       <h3 class="tog-h">Сеансы</h3>
