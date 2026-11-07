@@ -721,7 +721,7 @@
       const key = `${n}:${k}`;
       return chip('c', key, esc(lbl), f.c.includes(key), fc.c[key] || 0);
     }).join('')}</div>`).join('') : '<span class="adm-hint">Выберите номер — появятся типы заданий внутри него.</span>';
-    const sel = (id, opts, val) => `<select class="adm-select" id="${id}">${opts.map(([v, t]) => `<option value="${esc(String(v))}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+    const sel = (id, opts, val, label) => `<select class="adm-select" id="${id}"${label ? ` aria-label="${esc(label)}"` : ''}>${opts.map(([v, t]) => `<option value="${esc(String(v))}"${String(v) === String(val) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
     const years = [['', 'любой']].concat(C.years.map(y => [y, y]));
     const group = (key, title, body) => `<section class="bld-filter-group" data-filter="${key}" aria-labelledby="bldFilter-${key}"><h3 id="bldFilter-${key}">${title}</h3><div class="bld-filter-body">${body}</div></section>`;
     const advanced = f.c.length + f.bank.length + Number(!!f.y0) + Number(!!f.y1) + Number(f.fmt !== 'actual') + Number(!!f.rate) + Number(!!f.notsolved);
@@ -734,7 +734,7 @@
           <div class="bld-row"><span class="bld-lbl">Тип</span><div class="bld-chips col">${types}</div></div>
           <div class="bld-row"><span class="bld-lbl">Банк</span><div class="bld-chips">${C.banks.map(b => chip('bank', b.id, esc(b.title), f.bank.includes(b.id), b.count)).join('')}</div></div>
           <div class="bld-sel">
-            <label>Годы ${sel('bldY0', years, f.y0)} — ${sel('bldY1', years, f.y1)}</label>
+            <div class="bld-year-field"><span id="bldYearsLabel">Годы</span><div class="bld-year-range" role="group" aria-labelledby="bldYearsLabel">${sel('bldY0', years, f.y0, 'Год от')}<span aria-hidden="true">—</span>${sel('bldY1', years, f.y1, 'Год до')}</div></div>
             <label>Формат ${sel('bldFmt', [['actual', 'актуальный'], ['old', 'только старый'], ['all', 'любой']], f.fmt)}</label>
             <label>Решают ${sel('bldRate', [['', 'любые'], ['lo', 'трудные: < 40%'], ['mid', 'средние: 40–75%'], ['hi', 'простые: ≥ 75%'], ['none', 'ещё никто не решал']], f.rate)}</label>
             <label>Класс ещё не решал ${sel('bldNot', [['', '—']].concat(C.classes.map(c => [c.id, c.name])), f.notsolved)}</label>
