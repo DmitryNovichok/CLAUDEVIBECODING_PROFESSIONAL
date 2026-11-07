@@ -1478,6 +1478,15 @@ class DB(Transactional):
             CREATE TABLE IF NOT EXISTS asg_events(
                 id INTEGER PRIMARY KEY, asg_id INTEGER NOT NULL, student_id INTEGER NOT NULL, ts REAL NOT NULL, kind TEXT NOT NULL, info TEXT);
             CREATE INDEX IF NOT EXISTS asg_events_ts ON asg_events(ts);
+            CREATE INDEX IF NOT EXISTS asg_events_asg ON asg_events(asg_id);
+            -- Every deletion path must remove results before SQLite can reuse the assignment id.
+            CREATE TRIGGER IF NOT EXISTS assignment_delete_results AFTER DELETE ON assignments
+            BEGIN
+                DELETE FROM asg_runs WHERE asg_id=OLD.id;
+                DELETE FROM asg_events WHERE asg_id=OLD.id;
+            END;
+            DELETE FROM asg_runs WHERE NOT EXISTS (SELECT 1 FROM assignments WHERE id=asg_id);
+            DELETE FROM asg_events WHERE NOT EXISTS (SELECT 1 FROM assignments WHERE id=asg_id);
             CREATE TABLE IF NOT EXISTS activity(
                 id INTEGER PRIMARY KEY, student_id INTEGER, ts REAL, kind TEXT, task_id TEXT, dur REAL,
                 exam INTEGER DEFAULT 0, ip TEXT);
@@ -3730,8 +3739,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            rows = db.q("SELECT * FROM together ORDER BY created DESC LIMIT 300")
-            mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")][:60]
+            rows = db.q("""SELECT * FROM together WHERE EXISTS
+                           (SELECT 1 FROM json_each(together.students) WHERE value=?)
+                           ORDER BY created DESC, id DESC LIMIT 60""", (s["id"],))
+            mine = [tog_public(db, r, s["id"]) for r in rows]
             return self.send_json({"sessions": mine})
 
         if path == "/api/assignments":
@@ -6461,6 +6472,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             grading = json.dumps({k: max(0, min(100, to_int(g.get(k, v)))) for k, v in ASG_GRADES.items()})
             if aid:
                 old = db.q("SELECT strict, kind, tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
+                if not old:
+                    return self.err(404, "подборка не найдена в этом классе")
                 ended = 0
                 if old and old["strict"] and db.q("SELECT 1 FROM asg_runs WHERE asg_id=? LIMIT 1", (aid,), one=True):
                     if json.loads(old["tasks"]) != tasks:
@@ -10544,14 +10557,16 @@ def task_rates(db):
 
 
 def assignment_done(db, sid, task_ids, since, until=None):
-    """Задания подборки, которые ученик решил после того, как учитель её выдал (для 19–21 — любую часть)."""
-    if not task_ids:
+    """Решённые после выдачи задания; игра 19–21 требует всех вопросов, экзамен не учитывается."""
+    items = asg_items(task_ids)
+    if not items:
         return set()
-    marks = ",".join("?" * len(task_ids))
-    rows = db.q(f"""SELECT DISTINCT COALESCE(CASE WHEN grp IN ({marks}) THEN grp END, task_id) AS t FROM attempts
-                    WHERE student_id=? AND ts>=? AND ts<=? AND score>0 AND (task_id IN ({marks}) OR grp IN ({marks}))""",
-                (*task_ids, sid, since or 0, until or time.time(), *task_ids, *task_ids))
-    return {r["t"] for r in rows}
+    marks = ",".join("?" * len(items))
+    rows = db.q(f"""SELECT DISTINCT task_id FROM attempts WHERE student_id=? AND ts>=? AND ts<=?
+                    AND score>0 AND exam IS NULL AND task_id IN ({marks})""",
+                (sid, since or 0, until or time.time(), *items))
+    done = {r["task_id"] for r in rows}
+    return {i for i in task_ids if (parts := asg_items([i])) and all(p in done for p in parts)}
 
 
 ASG_GRADES = {"5": 85, "4": 65, "3": 45}
@@ -10620,7 +10635,7 @@ def teacher_asg_archive(db, tid, q="", class_id=None, limit=400):
         cond += " AND c.id = ?"
         args.append(class_id)
     rows = db.q(f"""SELECT a.*, c.name AS class_name FROM assignments a JOIN classes c ON c.id = a.class_id
-                    WHERE {cond} ORDER BY a.created DESC LIMIT 2000""", args)
+                    WHERE {cond} ORDER BY a.created DESC, a.id DESC""", args)
     out, batches = [], {}
     ql = (q or "").strip().lower()
     for a in rows:
@@ -10635,16 +10650,18 @@ def teacher_asg_archive(db, tid, q="", class_id=None, limit=400):
                 b["students"] += 1
                 b["ids"].append(a["id"])
                 continue
+            if len(out) >= limit:
+                continue
             b = batches[key] = {"id": a["id"], "ids": [a["id"]], "title": title, "class_id": a["class_id"], "class_name": a["class_name"],
                                 "kind": a["kind"] or "practice", "created": a["created"], "due": a["due"], "closed": a["closed"],
                                 "tasks": len(tasks), "personal": True, "students": 1, "strict": bool(a["strict"])}
             out.append(b)
         else:
+            if len(out) >= limit:
+                continue
             out.append({"id": a["id"], "ids": [a["id"]], "title": title, "class_id": a["class_id"], "class_name": a["class_name"],
                         "kind": a["kind"] or "self", "created": a["created"], "due": a["due"], "closed": a["closed"],
                         "tasks": len(tasks), "personal": False, "students": None, "strict": bool(a["strict"])})
-        if len(out) >= limit:
-            break
     return out
 
 

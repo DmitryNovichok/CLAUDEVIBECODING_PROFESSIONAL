@@ -8,11 +8,17 @@
     if (a.strict) { const d = new Set(a.done || []); return a.finished || a.closed ? [] : a.tasks.filter(id => !d.has(id)); }
     const done = new Set(a.done);
     const since = (a.created || 0) * 1000;
+    const until = Math.min(a.closed || Infinity, a.due || Infinity) * 1000;
     for (const e of P.log) {
-      if ((e.s > 0 || a.duel) && e.t >= since && !e.b) { done.add(e.id); const g = partToGroup.get(e.id); if (g) done.add(g); }
+      if ((e.s > 0 || a.duel) && e.t >= since && e.t <= until && !e.b && !e.x) done.add(e.id);
+    }
+    for (const id of a.tasks) {
+      const parts = (byId.get(id) || {}).parts;
+      if (parts && parts.length && parts.every(p => done.has(p.id))) done.add(id);
     }
     return a.tasks.filter(id => !done.has(id));
   }
+  function asgFinished(a) { return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final)); }
   async function loadAssignments() {
     if (!SERVER) return;
     const duels = ASG.filter(a => a.duel || a.course);
@@ -54,10 +60,10 @@
     const own = ASG.filter(a => !a.duel && !a.course);
     card.hidden = !own.length && !ASG_IN_CLASS;           // ученик в классе — значок подборок есть всегда
     if (card.hidden) return;
-    const open = own.filter(a => asgLeft(a).length);
+    const pending = own.filter(a => !asgFinished(a)), open = pending.filter(a => asgLeft(a).length);
     const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
     card.classList.toggle('alert', !!left);
-    $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'всё решено';
+    $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : pending.length ? 'всё решено' : 'нет активных подборок';
   }
   const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
   const PERSONAL = { fix: ['🔧', 'Работа над ошибками'], weak: ['🎯', 'Слабые места'] };
@@ -80,7 +86,7 @@
   function renderAsgPage() {
     if (!courseShown || pageKind !== 'asg') return;
     const list = ASG.filter(a => !a.duel && !a.course);
-    const isDone = a => (a.strict ? !!(a.result || a.closed) : !!(a.score && a.score.final));
+    const isDone = asgFinished;
     const active = list.filter(a => !isDone(a)), done = list.filter(isDone);
     const left = active.reduce((n, a) => n + asgLeft(a).length, 0);
     const card = a => {
@@ -120,8 +126,10 @@
   function apDates(a, doneAt, finished) {
     const out = [`<div><span>Выдана</span><b>${a.created ? apDay(a.created) : '—'}</b></div>`];
     if (a.due) {
-      const left = Math.ceil((a.due * 1000 - Date.now()) / 864e5);
-      const note = finished ? '' : left < 0 ? '<em class="late">срок прошёл</em>' : left === 0 ? '<em class="soon">сегодня</em>'
+      const now = Date.now(), due = new Date(a.due * 1000), today = new Date(now);
+      const day = d => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+      const left = Math.round((day(due) - day(today)) / 864e5);
+      const note = finished ? '' : a.due * 1000 <= now ? '<em class="late">срок прошёл</em>' : left === 0 ? '<em class="soon">сегодня</em>'
         : left === 1 ? '<em class="soon">завтра</em>' : `<em>осталось ${left} ${plural(left, 'день', 'дня', 'дней')}</em>`;
       out.push(`<div><span>Сдать до</span><b>${apDay(a.due)}</b>${note}</div>`);
     } else out.push('<div><span>Сдать до</span><b>без срока</b></div>');
@@ -134,7 +142,7 @@
     const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
     const late = a.due && a.due * 1000 < Date.now() && !sc.final;
     const grade = sc.grade ? `${sc.final ? 'оценка' : 'оценка сейчас'} <b>${sc.grade}</b> · ${sc.pct}%`
-      : a.closed ? 'срок прошёл — <b class="ap-late">не сделана</b>' : 'ещё не начата';
+      : a.closed ? `${a.due && a.closed >= a.due ? 'срок прошёл' : 'завершена учителем'} — <b class="ap-late">не сделана</b>` : 'ещё не начата';
     return `<div class="ap-card${sc.final ? ' done' : ''}${sc.tried && !sc.final ? ' going' : ''}${late ? ' late' : ''}">
       <div class="ap-main">
         <div class="ap-top"><span class="ap-ico">${sc.final && sc.tried ? '✓' : a.closed ? '⌛' : kindOf(a)[0]}</span><div><span class="ap-kind">${kindOf(a)[1]}</span>${persTag(a)}<b>${esc(a.title)}</b>
@@ -148,9 +156,10 @@
   }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
-    const isDone = a => a.strict && (a.result || a.closed);
+    const isDone = asgFinished;
     const active = list.filter(a => !isDone(a)), done = list.filter(isDone);
     const doneRows = done.map(a => {
+      if (!a.strict) return practiceCard(a);
       const r = a.result;
       return `<div class="asg-row done">
         <div><h3>✓ ${esc(a.title)}</h3><div class="asg-meta">${r ? `оценка <b>${r.grade}</b> · ${r.pct}% · верно ${r.ok} из ${r.total}${r.xp ? ` · +${r.xp} XP` : ''}` : 'завершена учителем — не начата'}</div></div>
@@ -396,7 +405,8 @@
   /** Первый итог по каждому заданию (и по частям 19–21) после выдачи подборки — как считает оценку сервер. */
   function pkFirst(a) {
     const since = (a.created || 0) * 1000, first = new Map();
-    for (const e of P.log) if (e.t >= since && !e.b && !e.x && !first.has(e.id)) first.set(e.id, e.s);
+    const until = Math.min(a.closed || Infinity, a.due || Infinity) * 1000;
+    for (const e of P.log) if (e.t >= since && e.t <= until && !e.b && !e.x && !first.has(e.id)) first.set(e.id, e.s);
     const items = (a.score && a.score.items) || {};
     for (const k of Object.keys(items)) if (items[k] != null && !first.has(k)) first.set(k, items[k]);
     return first;
