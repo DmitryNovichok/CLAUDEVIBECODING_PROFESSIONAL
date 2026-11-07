@@ -680,7 +680,6 @@
     const kind = b.dataset.tpl;
     b.disabled = true;
     try {
-      if (kind === 'variant') { await bldPerNum(true); return; }
       if (kind === 'ten') {
         const n = $('#tplN').value, saved = BLD.f;
         BLD.f = Object.assign({}, saved, { n: [n], c: [], q: '', sort: 'random' });
@@ -763,14 +762,12 @@
   }
   function renderBldList() {
     const d = BLD.res, inDraft = new Set(BLD.d.tasks.map(t => t.id));
-    const bulkOpen = !!$('#bldBulk')?.open;
+    $('#bldRand').disabled = $('#bldPerN').disabled = !d.total;
+    $('#bldAddPage').disabled = !d.tasks.length;
+    $('#bldVariant').disabled = false;
     $('#bldBar').innerHTML = `<b>Найдено: ${d.total}</b>
       <label class="adm-hint">порядок <select class="adm-select" id="bldSort">${[['rank', 'по номеру и сложности ↑'], ['hard', 'по номеру, сначала сложные'], ['rate', 'сначала трудные для учеников'], ['new', 'сначала новые'], ['random', 'случайно']]
-        .map(([v, t]) => `<option value="${v}"${BLD.f.sort === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
-      <details class="bld-bulk" id="bldBulk"${bulkOpen ? ' open' : ''}><summary>Добавить несколько</summary><div class="bld-bar-act"><input class="inp" type="number" id="bldK" min="1" max="50" value="5"> <button type="button" class="btn" id="bldRand"${d.total ? '' : ' disabled'}>+ случайных из найденных</button>
-      <button type="button" class="btn" id="bldPerN"${d.total ? '' : ' disabled'} title="Из найденных — столько случайных заданий каждого номера">+ по стольку на каждый номер</button>
-      <button type="button" class="btn ghost" id="bldAddPage"${d.tasks.length ? '' : ' disabled'}>+ все на странице</button>
-      <button type="button" class="btn ghost" id="bldVariant" title="По одному случайному заданию на каждый номер 1–27 с выбранными сложностью, банком, годами и решаемостью (номера и типы фильтра не важны). Номер, для которого с такими фильтрами заданий нет, — из всего банка">Вариант ЕГЭ</button></div></details>`;
+        .map(([v, t]) => `<option value="${v}"${BLD.f.sort === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`;
     $('#bldList').hidden = false;                 // лента заданий открыта сразу, без выбора номера
     $('#bldPages').hidden = false;
     $('#bldList').innerHTML = d.tasks.length ? d.tasks.map(x => `<div class="bld-item${inDraft.has(x.id) ? ' in' : ''}">
@@ -919,7 +916,9 @@
     bldSearch();
   });
   $('#bldBar').addEventListener('change', e => { if (e.target.id === 'bldSort') { BLD.f.sort = e.target.value; bldSearch(); } });
-  $('#bldBar').addEventListener('click', async e => {
+  $('#bldBulk').addEventListener('click', async e => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
     if (e.target.closest('#bldAddPage')) { toast(`Добавлено: ${bldAdd(BLD.res.tasks)}`); return; }
     if (e.target.closest('#bldPerN') || e.target.closest('#bldVariant')) {
       await bldPerNum(!!e.target.closest('#bldVariant'));
