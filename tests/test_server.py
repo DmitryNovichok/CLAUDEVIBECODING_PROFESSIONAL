@@ -3552,6 +3552,19 @@ class ServerTest(unittest.TestCase):
             server.delete_student(db, db.q("SELECT id FROM students WHERE login=?", (lg,), one=True)["id"])
         db.x("DELETE FROM teachers WHERE id=?", (tid,))
 
+    def test_guest_end_and_switch_to_main(self):
+        db = server.APP.db
+        st, d, ck = self.creq("POST", "/api/teacher/guest", {}, ip="203.0.113.91")
+        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        gid = me["id"]
+        st, d, ck2 = self.creq("POST", "/api/admin/login", {"login": "", "password": "wrong"}, cookie=ck, ip="203.0.113.91")
+        self.assertEqual(st, 403)
+        st, d, _ = self.creq("POST", "/api/admin/logout", {"end": True}, cookie=ck)
+        self.assertEqual(st, 200)
+        self.assertFalse(db.q("SELECT 1 FROM teachers WHERE id=?", (gid,)))                     # гость и демо-класс стёрты сразу
+        self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{gid}:%",)))
+        self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[0], 401)
+
     def test_forbes_all_teachers(self):
         # Forbes общий на весь сайт: ученики разных учителей видят друг друга и могут открыть профиль;
         # убранный из рейтингов в Forbes не попадает

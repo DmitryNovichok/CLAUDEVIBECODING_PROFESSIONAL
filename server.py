@@ -4767,6 +4767,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
             if "egeadm" in c:
                 db.x("DELETE FROM admin_sessions WHERE token=?", (c["egeadm"].value,))
+            if self.T["guest"] and data.get("end"):
+                # «Завершить гостевой доступ»: демо-класс и гостевой аккаунт стираются сразу
+                db.x("UPDATE teachers SET until=? WHERE id=? AND guest=1", (time.time() - GUEST_KEEP_SECONDS - 1, self.T["id"]))
+                purge_guests(db)
             return self.send_json({"ok": True}, extra={"Set-Cookie": "egeadm=; Path=/; Max-Age=0" + self.cookie_attrs()})
 
         if path == "/api/admin/competitions":
