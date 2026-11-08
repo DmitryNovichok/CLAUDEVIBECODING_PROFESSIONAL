@@ -2933,7 +2933,7 @@ class ServerTest(unittest.TestCase):
                  (sid, ts or time.time() + next(seq) / 1000, tid, n, int(minutes * 60000)))
         att("h:24a", 24, 9)                    # №24 быстрее 10 минут — −1 XP и −1 ₿, не засчитано
         att("h:24b", 24, 11)                   # дольше 10 минут — опыт и бонус
-        att("h:25", 25, 6)                     # №25 — от 5 минут
+        att("h:25", 25, 3)                     # №25 — ровно 3 минуты уже засчитываются
         att("h:26", 26, 19)                    # №26 быстрее 20 минут — штраф
         att("h:27", 27, 5, ts=since - 60)      # до выхода правила — по-старому (от минуты), задним числом не отнимаем
         g = server.game_summary(db, sid)
@@ -2949,7 +2949,10 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/open", {"task": pid27}, tok)
         st, r = self.check(tok, pid27, answer="10 20", spent_ms=120000)          # 2 минуты на №27
         self.assertEqual((st, r["correct"], r["fast"], r["fast_min"]), (200, True, True, 25))
-        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["hard_min"], {"24": 10, "25": 5, "26": 20, "27": 25})
+        self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["hard_min"], {"24": 10, "25": 3, "26": 20, "27": 25})
+        for spent_ms, expected in ((179999, True), (180000, False), (180001, False)):
+            with self.subTest(spent_ms=spent_ms):
+                self.assertEqual(server.too_fast({"n": 25, "ts": now, "spent_ms": spent_ms}, since), expected)
 
     def test_rank_score(self):
         # очки рейтинга: (XP + ₿) / 2 × доля заданий без ошибок
