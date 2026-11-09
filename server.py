@@ -340,6 +340,16 @@ def session_alive(r, now):
     return now - (r["last_seen"] or r["created"]) < STUDENT_COOKIE_DAYS * 86400
 
 
+def _app_version():
+    """Версия сайта — самая новая из истории версий (changelog.js); сторож и мониторинг видят, что обновление встало."""
+    try:
+        found = re.findall(r'\["(\d+)\.(\d+)\.(\d+)"', (HERE / "changelog.js").read_text(encoding="utf-8"))
+        return ".".join(map(str, max(tuple(map(int, v)) for v in found))) if found else "?"
+    except OSError:
+        return "?"
+
+
+APP_VERSION = _app_version()
 GZIP_TYPES = re.compile(r"^(text/|application/(javascript|json|manifest\+json)|image/svg)")
 _GZ_CACHE = {}
 _GZ_LOCK = threading.Lock()
@@ -3072,6 +3082,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         # ----- ученик
         if path == "/api/ping":
             return self.send_json({"ok": True, "server": True})
+
+        if path == "/api/health":
+            # для сторожа и внешнего мониторинга: база отвечает и задания загружены; без личных данных
+            try:
+                db.q("SELECT 1", one=True)
+                tasks = len(APP.bank.tasks)
+            except Exception:                    # noqa: BLE001 — любая поломка = «сайт нездоров»
+                return self.send_json({"ok": False, "why": "база не отвечает"}, code=503)
+            if not tasks:
+                return self.send_json({"ok": False, "why": "банк заданий пуст"}, code=503)
+            return self.send_json({"ok": True, "tasks": tasks, "version": APP_VERSION}, extra={"Cache-Control": "no-store"})
 
         if path == "/api/jserr" and method == "POST":
             # ошибка JavaScript в браузере — для вкладки «Ошибки» главного учителя; вход не нужен (ошибка могла быть до входа)
