@@ -83,5 +83,17 @@ class BankReloadTest(unittest.TestCase):
                 server.EXTRA_BANK = old_extra
 
 
+class LiveEvictTest(unittest.TestCase):
+    def test_new_connection_pushes_out_oldest_instead_of_503(self):
+        hub = server.LiveHub()
+        hub.thread = True                       # фоновый поток в тесте не нужен
+        qs = [hub.subscribe(77, 1) for _ in range(server.LIVE_PER_STUDENT)]
+        newest = hub.subscribe(77, 1)           # ученик обновил страницу ещё раз
+        self.assertIsNotNone(newest)
+        self.assertIsNone(qs[0].get_nowait())   # самое старое соединение получило сигнал закрыться
+        self.assertEqual(len(hub.subs[77]), server.LIVE_PER_STUDENT)
+        self.assertIn(newest, hub.subs[77])
+
+
 if __name__ == "__main__":
     unittest.main()

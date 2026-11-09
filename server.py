@@ -2033,8 +2033,13 @@ class LiveHub:
 
     def subscribe(self, sid, tid):
         with self.lock:
-            if sum(len(v) for v in self.subs.values()) >= LIVE_MAX or len(self.subs.get(sid, ())) >= LIVE_PER_STUDENT:
+            if sum(len(v) for v in self.subs.values()) >= LIVE_MAX:
                 return None
+            mine = self.subs.get(sid, {})
+            while len(mine) >= LIVE_PER_STUDENT:   # обновили страницу несколько раз подряд — старое соединение уступает новому
+                old = next(iter(mine))
+                mine.pop(old)
+                old.put(None)                      # его поток увидит None и закроется
             q = queue.SimpleQueue()
             self.subs.setdefault(sid, {})[q] = tid
             if not self.thread:
@@ -2627,6 +2632,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         topics.add(q.get_nowait())
                     except queue.Empty:
                         break
+                if None in topics:               # это соединение вытеснило более новое того же ученика
+                    return
                 self.wfile.write("".join(f"event: {t}\ndata: {{}}\n\n" for t in sorted(topics)).encode())
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
