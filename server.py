@@ -2204,8 +2204,8 @@ def tog_public(db, r, sid=None):
     cur = pages.get(st.get("cur")) or {}
     task = tog_task(cur.get("task"), sid is None) if cur.get("task") else None
     out = {"id": r["id"], "created": r["created"], "ended": r["ended"], "mode": st.get("mode") or "both",
-           "task": task["label"] if task else None, "pages": len(pages),
-           "labels": [(tog_task(x.get("task"), sid is None) or {}).get("label") or "чистая страница" for x in pages.values()]}
+           "title": st.get("title") or "", "task": task["label"] if task else None, "pages": len(pages),
+           "labels": [x.get("name") or (tog_task(x.get("task"), sid is None) or {}).get("label") or "чистая страница" for x in pages.values()]}
     if sid is None:
         ids = json.loads(r["students"] or "[]")
         names = {x["id"]: x["name"] for x in db.q(f"SELECT id, name FROM students WHERE id IN ({','.join('?' * len(ids)) or 'NULL'})", ids)}
@@ -6657,7 +6657,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if not task:
                         return self.err(404, "Задание не найдено")
                 mode = data.get("mode") if data.get("mode") in ("both", "code", "board") else "both"
-                state = {"mode": mode, "cur": "p1", "follow": True, "pages": {"p1": {"task": task}}}
+                state = {"mode": mode, "cur": "p1", "follow": True, "pages": {"p1": {"task": task}},
+                         "title": together.clean_name(data.get("title"), 80)}
                 tid = db.x("INSERT INTO together(teacher_id, students, created, updated, state) VALUES(?,?,?,?,?)",
                            (self.T["id"], json.dumps(ids), now, now, json.dumps(state, ensure_ascii=False)))
             else:

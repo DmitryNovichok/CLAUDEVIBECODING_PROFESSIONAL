@@ -654,7 +654,7 @@
       try {
         const d = await api('asg/tasks?id=' + tog.dataset.arcTog);
         const first = d.tasks[0];
-        const s = await api('together/new', { students: [], mode: 'both', task: first ? first.id : null });
+        const s = await api('together/new', { students: [], mode: 'both', task: first ? first.id : null, title: d.title });
         togOpen(s.id, win);
         toast('Сеанс открыт с первым заданием подборки. Остальные — в сеансе: «Задание» → «Подборки»', 6000);
       } catch (err) { if (win) win.close(); if (err.status !== 401) toast(err.message); }
@@ -2194,9 +2194,10 @@
     if ($('#togTask').value.trim() && !TOGS.task) return toast('Задание не найдено — очистите поле или выберите задание в сеансе');
     const win = window.open('', '_blank');
     try {
-      const d = await api('together/new', { students: [...TOGS.sel], mode: TOGS.mode, task: TOGS.task });
+      const d = await api('together/new', { students: [...TOGS.sel], mode: TOGS.mode, task: TOGS.task, title: $('#togTitle').value.trim() });
       togOpen(d.id, win);
       TOGS.sel.clear();
+      $('#togTitle').value = '';
       $('#togTask').value = ''; $('#togTaskInfo').textContent = ''; TOGS.task = null;
       togStudents();
       togList();
@@ -2207,7 +2208,7 @@
     try { d = await api('together/list'); } catch (e) { return; }
     const modes = { both: 'код + доска', code: 'код', board: 'доска' };
     $('#togList').innerHTML = d.sessions.length ? d.sessions.map(s => `<div class="tog-row">
-        <div class="who"><b>${s.students.map(x => `${x.on ? '<i class="dot" title="в сеансе"></i>' : ''}${esc(x.name)}`).join(', ') || 'Только учитель'}</b>
+        <div class="who">${s.title ? `<b class="tog-title">${esc(s.title)}</b><br>` : ''}<b>${s.students.map(x => `${x.on ? '<i class="dot" title="в сеансе"></i>' : ''}${esc(x.name)}`).join(', ') || 'Только учитель'}</b>
           <div class="meta">${esc(fmtWhen(s.created))} · ${esc(modes[s.mode] || '')}${s.task ? ' · ' + esc(s.task) : ''}${s.pages > 1 ? ` · страниц: ${s.pages}` : ''}</div></div>
         ${s.ended ? '<span class="meta">завершён</span>' : '<span class="live">● идёт</span>'}
         <button type="button" class="btn${s.ended ? '' : ' primary'}" data-tog-open="${s.id}">${s.ended ? 'Посмотреть' : 'Открыть'}</button>

@@ -212,6 +212,13 @@
         return;
       case 'view': return onView(m);
       case 'follow': S.follow = m.on; renderBars(); if (m.on && m.view) onView(m.view); return;
+      case 'title': S.title = m.title || ''; return renderTitle();
+      case 'pname': {
+        const pg = S.pages.find(x => x.key === m.page);
+        if (pg) pg.name = m.name;
+        if (m.page === S.page) { S.pname = m.name; renderPName(); }
+        return;
+      }
       case 'ro': S.ro = m.on; renderBars(); if (!S.teacher) toast(m.on ? 'Учитель включил режим просмотра' : 'Режим просмотра выключен — можно писать и рисовать'); return;
       case 'end': return onEnd();
       case 'err': return toast(m.msg || 'Ошибка');
@@ -224,6 +231,8 @@
     S.snapped = true;
     S.me = m.me;
     S.teacher = !!m.me.teacher;
+    S.title = m.title || '';
+    renderTitle();
     S.expired = !!m.expired; S.ro = m.ro; S.follow = m.follow; S.pyLocal = !!m.py_local; S.created = m.created || 0; S.ended = m.ended;
     if (!S.color) S.color = m.me.color;
     document.body.classList.toggle('stu', !S.teacher);
@@ -257,6 +266,7 @@
   document.addEventListener('click', e => { if (!e.target.closest('#tgPplPop')) $('#tgPplPop').hidden = true; });
   function renderBars() {
     $('#tgTBar').hidden = !S.teacher || S.expired;
+    renderTitle();
     $('#tgSBar').hidden = S.teacher;
     $('#tgFollow').classList.toggle('on', S.follow);
     $('#tgFollow').setAttribute('aria-pressed', String(!!S.follow));
@@ -302,6 +312,58 @@
     clearTimeout(toastT);
     toastT = setTimeout(() => { el.hidden = true; }, ms);
   }
+
+  // ================================================================ названия: сеанс (шапка) и страница-доска (над условием)
+  const canRename = () => S.teacher && !S.ended && !S.expired;
+  function renderTitle() {
+    const el = $('#tgTitle'), t = S.title || 'Совместный сеанс';
+    el.textContent = t;
+    el.classList.toggle('ed', canRename());
+    el.title = canRename() ? 'Нажмите, чтобы переименовать сеанс' : t;
+    document.title = t + ' — Egeshka';
+  }
+  function renderPName() {
+    const n = $('#tgPName');
+    n.textContent = S.pname || '';
+    n.hidden = !S.pname;
+    n.classList.toggle('ed', canRename());
+    n.title = canRename() ? 'Нажмите, чтобы переименовать страницу' : S.pname || '';
+    $('#tgNum').hidden = !!S.pname && !S.task;            // у названной чистой страницы «Без задания» не нужно
+    $('#tgPRen').hidden = !canRename() || !!S.pname;
+  }
+  /** Поле вместо надписи: Enter или уход фокуса — сохранить, Esc — отменить. */
+  function renameInline(el, value, max, place, save) {
+    if (!canRename() || el.dataset.editing) return;
+    const inp = document.createElement('input');
+    inp.className = 'tg-rename';
+    inp.maxLength = max;
+    inp.value = value;
+    inp.placeholder = place;
+    el.dataset.editing = '1';
+    const hidden = el.hidden;
+    el.hidden = true;
+    el.after(inp);
+    inp.focus();
+    inp.select();
+    let done = false;
+    const finish = ok => {
+      if (done) return;
+      done = true;
+      const v = inp.value.replace(/\s+/g, ' ').trim();
+      inp.remove();
+      el.hidden = hidden;
+      delete el.dataset.editing;
+      if (ok && v !== value) save(v);
+    };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } });
+    inp.addEventListener('blur', () => finish(true));
+  }
+  $('#tgTitle').addEventListener('click', () => renameInline($('#tgTitle'), S.title, 80, 'Название сеанса, например «Разбор № 17»',
+    v => { S.title = v; renderTitle(); send({ t: 'title', title: v }); }));
+  const renamePage = () => renameInline($('#tgPName'), S.pname, 60, 'Название страницы, например «Перебор пар»',
+    v => { S.pname = v; renderPName(); send({ t: 'pname', page: S.page, name: v }); });
+  $('#tgPName').addEventListener('click', renamePage);
+  $('#tgPRen').addEventListener('click', renamePage);
 
   // ================================================================ режим, вкладки, «следить за мной»
   function setMode(mode, mine = true) {
@@ -386,6 +448,7 @@
     const changed = pg.page !== S.page;
     S.page = pg.page;
     S.task = pg.task;
+    S.pname = pg.name || '';
     S.pages = pg.pages || S.pages;
     // код
     S.text = pg.code || '';
@@ -412,11 +475,12 @@
     $('#tgAnsIn').value = pg.ans || '';
     const r = (pg.res || [])[pg.res && pg.res.length - 1];
     showRes(r && r.v === (pg.ans || '') ? r : null);
-    if (changed && !full) toast(pg.task ? `Новое задание: ${pg.task.label}` : 'Чистая страница');
+    if (changed && !full) toast(S.pname ? `Страница «${S.pname}»` : pg.task ? `Новое задание: ${pg.task.label}` : 'Чистая страница');
   }
   function renderTask() {
     const t = S.task;
     $('#tgNum').textContent = t ? t.label : 'Без задания';
+    renderPName();
     const cond = $('#tgCond');
     if (!t) {
       cond.innerHTML = `<div class="tg-blank">${S.teacher ? 'Задания нет — чистая страница. «Сменить задание» — выбрать из банка.' : 'Учитель пока не выбрал задание.'}</div>`;
@@ -430,7 +494,7 @@
     }
     condTools();
     $('#tgPages').innerHTML = (S.ended || S.expired) && S.pages.length > 1 ? S.pages.map((p, i) => `<button type="button" data-peek="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"
-      title="${esc(p.task || 'чистая страница')}">${i + 1}${p.task ? ' · ' + esc(p.task.split(' · ')[0]) : ''}</button>`).join('') : '';
+      title="${esc(p.name || p.task || 'чистая страница')}">${i + 1}${p.name ? ' · ' + esc(p.name) : p.task ? ' · ' + esc(p.task.split(' · ')[0]) : ''}</button>`).join('') : '';
     renderFiles();
     $('#tgAtt').innerHTML = t && t.att && t.att.length ? ICON.clip + ' ' + t.att.map(a => `<a href="${esc(a.href)}" download>${esc(a.name)}</a>`).join(' · ') : '';
     $('#tgAns').hidden = !t || t.parts;
@@ -748,7 +812,7 @@
     const request = ++pickVersion, kind = pickKind, asg = pickAsg;
     const current = () => request === pickVersion && kind === pickKind && asg === pickAsg && q === $('#tgPickQ').value.trim();
     if (!q && pickKind === 'pages') {
-      L.innerHTML = S.pages.map((p, i) => `<li data-key="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"><span class="tg-num">${i + 1}</span><span class="tx">${esc(p.task || 'Чистая страница')}</span>${p.key === S.page ? '<span class="mk">сейчас</span>' : ''}</li>`).join('');
+      L.innerHTML = S.pages.map((p, i) => `<li data-key="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"><span class="tg-num">${i + 1}</span><span class="tx">${p.name ? `<b>${esc(p.name)}</b><small>${esc(p.task || 'без задания')}</small>` : esc(p.task || 'Чистая страница')}</span>${p.key === S.page ? '<span class="mk">сейчас</span>' : ''}</li>`).join('');
       return;
     }
     L.innerHTML = '<li class="empty">Загружаю…</li>';
