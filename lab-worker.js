@@ -103,6 +103,17 @@ self.onmessage = async ev => {
   try {
     await ready;
     if (!pyodide) throw new Error('Python не загрузился. Проверьте подключение и повторите запуск.');
+    for (const file of (msg.files || []).slice(0, 10)) {
+      if (!/^[A-Za-z0-9_.-]{1,60}$/.test(file.name) || file.name === '.' || file.name === '..') throw Error('Недопустимое имя файла');
+      const url = new URL(file.url, self.location.href);
+      if (url.origin !== self.location.origin || !url.pathname.startsWith('/pyc-data/')) throw Error('Недопустимый файл урока');
+      const r = await fetch(url, { credentials: 'same-origin' });
+      if (!r.ok) throw Error('Не удалось загрузить файл ' + file.name);
+      const data = new Uint8Array(await r.arrayBuffer());
+      if (data.length > 10000000) throw Error('Файл слишком большой для пошагового разбора');
+      pyodide.FS.writeFile('/home/pyodide/' + file.name, data);
+    }
+    pyodide.runPython("import os; os.chdir('/home/pyodide')");
     self.postMessage({ type: 'tracing' });
     pyodide.runPython(LAB_TRACE_PY);
     const run = pyodide.globals.get('_lab_run');

@@ -1,6 +1,8 @@
   // ------------------------------------------------------------ курс «Программирование для ЕГЭ» (закрытый)
   // Вход — по паролю курса, как у раздела «Курс» (пароль задаёт учитель). Модуль = тема, внутри лестница уровней:
   // следующий уровень открывается, когда в текущем решено need задач. Ответы проверяет сервер.
+  let PYC_FOCUS = null, PYC_HELP = Promise.resolve(), pycLevelRequest = 0;
+  const PYC_PENDING_HELP = new Map();
   let PYC_OK = false;
   let PYC_PW = false;                    // учитель задал пароль курса — на экране с замком есть поле для пароля
   let PYC = null;                        // план курса и прогресс с сервера
@@ -10,7 +12,7 @@
   const pycDone = id => !!((PYC && PYC.progress[id]) || {}).ok;
   const pycModDone = m => m.levels.reduce((a, lv) => a + lv.tasks.filter(pycDone).length, 0);
   const pycModTotal = m => m.levels.reduce((a, lv) => a + lv.tasks.length, 0);
-  const pycLabel = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : 'Старт');
+  const pycLabel = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
 
   function pycSetAccess(on, pw) {
     PYC_OK = !!on;
@@ -70,6 +72,7 @@
   /** План курса: модули по группам, у каждого — лестница уровней. */
   async function openPyc() {
     if (!pycEnter()) return;
+    ++pycLevelRequest;
     navPush({ v: 'pyc' });
     PYC_L = null;
     try { await pycLoad(); } catch (e) { if (e.status !== 401) netError(e); return; }
@@ -84,6 +87,9 @@
       if (li >= 0 && (!cont || (pycModDone(m) > 0 && !pycModDone(cont.m)))) cont = { m, li };
       if (cont && pycModDone(cont.m) > 0) break;
     }
+    const remembered = learningMemory().pyc;
+    const rm = remembered && mods.find(m => m.id === remembered.m);
+    if (rm && remembered.l < rm.open) cont = { m: rm, li: remembered.l };
     const card = m => {
       const d = pycModDone(m), t = pycModTotal(m);
       return `<div class="pyc-mod${d === t && t ? ' done' : ''}">
@@ -98,13 +104,15 @@
         <i class="xp-bar"><b style="width:${t ? pct(d / t) : 0}%"></b></i></div>`;
     };
     const groups = [['base', 'Старт: язык Python', 'Если программируете впервые — начните отсюда'],
-      ['ege', 'Задания ЕГЭ', 'Каждый номер — от базы до максимума: все приёмы и ловушки']];
+      ['ege', 'Задания ЕГЭ', 'Короткие разборы и практика по темам проекта ЕГЭ-2027'],
+      ['extra', 'Дополнительная практика', 'Архивные форматы: полезны для программирования, но не заменяют актуальную тему экзамена']];
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование</span><span class="scope-stats">${done} из ${all} задач</span>`;
     trainerEl.innerHTML = `<div class="course pyc">
       <div class="crs-hero pyc-hero"><div><div class="crs-kicker">Закрытый курс Egeshka</div><h2>Программирование для ЕГЭ</h2>
         <p>Python от первой строчки до самых сложных номеров. Каждая тема — лестница уровней: короткая теория с примерами, которые можно запустить,
-          и задачи с проверкой. Ответ — то, что напечатала ваша программа.</p></div>
+          и задачи с проверкой ответа. В модуле «Python с нуля» есть учебные тесты кода на разных входных данных.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all} задач решено</span><i class="xp-bar"><b style="width:${all ? pct(done / all) : 0}%"></b></i></div></div>
+      ${learningFormat}
       ${cont ? `<button type="button" class="crs-continue" data-pyc-lv="${cont.m.id}:${cont.li}"><span>▶</span><span>
         <b>Продолжить: ${esc(pycLabel(cont.m))} · ${esc(cont.m.title)}</b><small>уровень ${cont.li + 1} · ${esc(cont.m.levels[cont.li].title)}</small></span></button>` : ''}
       ${groups.map(([g, h, sub]) => {
@@ -118,6 +126,7 @@
   /** Уровень: слайды (как в «Курсе») и задачи с проверкой. */
   async function openPycLevel(mid, li, keepScroll) {
     if (!(courseShown && pageKind === 'pyc') && !pycEnter()) return;
+    const request = ++pycLevelRequest;
     navPush({ v: 'pycl', m: mid, l: li });
     let d;
     try {
@@ -127,13 +136,16 @@
       if (e.status === 403) { if (PYC && PYC.access) { toast(e.message, 4000); return openPyc(); } pycLock(); return; }
       netError(e); return;
     }
-    if (!courseShown || pageKind !== 'pyc') return;
+    if (!courseShown || pageKind !== 'pyc' || request !== pycLevelRequest) return;
     const y = window.scrollY;
     PYC_L = d;
     const m = PYC.modules.find(x => x.id === mid) || { levels: [], open: 1 };
     const lv = d.level, has = lv.slides.length;
     DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
-    if (!keepScroll) deckI = 0;
+    if (!keepScroll) deckI = learningSlide(`pyc:${mid}:${li}`);
+    const saved = learningMemory().pyc;
+    if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && saved.l === li && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
+    learningMemory({ pyc: { m: mid, l: li, task: PYC_FOCUS } });
     const done = lv.tasks.filter(t => t.ok).length;
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование · ${esc(pycLabel(d))}</span><span class="scope-stats">уровень ${li + 1} из ${d.levels}</span>`;
     trainerEl.innerHTML = `<div class="course lesson pyc">
@@ -156,7 +168,9 @@
       </div>` : ''}
       <div class="fm-h">${has ? '2. ' : ''}Задачи уровня · решено ${done} из ${lv.tasks.length}</div>
       ${li + 1 < d.levels ? `<p class="fm-note">${li + 1 < m.open ? '🔓 Следующий уровень уже открыт.' : `Решите ${lv.need} ${plural(lv.need, 'задачу', 'задачи', 'задач')} — откроется уровень ${li + 2}.`}</p>` : ''}
-      <div class="pyc-tasks">${lv.tasks.map((t, i) => pycTaskHtml(t, i)).join('')}</div>
+      <nav class="learning-tasks" aria-label="Задачи урока">${lv.tasks.map((t, i) => `<button type="button" class="btn${t.id === PYC_FOCUS ? ' primary' : ''}" data-pyc-focus="${esc(t.id)}" aria-pressed="${t.id === PYC_FOCUS}">${t.ok ? '✓ ' : ''}${i + 1}. ${esc(t.h)}</button>`).join('')}</nav>
+      <div class="pyc-tasks">${lv.tasks.filter(t => t.id === PYC_FOCUS).map(t => pycTaskHtml(t, lv.tasks.indexOf(t))).join('')}</div>
+      <p class="fm-note">Прогресс задач хранится в аккаунте. Код и место остановки — в этом браузере.</p>
       ${li + 1 < d.levels && li + 1 < m.open ? `<button type="button" class="btn primary pyc-next" data-pyc-lv="${mid}:${li + 1}">Уровень ${li + 2}: ${esc(m.levels[li + 1].title)} →</button>` : ''}
     </div>`;
     if (has) renderDeck();
@@ -171,24 +185,27 @@
     const st = t.ok ? 'ok' : t.tries ? 'bad' : '';
     return `<div class="pyc-task ${st}" id="pt-${esc(t.id.replace('.', '-'))}" data-pyc-task="${esc(t.id)}">
       <div class="pyc-th"><span class="pyc-tn">${t.ok ? '✓' : i + 1}</span><b>${esc(t.h)}</b><span class="pyc-stars" title="сложность">${PYC_STARS(t.stars || 1)}</span>
-        <span class="pyc-st">${t.ok ? 'решено' : t.tries ? `попыток: ${t.tries}` : ''}</span></div>
+        <span class="pyc-st">${t.ok ? (t.independent ? 'решено самостоятельно' : t.solution_seen ? 'решено после разбора' : t.hint_used ? 'решено с подсказкой' : 'решено') : t.tries ? `попыток: ${t.tries}` : ''}</span></div>
       <div class="cond pyc-cond">${safeHtml(t.cond)}</div>
       ${pycFilesHtml(t.files)}
+      ${t.practice ? `<div class="learning-practice"><b>Программа должна работать на разных данных</b><p>Первый ввод: <code>${esc(t.practice.stdin.trim())}</code>. Напиши программу, открой Python и проверь тесты. В поле ответа отправь вывод для первого ввода.</p><pre>${esc(t.practice.cases.map((c, i) => `Пример ${i+1}: ввод ${JSON.stringify(c.input.trim())} → ${c.output}`).join('\n'))}</pre></div>` : ''}
       <div class="pyc-act">
         <button type="button" class="btn" data-pyc-py="${esc(t.id)}">▶ Решать в Python</button>
+        <button type="button" class="btn" data-learning-lab="task" data-task="${esc(t.id)}">По шагам в лаборатории</button>
+        ${t.practice ? `<button type="button" class="btn" data-pyc-tests="${esc(t.id)}">Проверить код на ${t.practice.cases.length} примерах</button>` : ''}
         <form class="pyc-form" data-pyc-form="${esc(t.id)}" autocomplete="off">
           <input class="inp pyc-ans" maxlength="300" placeholder="${t.ok ? 'Решено ✓' : 'Ответ'}" value="${t.ok && t.ans ? esc(t.ans) : ''}"${t.ok ? ' readonly' : ''}>
           ${t.ok ? '' : '<button type="submit" class="btn primary">Проверить</button>'}
         </form>
         <span class="pyc-msg" aria-live="polite"></span>
       </div>
-      ${t.hint && !t.ok ? `<details class="pyc-more"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
+      ${t.hint && !t.ok ? `<details class="pyc-more" data-pyc-help="hint" data-task="${esc(t.id)}"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
       ${t.note && t.ok ? `<div class="sl-nuance nk-secret"><b class="nk">💡 Секрет.</b> ${safeHtml(t.note)}</div>` : ''}
       ${t.sol ? pycSolHtml(t) : ''}
     </div>`;
   }
   function pycSolHtml(t) {
-    return `<details class="pyc-more pyc-sol"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
+    return `<details class="pyc-more pyc-sol" data-pyc-help="solution" data-task="${esc(t.id)}"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
       <pre class="sl-code">${highlightPy(t.sol)}</pre>
       <div class="sl-btns"><button type="button" class="btn ghost" data-pyc-sol="${esc(t.id)}">▶ Открыть разбор в Python</button>
         ${t.ok && t.ans ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
@@ -201,9 +218,14 @@
   function pycOpenPy(id, code) {
     const t = pycTask(id);
     if (!t) return;
+    const alreadyEditing = pyOpen() && PY.task?.id === 'pyc:' + id;
     const k = PYC_L.level.tasks.indexOf(t) + 1;
     PYC_PY = pycPyTask(t, `${pycLabel(PYC_L)} · ур. ${PYC_L.l + 1} · задача ${k}`);
     if (pyOpen()) pySync(); else togglePy(true);
+    if (t.practice && !alreadyEditing) {
+      $('#pyIn').value = t.practice.stdin;
+      if (code == null && readCode('pyc:' + id) == null) code = t.practice.starter || '';
+    }
     if (code != null) {
       const ta = $('#pyCode');
       ta.value = code;
@@ -219,7 +241,7 @@
     const btn = form.querySelector('button[type=submit]');
     if (btn) btn.disabled = true;
     let r;
-    try { r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (btn) btn.disabled = false; netError(e); return; }
+    try { await pycFlushHelp(); r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (btn) btn.disabled = false; netError(e); return; }
     if (btn) btn.disabled = false;
     const t = pycTask(id);
     if (!t) return;
@@ -244,6 +266,10 @@
 
   trainerEl.addEventListener('click', e => {
     if (!courseShown || pageKind !== 'pyc') return;
+    const focus = e.target.closest('[data-pyc-focus]');
+    if (focus && PYC_L) { PYC_FOCUS = focus.dataset.pycFocus; openPycLevel(PYC_L.id, PYC_L.l, true); return; }
+    const tests = e.target.closest('[data-pyc-tests]');
+    if (tests) { pycTestCode(tests.dataset.pycTests, tests); return; }
     const lv = e.target.closest('[data-pyc-lv]');
     if (lv && !lv.disabled) { const [m, l] = lv.dataset.pycLv.split(':'); openPycLevel(m, +l); return; }
     if (e.target.closest('[data-pyc-home]')) { openPyc(); return; }
@@ -267,3 +293,87 @@
     try { const me = await api('me'); pycSetAccess(me.pyc, me.pyc_pw); } catch (e) { return; }
     if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
   }
+
+  trainerEl.addEventListener('toggle', e => {
+    const el = e.target;
+    if (!el.open || !el.dataset.pycHelp || !el.dataset.task) return;
+    const task = pycTask(el.dataset.task); if (!task) return;
+    const field = el.dataset.pycHelp === 'hint' ? 'hint_used' : 'solution_seen';
+    if (task[field]) return;
+    PYC_PENDING_HELP.set(task.id + ':' + field, { sid: student?.sid, task, kind: el.dataset.pycHelp, field });
+    pycFlushHelp().catch(() => toast('Не удалось сохранить использование подсказки. Проверь подключение.', 4000));
+  }, true);
+  function pycFlushHelp() {
+    PYC_HELP = PYC_HELP.catch(() => {}).then(async () => {
+      for (const [key, item] of PYC_PENDING_HELP) {
+        if (item.sid !== student?.sid) { PYC_PENDING_HELP.delete(key); continue; }
+        await api('pyc/help', { task: item.task.id, kind: item.kind });
+        item.task[item.field] = true; PYC_PENDING_HELP.delete(key);
+      }
+    });
+    return PYC_HELP;
+  }
+  let PYC_TEST = null;
+  function pycStopTests() { if (PYC_TEST) PYC_TEST.cancel(); }
+  async function pycTestCode(id, button) {
+    if (PYC_TEST) { toast('Дождись завершения текущей проверки.', 2500); return; }
+    const task = pycTask(id); if (!task?.practice) return;
+    pycOpenPy(id);
+    const code = $('#pyCode').value, box = button.closest('.pyc-task'), msg = box.querySelector('.pyc-msg');
+    if (!code.trim()) { msg.textContent = 'Сначала напиши программу в редакторе Python.'; return; }
+    const status = text => { msg.textContent = text; if (PY.task?.id === 'pyc:' + id) $('#pycDockStatus').textContent = text; };
+    button.disabled = true; $('#pycDockTests').disabled = true; $('#pycDockStop').hidden = false; status('Загружаю Python для учебной проверки…');
+    let worker;
+    try { worker = new Worker('py-worker.js' + (RULES.py_local ? '?local=1' : '')); }
+    catch (err) { button.disabled = false; $('#pycDockTests').disabled = false; $('#pycDockStop').hidden = true; status('Браузер не смог запустить проверку Python.'); return; }
+    let timer, index = 0, passed = 0, output = '', error = '', finished = false;
+    const finish = text => {
+      if (finished) return; finished = true; clearTimeout(timer); worker.terminate(); PYC_TEST = null;
+      $('#pycDockTests').disabled = false; $('#pycDockStop').hidden = true;
+      if (button.isConnected) { button.disabled = false; status(text); }
+    };
+    PYC_TEST = { button, cancel: () => finish('Проверка остановлена.') };
+    const norm = value => String(value).trim().replace(/\s+/g, ' ');
+    const next = () => {
+      if (!button.isConnected) { finish('Проверка остановлена.'); return; }
+      const test = task.practice.cases[index]; output = ''; error = '';
+      clearTimeout(timer); timer = setTimeout(() => finish(`Пример ${index+1}: остановлено через 5 секунд. Проверь цикл.`), 5000);
+      worker.postMessage({ type: 'run', code, files: (task.files || []).map(f => ({ name: f.name, url: f.url })), stdin: test.input });
+      status(`Проверяю пример ${index+1} из ${task.practice.cases.length}…`);
+    };
+    timer = setTimeout(() => finish('Не удалось загрузить Python. Проверь интернет и повтори.'), 90000);
+    worker.onmessage = e => {
+      const m = e.data; if (finished) return;
+      if (m.type === 'ready') { next(); return; }
+      if (m.type === 'out') output += m.text;
+      if (m.type === 'err') error += m.text;
+      if (output.length + error.length > 8000) { finish('Слишком много вывода. Проверь цикл и print().'); return; }
+      if (m.type !== 'done') return;
+      const test = task.practice.cases[index];
+      if (!m.ok || error) { finish(`Пример ${index+1}: ошибка. ${error.slice(0, 700) || 'Python не загрузился или выполнение прервано.'}`); return; }
+      if (norm(output) !== norm(test.output)) { finish(`Пример ${index+1}: ожидалось «${test.output}», получено «${output.trim()}». Исправь программу.`); return; }
+      passed++; index++;
+      if (index === task.practice.cases.length) finish(`Учебная проверка: ${passed} из ${index} примеров пройдены. Для зачёта отправь ответ для первого ввода.`);
+      else next();
+    };
+    worker.onerror = () => finish('Не удалось запустить Python. Повтори проверку.');
+  }
+  new MutationObserver(() => { if (PYC_TEST && !PYC_TEST.button.isConnected) pycStopTests(); }).observe(trainerEl, { childList: true });
+  window.addEventListener('pagehide', pycStopTests);
+
+  function pycDockTools(t) {
+    const task = t?.pyc && pycTask(t.id.slice(4)), tools = $('#pycDockTools');
+    if (!tools) return;
+    tools.hidden = !task;
+    if (!task) return;
+    $('#pycDockTests').hidden = !task.practice;
+    $('#pycDockStatus').textContent = '';
+  }
+  $('#pycDockTests')?.addEventListener('click', () => { if (PY.task?.pyc) trainerEl.querySelector(`[data-pyc-tests="${CSS.escape(PY.task.id.slice(4))}"]`)?.click(); });
+  $('#pycDockLab')?.addEventListener('click', () => { if (PY.task?.pyc) trainerEl.querySelector(`[data-learning-lab="task"][data-task="${CSS.escape(PY.task.id.slice(4))}"]`)?.click(); });
+  $('#pycDockBack')?.addEventListener('click', () => togglePy(false));
+  $('#pycDockStop')?.addEventListener('click', pycStopTests);
+  $('#pyCode')?.addEventListener('input', () => {
+    if (PYC_TEST) pycStopTests();
+    if ($('#pycDockStatus')?.textContent) $('#pycDockStatus').textContent = 'Код изменён. Запусти проверку ещё раз.';
+  });

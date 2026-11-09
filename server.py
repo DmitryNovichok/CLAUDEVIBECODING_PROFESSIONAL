@@ -52,6 +52,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import hash_pw, check_pw, revoke_access, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
+from learning_access import lab_access
+from learning_content import course_guide
 from private_config import read_private, private_rewards, require_private
 import hints as hints_mod
 PRIVATE_CONFIG = read_private()
@@ -1751,6 +1753,10 @@ class DB(Transactional):
                     ("daily_starts", "task_id", "TEXT"),              # личное задание дня ученика; NULL — общее (до 1.53)
                     ("students", "pyc", "INTEGER DEFAULT 0"),         # ученик ввёл пароль курса программирования
                     ("students", "pyc_ts", "REAL"),                   # когда ввёл
+                    ("students", "lab", "INTEGER DEFAULT 0"),
+                    ("pyc_progress", "hint_used", "INTEGER DEFAULT 0"),
+                    ("pyc_progress", "solution_seen", "INTEGER DEFAULT 0"),
+                    ("pyc_progress", "independent", "INTEGER DEFAULT 0"),
                     ("students", "pyc_free", "INTEGER DEFAULT 0"),    # учитель открыл все уровни курса (без замков)
                     ("gifts", "uniq", "TEXT"),                        # улучшенный подарок: номер, фон, узор, эффект (JSON)
                     ("gifts", "kind", "TEXT"),                        # work — подарок за труд (каждые WORK_GIFT_EVERY решённых)
@@ -2456,6 +2462,12 @@ class Handler(BaseHTTPRequestHandler):
             self.count_visit()
         if rel in ("index.html", "admin.html", "together.html", "welcome.html", "parent.html", "reset.html"):
             return self.serve_page(rel)
+        if rel == "lab-worker.js":
+            s = self.student()
+            if not s:
+                return self.err(401, "нужно войти")
+            if not lab_access(APP.db, s):
+                return self.err(403, "Лаборатории открываются по паролю от учителя")
         if rel in SITE_FILES:
             return self.serve_file(HERE, rel, html=rel.endswith(".html"))
         for d in SITE_DIRS:
@@ -2915,7 +2927,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return {"sid": s["id"], "name": s["name"], "token": getattr(self, "tok", None) or s["token"], "prefs": prefs,
                 "shared": bool(getattr(self, "sess", None) and self.sess["shared"]),
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
-                "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s),
+                "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s), "lab": lab_access(APP.db, s), "lab_pw": bool(APP.db.setting("lab_pw")),
                 "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
                 "coin_news": [dict(r) for r in APP.db.q("""SELECT id, delta, reason, note FROM coins
                                                             WHERE student_id=? AND seen=0 ORDER BY ts LIMIT 10""", (s["id"],))],
@@ -3011,8 +3023,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tasks = []
             for t in lv["tasks"]:
                 p = prog.get(t["id"]) or {}
-                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files") if k in t}
-                x.update(ok=bool(p.get("ok")), tries=p.get("tries", 0))
+                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files", "practice") if k in t}
+                x.update(ok=bool(p.get("ok")), tries=p.get("tries", 0), hint_used=bool(p.get("hint_used")), solution_seen=bool(p.get("solution_seen")), independent=bool(p.get("independent")))
                 if p.get("ok") or p.get("tries", 0) >= 3 or teacher:
                     x["sol"] = t["sol"]                 # разбор — после решения или трёх неудачных попыток
                 if p.get("ok") or teacher:
@@ -3022,6 +3034,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "levels": len(mod["levels"]), "l": li,
                                    "level": {"title": lv["title"], "goal": lv["goal"], "need": lv["need"],
                                              "slides": lv["slides"], "tasks": tasks}})
+        if path == "/api/pyc/help" and method == "POST":
+            mod, li, task = pyc_task(str(data.get("task") or "")[:40])
+            kind = data.get("kind")
+            if not task or kind not in ("hint", "solution"):
+                return self.err(400, "нет такой подсказки")
+            if li >= pyc_open_levels(mod, prog, free):
+                return self.err(403, "Уровень ещё закрыт")
+            was = prog.get(task["id"]) or {}
+            if kind == "solution" and not (teacher or was.get("ok") or was.get("tries", 0) >= 3):
+                return self.err(403, "Разбор доступен после решения или трёх попыток")
+            field = "hint_used" if kind == "hint" else "solution_seen"
+            db.x(f"INSERT INTO pyc_progress(student_id,task_id,{field},first_ts,last_ts) VALUES(?,?,1,?,?) "
+                 f"ON CONFLICT(student_id,task_id) DO UPDATE SET {field}=1, last_ts=excluded.last_ts",
+                 (s["id"], task["id"], time.time(), time.time()))
+            live_teacher(s)
+            return self.send_json({"ok": True})
         if path == "/api/pyc/check" and method == "POST":
             tid = str(data.get("task") or "")[:40]
             mod, li, t = pyc_task(tid)
@@ -3048,6 +3076,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     ON CONFLICT(student_id, task_id) DO UPDATE SET ok=excluded.ok, tries=tries + 1, last_ts=excluded.last_ts,
                       ok_ts=COALESCE(ok_ts, excluded.ok_ts), code=COALESCE(excluded.code, code)""",
                  (s["id"], tid, int(ok), 1, now, now if ok else None, now, code))
+            if ok:
+                db.x("UPDATE pyc_progress SET independent=? WHERE student_id=? AND task_id=?",
+                     (int(not was.get("hint_used") and not was.get("solution_seen")), s["id"], tid))
             prog = pyc_solved(db, s["id"])
             n_tries = prog[tid]["tries"]
             out = {"ok": ok, "tries": n_tries}
@@ -3068,7 +3099,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             account_write = method == "POST" and path in ACCOUNT_WRITE_PATHS
             if account_write:
                 self._account_delay = 0
-            if financial_path(path) or account_write:
+            if financial_path(path) or account_write or (method == "POST" and path in ("/api/pyc/check", "/api/pyc/help")):
                 # Slow failed authentication only after releasing the shared database lock.
                 return atomic_response(self, APP.db, lambda: self.api_route(method, path, qs, data),
                                        before_send=(lambda: time.sleep(self._account_delay)) if account_write else None)
@@ -3638,7 +3669,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             n = to_int(qs.get("n"))
             f = HERE / "course" / f"{n}.json"
             if not (n and 1 <= n <= 27 and f.is_file()):
-                return self.send_json({"n": n, "slides": []})
+                return self.send_json(course_guide(n))
             try:
                 return self.send_json(json.loads(f.read_text(encoding="utf-8")))
             except ValueError:
@@ -3691,6 +3722,27 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(403, "Неверный пароль курса")
             db.x("UPDATE students SET course=1, course_ts=? WHERE id=?", (time.time(), s["id"]))
             return self.send_json({"ok": True})
+
+        if path in ("/api/lab", "/api/lab/unlock"):
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if path == "/api/lab/unlock" and method == "POST" and not lab_access(db, s):
+                stored = db.setting("lab_pw")
+                if not stored:
+                    return self.err(403, "Лаборатории ещё не открыты учителем")
+                now = time.time()
+                with _COURSE_LOCK:
+                    tries = [t for t in _LAB_PW_TRIES.get(s["id"], []) if now - t < COURSE_WINDOW]
+                    if len(tries) >= COURSE_TRIES:
+                        return self.err(429, "Слишком много попыток — попробуйте позже")
+                    tries.append(now)
+                    _LAB_PW_TRIES[s["id"]] = tries
+                if not check_pw(str(data.get("password") or "")[:200], stored):
+                    return self.err(403, "Неверный пароль лабораторий")
+                db.x("UPDATE students SET lab=1 WHERE id=?", (s["id"],))
+                return self.send_json({"access": True})
+            return self.send_json({"access": lab_access(db, s), "pw": bool(db.setting("lab_pw"))})
 
         if path.startswith("/api/pyc"):
             return self.pyc_api(method, path, qs, data)
@@ -6000,7 +6052,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         p = prog.get(t["id"])
                         tasks.append({"id": t["id"], "h": t["h"], "stars": t["stars"], "ok": bool(p and p["ok"]),
                                       "tries": p["tries"] if p else 0, "ts": (p["ok_ts"] or p["last_ts"]) if p else None,
-                                      "code": p["code"] if p else None, "ans": t["ans"]})
+                                      "code": p["code"] if p else None, "ans": t["ans"],
+                                      "hint_used": bool(p and p["hint_used"]), "solution_seen": bool(p and p["solution_seen"]),
+                                      "independent": bool(p and p["independent"])})
                     levels.append({"title": lv["title"], "need": lv["need"], "tasks": tasks})
                 mods.append({"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"], "levels": levels})
             return self.send_json({"name": st["name"], "modules": mods})
@@ -7428,6 +7482,7 @@ _PYC = {}                               # имя файла → (mtime, данн
 _PYC_LOCK = threading.Lock()
 PYC_CHECKS, PYC_WINDOW = 40, 60         # не больше 40 проверок ответа в минуту — перебор ответов не пройдёт
 _PYC_TRIES = {}
+_LAB_PW_TRIES = {}
 _PYC_PW_TRIES = {}                      # попытки ввести пароль курса (лимит — как у раздела «Курс»)
 
 
@@ -7478,8 +7533,8 @@ def pyc_access(s):
 
 
 def pyc_solved(db, sid):
-    return {r["task_id"]: {"ok": r["ok"], "tries": r["tries"]}
-            for r in db.q("SELECT task_id, ok, tries FROM pyc_progress WHERE student_id=?", (sid,))}
+    return {r["task_id"]: {k: r[k] for k in ("ok", "tries", "hint_used", "solution_seen", "independent")}
+            for r in db.q("SELECT task_id, ok, tries, hint_used, solution_seen, independent FROM pyc_progress WHERE student_id=?", (sid,))}
 
 
 def pyc_open_levels(mod, prog, all_open=False):

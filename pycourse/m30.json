@@ -1,0 +1,65 @@
+{
+ "id": "m30",
+ "n": 12,
+ "title": "Машина Тьюринга",
+ "icon": "МТ",
+ "sub": "Актуальная тема №12: лента, состояния, таблица переходов. Учебные примеры по модели демоверсии.",
+ "levels": [
+  {
+   "title": "Лента и переходы",
+   "goal": "Перевести таблицу команд в программу; учитывать пустую ячейку и остановку.",
+   "need": 2,
+   "slides": [
+    {
+     "t": "text",
+     "h": "Как читать команду",
+     "html": "<p>Выбираем строку по состоянию, столбец по символу. Записываем новый символ, затем движемся L/R. S означает остановку после записи.</p><p>В нашем Python-примере пустая ячейка обозначена _, состояние остановки — stop. Это обозначения модели, не замена обозначений в условии ЕГЭ.</p>"
+    },
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Дописываем единицу слева",
+     "ch": "Пример",
+     "cond": "<p>Головка начинает справа от слова. q0 делает шаг влево, q1 проходит слово, затем пишет 1 в пустой ячейке слева. q2 останавливает машину.</p>",
+     "note": "Сначала предскажи новое число и число выполненных команд. В лаборатории сократи вход до нескольких цифр.",
+     "nk": "secret",
+     "code": "def run(bits):\n    tape = dict(enumerate(bits))\n    pos, state, steps = len(bits), 'q0', 0\n    rules = {\n        ('q0', '_'): ('_', -1, 'q1'),\n        ('q1', '0'): ('0', -1, 'q1'),\n        ('q1', '1'): ('1', -1, 'q1'),\n        ('q1', '_'): ('1', -1, 'q2'),\n        ('q2', '_'): ('_', 0, 'stop'),\n    }\n    while state != 'stop':\n        symbol, move, state = rules[state, tape.get(pos, '_')]\n        tape[pos] = symbol\n        pos += move\n        steps += 1\n    word = ''.join(tape.get(i, '_') for i in range(min(tape), max(tape)+1)).strip('_')\n    return int(word, 2), steps\n\nprint(run('101'))",
+     "out": "(13, 6)",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m30.prefix_value",
+     "h": "Новое число",
+     "cond": "<p>Используй программу из теории. На ленте 1101, головка справа. Какое десятичное число получится?</p>",
+     "stars": 1,
+     "ans": "29",
+     "sol": "def run(bits):\n    tape = dict(enumerate(bits))\n    pos, state, steps = len(bits), 'q0', 0\n    rules = {\n        ('q0', '_'): ('_', -1, 'q1'),\n        ('q1', '0'): ('0', -1, 'q1'),\n        ('q1', '1'): ('1', -1, 'q1'),\n        ('q1', '_'): ('1', -1, 'q2'),\n        ('q2', '_'): ('_', 0, 'stop'),\n    }\n    while state != 'stop':\n        symbol, move, state = rules[state, tape.get(pos, '_')]\n        tape[pos] = symbol\n        pos += move\n        steps += 1\n    word = ''.join(tape.get(i, '_') for i in range(min(tape), max(tape)+1)).strip('_')\n    return int(word, 2), steps\n\nprint(run('1101')[0])",
+     "sec": 0.01,
+     "hint": "Программа дописывает 1 слева. Исходная длина сохраняется."
+    },
+    {
+     "id": "m30.prefix_steps",
+     "h": "Сколько команд",
+     "cond": "<p>Та же программа; на ленте 10010. Сколько команд, включая команду остановки, будет выполнено?</p>",
+     "stars": 1,
+     "ans": "8",
+     "sol": "def run(bits):\n    tape = dict(enumerate(bits))\n    pos, state, steps = len(bits), 'q0', 0\n    rules = {\n        ('q0', '_'): ('_', -1, 'q1'),\n        ('q1', '0'): ('0', -1, 'q1'),\n        ('q1', '1'): ('1', -1, 'q1'),\n        ('q1', '_'): ('1', -1, 'q2'),\n        ('q2', '_'): ('_', 0, 'stop'),\n    }\n    while state != 'stop':\n        symbol, move, state = rules[state, tape.get(pos, '_')]\n        tape[pos] = symbol\n        pos += move\n        steps += 1\n    word = ''.join(tape.get(i, '_') for i in range(min(tape), max(tape)+1)).strip('_')\n    return int(word, 2), steps\n\nprint(run('10010')[1])",
+     "sec": 0.02,
+     "hint": "Учти вход на слово, все цифры, запись слева и остановку."
+    },
+    {
+     "id": "m30.prefix_search",
+     "h": "Найди исходное число",
+     "cond": "<p>Та же программа получает двоичную запись натурального N без ведущих нулей. Найди минимальное N, для которого итоговое число больше 100.</p>",
+     "stars": 1,
+     "ans": "37",
+     "sol": "def run(bits):\n    tape = dict(enumerate(bits))\n    pos, state, steps = len(bits), 'q0', 0\n    rules = {\n        ('q0', '_'): ('_', -1, 'q1'),\n        ('q1', '0'): ('0', -1, 'q1'),\n        ('q1', '1'): ('1', -1, 'q1'),\n        ('q1', '_'): ('1', -1, 'q2'),\n        ('q2', '_'): ('_', 0, 'stop'),\n    }\n    while state != 'stop':\n        symbol, move, state = rules[state, tape.get(pos, '_')]\n        tape[pos] = symbol\n        pos += move\n        steps += 1\n    word = ''.join(tape.get(i, '_') for i in range(min(tape), max(tape)+1)).strip('_')\n    return int(word, 2), steps\n\nfor n in range(1,101):\n    if run(bin(n)[2:])[0]>100:\n        print(n)\n        break",
+     "sec": 0.01,
+     "hint": "Перебери N; число символов зависит от N."
+    }
+   ]
+  }
+ ]
+}

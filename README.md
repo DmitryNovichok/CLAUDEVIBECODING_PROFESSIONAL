@@ -669,3 +669,7 @@ tar xjf p.tbz && rm p.tbz && chown -R trainer:trainer pyodide
 - `data/bank.js`, `data/report.txt` — появятся после сборки.
 - `vendor/katex` — отрисовка формул, работает без интернета.
 - `tests/` — тесты сервера: `python -m unittest discover tests` (ничего устанавливать не нужно).
+
+### Курсы и лаборатории 2.37.0
+
+Соответствие проекту ЕГЭ-2027, границы моделей, учебные проверки Python и установка трёх паролей: [docs/learning-2027.md](docs/learning-2027.md).

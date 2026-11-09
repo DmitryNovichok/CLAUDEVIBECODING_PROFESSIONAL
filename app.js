@@ -2528,6 +2528,7 @@
   }
   function openCourse() {
     if (!leaveExam()) return;
+    ++courseLessonRequest;
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
     courseShown = true;
@@ -2538,15 +2539,17 @@
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
     const all = COURSE.flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
-    const nextN = all.find(n => lessonState(n) !== 'done');
-    $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">27 тем по плану</span>';
+    const savedN = learningMemory().course;
+    const nextN = all.includes(savedN) ? savedN : all.find(n => lessonState(n) !== 'done');
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">Все задания ЕГЭ</span>';
     trainerEl.innerHTML = `<div class="course">
       <div class="crs-hero">
         <div><div class="crs-kicker">Курс Egeshka</div><h2>ЕГЭ по информатике: от №1 до №27</h2>
-          <p>Уроки идут по плану: от простых тем к сложным. В каждом — презентация с разбором и подборки заданий по уровням.</p></div>
+          <p>Уроки идут по плану: от простых тем к сложным. В каждой теме — разбор метода, учебный пример и практика по уровням. Начни с теории, затем проверь себя на заданиях.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
       </div>
-      ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>следующая тема по плану</small></span></button>` : ''}
+      ${learningFormat}
+      ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
         <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>Модуль ${i + 1}. ${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
           <span class="crs-mod-n">${m.lessons.filter(n => lessonState(n) === 'done').length}/${m.lessons.length}</span></div>
@@ -2554,7 +2557,7 @@
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
           return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
             <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
-            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · презентация · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · теория и пример · ${COURSE_SETS.length} подборок</small></span>
             <span class="crs-go">›</span></button>`;
         }).join('')}</div></section>`).join('')}
     </div>`;
@@ -2563,7 +2566,7 @@
   let DECK = null, deckI = 0;
   function slideHtml(sl, i) {
     const kick = sl.k ? `<div class="sl-k ${sl.kc || ''}">${esc(sl.k)}</div>` : '';
-    const runBtn = (k, ans, out) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button>
+    const runBtn = (k, ans, out) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button><button type="button" class="btn" data-learning-slide="${i}:${k}">По шагам в лаборатории</button>
         ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(ans)}</b></span></details>` : ''}
         ${out ? `<details class="sl-ansbox sl-outbox"><summary>Что выведет программа</summary><pre class="sl-out">${esc(out)}</pre></details>` : ''}</div>`;
     const codeBox = (code, k, ans, out) => `<div class="sl-codecol"><pre class="sl-code">${highlightPy(code)}</pre>${runBtn(k, ans, out)}</div>`;
@@ -2606,6 +2609,7 @@
     if (MARK.on || MARK.strokes.has(`deck:${DECK.n}:${deckI}`)) markAttach();   // рисунок этого слайда
     box.querySelector('.crs-count').textContent = `${deckI + 1} / ${sl.length}`;
     deckSeen(deckI + 1, sl.length);
+    learningRememberSlide();
     box.querySelector('[data-deck="-1"]').disabled = deckI === 0;
     box.querySelector('[data-deck="1"]').disabled = deckI === sl.length - 1;
     box.querySelectorAll('.crs-thumb').forEach((t, k) => t.classList.toggle('on', k === deckI));
@@ -2653,10 +2657,14 @@
   }
   document.addEventListener('fullscreenchange', () => setTimeout(fitSlide, 50));
   window.addEventListener('resize', () => { if (document.fullscreenElement) fitSlide(); });
+  let courseLessonRequest = 0;
   async function openLesson(n) {
     if (!COURSE_OK) return openCourse();
     abandonCurrent();
-    courseShown = true;
+    if (!leaveExam()) return;
+    courseShown = true; pageKind = null; cur = null;
+    const request = ++courseLessonRequest;
+    learningMemory({ course: n });
     navPush({ v: 'lesson', n });
     DECK = null;
     deckI = 0;
@@ -2665,10 +2673,9 @@
     $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(n)}</span>`;
     let lesson = null;
     try { lesson = await api('course/lesson?n=' + n); } catch (e) { if (e.status === 403) { COURSE_OK = false; return openCourse(); } }
-    if (!courseShown) return;                       // пока грузили, ученик ушёл к заданию
+    if (!courseShown || pageKind !== null || request !== courseLessonRequest) return;
     const has = lesson && lesson.slides && lesson.slides.length;
-    if (has) DECK = lesson;
-    const plan = ['Что проверяет задание', 'Разбор типового задания', 'Как решать руками', 'Как решать на Python', 'Частые ошибки', 'Итоги и шпаргалка'];
+    if (has) { DECK = lesson; deckI = learningSlide(n); }
     const deck = has ? `<div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
@@ -2679,17 +2686,13 @@
             <button type="button" class="btn ghost crs-full" data-deck-full title="На весь экран">⤢</button>
             <button type="button" class="btn primary" data-deck="1">Далее →</button></div></div>
         <div class="crs-thumbs">${lesson.slides.map((t, i) => `<button type="button" class="crs-thumb" data-slide="${i}"><span>${i + 1}. ${esc(t.h)}</span></button>`).join('')}</div>
-      </div>` : `<div class="crs-deck">
-        <div class="crs-slide"><span class="crs-slide-no">1 / ${plan.length}</span>
-          <div class="crs-slide-body"><div class="crs-kicker">Egeshka · урок ${numLabel(n)}</div><h3>${esc(NUM_TOPIC[n])}</h3>
-            <p>Презентация с разбором появится здесь</p></div>
-          <span class="crs-soon">скоро</span></div>
-        <div class="crs-thumbs">${plan.map((t, i) => `<div class="crs-thumb${i ? '' : ' on'}"><i></i><i></i><span>${i + 1}. ${t}</span></div>`).join('')}</div>
-      </div>`;
+      </div>` : '<p class="fm-note">Не удалось загрузить теорию. Открой тему ещё раз; практика ниже доступна.</p>';
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
       <div class="crs-l-head"><span class="num-badge">${numLabel(n)}</span><div><div class="crs-kicker">Модуль ${mod + 1} · ${esc(COURSE[mod].title)}</div>
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
+      ${learningFormat}
+      ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
       <div class="fm-h">1. Теория${has ? ` · ${lesson.slides.length} слайдов` : ''}</div>
       ${deck}
       <div class="fm-h">2. Практика по уровням</div>
@@ -4246,6 +4249,7 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
+    if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
       try { localStorage.removeItem(STUDENT_STORE); sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
@@ -4263,6 +4267,8 @@
     ['#teacherBack', '#teacherBackMenu'].forEach(sel => { const el = $(sel); if (el) el.hidden = !TEACHER; });   // учитель решает как ученик — путь назад
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     pycSetAccess(me.pyc, me.pyc_pw);
+    LAB_OK = !!me.lab;
+    $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
     promoUpdate(me.promo);
@@ -5376,6 +5382,7 @@
     if (!t || (PY.task && PY.task.id === t.id)) return;
     if (PY.task) writeCode(PY.task.id, $('#pyCode').value);
     PY.task = t;
+    pycDockTools(t);
     const files = pyFilesOf(t);
     $('#pyTask').textContent = t.pyc ? t.label : `задание ${numLabel(t.n)}`;
     $('#pyFiles').innerHTML = files.length
@@ -7769,10 +7776,60 @@
 
   }
 
+  // ═══════ src/app/12a-learning.js
+  // Shared lesson navigation; drafts and cursor are scoped to the current account on this device.
+  function learningMemory(patch) {
+    const key = codeKey('learning-position'), raw = readJSON(key);
+    const saved = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    if (patch) { Object.assign(saved, patch); writeJSON(key, saved); }
+    return saved;
+  }
+  function learningRememberSlide() {
+    if (!DECK) return;
+    const saved = learningMemory(), slides = saved.slides || {};
+    slides[DECK.n] = deckI; learningMemory({ slides });
+  }
+  function learningSlide(n) { const i = (learningMemory().slides || {})[n]; return Number.isInteger(i) && i >= 0 ? i : 0; }
+  const learningFormat = '<p class="learning-format">Темы по проекту ФИПИ ЕГЭ-2027. Краткие примеры объясняют метод; полный формат и ограничения читай в условии задания.</p>';
+  function learningLabContext() {
+    return pageKind === 'pyc' && PYC_L ? { kind: 'pyc', m: PYC_L.id, l: PYC_L.l, task: PYC_FOCUS,
+      label: PYC_L.title, code: '', stdin: '' } : { kind: 'course', n: DECK?.n, label: DECK?.label || 'Урок ЕГЭ', code: '', stdin: '' };
+  }
+  async function learningReturn() {
+    const ctx = LAB.context; if (!ctx) return;
+    labSaveDraft(); labStop(); LAB.context = null; LAB.owner = null;
+    if (ctx.kind === 'pyc') { PYC_FOCUS = ctx.task; await openPycLevel(ctx.m, ctx.l, true); }
+    else if (Number.isInteger(ctx.n)) await openLesson(ctx.n);
+    else openCourse();
+  }
+  trainerEl.addEventListener('click', e => {
+    if (e.target.closest('[data-learning-return]')) { learningReturn(); return; }
+    const btn = e.target.closest('[data-learning-lab]');
+    if (btn) {
+      const ctx = learningLabContext();
+      if (btn.dataset.learningLab === 'task') {
+        const t = pycTask(btn.dataset.task); if (!t) return;
+        ctx.task = t.id; ctx.label = t.h; ctx.condition = t.cond;
+        ctx.code = PY.task?.id === 'pyc:' + t.id ? $('#pyCode').value : readCode('pyc:' + t.id) || t.practice?.starter || '';
+        ctx.stdin = t.practice?.stdin || ''; ctx.files = t.files || [];
+        openLab('code', ctx);
+      } else { LAB.mode = btn.dataset.learningLab; openLab('tasks', ctx); }
+      return;
+    }
+    const slide = e.target.closest('[data-learning-slide]');
+    if (slide && DECK) {
+      const [i, k] = slide.dataset.learningSlide.split(':').map(Number), sl = DECK.slides[i];
+      const block = sl.t === 'codes' ? sl.blocks[k] : sl;
+      const ctx = learningLabContext(); ctx.task = null; ctx.code = block.code; ctx.files = block.files || sl.files || []; ctx.label = sl.h;
+      openLab('code', ctx);
+    }
+  });
   // ═══════ src/app/12b-pycourse.js
   // ------------------------------------------------------------ курс «Программирование для ЕГЭ» (закрытый)
   // Вход — по паролю курса, как у раздела «Курс» (пароль задаёт учитель). Модуль = тема, внутри лестница уровней:
   // следующий уровень открывается, когда в текущем решено need задач. Ответы проверяет сервер.
+  let PYC_FOCUS = null, PYC_HELP = Promise.resolve(), pycLevelRequest = 0;
+  const PYC_PENDING_HELP = new Map();
   let PYC_OK = false;
   let PYC_PW = false;                    // учитель задал пароль курса — на экране с замком есть поле для пароля
   let PYC = null;                        // план курса и прогресс с сервера
@@ -7782,7 +7839,7 @@
   const pycDone = id => !!((PYC && PYC.progress[id]) || {}).ok;
   const pycModDone = m => m.levels.reduce((a, lv) => a + lv.tasks.filter(pycDone).length, 0);
   const pycModTotal = m => m.levels.reduce((a, lv) => a + lv.tasks.length, 0);
-  const pycLabel = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : 'Старт');
+  const pycLabel = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
 
   function pycSetAccess(on, pw) {
     PYC_OK = !!on;
@@ -7842,6 +7899,7 @@
   /** План курса: модули по группам, у каждого — лестница уровней. */
   async function openPyc() {
     if (!pycEnter()) return;
+    ++pycLevelRequest;
     navPush({ v: 'pyc' });
     PYC_L = null;
     try { await pycLoad(); } catch (e) { if (e.status !== 401) netError(e); return; }
@@ -7856,6 +7914,9 @@
       if (li >= 0 && (!cont || (pycModDone(m) > 0 && !pycModDone(cont.m)))) cont = { m, li };
       if (cont && pycModDone(cont.m) > 0) break;
     }
+    const remembered = learningMemory().pyc;
+    const rm = remembered && mods.find(m => m.id === remembered.m);
+    if (rm && remembered.l < rm.open) cont = { m: rm, li: remembered.l };
     const card = m => {
       const d = pycModDone(m), t = pycModTotal(m);
       return `<div class="pyc-mod${d === t && t ? ' done' : ''}">
@@ -7870,13 +7931,15 @@
         <i class="xp-bar"><b style="width:${t ? pct(d / t) : 0}%"></b></i></div>`;
     };
     const groups = [['base', 'Старт: язык Python', 'Если программируете впервые — начните отсюда'],
-      ['ege', 'Задания ЕГЭ', 'Каждый номер — от базы до максимума: все приёмы и ловушки']];
+      ['ege', 'Задания ЕГЭ', 'Короткие разборы и практика по темам проекта ЕГЭ-2027'],
+      ['extra', 'Дополнительная практика', 'Архивные форматы: полезны для программирования, но не заменяют актуальную тему экзамена']];
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование</span><span class="scope-stats">${done} из ${all} задач</span>`;
     trainerEl.innerHTML = `<div class="course pyc">
       <div class="crs-hero pyc-hero"><div><div class="crs-kicker">Закрытый курс Egeshka</div><h2>Программирование для ЕГЭ</h2>
         <p>Python от первой строчки до самых сложных номеров. Каждая тема — лестница уровней: короткая теория с примерами, которые можно запустить,
-          и задачи с проверкой. Ответ — то, что напечатала ваша программа.</p></div>
+          и задачи с проверкой ответа. В модуле «Python с нуля» есть учебные тесты кода на разных входных данных.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all} задач решено</span><i class="xp-bar"><b style="width:${all ? pct(done / all) : 0}%"></b></i></div></div>
+      ${learningFormat}
       ${cont ? `<button type="button" class="crs-continue" data-pyc-lv="${cont.m.id}:${cont.li}"><span>▶</span><span>
         <b>Продолжить: ${esc(pycLabel(cont.m))} · ${esc(cont.m.title)}</b><small>уровень ${cont.li + 1} · ${esc(cont.m.levels[cont.li].title)}</small></span></button>` : ''}
       ${groups.map(([g, h, sub]) => {
@@ -7890,6 +7953,7 @@
   /** Уровень: слайды (как в «Курсе») и задачи с проверкой. */
   async function openPycLevel(mid, li, keepScroll) {
     if (!(courseShown && pageKind === 'pyc') && !pycEnter()) return;
+    const request = ++pycLevelRequest;
     navPush({ v: 'pycl', m: mid, l: li });
     let d;
     try {
@@ -7899,13 +7963,16 @@
       if (e.status === 403) { if (PYC && PYC.access) { toast(e.message, 4000); return openPyc(); } pycLock(); return; }
       netError(e); return;
     }
-    if (!courseShown || pageKind !== 'pyc') return;
+    if (!courseShown || pageKind !== 'pyc' || request !== pycLevelRequest) return;
     const y = window.scrollY;
     PYC_L = d;
     const m = PYC.modules.find(x => x.id === mid) || { levels: [], open: 1 };
     const lv = d.level, has = lv.slides.length;
     DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
-    if (!keepScroll) deckI = 0;
+    if (!keepScroll) deckI = learningSlide(`pyc:${mid}:${li}`);
+    const saved = learningMemory().pyc;
+    if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && saved.l === li && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
+    learningMemory({ pyc: { m: mid, l: li, task: PYC_FOCUS } });
     const done = lv.tasks.filter(t => t.ok).length;
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование · ${esc(pycLabel(d))}</span><span class="scope-stats">уровень ${li + 1} из ${d.levels}</span>`;
     trainerEl.innerHTML = `<div class="course lesson pyc">
@@ -7928,7 +7995,9 @@
       </div>` : ''}
       <div class="fm-h">${has ? '2. ' : ''}Задачи уровня · решено ${done} из ${lv.tasks.length}</div>
       ${li + 1 < d.levels ? `<p class="fm-note">${li + 1 < m.open ? '🔓 Следующий уровень уже открыт.' : `Решите ${lv.need} ${plural(lv.need, 'задачу', 'задачи', 'задач')} — откроется уровень ${li + 2}.`}</p>` : ''}
-      <div class="pyc-tasks">${lv.tasks.map((t, i) => pycTaskHtml(t, i)).join('')}</div>
+      <nav class="learning-tasks" aria-label="Задачи урока">${lv.tasks.map((t, i) => `<button type="button" class="btn${t.id === PYC_FOCUS ? ' primary' : ''}" data-pyc-focus="${esc(t.id)}" aria-pressed="${t.id === PYC_FOCUS}">${t.ok ? '✓ ' : ''}${i + 1}. ${esc(t.h)}</button>`).join('')}</nav>
+      <div class="pyc-tasks">${lv.tasks.filter(t => t.id === PYC_FOCUS).map(t => pycTaskHtml(t, lv.tasks.indexOf(t))).join('')}</div>
+      <p class="fm-note">Прогресс задач хранится в аккаунте. Код и место остановки — в этом браузере.</p>
       ${li + 1 < d.levels && li + 1 < m.open ? `<button type="button" class="btn primary pyc-next" data-pyc-lv="${mid}:${li + 1}">Уровень ${li + 2}: ${esc(m.levels[li + 1].title)} →</button>` : ''}
     </div>`;
     if (has) renderDeck();
@@ -7943,24 +8012,27 @@
     const st = t.ok ? 'ok' : t.tries ? 'bad' : '';
     return `<div class="pyc-task ${st}" id="pt-${esc(t.id.replace('.', '-'))}" data-pyc-task="${esc(t.id)}">
       <div class="pyc-th"><span class="pyc-tn">${t.ok ? '✓' : i + 1}</span><b>${esc(t.h)}</b><span class="pyc-stars" title="сложность">${PYC_STARS(t.stars || 1)}</span>
-        <span class="pyc-st">${t.ok ? 'решено' : t.tries ? `попыток: ${t.tries}` : ''}</span></div>
+        <span class="pyc-st">${t.ok ? (t.independent ? 'решено самостоятельно' : t.solution_seen ? 'решено после разбора' : t.hint_used ? 'решено с подсказкой' : 'решено') : t.tries ? `попыток: ${t.tries}` : ''}</span></div>
       <div class="cond pyc-cond">${safeHtml(t.cond)}</div>
       ${pycFilesHtml(t.files)}
+      ${t.practice ? `<div class="learning-practice"><b>Программа должна работать на разных данных</b><p>Первый ввод: <code>${esc(t.practice.stdin.trim())}</code>. Напиши программу, открой Python и проверь тесты. В поле ответа отправь вывод для первого ввода.</p><pre>${esc(t.practice.cases.map((c, i) => `Пример ${i+1}: ввод ${JSON.stringify(c.input.trim())} → ${c.output}`).join('\n'))}</pre></div>` : ''}
       <div class="pyc-act">
         <button type="button" class="btn" data-pyc-py="${esc(t.id)}">▶ Решать в Python</button>
+        <button type="button" class="btn" data-learning-lab="task" data-task="${esc(t.id)}">По шагам в лаборатории</button>
+        ${t.practice ? `<button type="button" class="btn" data-pyc-tests="${esc(t.id)}">Проверить код на ${t.practice.cases.length} примерах</button>` : ''}
         <form class="pyc-form" data-pyc-form="${esc(t.id)}" autocomplete="off">
           <input class="inp pyc-ans" maxlength="300" placeholder="${t.ok ? 'Решено ✓' : 'Ответ'}" value="${t.ok && t.ans ? esc(t.ans) : ''}"${t.ok ? ' readonly' : ''}>
           ${t.ok ? '' : '<button type="submit" class="btn primary">Проверить</button>'}
         </form>
         <span class="pyc-msg" aria-live="polite"></span>
       </div>
-      ${t.hint && !t.ok ? `<details class="pyc-more"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
+      ${t.hint && !t.ok ? `<details class="pyc-more" data-pyc-help="hint" data-task="${esc(t.id)}"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
       ${t.note && t.ok ? `<div class="sl-nuance nk-secret"><b class="nk">💡 Секрет.</b> ${safeHtml(t.note)}</div>` : ''}
       ${t.sol ? pycSolHtml(t) : ''}
     </div>`;
   }
   function pycSolHtml(t) {
-    return `<details class="pyc-more pyc-sol"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
+    return `<details class="pyc-more pyc-sol" data-pyc-help="solution" data-task="${esc(t.id)}"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
       <pre class="sl-code">${highlightPy(t.sol)}</pre>
       <div class="sl-btns"><button type="button" class="btn ghost" data-pyc-sol="${esc(t.id)}">▶ Открыть разбор в Python</button>
         ${t.ok && t.ans ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
@@ -7973,9 +8045,14 @@
   function pycOpenPy(id, code) {
     const t = pycTask(id);
     if (!t) return;
+    const alreadyEditing = pyOpen() && PY.task?.id === 'pyc:' + id;
     const k = PYC_L.level.tasks.indexOf(t) + 1;
     PYC_PY = pycPyTask(t, `${pycLabel(PYC_L)} · ур. ${PYC_L.l + 1} · задача ${k}`);
     if (pyOpen()) pySync(); else togglePy(true);
+    if (t.practice && !alreadyEditing) {
+      $('#pyIn').value = t.practice.stdin;
+      if (code == null && readCode('pyc:' + id) == null) code = t.practice.starter || '';
+    }
     if (code != null) {
       const ta = $('#pyCode');
       ta.value = code;
@@ -7991,7 +8068,7 @@
     const btn = form.querySelector('button[type=submit]');
     if (btn) btn.disabled = true;
     let r;
-    try { r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (btn) btn.disabled = false; netError(e); return; }
+    try { await pycFlushHelp(); r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (btn) btn.disabled = false; netError(e); return; }
     if (btn) btn.disabled = false;
     const t = pycTask(id);
     if (!t) return;
@@ -8016,6 +8093,10 @@
 
   trainerEl.addEventListener('click', e => {
     if (!courseShown || pageKind !== 'pyc') return;
+    const focus = e.target.closest('[data-pyc-focus]');
+    if (focus && PYC_L) { PYC_FOCUS = focus.dataset.pycFocus; openPycLevel(PYC_L.id, PYC_L.l, true); return; }
+    const tests = e.target.closest('[data-pyc-tests]');
+    if (tests) { pycTestCode(tests.dataset.pycTests, tests); return; }
     const lv = e.target.closest('[data-pyc-lv]');
     if (lv && !lv.disabled) { const [m, l] = lv.dataset.pycLv.split(':'); openPycLevel(m, +l); return; }
     if (e.target.closest('[data-pyc-home]')) { openPyc(); return; }
@@ -8039,6 +8120,90 @@
     try { const me = await api('me'); pycSetAccess(me.pyc, me.pyc_pw); } catch (e) { return; }
     if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
   }
+
+  trainerEl.addEventListener('toggle', e => {
+    const el = e.target;
+    if (!el.open || !el.dataset.pycHelp || !el.dataset.task) return;
+    const task = pycTask(el.dataset.task); if (!task) return;
+    const field = el.dataset.pycHelp === 'hint' ? 'hint_used' : 'solution_seen';
+    if (task[field]) return;
+    PYC_PENDING_HELP.set(task.id + ':' + field, { sid: student?.sid, task, kind: el.dataset.pycHelp, field });
+    pycFlushHelp().catch(() => toast('Не удалось сохранить использование подсказки. Проверь подключение.', 4000));
+  }, true);
+  function pycFlushHelp() {
+    PYC_HELP = PYC_HELP.catch(() => {}).then(async () => {
+      for (const [key, item] of PYC_PENDING_HELP) {
+        if (item.sid !== student?.sid) { PYC_PENDING_HELP.delete(key); continue; }
+        await api('pyc/help', { task: item.task.id, kind: item.kind });
+        item.task[item.field] = true; PYC_PENDING_HELP.delete(key);
+      }
+    });
+    return PYC_HELP;
+  }
+  let PYC_TEST = null;
+  function pycStopTests() { if (PYC_TEST) PYC_TEST.cancel(); }
+  async function pycTestCode(id, button) {
+    if (PYC_TEST) { toast('Дождись завершения текущей проверки.', 2500); return; }
+    const task = pycTask(id); if (!task?.practice) return;
+    pycOpenPy(id);
+    const code = $('#pyCode').value, box = button.closest('.pyc-task'), msg = box.querySelector('.pyc-msg');
+    if (!code.trim()) { msg.textContent = 'Сначала напиши программу в редакторе Python.'; return; }
+    const status = text => { msg.textContent = text; if (PY.task?.id === 'pyc:' + id) $('#pycDockStatus').textContent = text; };
+    button.disabled = true; $('#pycDockTests').disabled = true; $('#pycDockStop').hidden = false; status('Загружаю Python для учебной проверки…');
+    let worker;
+    try { worker = new Worker('py-worker.js' + (RULES.py_local ? '?local=1' : '')); }
+    catch (err) { button.disabled = false; $('#pycDockTests').disabled = false; $('#pycDockStop').hidden = true; status('Браузер не смог запустить проверку Python.'); return; }
+    let timer, index = 0, passed = 0, output = '', error = '', finished = false;
+    const finish = text => {
+      if (finished) return; finished = true; clearTimeout(timer); worker.terminate(); PYC_TEST = null;
+      $('#pycDockTests').disabled = false; $('#pycDockStop').hidden = true;
+      if (button.isConnected) { button.disabled = false; status(text); }
+    };
+    PYC_TEST = { button, cancel: () => finish('Проверка остановлена.') };
+    const norm = value => String(value).trim().replace(/\s+/g, ' ');
+    const next = () => {
+      if (!button.isConnected) { finish('Проверка остановлена.'); return; }
+      const test = task.practice.cases[index]; output = ''; error = '';
+      clearTimeout(timer); timer = setTimeout(() => finish(`Пример ${index+1}: остановлено через 5 секунд. Проверь цикл.`), 5000);
+      worker.postMessage({ type: 'run', code, files: (task.files || []).map(f => ({ name: f.name, url: f.url })), stdin: test.input });
+      status(`Проверяю пример ${index+1} из ${task.practice.cases.length}…`);
+    };
+    timer = setTimeout(() => finish('Не удалось загрузить Python. Проверь интернет и повтори.'), 90000);
+    worker.onmessage = e => {
+      const m = e.data; if (finished) return;
+      if (m.type === 'ready') { next(); return; }
+      if (m.type === 'out') output += m.text;
+      if (m.type === 'err') error += m.text;
+      if (output.length + error.length > 8000) { finish('Слишком много вывода. Проверь цикл и print().'); return; }
+      if (m.type !== 'done') return;
+      const test = task.practice.cases[index];
+      if (!m.ok || error) { finish(`Пример ${index+1}: ошибка. ${error.slice(0, 700) || 'Python не загрузился или выполнение прервано.'}`); return; }
+      if (norm(output) !== norm(test.output)) { finish(`Пример ${index+1}: ожидалось «${test.output}», получено «${output.trim()}». Исправь программу.`); return; }
+      passed++; index++;
+      if (index === task.practice.cases.length) finish(`Учебная проверка: ${passed} из ${index} примеров пройдены. Для зачёта отправь ответ для первого ввода.`);
+      else next();
+    };
+    worker.onerror = () => finish('Не удалось запустить Python. Повтори проверку.');
+  }
+  new MutationObserver(() => { if (PYC_TEST && !PYC_TEST.button.isConnected) pycStopTests(); }).observe(trainerEl, { childList: true });
+  window.addEventListener('pagehide', pycStopTests);
+
+  function pycDockTools(t) {
+    const task = t?.pyc && pycTask(t.id.slice(4)), tools = $('#pycDockTools');
+    if (!tools) return;
+    tools.hidden = !task;
+    if (!task) return;
+    $('#pycDockTests').hidden = !task.practice;
+    $('#pycDockStatus').textContent = '';
+  }
+  $('#pycDockTests')?.addEventListener('click', () => { if (PY.task?.pyc) trainerEl.querySelector(`[data-pyc-tests="${CSS.escape(PY.task.id.slice(4))}"]`)?.click(); });
+  $('#pycDockLab')?.addEventListener('click', () => { if (PY.task?.pyc) trainerEl.querySelector(`[data-learning-lab="task"][data-task="${CSS.escape(PY.task.id.slice(4))}"]`)?.click(); });
+  $('#pycDockBack')?.addEventListener('click', () => togglePy(false));
+  $('#pycDockStop')?.addEventListener('click', pycStopTests);
+  $('#pyCode')?.addEventListener('input', () => {
+    if (PYC_TEST) pycStopTests();
+    if ($('#pycDockStatus')?.textContent) $('#pycDockStatus').textContent = 'Код изменён. Запусти проверку ещё раз.';
+  });
   // ═══════ src/app/12c-gifts.js
   // ------------------------------------------------------------ биткоины и подарки
   // Биткоины (₿) считает сервер (GAME.coins): 1 за каждые 10 XP опыта + начисления учителя − покупки. Подарок покупают
@@ -9619,6 +9784,27 @@
     if (![stones, target, add, factor].every(Number.isInteger) || stones < 1 || target < 2 || target > 200 || stones > 1000 || add < 1 || add > 20 || factor < 2 || factor > 5) throw Error('Проверьте параметры игры: цель 2–200, прибавление 1–20, множитель 2–5.');
     return stones >= target ? [] : [{ label: `+${add}`, value: stones + add }, { label: `×${factor}`, value: stones * factor }];
   }
+  function labGamePositionMoves(position, target, add, factor) {
+    if (!Array.isArray(position) || ![1, 2].includes(position.length)) throw Error('Нужна одна или две кучи.');
+    position.forEach(n => labGameMoves(n, target, add, factor));
+    if (position.reduce((a, b) => a + b, 0) >= target) return [];
+    return position.flatMap((n, i) => labGameMoves(n, target, add, factor).map(m => ({
+      label: `${position.length === 2 ? `Куча ${i + 1}: ` : ''}${m.label}`,
+      value: position.map((v, j) => j === i ? m.value : v)
+    })));
+  }
+  let LAB_OK = false, labLoadId = 0;
+  function labLock(configured, view) {
+    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатории — по паролю</h2>
+      <p>${configured ? 'Пароль выдаёт учитель. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не настроил доступ к лабораториям.'}</p>
+      ${LAB.context ? '<button class="link-btn" type="button" data-learning-return>← Вернуться к уроку</button>' : ''}
+      ${configured ? '<form id="labPasswordForm" class="login-form crs-lock-form"><input id="labPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лабораторий" aria-label="Пароль лабораторий" required><button class="btn primary">Открыть</button></form><p id="labPasswordError" role="alert"></p>' : ''}</div></div>`;
+    $('#labPasswordForm')?.addEventListener('submit', async e => {
+      e.preventDefault(); const form = e.currentTarget, btn = form.querySelector('button'), msg = $('#labPasswordError'); btn.disabled = true;
+      try { await api('lab/unlock', { password: $('#labPassword').value }); await openLab(view); }
+      catch (err) { msg.textContent = err.message; btn.disabled = false; }
+    });
+  }
   const LAB_EXAMPLES = {
     sum: ['Сумма чисел', 'numbers = [4, 7, 2]\ntotal = 0\nfor x in numbers:\n    total += x\nprint(total)'],
     branch: ['Условие и цикл', 'for n in range(1, 6):\n    if n % 2 == 0:\n        result = n * n\n        print(n, result)'],
@@ -9627,11 +9813,11 @@
   };
   const LAB = { view: '', mode: 'net', worker: null, timeout: null, play: null, running: false, result: null, index: 0,
     code: '', stdin: '', owner: null, net: { ip: '192.168.1.130', prefix: 26 }, picture: { w: 640, h: 480, depth: 8 },
-    game: { start: 7, target: 30, add: 2, factor: 2, path: [7] } };
+    context: null, game: { start: 17, second: 29, heaps: 2, target: 133, add: 4, factor: 2, path: [[17, 29]] } };
   const labActive = () => courseShown && pageKind === 'lab' && !!$('#labRoot');
   const labFmt = n => n.toLocaleString('ru-RU');
   const labIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></svg>';
-  function labSaveDraft() { writeJSON(codeKey('laboratory'), { code: LAB.code, stdin: LAB.stdin }); }
+  function labSaveDraft() { if (LAB.context) { LAB.context.code = LAB.code; LAB.context.stdin = LAB.stdin; if (LAB.context.task) writeCode('pyc:' + LAB.context.task, LAB.code); } else writeJSON(codeKey('laboratory'), { code: LAB.code, stdin: LAB.stdin }); }
   function labPause() { clearInterval(LAB.play); LAB.play = null; const b = $('#labPlay'); if (b) b.textContent = 'Воспроизвести'; }
   function labStop() {
     labPause();
@@ -9639,10 +9825,12 @@
     if (LAB.worker) LAB.worker.terminate();
     LAB.worker = null; LAB.running = false;
   }
-  function openLab(view = '') {
+  async function openLab(view = '', context) {
     if (!leaveExam()) return;
     if (!['', 'tasks', 'code'].includes(view)) view = '';
     labStop();
+    if (LAB.owner && LAB.owner !== codeKey('laboratory')) LAB.context = null;
+    if (context) LAB.context = context;
     if (LAB.owner !== codeKey('laboratory')) {
       const saved = readJSON(codeKey('laboratory'));
       LAB.code = saved && typeof saved.code === 'string' ? saved.code.slice(0, 30000) : LAB_EXAMPLES.sum[1];
@@ -9655,6 +9843,19 @@
     abandonCurrent(); cur = null;
     courseShown = true; pageKind = 'lab'; LAB.view = view;
     navPush({ v: 'lab', tab: view });
+    const ticket = ++labLoadId;
+    if (SERVER) {
+      trainerEl.innerHTML = '<p class="fm-note">Проверяю доступ к лабораториям…</p>';
+      try {
+        const access = await api('lab');
+        if (ticket !== labLoadId || pageKind !== 'lab' || !courseShown) return;
+        LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !LAB_OK);
+        if (!LAB_OK) { labLock(access.pw, view); return; }
+      } catch (err) { if (ticket === labLoadId && pageKind === 'lab') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Открой лабораторию ещё раз.</p>'; netError(err); } return; }
+    }
+    if (context) { LAB.code = context.code || ''; LAB.stdin = context.stdin || ''; LAB.result = null; LAB.index = 0; }
+    else if (LAB.context) { LAB.code = LAB.context.code || ''; LAB.stdin = LAB.context.stdin || ''; }
+
     document.body.classList.add('lab-open');
     document.body.classList.remove('asg-wide');
     renderSidebar();
@@ -9663,10 +9864,11 @@
     const titles = { '': ['Лаборатория', 'Меняй условия, проверяй гипотезы и разбирайся, как всё работает.'], tasks: ['Лаборатории по заданиям ЕГЭ', 'Сначала предположи результат. Затем проверь его на модели.'], code: ['Лаборатория программирования', 'Свой Python-код, значения переменных и выполнение по шагам.'] };
     const [title, sub] = titles[view];
     trainerEl.innerHTML = `<div class="lab" id="labRoot">
+      ${LAB.context ? `<div class="learning-return"><button class="btn" type="button" data-learning-return>← Вернуться к уроку</button><span>${esc(LAB.context.label || 'Код и условие урока')}</span>${LAB.context.condition ? `<div class="cond">${safeHtml(LAB.context.condition)}</div>` : ''}</div>` : ''}
       ${view ? '<button type="button" class="link-btn lab-back" data-lab-view="">← Все лаборатории</button>' : ''}
       <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>${title}</h1><p>${sub}</p></div></header>
       ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : `<div class="lab-cards">
-        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">№ 7 · 13 · 19–21</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
+        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">№ 7 · 10 · 19–21</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
         <button type="button" class="lab-entry" data-lab-view="code"><span class="lab-kicker">Python</span><h2>Программирование</h2><p>Смотри, какая строка выполняется, как меняются переменные и что выводит программа.</p><b>Открыть лабораторию →</b></button></div>
         <p class="lab-note">Здесь можно пробовать и ошибаться: эксперименты не меняют оценки и награды за задания.</p>`}
       </div>`;
@@ -9675,7 +9877,7 @@
     window.scrollTo(0, 0);
   }
   function labTasksHtml() {
-    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['net', '№ 13 · IP-сети'], ['image', '№ 7 · Изображения'], ['game', '№ 19–21 · Игры']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><div id="labModel"></div>`;
+    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['net', '№ 10 · IP-сети'], ['image', '№ 7 · Изображения'], ['game', '№ 19–21 · Игры']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по проекту ФИПИ ЕГЭ-2027. IP-сети в ЕГЭ-2026 — №13. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
   }
   function labPrediction(question) {
     return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
@@ -9701,8 +9903,8 @@
       labUpdateImage();
     } else {
       const g = LAB.game;
-      box.innerHTML = `<section class="lab-panel"><h2>Исследуй ходы Пети и Вани</h2><p class="lab-note">Учебная модель с одной кучей. Побеждает тот, кто первым получит не меньше заданного количества камней.</p>
-        <div class="lab-fields"><label>В начале<input type="number" class="inp" id="labStart" min="1" max="199" value="${g.start}"></label><label>Цель<input type="number" class="inp" id="labTarget" min="2" max="200" value="${g.target}"></label><label>Прибавить<input type="number" class="inp" id="labAdd" min="1" max="20" value="${g.add}"></label><label>Умножить на<input type="number" class="inp" id="labFactor" min="2" max="5" value="${g.factor}"></label><button class="btn" type="button" data-lab-action="game-reset">Начать заново</button></div>
+      box.innerHTML = `<section class="lab-panel"><h2>Исследуй ходы Пети и Вани</h2><p class="lab-note">Одна или две кучи. Побеждает тот, кто первым доведёт общее число камней до цели. В демоверсии-2027: две кучи, +4 или ×2, цель 133. Просмотр ходов сам по себе не доказывает выигрышную стратегию.</p>
+        <div class="lab-fields"><label>Куч<select class="inp" id="labHeaps"><option value="1" ${g.heaps === 1 ? 'selected' : ''}>Одна</option><option value="2" ${g.heaps === 2 ? 'selected' : ''}>Две</option></select></label><label>Первая куча<input type="number" class="inp" id="labStart" min="1" max="199" value="${g.start}"></label><label>Вторая куча (для двух)<input type="number" class="inp" id="labSecond" min="1" max="199" value="${g.second}"></label><label>Цель<input type="number" class="inp" id="labTarget" min="2" max="200" value="${g.target}"></label><label>Прибавить<input type="number" class="inp" id="labAdd" min="1" max="20" value="${g.add}"></label><label>Умножить на<input type="number" class="inp" id="labFactor" min="2" max="5" value="${g.factor}"></label><button class="btn" type="button" data-lab-action="game-reset">Начать заново</button></div>
         <div id="labGameResult" aria-live="polite"></div>
         <p class="lab-note">Выбери ход, чтобы перейти к новой позиции. Под каждым ходом показаны возможные ответы соперника.</p></section>`;
       labUpdateGame();
@@ -9734,11 +9936,12 @@
   }
   function labUpdateGame() {
     const g = LAB.game, n = g.path[g.path.length - 1], box = $('#labGameResult');
+    const sum = p => p.reduce((a, b) => a + b, 0), label = p => p.join(' + ');
     try {
-      const moves = labGameMoves(n, g.target, g.add, g.factor), petya = g.path.length % 2 === 1;
-      box.innerHTML = `<div class="lab-position"><b>${n}</b><span>${moves.length ? `камней · ходит ${petya ? 'Петя' : 'Ваня'}` : `Победил ${petya ? 'Ваня' : 'Петя'}`}</span></div>
-        <p class="lab-path">${g.path.map((v, i) => `${i ? ' → ' : ''}${v}`).join('')}</p>
-        <div class="lab-moves">${moves.map((m, i) => `<div><button class="btn" type="button" data-lab-move="${i}">${m.label} → ${m.value}${m.value >= g.target ? ' · победа' : ''}</button><p>${m.value >= g.target ? 'Игра завершится' : 'Далее: ' + labGameMoves(m.value, g.target, g.add, g.factor).map(x => `${x.label} → ${x.value}${x.value >= g.target ? ' (победа соперника)' : ''}`).join(' · ')}</p></div>`).join('')}</div>
+      const moves = labGamePositionMoves(n, g.target, g.add, g.factor), petya = g.path.length % 2 === 1;
+      box.innerHTML = `<div class="lab-position"><b>${label(n)}</b><span>${moves.length ? `камней · ходит ${petya ? 'Петя' : 'Ваня'}` : `Победил ${petya ? 'Ваня' : 'Петя'}`}</span></div>
+        <p class="lab-path">${g.path.map(p => '(' + label(p) + ')').join(' → ')}</p>
+        <div class="lab-moves">${moves.map((m, i) => `<div><button class="btn" type="button" data-lab-move="${i}">${m.label} → ${label(m.value)}${sum(m.value) >= g.target ? ' · победа' : ''}</button><p>${sum(m.value) >= g.target ? 'Игра завершится' : 'Далее: ' + labGamePositionMoves(m.value, g.target, g.add, g.factor).map(x => `${x.label} → ${label(x.value)}${sum(x.value) >= g.target ? ' (победа соперника)' : ''}`).join(' · ')}</p></div>`).join('')}</div>
         <button type="button" class="btn ghost" data-lab-action="game-back" ${g.path.length < 2 ? 'disabled' : ''}>← Отменить ход</button>`;
     } catch (e) { box.textContent = e.message; }
   }
@@ -9789,7 +9992,7 @@
         else if (m.type === 'done' && !m.ok) fail('Не удалось загрузить Python. Проверь интернет и повтори запуск.');
       };
       worker.onerror = () => fail('Не удалось запустить Python. Обнови страницу и попробуй ещё раз.');
-      worker.postMessage({ type: 'trace', code: LAB.code, stdin: LAB.stdin });
+      worker.postMessage({ type: 'trace', code: LAB.code, stdin: LAB.stdin, files: LAB.context?.files || [] });
     } catch (e) { labStop(); labSetBusy(false); labSetStatus('Браузер не смог запустить Python. Попробуй современную версию браузера.'); }
   }
   function labRenderStep() {
@@ -9827,11 +10030,11 @@
     const view = e.target.closest('[data-lab-view]'); if (view) { openLab(view.dataset.labView); return; }
     const model = e.target.closest('[data-lab-model]'); if (model) { LAB.mode = model.dataset.labModel; openLab('tasks'); return; }
     const move = e.target.closest('[data-lab-move]');
-    if (move) { const g = LAB.game, m = labGameMoves(g.path[g.path.length - 1], g.target, g.add, g.factor)[+move.dataset.labMove]; if (m) { g.path.push(m.value); labUpdateGame(); } return; }
+    if (move) { const g = LAB.game, m = labGamePositionMoves(g.path[g.path.length - 1], g.target, g.add, g.factor)[+move.dataset.labMove]; if (m) { g.path.push(m.value); labUpdateGame(); } return; }
     const a = e.target.closest('[data-lab-action]')?.dataset.labAction;
     if (a === 'run') labRun();
     if (a === 'stop') { labStop(); labSetBusy(false); labSetStatus('Остановлено. Код сохранён в этом браузере.'); }
-    if (a === 'edit') { labStop(); LAB.result = null; openLab('code'); $('#labCode').focus(); }
+    if (a === 'edit') { labStop(); LAB.result = null; openLab('code').then(() => $('#labCode')?.focus()); }
     if (a === 'prev' || a === 'next') { labPause(); labStep(a === 'prev' ? -1 : 1); }
     if (a === 'play' && LAB.result) {
       if (LAB.play) { labPause(); return; }
@@ -9841,8 +10044,8 @@
     }
     if (a === 'game-back') { if (LAB.game.path.length > 1) LAB.game.path.pop(); labUpdateGame(); }
     if (a === 'game-reset') {
-      const g = { start: +$('#labStart').value, target: +$('#labTarget').value, add: +$('#labAdd').value, factor: +$('#labFactor').value };
-      try { labGameMoves(g.start, g.target, g.add, g.factor); if (g.start >= g.target) throw Error('Начальная куча должна быть меньше цели.'); LAB.game = { ...g, path: [g.start] }; labUpdateGame(); }
+      const g = { start: +$('#labStart').value, second: +$('#labSecond').value, heaps: +$('#labHeaps').value, target: +$('#labTarget').value, add: +$('#labAdd').value, factor: +$('#labFactor').value };
+      try { const pos = g.heaps === 2 ? [g.start, g.second] : [g.start]; labGamePositionMoves(pos, g.target, g.add, g.factor); if (pos.reduce((a, b) => a + b, 0) >= g.target) throw Error('Сумма камней в начале должна быть меньше цели.'); LAB.game = { ...g, path: [pos] }; labUpdateGame(); }
       catch (err) { $('#labGameResult').textContent = err.message; }
     }
   });

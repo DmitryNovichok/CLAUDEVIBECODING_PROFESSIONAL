@@ -321,3 +321,25 @@ test('double send creates one assignment and preserves a newer draft', async () 
   assert.equal(count,1);
   assert.equal(c.BLD.d.title,'Новый черновик');
 });
+test('two-heap lab uses total, changes one heap and keeps four command choices', () => {
+  const c = labModels();
+  const moves = c.labGamePositionMoves([17, 29], 133, 4, 2);
+  assert.equal(moves.length, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(moves.map(m => m.value))), [[21,29],[34,29],[17,33],[17,58]]);
+  assert.equal(c.labGamePositionMoves([60,73],133,4,2).length,0);
+  assert.equal(c.labGamePositionMoves([7],13,2,2)[1].value[0],14);
+  assert.throws(() => c.labGamePositionMoves([1,0],133,4,2));
+  assert.throws(() => c.labGamePositionMoves([1,2,3],133,4,2));
+});
+test('checking an active beginner task preserves code that has not been autosaved yet', () => {
+  const source = fs.readFileSync('src/app/12b-pycourse.js','utf8');
+  const task = {id:'m01.example',practice:{stdin:'7\n',starter:'# start'}};
+  const editor={value:'print(14)',dispatchEvent(){}}, input={value:'custom input'};
+  const c=vm.createContext({pycTask:()=>task,pyOpen:()=>true,PY:{task:{id:'pyc:m01.example'}},
+    PYC_L:{n:0,l:1,level:{tasks:[task]}},pycPyTask:()=>({id:'pyc:m01.example'}),pycLabel:()=>'',
+    pySync(){},readCode:()=>null,$:id=>id==='#pyCode'?editor:input,Event:class{}});
+  vm.runInContext(source.slice(source.indexOf('  function pycOpenPy('),source.indexOf('  async function pycCheck(')),c);
+  c.pycOpenPy(task.id);
+  assert.equal(editor.value,'print(14)');assert.equal(input.value,'custom input');
+  c.pycOpenPy(task.id,'print(99)');assert.equal(editor.value,'print(99)');
+});

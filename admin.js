@@ -1774,7 +1774,7 @@
   $('#pycPwOff').addEventListener('click', () => {
     if (confirm('Выключить курс программирования? Пароль сбросится, курс будет закрыт у всех.')) pycPwSave({ off: true }, 'Курс выключен');
   });
-  const pycLbl = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : 'Старт');
+  const pycLbl = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
   function renderPyc() {
     const d = PYA.d, q = ($('#pycFind').value || '').trim().toLowerCase();
     if (!d.modules.length) { $('#pycBody').innerHTML = '<p class="adm-empty">Курс ещё не собран: на сервере нет папки pycourse/.</p>'; return; }
@@ -1812,7 +1812,7 @@
     if (!x) return '<p class="adm-hint">Загружаю…</p>';
     const free = st && st.free;
     return `<div class="pyc-det"><div class="pyc-free-row"><button type="button" class="btn ${free ? 'ghost' : 'primary'}" data-pya-free="${sid}" data-on="${free ? 0 : 1}">${free ? '🔒 Вернуть замки уровней' : '🔓 Открыть все уровни'}</button>
-      <span class="adm-hint">${free ? 'Все уровни всех тем открыты сразу — без условия «решить половину задач».' : 'Сейчас следующий уровень темы открывается, когда решена половина задач предыдущего.'}</span></div>${x.modules.map(m => `<div class="cp-lesson"><b>${m.icon} ${esc(pycLbl(m))} · ${esc(m.title)}</b>
+      <span class="adm-hint">${free ? 'Все уровни всех тем открыты сразу — без нормы решённых задач.' : 'Сейчас следующий уровень темы открывается, когда решено указанное в уроке число задач предыдущего уровня.'}</span></div>${x.modules.map(m => `<div class="cp-lesson"><b>${m.icon} ${esc(pycLbl(m))} · ${esc(m.title)}</b>
       <div class="cp-sets">${m.levels.map((lv, i) => `<div class="cp-set"><div class="cp-set-h"><b>${i + 1}. ${esc(lv.title)}</b>
         <span>${lv.tasks.filter(t => t.ok).length}/${lv.tasks.length}</span></div>
         <div class="cp-sqs">${lv.tasks.map((t, k) => `<button type="button" class="cp-sq ${t.ok ? 'ok' : t.tries ? 'bad' : ''}" data-pya-task="${esc(t.id)}"
@@ -1824,6 +1824,7 @@
     if (!t) return;
     $('#taskBody').innerHTML = `<div class="adm-task-meta">${esc(x.name)} · задача «${esc(t.h)}» · ${t.ok ? '<b style="color:var(--good)">решена</b>' : t.tries ? 'не решена' : 'не начата'}
       ${t.tries ? ` · попыток: ${t.tries}` : ''}${t.ts ? ` · ${fmtWhen(t.ts)}` : ''}</div>
+      <p>${t.independent ? 'Решено самостоятельно' : t.solution_seen ? 'Ученик открывал разбор' : t.hint_used ? 'Ученик открывал подсказку' : 'Использование помощи не отмечено'}</p>
       <p>Правильный ответ: <b>${esc(t.ans)}</b></p>
       ${t.code ? `<div class="adm-hint">Код ученика (последний отправленный с ответом):</div><pre class="tsol">${esc(t.code)}</pre>` : '<p class="adm-hint">Код ученик не отправлял — ответ вводил вручную.</p>'}`;
     $('#taskModal').hidden = false;
