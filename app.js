@@ -534,6 +534,29 @@
   }
 
   // ------------------------------------------------------------ данные
+  /** Задания не загрузились: 3 попытки с паузой (2, 4, 8 с), удалась — страница перезагружается; нет — понятное сообщение. */
+  function bankRetry(serverEmpty) {
+    const box = $('#trainer');
+    const show = (h, p, btn) => {
+      box.innerHTML = `<div class="empty"><h2>${h}</h2><p>${p}</p>${btn ? '<p><button type="button" class="btn primary" id="bankReload">Обновить страницу</button></p>' : ''}</div>`;
+      const b = $('#bankReload');
+      if (b) b.onclick = () => location.reload();
+    };
+    let n = 0;
+    try { n = +sessionStorage.getItem('egeTrainer.bankTry') || 0; } catch (e) { /* нет доступа */ }
+    if (n >= 3) {
+      try { sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
+      return show(serverEmpty ? 'Задания временно недоступны' : 'Не удалось загрузить задания',
+        serverEmpty ? 'На сайте идут работы. Попробуйте обновить страницу через пару минут.'
+          : 'Проверьте интернет и обновите страницу. Если не помогает — подождите пару минут: возможно, сайт обновляется.', true);
+    }
+    show('Загружаем задания…', n ? 'Связь прервалась — пробуем ещё раз.' : 'Ещё секунду.', false);
+    setTimeout(() => {
+      try { sessionStorage.setItem('egeTrainer.bankTry', String(n + 1)); } catch (e) { /* нет доступа */ }
+      location.reload();
+    }, 2000 * 2 ** n);
+  }
+  try { if (window.EGE_BANK && window.EGE_BANK.tasks) sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
   const BANK = window.EGE_BANK;
   const trainerEl = $('#trainer');
 
@@ -544,6 +567,10 @@
   }
 
   if (!BANK || !Array.isArray(BANK.tasks) || !BANK.tasks.length) {
+    // Инструкция для разработчика — только когда тренажёр открыт с этого компьютера (файлом или localhost).
+    // Ученикам на сайте: задания не догрузились (оборвалась связь, сервер перезапускался) — тихо пробуем ещё раз.
+    const local = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+    if (!local) { bankRetry(BANK === null); return; }
     trainerEl.innerHTML = `
       <div class="empty">
         <h2>Банк заданий не найден</h2>

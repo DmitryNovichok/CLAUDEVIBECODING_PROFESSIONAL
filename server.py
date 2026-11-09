@@ -1267,10 +1267,15 @@ class Bank:
         with self.lock:
             if mt == self.mtime and xmt == self.extra_mtime:
                 return True
-            text = self.path.read_text(encoding="utf-8")
-            start = text.index("{")
-            end = text.rindex("}")
-            data = json.loads(text[start:end + 1])
+            try:
+                text = self.path.read_text(encoding="utf-8")
+                start = text.index("{")
+                end = text.rindex("}")
+                data = json.loads(text[start:end + 1])
+            except (OSError, ValueError, UnicodeDecodeError) as e:
+                # файл банка переписывают прямо сейчас (обновление сайта) — отдаём прежний, ученики не видят ошибку
+                print(f"! Банк заданий не прочитан, остаётся прежний: {e}", flush=True)
+                return bool(self.tasks)
             if xmt is not None:
                 try:
                     extra = json.loads(EXTRA_BANK.read_text(encoding="utf-8"))
