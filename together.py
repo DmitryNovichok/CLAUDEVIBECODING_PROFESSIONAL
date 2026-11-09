@@ -256,6 +256,11 @@ class Conn:
 
 
 # ================================================================ сеанс
+def clean_name(v, n):
+    """Название сеанса или страницы: одна строка, без управляющих символов, не длиннее n."""
+    return " ".join("".join(ch if ch.isprintable() else " " for ch in str(v or "")).split())[:n]
+
+
 def _num(v, lo, hi):
     if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
         return None
@@ -302,6 +307,7 @@ class Page:
     def __init__(self, d=None):
         d = d or {}
         self.task = d.get("task")              # настоящий id задания или None
+        self.name = clean_name(d.get("name"), 60)   # название страницы (доски), даёт учитель
         self.code = d.get("code") or ""
         self.rev = int(d.get("rev") or 0)
         self.hist = []                         # последние правки: (ревизия после правки, операция)
@@ -317,7 +323,7 @@ class Page:
                         for k in self.got if k.startswith("s") and k[1:].isdigit()}   # ученик ("s12") → 1: его верный ответ уже засчитан в журнал
 
     def dump(self):
-        return {"task": self.task, "code": self.code, "rev": self.rev, "strokes": list(self.strokes.values()),
+        return {"task": self.task, "name": self.name, "code": self.code, "rev": self.rev, "strokes": list(self.strokes.values()),
                 "ans": self.ans, "res": self.res[-50:], "out": self.out, "checks": self.checks,
                 "got": self.got, "credit_version": 2}
 
@@ -331,6 +337,7 @@ class Session:
         self.created = row["created"]
         st = state or {}
         self.mode = st.get("mode") if st.get("mode") in ("both", "code", "board") else "both"
+        self.title = clean_name(st.get("title"), 80)          # название сеанса
         self.ro = bool(st.get("ro"))
         self.follow = st.get("follow", True) is not False
         self.view = st.get("view") or {}
@@ -346,7 +353,7 @@ class Session:
         self.colors = st.get("colors") or {}      # участник -> цвет (одинаковый во всех заходах)
 
     def dump(self):
-        return {"session_created": self.created, "mode": self.mode, "ro": self.ro, "follow": self.follow, "view": self.view, "cur": self.cur,
+        return {"session_created": self.created, "title": self.title, "mode": self.mode, "ro": self.ro, "follow": self.follow, "view": self.view, "cur": self.cur,
                 "pages": {k: p.dump() for k, p in self.pages.items()}, "colors": self.colors}
 
 
@@ -489,16 +496,16 @@ class Hub:
 
     def _page_msg(self, s, p, key, teacher):
         t = self.task_fn(p.task, teacher) if p.task else None
-        return {"t": "page", "page": key, "task": t, "code": p.code, "rev": p.rev, "strokes": list(p.strokes.values()),
+        return {"t": "page", "page": key, "name": p.name, "task": t, "code": p.code, "rev": p.rev, "strokes": list(p.strokes.values()),
                 "ans": p.ans, "res": p.res[-10:], "out": p.out,
-                "pages": [{"key": k, "task": (self.task_fn(x.task, teacher) or {}).get("label") if x.task else None}
+                "pages": [{"key": k, "name": x.name, "task": (self.task_fn(x.task, teacher) or {}).get("label") if x.task else None}
                           for k, x in s.pages.items()]}
 
     def _snap(self, s, c):
         teacher = c.who[0] == "t"
         return {"t": "snap", "me": {"cid": c.cid, "key": f"{c.who[0]}{c.who[1]}", "name": c.name, "color": c.color,
                                     "teacher": teacher},
-                "mode": s.mode, "ro": s.ro, "follow": s.follow, "view": s.view, "ended": bool(s.ended), "created": s.created,
+                "title": s.title, "mode": s.mode, "ro": s.ro, "follow": s.follow, "view": s.view, "ended": bool(s.ended), "created": s.created,
                 "board_w": BOARD_W, "py_local": bool(PY_LOCAL()), "page": self._page_msg(s, s.pages[s.cur], s.cur, teacher)}
 
     # ---------- одно соединение: читаем сообщения, пока не закроют
@@ -711,6 +718,17 @@ class Hub:
                     s.follow = bool(m.get("on"))
                     s.dirty = True
                     self._bcast(s, {"t": "follow", "on": s.follow, "view": s.view})
+            elif t == "title":                       # учитель переименовал сеанс
+                if teacher:
+                    s.title = clean_name(m.get("title"), 80)
+                    s.dirty = True
+                    self._bcast(s, {"t": "title", "title": s.title})
+            elif t == "pname":                       # учитель назвал страницу (доску)
+                key = m.get("page") if m.get("page") in s.pages else s.cur
+                if teacher:
+                    s.pages[key].name = clean_name(m.get("name"), 60)
+                    s.dirty = True
+                    self._bcast(s, {"t": "pname", "page": key, "name": s.pages[key].name})
             elif t == "ro":
                 if teacher:
                     s.ro = bool(m.get("on"))

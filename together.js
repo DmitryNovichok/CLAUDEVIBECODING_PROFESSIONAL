@@ -14,6 +14,7 @@
   const AS_T = Q.get('as') === 't';
   const BW = 1000;                                  // ширина листа доски
   const NARROW = () => innerWidth <= 760;
+  const ICON = {"pen": "<svg class=\"i\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 20h9\"/><path d=\"M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z\"/></svg>", "clip": "<svg class=\"i\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m21 11-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8\"/></svg>", "follow": "<svg class=\"i\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"4.5\"/><circle cx=\"12\" cy=\"12\" r=\"1\" fill=\"currentColor\"/></svg>"};
 
   const S = {
     me: null, teacher: false, page: null, task: null, pages: [], ro: false, follow: true, mode: 'both', tab: 'board',
@@ -176,15 +177,15 @@
       case 'pong': {
         pongAt = performance.now();
         const ms = Math.round(pongAt - m.ts), el = $('#tgPing');
-        el.textContent = `⚡ ${ms} мс`;
-        el.className = 'tg-ping' + (ms > 400 ? ' bad' : ms > 150 ? ' mid' : '');
+        el.hidden = ms <= 300;                            // связь хорошая — ничего не показываем
+        el.title = `Задержка связи с сервером: ${ms} мс`;
         return;
       }
       case 'people': S.people = m.people || []; return renderPeople();
       case 'gone': S.carets.delete(m.cid); dropPtr(m.cid); return renderCarets();
       case 'page': return setPage(m, !!m.peek);
       case 'expired': S.expired = true; if (m.page) setPage(m.page, true); renderBars(); toast('Доступ учителя закончился. Запись занятия доступна для просмотра'); return;
-      case 'resync': if (m.page) setPage(m.page, true); if (m.why === 'ro') toast('🔒 Учитель включил «Только смотреть»'); if (m.why === 'long') toast('Код слишком длинный'); return;
+      case 'resync': if (m.page) setPage(m.page, true); if (m.why === 'ro') toast('Учитель включил режим просмотра'); if (m.why === 'long') toast('Код слишком длинный'); return;
       case 'ack': return onAck(m);
       case 'op': return onOp(m);
       case 'cur': return onCur(m);
@@ -198,7 +199,7 @@
         const cond = m.L === 'c';
         S.strokes.forEach((x, id) => { if (isC(x) === cond) { S.strokes.delete(id); S.live.delete(id); } });
         redraw(); condDraw();
-        if (m.by) toast(cond ? `🗑️ ${m.by} стёр(ла) пометки на условии` : `🗑️ ${m.by} очистил(а) доску`);
+        if (m.by) toast(cond ? `${m.by} стёр(ла) пометки на условии` : `${m.by} очистил(а) доску`);
         return;
       }
       case 'ans': return onAns(m);
@@ -211,7 +212,14 @@
         return;
       case 'view': return onView(m);
       case 'follow': S.follow = m.on; renderBars(); if (m.on && m.view) onView(m.view); return;
-      case 'ro': S.ro = m.on; renderBars(); return;
+      case 'title': S.title = m.title || ''; return renderTitle();
+      case 'pname': {
+        const pg = S.pages.find(x => x.key === m.page);
+        if (pg) pg.name = m.name;
+        if (m.page === S.page) { S.pname = m.name; renderPName(); }
+        return;
+      }
+      case 'ro': S.ro = m.on; renderBars(); if (!S.teacher) toast(m.on ? 'Учитель включил режим просмотра' : 'Режим просмотра выключен — можно писать и рисовать'); return;
       case 'end': return onEnd();
       case 'err': return toast(m.msg || 'Ошибка');
     }
@@ -223,6 +231,8 @@
     S.snapped = true;
     S.me = m.me;
     S.teacher = !!m.me.teacher;
+    S.title = m.title || '';
+    renderTitle();
     S.expired = !!m.expired; S.ro = m.ro; S.follow = m.follow; S.pyLocal = !!m.py_local; S.created = m.created || 0; S.ended = m.ended;
     if (!S.color) S.color = m.me.color;
     document.body.classList.toggle('stu', !S.teacher);
@@ -240,22 +250,39 @@
 
   // ================================================================ участники, панель
   function initials(n) { const p = String(n || '?').trim().split(/\s+/); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase(); }
+  const CAP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5"/></svg>';
+  const avatar = p => `<span class="tg-av${p.on ? ' on' : ''}${p.teacher ? ' t' : ''}" style="background:${esc(p.color)}" title="${esc(p.name)}${p.teacher ? ' — учитель' : ''}${p.on ? ' · в сеансе' : ' · не в сеансе'}">${esc(initials(p.name))}${p.teacher ? `<b class="tg-cap">${CAP}</b>` : ''}</span>`;
+  /** Участники: учитель первым, потом кто в сеансе. Больше 6 — «+N», по нажатию — весь список. */
   function renderPeople() {
-    $('#tgPeople').innerHTML = S.people.map(p => `<span class="tg-av${p.on ? ' on' : ''}" style="background:${esc(p.color)}" title="${esc(p.name)}${p.teacher ? ' — учитель' : ''}${p.on ? ' · в сеансе' : ' · не в сеансе'}">${esc(initials(p.name))}</span>`).join('');
+    const all = [...S.people].sort((a, b) => (b.teacher - a.teacher) || (b.on - a.on) || String(a.name).localeCompare(String(b.name), 'ru'));
+    const cut = all.length > 7 ? 6 : all.length, on = all.filter(p => p.on).length;
+    $('#tgPeople').innerHTML = all.slice(0, cut).map(avatar).join('')
+      + (all.length > cut ? `<button type="button" class="tg-more" id="tgMore" title="Все участники: в сеансе ${on} из ${all.length}">+${all.length - cut}</button>` : '');
+    const pop = $('#tgPplPop');
+    pop.innerHTML = `<h4>В сеансе ${on} из ${all.length}</h4>` + all.map(p => `<div class="row${p.on ? '' : ' off'}">${avatar(p)}<span>${esc(p.name)}</span><small>${p.teacher ? 'учитель' : p.on ? 'в сеансе' : 'не подключён'}</small></div>`).join('');
+    if (all.length <= cut) pop.hidden = true;
   }
+  $('#tgPeople').addEventListener('click', e => { if (e.target.closest('#tgMore')) { $('#tgPplPop').hidden = !$('#tgPplPop').hidden; e.stopPropagation(); } });
+  document.addEventListener('click', e => { if (!e.target.closest('#tgPplPop')) $('#tgPplPop').hidden = true; });
   function renderBars() {
     $('#tgTBar').hidden = !S.teacher || S.expired;
+    renderTitle();
     $('#tgSBar').hidden = S.teacher;
     $('#tgFollow').classList.toggle('on', S.follow);
+    $('#tgFollow').setAttribute('aria-pressed', String(!!S.follow));
     $('#tgRo').classList.toggle('on', S.ro);
-    $('#tgLead').hidden = !S.follow || S.ro;
-    $('#tgRoTag').hidden = !S.ro;
+    $('#tgRo').setAttribute('aria-pressed', String(!!S.ro));
+    $('#tgLead').hidden = !S.follow || S.ro || S.ended;
+    $('#tgRoBan').hidden = S.teacher || !S.ro || S.ended;
     $('#tgPick').hidden = !S.teacher || S.expired;
     const ro = S.expired || (!S.teacher && S.ro);
     $('#tgTa').readOnly = ro || S.ended;
     $('#tgAnsIn').readOnly = ro || S.ended;
     $('#tgChk').disabled = ro || S.ended;
-    $('#tgRun').disabled = ro || S.ended;
+    $('#tgRun').disabled = ro || S.ended || PY.busy;
+    $('#tgRun').hidden = !S.teacher && ro;                 // в режиме просмотра ученик код не запускает
+    if (!canWrite() && C.on) { C.on = false; C.erase = false; condMode(); }
+    condTools();
     $('#tgSheet').classList.toggle('ro', ro || S.ended);
     $('#tgTools').style.display = ro || S.ended ? 'none' : '';
   }
@@ -263,7 +290,7 @@
   setInterval(() => {
     if (!S.created) return;
     const s = Math.max(0, Math.floor(Date.now() / 1000 - S.created)), h = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60, ss = s % 60;
-    $('#tgTime').textContent = S.ended ? 'завершён' : (h ? `${h}:${String(mm).padStart(2, '0')}` : mm) + ':' + String(ss).padStart(2, '0');
+    $('#tgTime').textContent = S.ended ? 'сеанс завершён' : 'идёт ' + (h ? `${h}:${String(mm).padStart(2, '0')}` : mm) + ':' + String(ss).padStart(2, '0');
     $('#tgLive').classList.toggle('off', S.ended);
   }, 1000);
 
@@ -285,6 +312,58 @@
     clearTimeout(toastT);
     toastT = setTimeout(() => { el.hidden = true; }, ms);
   }
+
+  // ================================================================ названия: сеанс (шапка) и страница-доска (над условием)
+  const canRename = () => S.teacher && !S.ended && !S.expired;
+  function renderTitle() {
+    const el = $('#tgTitle'), t = S.title || 'Совместный сеанс';
+    el.textContent = t;
+    el.classList.toggle('ed', canRename());
+    el.title = canRename() ? 'Нажмите, чтобы переименовать сеанс' : t;
+    document.title = t + ' — Egeshka';
+  }
+  function renderPName() {
+    const n = $('#tgPName');
+    n.textContent = S.pname || '';
+    n.hidden = !S.pname;
+    n.classList.toggle('ed', canRename());
+    n.title = canRename() ? 'Нажмите, чтобы переименовать страницу' : S.pname || '';
+    $('#tgNum').hidden = !!S.pname && !S.task;            // у названной чистой страницы «Без задания» не нужно
+    $('#tgPRen').hidden = !canRename() || !!S.pname;
+  }
+  /** Поле вместо надписи: Enter или уход фокуса — сохранить, Esc — отменить. */
+  function renameInline(el, value, max, place, save) {
+    if (!canRename() || el.dataset.editing) return;
+    const inp = document.createElement('input');
+    inp.className = 'tg-rename';
+    inp.maxLength = max;
+    inp.value = value;
+    inp.placeholder = place;
+    el.dataset.editing = '1';
+    const hidden = el.hidden;
+    el.hidden = true;
+    el.after(inp);
+    inp.focus();
+    inp.select();
+    let done = false;
+    const finish = ok => {
+      if (done) return;
+      done = true;
+      const v = inp.value.replace(/\s+/g, ' ').trim();
+      inp.remove();
+      el.hidden = hidden;
+      delete el.dataset.editing;
+      if (ok && v !== value) save(v);
+    };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } });
+    inp.addEventListener('blur', () => finish(true));
+  }
+  $('#tgTitle').addEventListener('click', () => renameInline($('#tgTitle'), S.title, 80, 'Название сеанса, например «Разбор № 17»',
+    v => { S.title = v; renderTitle(); send({ t: 'title', title: v }); }));
+  const renamePage = () => renameInline($('#tgPName'), S.pname, 60, 'Название страницы, например «Перебор пар»',
+    v => { S.pname = v; renderPName(); send({ t: 'pname', page: S.page, name: v }); });
+  $('#tgPName').addEventListener('click', renamePage);
+  $('#tgPRen').addEventListener('click', renamePage);
 
   // ================================================================ режим, вкладки, «следить за мной»
   function setMode(mode, mine = true) {
@@ -329,7 +408,7 @@
     renderTask();
     const d = S.created ? new Date(S.created * 1000) : null;
     $('#tgRec').hidden = false;
-    $('#tgRec').textContent = `📼 Запись занятия${d ? ` от ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}` : ''}: `
+    $('#tgRec').textContent = `Запись занятия${d ? ` от ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}` : ''}: `
       + (S.pages.length > 1 ? 'выберите задание — у каждого сохранены код, доска, пометки и вывод' : 'код, доска, пометки и вывод сохранены');
     if (quiet) { over(null); return; }                    // открыли запись (занятие уже завершено) — сразу смотреть
     if (S.teacher) over('Сеанс завершён', 'Код и доска сохранены. Открыть сеанс снова можно здесь или в панели учителя.',
@@ -369,6 +448,7 @@
     const changed = pg.page !== S.page;
     S.page = pg.page;
     S.task = pg.task;
+    S.pname = pg.name || '';
     S.pages = pg.pages || S.pages;
     // код
     S.text = pg.code || '';
@@ -395,11 +475,12 @@
     $('#tgAnsIn').value = pg.ans || '';
     const r = (pg.res || [])[pg.res && pg.res.length - 1];
     showRes(r && r.v === (pg.ans || '') ? r : null);
-    if (changed && !full) toast(pg.task ? `📄 Новое задание: ${pg.task.label}` : '📄 Чистая страница');
+    if (changed && !full) toast(S.pname ? `Страница «${S.pname}»` : pg.task ? `Новое задание: ${pg.task.label}` : 'Чистая страница');
   }
   function renderTask() {
     const t = S.task;
     $('#tgNum').textContent = t ? t.label : 'Без задания';
+    renderPName();
     const cond = $('#tgCond');
     if (!t) {
       cond.innerHTML = `<div class="tg-blank">${S.teacher ? 'Задания нет — чистая страница. «Сменить задание» — выбрать из банка.' : 'Учитель пока не выбрал задание.'}</div>`;
@@ -411,11 +492,11 @@
       condBind();
       requestAnimationFrame(condLayout);
     }
-    $('#tgCDraw').hidden = !t || S.ended;
+    condTools();
     $('#tgPages').innerHTML = (S.ended || S.expired) && S.pages.length > 1 ? S.pages.map((p, i) => `<button type="button" data-peek="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"
-      title="${esc(p.task || 'чистая страница')}">${i + 1}${p.task ? ' · ' + esc(p.task.split(' · ')[0]) : ''}</button>`).join('') : '';
+      title="${esc(p.name || p.task || 'чистая страница')}">${i + 1}${p.name ? ' · ' + esc(p.name) : p.task ? ' · ' + esc(p.task.split(' · ')[0]) : ''}</button>`).join('') : '';
     renderFiles();
-    $('#tgAtt').innerHTML = t && t.att && t.att.length ? '📎 ' + t.att.map(a => `<a href="${esc(a.href)}" download>${esc(a.name)}</a>`).join(' · ') : '';
+    $('#tgAtt').innerHTML = t && t.att && t.att.length ? ICON.clip + ' ' + t.att.map(a => `<a href="${esc(a.href)}" download>${esc(a.name)}</a>`).join(' · ') : '';
     $('#tgAns').hidden = !t || t.parts;
     $('#tgKey').hidden = !(S.teacher && t);
     $('#tgKeyV').hidden = true;
@@ -442,13 +523,42 @@
 
   // ---------- пометки на условии: слой «c» (L: 'c'), координаты — в листе шириной CW у всех
   const CW = 600;
-  const C = { on: false, erase: false, sc: 1, h: 0, d: null, del: new Set() };
+  const C = { on: false, erase: false, sc: 1, h: 0, d: null, del: new Set(), flow: false, marks: false };
+  /** «Рисовать на условии»: только когда можно писать и лист помещается (на телефоне — только смотреть). */
+  function condTools() {
+    $('#tgCDraw').hidden = !S.task || S.ended || !canWrite() || C.flow || (C.marks && C.small);
+  }
+  /** Пометки на условии есть, а текст показан крупно по ширине экрана — подсказка и кнопка «показать». */
+  function condNote() {
+    const n = $('#tgCNote'), has = [...S.strokes.values()].some(isC) || S.csel.size > 0;
+    if (!C.small || !S.task) { n.hidden = true; return; }
+    if (C.marks) { n.hidden = false; n.innerHTML = 'Условие с пометками — уменьшено под экран. <button type="button" class="tg-btn sm" data-cflow="1">Крупный текст</button>'; return; }
+    n.hidden = !has;
+    if (has) n.innerHTML = `${ICON.pen} На условии есть пометки. <button type="button" class="tg-btn sm" data-cmarks="1">Показать пометки</button>`;
+  }
+  $('#tgCNote').addEventListener('click', e => {
+    if (e.target.closest('[data-cmarks]')) C.marks = true;
+    else if (e.target.closest('[data-cflow]')) C.marks = false;
+    else return;
+    condLayout();
+  });
   const isC = s => !!s && s.L === 'c';
   function condLayout() {
     const wrap = $('#tgCW'), sh = $('#tgCS'), cv3 = $('#tgCC');
     if (!wrap || !sh || !cv3) return;
     const avail = $('#tgCond').clientWidth || CW;
-    C.sc = Math.min(1.3, Math.max(0.8, avail / CW));               // уже 0,8 — лист листается вбок, а не мельчит текст
+    C.small = avail < CW * 0.8;                                    // лист не помещается (телефон)
+    C.flow = C.small && !C.marks;
+    wrap.classList.toggle('flow', C.flow);
+    condTools();
+    condNote();
+    if (C.flow) {                                                  // текст переносится по ширине экрана, пометки скрыты
+      sh.style.width = avail + 'px';
+      wrap.style.width = wrap.style.height = '';
+      return;
+    }
+    sh.style.width = '';
+    C.sc = C.small ? avail / CW : Math.min(1.3, Math.max(0.8, avail / CW));
     sh.style.transform = `scale(${C.sc})`;
     C.h = sh.offsetHeight;
     wrap.style.height = Math.ceil(C.h * C.sc) + 'px';
@@ -464,6 +574,7 @@
     condRaf = requestAnimationFrame(() => {
       const cv3 = $('#tgCC');
       if (!cv3) return;
+      if (C.flow) { condNote(); return; }
       const x = cv3.getContext('2d'), r = cv3.width / CW;
       x.setTransform(r, 0, 0, r, 0, 0);
       x.clearRect(0, 0, CW, C.h + 10);
@@ -595,12 +706,12 @@
     const w = $('#tgCW');
     if (w) { w.classList.toggle('draw', C.on); w.classList.toggle('erase', C.on && C.erase); }
     $('#tgCPen').classList.toggle('on', C.on && !C.erase);
-    $('#tgCPen').textContent = C.on ? '✏️ Рисую' : '✏️ Рисовать';
+    $('#tgCPen').lastElementChild.textContent = C.on ? 'Рисую' : 'Рисовать';
     $('#tgCErase').hidden = $('#tgCClear').hidden = !C.on;
     $('#tgCErase').classList.toggle('on', C.on && C.erase);
   }
   $('#tgCPen').onclick = () => {
-    if (!canWrite()) return toast('🔒 Сейчас только смотреть');
+    if (!canWrite()) return toast('Сейчас режим просмотра');
     if (C.on && !C.erase) C.on = false; else { C.on = true; C.erase = false; }
     condMode();
   };
@@ -681,16 +792,17 @@
 
   // ---------- выбор задания (учитель)
   let pickKind = 'recent', pickT = 0, pickAsg = 0, pickVersion = 0;
-  $('#tgPick').onclick = () => { $('#tgPickM').hidden = false; $('#tgPickQ').value = ''; loadPick(); setTimeout(() => $('#tgPickQ').focus(), 30); };
+  $('#tgPick').onclick = () => { $('#tgPickM').hidden = false; $('#tgPickQ').value = ''; pickAuto = true; loadPick(); setTimeout(() => $('#tgPickQ').focus(), 30); };
+  $('#tgBlank').onclick = () => { send({ t: 'task', task: null }); $('#tgPickM').hidden = true; };
+  let pickAuto = false;                       // первое открытие: «Последние у учеников» пусто — сразу «Подборки»
+  function pickChip(kind) { pickKind = kind; pickAsg = 0; $$('#tgPickChips [data-kind]').forEach(x => x.classList.toggle('on', x.dataset.kind === kind)); }
   $$('.tg-modal').forEach(m => m.addEventListener('click', e => { if (e.target === m || e.target.closest('[data-close]')) m.hidden = true; }));
   document.addEventListener('keydown', e => { if (e.key === 'Escape') $$('.tg-modal').forEach(m => { m.hidden = true; }); });
   $('#tgPickChips').addEventListener('click', e => {
     const b = e.target.closest('[data-kind]');
     if (!b) return;
-    if (b.dataset.kind === 'blank') { send({ t: 'task', task: null }); $('#tgPickM').hidden = true; return; }
-    pickKind = b.dataset.kind;
-    pickAsg = 0;
-    $$('#tgPickChips [data-kind]').forEach(x => x.classList.toggle('on', x === b));
+    pickAuto = false;
+    pickChip(b.dataset.kind);
     $('#tgPickQ').value = '';
     loadPick();
   });
@@ -700,7 +812,7 @@
     const request = ++pickVersion, kind = pickKind, asg = pickAsg;
     const current = () => request === pickVersion && kind === pickKind && asg === pickAsg && q === $('#tgPickQ').value.trim();
     if (!q && pickKind === 'pages') {
-      L.innerHTML = S.pages.map((p, i) => `<li data-key="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"><span class="tg-num">${i + 1}</span><span class="tx">${esc(p.task || 'Чистая страница')}</span>${p.key === S.page ? '<span class="mk">сейчас</span>' : ''}</li>`).join('');
+      L.innerHTML = S.pages.map((p, i) => `<li data-key="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"><span class="tg-num">${i + 1}</span><span class="tx">${p.name ? `<b>${esc(p.name)}</b><small>${esc(p.task || 'без задания')}</small>` : esc(p.task || 'Чистая страница')}</span>${p.key === S.page ? '<span class="mk">сейчас</span>' : ''}</li>`).join('');
       return;
     }
     L.innerHTML = '<li class="empty">Загружаю…</li>';
@@ -723,6 +835,8 @@
     try {
       const d = await adminGet(`together/tasks?id=${SID}&kind=${pickKind === 'errors' ? 'errors' : 'recent'}&q=${encodeURIComponent(q)}`);
       if (!current()) return;
+      if (pickAuto && !q && pickKind === 'recent' && !d.tasks.length) { pickAuto = false; pickChip('sets'); loadPick(); return; }
+      pickAuto = false;
       L.innerHTML = d.tasks.length ? d.tasks.map(t => `<li data-task="${esc(t.id)}"><span class="tg-num">${esc(t.label)}</span><span class="tx">${esc(t.snip)}</span><span class="mk">${esc(t.mark || '')}</span></li>`).join('')
         : `<li class="empty">${q ? 'Ничего не нашлось. Напишите номер ЕГЭ (например, 8) или номер задания.' : 'У учеников сеанса пока нет таких заданий. Найдите задание поиском выше.'}</li>`;
     } catch (e) { if (current()) L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
@@ -737,20 +851,59 @@
     $('#tgPickM').hidden = true;
   });
   // ---------- позвать ещё (учитель)
+  const INV = { list: [], pick: new Set(), inside: new Set() };
   $('#tgInvite').onclick = async () => {
     $('#tgInvM').hidden = false;
+    $('#tgInvQ').value = '';
+    INV.pick = new Set();
     const L = $('#tgInvL');
     L.innerHTML = '<li class="empty">Загружаю…</li>';
+    invCount();
     try {
       const d = await adminGet('together/students');
-      const inside = new Set(S.people.filter(p => !p.teacher).map(p => +p.key.slice(1)));
-      L.innerHTML = d.students.map(s => `<li><label><input type="checkbox" value="${s.id}"${inside.has(s.id) ? ' checked disabled' : ''}> ${esc(s.name)}
-        <span class="mk" style="margin-left:auto">${inside.has(s.id) ? 'уже в сеансе' : s.on ? '🟢 на сайте' : esc(s.cls || '')}</span></label></li>`).join('')
-        || '<li class="empty">Учеников нет</li>';
+      INV.inside = new Set(S.people.filter(p => !p.teacher).map(p => +p.key.slice(1)));
+      INV.list = d.students;
+      invRender();
+      setTimeout(() => $('#tgInvQ').focus(), 30);
     } catch (e) { L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
   };
+  /** Сверху — кто сейчас на сайте, дальше — по классам; у класса — «весь класс». Поиск по ФИО. */
+  function invRender() {
+    const q = $('#tgInvQ').value.trim().toLowerCase().replace(/ё/g, 'е');
+    const hit = s => !q || String(s.name).toLowerCase().replace(/ё/g, 'е').includes(q);
+    const groups = [];
+    const online = INV.list.filter(s => s.on && !INV.inside.has(s.id) && hit(s));
+    if (online.length) groups.push(['Сейчас на сайте', 'on', online]);
+    const by = new Map();
+    INV.list.filter(hit).forEach(s => { const k = s.cls || 'Без класса'; if (!by.has(k)) by.set(k, []); by.get(k).push(s); });
+    [...by.keys()].sort((a, b) => a.localeCompare(b, 'ru', { numeric: true })).forEach(k => groups.push([k, 'c:' + k, by.get(k).sort((a, b) => a.name.localeCompare(b.name, 'ru'))]));
+    const row = s => {
+      const inside = INV.inside.has(s.id);
+      return `<li><label><input type="checkbox" value="${s.id}"${inside ? ' checked disabled' : INV.pick.has(s.id) ? ' checked' : ''}> ${esc(s.name)}
+        <span class="mk">${inside ? 'уже в сеансе' : s.on ? '<i class="dot"></i>на сайте' : ''}</span></label></li>`;
+    };
+    $('#tgInvL').innerHTML = groups.map(([title, key, arr]) => {
+      const free = arr.filter(s => !INV.inside.has(s.id)), all = free.length && free.every(s => INV.pick.has(s.id));
+      return `<li class="grp">${esc(title)} <span class="n">· ${arr.length}</span>${free.length > 1 ? `<label><input type="checkbox" data-grp="${esc(key)}"${all ? ' checked' : ''}> весь ${key === 'on' ? 'список' : 'класс'}</label>` : ''}</li>` + arr.map(row).join('');
+    }).join('') || `<li class="empty">${q ? 'Никого не нашлось' : 'Учеников нет'}</li>`;
+    INV.groups = new Map(groups.map(([, key, arr]) => [key, arr]));
+  }
+  function invCount() {
+    const n = INV.pick.size;
+    $('#tgInvGo').textContent = n ? `Позвать (${n})` : 'Позвать';
+    $('#tgInvGo').disabled = !n;
+    $('#tgInvHint').textContent = n ? '' : 'Отметьте учеников или весь класс';
+  }
+  $('#tgInvQ').addEventListener('input', invRender);
+  $('#tgInvL').addEventListener('change', e => {
+    const i = e.target;
+    if (i.dataset.grp) (INV.groups.get(i.dataset.grp) || []).forEach(s => { if (!INV.inside.has(s.id)) { if (i.checked) INV.pick.add(s.id); else INV.pick.delete(s.id); } });
+    else if (i.checked) INV.pick.add(+i.value); else INV.pick.delete(+i.value);
+    invRender();
+    invCount();
+  });
   $('#tgInvGo').onclick = async () => {
-    const ids = $$('#tgInvL input:checked:not(:disabled)').map(i => +i.value);
+    const ids = [...INV.pick];
     if (!ids.length) return toast('Отметьте учеников');
     try { await adminPost('together/invite', { id: SID, students: ids }); $('#tgInvM').hidden = true; toast('Приглашение отправлено'); } catch (e) { toast(e.message); }
   };
@@ -881,8 +1034,8 @@
   // работают и в русской раскладке. Ctrl+C/V/X/Z, Ctrl+Enter, Ctrl+/ — как раньше. Ctrl+N и Ctrl+W браузер странице не отдаёт
   // (новое окно, закрыть вкладку) — вместо них стрелка вниз и Ctrl+X. Выделить всё — Ctrl+X H (Ctrl+A — начало строки).
   const EMACS_KEY = 'egeshka.pyEmacs';
-  const EM = { on: true, kill: '', last: '', col: null, mark: null, cx: false };
-  try { EM.on = localStorage.getItem(EMACS_KEY) !== '0'; } catch (e) { /* по умолчанию — включены */ }
+  const EM = { on: false, kill: '', last: '', col: null, mark: null, cx: false };
+  try { EM.on = localStorage.getItem(EMACS_KEY) === '1'; } catch (e) { /* по умолчанию — выключены: Ctrl+A, Ctrl+C/V — как обычно */ }
   function setEmacs(on) {
     EM.on = on;
     EM.mark = null;
@@ -1154,9 +1307,22 @@
   // ================================================================ запуск Python (у того, кто нажал; вывод видят все)
   const PY = { worker: null, busy: false, sendT: 0, pending: '', full: '' };
   function setOut(t) { $('#tgOut').textContent = t; }
+  const PY_FAIL = 'Не удалось загрузить Python: ';
   function outAdd(text, err) {
     const pre = $('#tgOut');
     const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+    const fail = String(text).indexOf(PY_FAIL);
+    if (fail >= 0) {                                    // техническое сообщение — под «Подробнее»
+      if (fail > 0) outAdd(text.slice(0, fail), err);
+      const s = document.createElement('span'); s.className = 'err hint';
+      s.textContent = 'Не удалось загрузить Python. Проверьте интернет и нажмите «Запустить» ещё раз.\n';
+      const d = document.createElement('details'); d.className = 'tg-det';
+      const sm = document.createElement('summary'); sm.textContent = 'Подробнее';
+      d.append(sm, document.createTextNode(text.slice(fail + PY_FAIL.length).trim()));
+      pre.append(s, d);
+      if (atEnd) pre.scrollTop = pre.scrollHeight;
+      return;
+    }
     if (err) { const s = document.createElement('span'); s.className = 'err'; s.textContent = text; pre.appendChild(s); }
     else pre.appendChild(document.createTextNode(text));
     if (atEnd) pre.scrollTop = pre.scrollHeight;
@@ -1172,6 +1338,7 @@
     PY.worker.onmessage = ev => {
       const m = ev.data || {};
       if (m.type === 'out' || m.type === 'err') {
+        if (m.type === 'err' && String(m.text).startsWith(PY_FAIL)) PY.dead = true;    // при следующем запуске — загрузить заново
         outAdd(m.text, m.type === 'err');
         PY.full += m.text;
         if (m.type === 'err') { flushOut(); send({ t: 'out', page: S.page, text: m.text, err: true }); return; }
@@ -1184,6 +1351,7 @@
       } else if (m.type === 'done') {
         flushOut();
         PY.busy = false;
+        if (PY.dead) { PY.worker.terminate(); PY.worker = null; PY.dead = false; }
         $('#tgStop').hidden = true;
         $('#tgRun').disabled = !canWrite();
         $('#tgRunWho').textContent = `· запустил(а) ${S.me ? S.me.name : ''}`;

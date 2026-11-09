@@ -169,3 +169,21 @@ class TogetherSoloTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+    def test_session_and_page_names_are_saved_and_listed(self):
+        sid = self.create(students=[], mode='both', title='  Разбор\n№ 17  ')
+        sock, reader, status = self.connect(sid)
+        self.assertIn(' 101', status)
+        snap = self.c.recv(reader, 'snap')
+        self.assertEqual(snap['title'], 'Разбор № 17')
+        self.c.send(sock, {'t': 'title', 'title': 'Пробник\tпо 17-му' + 'x' * 200})
+        self.assertEqual(self.c.recv(reader, 'title')['title'], ('Пробник по 17-му' + 'x' * 200)[:80])
+        self.c.send(sock, {'t': 'pname', 'page': 'p1', 'name': 'Перебор пар'})
+        self.assertEqual(self.c.recv(reader, 'pname'), {'t': 'pname', 'page': 'p1', 'name': 'Перебор пар'})
+        server.TOG.flush(strict=True)
+        state = json.loads(self.db.q('SELECT state FROM together WHERE id=?', (sid,), one=True)['state'])
+        self.assertEqual(state['pages']['p1']['name'], 'Перебор пар')
+        self.assertTrue(state['title'].startswith('Пробник по 17-му'))
+        status, listed = self.c.admin('GET', '/api/admin/together/list')
+        row = next(x for x in listed['sessions'] if x['id'] == sid)
+        self.assertEqual((row['title'][:16], row['labels']), ('Пробник по 17-му', ['Перебор пар']))

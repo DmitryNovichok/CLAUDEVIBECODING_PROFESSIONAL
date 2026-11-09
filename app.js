@@ -9470,6 +9470,7 @@
     box.innerHTML = mini
       ? `<button type="button" class="tog-pill" data-tog-join="${s.id}" title="Учитель ждёт в общем сеансе">👥 Сеанс с учителем</button>`
       : `<div class="tog-inv-h"><span class="tog-inv-ic"><span class="tog-bell">🔔</span></span>${esc(s.teacher || 'Учитель')} зовёт в общий сеанс</div>
+         ${s.title ? `<div class="tog-inv-t"><b>«${esc(s.title)}»</b></div>` : ''}
          <div class="tog-inv-t">${esc(what)}${s.task ? ' · задание ' + esc(s.task) : ''}. Можно вместе писать код и рисовать — всё видно сразу у обоих.</div>
          <div class="tog-inv-a"><button type="button" class="btn" data-tog-later="${s.id}">Позже</button>
            <button type="button" class="btn primary" data-tog-join="${s.id}">Присоединиться</button></div>`;
@@ -9506,7 +9507,7 @@
   function togHistoryOpen() {
     const fmt = ts => { const d = new Date(ts * 1000); return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()} в ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
     const rows = (TOGI.hist || []).map(x => `<div class="tgh-row${x.ended ? '' : ' live'}">
-        <div class="tgh-main"><b>${fmt(x.created)}</b> <small>${esc(x.teacher || 'Учитель')}${x.ended ? '' : ' · <span class="tgh-live">● идёт сейчас</span>'}</small>
+        <div class="tgh-main">${x.title ? `<b>${esc(x.title)}</b> · ` : ''}<b>${fmt(x.created)}</b> <small>${esc(x.teacher || 'Учитель')}${x.ended ? '' : ' · <span class="tgh-live">● идёт сейчас</span>'}</small>
           <div class="tgh-tasks">${(x.labels || []).map((l, i) => `<span class="chip">${i + 1}. ${esc(l)}</span>`).join('')}</div></div>
         <button type="button" class="btn ${x.ended ? 'ghost' : 'primary'}" data-tog-join="${x.id}">${x.ended ? '📼 Смотреть' : 'Присоединиться'}</button></div>`).join('');
     $('#forecastBody').innerHTML = `<h2 class="fm-title">👥 Занятия вместе с учителем</h2>
