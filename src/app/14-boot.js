@@ -32,6 +32,8 @@
     const saved = ui.currentId && byId.get(ui.currentId);
     if (labRequested) {
       openLab();
+    } else if (SERVER && student) {                  // ученик начинает с главной: план на сегодня и все разделы
+      openHub(true);
     } else if (saved && inScope(saved)) {
       const s = P.tasks[saved.id];
       show({ task: saved, why: { type: s ? 'repeat' : 'new' } });

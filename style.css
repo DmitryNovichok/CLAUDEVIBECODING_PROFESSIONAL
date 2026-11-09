@@ -3465,7 +3465,7 @@ a.wm-item { text-decoration: none; color: inherit; display: block; }
 #mobileMoreLinks span { color: var(--muted); }
 @media (max-width: 860px) {
   body:not(.admin) .main { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
-  .mobile-nav:not([hidden]) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); position: fixed; z-index: 25; bottom: 0; left: 0; right: 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--card); border-top: 2px solid var(--border); box-shadow: 0 -4px 16px rgba(0, 0, 0, .04); }
+  .mobile-nav:not([hidden]) { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; z-index: 25; bottom: 0; left: 0; right: 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--card); border-top: 2px solid var(--border); box-shadow: 0 -4px 16px rgba(0, 0, 0, .04); }
   .mobile-nav button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; border: 0; border-radius: 12px; color: var(--muted); background: transparent; font: 800 11px var(--font); cursor: pointer; padding: 5px 2px; }
   .mobile-nav button.on { color: var(--text); background: var(--good-soft); }
   .mobile-nav svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -3594,6 +3594,7 @@ body.lab-open .trainer { max-width: 1260px; }
   .lab-position { padding: 16px; }
   .lab-controls { position: static; }
 }
+<<<<<<< HEAD
 /* 2.37: один шаг урока, явная связь теории, кода и лаборатории */
 .learning-format{font-size:13px;color:var(--muted);line-height:1.6;margin:14px 0 20px}
 .learning-return{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px;margin:16px 0;border:1px solid var(--border);border-radius:14px;background:var(--panel)}
@@ -3613,3 +3614,140 @@ body.lab-open .trainer { max-width: 1260px; }
   .pyc .sl-split,.pyc .sl-blocks{grid-template-columns:1fr}.pyc .crs-stage{min-height:0}.pyc .sl{padding:20px}
 }
 #labCard.locked::after{content:'•';position:absolute;right:2px;bottom:0;color:var(--muted)}
+=======
+
+/* ============================================================ главная-пульт ученика */
+/* по краям ничего не отвлекает: слева нет панели, сверху — только название и профиль */
+body.hub-on .sidebar { display: none; }
+body.hub-on .topbar { justify-content: space-between; padding: 14px max(20px, calc((100% - 1080px) / 2)); border-bottom-color: transparent; background: transparent; backdrop-filter: none; position: static; }
+body.hub-on .topbar .forecast, body.hub-on .scope-info, body.hub-on .session-info { display: none; }
+body.hub-on .me-box > :not(.who):not(.teacher-back) { display: none; }
+body.hub-on .mobile-brand { display: inline-block; font: 900 24px var(--font); color: var(--accent); }
+body.hub-on .mobile-brand b { color: var(--good); }
+body.hub-on .trainer { max-width: 1120px; padding: 4px 20px 60px; }
+.hub { display: flex; flex-direction: column; gap: 16px; }
+.hub-hello { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; }
+.hub-hello > div:first-child { flex: 1 1 320px; min-width: 0; }
+.hub-hello h1 { margin: 0; font-size: 30px; font-weight: 900; letter-spacing: -.01em; }
+.hub-hello p { margin: 2px 0 0; color: var(--muted); font-weight: 700; }
+.hub-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.hub-pill { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 99px; border: 2px solid var(--border); background: var(--card);
+  color: var(--text); font: 800 15px var(--font); cursor: pointer; transition: border-color .2s, transform .2s, background .2s; }
+.hub-pill:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.hub-pill:active { transform: translateY(1px); }
+.hub-pill > svg { width: 20px; height: 20px; flex: none; }
+.hub-pill b { font-weight: 900; display: inline-block; }
+.hub-pill small { color: var(--muted); font-weight: 700; font-size: 12.5px; }
+.hub-pill .btc { width: 20px; height: 20px; border-radius: 50%; background: #ff9600; color: #fff; font: 900 12px/20px var(--font); text-align: center; }
+.hub-pill .hub-xp { width: 46px; height: 6px; border-radius: 99px; background: var(--track); overflow: hidden; }
+.hub-pill .hub-xp b { display: block; height: 100%; background: #ffc21a; border-radius: 99px; transition: width .9s cubic-bezier(.22, 1, .36, 1); }
+.fire-pill svg { width: 20px; height: 20px; }
+.fire-pill .fl-out { fill: var(--faint); transition: fill .4s; } .fire-pill .fl-in { fill: var(--card); }
+.fire-pill.lit { border-color: #ff9600; } .fire-pill.lit .fl-out { fill: #ff9600; } .fire-pill.lit .fl-in { fill: #ffc800; }
+.fire-pill.lit svg { animation: fire-flicker 2.4s ease-in-out infinite; transform-origin: 50% 90%; }
+.hub-bump { animation: hubBump .7s cubic-bezier(.22, 1, .36, 1); }
+@keyframes hubBump { 30% { transform: scale(1.25); color: var(--good); } }
+
+.hub-plan { background: var(--card); border: 2px solid var(--good); border-radius: 20px; padding: 18px 22px 16px; display: flex; flex-direction: column; overflow: hidden; }
+.hub-plan h2 { margin: 0 0 4px; font-size: 21px; font-weight: 900; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.hub-plan h2 small { color: var(--muted); font-size: 14px; font-weight: 800; }
+.hub-step { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 13px 0; border-top: 1px solid var(--border);
+  transition: background .4s, opacity .4s; }
+.hub-step:first-of-type { border-top: 0; }
+.hub-step.now { background: color-mix(in srgb, var(--good) 8%, transparent); margin: 0 -22px; padding: 14px 22px; }
+.hub-num { width: 32px; height: 32px; border-radius: 50%; border: 3px solid var(--border-strong); display: grid; place-items: center; font: 900 14px var(--font); color: var(--muted);
+  transition: background .35s, border-color .35s, color .35s, transform .35s; }
+.hub-num svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.hub-step.now .hub-num { border-color: var(--good); color: var(--good); }
+.hub-step.done .hub-num { background: var(--good); border-color: var(--good); color: var(--on-good); }
+.hub-step.done .hub-step-body { opacity: .6; }
+.hub-step.done .hub-tt { text-decoration: line-through; text-decoration-thickness: 2px; }
+.hub-step-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; transition: opacity .4s; }
+.hub-step-body b { display: flex; align-items: center; gap: 10px; font-size: 16.5px; font-weight: 900; }
+.hub-step-body b .hub-ic, .hub-fire-ic svg { width: 30px; height: 30px; flex: none; }
+.hub-fire-ic .fl-out { fill: #ff9600; } .hub-fire-ic .fl-in { fill: #ffc800; }
+.hub-tt { min-width: 0; overflow-wrap: anywhere; }
+.hub-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-weight: 700; font-size: 13.5px; padding-left: 40px; }
+.hub-meta > span + span::before { content: '·'; margin-right: 12px; color: var(--faint); }
+.hub-due { color: var(--review); font-weight: 800; } .hub-late { color: var(--weak); font-weight: 800; }
+.hub-step .btn { white-space: nowrap; min-width: 140px; text-align: center; }
+/* только что сделано: галочка вспыхивает, черта зачёркивания прочерчивается */
+.hub-step.just .hub-num { animation: hubCheck .7s cubic-bezier(.22, 1.6, .36, 1) both; }
+.hub-step.just .hub-num svg path { stroke-dasharray: 24; animation: hubDraw .5s .25s ease-out both; }
+.hub-step.just .hub-tt { animation: hubStrike .6s .3s ease-out both; text-decoration-color: transparent; background: linear-gradient(currentColor, currentColor) 0 55% / 0 2px no-repeat; }
+@keyframes hubCheck { 0% { transform: scale(.4); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes hubDraw { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+@keyframes hubStrike { to { background-size: 100% 2px; } }
+.hub-day { display: flex; align-items: center; gap: 12px; padding-top: 14px; margin-top: 2px; border-top: 1px solid var(--border); font-weight: 800; color: var(--muted); font-size: 14px; }
+.hub-track { flex: 1; height: 10px; border-radius: 99px; background: var(--track); overflow: hidden; }
+.hub-track b { display: block; height: 100%; width: 0; border-radius: 99px; background: var(--good); transition: width 1s cubic-bezier(.22, 1, .36, 1); }
+
+.hub-h2 { margin: 10px 0 -2px; font-size: 22px; font-weight: 900; }
+.hub-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.hub-tile { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 16px 16px 14px; border-radius: 20px; border: 2px solid var(--border); cursor: pointer; text-align: left; color: var(--text);
+  background: radial-gradient(120% 90% at 0 0, color-mix(in srgb, var(--sec) 9%, transparent), transparent 55%), var(--card);
+  transition: border-color .2s, transform .25s cubic-bezier(.22, 1, .36, 1), box-shadow .25s; }
+.hub-tile.big { grid-column: span 2; }
+.hub-tile:hover, .hub-tile:focus-visible { border-color: color-mix(in srgb, var(--sec) 65%, var(--border)); transform: translateY(-3px); box-shadow: 0 12px 26px -16px var(--sec); outline: none; }
+.hub-tile:active { transform: translateY(0); }
+.hub-tile > .hub-ic { width: 52px; height: 52px; transition: transform .3s cubic-bezier(.22, 1.6, .36, 1); }
+.hub-tile:hover > .hub-ic { transform: scale(1.08) rotate(-3deg); }
+.hub-tile > b { font-size: 17px; font-weight: 900; }
+.hub-sub { color: var(--muted); font-weight: 700; font-size: 13.5px; line-height: 1.35; }
+.hub-act { margin-top: auto; text-align: center; font-size: 13px; padding: 6px 10px; pointer-events: none; transition: border-color .2s, color .2s; }
+.hub-tile:hover .hub-act { border-color: color-mix(in srgb, var(--sec) 60%, var(--border)); color: var(--text); }
+.hub-act.hot { color: var(--review); }
+.hub-badge { position: absolute; top: 14px; right: 14px; padding: 3px 10px; border-radius: 99px; font: 900 12px var(--font); color: var(--sec);
+  background: color-mix(in srgb, var(--sec) 15%, transparent); border: 1px solid color-mix(in srgb, var(--sec) 35%, transparent); }
+.hub-map { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 4px; }
+.hub-n { min-width: 24px; height: 24px; padding: 0 3px; border-radius: 7px; border: 0; font: 900 11px/24px var(--font); color: #fff; background: var(--track); cursor: pointer;
+  transition: transform .15s; }
+.hub-n.wide { min-width: 46px; }
+.hub-n.lvl-none { color: var(--muted); } .hub-n.lvl-weak { background: var(--weak); } .hub-n.lvl-mid { background: var(--mid); color: #3a2a00; } .hub-n.lvl-good { background: var(--good); }
+.hub-n:hover { transform: translateY(-2px) scale(1.08); }
+.hub-bars { display: flex; align-items: flex-end; gap: 4px; height: 24px; }
+.hub-bars i { width: 9px; height: 0; border-radius: 3px; background: color-mix(in srgb, var(--sec) 60%, var(--track)); transition: height .9s cubic-bezier(.22, 1, .36, 1); }
+.hub-bars i.z { background: var(--track); }
+
+/* появление главной: блоки мягко поднимаются друг за другом */
+.hub-enter .hub-hello, .hub-enter .hub-plan, .hub-enter .hub-h2, .hub-enter .hub-tile { animation: hubIn .55s cubic-bezier(.22, 1, .36, 1) both; }
+.hub-enter .hub-plan { animation-delay: .06s; }
+.hub-enter .hub-step { animation: hubIn .5s cubic-bezier(.22, 1, .36, 1) both; animation-delay: calc(.12s + var(--i) * .06s); }
+.hub-enter .hub-h2 { animation-delay: .2s; }
+.hub-enter .hub-tile { animation-delay: calc(.22s + var(--i) * .035s); }
+@keyframes hubIn { from { opacity: 0; transform: translateY(14px); } }
+
+/* плавные переходы между страницами и окнами — по всему сайту */
+.pg-in { animation: pgIn .32s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes pgIn { from { opacity: 0; transform: translateY(8px); } }
+.modal:not([hidden]) > .modal-panel { animation: mdIn .28s cubic-bezier(.22, 1, .36, 1) both; }
+.modal:not([hidden]) { animation: mdFade .2s ease-out both; }
+@keyframes mdIn { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+@keyframes mdFade { from { opacity: 0; } }
+.btn, .rail-btn, .num-card, .chip { transition: background-color .18s, border-color .18s, color .18s, transform .18s, box-shadow .18s, opacity .18s; }
+.xp-bar b, #xpBar, #allBar, .bar b { transition: width .8s cubic-bezier(.22, 1, .36, 1); }
+
+@media (max-width: 900px) {
+  .hub-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hub-tile.big { grid-column: 1 / -1; }
+}
+@media (max-width: 860px) {
+  body.hub-on .topbar { padding: 12px 16px; }
+  body.hub-on .mobile-brand { font-size: 20px; order: -1; }
+  body.hub-on .me-box { order: 1; }
+  body.hub-on .trainer { padding: 4px 14px 24px; }
+}
+@media (max-width: 560px) {
+  .hub-hello h1 { font-size: 25px; }
+  .hub-pill { font-size: 14px; padding: 6px 11px; }
+  .hub-plan { padding: 16px 16px 14px; }
+  .hub-step { grid-template-columns: 30px minmax(0, 1fr); gap: 10px; }
+  .hub-step.now { margin: 0 -16px; padding: 14px 16px; }
+  .hub-step .btn { grid-column: 1 / -1; width: 100%; }
+  .hub-meta { padding-left: 0; gap: 2px 10px; }
+  .hub-meta > span + span::before { content: none; }
+  .hub-num { width: 28px; height: 28px; }
+  .hub-tile { padding: 14px 12px 12px; }
+  .hub-act { font-size: 12px; padding: 6px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+>>>>>>> ed7b128 (2.38.0: главная-пульт ученика — план на сегодня, разделы плитками, новые иконки и плавные анимации)

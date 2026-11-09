@@ -1,6 +1,7 @@
   // Подписанная навигация на телефоне. Действия используют существующие обработчики.
   const mobileIcon = body => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   document.body.insertAdjacentHTML('beforeend', `<nav class="mobile-nav" id="mobileNav" aria-label="Основные разделы" hidden>
+    <button type="button" data-mobile="home">${mobileIcon('<path d="M3.5 10.6 12 3.5l8.5 7.1V19a2 2 0 0 1-2 2H15v-6.2H9V21H5.5a2 2 0 0 1-2-2z"/>')}<span>Главная</span></button>
     <button type="button" data-mobile="tasks">${mobileIcon('<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>')}<span>Задания</span></button>
     <button type="button" data-mobile="teacher">${mobileIcon('<path d="m2 9 10-5 10 5-10 5zM6 11v6c3 2 9 2 12 0v-6M22 9v7"/>')}<span>От учителя</span></button>
     <button type="button" data-mobile="progress">${mobileIcon('<path d="M5 20V12M12 20V4M19 20V8"/>')}<span>Прогресс</span></button>
@@ -14,7 +15,8 @@
     nav.hidden = false;
     const teacher = courseShown && pageKind === 'asg';
     $$('[data-mobile]', nav).forEach(b => {
-      const active = b.dataset.mobile === 'teacher' ? teacher : b.dataset.mobile === 'tasks' && !courseShown && !examShown;
+      const active = b.dataset.mobile === 'teacher' ? teacher : b.dataset.mobile === 'home' ? courseShown && pageKind === 'hub'
+        : b.dataset.mobile === 'tasks' && !courseShown && !examShown;
       b.classList.toggle('on', active);
       if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
@@ -35,6 +37,7 @@
     const b = e.target.closest('[data-mobile]');
     if (!b) return;
     setSideOpen(false);
+    if (b.dataset.mobile === 'home') openHub();
     if (b.dataset.mobile === 'tasks') $('#allCard').click();
     if (b.dataset.mobile === 'teacher') { asgTab = 'active'; openAsgPage(); }
     if (b.dataset.mobile === 'progress') $('#forecastBtn').click();

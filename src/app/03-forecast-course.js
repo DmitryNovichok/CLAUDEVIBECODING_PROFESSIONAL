@@ -427,7 +427,8 @@
     navSilent = true;
     try {
       if (examShown) return;
-      if (st.v === 'course') openCourse();
+      if (st.v === 'hub') openHub();
+      else if (st.v === 'course') openCourse();
       else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'tourpage') tourOpen();
@@ -479,7 +480,7 @@
     if (pageKind === 'lab') { labStop(); document.body.classList.remove('lab-open'); }
     courseShown = false;
     pageKind = null;
-    document.body.classList.remove('asg-wide');
+    document.body.classList.remove('asg-wide', 'hub-on');
     renderMobileNav();
     $('#courseCard')?.classList.remove('on');
   }
