@@ -622,10 +622,12 @@
   }
   $('#tgPages').addEventListener('click', e => { const b = e.target.closest('[data-peek]'); if (b) send({ t: 'peek', key: b.dataset.peek }); });
   $('#tgKeyBtn').onclick = () => { $('#tgKeyV').hidden = false; $('#tgKeyBtn').hidden = true; };
+  $('#tgShowTask').onclick = () => $('#tgMin').click();
   $('#tgMin').onclick = () => {
     const el = $('#tgTask');
     el.classList.toggle('min');
-    $('#tgMin').textContent = el.classList.contains('min') ? 'Показать ▾' : 'Свернуть ▴';
+    $('#tgShowTask').hidden = !el.classList.contains('min');
+    requestAnimationFrame(() => { sizeBoard(); layoutCode(); condLayout(); });
     requestAnimationFrame(() => { sizeBoard(); layoutCode(); });
   };
   // ответ — общий: видно, как его набирают
@@ -1514,11 +1516,11 @@
   function dropPtr(cid) { const p = S.ptrs.get(cid); if (p) { p.el.remove(); S.ptrs.delete(cid); } }
 
   // ================================================================ размеры панелей: условие, код | доска, вывод — тянутся границей
-  const SZ_KEY = 'egeshka.tgSizes';
+  const SZ_KEY = 'egeshka.tgSizes2';                // 2: задание слева, код над доской — старые размеры не подходят
   const SZ = (() => { try { return JSON.parse(localStorage.getItem(SZ_KEY) || '{}') || {}; } catch (e) { return {}; } })();
   function applySizes() {
     const task = $('#tgTask'), out = $('.tg-out'), app = $('#tgApp');
-    if (SZ.task) { task.style.height = SZ.task + 'px'; task.classList.add('sized'); }
+    if (SZ.tw) app.style.setProperty('--tw', SZ.tw + 'px');
     if (SZ.out) { out.style.height = SZ.out + 'px'; out.classList.add('sized'); }
     if (SZ.mid) { app.style.setProperty('--cw', SZ.mid + 'fr'); app.style.setProperty('--bw', (1 - SZ.mid) + 'fr'); }
   }
@@ -1545,19 +1547,17 @@
       el.addEventListener('pointercancel', up);
     });
     el.addEventListener('dblclick', () => {                     // двойной щелчок — как было
-      if (id === '#tgSplitTask') { delete SZ.task; $('#tgTask').style.height = ''; $('#tgTask').classList.remove('sized'); }
+      if (id === '#tgSplitTask') { delete SZ.tw; $('#tgApp').style.removeProperty('--tw'); }
       if (id === '#tgSplitOut') { delete SZ.out; $('.tg-out').style.height = ''; $('.tg-out').classList.remove('sized'); }
       if (id === '#tgSplitMid') { delete SZ.mid; $('#tgApp').style.removeProperty('--cw'); $('#tgApp').style.removeProperty('--bw'); }
       saveSizes();
       requestAnimationFrame(() => { sizeBoard(); layoutCode(); condLayout(); });
     });
   }
-  dragSplit('#tgSplitTask', 'h', e => {
-    const t = $('#tgTask'), top = t.getBoundingClientRect().top;
-    SZ.task = Math.round(Math.min(innerHeight - 200, Math.max(60, e.clientY - top)));
-    t.style.height = SZ.task + 'px';
-    t.classList.add('sized');
-    t.classList.remove('min');
+  dragSplit('#tgSplitTask', 'v', e => {                    // ширина колонки задания
+    const left = $('#tgWork').getBoundingClientRect().left;
+    SZ.tw = Math.round(Math.min(innerWidth * 0.6, Math.max(520, e.clientX - left)));
+    $('#tgApp').style.setProperty('--tw', SZ.tw + 'px');
   });
   dragSplit('#tgSplitOut', 'h', e => {
     const o = $('.tg-out'), bottom = o.getBoundingClientRect().bottom;
@@ -1565,9 +1565,9 @@
     o.style.height = SZ.out + 'px';
     o.classList.add('sized');
   });
-  dragSplit('#tgSplitMid', 'v', e => {
+  dragSplit('#tgSplitMid', 'h', e => {                     // код сверху, доска снизу
     const r = $('#tgMain').getBoundingClientRect();
-    SZ.mid = Math.round(Math.min(0.85, Math.max(0.15, (e.clientX - r.left) / r.width)) * 1000) / 1000;
+    SZ.mid = Math.round(Math.min(0.85, Math.max(0.15, (e.clientY - r.top) / r.height)) * 1000) / 1000;
     $('#tgApp').style.setProperty('--cw', SZ.mid + 'fr');
     $('#tgApp').style.setProperty('--bw', (1 - SZ.mid) + 'fr');
   });
