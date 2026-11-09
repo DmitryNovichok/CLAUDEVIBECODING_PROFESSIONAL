@@ -591,6 +591,51 @@
   let student = null;                         // { sid, name, token }
   const TASKS = BANK.tasks;
   const byId = new Map(TASKS.map(t => [t.id, t]));
+  // ------------------------------------------------------------ тексты условий: в bank.js их нет (он лёгкий), догружаем по номерам
+  const HTML_LAZY = !!BANK.lazyHtml;
+  const htmlNum = new Map();                  // номер -> обещание: условия всех его заданий (одна загрузка на номер)
+  const needHtml = list => HTML_LAZY && list.some(t => t && t.html == null);
+  async function htmlFetch(q) {
+    let err;
+    for (let i = 0; i < 3; i++) {             // связь моргнула — ещё две попытки
+      try {
+        const r = await fetch('api/html?' + q, { credentials: 'same-origin' });
+        if (r.ok) {
+          const d = await r.json();
+          Object.entries(d.html || {}).forEach(([id, h]) => { const t = byId.get(id); if (t) t.html = h; });
+          return;
+        }
+        err = new Error(r.status === 401 ? 'Нужно войти заново' : 'Сервер не ответил');
+        if (r.status === 401) break;
+      } catch (e) { err = new Error('Нет связи с сервером'); }
+      await new Promise(res => setTimeout(res, 700 * (i + 1)));
+    }
+    throw err;
+  }
+  /** Условия для списка заданий: сразу нужные — по id (быстро), а весь номер — фоном, чтобы следующие открывались мгновенно. */
+  function loadHtml(list) {
+    const miss = list.filter(t => t && t.html == null);
+    const nums = [...new Set(miss.map(t => t.n))];
+    setTimeout(() => nums.forEach(prefetchNum), 1500);     // весь номер — когда первое задание уже на экране
+    if (!miss.length) return Promise.resolve();
+    const ids = miss.map(t => t.id);
+    const out = [];
+    for (let i = 0; i < ids.length; i += 120) out.push(htmlFetch('ids=' + ids.slice(i, i + 120).map(encodeURIComponent).join(',')));
+    return Promise.all(out);
+  }
+  function prefetchNum(n) {
+    if (!HTML_LAZY || n == null || htmlNum.has(n)) return;
+    htmlNum.set(n, htmlFetch('n=' + n).catch(() => htmlNum.delete(n)));   // не вышло — попробуем при следующем открытии
+  }
+  /** Пока условие грузится — спокойная заглушка; не загрузилось — понятная ошибка и «Ещё раз». */
+  function htmlWait(list, again) {
+    trainerEl.innerHTML = '<div class="empty cond-loading"><p>Загружаю условие…</p></div>';
+    loadHtml(list).then(again, e => {
+      trainerEl.innerHTML = `<div class="empty"><h2>Условие не загрузилось</h2><p>${esc(e.message)}. Проверьте интернет.</p>
+        <p><button type="button" class="btn primary" id="htmlRetry">Ещё раз</button></p></div>`;
+      $('#htmlRetry').onclick = () => htmlWait(list, again);
+    });
+  }
   const BANKS = BANK.banks || [];
   const bankTitle = id => (BANKS.find(b => b.id === id) || {}).title || id;
 
@@ -1979,8 +2024,9 @@
     if (recent.length > 50) recent.splice(0, recent.length - 50);
     ui.currentId = pick.task.id;
     save();
-    openTask(t0);
-    renderTask();
+    const c = cur, go = () => { if (cur !== c) return; openTask(t0); renderTask(); };
+    if (needHtml([t0])) htmlWait([t0], go);        // условие ещё не скачано — пара сотен миллисекунд
+    else go();
     renderTopbar();
   }
 
@@ -2663,6 +2709,8 @@
   function openCourseSet(id) {
     const a = courseSet(id);
     if (!a) return;
+    const objs = a.tasks.map(x => byId.get(x)).filter(Boolean);
+    if (needHtml(objs)) { htmlWait(objs, () => openCourseSet(id)); return; }   // в списке подборки — начало условий
     courseShown = true;
     navPush({ v: 'set', id });
     const left = new Set(asgLeft(a)), total = a.tasks.length, done = total - left.size;
@@ -3642,6 +3690,8 @@
   }
 
   function renderExam() {
+    const all = EX.items.map(x => byId.get(x.id)).filter(Boolean);
+    if (needHtml(all)) { htmlWait(all, () => { if (EX.items.length) renderExam(); }); return; }   // условия всего варианта — разом
     if (EX.kege) return renderKege();
     document.body.classList.remove('kege-on');
     const it = EX.items[EX.cur];

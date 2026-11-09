@@ -127,6 +127,20 @@ class ServerTest(unittest.TestCase):
             pass
         return (r.status, data, r.getheader("Set-Cookie") or "") if hdrs else (r.status, data)
 
+    def public_bank(self, tok):
+        """Всё, что видит ученик: bank.js (без условий) и условия всех номеров из /api/html."""
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
+        body = c.getresponse().read().decode()
+        c.close()
+        bank = json.loads(body[body.index("{"):body.rindex("}") + 1])
+        self.assertNotIn('"html"', json.dumps(bank["tasks"], ensure_ascii=False))   # условия — только отдельно
+        for n in sorted({t["n"] for t in bank["tasks"]}):
+            st, d = self.req("GET", f"/api/html?n={n}", token=tok)
+            self.assertEqual(st, 200)
+            body += "\n/*html*/" + json.dumps(d, ensure_ascii=False)
+        return body
+
     def login(self, name="Иванов Иван"):
         st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": name,
                                                 "new_password": "secret1"})
@@ -428,10 +442,7 @@ class ServerTest(unittest.TestCase):
 
     def test_bank_hides_everything_that_leads_to_answer(self):
         tok = self.login("Скрытов Семён")
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
-        body = c.getresponse().read().decode()
-        c.close()
+        body = self.public_bank(tok)
         for leak in ("kompege.ru/task", "devinf.ru/task", '"video"', '"link"', "b:5", "b:g19", "7831"):
             self.assertNotIn(leak, body, leak)
         self.assertIn("vk.com/a", body)                    # ссылки на авторов остаются
@@ -448,12 +459,10 @@ class ServerTest(unittest.TestCase):
 
     def test_fipi_files_hide_code_and_unpack_zip(self):
         tok = self.login("Файлов Фёдор")
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
-        body = c.getresponse().read().decode()
-        c.close()
-        bank = json.loads(body[body.index("{"):body.rindex("}") + 1])
+        body = self.public_bank(tok)
+        bank = json.loads(body[body.index("{"):body.index("\n/*html*/")].rstrip().rstrip(";"))
         task = next(t for t in bank["tasks"] if t["n"] == 3)
+        task["html"] = self.req("GET", "/api/html?n=3", token=tok)[1]["html"][task["id"]]
         for leak in ("02143E", "0079D4", "../", "BAD001"):
             self.assertNotIn(leak, json.dumps(task, ensure_ascii=False), leak)
         names = [a["name"] for a in task["att"]]
@@ -490,11 +499,8 @@ class ServerTest(unittest.TestCase):
                         ("Открытый банк ФИПИ", False), ("КомпЕГЭ", False), ("", False), (None, False)):
             self.assertEqual(server.is_authored(src), au, src)
         tok = self.login("Авторов Антон")
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
-        body = c.getresponse().read().decode()
-        c.close()
-        tasks = {t["id"]: t for t in json.loads(body[body.index("{"):body.rindex("}") + 1])["tasks"]}
+        body = self.public_bank(tok)
+        tasks = {t["id"]: t for t in json.loads(body[body.index("{"):body.index("\n/*html*/")].rstrip().rstrip(";"))["tasks"]}
         self.assertEqual(tasks[server.APP.bank.pid("b:6")].get("au"), 1)
         self.assertNotIn("au", tasks[server.APP.bank.pid("b:27")])
         self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["authored"])
@@ -2294,12 +2300,26 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["prefs"]["fav"], [pid])
         self.assertEqual(d["prefs"]["notes"], {pid: "заметка"})
 
+    def test_task_texts_load_by_number_and_need_login(self):
+        self.assertEqual(self.req("GET", "/api/html?n=5")[0], 401)
+        tok = self.login("Номеров Нил")
+        pid = server.APP.bank.pid("b:5")
+        st, d = self.req("GET", "/api/html?n=5", token=tok)
+        self.assertEqual((st, d["html"][pid]), (200, "<p>Пять</p>"))
+        self.assertNotIn(server.APP.bank.pid("b:27"), d["html"])          # только задания этого номера
+        st, d = self.req("GET", "/api/html?ids=" + pid + ",nope", token=tok)
+        self.assertEqual(d["html"], {pid: "<p>Пять</p>"})
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/api/html?n=5", headers={"X-Token": tok})
+        etag = c.getresponse().getheader("ETag"); c.close()
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/api/html?n=5", headers={"X-Token": tok, "If-None-Match": etag})
+        self.assertEqual(c.getresponse().status, 304)                      # номер уже скачан — браузер берёт из кэша
+        c.close()
+
     def test_bank_has_no_answers(self):
         tok = self.login()
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
-        body = c.getresponse().read().decode()
-        c.close()
+        body = self.public_bank(tok)
         self.assertIn("Пять", body)
         self.assertNotIn('"ans"', body)
         self.assertNotIn("решение", body)

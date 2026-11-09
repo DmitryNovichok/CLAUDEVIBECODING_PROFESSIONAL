@@ -340,6 +340,25 @@ def session_alive(r, now):
     return now - (r["last_seen"] or r["created"]) < STUDENT_COOKIE_DAYS * 86400
 
 
+GZIP_TYPES = re.compile(r"^(text/|application/(javascript|json|manifest\+json)|image/svg)")
+_GZ_CACHE = {}
+_GZ_LOCK = threading.Lock()
+
+
+def static_gz(p, st):
+    """Сжатая копия файла сайта (скрипты, стили) — в памяти, пока файл не поменяют."""
+    key = str(p)
+    hit = _GZ_CACHE.get(key)
+    if hit and hit[0] == (st.st_mtime, st.st_size):
+        return hit[1]
+    data = gzip.compress(p.read_bytes(), 6)
+    with _GZ_LOCK:
+        if len(_GZ_CACHE) > 400:
+            _GZ_CACHE.clear()
+        _GZ_CACHE[key] = ((st.st_mtime, st.st_size), data)
+    return data
+
+
 def student_by_token(db, tok, ip):
     """Ученик по токену входа → (ученик, вход устройства или None для прежнего общего токена) или (None, None).
     Прежний общий токен (students.token) действует только вне школьной сети и LEGACY_DAYS дней после обновления."""
@@ -1068,6 +1087,8 @@ class Bank:
         self.broken = []
         self.authored = 0          # сколько заданий с автором
         self.pubs = {}             # настоящий id -> задание без ответа (как в bank.js) — для совместного сеанса
+        self.html_pub = {}         # публичный id -> текст условия (в bank.js условий нет — они по /api/html)
+        self.html_n = {}           # номер -> (gzip, json, etag) условий всех его заданий
         self.mtime = None
         self.extra_mtime = None
         self.lock = threading.Lock()
@@ -1315,6 +1336,7 @@ class Bank:
             self.authored = 0
             self.pubs = {}
             pub_tasks = []
+            html_by_n = {}
             for tid, was, now_n in clusters.fix_numbers(data.get("tasks", [])):
                 print(f"Банк: задание {tid} перенесено из №{was} в №{now_n}", flush=True)
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
@@ -1350,9 +1372,16 @@ class Bank:
                     p["sh"] = shape_of(t.get("ans", ""), t.get("n"))
                     if t.get("sol"):
                         p["hasSol"] = True
-                pub_tasks.append(p)
+                pub_tasks.append({k: v for k, v in p.items() if k != "html"})   # тексты условий — отдельно, по номерам
+                html_by_n.setdefault(p.get("n"), {})[p["id"]] = p.get("html") or ""
                 self.pubs[t["id"]] = p
-            pub = dict(data, tasks=pub_tasks, srv=True, clusters=clusters.catalog())
+            # условия по номерам: ученик качает только тот номер, который открыл (а не все 25 МБ при входе)
+            self.html_pub = {pid: h for chunk in html_by_n.values() for pid, h in chunk.items()}
+            self.html_n = {}
+            for n, chunk in html_by_n.items():
+                body = json.dumps({"html": chunk}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                self.html_n[str(n)] = (gzip.compress(body, 6), body, '"%s"' % hashlib.md5(body).hexdigest()[:16])
+            pub = dict(data, tasks=pub_tasks, srv=True, lazyHtml=True, clusters=clusters.catalog())
             raw = ("window.EGE_BANK = " + json.dumps(pub, ensure_ascii=False, separators=(",", ":")) + ";\n").encode("utf-8")
             self.public_raw = raw
             self.public_gz = gzip.compress(raw, 6)
@@ -2265,6 +2294,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------- ответы
     def send_bytes(self, code, body, ctype, extra=None):
+        extra = dict(extra or {})
+        if (code == 200 and len(body) > 2048 and "Content-Encoding" not in extra and GZIP_TYPES.match(ctype)
+                and "gzip" in (self.headers.get("Accept-Encoding") or "")):
+            body = gzip.compress(body, 5)                    # страницы и ответы сервера — сжатыми: на телефоне в разы быстрее
+            extra["Content-Encoding"] = "gzip"
+            extra["Vary"] = (extra["Vary"] + ", Accept-Encoding") if "Vary" in extra else "Accept-Encoding"
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -2318,6 +2353,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.live_admin()
             if path == "/api/together/ws":
                 return self.together_ws(qs)
+            if path == "/api/html":
+                return self.serve_task_html(qs)
             if path.startswith("/api/"):
                 return self.api("GET", path, qs, {})
             return self.static(path)
@@ -2536,6 +2573,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
         extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
+        if "?v=" in self.path and p.suffix.lower() in (".js", ".css", ".woff2", ".svg", ".png", ".ico"):
+            extra["Cache-Control"] = "public, max-age=31536000, immutable"   # адрес с ?v= меняется при каждом обновлении файла
+        gz = None
+        if GZIP_TYPES.match(ctype) and st.st_size > 2048 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            gz = static_gz(p, st)
+            extra["Content-Encoding"] = "gzip"
+            extra["Vary"] = "Accept-Encoding"
         if html:
             extra["X-Frame-Options"] = "DENY"
             extra["Referrer-Policy"] = "same-origin"
@@ -2545,11 +2589,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote_rfc(name)
         self.send_response(200)
         self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(st.st_size))
+        self.send_header("Content-Length", str(len(gz) if gz is not None else st.st_size))
         for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command == "HEAD":
+            return
+        if gz is not None:
+            self.wfile.write(gz)
             return
         with open(p, "rb") as f:
             while True:
@@ -2557,6 +2604,30 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if not chunk:
                     break
                 self.wfile.write(chunk)
+
+    def serve_task_html(self, qs):
+        """Тексты условий: ?n=8 — все задания номера (кэшируется браузером), ?ids=a,b — выбранные (вариант, подборка)."""
+        tok = self.headers.get("X-Token") or self.cookie("egest")
+        if not student_by_token(APP.db, tok, self.client_ip())[0]:
+            return self.err(401, "нужно войти")
+        if not APP.bank.ensure():
+            return self.err(503, "банк заданий не собран")
+        b = APP.bank
+        n = str(qs.get("n") or "")
+        if n:
+            got = b.html_n.get(n)
+            if not got:
+                return self.send_json({"html": {}})
+            gz, raw, etag = got
+            if self.headers.get("If-None-Match") == etag:
+                return self.send_bytes(304, b"", "text/plain", {"ETag": etag})
+            extra = {"ETag": etag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding, Cookie"}
+            if "gzip" in (self.headers.get("Accept-Encoding") or ""):
+                extra["Content-Encoding"] = "gzip"
+                return self.send_bytes(200, gz, "application/json; charset=utf-8", extra)
+            return self.send_bytes(200, raw, "application/json; charset=utf-8", extra)
+        ids = [x for x in str(qs.get("ids") or "").split(",") if x][:300]
+        return self.send_json({"html": {i: b.html_pub[i] for i in ids if i in b.html_pub}})
 
     def serve_bank(self):
         if not student_by_token(APP.db, self.cookie("egest"), self.client_ip())[0]:

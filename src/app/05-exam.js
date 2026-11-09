@@ -284,6 +284,8 @@
   }
 
   function renderExam() {
+    const all = EX.items.map(x => byId.get(x.id)).filter(Boolean);
+    if (needHtml(all)) { htmlWait(all, () => { if (EX.items.length) renderExam(); }); return; }   // условия всего варианта — разом
     if (EX.kege) return renderKege();
     document.body.classList.remove('kege-on');
     const it = EX.items[EX.cur];

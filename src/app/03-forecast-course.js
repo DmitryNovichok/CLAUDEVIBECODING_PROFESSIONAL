@@ -670,6 +670,8 @@
   function openCourseSet(id) {
     const a = courseSet(id);
     if (!a) return;
+    const objs = a.tasks.map(x => byId.get(x)).filter(Boolean);
+    if (needHtml(objs)) { htmlWait(objs, () => openCourseSet(id)); return; }   // в списке подборки — начало условий
     courseShown = true;
     navPush({ v: 'set', id });
     const left = new Set(asgLeft(a)), total = a.tasks.length, done = total - left.size;
