@@ -2300,6 +2300,17 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["prefs"]["fav"], [pid])
         self.assertEqual(d["prefs"]["notes"], {pid: "заметка"})
 
+    def test_health_for_watchdog(self):
+        st, d = self.req("GET", "/api/health")
+        self.assertEqual((st, d["ok"], d["version"]), (200, True, server.APP_VERSION))
+        self.assertGreater(d["tasks"], 0)
+        saved = server.APP.bank.tasks
+        server.APP.bank.tasks = {}
+        try:
+            self.assertEqual(self.req("GET", "/api/health")[0], 503)
+        finally:
+            server.APP.bank.tasks = saved
+
     def test_task_texts_load_by_number_and_need_login(self):
         self.assertEqual(self.req("GET", "/api/html?n=5")[0], 401)
         tok = self.login("Номеров Нил")

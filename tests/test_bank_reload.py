@@ -95,5 +95,13 @@ class LiveEvictTest(unittest.TestCase):
         self.assertIn(newest, hub.subs[77])
 
 
+class VersionTest(unittest.TestCase):
+    def test_app_version_is_newest_from_changelog(self):
+        import re
+        text = (server.HERE / "changelog.js").read_text(encoding="utf-8")
+        newest = max(tuple(map(int, v)) for v in re.findall(r'\["(\d+)\.(\d+)\.(\d+)"', text))
+        self.assertEqual(server.APP_VERSION, ".".join(map(str, newest)))
+
+
 if __name__ == "__main__":
     unittest.main()
