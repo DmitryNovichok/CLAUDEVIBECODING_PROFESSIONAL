@@ -1253,11 +1253,30 @@ class Bank:
             print('  Укажите папку, где лежат банки:  python server.py --banks "C:\\путь\\к\\Biblio"', flush=True)
             print("  Или соберите банк так, чтобы всё лежало внутри тренажёра:  python build.py --standalone", flush=True)
 
+    @staticmethod
+    def validate_data(data, extra=False):
+        """Проверяем структуру до замены рабочего банка: незавершённый файл не должен стереть задания."""
+        if not isinstance(data, dict) or not isinstance(data.get("tasks"), list) or not data["tasks"]:
+            raise ValueError("банк должен содержать непустой список заданий")
+        banks = [data.get("bank")] if extra else data.get("banks", [])
+        if not isinstance(banks, list) or any(not isinstance(b, dict) or not isinstance(b.get("id"), str) for b in banks):
+            raise ValueError("неверное описание банка")
+        for task in data["tasks"]:
+            if not isinstance(task, dict):
+                raise ValueError("неверная запись задания")
+            parts = task.get("parts") or []
+            if not isinstance(parts, list):
+                raise ValueError("неверные части задания")
+            for item in [task, *parts]:
+                if (not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+                        or not isinstance(item.get("n"), int)):
+                    raise ValueError("у задания отсутствуют код или номер")
+
     def ensure(self):
         try:
             mt = self.path.stat().st_mtime
-        except FileNotFoundError:
-            return False
+        except OSError:
+            return bool(self.tasks)
         try:
             xmt = EXTRA_BANK.stat().st_mtime
         except OSError:
@@ -1267,11 +1286,14 @@ class Bank:
         with self.lock:
             if mt == self.mtime and xmt == self.extra_mtime:
                 return True
+            if xmt is None and self.extra_mtime is not None:
+                return bool(self.tasks)              # авторский банк временно отсутствует при обновлении
             try:
                 text = self.path.read_text(encoding="utf-8")
                 start = text.index("{")
                 end = text.rindex("}")
                 data = json.loads(text[start:end + 1])
+                self.validate_data(data)
             except (OSError, ValueError, UnicodeDecodeError) as e:
                 # файл банка переписывают прямо сейчас (обновление сайта) — отдаём прежний, ученики не видят ошибку
                 print(f"! Банк заданий не прочитан, остаётся прежний: {e}", flush=True)
@@ -1279,10 +1301,12 @@ class Bank:
             if xmt is not None:
                 try:
                     extra = json.loads(EXTRA_BANK.read_text(encoding="utf-8"))
+                    self.validate_data(extra, extra=True)
                     data["tasks"] = data.get("tasks", []) + extra.get("tasks", [])
                     data["banks"] = [b for b in data.get("banks", []) if b.get("id") != extra["bank"]["id"]] + [extra["bank"]]
                 except (ValueError, KeyError, OSError) as e:
                     print(f"! Банк Egeshka не прочитан ({EXTRA_BANK.name}): {e}", flush=True)
+                    return bool(self.tasks)
             self.tasks = {}
             self._snips = {}
             self.files = {}

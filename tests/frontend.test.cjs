@@ -3,6 +3,84 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+function bankRetryContext(storage, bank) {
+  const box = {innerHTML:''}, timers = [], button = {};
+  let reloads = 0;
+  const c = vm.createContext({window:{EGE_BANK:bank}, sessionStorage:storage,
+    $:s=>s === '#trainer' ? box : button, location:{reload:()=>reloads++},
+    setTimeout:(fn,ms)=>timers.push({fn,ms})});
+  vm.runInContext(sourceBetween('src/app/01-core.js', '  function bankRetry(', '  const BANK ='), c);
+  return {c, box, timers, button, reloads:()=>reloads};
+}
+
+test('empty task bank stops after three automatic reloads', () => {
+  const data = new Map(), storage = {getItem:k=>data.get(k), setItem:(k,v)=>data.set(k,v), removeItem:k=>data.delete(k)};
+  for (let attempt=0; attempt<4; attempt++) {
+    const page = bankRetryContext(storage, {tasks:[]});
+    vm.runInContext('bankRetry(true)', page.c);
+    if (attempt<3) {
+      assert.equal(page.timers.length, 1);
+      assert.equal(page.timers[0].ms, 2000 * 2 ** attempt);
+      page.timers[0].fn();
+      assert.equal(page.reloads(), 1);
+    } else {
+      assert.equal(page.timers.length, 0);
+      assert.match(page.box.innerHTML, /Обновить страницу/);
+      page.button.onclick();
+      assert.equal(data.has('egeTrainer.bankTry'), false);
+    }
+  }
+  data.set('egeTrainer.bankTry', '2');
+  bankRetryContext(storage, {tasks:[{id:'demo'}]});
+  assert.equal(data.has('egeTrainer.bankTry'), false);
+});
+
+test('blocked browser storage cannot trigger endless bank reloads', () => {
+  for (const denied of ['getItem', 'setItem']) {
+    const storage = {getItem:()=>null, setItem:()=>{}, removeItem:()=>{}};
+    storage[denied] = () => { throw Error('storage denied'); };
+    const page = bankRetryContext(storage, null);
+    vm.runInContext('bankRetry(true)', page.c);
+    for (const timer of page.timers) timer.fn();
+    assert.equal(page.reloads(), 0);
+    assert.match(page.box.innerHTML, /Обновить страницу/);
+  }
+});
+
+test('Together closes a socket that stops replying to pings', () => {
+  let tick, now=1000, closed=0;
+  const sent=[];
+  const c=vm.createContext({ws:{readyState:1,close:()=>closed++}, pingTs:0, pongAt:0,
+    performance:{now:()=>now},send:m=>sent.push(m),setInterval:fn=>{tick=fn;}});
+  vm.runInContext(sourceBetween('together.js', '  setInterval(() => {\n    if (!ws', '  function onMsg('), c);
+  tick();
+  for (now=4000; now<=13000; now+=3000) tick();
+  assert.ok(closed>0, 'a stalled connection must reconnect');
+  assert.equal(sent.length,1, 'retain the first unanswered ping deadline');
+});
+
+test('Together keeps a responsive socket open', () => {
+  let tick, now=1000, closed=0;
+  const sent=[];
+  const c=vm.createContext({ws:{readyState:1,close:()=>closed++}, pingTs:0, pongAt:0,
+    performance:{now:()=>now},send:m=>sent.push(m),setInterval:fn=>{tick=fn;}});
+  vm.runInContext(sourceBetween('together.js', '  setInterval(() => {\n    if (!ws', '  function onMsg('), c);
+  for (; now<20000; now+=3000) { tick(); c.pongAt=now+20; }
+  assert.equal(closed,0);
+  assert.equal(sent.length,7);
+});
+
+test('Together read-only mode prevents deleting selected board text', () => {
+  let keydown;
+  const strokes=new Map([['text',{id:'text'}]]), sent=[];
+  const c=vm.createContext({TS:{id:'text'}, S:{strokes,page:'p1'}, canWrite:()=>false,
+    document:{addEventListener:(_,fn)=>{keydown=fn;}}, selectText:()=>{}, redraw:()=>{}, send:m=>sent.push(m)});
+  vm.runInContext(sourceBetween('together.js', "  document.addEventListener('keydown', e => {                // Delete", '  // ---------- указатели'),c);
+  keydown({key:'Delete',target:{closest:()=>null},preventDefault:()=>{}});
+  assert.equal(strokes.has('text'),true);
+  assert.equal(sent.length,0);
+});
+
 // Run the production helpers in a small browser-like environment.
 const examSource = fs.readFileSync('src/app/05-exam.js', 'utf8');
 const completionSource = examSource.slice(examSource.indexOf('  const examKeys'), examSource.indexOf('  const saveExam'));

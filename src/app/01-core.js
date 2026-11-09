@@ -539,23 +539,26 @@
     const show = (h, p, btn) => {
       box.innerHTML = `<div class="empty"><h2>${h}</h2><p>${p}</p>${btn ? '<p><button type="button" class="btn primary" id="bankReload">Обновить страницу</button></p>' : ''}</div>`;
       const b = $('#bankReload');
-      if (b) b.onclick = () => location.reload();
+      if (b) b.onclick = () => {
+        try { sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
+        location.reload();
+      };
     };
     let n = 0;
-    try { n = +sessionStorage.getItem('egeTrainer.bankTry') || 0; } catch (e) { /* нет доступа */ }
+    try {
+      n = Math.max(0, Math.floor(+sessionStorage.getItem('egeTrainer.bankTry') || 0));
+      // Запоминаем попытку до перезагрузки. Без хранилища автоматический цикл ограничить нельзя.
+      if (n < 3) sessionStorage.setItem('egeTrainer.bankTry', String(n + 1));
+    } catch (e) { n = 3; }
     if (n >= 3) {
-      try { sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
       return show(serverEmpty ? 'Задания временно недоступны' : 'Не удалось загрузить задания',
         serverEmpty ? 'На сайте идут работы. Попробуйте обновить страницу через пару минут.'
           : 'Проверьте интернет и обновите страницу. Если не помогает — подождите пару минут: возможно, сайт обновляется.', true);
     }
     show('Загружаем задания…', n ? 'Связь прервалась — пробуем ещё раз.' : 'Ещё секунду.', false);
-    setTimeout(() => {
-      try { sessionStorage.setItem('egeTrainer.bankTry', String(n + 1)); } catch (e) { /* нет доступа */ }
-      location.reload();
-    }, 2000 * 2 ** n);
+    setTimeout(() => location.reload(), 2000 * 2 ** n);
   }
-  try { if (window.EGE_BANK && window.EGE_BANK.tasks) sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
+  try { if (Array.isArray(window.EGE_BANK?.tasks) && window.EGE_BANK.tasks.length) sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
   const BANK = window.EGE_BANK;
   const trainerEl = $('#trainer');
 

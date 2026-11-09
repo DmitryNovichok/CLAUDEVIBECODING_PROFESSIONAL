@@ -143,7 +143,7 @@
     if (!SID) return over('Сеанс не найден', 'В ссылке нет номера сеанса.', [['В тренажёр', '/']]);
     try { ws = new WebSocket(wsUrl()); } catch (e) { return retry(); }
     let opened = false;
-    ws.onopen = () => { opened = true; };
+    ws.onopen = () => { opened = true; pingTs = pongAt = 0; };
     ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } onMsg(m); };
     ws.onclose = () => {
       ws = null;
@@ -166,7 +166,10 @@
   }
   setInterval(() => {
     if (!ws || ws.readyState !== 1) return;
-    if (pingTs && performance.now() - pingTs > 9000 && pongAt < pingTs) { ws.close(); return; }   // молчит — переподключиться
+    if (pingTs && pongAt < pingTs) {
+      if (performance.now() - pingTs >= 9000) ws.close();  // молчит — переподключиться
+      return;                                           // не сдвигать срок ожидания новым ping
+    }
     pingTs = performance.now();
     send({ t: 'ping', ts: pingTs });
   }, 3000);
@@ -292,6 +295,7 @@
     condTools();
     $('#tgSheet').classList.toggle('ro', ro || S.ended);
     $('#tgTools').style.display = ro || S.ended ? 'none' : '';
+    if (!canWrite()) selectText(null);
   }
   const canWrite = () => !S.ended && !S.expired && (S.teacher || !S.ro);
   setInterval(() => {
@@ -1705,7 +1709,10 @@
     return hit;
   }
   function selectText(id) {
+    const dragged = TS.drag && TS.id;
+    TS.drag = null;
     TS.id = id && canWrite() ? id : null;
+    if (dragged) commitLive(dragged);
     if (!TS.id) { if (TS.el) TS.el.hidden = true; return; }
     if (!TS.el) {
       TS.el = document.createElement('div');
@@ -1723,7 +1730,7 @@
   function placeSel() {
     if (!TS.id || !TS.el) return;
     const s = S.strokes.get(TS.id);
-    if (!s || S.tool !== 'text' || !canWrite()) { TS.id = null; TS.el.hidden = true; return; }
+    if (!s || S.tool !== 'text' || !canWrite()) { selectText(null); return; }
     const b = textBox(s), pad = 4;
     Object.assign(TS.el.style, { left: (b.x * k - pad) + 'px', top: (b.y * k - pad) + 'px', width: (b.w * k + pad * 2) + 'px', height: (b.h * k + pad * 2) + 'px' });
   }
@@ -1740,9 +1747,10 @@
   }
   const sendText = throttle(() => {
     const s = S.strokes.get(TS.id);
-    if (s) send({ t: 's~', page: S.page, id: s.id, p: s.p, fs: s.fs });
+    if (s && TS.drag && canWrite()) send({ t: 's~', page: S.page, id: s.id, p: s.p, fs: s.fs });
   }, 40);
   function textDragMove(e) {
+    if (!canWrite()) { selectText(null); return; }
     const d = TS.drag, s = d && S.strokes.get(TS.id);
     if (!s) return;
     const p = pt(e);
@@ -1757,6 +1765,7 @@
     sendText();
   }
   function textDragEnd() {
+    if (!canWrite()) { selectText(null); return; }
     if (!TS.drag) return;
     TS.drag = null;
     const s = S.strokes.get(TS.id);
@@ -1767,7 +1776,7 @@
     redraw();
   }
   document.addEventListener('keydown', e => {                // Delete — удалить выделенный текст, Esc — снять рамку
-    if (!TS.id || (e.target.closest && e.target.closest('input, textarea'))) return;
+    if (!TS.id || !canWrite() || (e.target.closest && e.target.closest('input, textarea, [contenteditable]'))) return;
     if (e.key === 'Escape') selectText(null);
     else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
