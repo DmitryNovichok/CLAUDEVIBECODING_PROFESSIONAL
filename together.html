@@ -94,9 +94,17 @@ body.tgp [hidden] { display: none !important; }
 .tg-ai { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* код и доска */
-.tg-main { flex: 1; display: grid; grid-template-columns: var(--cw, 1fr) 8px var(--bw, 1fr); min-height: 0; }
-.tg-app[data-mode="code"] .tg-main, .tg-app[data-mode="board"] .tg-main { grid-template-columns: 1fr; }
-.tg-app[data-mode="code"] .tg-split-v, .tg-app[data-mode="board"] .tg-split-v { display: none; }
+.tg-main { display: grid; min-height: 0; }
+.tg-app[data-mode="code"] .tg-main, .tg-app[data-mode="board"] .tg-main { grid-template-rows: 1fr; }
+.tg-app[data-mode="code"] #tgSplitMid, .tg-app[data-mode="board"] #tgSplitMid { display: none; }
+/* компьютер: задание — колонка слева на всю высоту, справа код (сверху) и доска (снизу) */
+.tg-work { flex: 1; display: flex; min-height: 0; }
+.tg-work > .tg-task { width: var(--tw, clamp(520px, 42%, 780px)); min-width: 520px; max-width: 60%; max-height: none; flex: none; border-bottom: 0; }
+.tg-work > .tg-task .tg-task-b { flex: 1; padding-top: 4px; }
+.tg-work > .tg-task.min { display: none; }
+.tg-work > .tg-task.min + .tg-split { display: none; }
+.tg-main { flex: 1; min-width: 0; grid-template-columns: 1fr; grid-template-rows: var(--cw, 1fr) 6px var(--bw, 1fr); }
+.tg-main .tg-code { border-right: 0; }
 /* границы панелей — тянутся мышью или пальцем; размеры запоминаются в браузере */
 .tg-split { flex: none; position: relative; z-index: 6; background: var(--border); transition: background .15s; touch-action: none; }
 .tg-split:hover, .tg-split.drag { background: var(--accent); }
@@ -201,6 +209,13 @@ body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resi
 .tg-tabs { display: none; }
 @media (max-width: 760px) { .tg-split { display: none !important; } }
 @media (max-width: 760px) {
+  .tg-work { flex-direction: column; }
+  .tg-work > .tg-task { width: auto; min-width: 0; max-width: none; }
+  .tg-app[data-tab="task"] .tg-work > .tg-task.min { display: flex; }
+  .tg-app[data-tab="task"] .tg-task.min .tg-ans { display: flex; }
+  .tg-app .tg-main { grid-template-rows: 1fr !important; }
+}
+@media (max-width: 760px) {
   .tg-top { padding: 7px 10px; gap: 8px; }
   .tg-title { display: none; }
   .tg-bar { padding: 6px 10px; }
@@ -234,6 +249,7 @@ body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resi
   </header>
   <div class="tg-bar">
     <span class="tg-seg" id="tgMode"><button type="button" data-m="board">✏️ Доска</button><button type="button" data-m="code">🐍 Код</button><button type="button" data-m="both">Код + доска</button></span>
+    <button type="button" class="tg-btn tg-hide-narrow" id="tgShowTask" hidden>📄 Показать задание ▸</button>
     <span class="tg-sp"></span>
     <span id="tgTBar" hidden>
       <button type="button" class="tg-btn" id="tgInvite" title="Позвать ещё учеников">＋ Позвать</button>
@@ -247,6 +263,7 @@ body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resi
       <a class="tg-btn red" href="/">Выйти</a>
     </span>
   </div>
+  <div class="tg-work" id="tgWork">
   <section class="tg-task" id="tgTask">
     <div class="tg-rec" id="tgRec" hidden></div>
     <div class="tg-task-h">📄 <span class="tg-num" id="tgNum">Без задания</span><span class="tg-pages" id="tgPages"></span>
@@ -257,7 +274,7 @@ body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resi
         <button type="button" class="tg-btn sm" id="tgCClear" hidden title="Стереть все пометки на условии">🗑️</button>
       </span>
       <button type="button" class="tg-btn sm" id="tgPick" hidden>Сменить задание</button>
-      <button type="button" class="tg-btn sm tg-hide-narrow" id="tgMin">Свернуть ▴</button>
+      <button type="button" class="tg-btn sm tg-hide-narrow" id="tgMin" title="Спрятать задание — коду и доске больше места">Скрыть ◂</button>
     </div>
     <div class="tg-task-b">
       <div id="tgCond"></div>
@@ -269,7 +286,7 @@ body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resi
       <span class="tg-key" id="tgKey" hidden><button type="button" class="tg-btn sm" id="tgKeyBtn">🔑 Показать ответ</button> <b id="tgKeyV" hidden></b></span>
     </div>
   </section>
-  <div class="tg-split tg-split-h" id="tgSplitTask" role="separator" aria-orientation="horizontal" title="Потяните — изменить высоту условия"></div>
+  <div class="tg-split tg-split-v" id="tgSplitTask" role="separator" aria-orientation="vertical" title="Потяните — задание шире или уже"></div>
   <main class="tg-main" id="tgMain">
     <section class="tg-code" id="tgCode">
       <div class="tg-code-bar">🐍 Python <span class="tg-files" id="tgFiles"></span><span class="tg-sp"></span>
@@ -302,7 +319,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
         <pre id="tgOut"></pre>
       </div>
     </section>
-    <div class="tg-split tg-split-v" id="tgSplitMid" role="separator" aria-orientation="vertical" title="Потяните — код шире или доска шире"></div>
+    <div class="tg-split tg-split-h" id="tgSplitMid" role="separator" aria-orientation="horizontal" title="Потяните — больше места коду или доске"></div>
     <section class="tg-board">
       <div class="tg-tools" id="tgTools">
         <button type="button" data-tool="pen" class="cur" title="Ручка (P)">✏️</button>
@@ -322,6 +339,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
       <div class="tg-note" id="tgBNote" hidden></div>
     </section>
   </main>
+  </div>
   <nav class="tg-tabs" id="tgTabs">
     <button type="button" data-tab="task">📄 Задание</button><button type="button" data-tab="code">🐍 Код</button><button type="button" data-tab="board" class="cur">✏️ Доска</button><button type="button" data-tab="out">💬 Вывод</button>
   </nav>
