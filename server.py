@@ -71,7 +71,7 @@ BANK_JS = HERE / "data" / "bank.js"
 EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк Egeshka (tools/gen_egeshka.py) — подмешивается к bank.js
 
 # что можно отдавать из папки trainer
-SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "changelog.js",
+SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
               "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js",
               "terms.html", "privacy.html", "consent.html", "legal.css",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне

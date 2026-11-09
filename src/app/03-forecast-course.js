@@ -428,6 +428,7 @@
     try {
       if (examShown) return;
       if (st.v === 'course') openCourse();
+      else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'tourpage') tourOpen();
       else if (st.v === 'exams') openExamsPage();
@@ -475,6 +476,7 @@
   }
   function leaveCourse() {
     if (!courseShown) return;
+    if (pageKind === 'lab') { labStop(); document.body.classList.remove('lab-open'); }
     courseShown = false;
     pageKind = null;
     document.body.classList.remove('asg-wide');

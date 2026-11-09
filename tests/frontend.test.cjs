@@ -3,6 +3,47 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+function labModels() {
+  const code = fs.readFileSync('src/app/12j-labs.js', 'utf8');
+  const c = vm.createContext({});
+  vm.runInContext(code.slice(code.indexOf('  function labNetwork('), code.indexOf('  const LAB_EXAMPLES')), c);
+  return c;
+}
+test('IP laboratory handles every prefix without signed overflow', () => {
+  const c = labModels();
+  for (let p = 0; p <= 32; p++) {
+    const n = c.labNetwork('192.168.1.130', p);
+    assert.equal(n.count, 2 ** (32 - p));
+    assert.ok(n.start <= n.ip && n.end >= n.ip);
+    assert.equal(n.end - n.start + 1, n.count);
+  }
+  const n = c.labNetwork('192.168.1.130', 26);
+  assert.equal(n.network, '192.168.1.128');
+  assert.equal(n.last, '192.168.1.191');
+  assert.equal(n.mask, '255.255.255.192');
+  assert.equal(c.labNetwork('255.255.255.255', 0).last, '255.255.255.255');
+  assert.equal(c.labNetwork('255.255.255.255', 32).count, 1);
+  for (const ip of ['', '1.2.3', '1.2.3.256', '-1.2.3.4', '1e2.2.3.4', '<script>']) assert.throws(() => c.labNetwork(ip, 24));
+  assert.throws(() => c.labNetwork('1.2.3.4', 24.5));
+});
+test('image laboratory rounds packed bits to bytes, validates dimensions', () => {
+  const c = labModels();
+  assert.equal(c.labImageSize(1, 1, 1).bytes, 1);
+  assert.equal(c.labImageSize(3, 3, 1).bytes, 2);
+  assert.equal(c.labImageSize(640, 480, 8).bytes, 307200);
+  assert.equal(c.labImageSize(8192, 8192, 24).bytes, 201326592);
+  for (const args of [[0,1,8], [1,1,25], [1.5,1,8], [9000,1,8], [NaN,1,8]]) assert.throws(() => c.labImageSize(...args));
+});
+test('game laboratory stops at victory, including an overshooting move', () => {
+  const c = labModels();
+  assert.equal(c.labGameMoves(7,30,2,2)[0].value, 9);
+  assert.equal(c.labGameMoves(7,30,2,2)[1].value, 14);
+  assert.equal(c.labGameMoves(30,30,2,2).length, 0);
+  assert.equal(c.labGameMoves(199,200,1,5)[1].value, 995);
+  assert.equal(c.labGameMoves(995,200,1,5).length, 0);
+  assert.throws(() => c.labGameMoves(7,30,2,1));
+});
+
 function bankRetryContext(storage, bank) {
   const box = {innerHTML:''}, timers = [], button = {};
   let reloads = 0;

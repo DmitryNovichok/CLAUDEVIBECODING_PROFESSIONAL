@@ -28,24 +28,27 @@
       return;
     }
     renderSidebar();
+    const labRequested = location.hash === '#lab';
     const saved = ui.currentId && byId.get(ui.currentId);
-    if (saved && inScope(saved)) {
+    if (labRequested) {
+      openLab();
+    } else if (saved && inScope(saved)) {
       const s = P.tasks[saved.id];
       show({ task: saved, why: { type: s ? 'repeat' : 'new' } });
     } else {
       next();
     }
-    const fresh = !P.log.length && !tourSeen();
+    const fresh = !labRequested && !P.log.length && !tourSeen();
     if (fresh) { setTimeout(openTour, 400); promoNext = true; }       // новичку — коротко о том, как всё устроено (потом — акция)
     // после обновления — истории «Что нового» (один раз), иначе — объявление об акции (раз в день); сводка дня — в другой раз
-    const promo = !fresh && SERVER && student && (storiesAuto() || promoAuto());
+    const promo = !labRequested && !fresh && SERVER && student && (storiesAuto() || promoAuto());
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
       setTimeout(() => togHistory(false), 1600);                      // записи занятий — кнопка 👥 слева
-      if (!fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
+      if (!labRequested && !fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
     }
   }

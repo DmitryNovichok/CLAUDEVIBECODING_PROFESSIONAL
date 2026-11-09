@@ -381,14 +381,16 @@
 
   // ------------------------------------------------------------ учитель решает как ученик
   // Сервер выдаёт учительский аккаунт ученика (без кода и пароля) и ставит его cookie — тренажёр открывается уже с входом
-  $('#asStudentBtn').addEventListener('click', async () => {
+  async function openAsStudent(target = './') {
     const w = window.open('', '_blank');
     try {
       const d = await api('as-student', {});
       try { localStorage.setItem('egeTrainer.student.v1', JSON.stringify({ sid: d.sid, name: d.name, token: d.token, at: Date.now() })); } catch (e) { /* нет доступа */ }
-      if (w) w.location.href = './'; else location.href = './';
+      if (w) w.location.href = target; else location.href = target;
     } catch (err) { if (w) w.close(); if (err.status !== 401) toast(err.message); }
-  });
+  }
+  $('#asStudentBtn').addEventListener('click', () => openAsStudent());
+  $('#adminLabBtn')?.addEventListener('click', () => openAsStudent('./#lab'));
 
   // ------------------------------------------------------------ статистика всего сайта (главный учитель)
   // ------------------------------------------------------------ ошибки JavaScript у учеников и учителей (главному учителю)
