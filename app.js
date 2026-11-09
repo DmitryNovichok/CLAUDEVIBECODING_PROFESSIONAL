@@ -10079,7 +10079,11 @@
     if (e.target.id === 'labCode' && e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); const t = e.target; t.setRangeText('    ', t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input', { bubbles: true })); }
   });
   new MutationObserver(() => {
-    if (!labActive()) { labStop(); document.body.classList.remove('lab-open'); $('#labCard')?.classList.remove('on'); }
+    if (!labActive()) {
+      labStop();
+      if ((pageKind !== 'lab' || !courseShown) && LAB.context) { labSaveDraft(); LAB.context = null; LAB.owner = null; }
+      document.body.classList.remove('lab-open'); $('#labCard')?.classList.remove('on');
+    }
   }).observe(trainerEl, { childList: true });
   window.addEventListener('pagehide', labStop);
   // ═══════ src/app/13-live.js

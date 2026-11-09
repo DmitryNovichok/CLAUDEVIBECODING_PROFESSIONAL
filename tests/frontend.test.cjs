@@ -343,3 +343,13 @@ test('checking an active beginner task preserves code that has not been autosave
   assert.equal(editor.value,'print(14)');assert.equal(input.value,'custom input');
   c.pycOpenPy(task.id,'print(99)');assert.equal(editor.value,'print(99)');
 });
+test('leaving a lesson lab detaches its draft; loading a protected lab keeps the return context', () => {
+  const code=fs.readFileSync('src/app/12j-labs.js','utf8'); let callback, saved=0;
+  const c=vm.createContext({MutationObserver:class{constructor(fn){callback=fn}observe(){}},trainerEl:{},labActive:()=>false,labStop(){},
+    pageKind:'lab',courseShown:true,LAB:{context:{task:'m01.example'},owner:'student'},labSaveDraft(){saved++},
+    document:{body:{classList:{remove(){}}}},$:()=>({classList:{remove(){}}})});
+  vm.runInContext(code.slice(code.indexOf('  new MutationObserver'),code.indexOf("  window.addEventListener('pagehide'")),c);
+  callback();assert.equal(c.LAB.context.task,'m01.example');assert.equal(saved,0);
+  c.pageKind='pyc';callback();assert.equal(saved,1);assert.equal(c.LAB.context,null);assert.equal(c.LAB.owner,null);
+  callback();assert.equal(saved,1);
+});
