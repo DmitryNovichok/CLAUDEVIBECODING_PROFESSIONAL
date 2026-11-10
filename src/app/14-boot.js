@@ -315,5 +315,5 @@
     start();
     if (!storage) toast('Браузер запретил сохранение — прогресс не сохранится после закрытия страницы.', 5000);
   }
-  boot();
+  boot().finally(() => document.body.classList.remove('app-loading'));
 })();
