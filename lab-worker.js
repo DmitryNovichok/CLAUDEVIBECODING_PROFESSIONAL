@@ -20,11 +20,14 @@ def _lab_run(source, stdin=''):
         pass
     class Output(_lab_io.StringIO):
         truncated = False
+        units = 0  # смещения JavaScript считаются в UTF-16, включая эмодзи
         def write(self, text):
             left = max(0, 20000 - self.tell())
             if len(text) > left:
                 self.truncated = True
-            super().write(text[:left])
+            piece = text[:left]
+            self.units += len(piece) + sum(ord(ch) > 0xffff for ch in piece)
+            super().write(piece)
             return len(text)
     out = Output()
     def describe(value, depth=0):
@@ -76,7 +79,7 @@ def _lab_run(source, stdin=''):
                 stack.append({'name': current.f_code.co_name, 'line': current.f_lineno})
             current = current.f_back
         step = {'event': event, 'line': frame.f_lineno, 'function': frame.f_code.co_name,
-                'variables': variables(frame), 'stack': stack, 'out': out.tell()}
+                'variables': variables(frame), 'stack': stack, 'out': out.units}
         if event == 'return':
             step['returnValue'] = describe(arg)
         if event == 'exception':

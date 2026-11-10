@@ -2375,8 +2375,23 @@ class ServerTest(unittest.TestCase):
         import shutil
         src = Path(server.__file__).resolve().parent / "arduino"          # сайт в тестах живёт во временной папке — кладём лабораторию туда же
         shutil.copytree(src, server.HERE / "arduino", dirs_exist_ok=True, ignore=shutil.ignore_patterns("source"))
-        st, body = self.req("GET", "/arduino/")
+        tok = self.login("Макетов Электрон")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        db = server.APP.db
+        old_pw = db.setting("lab_pw")
+        self.addCleanup(db.setting, "lab_pw", old_pw or "")
+        self.addCleanup(db.x, "DELETE FROM students WHERE id=?", (sid,))
+        db.setting("lab_pw", server.hash_pw("synthetic-arduino-lab"))
+        for path in ("/arduino/", "/arduino/index.html"):
+            self.assertEqual(self.req("GET", path)[0], 302)
+            self.assertEqual(self.req("GET", path, token=tok)[0], 302)
+        server.APP.db.x("UPDATE students SET lab=1 WHERE id=?", (sid,))
+        st, body = self.req("GET", "/arduino/", token=tok)
         self.assertEqual(st, 200)
+        self.assertIn(b'egeshka.js?v=', body)
+        self.assertIn(b'data-src="app.js?v=', body)
+        server.APP.db.x("UPDATE students SET lab=0 WHERE id=?", (sid,))
+        self.assertEqual(self.req("GET", "/arduino/", token=tok)[0], 302)
         self.assertIn(b"egeshka.js", body)
         self.assertIn(b"app.js", body)
         for f in ("app.js", "elements.js", "egeshka.js", "lab.css", "blink-uno.hex", "licenses.txt", "LICENSE",

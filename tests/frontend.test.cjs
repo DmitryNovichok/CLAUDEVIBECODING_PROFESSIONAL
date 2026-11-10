@@ -660,3 +660,87 @@ test('daily refresh keeps accepted data on failure and rejects old account respo
   const fourth=c.loadDaily(),fifth=c.loadDaily();requests[4].resolve({ready:true,n:6});await fifth;
   requests[3].resolve({ready:true,n:5});await fourth;assert.equal(vm.runInContext('DAILY.n',c),6);
 });
+
+function bugLabContext() {
+  const nodes = new Map(), workers = [], timers = new Map();
+  let timerId=0, apiResolve, apiReject, apiCalls=0;
+  const $ = selector => {
+    if (!nodes.has(selector)) nodes.set(selector,{value:'print(1)',disabled:false,hidden:false,textContent:'',innerHTML:'',scrollIntoView(){}});
+    return nodes.get(selector);
+  };
+  class Worker {
+    constructor() { workers.push(this); this.terminated=false; }
+    postMessage(m) { this.message=m; }
+    terminate() { this.terminated=true; }
+    emit(data) { this.onmessage({data}); }
+  }
+  const c=vm.createContext({$,Worker,student:{sid:1},RULES:{},LAB:{view:'bugs'},labActive:()=>true,
+    codeKey:id=>'code:'+id,readJSON:()=>null,writeJSON:()=>{},
+    trainerEl:{addEventListener(){}},window:{addEventListener(){}},MutationObserver:class{observe(){}},
+    setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id},clearTimeout:id=>timers.delete(id),
+    api:()=>{apiCalls++;return new Promise((resolve,reject)=>{apiResolve=resolve;apiReject=reject})},
+    plural:()=>'',esc:String,safeHtml:String});
+  vm.runInContext(fs.readFileSync('src/app/12k-buglab.js','utf8'),c);
+  vm.runInContext(`BUG.cases=[{id:'one',code:'print(1)',tests:[{in:'',open:true}],my:{},hints:[]}];BUG.cur='one';
+    bugRenderHints=()=>{};bugRenderResult=()=>{};bugRenderList=()=>{};bugRenderCase=()=>{};`,c);
+  return {c,$,workers,timers,apiCalls:()=>apiCalls,resolve:r=>apiResolve(r),reject:e=>apiReject(e)};
+}
+test('bug lab blocks duplicate checks during Python loading and server verification', async()=>{
+  const x=bugLabContext();
+  const check=x.c.bugCheck();
+  await x.c.bugCheck();
+  assert.equal(x.workers.length,1);
+  assert.equal(x.$('#bugOwnRun').disabled,true);
+  x.workers[0].emit({type:'test',i:0,result:{out:'1'}});
+  x.workers[0].emit({type:'tests-done'});
+  await Promise.resolve();
+  assert.equal(x.apiCalls(),1);
+  await x.c.bugCheck();
+  assert.equal(x.workers.length,1,'server response is still pending');
+  x.resolve({ok:true,my:{ok:1,star:1},tests:[],changed:1,par:1});
+  await check;
+  assert.equal(x.$('#bugCode').disabled,false);
+});
+test('bug lab ignores an old verification after stop and restart of the same exercise', async()=>{
+  for (const fail of [false,true]) {
+    const x=bugLabContext(), old=x.c.bugCheck();
+    x.workers[0].emit({type:'test',i:0,result:{out:'1'}});x.workers[0].emit({type:'tests-done'});
+    await Promise.resolve();
+    x.c.bugStop();
+    const next=x.c.bugCheck();
+    if(fail)x.reject(Error('old request failed'));else x.resolve({ok:true,my:{ok:1},tests:[],changed:1,par:1});
+    await old;
+    assert.equal(x.$('#bugCode').disabled,true);
+    assert.equal(vm.runInContext('BUG.cases[0].my.ok',x.c),undefined);
+    assert.equal(x.workers[1].terminated,false);
+    x.c.bugStop();await next;
+  }
+});
+test('stopping bug lab settles its promise and ignores late worker errors',async()=>{
+  const x=bugLabContext();
+  const run=x.c.bugRunAll('while True: pass',['']);
+  const stopped=assert.rejects(run,/stopped/);
+  x.c.bugStop();await stopped;
+  const next=x.c.bugRunAll('print(1)',['']);
+  x.workers[0].onerror();
+  assert.equal(x.workers[1].terminated,false);
+  x.workers[1].emit({type:'test',i:0,result:{out:'1'}});x.workers[1].emit({type:'tests-done'});
+  assert.equal((await next)[0].out,'1');
+});
+test('bug lab marks only the stalled test as timed out and the rest as unstarted',async()=>{
+  const x=bugLabContext();
+  const run=x.c.bugRunAll('while True: pass',['','','']);
+  x.workers[0].emit({type:'tests-start'});
+  [...x.timers.values()].find(t=>t.ms===12000).fn();
+  const results=await run;
+  assert.deepEqual(Array.from(results,r=>r.skipped),[false,true,true]);
+});
+test('bug lab never installs previous pupil progress from a delayed response',async()=>{
+  const x=bugLabContext();
+  vm.runInContext('BUG.cases=null;BUG.owner=1;',x.c);
+  const pending=x.c.bugLabInit();
+  x.c.student={sid:2};x.c.resetBugLab();
+  x.resolve({cases:[{id:'private-old',my:{ok:1}}]});await pending;
+  assert.equal(vm.runInContext('BUG.cases',x.c),null);
+  assert.equal(vm.runInContext('BUG.cur',x.c),null);
+});

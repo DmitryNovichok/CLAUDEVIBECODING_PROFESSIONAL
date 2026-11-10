@@ -1,23 +1,58 @@
-/* Связка лаборатории Arduino (MicroLab) с сайтом Egeshka — этот файл добавлен при встраивании, остальное приложение не менялось.
+/* Связка лаборатории Arduino (MicroLab) с сайтом Egeshka — вход, проверка доступа и запуск приложения.
    1) Лаборатория — раздел для вошедших учеников с доступом к лабораториям: без входа — на сайт, без доступа — к окну с паролем.
    2) Кнопка «← Egeshka» возвращает на главную сайта.
-   Открыли index.html с диска (без сервера) — работает как есть, без проверки. */
+   На сайте приложение запускается после проверки доступа, с отдельными сохранениями каждого ученика. */
 (function () {
-  if (!/^https?:$/.test(location.protocol)) return;
-  var root = document.documentElement, token = '';
-  try { token = (JSON.parse(localStorage.getItem('egeTrainer.student.v1') || 'null') || {}).token || ''; } catch (e) { /* нет доступа к хранилищу */ }
-  root.style.visibility = 'hidden';                       // пока идёт проверка, страница не мелькает
-  var show = function () { root.style.visibility = ''; };
-  var headers = token ? { 'X-Token': token } : {};
-  fetch('/api/me', { headers: headers, credentials: 'same-origin' }).then(function (r) {
-    if (r.status === 401) { location.replace('/'); return null; }
-    return r.ok ? r.json() : {};
-  }).then(function (me) {
-    if (me === null) return;
-    if (me && me.name !== undefined && !me.lab) { location.replace('/#lab'); return; }
-    show();
-  }).catch(show);                                         // сервер недоступен — не запираем уже открытую лабораторию
-  setTimeout(show, 4000);
+  var remote = /^https?:$/.test(location.protocol), started = false, checking = false;
+  window.EGE_ARDUINO_REQUIRE_AUTH = remote;
+  // Приложение читает проекты только после проверки ученика; ошибка сети не снимает замок.
+  var launch = function (sid) {
+    if (started) return;
+    started = true; window.EGE_ARDUINO_SID = sid;
+    var script = document.createElement('script');
+    script.type = 'module'; script.src = document.getElementById('egeArduinoApp').getAttribute('data-src');
+    script.onload = function () { document.getElementById('egeGate').hidden = true; document.getElementById('appShell').hidden = false; };
+    script.onerror = function () { showError('Не удалось загрузить лабораторию. Обнови страницу.'); };
+    document.body.appendChild(script);
+  };
+  var showError = function (text) {
+    document.getElementById('egeGateText').textContent = text;
+    document.getElementById('egeGateRetry').hidden = false;
+  };
+  var check = async function () {
+    if (checking) return;
+    checking = true;
+    var controller = new AbortController(), timer = setTimeout(function () { controller.abort(); }, 10000);
+    document.getElementById('egeGateRetry').hidden = true;
+    document.getElementById('egeGateText').textContent = 'Проверяем доступ к лаборатории…';
+    try {
+      // Cookie принадлежит текущему входу; старый токен другого ученика из localStorage не используем.
+      var r = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+      if (r.status === 401) { location.replace('/'); return; }
+      if (!r.ok) throw Error('network');
+      var me = await r.json();
+      if (!Number.isSafeInteger(me.sid) || me.sid <= 0) throw Error('identity');
+      if (!me.lab) { location.replace('/#lab'); return; }
+      if (started && me.sid !== window.EGE_ARDUINO_SID) { location.reload(); return; }
+      if (started) {
+        document.getElementById('egeGate').hidden = true;
+        document.getElementById('appShell').hidden = false;
+      } else launch(me.sid);
+    } catch (e) { showError('Не удалось проверить доступ. Проверь соединение и повтори.'); }
+    finally { checking = false; clearTimeout(timer); }
+  };
+  var recheck = function () {
+    if (!remote || !started || document.visibilityState === 'hidden') return;
+    document.getElementById('appShell').hidden = true;
+    document.getElementById('egeGate').hidden = false;
+    check();
+  };
+  document.addEventListener('visibilitychange', recheck);
+  window.addEventListener('pageshow', function (e) { if (e.persisted) recheck(); });
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('egeGateRetry').onclick = function () { if (started) location.reload(); else check(); };
+    if (remote) check(); else launch(null);
+  });
   document.addEventListener('DOMContentLoaded', function () {
     var a = document.createElement('a');
     a.id = 'egeBack'; a.href = '/'; a.title = 'Вернуться на главную Egeshka';

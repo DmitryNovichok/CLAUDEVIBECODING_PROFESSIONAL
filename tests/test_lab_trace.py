@@ -81,3 +81,11 @@ class LabTraceTest(unittest.TestCase):
         self.assertEqual(v['t'], '(1, 2)')
         self.assertEqual(len(r['output']), 20000)
         self.assertTrue(r['outputTruncated'])
+
+    def test_unicode_output_offsets_match_javascript_utf16(self):
+        r = self.run_trace('print("😀")\nx = 1\nprint("ещё")')
+        steps = [s for s in r['steps'] if s['event'] == 'line']
+        self.assertEqual(steps[1]['out'], 3)  # surrogate pair + newline
+        encoded = r['output'].encode('utf-16-le')
+        self.assertEqual(encoded[:steps[1]['out'] * 2].decode('utf-16-le'), '😀\n')
+        self.assertEqual(encoded[:r['steps'][-1]['out'] * 2].decode('utf-16-le'), r['output'])
