@@ -424,6 +424,9 @@
   }
   window.addEventListener('popstate', e => {
     const st = e.state || { v: 'main' };
+    // закрылось окно-страница: страница под ним уже на экране — перерисовывать её не нужно
+    if (typeof hubSkipPop !== 'undefined' && hubSkipPop) { hubSkipPop = false; return; }
+    if (typeof hubModalState !== 'undefined' && hubModalState) return;
     navSilent = true;
     try {
       if (examShown) return;

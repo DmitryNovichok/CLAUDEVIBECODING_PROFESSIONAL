@@ -21,3 +21,19 @@ for node in ast.parse(Path('server.py').read_text()).body:
     if isinstance(node, ast.Assign) and any(isinstance(t,ast.Name) and t.id == 'TASK_BTC' for t in node.targets):
         if not (isinstance(node.value,ast.Call) and isinstance(node.value.func,ast.Name) and node.value.func.id == 'private_rewards'):
             raise SystemExit('Production reward policy must come from private_config.json')
+
+# Следы незавершённого слияния (<<<<<<<, =======, >>>>>>>) в коде и стилях ломают сайт молча — не пропускаем.
+import re
+marks = []
+for name in filter(None, paths):
+    if PurePosixPath(name).suffix not in ('.js', '.css', '.html', '.py', '.cjs', '.sh', '.json', '.md', '.yml'):
+        continue
+    try:
+        text = Path(name).read_text(encoding='utf-8')
+    except (OSError, UnicodeDecodeError):
+        continue
+    for i, line in enumerate(text.split('\n'), 1):
+        if re.match(r'^(<{7} |={7}$|>{7} )', line):
+            marks.append(f'{name}:{i}')
+if marks:
+    raise SystemExit('Unresolved merge markers:\n' + '\n'.join(marks[:20]))
