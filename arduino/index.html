@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Лаборатория Arduino — Egeshka</title>
+<meta name="description" content="Изучайте электронику шаг за шагом. Выбирайте платы, собирайте схемы и создавайте свои первые устройства в MicroLab.">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='1' fill='%2358cf00'/%3E%3Ctext x='16' y='23' font-family='Georgia,serif' font-size='22' text-anchor='middle' fill='%23ffffff'%3E%CE%BC%3C/text%3E%3C/svg%3E">
+<script src="egeshka.js"></script>
+<link rel="stylesheet" href="academy.css">
+<link rel="stylesheet" href="lab.css">
+<link rel="stylesheet" href="classroom.css">
+<script src="elements.js"></script>
+</head>
+<body>
+<div id="appShell">
+  <aside id="sidebar"></aside>
+  <div id="appContent">
+    <div id="topbar"></div>
+    <div id="pageView"></div>
+
+    <section id="labView" hidden>
+      <header id="labHeader">
+        <div class="lab-title">
+          <input id="projectName" aria-label="Название проекта" value="Мой первый проект" spellcheck="false">
+          <span class="saved" id="saveState" data-state="saved"><i></i><span>Сохранено</span></span>
+        </div>
+        <div class="spacer"></div>
+        <button id="examples" class="ghost"><i data-icon="flask"></i><span>Примеры</span></button>
+        <button id="import" class="ghost"><i data-icon="upload"></i><span>Импорт</span></button>
+        <button id="export" class="ghost"><i data-icon="download"></i><span>Экспорт</span></button>
+        <button id="help" class="ghost icon-only" title="Справка" aria-label="Справка"><i data-icon="help"></i></button>
+        <button id="versions" class="ghost icon-only" aria-label="История сохранений" title="История сохранений"><i data-icon="clock"></i></button>
+        <button id="save" class="primary"><i data-icon="save"></i><span>Сохранить</span></button>
+      </header>
+
+      <div id="lessonDock" hidden></div>
+      <div id="circuitDiagnostics" role="alert" hidden></div>
+
+      <nav id="mobileLabTabs" aria-label="Панели лаборатории"><button data-panel="task">Задание</button><button data-panel="code" class="active">Код</button><button data-panel="circuit">Схема</button></nav>
+      <main id="labMain">
+        <section class="editor-pane">
+          <nav class="tabs" role="tablist">
+            <button class="active" data-tab="code" role="tab"><i data-icon="code"></i><span id="filename">sketch.ino</span></button>
+            <button data-tab="diagram" role="tab"><i data-icon="braces"></i><span>diagram.json</span></button>
+            <button data-tab="libraries" role="tab"><i data-icon="package"></i><span>Библиотеки</span></button>
+            <div class="spacer"></div>
+            <span class="board-tag" id="editorBoard">Arduino Uno</span>
+          </nav>
+
+          <div class="editor-area" id="codePanel">
+            <div class="code-wrap">
+              <div id="lineNumbers" aria-hidden="true"></div>
+              <div class="code-surface">
+                <div id="errorMarker" hidden></div>
+                <pre id="highlight" aria-hidden="true"></pre>
+                <textarea id="code" spellcheck="false" aria-label="Код программы" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
+              </div>
+            </div>
+            <div id="editorError" role="alert" hidden></div>
+            <div class="editor-bottom"><span id="cursor">Стр. 1, стлб. 1</span><span>Ctrl / — комментарий · Tab — отступ</span></div>
+          </div>
+          <div id="libraryPanel" hidden></div>
+
+          <div class="console">
+            <nav>
+              <button class="active" data-console="serial"><i data-icon="terminal"></i><span>Монитор порта</span></button>
+              <button data-console="logs"><i data-icon="list"></i><span>Журнал</span></button>
+              <div class="spacer"></div>
+              <button id="clearConsole" class="tool" title="Очистить" aria-label="Очистить"><i data-icon="trash"></i></button>
+            </nav>
+            <pre id="consoleOutput"></pre>
+            <form id="serialForm">
+              <input id="serialInput" placeholder="Отправить в Serial…" aria-label="Данные для Serial" autocomplete="off">
+              <select id="lineEnding" aria-label="Окончание строки">
+                <option value="&#10;">Новая строка</option>
+                <option value="">Без окончания</option>
+                <option value="&#13;&#10;">CR + LF</option>
+              </select>
+              <button class="tool" title="Отправить" aria-label="Отправить"><i data-icon="send"></i></button>
+            </form>
+          </div>
+        </section>
+
+        <div class="splitter" id="splitter" role="separator" aria-label="Изменить ширину панелей"></div>
+
+        <section class="simulation-pane">
+          <div class="sim-toolbar">
+            <button id="run" class="run" title="Запустить / остановить (Ctrl+Enter)"></button>
+            <button id="restart" class="tool" title="Перезапустить" aria-label="Перезапустить"><i data-icon="restart"></i></button>
+            <span class="tool-divider"></span>
+            <button id="addPart" class="tool labeled" aria-label="Добавить компонент" title="Добавить компонент"><i data-icon="plus"></i><span>Компонент</span></button>
+            <button id="firmware" class="tool labeled" title="Загрузить прошивку HEX / UF2"><i data-icon="chip"></i><span>Прошивка</span></button>
+            <button id="compile" class="tool labeled" title="Собрать прошивку через Arduino CLI" hidden><i data-icon="hammer"></i><span>Собрать HEX</span></button>
+            <div class="spacer"></div>
+            <button id="engineBadge" class="mode-chip"></button>
+            <button id="settings" class="tool" title="Настройки симуляции" aria-label="Настройки"><i data-icon="settings"></i></button>
+          </div>
+          <div id="canvas">
+            <div class="canvas-top"><span class="status-pill"><span class="status-dot"></span><span id="simState">Готов к запуску</span><span id="timer">00:00.0</span></span></div>
+            <div id="world"><svg id="wires"></svg><div id="parts"></div></div>
+            <div id="inspector" hidden></div>
+            <div class="canvas-hint" id="canvasHint"></div>
+            <div class="zoom">
+              <button id="zoomOut" aria-label="Уменьшить"><i data-icon="minus"></i></button>
+              <span id="zoomValue">100%</span>
+              <button id="zoomIn" aria-label="Увеличить"><i data-icon="plus"></i></button>
+              <i class="zoom-sep"></i>
+              <button id="fit" title="Показать всю схему" aria-label="Показать всю схему"><i data-icon="fit"></i></button>
+            </div>
+          </div>
+          <footer class="sim-footer"><span id="partCount">1 компонент</span><span id="wireCount">0 соединений</span><div class="spacer"></div><span class="local-note">Выполняется в вашем браузере</span></footer>
+        </section>
+      </main>
+    </section>
+  </div>
+</div>
+
+<dialog id="modal">
+  <div class="modal-head"><div><small id="modalKicker">MICROLAB</small><h2 id="modalTitle"></h2></div><button id="closeModal" class="tool" aria-label="Закрыть"><i data-icon="x"></i></button></div>
+  <div id="modalBody"></div>
+</dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="fileInput" hidden accept=".json,application/json">
+<input type="file" id="firmwareInput" hidden accept=".hex,.uf2">
+<script type="module" src="app.js"></script>
+</body>
+</html>
