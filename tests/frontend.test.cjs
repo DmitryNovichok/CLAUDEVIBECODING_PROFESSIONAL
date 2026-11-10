@@ -435,7 +435,7 @@ test('jumping over a modal restores the target route, including Forward', () => 
 });
 
 function hubPlanContext() {
-  const c=vm.createContext({ASG:[], asgOrder:()=>0, DAILY:null, hubWeakNums:()=>[],
+  const c=vm.createContext({SERVER:false,student:null,DAILY_STATE:'loading',dailyNotice:()=> 'Загружаем задание…',ASG:[], asgOrder:()=>0, DAILY:null, hubWeakNums:()=>[],
     hubDueCount:()=>0, fireNeed:()=>3, hubTodayCount:()=>0, hubMins:()=>'',
     numLabel:n=>String(n), plural:()=>'', fmtMs:()=>'', viewPrefs:()=>({focus:false})});
   vm.runInContext(sourceBetween('src/app/13c-hub.js', '  function hubPlan()', '  // ------------------------------------------------------------ разделы'),c);
@@ -622,4 +622,41 @@ test('teacher student list ignores the previous filter response',async()=>{
   requests[1].resolve({students:[{id:2}]});await second;
   requests[0].resolve({students:[]});await first;
   assert.equal(c.students[0].id,2);assert.equal(draws.length,1);
+});
+
+test('daily and duel tiles keep their slots before data arrives and after a failed refresh',()=>{
+  const nodes={};const c=vm.createContext({SERVER:true,student:{sid:1},TEACHER:false,DAILY:null,DAILY_STATE:'loading',
+    P:{log:[]},ASG:[],asgPending:()=>false,GAME:{coins:0},EX:null,LAB_OK:true,prefs:{fav:[]},
+    hubMastered:()=>'',hubMap:()=>'',hubWeekBars:()=>'',dailyNotice:()=> 'Загружаем задание…',
+    numLabel:String,plural:()=>'',viewPrefs:()=>({focus:false}),$:id=>nodes[id]||{hidden:true,textContent:'вызови соперника'}});
+  for(const id of ['#labCard','#pycCard','#coinCard'])nodes[id]={hidden:false};
+  vm.runInContext(sourceBetween('src/app/13c-hub.js','  function hubTiles()', '  function hubMastered()'),c);
+  const initial=Array.from(c.hubTiles(),x=>x.k);
+  assert.ok(initial.includes('daily'));assert.ok(initial.includes('duel'));
+  c.DAILY={ready:true,n:5,started:null};c.DAILY_STATE='ready';
+  assert.deepEqual(Array.from(c.hubTiles(),x=>x.k),initial);
+  c.DAILY=null;c.DAILY_STATE='error';
+  assert.deepEqual(Array.from(c.hubTiles(),x=>x.k),initial);
+  assert.equal(c.hubTiles().find(x=>x.k==='daily').btn,'Повторить загрузку');
+  c.viewPrefs=()=>({focus:true});assert.ok(c.hubTiles().every(x=>!['daily','duel'].includes(x.k)));
+  c.viewPrefs=()=>({focus:false});c.TEACHER=true;assert.ok(c.hubTiles().every(x=>x.k!=='duel'));
+});
+test('unloaded daily task reserves a plan row without blocking completed goals',()=>{
+  const c=hubPlanContext();c.SERVER=true;c.student={sid:1};c.hubTodayCount=()=>5;
+  const plan=c.hubPlan();assert.equal(plan.find(x=>x.key==='daily').pending,true);
+  assert.ok(plan.filter(x=>!x.pending).every(x=>x.done));
+  c.DAILY={ready:true,n:5};
+  assert.equal(c.hubPlan().find(x=>x.key==='daily').pending,false);
+});
+test('daily refresh keeps accepted data on failure and rejects old account responses',async()=>{
+  const requests=[],c=vm.createContext({SERVER:true,student:{sid:1},renderDailyCard:()=>{},
+    api:()=>{const r=deferred();requests.push(r);return r.promise;}});
+  vm.runInContext(sourceBetween('src/app/10-levels-league.js','  let DAILY =', '  const fmtMs'),c);
+  const first=c.loadDaily();requests[0].resolve({ready:true,n:5,my_place:1});await first;
+  const second=c.loadDaily();requests[1].reject(Error('offline'));await second;
+  assert.equal(vm.runInContext('DAILY.my_place',c),1);assert.equal(vm.runInContext('DAILY_STATE',c),'error');
+  const third=c.loadDaily();c.student={sid:2};c.resetDaily();requests[2].resolve({ready:true,my_place:9});await third;
+  assert.equal(vm.runInContext('DAILY',c),null);
+  const fourth=c.loadDaily(),fifth=c.loadDaily();requests[4].resolve({ready:true,n:6});await fifth;
+  requests[3].resolve({ready:true,n:5});await fourth;assert.equal(vm.runInContext('DAILY.n',c),6);
 });

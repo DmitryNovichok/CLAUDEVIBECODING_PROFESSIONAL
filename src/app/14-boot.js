@@ -14,6 +14,9 @@
     if (ui.scope === 'asg' && !asgOf(ui.asg)) ui.scope = 'all';
     lastNum = null;
     renderWho();
+    renderDailyCard();
+    renderDuelCard();
+    $('#supportBtn').hidden = !(SERVER && student);
     // незаконченный вариант ЕГЭ (например, после перезагрузки страницы)
     const ex = readJSON(examKey());
     if (ex && Array.isArray(ex.items) && ex.items.length && ex.deadline) {
@@ -50,7 +53,6 @@
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
-      setTimeout(() => togHistory(false), 1600);                      // записи занятий — кнопка 👥 слева
       if (!labRequested && !fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
     }
@@ -313,6 +315,7 @@
     } else {
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); });
     }
+    if (SERVER && student) await togHistory(false);   // наличие записей известно до первой отрисовки главной
     start();
     if (!storage) toast('Браузер запретил сохранение — прогресс не сохранится после закрытия страницы.', 5000);
   }

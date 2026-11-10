@@ -3745,6 +3745,7 @@ body.hub-on .trainer { max-width: 1120px; padding: 4px 20px 60px; }
   .hub-step.now { margin: 0 -16px; padding: 14px 16px; }
   .hub-step .btn { grid-column: 1 / -1; width: 100%; }
   .hub-meta { padding-left: 0; gap: 2px 10px; }
+  .hub-step[data-step-key="daily"] .hub-meta { min-height: calc(3em + 2px); } /* место для двух строк после загрузки */
   .hub-meta > span + span::before { content: none; }
   .hub-num { width: 28px; height: 28px; }
   .hub-tile { padding: 14px 12px 12px; }
