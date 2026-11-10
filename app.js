@@ -10584,6 +10584,8 @@
   $('.topbar')?.insertAdjacentHTML('afterbegin', '<span class="mobile-brand" aria-label="Egeshka"><b>Ege</b>shka</span>');
 
   function renderMobileNav() {
+    // прогноз в шапке — только у тренажёра номеров; на страницах разделов он лишний (на главной есть свой)
+    document.body.classList.toggle('sect-on', !!(courseShown || examShown));
     const nav = $('#mobileNav');
     if (!nav) return;
     nav.hidden = false;
