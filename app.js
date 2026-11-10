@@ -718,10 +718,16 @@
   }
   const RANK_WORD = ['', 'очень лёгкое', 'лёгкое', 'среднее', 'сложное', 'очень сложное'];
 
+  // сколько заданий в каждом номере — зависит только от банка, периода и того, видны ли авторские задания;
+  // считается по всему банку (десятки тысяч заданий), а нужно при каждой перерисовке — поэтому запоминаем
+  let countMemo = null;
   function countByNum() {
+    const key = `${ui.bank}|${ui.period}|${RULES.authored !== false}`;
+    if (countMemo && countMemo[0] === key) return countMemo[1].slice();
     const c = new Array(28).fill(0);
     for (const t of TASKS) if (visible(t)) c[t.n]++;
-    return c;
+    countMemo = [key, c];
+    return c.slice();
   }
   function level(s) {
     if (!s || !s.a) return 'none';
@@ -3217,9 +3223,13 @@
     next();
   }
 
+  let periodMemo = null;              // список «Задания: актуальные / с 2024 г. / все» — пересобирается, только когда сменился банк
   function renderPeriod() {
     const sel = $('#period');
     if (!sel) return;
+    const key = `${ui.bank}|${RULES.authored !== false}|${ui.period}`;
+    if (periodMemo === key && sel.options.length) return;
+    periodMemo = key;
     const base = TASKS.filter(inBank);
     const cntAll = base.length;
     const actual = base.filter(t => !isOutdated(t));
@@ -4283,7 +4293,7 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
-    if (student?.sid !== me.sid) resetAssignments();
+    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); }
     if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
@@ -6388,9 +6398,22 @@
   }
 
   // ------------------------------------------------------------ задание дня
-  let DAILY = null;
+  let DAILY = null, DAILY_STATE = 'loading', dailyLoadId = 0;
+  function resetDaily() { DAILY = null; DAILY_STATE = 'loading'; ++dailyLoadId; }
+  const dailyNotice = () => DAILY_STATE === 'error' ? 'Не удалось загрузить задание'
+    : DAILY_STATE === 'loading' ? 'Загружаем задание…' : 'Сегодня задание недоступно';
   async function loadDaily() {
-    try { DAILY = await api('daily'); } catch (e) { DAILY = null; }
+    if (!SERVER || !student) return;
+    const request = ++dailyLoadId, sid = student.sid;
+    DAILY_STATE = 'loading';
+    try {
+      const data = await api('daily');
+      if (request !== dailyLoadId || student?.sid !== sid) return;
+      DAILY = data; DAILY_STATE = 'ready';
+    } catch (e) {
+      if (request !== dailyLoadId || student?.sid !== sid) return;
+      DAILY_STATE = 'error';
+    }
     renderDailyCard();
   }
   const fmtMs = ms => { const s = Math.round(ms / 1000); return s >= 60 ? `${Math.floor(s / 60)}:${pad2(s % 60)}` : `${s} с`; };
@@ -6398,13 +6421,14 @@
     const card = $('#dailyCard');
     if (!card) return;
     hubRefresh();
-    card.hidden = !(DAILY && DAILY.ready);
+    card.hidden = !(SERVER && student);
     if (card.hidden) return;
-    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
-    card.classList.toggle('done', !!DAILY.my_place);
+    $('#dailySub').textContent = !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
+      : DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
+    card.classList.toggle('done', !!DAILY?.my_place);
   }
   function dailyHtml() {
-    if (!DAILY || !DAILY.ready) return '';
+    if (!DAILY?.ready || DAILY_STATE === 'error') return `<p class="fm-note" role="status">${dailyNotice()}</p><button type="button" class="btn" id="dailyRetry">Повторить загрузку</button>`;
     const rows = DAILY.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td><td>${esc(r.name)}${admTag(r.sid)}</td><td class="num">${fmtMs(r.ms)}</td></tr>`).join('');
     return `<p class="fm-note">Задание дня — №${DAILY.n}: <b>у каждого своё</b>, но одного типа и одной сложности.
         Место — по времени решения <b>с первой попытки</b> (время считает сервер с момента открытия задания). Самый быстрый завтра весь день носит 👑.${DAILY.crown ? ` Сегодня корона у <b>${esc(DAILY.crown)}</b>.` : ''}</p>
@@ -6417,10 +6441,13 @@
   }
   async function openDaily() {
     if (isNarrow()) setSideOpen(false);
-    await loadDaily();
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">👑 Задание дня</h2>${dailyHtml()}`;
+    $('#forecastBody').innerHTML = '<h2 class="fm-title">👑 Задание дня</h2><div id="dailyBody"><p class="fm-note" role="status">Загружаем задание…</p></div>';
+    const body = $('#dailyBody');
     $('#forecastModal').hidden = false;
+    await loadDaily();
+    if (body.isConnected) body.innerHTML = dailyHtml();
   }
+  $('#forecastBody').addEventListener('click', e => { if (e.target.closest('#dailyRetry')) openDaily(); });
   /** Ученик сейчас на открытом задании дня. */
   const dailyNow = () => !!(DAILY && cur && !cur.done && cur.task && cur.task.id === DAILY.task);
   async function goDaily() {
@@ -6754,6 +6781,7 @@
   // новая версия сайта: раз в 2 минуты сверяем app.js и style.css с тем, что загружено; поменялись — предлагаем обновить
   const VER = { tags: null, shown: false };
   async function siteTags() {
+    if (!/^https?:$/.test(location.protocol)) return null;          // открыт файл с диска: обновлений с сервера нет
     try {
       const rs = await Promise.all(['app.js', 'style.css', 'changelog.js'].map(f => fetch(f, { method: 'HEAD', cache: 'no-store' })));
       return rs.map(r => r.headers.get('ETag') || r.headers.get('Last-Modified') || '').join('|');
@@ -9809,6 +9837,7 @@
       $('#togSub').textContent = live ? 'идёт занятие — присоединиться' : `записей: ${TOGI.hist.length}`;
       card.classList.toggle('alert', !!live);
     }
+    hubRefresh();
     if (open) togHistoryOpen();
   }
   function togHistoryOpen() {
@@ -10678,11 +10707,11 @@
       meta: [`${due} ${plural(due, 'задание ждёт', 'задания ждут', 'заданий ждут')} повторения${due > 10 ? ' — на сегодня хватит 10' : ' — иначе забудутся'}`, hubMins(Math.min(due, 10) * 2)],
       btn: 'Повторить', go: () => setScope('all') });
     // 3. Задание дня
-    if (DAILY && DAILY.ready) {
-      const done = !!DAILY.my_place;
-      items.push({ key: 'daily', ic: 'daily', title: `Задание дня · №${numLabel(DAILY.n)}`, done,
-        meta: DAILY.my_place ? [`решено за ${fmtMs(DAILY.mine)} · ${DAILY.my_place}-е место`] : DAILY.started ? [DAILY.fast ? 'результат не засчитан' : 'попытка использована · результата нет'] : ['одно задание на скорость', 'место — по времени', hubMins(4)],
-        btn: done || DAILY.started ? 'Рейтинг' : 'Решить', go: () => openDaily() });   // сначала правила: войти можно один раз, время идёт сразу
+    if ((SERVER && student) || DAILY?.ready) {
+      const ready = !!DAILY?.ready, done = !!DAILY?.my_place;
+      items.push({ key: 'daily', ic: 'daily', title: ready ? `Задание дня · №${numLabel(DAILY.n)}` : 'Задание дня', done, pending: !ready,
+        meta: !ready ? [dailyNotice()] : DAILY.my_place ? [`решено за ${fmtMs(DAILY.mine)} · ${DAILY.my_place}-е место`] : DAILY.started ? [DAILY.fast ? 'результат не засчитан' : 'попытка использована · результата нет'] : ['одно задание на скорость', 'место — по времени', hubMins(4)],
+        btn: !ready ? DAILY_STATE === 'error' ? 'Повторить' : 'Открыть' : done || DAILY.started ? 'Рейтинг' : 'Решить', go: () => openDaily() });   // сначала правила: войти можно один раз, время идёт сразу
     }
     // 4. Вызов на дуэль или матч турнира
     const call = typeof duelCalls === 'function' ? duelCalls()[0] : null, match = typeof tourMyMatch === 'function' ? tourMyMatch() : null;
@@ -10708,8 +10737,10 @@
     const T = [];
     T.push({ k: 'trainer', name: 'Тренажёр', sub: `номера 1–27 · освоено ${hubMastered()}`, big: true, extra: hubMap(), btn: 'Решать подряд', go: () => setScope('all') });
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
-    if (vis('dailyCard') && DAILY) T.push({ k: 'daily', name: 'Задание дня', sub: DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
-      badge: DAILY.my_place || DAILY.started ? '' : 'сегодня', btn: DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить', hot: !DAILY.started, go: () => openDaily() });
+    if (SERVER && student) T.push({ k: 'daily', name: 'Задание дня', sub: !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
+      : DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
+      badge: DAILY?.my_place || DAILY?.started ? '' : 'сегодня', btn: !DAILY?.ready || DAILY_STATE === 'error' ? DAILY_STATE === 'error' ? 'Повторить загрузку' : 'Открыть' : DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить',
+      hot: !!DAILY?.ready && !DAILY.started && DAILY_STATE !== 'error', go: () => openDaily() });
     if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
     T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
@@ -10722,7 +10753,7 @@
     T.push({ k: 'fav', name: 'Избранное', sub: prefs.fav.length ? `${prefs.fav.length} ${plural(prefs.fav.length, 'задание', 'задания', 'заданий')}` : 'отмечай задания звёздочкой',
       btn: prefs.fav.length ? 'Решать' : 'Как добавить', go: () => setScope('fav') });
     if (vis('coinCard')) T.push({ k: 'world', name: 'Мой мир', sub: `${(GAME && GAME.coins) || 0} ₿ · магазин и подарки`, btn: 'В магазин', go: () => $('#coinCard').click() });
-    if (vis('duelCard')) { const c = typeof duelCalls === 'function' ? duelCalls().length : 0;
+    if (SERVER && student && !TEACHER) { const c = typeof duelCalls === 'function' ? duelCalls().length : 0;
       T.push({ k: 'duel', name: 'Дуэли и турниры', sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
     if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
     return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
@@ -10804,15 +10835,15 @@
   function renderHub(enter) {
     if (!courseShown || pageKind !== 'hub') return;
     const plan = hubPlan(), tiles = hubTiles();
-    const doneN = plan.filter(x => x.done).length, nowIdx = plan.findIndex(x => !x.done);
+    const goalN = plan.filter(x => !x.pending).length, doneN = plan.filter(x => x.done).length, nowIdx = plan.findIndex(x => !x.done && !x.pending);
     const prevDone = hubPrev ? hubPrev.done : null;
-    const mins = plan.filter(x => !x.done).length;
+    const mins = plan.filter(x => !x.done && !x.pending).length;
     const sub = !mins ? 'План на сегодня выполнен — можно решать дальше или отдохнуть' : doneN ? `Хорошее начало — ${mins === 1 ? 'осталось одно дело' : `осталось ${mins} ${plural(mins, 'дело', 'дела', 'дел')}`}`
-      : `Сегодня ${plan.length} ${plural(plan.length, 'дело', 'дела', 'дел')} — начни с первого`;
+      : `Сегодня ${goalN} ${plural(goalN, 'дело', 'дела', 'дел')} — начни с первого`;
     const stepHtml = (it, i) => {
       const cls = ['hub-step', it.done ? 'done' : '', i === nowIdx ? 'now' : '', it.done && prevDone && !prevDone.has(it.key) ? 'just' : ''].filter(Boolean).join(' ');
       const ic = it.ic === 'fire' ? `<span class="hub-fire-ic">${FLAME}</span>` : hubIcon(it.ic, 30);
-      return `<div class="${cls}" data-step="${i}" style="--i:${i}"><span class="hub-num">${it.done ? '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>' : i + 1}</span>
+      return `<div class="${cls}" data-step="${i}" data-step-key="${esc(it.key)}" style="--i:${i}"><span class="hub-num">${it.done ? '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>' : it.pending ? '—' : plan.slice(0, i + 1).filter(x => !x.pending).length}</span>
         <div class="hub-step-body"><b>${ic}<span class="hub-tt">${esc(it.title)}</span></b><span class="hub-meta">${it.meta.filter(Boolean).map(x => `<span>${x}</span>`).join('')}</span></div>
         <button type="button" class="btn${i === nowIdx ? ' primary' : ''}" data-step-go="${i}">${esc(it.btn)}${i === nowIdx ? ' →' : ''}</button></div>`;
     };
@@ -10822,10 +10853,10 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
     const html = `
       <div class="hub-hello"><div><h1>${hubHello()}</h1><p>${sub}</p></div><div class="hub-pills">${hubPills()}</div></div>
-      <section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${plan.length} сделано</small></h2>
+      <section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
         ${plan.map(stepHtml).join('')}
-        <div class="hub-day"><span>День</span><i class="hub-track"><b data-bar="day" data-w="${plan.length ? Math.round(doneN / plan.length * 100) : 0}"></b></i>
-          <span>${doneN === plan.length ? 'всё сделано — так держать!' : `сделано ${doneN} из ${plan.length}`}</span></div></section>
+        <div class="hub-day"><span>День</span><i class="hub-track"><b data-bar="day" data-w="${goalN ? Math.round(doneN / goalN * 100) : 0}"></b></i>
+          <span>${doneN === goalN ? 'всё сделано — так держать!' : `сделано ${doneN} из ${goalN}`}</span></div></section>
       <h2 class="hub-h2">Все разделы</h2>
       <div class="hub-tiles">${tiles.map(tileHtml).join('')}</div>
       <footer class="hub-foot"><button type="button" class="link-btn" data-hub-link="tourBtn">Как работает Egeshka</button>
@@ -11071,6 +11102,9 @@
     if (ui.scope === 'asg' && !asgOf(ui.asg)) ui.scope = 'all';
     lastNum = null;
     renderWho();
+    renderDailyCard();
+    renderDuelCard();
+    $('#supportBtn').hidden = !(SERVER && student);
     // незаконченный вариант ЕГЭ (например, после перезагрузки страницы)
     const ex = readJSON(examKey());
     if (ex && Array.isArray(ex.items) && ex.items.length && ex.deadline) {
@@ -11107,7 +11141,6 @@
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
-      setTimeout(() => togHistory(false), 1600);                      // записи занятий — кнопка 👥 слева
       if (!labRequested && !fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
     }
@@ -11370,6 +11403,7 @@
     } else {
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); });
     }
+    if (SERVER && student) await togHistory(false);   // наличие записей известно до первой отрисовки главной
     start();
     if (!storage) toast('Браузер запретил сохранение — прогресс не сохранится после закрытия страницы.', 5000);
   }

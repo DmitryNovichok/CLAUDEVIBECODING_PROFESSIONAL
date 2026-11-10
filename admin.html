@@ -223,6 +223,20 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
         <p class="fm-note" id="pycPwState"></p>
         <div class="login-err" id="pycPwMsgAdm"></div>
       </form>
+      <form class="adm-box main-only" id="labPwAdmForm" style="margin-bottom:14px">
+        <h3 class="adm-h3">Пароль лабораторий</h3>
+        <p class="fm-note">Лабораторные работы, «Исправление ошибок» и лаборатория Arduino открываются у ученика по этому паролю — он вводит его один раз. «Закрыть всем» снова попросит пароль у всех; «Выключить» сбросит пароль и закроет лаборатории у всех.</p>
+        <div class="login-form">
+          <input class="inp" id="labPwAdm" type="text" autocomplete="off" maxlength="200" placeholder="новый пароль лабораторий">
+          <button class="btn primary" type="submit">Сохранить</button>
+        </div>
+        <div class="adm-row-btns">
+          <button class="btn ghost" type="button" id="labRevoke">Закрыть всем</button>
+          <button class="btn ghost" type="button" id="labPwOff">Выключить</button>
+        </div>
+        <p class="fm-note" id="labPwState"></p>
+        <div class="login-err" id="labPwMsgAdm"></div>
+      </form>
       <div id="pycBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
 

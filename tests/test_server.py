@@ -4,6 +4,8 @@
 """
 import http.client
 import datetime
+import gzip
+import os
 import json
 import math
 import re
@@ -1102,6 +1104,26 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "kod-2026"}, tok)[0], 403)
         self.assertEqual(self.req("GET", "/api/me", token=tok)[1]["pyc_pw"], False)
         shutil.rmtree(d)
+
+    def test_lab_password_admin(self):
+        """Пароль лабораторий задаётся в админке отдельно от курсов: в базе только хеш, «закрыть всем» и «выключить» работают."""
+        tok = self.login("Лабов Леонид")
+        self.assertEqual(self.req("GET", "/api/lab", token=tok)[1], {"access": False, "pw": False})
+        self.assertEqual(self.admin("GET", "/api/admin/lab/password")[1]["pw_set"], False)
+        self.assertEqual(self.admin("POST", "/api/admin/lab/password", {"password": "12"})[0], 400)
+        st, r = self.admin("POST", "/api/admin/lab/password", {"password": "synthetic-lab-77"})
+        self.assertEqual((st, r["pw_set"], r["students"]), (200, True, 0))
+        self.assertNotIn("synthetic-lab-77", json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")]))
+        self.assertFalse(server.APP.db.setting("pyc_pw"))                      # другие пароли не тронуты
+        self.assertEqual(self.req("POST", "/api/lab/unlock", {"password": "wrong-pass"}, tok)[0], 403)
+        self.assertTrue(self.req("POST", "/api/lab/unlock", {"password": "synthetic-lab-77"}, tok)[1]["access"])
+        self.assertEqual(self.admin("GET", "/api/admin/lab/password")[1]["students"], 1)
+        r = self.admin("POST", "/api/admin/lab/password", {"revoke": True})[1]
+        self.assertEqual((r["pw_set"], r["students"]), (True, 0))
+        self.assertFalse(self.req("GET", "/api/lab", token=tok)[1]["access"])
+        r = self.admin("POST", "/api/admin/lab/password", {"off": True})[1]
+        self.assertEqual(r["pw_set"], False)
+        self.assertEqual(self.req("GET", "/api/lab", token=tok)[1], {"access": False, "pw": False})
 
     def test_funny_achievements(self):
         db = server.APP.db
@@ -2310,6 +2332,43 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.req("GET", "/api/health")[0], 503)
         finally:
             server.APP.bank.tasks = saved
+
+    def test_page_cache_follows_assets_and_gzip(self):
+        """Страница с адресами скриптов (?v=…) запоминается, но обновляется, как только поменялся app.js."""
+        def page(gz):
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            c.request("GET", "/", headers={"Accept-Encoding": "gzip"} if gz else {})
+            r = c.getresponse(); body = r.read(); enc = r.getheader("Content-Encoding"); c.close()
+            return gzip.decompress(body).decode() if enc == "gzip" else body.decode()
+        index, app = server.HERE / "index.html", server.HERE / "app.js"
+        saved = {f: f.read_bytes() if f.exists() else None for f in (index, app)}
+        index.write_text('<!doctype html><script src="app.js"></script>' + "x" * 3000, encoding="utf-8")
+        app.write_text("// app", encoding="utf-8")
+        old = app.read_bytes()
+        try:
+            first = page(False)
+            self.assertEqual(first, page(True))
+            v = re.search(r'app\.js\?v=([0-9a-f]+)', first).group(1)
+            app.write_bytes(old + "\n// новая версия\n".encode())
+            os.utime(app, (time.time() + 5, time.time() + 5))
+            self.assertNotEqual(re.search(r'app\.js\?v=([0-9a-f]+)', page(True)).group(1), v)
+        finally:
+            for f, data in saved.items():
+                if data is None:
+                    f.unlink(missing_ok=True)
+                else:
+                    f.write_bytes(data)
+
+    def test_teacher_students_by_index(self):
+        """Ученики учителя выбираются в базе: у главного — и старые ученики без учителя, учителя не попадают."""
+        db = server.APP.db
+        main = server.main_teacher()["id"]
+        ids = lambda tid: [r["id"] for r in server.teacher_students(db, tid)]
+        everyone = db.q("SELECT id, teacher_id FROM students WHERE COALESCE(is_teacher, 0) = 0")
+        self.assertEqual(sorted(ids(main)), sorted(r["id"] for r in everyone if (r["teacher_id"] or main) == main))
+        for t in db.q("SELECT id FROM teachers WHERE is_main=0"):
+            self.assertEqual(sorted(ids(t["id"])), sorted(r["id"] for r in everyone if r["teacher_id"] == t["id"]))
+        self.assertIn("students_teacher", [r["name"] for r in db.q("PRAGMA index_list(students)")])
 
     def test_arduino_lab_is_served(self):
         """Лаборатория Arduino — отдельное приложение в папке arduino/: страница, скрипты, шрифты; компилятора на сервере нет."""

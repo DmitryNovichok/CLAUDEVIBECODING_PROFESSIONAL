@@ -464,9 +464,22 @@
   }
 
   // ------------------------------------------------------------ задание дня
-  let DAILY = null;
+  let DAILY = null, DAILY_STATE = 'loading', dailyLoadId = 0;
+  function resetDaily() { DAILY = null; DAILY_STATE = 'loading'; ++dailyLoadId; }
+  const dailyNotice = () => DAILY_STATE === 'error' ? 'Не удалось загрузить задание'
+    : DAILY_STATE === 'loading' ? 'Загружаем задание…' : 'Сегодня задание недоступно';
   async function loadDaily() {
-    try { DAILY = await api('daily'); } catch (e) { DAILY = null; }
+    if (!SERVER || !student) return;
+    const request = ++dailyLoadId, sid = student.sid;
+    DAILY_STATE = 'loading';
+    try {
+      const data = await api('daily');
+      if (request !== dailyLoadId || student?.sid !== sid) return;
+      DAILY = data; DAILY_STATE = 'ready';
+    } catch (e) {
+      if (request !== dailyLoadId || student?.sid !== sid) return;
+      DAILY_STATE = 'error';
+    }
     renderDailyCard();
   }
   const fmtMs = ms => { const s = Math.round(ms / 1000); return s >= 60 ? `${Math.floor(s / 60)}:${pad2(s % 60)}` : `${s} с`; };
@@ -474,13 +487,14 @@
     const card = $('#dailyCard');
     if (!card) return;
     hubRefresh();
-    card.hidden = !(DAILY && DAILY.ready);
+    card.hidden = !(SERVER && student);
     if (card.hidden) return;
-    $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
-    card.classList.toggle('done', !!DAILY.my_place);
+    $('#dailySub').textContent = !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
+      : DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
+    card.classList.toggle('done', !!DAILY?.my_place);
   }
   function dailyHtml() {
-    if (!DAILY || !DAILY.ready) return '';
+    if (!DAILY?.ready || DAILY_STATE === 'error') return `<p class="fm-note" role="status">${dailyNotice()}</p><button type="button" class="btn" id="dailyRetry">Повторить загрузку</button>`;
     const rows = DAILY.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="lb-place">${placeHtml(r.place)}</td><td>${esc(r.name)}${admTag(r.sid)}</td><td class="num">${fmtMs(r.ms)}</td></tr>`).join('');
     return `<p class="fm-note">Задание дня — №${DAILY.n}: <b>у каждого своё</b>, но одного типа и одной сложности.
         Место — по времени решения <b>с первой попытки</b> (время считает сервер с момента открытия задания). Самый быстрый завтра весь день носит 👑.${DAILY.crown ? ` Сегодня корона у <b>${esc(DAILY.crown)}</b>.` : ''}</p>
@@ -493,10 +507,13 @@
   }
   async function openDaily() {
     if (isNarrow()) setSideOpen(false);
-    await loadDaily();
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">👑 Задание дня</h2>${dailyHtml()}`;
+    $('#forecastBody').innerHTML = '<h2 class="fm-title">👑 Задание дня</h2><div id="dailyBody"><p class="fm-note" role="status">Загружаем задание…</p></div>';
+    const body = $('#dailyBody');
     $('#forecastModal').hidden = false;
+    await loadDaily();
+    if (body.isConnected) body.innerHTML = dailyHtml();
   }
+  $('#forecastBody').addEventListener('click', e => { if (e.target.closest('#dailyRetry')) openDaily(); });
   /** Ученик сейчас на открытом задании дня. */
   const dailyNow = () => !!(DAILY && cur && !cur.done && cur.task && cur.task.id === DAILY.task);
   async function goDaily() {

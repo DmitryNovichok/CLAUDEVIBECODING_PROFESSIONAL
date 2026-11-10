@@ -1746,6 +1746,7 @@
     try { PYA.d = await api('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     PYA.detail = {};
     pycPwState(PYA.d.pw_set, PYA.d.students.length);
+    labPwLoad();
     renderPyc();
   }
   function pycPwState(set, n) {
@@ -1773,6 +1774,32 @@
   });
   $('#pycPwOff').addEventListener('click', () => {
     if (confirm('Выключить курс программирования? Пароль сбросится, курс будет закрыт у всех.')) pycPwSave({ off: true }, 'Курс выключен');
+  });
+  // пароль лабораторий — так же, как у курса программирования
+  function labPwState(r) {
+    $('#labPwState').textContent = r.pw_set ? `Лаборатории открыты по паролю · вошли: ${r.students || 0}` : 'Лаборатории закрыты: пароль не задан';
+  }
+  async function labPwLoad() { try { labPwState(await api('lab/password')); } catch (err) { /* не главный учитель или нет связи */ } }
+  async function labPwSave(body, okText) {
+    const msg = $('#labPwMsgAdm');
+    msg.className = 'login-err';
+    msg.textContent = '';
+    try {
+      labPwState(await api('lab/password', body));
+      $('#labPwAdm').value = '';
+      msg.className = 'login-err ok';
+      msg.textContent = okText;
+    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
+  }
+  $('#labPwAdmForm').addEventListener('submit', e => {
+    e.preventDefault();
+    if ($('#labPwAdm').value.trim()) labPwSave({ password: $('#labPwAdm').value }, 'Пароль лабораторий сохранён');
+  });
+  $('#labRevoke').addEventListener('click', () => {
+    if (confirm('Закрыть лаборатории всем ученикам? Им придётся снова ввести пароль.')) labPwSave({ revoke: true }, 'Лаборатории закрыты всем — нужен пароль');
+  });
+  $('#labPwOff').addEventListener('click', () => {
+    if (confirm('Выключить лаборатории? Пароль сбросится, лаборатории закроются у всех.')) labPwSave({ off: true }, 'Лаборатории выключены');
   });
   const pycLbl = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
   function renderPyc() {

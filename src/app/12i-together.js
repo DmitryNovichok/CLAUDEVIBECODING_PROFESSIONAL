@@ -77,6 +77,7 @@
       $('#togSub').textContent = live ? 'идёт занятие — присоединиться' : `записей: ${TOGI.hist.length}`;
       card.classList.toggle('alert', !!live);
     }
+    hubRefresh();
     if (open) togHistoryOpen();
   }
   function togHistoryOpen() {
