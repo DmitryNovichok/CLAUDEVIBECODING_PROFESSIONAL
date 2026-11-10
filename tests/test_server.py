@@ -2311,6 +2311,26 @@ class ServerTest(unittest.TestCase):
         finally:
             server.APP.bank.tasks = saved
 
+    def test_arduino_lab_is_served(self):
+        """Лаборатория Arduino — отдельное приложение в папке arduino/: страница, скрипты, шрифты; компилятора на сервере нет."""
+        import shutil
+        src = Path(server.__file__).resolve().parent / "arduino"          # сайт в тестах живёт во временной папке — кладём лабораторию туда же
+        shutil.copytree(src, server.HERE / "arduino", dirs_exist_ok=True, ignore=shutil.ignore_patterns("source"))
+        st, body = self.req("GET", "/arduino/")
+        self.assertEqual(st, 200)
+        self.assertIn(b"egeshka.js", body)
+        self.assertIn(b"app.js", body)
+        for f in ("app.js", "elements.js", "egeshka.js", "lab.css", "blink-uno.hex", "licenses.txt", "LICENSE",
+                  "fonts/ibm-plex-sans-cyrillic-400-normal.woff2"):
+            self.assertEqual(self.req("GET", "/arduino/" + f)[0], 200, f)
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/arduino")
+        r = c.getresponse(); r.read(); c.close()
+        self.assertEqual((r.status, r.getheader("Location")), (302, "/arduino/"))
+        self.assertEqual(self.req("GET", "/arduino/../server.py", raw_path=True)[0], 404)
+        self.assertEqual(self.req("GET", "/api/status"), (200, {"compiler": False, "boards": []}))
+        self.assertIn(self.req("POST", "/api/compile", {"code": "void setup(){}", "board": "uno"})[0], (401, 404))   # чужой код не собираем
+
     def test_task_texts_load_by_number_and_need_login(self):
         self.assertEqual(self.req("GET", "/api/html?n=5")[0], 401)
         tok = self.login("Номеров Нил")

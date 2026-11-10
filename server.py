@@ -80,7 +80,7 @@ SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "ad
               "favicon.ico", "favicon.svg", "favicon-96.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "site.webmanifest"}
 # редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
 LEGAL_VERSION = "2026-11-07"
-SITE_DIRS = ("vendor/", "media/", "promo/")
+SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
 PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr)\.js|(?:style|admin-theme|admin|legal|welcome)\.css)"')
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
@@ -2446,6 +2446,14 @@ class Handler(BaseHTTPRequestHandler):
             path = "/parent.html"
         if path in ("/reset", "/reset/"):
             path = "/reset.html"
+        if path == "/arduino":                    # относительные ссылки лаборатории считаются от папки — нужен слэш на конце
+            self.send_response(302)
+            self.send_header("Location", "/arduino/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if path == "/arduino/":
+            path = "/arduino/index.html"
         rel = path.lstrip("/")
         # «..», обратные слэши и пустые части пути не нужны ни одному честному запросу
         segs = rel.split("/")
@@ -3113,6 +3121,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         # ----- ученик
         if path == "/api/ping":
             return self.send_json({"ok": True, "server": True})
+        if path == "/api/status" and method == "GET":
+            # лаборатория Arduino спрашивает, есть ли на сервере компилятор C++: нет и не будет — чужой код на сервере не собираем
+            return self.send_json({"compiler": False, "boards": []})
 
         if path == "/api/health":
             # для сторожа и внешнего мониторинга: база отвечает и задания загружены; без личных данных
