@@ -85,8 +85,8 @@ kbd {
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 .app { display: flex; min-height: 100vh; }
-/* До выбора стартового раздела меню не должно мелькать в старой раскладке. */
-body.app-loading .sidebar { display: none !important; transition: none !important; }
+/* До выбора стартового раздела меню и пустая шапка с рамкой не должны мелькать. */
+body.app-loading .sidebar, body.app-loading .topbar { display: none !important; transition: none !important; }
 
 /* ---------------- sidebar ---------------- */
 .sidebar {
