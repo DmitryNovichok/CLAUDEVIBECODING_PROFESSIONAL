@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import hash_pw, check_pw, revoke_access, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
 from learning_access import lab_access
+import buglab
 from learning_content import course_guide
 from private_config import read_private, private_rewards, require_private
 import hints as hints_mod
@@ -1646,6 +1647,11 @@ class DB(Transactional):
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT);
             CREATE INDEX IF NOT EXISTS xp_adjust_student ON xp_adjust(student_id);
             -- дни, засчитанные огоньку без трёх заданий: freeze — сработала заморозка, restore — восстановил учитель
+            -- лаборатория исправления ошибок: что решено, с какой попытки и насколько точной правкой (star)
+            CREATE TABLE IF NOT EXISTS buglab(
+                student_id INTEGER NOT NULL, case_id TEXT NOT NULL, ok INTEGER NOT NULL DEFAULT 0, tries INTEGER NOT NULL DEFAULT 0,
+                star INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 0, first_ts REAL, ok_ts REAL, code TEXT,
+                PRIMARY KEY(student_id, case_id));
             CREATE TABLE IF NOT EXISTS fire_cover(
                 student_id INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, ts REAL, PRIMARY KEY(student_id, day));
             -- подарки: от учителя (from_teacher) или купленные учеником за биткоины (from_sid); seen — уведомление показано;
@@ -3100,6 +3106,52 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json(out)
         return self.err(404, "нет такого метода")
 
+    def api_buglab(self, method, path, data, s):
+        """Лаборатория исправления ошибок. Код ученика выполняется у него в браузере; сюда приходят выводы по тестам."""
+        db = APP.db
+        if not lab_access(db, s):
+            return self.err(403, "Лаборатории открываются по паролю от учителя")
+        mine = {r["case_id"]: r for r in db.q("SELECT * FROM buglab WHERE student_id=?", (s["id"],))}
+        state = lambda cid: {k: (mine.get(cid) or {k: 0})[k] for k in ("ok", "tries", "star", "seen")} if cid in mine else {"ok": 0, "tries": 0, "star": 0, "seen": 0}
+        if path == "/api/lab/bugs" and method == "GET":
+            return self.send_json({"levels": buglab.LEVELS, "kinds": buglab.KINDS,
+                                   "cases": [dict(buglab.public(c), my=state(c["id"])) for c in buglab.CASES]})
+        case = buglab.BY_ID.get(str(data.get("id") or ""))
+        if not case:
+            return self.err(404, "нет такой задачи")
+        now = time.time()
+        if path == "/api/lab/bugs/check" and method == "POST":
+            with _PYC_LOCK:                                   # не чаще, чем проверки в курсе Python
+                tries = [x for x in _BUG_TRIES.get(s["id"], []) if now - x < PYC_WINDOW]
+                if len(tries) >= PYC_CHECKS:
+                    return self.err(429, "Слишком много проверок подряд — подождите минуту")
+                tries.append(now)
+                _BUG_TRIES[s["id"]] = tries
+            runs = data.get("runs") if isinstance(data.get("runs"), list) else []
+            code = str(data.get("code") or "")[:20000]
+            tests = buglab.check(case, runs[:len(case["inputs"])])
+            ok = all(t["ok"] for t in tests)
+            changed = buglab.changed_lines(case, code)
+            was = state(case["id"])
+            star = int(ok and changed <= case["par"] and not was["seen"])
+            db.x("""INSERT INTO buglab(student_id, case_id, ok, tries, star, first_ts, ok_ts, code) VALUES(?,?,?,?,?,?,?,?)
+                    ON CONFLICT(student_id, case_id) DO UPDATE SET ok=MAX(ok, excluded.ok), tries=tries + (1 - excluded.ok) * (1 - ok),
+                      star=MAX(star, excluded.star), ok_ts=COALESCE(ok_ts, excluded.ok_ts), code=CASE WHEN excluded.ok THEN excluded.code ELSE code END""",
+                 (s["id"], case["id"], int(ok), 0 if ok else 1, star, now, now if ok else None, code if ok else None))
+            row = db.q("SELECT ok, tries, star, seen FROM buglab WHERE student_id=? AND case_id=?", (s["id"], case["id"]), one=True)
+            out = {"ok": ok, "tests": tests, "changed": changed, "par": case["par"], "my": dict(row)}
+            if ok:
+                out["explain"] = case["explain"]
+            return self.send_json(out)
+        if path == "/api/lab/bugs/explain" and method == "POST":
+            was = state(case["id"])
+            if not was["ok"] and was["tries"] < 3:
+                return self.err(403, "Разбор откроется после трёх проверок — сначала попробуй сам и посмотри подсказки")
+            db.x("""INSERT INTO buglab(student_id, case_id, seen, first_ts) VALUES(?,?,1,?)
+                    ON CONFLICT(student_id, case_id) DO UPDATE SET seen=CASE WHEN ok THEN seen ELSE 1 END""", (s["id"], case["id"], now))
+            return self.send_json({"explain": case["explain"]})
+        return self.err(404, "нет такого метода")
+
     def api(self, method, path, qs, data):
         try:
             if method == "POST" and path == "/api/teacher/guest":
@@ -3734,7 +3786,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET course=1, course_ts=? WHERE id=?", (time.time(), s["id"]))
             return self.send_json({"ok": True})
 
-        if path in ("/api/lab", "/api/lab/unlock"):
+        if path in ("/api/lab", "/api/lab/unlock", "/api/lab/bugs", "/api/lab/bugs/check", "/api/lab/bugs/explain"):
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
@@ -3753,6 +3805,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     return self.err(403, "Неверный пароль лабораторий")
                 db.x("UPDATE students SET lab=1 WHERE id=?", (s["id"],))
                 return self.send_json({"access": True})
+            if path.startswith("/api/lab/bugs"):
+                return self.api_buglab(method, path, data, s)
             return self.send_json({"access": lab_access(db, s), "pw": bool(db.setting("lab_pw"))})
 
         if path.startswith("/api/pyc"):
@@ -7493,6 +7547,7 @@ _PYC = {}                               # имя файла → (mtime, данн
 _PYC_LOCK = threading.Lock()
 PYC_CHECKS, PYC_WINDOW = 40, 60         # не больше 40 проверок ответа в минуту — перебор ответов не пройдёт
 _PYC_TRIES = {}
+_BUG_TRIES = {}                      # sid → времена проверок в лаборатории исправления ошибок
 _LAB_PW_TRIES = {}
 _PYC_PW_TRIES = {}                      # попытки ввести пароль курса (лимит — как у раздела «Курс»)
 

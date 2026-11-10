@@ -27,6 +27,7 @@
       renderExam();
       return;
     }
+    if (SERVER && student) hubNavOn();        // страницы без боковой панели — и когда входят сразу в раздел, минуя главную
     renderSidebar();
     const labRequested = location.hash === '#lab';
     const saved = ui.currentId && byId.get(ui.currentId);

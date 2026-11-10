@@ -3814,3 +3814,57 @@ body.hubnav.hub-on .me-box { order: 3; }
 .hub-streak { position: static; display: block; box-shadow: none; border: 0; padding: 0; background: none; width: auto; max-width: 420px; }
 .promo-pill-h { border-color: #ff9600; color: #ff9600; }
 @media (max-width: 560px) { .hub-docs { margin-left: 0; } }
+
+/* ============================================================ лаборатория исправления ошибок */
+.lab-cards:has(> .lab-entry:nth-of-type(3)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.bug-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+.bug-prog { display: grid; grid-template-columns: auto auto; column-gap: 10px; align-items: baseline; min-width: 240px; }
+.bug-prog > b { font: 900 26px/1 var(--font); } .bug-prog > span { color: var(--muted); font-weight: 700; }
+.bug-track { grid-column: 1 / -1; height: 10px; margin-top: 8px; border-radius: 99px; background: var(--track); overflow: hidden; }
+.bug-track b { display: block; height: 100%; border-radius: 99px; background: var(--good); transition: width .8s cubic-bezier(.22, 1, .36, 1); }
+.bug-filter button { padding: 8px 14px; border-radius: 12px; border: 2px solid var(--border); background: var(--card); color: var(--muted); font: 800 14px var(--font); cursor: pointer; transition: border-color .18s, color .18s; }
+.bug-filter button.on { border-color: var(--accent); color: var(--text); }
+.bug-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.bug-card { display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 16px; border-radius: 18px; border: 2px solid var(--border); background: var(--card); color: var(--text); cursor: pointer;
+  transition: border-color .2s, transform .25s cubic-bezier(.22, 1, .36, 1), box-shadow .25s; }
+.bug-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 10px 22px -16px var(--accent); }
+.bug-card.done { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+.bug-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bug-card b { font-size: 17px; font-weight: 900; } .bug-card-sub { color: var(--muted); font-size: 13px; font-weight: 700; }
+.bug-nav { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.bug-nav .chip { margin-left: auto; }
+.bug-work { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; align-items: start; }
+.bug-task h2, .bug-editor h2 { margin: 6px 0 10px; font-size: 22px; }
+.bug-task h3, .bug-explain h3 { margin: 18px 0 8px; font-size: 15px; }
+.bug-stmt { line-height: 1.6; } .bug-stmt ol, .bug-stmt ul { margin: 8px 0; padding-left: 22px; }
+.bug-formula { margin: 10px 0; padding: 10px 14px; border-radius: 12px; background: var(--subtle); font-weight: 800; text-align: center; }
+.bug-intro { margin: 14px 0 0; padding: 10px 14px; border-radius: 12px; background: var(--review-soft); line-height: 1.5; }
+.bug-samples { display: grid; gap: 10px; }
+.bug-samples > div { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.bug-samples > div > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bug-samples span { font: 800 11.5px var(--font); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.bug-samples pre, .bug-table pre, .bug-out { margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--answer-bg); font: 13.5px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.bug-hints ol { margin: 0; padding-left: 22px; line-height: 1.55; } .bug-hints li { margin: 6px 0; }
+.bug-ed-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.bug-code { display: grid; grid-template-columns: auto minmax(0, 1fr); border: 2px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--answer-bg); }
+.bug-code:focus-within { border-color: var(--accent); }
+.bug-gutter { margin: 0; padding: 12px 8px 12px 10px; min-width: 38px; text-align: right; color: var(--faint); font: 14px/22px var(--mono); overflow: hidden; user-select: none; border-right: 1px solid var(--border); }
+.bug-gutter span { display: inline-block; min-width: 22px; padding: 0 3px; border-radius: 5px; }
+.bug-gutter span.ch { background: var(--review-soft); color: var(--review); font-weight: 800; }
+#bugCode { border: 0; border-radius: 0; background: transparent; padding: 12px; font: 14px/22px var(--mono); resize: none; white-space: pre; overflow: auto; tab-size: 4; outline: none; box-shadow: none; color: var(--text); width: 100%; }
+.bug-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 6px; }
+.bug-own { margin: 8px 0; } .bug-own summary { cursor: pointer; color: var(--link); font-weight: 800; padding: 6px 0; }
+.bug-own textarea { width: 100%; font: 13.5px/1.45 var(--mono); margin: 6px 0; } .bug-out { margin-top: 8px; }
+.bug-win, .bug-fail { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 10px; padding: 14px 16px; border-radius: 14px; border: 2px solid var(--good); background: var(--good-soft); animation: pgIn .32s cubic-bezier(.22, 1, .36, 1) both; }
+.bug-fail { border-color: var(--review); background: var(--review-soft); }
+.bug-win b, .bug-fail b { font-size: 18px; font-weight: 900; }
+.bug-win-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.bug-explain { margin: 10px 0; padding: 4px 16px 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--card); }
+.bug-explain ul { margin: 0; padding-left: 20px; line-height: 1.6; } .bug-explain li { margin: 6px 0; }
+.bug-table { overflow-x: auto; margin-top: 10px; }
+.bug-table table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.bug-table th { text-align: left; padding: 6px 8px; color: var(--muted); font: 800 11.5px var(--font); letter-spacing: .05em; text-transform: uppercase; }
+.bug-table td { padding: 6px 8px; border-top: 1px solid var(--border); vertical-align: top; }
+.bug-table tr.ok td:first-child { color: var(--good); font-weight: 900; } .bug-table tr.bad td:first-child { color: var(--weak); font-weight: 900; }
+.bug-table tr.bad td:last-child pre { outline: 1px solid color-mix(in srgb, var(--weak) 50%, transparent); }
+@media (max-width: 1000px) { .bug-work { grid-template-columns: minmax(0, 1fr); } .lab-cards:has(> .lab-entry:nth-of-type(3)) { grid-template-columns: minmax(0, 1fr); } }
