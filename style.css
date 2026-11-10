@@ -85,6 +85,8 @@ kbd {
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 .app { display: flex; min-height: 100vh; }
+/* До выбора стартового раздела меню не должно мелькать в старой раскладке. */
+body.app-loading .sidebar { display: none !important; transition: none !important; }
 
 /* ---------------- sidebar ---------------- */
 .sidebar {
@@ -3796,7 +3798,7 @@ body.hubnav.hub-on .topbar { justify-content: flex-start; align-items: center; g
 body.hubnav.hub-on .mobile-brand { order: 0; margin-right: 0; line-height: 1; user-select: none; cursor: default; }
 body.hubnav.hub-on .hub-nav { order: 2; margin-right: auto; }
 body.hubnav.hub-on .me-box { order: 3; }
-.hub-by { color: var(--muted); font: 700 13px/1 var(--font); white-space: nowrap; margin: 6px 8px 0 -4px; user-select: none; }
+.hub-by { color: var(--muted); font: 700 18px/1 var(--font); white-space: nowrap; margin: 4px 8px 0 -4px; user-select: none; }
 .hub-by b { color: var(--accent-text); font-weight: 800; }
 .hub-sup { position: relative; color: var(--muted); }
 .hub-sup:hover { color: var(--text); }
