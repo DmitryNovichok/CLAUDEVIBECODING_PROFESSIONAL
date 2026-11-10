@@ -155,6 +155,30 @@
 
   // ------------------------------------------------------------ отрисовка
   let hubPrev = null;                     // что было в прошлый раз: для плавного роста чисел и «только что сделано»
+  const hubMarkup = new WeakMap();
+  const hubMarkupKey = html => html.replace(/hg\d+/g, 'hg');
+  /** Фоновые ответы обновляют только изменившиеся блоки: доступные разделы не исчезают и не теряют фокус. */
+  function hubPatch(current, fresh, tiles = false) {
+    const key = el => tiles ? el.dataset.tileKey : el.classList[0];
+    const old = new Map([...current.children].map(el => [key(el), el]));
+    const keys = new Set([...fresh.children].map(key));
+    old.forEach((el, id) => { if (!keys.has(id)) { el.remove(); old.delete(id); } });
+    [...fresh.children].forEach((next, i) => {
+      const id = key(next), prev = old.get(id);
+      const el = prev || next;
+      if (prev && next.classList.contains('hub-tiles')) {
+        hubPatch(prev, next, true);
+      } else if (prev && hubMarkup.get(prev) !== hubMarkupKey(next.innerHTML)) {
+        prev.innerHTML = next.innerHTML;
+        prev.className = next.className;
+      }
+      if (tiles) { el.dataset.tile = next.dataset.tile; el.style.cssText = next.style.cssText; }
+      hubMarkup.set(el, hubMarkupKey(next.innerHTML));
+      if (current.children[i] !== el) current.insertBefore(el, current.children[i] || null);
+      old.delete(id);
+    });
+    old.forEach(el => el.remove());
+  }
   const hubFirstName = () => { const p = String((student && student.name) || '').trim().split(/\s+/); return p[1] || p[0] || ''; };
   function hubHello() {
     const h = new Date().getHours(), nm = hubFirstName();
@@ -194,7 +218,7 @@
         <div class="hub-step-body"><b>${ic}<span class="hub-tt">${esc(it.title)}</span></b><span class="hub-meta">${it.meta.filter(Boolean).map(x => `<span>${x}</span>`).join('')}</span></div>
         <button type="button" class="btn${i === nowIdx ? ' primary' : ''}" data-step-go="${i}">${esc(it.btn)}${i === nowIdx ? ' →' : ''}</button></div>`;
     };
-    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" style="--sec:${hubColor(t.k)};--i:${i}">
+    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" data-tile-key="${t.k}" style="--sec:${hubColor(t.k)};--i:${i}">
       ${t.badge ? `<span class="hub-badge">${esc(t.badge)}</span>` : ''}${hubIcon(t.k, 52)}<b>${esc(t.name)}</b><span class="hub-sub">${esc(t.sub)}</span>${t.extra || ''}
       <span class="btn hub-act${t.hot ? ' hot' : ''}">${esc(t.btn)}</span></div>`;
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
@@ -211,9 +235,18 @@
         ${SERVER ? '' : '<button type="button" class="link-btn" data-hub-link="exportBtn">Сохранить прогресс в файл</button>'}
         <span class="hub-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Персональные данные</a></span></footer>`;
     HUB_ACT = { plan, tiles };
-    if (!enter && html.replace(/hg\d+/g, '') === hubSig && trainerEl.querySelector('.hub')) return;
-    hubSig = html.replace(/hg\d+/g, '');
-    trainerEl.innerHTML = `<div class="hub${enter ? ' hub-enter' : ''}">${html}</div>`;
+    const current = trainerEl.querySelector('.hub');
+    if (!enter && hubMarkupKey(html) === hubSig && current) return;
+    hubSig = hubMarkupKey(html);
+    if (!enter && current) {
+      current.classList.remove('hub-enter');
+      const fresh = document.createElement('div');
+      fresh.innerHTML = html;
+      hubPatch(current, fresh);
+    } else {
+      trainerEl.innerHTML = `<div class="hub${enter ? ' hub-enter' : ''}">${html}</div>`;
+      trainerEl.querySelectorAll('.hub > *, .hub-tile').forEach(el => hubMarkup.set(el, hubMarkupKey(el.innerHTML)));
+    }
     hubLeft = true;
     if (enter) hubEnterEnd = Date.now() + 900;
     hubAnimate(enter);
