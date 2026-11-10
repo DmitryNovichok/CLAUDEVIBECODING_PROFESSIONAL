@@ -717,10 +717,16 @@
   }
   const RANK_WORD = ['', 'очень лёгкое', 'лёгкое', 'среднее', 'сложное', 'очень сложное'];
 
+  // сколько заданий в каждом номере — зависит только от банка, периода и того, видны ли авторские задания;
+  // считается по всему банку (десятки тысяч заданий), а нужно при каждой перерисовке — поэтому запоминаем
+  let countMemo = null;
   function countByNum() {
+    const key = `${ui.bank}|${ui.period}|${RULES.authored !== false}`;
+    if (countMemo && countMemo[0] === key) return countMemo[1].slice();
     const c = new Array(28).fill(0);
     for (const t of TASKS) if (visible(t)) c[t.n]++;
-    return c;
+    countMemo = [key, c];
+    return c.slice();
   }
   function level(s) {
     if (!s || !s.a) return 'none';

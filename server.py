@@ -84,6 +84,9 @@ LEGAL_VERSION = "2026-11-07"
 SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
 PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr)\.js|(?:style|admin-theme|admin|legal|welcome)\.css)"')
+PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
+               "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css")      # все имена из PAGE_ASSET_RE
+_PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
             ".txt", ".csv", ".tsv", ".xlsx", ".xls", ".xlsm", ".ods", ".odt", ".docx", ".doc", ".rtf",
@@ -1838,6 +1841,8 @@ class DB(Transactional):
                     ("econ_hist", "s_med", "REAL")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            # ученики учителя нужны на каждый запрос рейтинга, дуэлей и турниров (колонка добавляется выше — индекс после неё)
+            c.execute("CREATE INDEX IF NOT EXISTS students_teacher ON students(teacher_id)")
             # Stable demo identity survives renames. Never infer it from a class name.
             if not c.execute("SELECT 1 FROM settings WHERE key='demo_identity_seeded'").fetchone():
                 # Legacy demo classes were created exactly 40 days before the guest account.
@@ -2314,6 +2319,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def setup(self):
+        super().setup()
+        # заголовки и тело ответа уходят двумя записями; без TCP_NODELAY вторая ждёт подтверждения первой — лишние 40 мс на запрос
+        try:
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+
     # ---------- ответы
     def send_bytes(self, code, body, ctype, extra=None):
         extra = dict(extra or {})
@@ -2535,24 +2548,39 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         и браузер (или прокси по дороге) не подсунет старый app.js из кэша."""
         p = HERE / rel
         try:
-            html = p.read_text(encoding="utf-8")
+            stamp = [(p.stat().st_mtime, p.stat().st_size)]
         except OSError:
             return self.not_found(p)
-
-        def ver(m):
-            f = HERE / m.group(2)
+        for name in PAGE_ASSETS:                             # версия любого скрипта или стиля меняет страницу
             try:
-                st = f.stat()
-                return f'{m.group(1)}="{m.group(2)}?v={int(st.st_mtime):x}{st.st_size:x}"'
+                st = (HERE / name).stat()
+                stamp.append((st.st_mtime, st.st_size))
             except OSError:
-                return m.group(0)
-        html = PAGE_ASSET_RE.sub(ver, html)
-        body = html.encode("utf-8")
-        etag = '"%s"' % hashlib.md5(body).hexdigest()[:16]
+                stamp.append(None)
+        hit = _PAGE_CACHE.get(str(p))
+        if not hit or hit[0] != stamp:
+            try:
+                html = p.read_text(encoding="utf-8")
+            except OSError:
+                return self.not_found(p)
+
+            def ver(m):
+                f = HERE / m.group(2)
+                try:
+                    st = f.stat()
+                    return f'{m.group(1)}="{m.group(2)}?v={int(st.st_mtime):x}{st.st_size:x}"'
+                except OSError:
+                    return m.group(0)
+            body = PAGE_ASSET_RE.sub(ver, html).encode("utf-8")
+            hit = (stamp, body, '"%s"' % hashlib.md5(body).hexdigest()[:16], gzip.compress(body, 6))
+            _PAGE_CACHE[str(p)] = hit
+        _, body, etag, gz = hit
         if self.headers.get("If-None-Match") == etag:
             return self.send_bytes(304, b"", "text/plain", {"ETag": etag})
-        return self.send_bytes(200, body, "text/html; charset=utf-8",
-                               {"ETag": etag, "Cache-Control": "no-cache", "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin"})
+        extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin"}
+        if "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            body, extra["Content-Encoding"], extra["Vary"] = gz, "gzip", "Accept-Encoding"
+        return self.send_bytes(200, body, "text/html; charset=utf-8", extra)
 
     def serve_task_file(self, rel):
         """Картинка или файл задания по безликой ссылке files/<код>/<имя>; файл из архива ФИПИ — прямо из zip."""
@@ -2824,7 +2852,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         self.sess, self.tok = sess, (tok if s else None)
         if s:
             now = time.time()
-            APP.db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
+            was = _SEEN.get(s["id"])
+            if not was or now - was[0] > SEEN_EVERY or was[1] != ip:     # «в сети» считается за минуту — точности хватает
+                _SEEN[s["id"]] = (now, ip)
+                APP.db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
             if sess and (now - (sess["last_seen"] or 0) > 60 or sess["ip"] != ip):
                 APP.db.x("UPDATE student_sessions SET last_seen=?, ip=? WHERE id=?", (now, ip, sess["id"]))
         return s
@@ -4633,7 +4664,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     item["can_rematch"] = (d["winner"] is not None and d["winner"] != s["id"] and time.time() - (d["finished"] or 0) < 86400
                                            and not db.q("SELECT 1 FROM duels WHERE rematch_of=?", (d["id"],), one=True))
                 out.append(item)
-            lv = lambda sid: game_summary(db, sid, brief=True)["level"]
+            levels = _mate_levels(db, tid, mates)
+            lv = lambda sid: levels.get(sid, 1)
             q = db.q("SELECT since FROM duel_queue WHERE student_id=? AND seen>?", (s["id"], time.time() - DUEL_QUEUE_TTL), one=True)
             return self.send_json({"duels": out, "searching": bool(q), "search_since": q["since"] if q else None,
                                    "today": duels_today(db, s["id"]), "per_day": DUEL_PER_DAY,
@@ -9875,11 +9907,32 @@ def short_name(name):
     return parts[0] + (" " + parts[1][0] + "." if len(parts) > 1 else "") if parts else ""
 
 
+SEEN_EVERY = 15                     # с: как часто записывать students.last_seen
+_SEEN = {}                          # sid → (когда записали, с какого адреса)
+_ML_CACHE, _ML_LOCK = {}, threading.Lock()
+
+
+def _mate_levels(db, tid, mates, ttl=60):
+    """Уровни учеников учителя для списка соперников в дуэлях. Считать уровень каждого при каждом запросе дорого
+    (у учителя могут быть сотни учеников), а меняется он редко — пересчёт не чаще раза в минуту на учителя."""
+    now = time.time()
+    with _ML_LOCK:
+        hit = _ML_CACHE.get(tid)
+    if hit and now - hit[0] < ttl and all(k in hit[1] for k in mates):
+        return hit[1]
+    lv = {m["id"]: game_summary(db, m["id"], brief=True)["level"] for m in teacher_students(db, tid)}
+    with _ML_LOCK:
+        _ML_CACHE[tid] = (now, lv)
+    return lv
+
+
 def teacher_students(db, tid):
     """Ученики учителя — без учительских аккаунтов: учитель решает тренажёр, но в рейтингах, лигах и дуэлях не участвует."""
     main_id = main_teacher()["id"]
-    return [r for r in db.q("SELECT id, name, teacher_id, class_id, badges, dev, no_rank FROM students WHERE COALESCE(is_teacher, 0) = 0")
-            if (r["teacher_id"] or main_id) == tid]
+    # отбор — в самой базе по индексу: раньше читались все ученики сайта и отбирались уже здесь, на каждый запрос рейтинга и дуэлей
+    own = "(teacher_id=? OR teacher_id IS NULL OR teacher_id=0)" if tid == main_id else "teacher_id=?"
+    return db.q("SELECT id, name, teacher_id, class_id, badges, dev, no_rank FROM students WHERE COALESCE(is_teacher, 0) = 0 AND " + own
+                + " ORDER BY id", (tid,))
 
 
 def rank_students(db, tid):

@@ -718,10 +718,16 @@
   }
   const RANK_WORD = ['', 'очень лёгкое', 'лёгкое', 'среднее', 'сложное', 'очень сложное'];
 
+  // сколько заданий в каждом номере — зависит только от банка, периода и того, видны ли авторские задания;
+  // считается по всему банку (десятки тысяч заданий), а нужно при каждой перерисовке — поэтому запоминаем
+  let countMemo = null;
   function countByNum() {
+    const key = `${ui.bank}|${ui.period}|${RULES.authored !== false}`;
+    if (countMemo && countMemo[0] === key) return countMemo[1].slice();
     const c = new Array(28).fill(0);
     for (const t of TASKS) if (visible(t)) c[t.n]++;
-    return c;
+    countMemo = [key, c];
+    return c.slice();
   }
   function level(s) {
     if (!s || !s.a) return 'none';
@@ -3217,9 +3223,13 @@
     next();
   }
 
+  let periodMemo = null;              // список «Задания: актуальные / с 2024 г. / все» — пересобирается, только когда сменился банк
   function renderPeriod() {
     const sel = $('#period');
     if (!sel) return;
+    const key = `${ui.bank}|${RULES.authored !== false}|${ui.period}`;
+    if (periodMemo === key && sel.options.length) return;
+    periodMemo = key;
     const base = TASKS.filter(inBank);
     const cntAll = base.length;
     const actual = base.filter(t => !isOutdated(t));
@@ -6771,6 +6781,7 @@
   // новая версия сайта: раз в 2 минуты сверяем app.js и style.css с тем, что загружено; поменялись — предлагаем обновить
   const VER = { tags: null, shown: false };
   async function siteTags() {
+    if (!/^https?:$/.test(location.protocol)) return null;          // открыт файл с диска: обновлений с сервера нет
     try {
       const rs = await Promise.all(['app.js', 'style.css', 'changelog.js'].map(f => fetch(f, { method: 'HEAD', cache: 'no-store' })));
       return rs.map(r => r.headers.get('ETag') || r.headers.get('Last-Modified') || '').join('|');

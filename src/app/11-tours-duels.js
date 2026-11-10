@@ -311,6 +311,7 @@
   // новая версия сайта: раз в 2 минуты сверяем app.js и style.css с тем, что загружено; поменялись — предлагаем обновить
   const VER = { tags: null, shown: false };
   async function siteTags() {
+    if (!/^https?:$/.test(location.protocol)) return null;          // открыт файл с диска: обновлений с сервера нет
     try {
       const rs = await Promise.all(['app.js', 'style.css', 'changelog.js'].map(f => fetch(f, { method: 'HEAD', cache: 'no-store' })));
       return rs.map(r => r.headers.get('ETag') || r.headers.get('Last-Modified') || '').join('|');

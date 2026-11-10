@@ -317,9 +317,13 @@
     next();
   }
 
+  let periodMemo = null;              // список «Задания: актуальные / с 2024 г. / все» — пересобирается, только когда сменился банк
   function renderPeriod() {
     const sel = $('#period');
     if (!sel) return;
+    const key = `${ui.bank}|${RULES.authored !== false}|${ui.period}`;
+    if (periodMemo === key && sel.options.length) return;
+    periodMemo = key;
     const base = TASKS.filter(inBank);
     const cntAll = base.length;
     const actual = base.filter(t => !isOutdated(t));
