@@ -125,7 +125,7 @@
       btn: prefs.fav.length ? 'Решать' : 'Как добавить', go: () => setScope('fav') });
     if (vis('coinCard')) T.push({ k: 'world', name: 'Мой мир', sub: `${(GAME && GAME.coins) || 0} ₿ · магазин и подарки`, btn: 'В магазин', go: () => $('#coinCard').click() });
     if (vis('duelCard')) { const c = typeof duelCalls === 'function' ? duelCalls().length : 0;
-      T.push({ k: 'duel', name: 'Соревнования', sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
+      T.push({ k: 'duel', name: 'Дуэли и турниры', sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
     if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
     return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
   }
