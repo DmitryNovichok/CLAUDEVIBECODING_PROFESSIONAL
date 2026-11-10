@@ -3616,7 +3616,8 @@ body.lab-open .trainer { max-width: 1260px; }
 
 /* ============================================================ главная-пульт ученика */
 /* по краям ничего не отвлекает: слева нет панели, сверху — только название и профиль */
-body.hub-on .sidebar { display: none; }
+body.hub-on:not(.hubnav) .sidebar { display: none; }
+@media (max-width: 860px) { body.hub-on .sidebar { display: none; } }
 body.hub-on .topbar { justify-content: space-between; padding: 14px max(20px, calc((100% - 1080px) / 2)); border-bottom-color: transparent; background: transparent; backdrop-filter: none; position: static; }
 body.hub-on .topbar .forecast, body.hub-on .scope-info, body.hub-on .session-info { display: none; }
 body.hub-on .me-box > :not(.who):not(.teacher-back) { display: none; }
@@ -3751,7 +3752,8 @@ body.hub-on .trainer { max-width: 1120px; padding: 4px 20px 60px; }
 
 /* ============================================================ навигация «от главной»: по краям ничего нет */
 .hub-nav { display: none; align-items: center; gap: 8px; flex: none; }
-body.hubnav:not(.hub-on):not(.kege-on) .hub-nav { display: inline-flex; }
+body.hubnav:not(.kege-on) .hub-nav { display: inline-flex; }
+body.hubnav.hub-on #hubBack { display: none; }
 .hub-back { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px 8px 10px; border-radius: 14px; border: 2px solid var(--border); border-bottom-width: 4px;
   background: var(--card); color: var(--text); font: 800 14px var(--font); cursor: pointer; transition: background-color .18s, border-color .18s, transform .18s; }
 .hub-back:hover { background: var(--card-hover); border-color: var(--border-strong); }
@@ -3787,14 +3789,16 @@ body.hubnav:not(.hub-on):not(.kege-on) .hub-nav { display: inline-flex; }
   body.hubnav:not(.hub-on) .mobile-brand { display: none; }
 }
 
-/* рядом с логотипом на главной: «by Malevin» и техподдержка в одну линию */
-.hub-brand-x { display: none; align-items: center; gap: 14px; margin-right: auto; }
-body.hubnav.hub-on .hub-brand-x { display: inline-flex; }
-body.hubnav.hub-on .topbar { justify-content: flex-start; }
-body.hubnav.hub-on .mobile-brand { margin-right: 0; }
-.hub-by { color: var(--muted); font: 700 13px var(--font); white-space: nowrap; padding-top: 4px; }
+/* рядом с логотипом на главной: «by Malevin», техподдержка и номера — в одну линию, с ровными промежутками */
+.hub-brand-x { display: none; align-items: center; gap: 10px; }
+body.hubnav.hub-on .hub-brand-x { display: inline-flex; order: 1; }
+body.hubnav.hub-on .topbar { justify-content: flex-start; align-items: center; gap: 10px; }
+body.hubnav.hub-on .mobile-brand { order: 0; margin-right: 0; line-height: 1; user-select: none; cursor: default; }
+body.hubnav.hub-on .hub-nav { order: 2; margin-right: auto; }
+body.hubnav.hub-on .me-box { order: 3; }
+.hub-by { color: var(--muted); font: 700 13px/1 var(--font); white-space: nowrap; margin: 6px 8px 0 -4px; user-select: none; }
 .hub-by b { color: var(--accent-text); font-weight: 800; }
-.hub-sup { position: relative; color: var(--muted); padding: 7px 13px 7px 10px; }
+.hub-sup { position: relative; color: var(--muted); }
 .hub-sup:hover { color: var(--text); }
 .hub-sup .support-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
 .hub-sup .dot { position: absolute; top: 4px; right: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--weak); }
@@ -3802,3 +3806,10 @@ body.hubnav.hub-on .mobile-brand { margin-right: 0; }
 @media (max-width: 560px) { .hub-by { display: none; } .hub-sup { font-size: 0; gap: 0; padding: 6px 8px; } .hub-sup .support-icon { width: 20px; height: 20px; } }
 /* график вариантов не вылезает за карточку */
 .exh-spark { width: 100%; max-width: 220px; height: auto; margin-left: auto; margin-right: auto; }
+
+.hub-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+.hub-foot .link-btn { font-size: 13px; }
+.hub-docs { margin-left: auto; } .hub-docs a { color: var(--muted); }
+.hub-streak { position: static; display: block; box-shadow: none; border: 0; padding: 0; background: none; width: auto; max-width: 420px; }
+.promo-pill-h { border-color: #ff9600; color: #ff9600; }
+@media (max-width: 560px) { .hub-docs { margin-left: 0; } }
