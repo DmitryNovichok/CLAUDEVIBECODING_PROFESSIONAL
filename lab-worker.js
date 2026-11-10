@@ -8,17 +8,20 @@ import sys as _lab_sys
 import io as _lab_io
 import json as _lab_json
 import traceback as _lab_tb
+import time as _lab_time
 
 def _lab_run(source, stdin=''):
     filename = '<egeshka-lab>'
     steps = []
-    limit = 600
+    limit = 200000          # запись идёт до конца программы; ограничения — только от зависания и переполнения памяти
+    deadline = _lab_time.monotonic() + 25
+    stop = {'why': ''}
     class TraceLimit(BaseException):
         pass
     class Output(_lab_io.StringIO):
         truncated = False
         def write(self, text):
-            left = max(0, 6000 - self.tell())
+            left = max(0, 20000 - self.tell())
             if len(text) > left:
                 self.truncated = True
             super().write(text[:left])
@@ -61,6 +64,10 @@ def _lab_run(source, stdin=''):
         if event not in ('line', 'return', 'exception'):
             return trace
         if len(steps) >= limit:
+            stop['why'] = 'steps'
+            raise TraceLimit()
+        if not len(steps) & 255 and _lab_time.monotonic() > deadline:
+            stop['why'] = 'time'
             raise TraceLimit()
         stack = []
         current = frame
@@ -69,7 +76,7 @@ def _lab_run(source, stdin=''):
                 stack.append({'name': current.f_code.co_name, 'line': current.f_lineno})
             current = current.f_back
         step = {'event': event, 'line': frame.f_lineno, 'function': frame.f_code.co_name,
-                'variables': variables(frame), 'stack': stack, 'output': out.getvalue()}
+                'variables': variables(frame), 'stack': stack, 'out': out.tell()}
         if event == 'return':
             step['returnValue'] = describe(arg)
         if event == 'exception':
@@ -92,7 +99,7 @@ def _lab_run(source, stdin=''):
     finally:
         _lab_sys.settrace(old_trace)
         _lab_sys.stdin, _lab_sys.stdout, _lab_sys.stderr = old_in, old_out, old_err
-    return _lab_json.dumps({'steps': steps, 'output': out.getvalue(), 'outputTruncated': out.truncated, 'error': error, 'truncated': truncated}, ensure_ascii=False)
+    return _lab_json.dumps({'steps': steps, 'output': out.getvalue(), 'outputTruncated': out.truncated, 'error': error, 'truncated': truncated, 'stop': stop['why']}, ensure_ascii=False)
 `;
 
 // Обычный запуск на входных данных — для лаборатории исправления ошибок: вывод, ошибка и номер строки.

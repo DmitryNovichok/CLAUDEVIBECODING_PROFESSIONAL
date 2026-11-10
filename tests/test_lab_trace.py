@@ -22,7 +22,7 @@ class LabTraceTest(unittest.TestCase):
         self.assertEqual(lines[0]['variables'], [])
         self.assertEqual(lines[1]['variables'][0]['value'], '1')
         self.assertEqual(lines[2]['variables'][0]['value'], '3')
-        self.assertEqual(r['steps'][-1]['output'], '3\n')
+        self.assertEqual(r['output'][:r['steps'][-1]['out']], '3\n')
 
     def test_list_snapshots_do_not_change_retroactively(self):
         r = self.run_trace('a = [1, 2]\na[0] = 9\nprint(a)')
@@ -55,7 +55,15 @@ class LabTraceTest(unittest.TestCase):
     def test_infinite_loop_is_bounded(self):
         r = self.run_trace('while True:\n    x = 1')
         self.assertTrue(r['truncated'])
-        self.assertEqual(len(r['steps']), 600)
+        self.assertIn(r['stop'], ('steps', 'time'))
+        self.assertLessEqual(len(r['steps']), 200000)
+
+    def test_long_program_runs_to_the_end(self):
+        r = self.run_trace('s = 0\nfor i in range(3000):\n    s += i\nprint(s)')
+        self.assertFalse(r['truncated'])
+        self.assertGreater(len(r['steps']), 6000)
+        self.assertEqual(r['output'], '4498500\n')
+        self.assertEqual(r['output'][:r['steps'][-1]['out']], '4498500\n')
 
     def test_values_are_bounded_without_calling_user_repr(self):
         r = self.run_trace('class X:\n    def __repr__(self):\n        raise RuntimeError("must not call")\nx = X()\na = list(range(1000))\na.append(a)\nn = 2 ** 10000\ns = "a" * 10000')
@@ -71,5 +79,5 @@ class LabTraceTest(unittest.TestCase):
         v = {x['name']: x['value'] for x in r['steps'][-1]['variables']}
         self.assertEqual(v['d'], "{'a': [1, 2]}")
         self.assertEqual(v['t'], '(1, 2)')
-        self.assertEqual(len(r['output']), 6000)
+        self.assertEqual(len(r['output']), 20000)
         self.assertTrue(r['outputTruncated'])
