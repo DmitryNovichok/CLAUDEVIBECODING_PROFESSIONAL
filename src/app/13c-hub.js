@@ -175,7 +175,9 @@
       out.push(`<button type="button" class="hub-pill" data-hub-go="level" title="Уровень ${GAME.level} · ${esc(GAME.title)} — ${GAME.cur} / ${GAME.need} XP">${star}<b data-count="lvl">${GAME.level}</b><small>уровень</small><i class="hub-xp"><b data-bar="xp" data-w="${pct(GAME.cur / GAME.need)}"></b></i></button>`);
       if (!TEACHER) out.push(`<button type="button" class="hub-pill" data-hub-go="coins" title="Биткоины и подарки"><span class="btc" aria-hidden="true">₿</span><b data-count="coins">${GAME.coins || 0}</b></button>`);
     }
-    if (me && me.value) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="${esc(L.name || 'Лига')}">${hubIcon('duel', 22)}Лига <b data-count="place">${me.place}</b>${L.top ? `<small>/${Math.max(L.top.length, me.place)}</small>` : ''}</button>`);
+    if (me && me.value) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="${esc(L.name || 'Лига')} — рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Лига <b data-count="place">${me.place}</b>${L.top ? `<small>/${Math.max(L.top.length, me.place)}</small>` : ''}</button>`);
+    else if (SERVER && student) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="Рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Рейтинг</button>`);
+    if (typeof PROMO !== 'undefined' && PROMO && !TEACHER) out.push(`<button type="button" class="hub-pill promo-pill-h" data-hub-go="promo" title="${esc(PROMO.title)}">⚡ <b>${xTxt(Math.max(PROMO.task, PROMO.exam))} ₿</b></button>`);
     out.push(`<button type="button" class="hub-pill fire-pill${lit ? ' lit' : ''}" data-hub-go="fire" title="${lit ? 'Огонёк на сегодня горит' : 'Реши задания сегодня — огонёк не погаснет'}">${FLAME}<b data-count="days">${days}</b><small>${plural(days, 'день', 'дня', 'дней')}</small></button>`);
     return out.join('');
   }
@@ -205,7 +207,11 @@
         <div class="hub-day"><span>День</span><i class="hub-track"><b data-bar="day" data-w="${plan.length ? Math.round(doneN / plan.length * 100) : 0}"></b></i>
           <span>${doneN === plan.length ? 'всё сделано — так держать!' : `сделано ${doneN} из ${plan.length}`}</span></div></section>
       <h2 class="hub-h2">Все разделы</h2>
-      <div class="hub-tiles">${tiles.map(tileHtml).join('')}</div>`;
+      <div class="hub-tiles">${tiles.map(tileHtml).join('')}</div>
+      <footer class="hub-foot"><button type="button" class="link-btn" data-hub-link="tourBtn">Как работает Egeshka</button>
+        <button type="button" class="link-btn" data-hub-link="versionBtn">${esc(($('#versionBtn') || {}).textContent || 'Что нового')}</button>
+        ${SERVER ? '' : '<button type="button" class="link-btn" data-hub-link="exportBtn">Сохранить прогресс в файл</button>'}
+        <span class="hub-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Персональные данные</a></span></footer>`;
     HUB_ACT = { plan, tiles };
     if (!enter && html.replace(/hg\d+/g, '') === hubSig && trainerEl.querySelector('.hub')) return;
     hubSig = html.replace(/hg\d+/g, '');
@@ -277,6 +283,8 @@
     if (!courseShown || pageKind !== 'hub') return;
     const n = e.target.closest('[data-hub-n]');
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
+    const hl = e.target.closest('[data-hub-link]');
+    if (hl) { $('#' + hl.dataset.hubLink)?.click(); return; }
     const s = e.target.closest('[data-step-go]');
     if (s) { const it = HUB_ACT.plan[+s.dataset.stepGo]; if (it) it.go(); return; }
     const p = e.target.closest('[data-hub-go]');
@@ -286,11 +294,22 @@
       else if (k === 'level') openGame();
       else if (k === 'coins') $('#coinCard').click();
       else if (k === 'league') openRating('league');
-      else if (k === 'fire') setScope('all');
+      else if (k === 'fire') hubFire();
+      else if (k === 'promo') openPromo();
       return;
     }
     const t = e.target.closest('[data-tile]');
     if (t) { const it = HUB_ACT.tiles[+t.dataset.tile]; if (it) it.go(); }
+  });
+  function hubFire() {
+    const days = dayStreak(), k = hubTodayCount(), need = fireNeed();
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">Огонёк</h2><div class="streak-menu hub-streak">${streakMenuHtml(days, k >= need, Math.max(0, need - k))}</div>
+      <p><button type="button" class="btn primary" id="hubFireGo">Решать задания</button></p>`;
+    $('#forecastModal').hidden = false;
+  }
+  $('#forecastModal').addEventListener('click', e => {
+    if (e.target.closest('#hubFireGo')) { closeForecast(); setScope('all'); return; }
+    if (e.target.closest('.hub-streak #freezeBuy')) setTimeout(() => { if (!$('#forecastModal').hidden && $('.hub-streak')) hubFire(); }, 900);
   });
   trainerEl.addEventListener('keydown', e => {
     if (!courseShown || pageKind !== 'hub' || (e.key !== 'Enter' && e.key !== ' ')) return;
@@ -343,7 +362,7 @@
     hubDrawer(!$('.sidebar').classList.contains('open'));
   });
   $('#navShade').addEventListener('click', () => hubDrawer(false));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && hubNav() && !$('#navShade').hidden) hubDrawer(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && hubNav() && !$('#navShade').hidden) hubDrawer(false); }, true);
   // выбрали номер, раздел или нашли задание — панель сама уезжает
   $('.sidebar').addEventListener('click', e => {
     if (!hubNav() || isNarrow() || $('#navShade').hidden) return;

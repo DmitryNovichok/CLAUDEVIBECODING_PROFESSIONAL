@@ -558,6 +558,7 @@
   const promoLeft = P => Math.max(0, Math.round((new Date(P.day + 'T00:00') - new Date(new Date().toDateString())) / 86400000));
   function promoUpdate(p) {
     PROMO = p || null;
+    hubRefresh();
     const b = $('#promoBtn');
     if (!b) return;
     b.hidden = !PROMO || TEACHER;
