@@ -6113,6 +6113,24 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             LIVE.send([sid], "pyc")              # у ученика замки уровней пропадут (или вернутся) сразу
             return self.send_json({"ok": True})
 
+        if path == "/api/admin/lab/password":
+            # пароль лабораторий (лабораторные работы, «Исправление ошибок», Arduino): GET — состояние; POST — задать или сменить,
+            # revoke — закрыть всем, кто уже вошёл; off — выключить (пароль сбрасывается, закрыто у всех)
+            if method == "POST":
+                if not self.T["is_main"]:
+                    return self.err(403, "Пароль лабораторий задаёт главный учитель")
+                pw = str(data.get("password") or "").strip()
+                if pw:
+                    if len(pw) < 4:
+                        return self.err(400, "Пароль лабораторий — не короче 4 символов")
+                    db.setting("lab_pw", hash_pw(pw[:200]))
+                if data.get("off"):
+                    db.setting("lab_pw", "")
+                if data.get("revoke") or data.get("off"):
+                    db.x("UPDATE students SET lab=0")
+            n = db.q("SELECT COUNT(*) c FROM students WHERE lab=1 AND COALESCE(is_teacher, 0)=0", one=True)["c"]
+            return self.send_json({"ok": True, "pw_set": bool(db.setting("lab_pw")), "students": n})
+
         if path == "/api/admin/pyc/password" and method == "POST":
             # пароль курса программирования — как у раздела «Курс»: задать или сменить; revoke — закрыть всем, кто уже вошёл;
             # off — выключить курс (пароль сбрасывается, закрыт у всех)

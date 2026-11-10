@@ -1105,6 +1105,26 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/me", token=tok)[1]["pyc_pw"], False)
         shutil.rmtree(d)
 
+    def test_lab_password_admin(self):
+        """Пароль лабораторий задаётся в админке отдельно от курсов: в базе только хеш, «закрыть всем» и «выключить» работают."""
+        tok = self.login("Лабов Леонид")
+        self.assertEqual(self.req("GET", "/api/lab", token=tok)[1], {"access": False, "pw": False})
+        self.assertEqual(self.admin("GET", "/api/admin/lab/password")[1]["pw_set"], False)
+        self.assertEqual(self.admin("POST", "/api/admin/lab/password", {"password": "12"})[0], 400)
+        st, r = self.admin("POST", "/api/admin/lab/password", {"password": "synthetic-lab-77"})
+        self.assertEqual((st, r["pw_set"], r["students"]), (200, True, 0))
+        self.assertNotIn("synthetic-lab-77", json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")]))
+        self.assertFalse(server.APP.db.setting("pyc_pw"))                      # другие пароли не тронуты
+        self.assertEqual(self.req("POST", "/api/lab/unlock", {"password": "wrong-pass"}, tok)[0], 403)
+        self.assertTrue(self.req("POST", "/api/lab/unlock", {"password": "synthetic-lab-77"}, tok)[1]["access"])
+        self.assertEqual(self.admin("GET", "/api/admin/lab/password")[1]["students"], 1)
+        r = self.admin("POST", "/api/admin/lab/password", {"revoke": True})[1]
+        self.assertEqual((r["pw_set"], r["students"]), (True, 0))
+        self.assertFalse(self.req("GET", "/api/lab", token=tok)[1]["access"])
+        r = self.admin("POST", "/api/admin/lab/password", {"off": True})[1]
+        self.assertEqual(r["pw_set"], False)
+        self.assertEqual(self.req("GET", "/api/lab", token=tok)[1], {"access": False, "pw": False})
+
     def test_funny_achievements(self):
         db = server.APP.db
         sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Шутов Шура','шутов шура','tkfun',0,0)")
