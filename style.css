@@ -3786,3 +3786,19 @@ body.hubnav:not(.hub-on):not(.kege-on) .hub-nav { display: inline-flex; }
   .hub-nums { display: none; }                       /* на телефоне номера — в нижнем меню «Ещё» */
   body.hubnav:not(.hub-on) .mobile-brand { display: none; }
 }
+
+/* рядом с логотипом на главной: «by Malevin» и техподдержка в одну линию */
+.hub-brand-x { display: none; align-items: center; gap: 14px; margin-right: auto; }
+body.hubnav.hub-on .hub-brand-x { display: inline-flex; }
+body.hubnav.hub-on .topbar { justify-content: flex-start; }
+body.hubnav.hub-on .mobile-brand { margin-right: 0; }
+.hub-by { color: var(--muted); font: 700 13px var(--font); white-space: nowrap; padding-top: 4px; }
+.hub-by b { color: var(--accent-text); font-weight: 800; }
+.hub-sup { position: relative; color: var(--muted); padding: 7px 13px 7px 10px; }
+.hub-sup:hover { color: var(--text); }
+.hub-sup .support-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
+.hub-sup .dot { position: absolute; top: 4px; right: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--weak); }
+.hub-sup .dot[hidden] { display: none; }
+@media (max-width: 560px) { .hub-by { display: none; } .hub-sup { font-size: 0; gap: 0; padding: 6px 8px; } .hub-sup .support-icon { width: 20px; height: 20px; } }
+/* график вариантов не вылезает за карточку */
+.exh-spark { width: 100%; max-width: 220px; height: auto; margin-left: auto; margin-right: auto; }

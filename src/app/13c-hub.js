@@ -268,6 +268,7 @@
     document.body.classList.add('hub-on');
     hubSig = '';
     renderSidebar();
+    renderTopbar();                          // прогноз, огонёк и рейтинг вверху — для страниц, куда уйдут с главной
     window.scrollTo(0, 0);
     renderHub(true);
     clearTimeout(hubTimer);
@@ -362,3 +363,16 @@
   window.addEventListener('popstate', () => {
     if (hubModalState && !$('#forecastModal').hidden) { hubModalState = false; closeForecast(); }
   });
+
+  // ------------------------------------------------------------ рядом с логотипом: «by Malevin» и техподдержка
+  {
+    const brand = $('.topbar .mobile-brand');
+    brand?.insertAdjacentHTML('afterend', `<span class="hub-brand-x"><span class="hub-by">by <b>Malevin</b></span>
+      <button type="button" class="hub-back hub-sup" id="hubSupport" hidden title="Ошибка, вопрос или идея — ответ придёт сюда же"><svg class="support-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.6 3.6m5.6 5.6 3.6 3.6m0-12.8-3.6 3.6m-5.6 5.6-3.6 3.6"/></svg>Техподдержка<i class="dot" hidden></i></button></span>`);
+    const sb = $('#supportBtn'), sd = $('#supportDot'), hs = $('#hubSupport');
+    const sync = () => { if (!hs || !sb) return; hs.hidden = sb.hidden; hs.querySelector('.dot').hidden = !sd || sd.hidden; };
+    if (sb) new MutationObserver(sync).observe(sb, { attributes: true, attributeFilter: ['hidden'] });
+    if (sd) new MutationObserver(sync).observe(sd, { attributes: true, attributeFilter: ['hidden'] });
+    sync();
+    hs?.addEventListener('click', () => openSupport('auto'));
+  }
