@@ -467,6 +467,7 @@
       return;
     }
     if (isNarrow()) { setSideOpen(!$('.sidebar').classList.contains('open')); return; }   // на телефоне — открыть список номеров
+    if (document.body.classList.contains('hubnav')) return;          // панель выезжает целиком — сворачивать в ней нечего
     setSideMin(!document.body.classList.contains('side-min'));
   });
   // «Все номера» — задания всех номеров: тренажёр сам подбирает, что подтянуть

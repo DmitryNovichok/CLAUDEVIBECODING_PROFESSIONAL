@@ -3594,7 +3594,6 @@ body.lab-open .trainer { max-width: 1260px; }
   .lab-position { padding: 16px; }
   .lab-controls { position: static; }
 }
-<<<<<<< HEAD
 /* 2.37: один шаг урока, явная связь теории, кода и лаборатории */
 .learning-format{font-size:13px;color:var(--muted);line-height:1.6;margin:14px 0 20px}
 .learning-return{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px;margin:16px 0;border:1px solid var(--border);border-radius:14px;background:var(--panel)}
@@ -3614,7 +3613,6 @@ body.lab-open .trainer { max-width: 1260px; }
   .pyc .sl-split,.pyc .sl-blocks{grid-template-columns:1fr}.pyc .crs-stage{min-height:0}.pyc .sl{padding:20px}
 }
 #labCard.locked::after{content:'•';position:absolute;right:2px;bottom:0;color:var(--muted)}
-=======
 
 /* ============================================================ главная-пульт ученика */
 /* по краям ничего не отвлекает: слева нет панели, сверху — только название и профиль */
@@ -3750,4 +3748,41 @@ body.hub-on .trainer { max-width: 1120px; padding: 4px 20px 60px; }
   .hub-tile { padding: 14px 12px 12px; }
   .hub-act { font-size: 12px; padding: 6px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
->>>>>>> ed7b128 (2.38.0: главная-пульт ученика — план на сегодня, разделы плитками, новые иконки и плавные анимации)
+
+/* ============================================================ навигация «от главной»: по краям ничего нет */
+.hub-nav { display: none; align-items: center; gap: 8px; flex: none; }
+body.hubnav:not(.hub-on):not(.kege-on) .hub-nav { display: inline-flex; }
+.hub-back { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px 8px 10px; border-radius: 14px; border: 2px solid var(--border); border-bottom-width: 4px;
+  background: var(--card); color: var(--text); font: 800 14px var(--font); cursor: pointer; transition: background-color .18s, border-color .18s, transform .18s; }
+.hub-back:hover { background: var(--card-hover); border-color: var(--border-strong); }
+.hub-back:active { transform: translateY(2px); border-bottom-width: 2px; margin-bottom: 2px; }
+.hub-back svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.hub-nums { color: var(--muted); padding-left: 12px; }
+.hub-nums[aria-expanded="true"] { border-color: var(--accent); color: var(--text); }
+.nav-shade { position: fixed; inset: 0; z-index: 29; background: var(--overlay); animation: mdFade .2s ease-out both; }
+.nav-shade[hidden] { display: none; }
+@media (min-width: 861px) {
+  /* боковая панель — выезжающая: не занимает места, появляется по кнопке «Номера» */
+  body.hubnav .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 30; width: 320px; background: var(--panel); border-right: 2px solid var(--border);
+    transform: translateX(-102%); visibility: hidden; box-shadow: 0 0 40px rgba(0, 0, 0, .35);
+    transition: transform .3s cubic-bezier(.22, 1, .36, 1), visibility 0s .3s; }
+  body.hubnav .sidebar.open { transform: none; visibility: visible; transition: transform .3s cubic-bezier(.22, 1, .36, 1), visibility 0s; }
+  body.hubnav .sidebar .side-panel { display: flex !important; }
+  body.hubnav .mobile-brand { display: none; }
+  body.hubnav.hub-on .mobile-brand { display: inline-block; }
+  body.hubnav:not(.hub-on) .topbar { padding-left: 20px; padding-right: 20px; }
+  /* окна — во весь экран, как страницы: без рамки и затемнения, «← Назад» вместо крестика */
+  body.hubnav #forecastModal { background: var(--bg); padding: 0; animation: none; }
+  body.hubnav #forecastModal > .modal-panel { max-width: 860px; margin: 0 auto; border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 76px 24px 60px; min-height: 100%;
+    animation: pgIn .32s cubic-bezier(.22, 1, .36, 1) both; }
+  body.hubnav #forecastModal:has(.bx) > .modal-panel, body.hubnav #forecastModal:has(.lb) > .modal-panel { max-width: 980px; }
+  body.hubnav #forecastModal .fm-close { position: absolute; top: 18px; left: 24px; right: auto; width: auto; height: auto; padding: 8px 14px 8px 12px; border-radius: 14px;
+    border: 2px solid var(--border); border-bottom-width: 4px; background: var(--card); color: var(--text); font-size: 0; line-height: 1; }
+  body.hubnav #forecastModal .fm-close::before { content: '←  Назад'; font: 800 14px var(--font); white-space: pre; }
+  body.hubnav #forecastModal .fm-close:hover { background: var(--card-hover); border-color: var(--border-strong); }
+}
+@media (max-width: 860px) {
+  .hub-back { padding: 6px 10px 6px 6px; font-size: 13px; border-bottom-width: 2px; }
+  .hub-nums { display: none; }                       /* на телефоне номера — в нижнем меню «Ещё» */
+  body.hubnav:not(.hub-on) .mobile-brand { display: none; }
+}

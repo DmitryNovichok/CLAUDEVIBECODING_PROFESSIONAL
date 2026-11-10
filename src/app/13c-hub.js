@@ -263,6 +263,8 @@
       cur = null;
       if (initial === true) { try { history.replaceState({ v: 'hub' }, ''); } catch (e) { /* не страшно */ } } else navPush({ v: 'hub' });
     }
+    if (SERVER && student) hubNavOn();
+    hubDrawer(false);
     document.body.classList.add('hub-on');
     hubSig = '';
     renderSidebar();
@@ -314,3 +316,49 @@
     if (!el || el.classList.contains('pg-in') || el.classList.contains('hub')) return;
     el.classList.add('pg-in');
   }).observe(trainerEl, { childList: true });
+
+  // ------------------------------------------------------------ навигация «от главной»
+  /* Главная — отдельная страница. Всё остальное открывается с неё своей страницей: слева ничего нет,
+     вверху — «← Главная» и «Номера» (банк номеров, поиск и настройки выезжают панелью слева и прячутся обратно).
+     Окна (прогноз, рейтинг, подарки, уровень, техподдержка…) открываются во весь экран, «Назад» в браузере их закрывает. */
+  const hubNav = () => document.body.classList.contains('hubnav');
+  $('.topbar')?.insertAdjacentHTML('afterbegin', `<span class="hub-nav" id="hubNav">
+    <button type="button" class="hub-back" id="hubBack" title="На главную: план на сегодня и все разделы"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Главная</button>
+    <button type="button" class="hub-back hub-nums" id="hubNums" aria-haspopup="true" aria-expanded="false" title="Номера заданий, поиск по номеру, банки и настройки"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/></svg>Номера</button></span>`);
+  document.body.insertAdjacentHTML('beforeend', '<div class="nav-shade" id="navShade" hidden></div>');
+  function hubDrawer(open) {
+    if (!hubNav() || isNarrow()) return;
+    setSideOpen(open);
+    $('#navShade').hidden = !open;
+    $('#hubNums')?.setAttribute('aria-expanded', String(open));
+  }
+  function hubNavOn() {
+    document.body.classList.add('hubnav');
+    document.body.classList.remove('side-min');           // в выезжающей панели банк номеров всегда развёрнут
+  }
+  $('#hubBack')?.addEventListener('click', () => { hubDrawer(false); openHub(); });
+  $('#hubNums')?.addEventListener('click', () => {
+    if (isNarrow()) { setSideOpen(!$('.sidebar').classList.contains('open')); window.scrollTo(0, 0); return; }
+    hubDrawer(!$('.sidebar').classList.contains('open'));
+  });
+  $('#navShade').addEventListener('click', () => hubDrawer(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && hubNav() && !$('#navShade').hidden) hubDrawer(false); });
+  // выбрали номер, раздел или нашли задание — панель сама уезжает
+  $('.sidebar').addEventListener('click', e => {
+    if (!hubNav() || isNarrow() || $('#navShade').hidden) return;
+    if (e.target.closest('.num-card, .rail-btn, #allNums, #supportBtn, .side-actions .link-btn, #versionBtn')) setTimeout(() => hubDrawer(false), 0);
+  });
+  $('#searchForm')?.addEventListener('submit', () => setTimeout(() => hubDrawer(false), 0));
+
+  // окно как страница: открылось — запись в истории браузера, «Назад» закрывает его
+  let hubModalState = false, hubSkipPop = false;
+  new MutationObserver(() => {
+    const open = !$('#forecastModal').hidden;
+    if (!hubNav() || open === hubModalState) return;
+    hubModalState = open;
+    if (open) { try { if (!history.state) history.replaceState({ v: 'main' }, ''); history.pushState({ v: 'modal' }, ''); } catch (e) { /* не страшно */ } }
+    else if (history.state && history.state.v === 'modal') { hubSkipPop = true; history.back(); }   // закрыли кнопкой — убрать запись
+  }).observe($('#forecastModal'), { attributes: true, attributeFilter: ['hidden'] });
+  window.addEventListener('popstate', () => {
+    if (hubModalState && !$('#forecastModal').hidden) { hubModalState = false; closeForecast(); }
+  });
