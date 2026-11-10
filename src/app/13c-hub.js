@@ -115,7 +115,7 @@
     if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
     T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
-    if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'задания ЕГЭ и программирование', btn: 'Открыть', go: () => $('#labCard').click() });
+    if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'модели заданий ЕГЭ, Python по шагам, исправление ошибок', btn: 'Открыть', go: () => $('#labCard').click() });
     if (vis('labCard')) T.push({ k: 'arduino', name: 'Лаборатория Arduino', sub: 'схемы, код и симулятор · 2 курса по 36 уроков', btn: LAB_OK ? 'Открыть' : 'Открыть по паролю',
       go: () => { if (LAB_OK) location.href = 'arduino/'; else $('#labCard').click(); } });
     if (vis('pycCard')) T.push({ k: 'python', name: 'Курс Python', sub: 'программирование с нуля', btn: 'Открыть', go: () => $('#pycCard').click() });

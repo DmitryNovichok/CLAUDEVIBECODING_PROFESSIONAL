@@ -60,7 +60,7 @@
   }
   async function openLab(view = '', context) {
     if (!leaveExam()) return;
-    if (!['', 'tasks', 'code'].includes(view)) view = '';
+    if (!['', 'tasks', 'code', 'bugs'].includes(view)) view = '';
     labStop();
     if (LAB.owner && LAB.owner !== codeKey('laboratory')) LAB.context = null;
     if (context) LAB.context = context;
@@ -94,19 +94,21 @@
     renderSidebar();
     $('#scopeInfo').innerHTML = '<span class="scope-title">Лаборатория</span><span class="scope-stats">Исследуй и проверяй идеи</span>';
     $('#sessionInfo').textContent = '';
-    const titles = { '': ['Лаборатория', 'Меняй условия, проверяй гипотезы и разбирайся, как всё работает.'], tasks: ['Лаборатории по заданиям ЕГЭ', 'Сначала предположи результат. Затем проверь его на модели.'], code: ['Лаборатория программирования', 'Свой Python-код, значения переменных и выполнение по шагам.'] };
+    const titles = { '': ['Лаборатория', 'Меняй условия, проверяй гипотезы и разбирайся, как всё работает.'], tasks: ['Лаборатории по заданиям ЕГЭ', 'Сначала предположи результат. Затем проверь его на модели.'], code: ['Лаборатория программирования', 'Свой Python-код, значения переменных и выполнение по шагам.'] , bugs: ['Лаборатория исправления ошибок', 'Чужое решение не работает. Найди, что в нём не так, и почини.'] };
     const [title, sub] = titles[view];
     trainerEl.innerHTML = `<div class="lab" id="labRoot">
       ${LAB.context ? `<div class="learning-return"><button class="btn" type="button" data-learning-return>← Вернуться к уроку</button><span>${esc(LAB.context.label || 'Код и условие урока')}</span>${LAB.context.condition ? `<div class="cond">${safeHtml(LAB.context.condition)}</div>` : ''}</div>` : ''}
       ${view ? '<button type="button" class="link-btn lab-back" data-lab-view="">← Все лаборатории</button>' : ''}
       <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>${title}</h1><p>${sub}</p></div></header>
-      ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : `<div class="lab-cards">
+      ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : view === 'bugs' ? bugLabHtml() : `<div class="lab-cards">
         <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">№ 7 · 10 · 19–21</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
-        <button type="button" class="lab-entry" data-lab-view="code"><span class="lab-kicker">Python</span><h2>Программирование</h2><p>Смотри, какая строка выполняется, как меняются переменные и что выводит программа.</p><b>Открыть лабораторию →</b></button></div>
+        <button type="button" class="lab-entry" data-lab-view="code"><span class="lab-kicker">Python</span><h2>Программирование</h2><p>Смотри, какая строка выполняется, как меняются переменные и что выводит программа.</p><b>Открыть лабораторию →</b></button>
+        ${SERVER ? '<button type="button" class="lab-entry" data-lab-view="bugs"><span class="lab-kicker">Python · поиск ошибок</span><h2>Исправление ошибок</h2><p>Задача и чужое решение: в нём ошибки, пропуск или оно слишком медленное. Почини код так, чтобы он прошёл все тесты.</p><b>Искать ошибки →</b></button>' : ''}</div>
         <p class="lab-note">Здесь можно пробовать и ошибаться: эксперименты не меняют оценки и награды за задания.</p>`}
       </div>`;
     if (view === 'tasks') labRenderModel();
     if (view === 'code') labRenderStep();
+    if (view === 'bugs') bugLabInit();
     window.scrollTo(0, 0);
   }
   function labTasksHtml() {

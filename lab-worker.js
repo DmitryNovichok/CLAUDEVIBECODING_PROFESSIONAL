@@ -95,9 +95,70 @@ def _lab_run(source, stdin=''):
     return _lab_json.dumps({'steps': steps, 'output': out.getvalue(), 'outputTruncated': out.truncated, 'error': error, 'truncated': truncated}, ensure_ascii=False)
 `;
 
+// Обычный запуск на входных данных — для лаборатории исправления ошибок: вывод, ошибка и номер строки.
+const LAB_PLAIN_PY = String.raw`
+import sys as _lab_sys
+import io as _lab_io
+import json as _lab_json
+import traceback as _lab_tb
+
+def _lab_plain(source, stdin=''):
+    filename = '<egeshka-lab>'
+    class Output(_lab_io.StringIO):
+        def write(self, text):
+            super().write(text[:max(0, 6000 - self.tell())])
+            return len(text)
+    out = Output()
+    old_in, old_out, old_err = _lab_sys.stdin, _lab_sys.stdout, _lab_sys.stderr
+    error, kind, line = '', '', 0
+    try:
+        _lab_sys.stdin = _lab_io.StringIO(stdin)
+        _lab_sys.stdout = _lab_sys.stderr = out
+        exec(compile(source, filename, 'exec'), {'__name__': '__main__'})
+    except SystemExit:
+        pass
+    except BaseException as exc:
+        kind = type(exc).__name__
+        error = ''.join(_lab_tb.format_exception_only(type(exc), exc))[:600]
+        if isinstance(exc, SyntaxError):
+            line = exc.lineno or 0
+        else:
+            tb = exc.__traceback__
+            while tb:
+                if tb.tb_frame.f_code.co_filename == filename:
+                    line = tb.tb_lineno
+                tb = tb.tb_next
+    finally:
+        _lab_sys.stdin, _lab_sys.stdout, _lab_sys.stderr = old_in, old_out, old_err
+    return _lab_json.dumps({'out': out.getvalue(), 'err': error, 'kind': kind, 'line': line}, ensure_ascii=False)
+`;
+
 let labBusy = false;
 self.onmessage = async ev => {
   const msg = ev.data;
+  if (msg.type === 'tests' && !labBusy) {            // код на нескольких входах подряд; после каждого — сообщение с результатом
+    labBusy = true;
+    try {
+      await ready;
+      if (!pyodide) throw new Error('Python не загрузился. Проверьте подключение и повторите запуск.');
+      self.postMessage({ type: 'tests-start' });
+      pyodide.runPython(LAB_PLAIN_PY);
+      const run = pyodide.globals.get('_lab_plain');
+      try {
+        const inputs = (msg.inputs || []).slice(0, 12);
+        for (let i = 0; i < inputs.length; i++) {
+          let r;
+          try { r = JSON.parse(run(String(msg.code || '').slice(0, 30000), String(inputs[i] || '').slice(0, 10000))); }
+          catch (e) { r = { out: '', err: String(e && e.message || e).slice(0, 600), kind: /stack|recursion/i.test(String(e)) ? 'RecursionError' : 'Error', line: 0 }; }
+          self.postMessage({ type: 'test', i, result: r });
+        }
+        self.postMessage({ type: 'tests-done' });
+      } finally { run.destroy(); }
+    } catch (e) {
+      self.postMessage({ type: 'tests-error', text: String(e && e.message || e).slice(0, 2000) });
+    } finally { labBusy = false; }
+    return;
+  }
   if (msg.type !== 'trace' || labBusy) return;
   labBusy = true;
   try {
