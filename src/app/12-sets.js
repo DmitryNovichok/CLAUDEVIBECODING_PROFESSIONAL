@@ -1,5 +1,7 @@
   // ------------------------------------------------------------ задания от учителя
   let ASG = [], ASG_IN_CLASS = false;
+  let ASG_ERROR = false, asgLoadVersion = 0;
+  function resetAssignments() { ASG = []; ASG_IN_CLASS = false; ASG_ERROR = false; ++asgLoadVersion; }
   const fmtDay = ms => { const d = new Date(ms); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`; };
   function asgOf(id) { return ASG.find(a => a.id === id) || (COURSE_OK && courseSet(id)) || null; }
   /** Нерешённые задания подборки: по данным сервера и по ответам, данным уже на этой странице. */
@@ -19,6 +21,7 @@
     return a.tasks.filter(id => !done.has(id));
   }
   function asgFinished(a) { return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final)); }
+  const asgPending = a => !asgFinished(a) && (a.strict || asgLeft(a).length > 0);
   // Срок — первый приоритет; при одинаковом сроке сначала начатая работа.
   function asgOrder(a, b) {
     const started = x => !!(x.started || x.score?.tried || x.done?.length);
@@ -35,13 +38,25 @@
   let asgTab = 'active';
   async function loadAssignments() {
     if (!SERVER) return;
-    const duels = ASG.filter(a => a.duel || a.course);
-    try { const d = await api('assignments'); ASG = d.assignments || []; ASG_IN_CLASS = !!d.in_class; } catch (e) { if (e.status === 401) throw e; ASG = []; }
-    ASG = ASG.concat(duels);
+    const request = ++asgLoadVersion, sid = student?.sid;
+    try {
+      const d = await api('assignments');
+      if (request !== asgLoadVersion || student?.sid !== sid) return;
+      ASG = (d.assignments || []).concat(ASG.filter(a => a.duel || a.course));
+      ASG_IN_CLASS = !!d.in_class;
+      ASG_ERROR = false;
+    } catch (e) {
+      if (request !== asgLoadVersion || student?.sid !== sid) return;
+      if (e.status === 401) throw e;
+      ASG_ERROR = true;                    // ошибка связи не означает, что учитель удалил работы
+      renderAsgCard(); renderAsgPage(); hubRefresh();
+      return;
+    }
     renderAsgCard();
     renderAsgPage();                      // открыта страница подборок — новая подборка появится на ней сразу
     if (wkLive()) wkWatch();
     asgNotices();
+    hubRefresh();
   }
   /** Напоминания: срок работы — сегодня или завтра; новая личная подборка (работа над ошибками, слабые места). */
   function asgNotices() {
@@ -72,12 +87,12 @@
     const card = $('#asgCard');
     if (!card) return;
     const own = ASG.filter(a => !a.duel && !a.course);
-    card.hidden = !own.length && !ASG_IN_CLASS;           // ученик в классе — значок подборок есть всегда
+    card.hidden = !own.length && !ASG_IN_CLASS && !ASG_ERROR;
     if (card.hidden) return;
-    const pending = own.filter(a => !asgFinished(a)), open = pending.filter(a => asgLeft(a).length);
+    const pending = own.filter(a => !asgFinished(a)), open = pending.filter(asgPending);
     const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
-    card.classList.toggle('alert', !!left);
-    $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : pending.length ? 'всё решено' : 'нет активных подборок';
+    card.classList.toggle('alert', !!open.length);
+    $('#asgSub').textContent = ASG_ERROR ? 'не удалось обновить' : open.length ? (left ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'нужно завершить работу') : pending.length ? 'всё решено' : 'нет активных подборок';
   }
   const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
   function asgIcon(a) {
@@ -133,15 +148,17 @@
     const visible = asgTab === 'done' ? done : active;
     trainerEl.innerHTML = `<div class="course asg-page">
       <header class="ap-heading"><h2>От учителя</h2><p>${active.length} ${plural(active.length, 'работа', 'работы', 'работ')} · осталось ${left} ${plural(left, 'задание', 'задания', 'заданий')}</p></header>
+      ${ASG_ERROR ? '<p class="fm-note" role="status">Не удалось обновить задания. Показан последний загруженный список. <button type="button" class="btn" data-asg-reload>Повторить загрузку</button></p>' : ''}
       <div class="ap-tabs" aria-label="Статус работ">
         <button type="button" data-asg-tab="active" aria-pressed="${asgTab === 'active'}" class="${asgTab === 'active' ? 'on' : ''}">Текущие ${active.length}</button>
         <button type="button" data-asg-tab="done" aria-pressed="${asgTab === 'done'}" class="${asgTab === 'done' ? 'on' : ''}">Завершённые ${done.length}</button></div>
-      ${visible.length ? `<div class="ap-grid">${visible.map(card).join('')}</div>` : `<p class="fm-note ap-empty">${asgTab === 'done' ? 'Завершённых работ пока нет.' : 'Новых работ нет. Когда учитель выдаст подборку, она появится здесь.'}</p>`}
+      ${visible.length ? `<div class="ap-grid">${visible.map(card).join('')}</div>` : ASG_ERROR ? '' : `<p class="fm-note ap-empty">${asgTab === 'done' ? 'Завершённых работ пока нет.' : 'Новых работ нет. Когда учитель выдаст подборку, она появится здесь.'}</p>`}
       <details class="ap-help"><summary>Как проверяются работы?</summary><p>Самостоятельная — проверка после сдачи, ответ можно изменить один раз. В практической и домашней работе результат виден сразу, оценка ставится по попыткам.</p></details>
     </div>`;
     renderMobileNav();
   }
   trainerEl.addEventListener('click', e => {
+    if (e.target.closest('[data-asg-reload]')) { loadAssignments(); return; }
     const tab = e.target.closest('[data-asg-tab]');
     if (!tab) return;
     asgTab = tab.dataset.asgTab === 'done' ? 'done' : 'active';
@@ -576,27 +593,30 @@
     let hasSol = await autoAttach(cur.task.id);   // код из окна Python прикрепляется сам
     if (cur !== c) return;
     if (!hasSol) try { hasSol = !!(await api('solution?task=' + encodeURIComponent(cur.task.id))).code; } catch (e) { hasSol = true; }
+    if (cur !== c) return;
     const ans = await wkAsk(cur.changing ? (cur.group ? 'Изменить ответы?' : `Изменить ответ на «${esc(items[0].answer)}»?`)
       : cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
       (cur.changing ? 'Это единственное изменение — потом поменять будет нельзя.'
         : `Его можно будет изменить ещё <b>один раз</b>.`) + `${blank ? ` Без ответа вопросов: ${blank}.` : ''}`
       + (hasSol ? '' : '<br><br><b class="wk-sol-warn">⚠ Решение не прикреплено.</b> Учитель хочет видеть, как ты решал: открой Python, вставь или напиши код и нажми «Прикрепить решение».'),
       hasSol ? 'Сдать' : 'Сдать без решения', hasSol ? null : '📎 Прикрепить решение');
+    if (cur !== c || cur.done) return;
     if (ans === 'extra') { togglePy(true); toast('Вставь код в окно Python и нажми «Прикрепить решение», затем сдай ответ.', 5000); return; }
     if (!ans) return;
-    if (cur !== c || cur.done) return;
     setBusy(true);
     let r = null;
     try {
-      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing }, x));
+      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - c.started, change: !!c.changing }, x));
     } catch (e) {
-      setBusy(false);
-      if (e.status === 409) { await wkRefresh(a); if (!wkLive()) return; toast(e.message, 4000); next(); return; }
+      setBusy(false, c);
+      if (cur !== c) return;
+      if (e.status === 409) { await wkRefresh(a); if (cur !== c || !wkLive()) return; toast(e.message, 4000); next(); return; }
       netError(e);
       return;
     }
-    setBusy(false);
+    setBusy(false, c);
     wkApply(a, r);
+    if (cur !== c) return;
     if (r && r.closed_now) { wkClosed(a); return; }
     if (r && r.changed) a.changed = r.changed;
     cur.done = true;

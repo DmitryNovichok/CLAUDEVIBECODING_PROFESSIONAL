@@ -1654,25 +1654,32 @@
   }
   async function callCheck(obj, extra) {              // может выбросить ошибку сети
     if (!SERVER) return localCheck(obj, extra);
+    const sid = student?.sid;
     const res = await api('check', payloadFor(obj, extra));
-    if (res && res.game) onGame(res.game);
+    if (res && res.game && student?.sid === sid) onGame(res.game);
     return res;
   }
   function netError(e) {
     if (e && e.status === 401) { toast('Нужно войти заново'); logout(); return; }
     toast(e && e.status && e.message ? e.message : 'Нет связи с сервером — ответ не проверен. Попробуйте ещё раз.', 4000);
   }
-  function setBusy(on) {
+  function setBusy(on, owner = cur) {
+    if (cur !== owner) return;
     busy = on;
     $$('#actions .btn').forEach(b => { b.disabled = on || (b.id === 'giveUpBtn' && thinkLeft() > 0); });
   }
   async function verify(extra) {
+    const c = cur;
     setBusy(true);
-    try { return await callCheck(cur.task, extra); } catch (e) {
+    try {
+      const res = await callCheck(c.task, extra);
+      return cur === c ? res : null;
+    } catch (e) {
+      if (cur !== c) return null;
       // учитель сделал подборку самостоятельной, пока страница была открыта: подтянем подборки и покажем старт
-      if (e.status === 403 && SERVER) { toast(e.message, 4500); loadAssignments().then(() => { if (wkScope()) show(null); }).catch(() => {}); return null; }
+      if (e.status === 403 && SERVER) { toast(e.message, 4500); loadAssignments().then(() => { if (cur === c && wkScope()) show(null); }).catch(() => {}); return null; }
       netError(e); return null;
-    } finally { setBusy(false); }
+    } finally { setBusy(false, c); }
   }
 
   // ---- ответ скрыт: рано (нужно подумать) или исчерпан лимит показов в час
@@ -1706,6 +1713,7 @@
       btn.disabled = true;
       try {
         const r = SERVER ? await api('reveal', { task: obj.id }) : localReveal(obj);
+        if (!el.isConnected) return;
         if (r.hidden) {
           el.dataset.until = Date.now() + r.hidden.wait * 1000;
           el.dataset.why = r.hidden.why;
@@ -1731,9 +1739,10 @@
       return;
     }
     const answer = got.join(' ');
+    const c = cur;
     autoAttach(cur.task.id);
     const res = await verify({ answer, cells: cellsIn($('#answerInputs'), cur.shape) });
-    if (!res || !cur || cur.done) return;
+    if (!res || cur !== c || cur.done) return;
     cur.answers = cur.answers.concat(answer);
     cur.attempt = cur.answers.length;
     if (res.correct) return finish(res.score != null ? res.score : (cur.attempt === 1 ? 1 : 0.5), false, res);
@@ -1760,10 +1769,10 @@
   }
   async function getHint() {
     if (!cur || cur.done || busy) return;
-    const task = cur.task.id;
+    const c = cur, task = c.task.id;
     try {
       const h = await api('hint', { task });
-      if (!cur || cur.task.id !== task) return;
+      if (cur !== c || cur.done) return;
       cur.hints = (cur.hints || []).concat([h]);
       renderActions();
     } catch (e) { toast(e.message || 'Подсказка недоступна'); }
@@ -1772,8 +1781,9 @@
   async function giveUp() {
     if (!cur || cur.done || busy || thinkLeft() > 0) return;
     if (cur.group) return giveUpGroup();
+    const c = cur;
     const res = await verify({ gave_up: true });
-    if (res && cur && !cur.done) finish(0, true, res);
+    if (res && cur === c && !cur.done) finish(0, true, res);
   }
 
   // ---- задания 19–21: три части на одной странице
@@ -1827,17 +1837,20 @@
   }
 
   async function runParts(items, extraFor) {
+    const c = cur;
     setBusy(true);
     let results;
     try {
       results = await Promise.allSettled(items.map(o => callCheck(cur.parts[o.i].p, extraFor(o))));
-    } finally { setBusy(false); }
+    } finally { setBusy(false, c); }
+    if (cur !== c) return [];
     const failed = results.find(r => r.status === 'rejected');
     if (failed) netError(failed.reason);
     return results.map(r => (r.status === 'fulfilled' ? r.value : null));
   }
 
   async function checkGroup() {
+    const c = cur;
     const todo = cur.parts.map((x, i) => ({ x, i })).filter(o => !o.x.final);
     const filled = todo.map(o => Object.assign(o, { got: readAnswerIn(partBox(o.i), o.x.shape) })).filter(o => o.got.length);
     if (!filled.length) {
@@ -1847,7 +1860,7 @@
     }
     autoAttach(cur.task.id);
     const results = await runParts(filled, o => ({ answer: o.got.join(' '), cells: cellsIn(partBox(o.i), o.x.shape) }));
-    if (!cur || cur.done) return;
+    if (cur !== c || cur.done) return;
     filled.forEach((o, k) => {
       const res = results[k];
       if (!res) return;
@@ -1866,9 +1879,10 @@
   }
 
   async function giveUpGroup() {
+    const c = cur;
     const todo = cur.parts.map((x, i) => ({ x, i })).filter(o => !o.x.final);
     const results = await runParts(todo, () => ({ gave_up: true }));
-    if (!cur || cur.done) return;
+    if (cur !== c || cur.done) return;
     todo.forEach((o, k) => { if (results[k]) partFinal(o.i, 0, results[k], true); });
     if (cur.parts.every(x => x.final)) finishGroup();
   }
@@ -1992,6 +2006,7 @@
 
   function show(pick) {
     leaveCourse();
+    busy = false;                         // новая задача не ждёт проверку предыдущей
     // самостоятельная ещё не начата (или уже сдана): задания в обычном виде не показываем — только старт или результат
     if (wkScope() && !wkLive() && !examShown) { cur = null; wkGate(wkScope()); return; }
     // идёт самостоятельная: её задание открывается только в её режиме, откуда бы ни пришли (←, поиск, история)
@@ -4268,6 +4283,7 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
+    if (student?.sid !== me.sid) resetAssignments();
     if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
@@ -7061,6 +7077,8 @@
   // ═══════ src/app/12-sets.js
   // ------------------------------------------------------------ задания от учителя
   let ASG = [], ASG_IN_CLASS = false;
+  let ASG_ERROR = false, asgLoadVersion = 0;
+  function resetAssignments() { ASG = []; ASG_IN_CLASS = false; ASG_ERROR = false; ++asgLoadVersion; }
   const fmtDay = ms => { const d = new Date(ms); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`; };
   function asgOf(id) { return ASG.find(a => a.id === id) || (COURSE_OK && courseSet(id)) || null; }
   /** Нерешённые задания подборки: по данным сервера и по ответам, данным уже на этой странице. */
@@ -7080,6 +7098,7 @@
     return a.tasks.filter(id => !done.has(id));
   }
   function asgFinished(a) { return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final)); }
+  const asgPending = a => !asgFinished(a) && (a.strict || asgLeft(a).length > 0);
   // Срок — первый приоритет; при одинаковом сроке сначала начатая работа.
   function asgOrder(a, b) {
     const started = x => !!(x.started || x.score?.tried || x.done?.length);
@@ -7096,13 +7115,25 @@
   let asgTab = 'active';
   async function loadAssignments() {
     if (!SERVER) return;
-    const duels = ASG.filter(a => a.duel || a.course);
-    try { const d = await api('assignments'); ASG = d.assignments || []; ASG_IN_CLASS = !!d.in_class; } catch (e) { if (e.status === 401) throw e; ASG = []; }
-    ASG = ASG.concat(duels);
+    const request = ++asgLoadVersion, sid = student?.sid;
+    try {
+      const d = await api('assignments');
+      if (request !== asgLoadVersion || student?.sid !== sid) return;
+      ASG = (d.assignments || []).concat(ASG.filter(a => a.duel || a.course));
+      ASG_IN_CLASS = !!d.in_class;
+      ASG_ERROR = false;
+    } catch (e) {
+      if (request !== asgLoadVersion || student?.sid !== sid) return;
+      if (e.status === 401) throw e;
+      ASG_ERROR = true;                    // ошибка связи не означает, что учитель удалил работы
+      renderAsgCard(); renderAsgPage(); hubRefresh();
+      return;
+    }
     renderAsgCard();
     renderAsgPage();                      // открыта страница подборок — новая подборка появится на ней сразу
     if (wkLive()) wkWatch();
     asgNotices();
+    hubRefresh();
   }
   /** Напоминания: срок работы — сегодня или завтра; новая личная подборка (работа над ошибками, слабые места). */
   function asgNotices() {
@@ -7133,12 +7164,12 @@
     const card = $('#asgCard');
     if (!card) return;
     const own = ASG.filter(a => !a.duel && !a.course);
-    card.hidden = !own.length && !ASG_IN_CLASS;           // ученик в классе — значок подборок есть всегда
+    card.hidden = !own.length && !ASG_IN_CLASS && !ASG_ERROR;
     if (card.hidden) return;
-    const pending = own.filter(a => !asgFinished(a)), open = pending.filter(a => asgLeft(a).length);
+    const pending = own.filter(a => !asgFinished(a)), open = pending.filter(asgPending);
     const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
-    card.classList.toggle('alert', !!left);
-    $('#asgSub').textContent = open.length ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : pending.length ? 'всё решено' : 'нет активных подборок';
+    card.classList.toggle('alert', !!open.length);
+    $('#asgSub').textContent = ASG_ERROR ? 'не удалось обновить' : open.length ? (left ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'нужно завершить работу') : pending.length ? 'всё решено' : 'нет активных подборок';
   }
   const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
   function asgIcon(a) {
@@ -7194,15 +7225,17 @@
     const visible = asgTab === 'done' ? done : active;
     trainerEl.innerHTML = `<div class="course asg-page">
       <header class="ap-heading"><h2>От учителя</h2><p>${active.length} ${plural(active.length, 'работа', 'работы', 'работ')} · осталось ${left} ${plural(left, 'задание', 'задания', 'заданий')}</p></header>
+      ${ASG_ERROR ? '<p class="fm-note" role="status">Не удалось обновить задания. Показан последний загруженный список. <button type="button" class="btn" data-asg-reload>Повторить загрузку</button></p>' : ''}
       <div class="ap-tabs" aria-label="Статус работ">
         <button type="button" data-asg-tab="active" aria-pressed="${asgTab === 'active'}" class="${asgTab === 'active' ? 'on' : ''}">Текущие ${active.length}</button>
         <button type="button" data-asg-tab="done" aria-pressed="${asgTab === 'done'}" class="${asgTab === 'done' ? 'on' : ''}">Завершённые ${done.length}</button></div>
-      ${visible.length ? `<div class="ap-grid">${visible.map(card).join('')}</div>` : `<p class="fm-note ap-empty">${asgTab === 'done' ? 'Завершённых работ пока нет.' : 'Новых работ нет. Когда учитель выдаст подборку, она появится здесь.'}</p>`}
+      ${visible.length ? `<div class="ap-grid">${visible.map(card).join('')}</div>` : ASG_ERROR ? '' : `<p class="fm-note ap-empty">${asgTab === 'done' ? 'Завершённых работ пока нет.' : 'Новых работ нет. Когда учитель выдаст подборку, она появится здесь.'}</p>`}
       <details class="ap-help"><summary>Как проверяются работы?</summary><p>Самостоятельная — проверка после сдачи, ответ можно изменить один раз. В практической и домашней работе результат виден сразу, оценка ставится по попыткам.</p></details>
     </div>`;
     renderMobileNav();
   }
   trainerEl.addEventListener('click', e => {
+    if (e.target.closest('[data-asg-reload]')) { loadAssignments(); return; }
     const tab = e.target.closest('[data-asg-tab]');
     if (!tab) return;
     asgTab = tab.dataset.asgTab === 'done' ? 'done' : 'active';
@@ -7637,27 +7670,30 @@
     let hasSol = await autoAttach(cur.task.id);   // код из окна Python прикрепляется сам
     if (cur !== c) return;
     if (!hasSol) try { hasSol = !!(await api('solution?task=' + encodeURIComponent(cur.task.id))).code; } catch (e) { hasSol = true; }
+    if (cur !== c) return;
     const ans = await wkAsk(cur.changing ? (cur.group ? 'Изменить ответы?' : `Изменить ответ на «${esc(items[0].answer)}»?`)
       : cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
       (cur.changing ? 'Это единственное изменение — потом поменять будет нельзя.'
         : `Его можно будет изменить ещё <b>один раз</b>.`) + `${blank ? ` Без ответа вопросов: ${blank}.` : ''}`
       + (hasSol ? '' : '<br><br><b class="wk-sol-warn">⚠ Решение не прикреплено.</b> Учитель хочет видеть, как ты решал: открой Python, вставь или напиши код и нажми «Прикрепить решение».'),
       hasSol ? 'Сдать' : 'Сдать без решения', hasSol ? null : '📎 Прикрепить решение');
+    if (cur !== c || cur.done) return;
     if (ans === 'extra') { togglePy(true); toast('Вставь код в окно Python и нажми «Прикрепить решение», затем сдай ответ.', 5000); return; }
     if (!ans) return;
-    if (cur !== c || cur.done) return;
     setBusy(true);
     let r = null;
     try {
-      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - cur.started, change: !!cur.changing }, x));
+      for (const x of items) r = await api('asg/answer', Object.assign({ id: a.id, spent_ms: Date.now() - c.started, change: !!c.changing }, x));
     } catch (e) {
-      setBusy(false);
-      if (e.status === 409) { await wkRefresh(a); if (!wkLive()) return; toast(e.message, 4000); next(); return; }
+      setBusy(false, c);
+      if (cur !== c) return;
+      if (e.status === 409) { await wkRefresh(a); if (cur !== c || !wkLive()) return; toast(e.message, 4000); next(); return; }
       netError(e);
       return;
     }
-    setBusy(false);
+    setBusy(false, c);
     wkApply(a, r);
+    if (cur !== c) return;
     if (r && r.closed_now) { wkClosed(a); return; }
     if (r && r.changed) a.changed = r.changed;
     cur.done = true;
@@ -10288,7 +10324,7 @@
       b.classList.toggle('on', active);
       if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    $('[data-mobile="teacher"]', nav).classList.toggle('has-work', ASG.some(a => !a.duel && !a.course && !asgFinished(a) && asgLeft(a).length));
+    $('[data-mobile="teacher"]', nav).classList.toggle('has-work', ASG.some(a => !a.duel && !a.course && asgPending(a)));
   }
   function openMobileMore() {
     const items = [
@@ -10367,7 +10403,7 @@
     }
     out.sort((a, b) => a[1] - b[1]);
     const weak = out.filter(x => x[1] < CFG.weak);
-    return (weak.length ? weak : out).slice(0, k).map(x => x[0]);
+    return weak.slice(0, k).map(x => x[0]);
   }
   /** Сколько заданий ждут повторения прямо сейчас: типы с ошибкой и сами задания, решённые неверно. */
   function hubDueCount() {
@@ -10383,26 +10419,19 @@
   function hubPlan() {
     const items = [];
     // 1. Задание от учителя с ближайшим сроком; нет его — тренировка слабых номеров
-    const own = ASG.filter(a => !a.duel && !a.course && !asgFinished(a) && asgLeft(a).length).sort(asgOrder)[0];
+    const own = ASG.filter(a => !a.duel && !a.course && asgPending(a)).sort(asgOrder)[0];
     if (own) {
       const left = asgLeft(own).length, total = own.tasks.length;
       const late = own.due && own.due * 1000 < Date.now();
       items.push({ key: 'asg:' + own.id, ic: 'asg', title: `Задание от учителя: «${own.title}»`,
         meta: [own.due ? `<span class="${late ? 'hub-late' : 'hub-due'}">${late ? 'срок прошёл' : 'до ' + fmtDay(own.due * 1000)}</span>` : '',
-          `осталось ${left} из ${total}`, hubMins(left * 3)],
-        btn: own.started || left < total ? 'Продолжить' : 'Начать', go: () => (own.strict ? openAsgPage() : setScope('asg', own.id)) });
+          left ? `осталось ${left} из ${total}` : 'все ответы внесены — заверши работу', left ? hubMins(left * 3) : ''],
+        btn: !left && own.strict ? 'Завершить' : own.started || left < total ? 'Продолжить' : 'Начать', go: () => (own.strict ? openAsgPage() : setScope('asg', own.id)) });
     } else {
-      const weak = hubWeakNums(2);
-      if (weak.length) {
-        const s = statsFor(weak[0]);
-        items.push({ key: 'weak', ic: 'trainer', title: `Тренировка слабых номеров: ${weak.map(n => '№' + numLabel(n)).join(', ')}`,
-          meta: [`освоено №${numLabel(weak[0])} на ${pct(s.m)}%`, 'задания подбираются под тебя', hubMins(12)],
-          btn: 'Тренировать', go: () => setScope(weak[0]) });
-      } else {
-        items.push({ key: 'start', ic: 'trainer', title: 'Начни тренировку — тренажёр подберёт задания',
-          meta: ['все номера по очереди', 'через 5–10 ответов станут видны слабые места', hubMins(10)],
-          btn: 'Начать', go: () => setScope('all') });
-      }
+      const weak = hubWeakNums(2), need = 5, count = hubTodayCount(), done = count >= need;
+      items.push({ key: 'training', ic: 'trainer', title: `Тренировка: ${need} заданий за день`, done,
+        meta: [`выполнено ${Math.min(count, need)} из ${need}`, weak.length ? `рекомендуем №${weak.map(numLabel).join(', ')}` : 'задания подбираются под тебя', done ? 'на сегодня выполнено' : hubMins((need - count) * 3)],
+        btn: done ? 'Ещё задания' : count ? 'Продолжить' : 'Начать', go: () => setScope(weak[0] || 'all') });
     }
     // 2. Ошибки, которые пора повторить
     const due = hubDueCount();
@@ -10435,13 +10464,14 @@
     const vis = id => { const el = $('#' + id); return !!el && !el.hidden; };
     const allDone = [...P.log].filter(e => !e.b).length;
     const bad = P.log.filter(e => e.s < 1 && !e.b && !e.k).length;
-    const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(a => !asgFinished(a) && asgLeft(a).length);
+    const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(asgPending);
+    const ownLeft = ownOpen.reduce((s, a) => s + asgLeft(a).length, 0);
     const T = [];
     T.push({ k: 'trainer', name: 'Тренажёр', sub: `номера 1–27 · освоено ${hubMastered()}`, big: true, extra: hubMap(), btn: 'Решать подряд', go: () => setScope('all') });
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
     if (vis('dailyCard') && DAILY) T.push({ k: 'daily', name: 'Задание дня', sub: DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
       badge: DAILY.my_place || DAILY.started ? '' : 'сегодня', btn: DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить', hot: !DAILY.started, go: () => openDaily() });
-    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ownOpen.length ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownOpen.reduce((s, a) => s + asgLeft(a).length, 0)}` : 'всё решено',
+    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
     T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
     if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'задания ЕГЭ и программирование', btn: 'Открыть', go: () => $('#labCard').click() });

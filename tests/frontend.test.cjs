@@ -460,3 +460,166 @@ test('Focus mode removes game objectives from the hub plan', () => {
   assert.ok(c.hubPlan().length>0);
   assert.ok(c.hubPlan().every(x=>!['daily','duel','fire'].includes(x.ic)));
 });
+
+const deferred = () => { let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject}; };
+function answerRaceContext() {
+  const pending=deferred(), finished=[];
+  const task=id=>({task:{id},answers:[],shape:{},started:1,parts:[],why:{type:'new'}});
+  const c=vm.createContext({cur:task('old'),busy:false,wkTask:()=>false,readAnswer:()=>['12'],
+    autoAttach:()=>{},verify:()=>pending.promise,cellsIn:()=>[], $:()=>({}),thinkLeft:()=>0,
+    finish:()=>finished.push(c.cur.task.id),runParts:()=>pending.promise,
+    readAnswerIn:()=>['3'],partBox:()=>({}),partFinal:()=>finished.push(c.cur.task.id)});
+  vm.runInContext(sourceBetween('src/app/02-trainer.js','  async function check()','  // ---- подсказки по шагам'),c);
+  vm.runInContext(sourceBetween('src/app/02-trainer.js','  async function giveUp()','  // ---- задания 19'),c);
+  vm.runInContext(sourceBetween('src/app/02-trainer.js','  async function checkGroup()','  function taskLinks('),c);
+  return {c,pending,finished,task};
+}
+test('late answer or reveal response cannot finish another task, including a reopened ID', async()=>{
+  for(const method of ['check','giveUp'])for(const id of ['new','old']) {
+    const h=answerRaceContext();const request=h.c[method]();h.c.cur=h.task(id);
+    h.pending.resolve({correct:true,final:true,score:1});await request;
+    assert.deepEqual(h.finished,[]);assert.deepEqual(h.c.cur.answers,[]);
+  }
+});
+test('late grouped answers cannot affect a different single task',async()=>{
+  for(const method of ['checkGroup','giveUpGroup']) {
+    const h=answerRaceContext();h.c.cur.group=true;h.c.cur.parts=[{p:{id:'part19'},shape:{},answers:[]}];
+    const request=h.c[method]();h.c.cur=h.task('new');
+    h.pending.resolve([{correct:true,final:true,score:1}]);await request;
+    assert.deepEqual(h.finished,[]);assert.equal(h.c.cur.done,undefined);
+  }
+});
+test('finishing an old request does not unlock a newer submission',async()=>{
+  const pending=deferred(),old={task:{id:'old'}},c=vm.createContext({cur:old,busy:false,
+    $$:()=>[],thinkLeft:()=>0,callCheck:()=>pending.promise});
+  vm.runInContext(sourceBetween('src/app/02-trainer.js','  function setBusy(','  // ---- ответ скрыт'),c);
+  const request=c.verify({});assert.equal(c.busy,true);
+  c.cur={task:{id:'new'}};c.busy=true;pending.resolve({correct:true});
+  assert.equal(await request,null);assert.equal(c.busy,true);
+});
+test('teacher profile keeps the latest student after reversed response order',async()=>{
+  const responses=new Map(),rendered=[];
+  const c=vm.createContext({st:null,studentLoadVersion:0,$:()=>({value:'0'}),
+    api:path=>{const r=deferred();responses.set(path.split('&')[0],r);return r.promise;},
+    go:()=>{},renderStudent:()=>rendered.push(c.st.student.id),toast:()=>{}});
+  vm.runInContext(sourceBetween('admin.js','  async function openStudent(', '  $(\'#stPeriod\').addEventListener'),c);
+  const first=c.openStudent(1),second=c.openStudent(2);
+  responses.get('student?id=2').resolve({student:{id:2}});await second;
+  responses.get('student?id=1').resolve({student:{id:1}});await first;
+  assert.deepEqual(rendered,[2]);assert.equal(c.st.student.id,2);
+  const third=c.openStudent(3);c.studentLoadVersion++;
+  responses.get('student?id=3').resolve({student:{id:3}});await third;assert.deepEqual(rendered,[2]);
+});
+function assignmentLoadContext() {
+  const requests=[];
+  const c=vm.createContext({SERVER:true,student:{sid:1},ASG:[{id:'saved'}],ASG_IN_CLASS:true,ASG_ERROR:false,asgLoadVersion:0,
+    api:()=>{const r=deferred();requests.push(r);return r.promise;},
+    renderAsgCard:()=>{},renderAsgPage:()=>{},hubRefresh:()=>{},wkLive:()=>false,asgNotices:()=>{}});
+  vm.runInContext(sourceBetween('src/app/12-sets.js','  function resetAssignments()', '  const fmtDay'),c);
+  vm.runInContext(sourceBetween('src/app/12-sets.js','  async function loadAssignments()', '  /** Напоминания'),c);
+  return {c,requests};
+}
+test('assignment network errors retain the last known work and recover',async()=>{
+  const h=assignmentLoadContext();const first=h.c.loadAssignments();h.requests[0].reject(Error('offline'));await first;
+  assert.equal(h.c.ASG[0].id,'saved');assert.equal(h.c.ASG_ERROR,true);assert.equal(h.c.ASG_IN_CLASS,true);
+  const second=h.c.loadAssignments();h.requests[1].resolve({assignments:[{id:'fresh'}],in_class:true});await second;
+  assert.equal(h.c.ASG[0].id,'fresh');assert.equal(h.c.ASG_ERROR,false);
+});
+test('assignment refresh rejects old responses and never keeps another account work',async()=>{
+  const h=assignmentLoadContext();const first=h.c.loadAssignments(),second=h.c.loadAssignments();
+  h.requests[1].resolve({assignments:[{id:'new'}]});await second;h.requests[0].resolve({assignments:[{id:'old'}]});await first;
+  assert.equal(h.c.ASG[0].id,'new');
+  const third=h.c.loadAssignments();h.c.student={sid:2};h.c.resetAssignments();
+  h.requests[2].resolve({assignments:[{id:'private-old-account'}]});await third;
+  assert.equal(h.c.ASG.length,0);
+});
+test('fully entered strict work stays pending until it is submitted',()=>{
+  const c=vm.createContext({asgLeft:()=>[]});
+  vm.runInContext(sourceBetween('src/app/12-sets.js','  function asgFinished(','  // Срок —'),c);
+  assert.equal(vm.runInContext('asgPending({strict:true})',c),true);
+  assert.equal(vm.runInContext('asgPending({strict:true,finished:123})',c),false);
+  assert.equal(vm.runInContext('asgPending({strict:false})',c),false);
+  const h=hubPlanContext();h.ASG=[{id:1,title:'Демо',strict:true,tasks:['a'],done:['a']}];
+  h.asgPending=()=>true;h.asgLeft=()=>[];
+  const item=h.hubPlan()[0];assert.equal(item.key,'asg:1');assert.equal(item.btn,'Завершить');
+});
+test('daily training has a finite goal and the plan can reach 100 percent',()=>{
+  const c=hubPlanContext();c.hubTodayCount=()=>4;
+  assert.equal(c.hubPlan().find(x=>x.key==='training').done,false);
+  c.hubTodayCount=()=>5;
+  assert.ok(c.hubPlan().every(x=>x.done));
+  c.hubWeakNums=()=>[5];
+  assert.equal(c.hubPlan().find(x=>x.key==='training').done,true);
+});
+
+test('assignment submission stops when its task changes during attachment or confirmation',async()=>{
+  for(const stage of ['solution','confirmation']) {
+    const pending=deferred(),entered=deferred(),effects=[];
+    const c=vm.createContext({cur:{task:{id:'old'},shape:{},started:1},wkTask:()=>({id:7}),
+      readAnswer:()=>['12'],cellsIn:()=>[],$:()=>({}),esc:String,
+      autoAttach:async()=>stage==='confirmation',
+      api:()=>{entered.resolve();return pending.promise;},
+      wkAsk:()=>{effects.push('ask');entered.resolve();return pending.promise;},
+      togglePy:()=>effects.push('python'),toast:()=>{},setBusy:()=>effects.push('submit')});
+    vm.runInContext(sourceBetween('src/app/12-sets.js','  async function wkSubmit()', '  async function wkRefresh('),c);
+    const request=c.wkSubmit();await entered.promise;c.cur={task:{id:'new'}};
+    pending.resolve(stage==='solution'?{code:'print(1)'}:'extra');await request;
+    assert.deepEqual(effects,stage==='solution'?[]:['ask']);
+  }
+});
+test('an accepted assignment answer does not lock a new task after navigation',async()=>{
+  const pending=deferred(),entered=deferred(),a={id:7};
+  const c=vm.createContext({cur:{task:{id:'old'},shape:{},started:1},wkTask:()=>a,
+    readAnswer:()=>['12'],cellsIn:()=>[],$:()=>({}),esc:String,
+    autoAttach:async()=>true,wkAsk:async()=>true,
+    api:()=>{entered.resolve();return pending.promise;},setBusy:()=>{},
+    wkApply:(work,r)=>{work.done=r.done;}});
+  vm.runInContext(sourceBetween('src/app/12-sets.js','  async function wkSubmit()', '  async function wkRefresh('),c);
+  const request=c.wkSubmit();await entered.promise;c.cur={task:{id:'new'}};
+  pending.resolve({done:['old']});await request;
+  assert.equal(c.cur.done,undefined);assert.deepEqual(a.done,['old']);
+});
+test('moving a student captures the selected destination and never changes another profile',async()=>{
+  for(const field of ['#stClass','#stTeacher']) {
+    const pending=deferred(),handlers={},requests=[],rendered=[];
+    const elements=Object.fromEntries(['#stTeacher','#stClass','#backBtn'].map(id=>[id,{value:'7',addEventListener:(event,fn)=>handlers[id]=fn}]));
+    const old={id:1,class_id:2,teacher_id:3},fresh={id:2,class_id:9,teacher_id:4};
+    const c=vm.createContext({st:{student:old},tab:'student',studentLoadId:1,studentMoves:new Set(),
+      teachers:[{id:7,name:'Макетов Учитель'}],confirm:()=>true,$:id=>elements[id],
+      api:(path,body)=>{requests.push({path,body});return pending.promise;},
+      fetchClasses:async()=>{},renderStudent:()=>rendered.push(c.st.student.id),toast:()=>{}});
+    vm.runInContext(sourceBetween('admin.js','  const studentCurrent =','  let jFilter'),c);
+    vm.runInContext(sourceBetween('admin.js',"  $('#stTeacher').addEventListener",'  function renderStudent()'),c);
+    const event={target:elements[field]},request=handlers[field](event);
+    await handlers[field](event);assert.equal(requests.length,1);
+    c.st={student:fresh};event.target.value='99';pending.resolve({});await request;
+    assert.equal(old[field==='#stClass'?'class_id':'teacher_id'],7);
+    assert.deepEqual(fresh,{id:2,class_id:9,teacher_id:4});assert.deepEqual(rendered,[]);
+    assert.equal(c.studentMoves.size,0);
+  }
+});
+test('void preview cannot carry an old student date range into another profile or reopened panel',async()=>{
+  for(const change of ['student','panel','pendingStudent']) {
+    const pending=deferred(),button={disabled:false,isConnected:true};let handler,draws=0;
+    const elements={'#stVoid':{addEventListener:(event,fn)=>handler=fn},'#voidFrom':{value:'100'},'#voidTo':{value:'200'}};
+    const c=vm.createContext({st:{student:{id:1}},tab:'student',studentLoadId:1,voidOpen:true,voidPrev:null,
+      $:id=>elements[id],api:()=>pending.promise,dtTs:Number,toast:()=>{},stVoidRender:()=>draws++});
+    vm.runInContext(sourceBetween('admin.js','  const studentCurrent =','  let jFilter'),c);
+    vm.runInContext(sourceBetween('admin.js',"  $('#stVoid')?.addEventListener", "  $('#stNoRank').addEventListener"),c);
+    const request=handler({target:{closest:selector=>selector==='#voidPreview'?button:null}});
+    if(change==='student')c.st={student:{id:2}};else if(change==='pendingStudent')c.studentLoadId=2;else button.isConnected=false;
+    pending.resolve({n:3});await request;
+    assert.equal(c.voidPrev,null);assert.equal(draws,0);
+  }
+});
+test('teacher student list ignores the previous filter response',async()=>{
+  const requests=[],scope={value:'none'},draws=[];
+  const c=vm.createContext({studentsLoadVersion:0,students:[],classes:[{id:1}],$:()=>scope,
+    api:path=>{const r=deferred();requests.push({path,...r});return r.promise;},
+    renderStudents:()=>draws.push(c.students.map(x=>x.id)),toast:()=>{}});
+  vm.runInContext(sourceBetween('admin.js','  async function loadStudents()', '  function renderStudents()'),c);
+  const first=c.loadStudents();scope.value='all';const second=c.loadStudents();
+  requests[1].resolve({students:[{id:2}]});await second;
+  requests[0].resolve({students:[]});await first;
+  assert.equal(c.students[0].id,2);assert.equal(draws.length,1);
+});
