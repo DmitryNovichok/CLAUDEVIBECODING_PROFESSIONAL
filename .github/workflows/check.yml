@@ -16,6 +16,6 @@ jobs:
           node-version: '22'
       - run: python3 tools/check_repository.py
       - run: python3 tools/build_app.py --check
-      - run: node --check app.js && node --check admin.js && node --check together.js
+      - run: node --check app.js && node --check admin.js && node --check together.js && node --check lab-worker.js
       - run: node --test tests/frontend.test.cjs
       - run: timeout 900 python3 -m unittest discover -s tests

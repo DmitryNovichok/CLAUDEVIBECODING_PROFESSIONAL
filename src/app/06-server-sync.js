@@ -51,6 +51,7 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
+    if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
       try { localStorage.removeItem(STUDENT_STORE); sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
@@ -68,6 +69,8 @@
     ['#teacherBack', '#teacherBackMenu'].forEach(sel => { const el = $(sel); if (el) el.hidden = !TEACHER; });   // учитель решает как ученик — путь назад
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     pycSetAccess(me.pyc, me.pyc_pw);
+    LAB_OK = !!me.lab;
+    $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
     promoUpdate(me.promo);

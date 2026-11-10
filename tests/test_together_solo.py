@@ -167,9 +167,6 @@ class TogetherSoloTest(unittest.TestCase):
         self.assertEqual(server.TOG.get(sid).pages['p1'].code, '')
 
 
-if __name__ == '__main__':
-    unittest.main()
-
     def test_session_and_page_names_are_saved_and_listed(self):
         sid = self.create(students=[], mode='both', title='  Разбор\n№ 17  ')
         sock, reader, status = self.connect(sid)
@@ -187,3 +184,19 @@ if __name__ == '__main__':
         status, listed = self.c.admin('GET', '/api/admin/together/list')
         row = next(x for x in listed['sessions'] if x['id'] == sid)
         self.assertEqual((row['title'][:16], row['labels']), ('Пробник по 17-му', ['Перебор пар']))
+
+    def test_board_text_can_be_moved_and_resized(self):
+        sid = self.create(students=[], mode='board')
+        sock, reader, status = self.connect(sid)
+        self.c.recv(reader, 'snap')
+        self.c.send(sock, {'t': 's+', 'page': 'p1', 's': {'id': 'txt1', 'c': 'ink', 'w': 2, 'k': 't', 'p': [[50, 60]], 'txt': 'n = 17', 'fs': 20}})
+        self.c.send(sock, {'t': 's~', 'page': 'p1', 'id': 'txt1', 'p': [[80, 90], [1, 1]], 'fs': 64})
+        self.c.send(sock, {'t': 's~', 'page': 'p1', 'id': 'txt1', 'p': [[80, 90]], 'fs': 5000})
+        self.c.send(sock, {'t': 'ping'})
+        self.c.recv(reader, 'pong')
+        st = server.TOG.get(sid).pages['p1'].strokes['txt1']
+        self.assertEqual((st['p'], st['fs'], st['txt']), ([[80, 90]], together.TEXT_FS_MAX, 'n = 17'))
+
+
+if __name__ == '__main__':
+    unittest.main()

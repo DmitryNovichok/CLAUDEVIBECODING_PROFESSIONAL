@@ -534,6 +534,32 @@
   }
 
   // ------------------------------------------------------------ данные
+  /** Задания не загрузились: 3 попытки с паузой (2, 4, 8 с), удалась — страница перезагружается; нет — понятное сообщение. */
+  function bankRetry(serverEmpty) {
+    const box = $('#trainer');
+    const show = (h, p, btn) => {
+      box.innerHTML = `<div class="empty"><h2>${h}</h2><p>${p}</p>${btn ? '<p><button type="button" class="btn primary" id="bankReload">Обновить страницу</button></p>' : ''}</div>`;
+      const b = $('#bankReload');
+      if (b) b.onclick = () => {
+        try { sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
+        location.reload();
+      };
+    };
+    let n = 0;
+    try {
+      n = Math.max(0, Math.floor(+sessionStorage.getItem('egeTrainer.bankTry') || 0));
+      // Запоминаем попытку до перезагрузки. Без хранилища автоматический цикл ограничить нельзя.
+      if (n < 3) sessionStorage.setItem('egeTrainer.bankTry', String(n + 1));
+    } catch (e) { n = 3; }
+    if (n >= 3) {
+      return show(serverEmpty ? 'Задания временно недоступны' : 'Не удалось загрузить задания',
+        serverEmpty ? 'На сайте идут работы. Попробуйте обновить страницу через пару минут.'
+          : 'Проверьте интернет и обновите страницу. Если не помогает — подождите пару минут: возможно, сайт обновляется.', true);
+    }
+    show('Загружаем задания…', n ? 'Связь прервалась — пробуем ещё раз.' : 'Ещё секунду.', false);
+    setTimeout(() => location.reload(), 2000 * 2 ** n);
+  }
+  try { if (Array.isArray(window.EGE_BANK?.tasks) && window.EGE_BANK.tasks.length) sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
   const BANK = window.EGE_BANK;
   const trainerEl = $('#trainer');
 
@@ -544,6 +570,10 @@
   }
 
   if (!BANK || !Array.isArray(BANK.tasks) || !BANK.tasks.length) {
+    // Инструкция для разработчика — только когда тренажёр открыт с этого компьютера (файлом или localhost).
+    // Ученикам на сайте: задания не догрузились (оборвалась связь, сервер перезапускался) — тихо пробуем ещё раз.
+    const local = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+    if (!local) { bankRetry(BANK === null); return; }
     trainerEl.innerHTML = `
       <div class="empty">
         <h2>Банк заданий не найден</h2>
@@ -561,6 +591,51 @@
   let student = null;                         // { sid, name, token }
   const TASKS = BANK.tasks;
   const byId = new Map(TASKS.map(t => [t.id, t]));
+  // ------------------------------------------------------------ тексты условий: в bank.js их нет (он лёгкий), догружаем по номерам
+  const HTML_LAZY = !!BANK.lazyHtml;
+  const htmlNum = new Map();                  // номер -> обещание: условия всех его заданий (одна загрузка на номер)
+  const needHtml = list => HTML_LAZY && list.some(t => t && t.html == null);
+  async function htmlFetch(q) {
+    let err;
+    for (let i = 0; i < 3; i++) {             // связь моргнула — ещё две попытки
+      try {
+        const r = await fetch('api/html?' + q, { credentials: 'same-origin' });
+        if (r.ok) {
+          const d = await r.json();
+          Object.entries(d.html || {}).forEach(([id, h]) => { const t = byId.get(id); if (t) t.html = h; });
+          return;
+        }
+        err = new Error(r.status === 401 ? 'Нужно войти заново' : 'Сервер не ответил');
+        if (r.status === 401) break;
+      } catch (e) { err = new Error('Нет связи с сервером'); }
+      await new Promise(res => setTimeout(res, 700 * (i + 1)));
+    }
+    throw err;
+  }
+  /** Условия для списка заданий: сразу нужные — по id (быстро), а весь номер — фоном, чтобы следующие открывались мгновенно. */
+  function loadHtml(list) {
+    const miss = list.filter(t => t && t.html == null);
+    const nums = [...new Set(miss.map(t => t.n))];
+    setTimeout(() => nums.forEach(prefetchNum), 1500);     // весь номер — когда первое задание уже на экране
+    if (!miss.length) return Promise.resolve();
+    const ids = miss.map(t => t.id);
+    const out = [];
+    for (let i = 0; i < ids.length; i += 120) out.push(htmlFetch('ids=' + ids.slice(i, i + 120).map(encodeURIComponent).join(',')));
+    return Promise.all(out);
+  }
+  function prefetchNum(n) {
+    if (!HTML_LAZY || n == null || htmlNum.has(n)) return;
+    htmlNum.set(n, htmlFetch('n=' + n).catch(() => htmlNum.delete(n)));   // не вышло — попробуем при следующем открытии
+  }
+  /** Пока условие грузится — спокойная заглушка; не загрузилось — понятная ошибка и «Ещё раз». */
+  function htmlWait(list, again) {
+    trainerEl.innerHTML = '<div class="empty cond-loading"><p>Загружаю условие…</p></div>';
+    loadHtml(list).then(again, e => {
+      trainerEl.innerHTML = `<div class="empty"><h2>Условие не загрузилось</h2><p>${esc(e.message)}. Проверьте интернет.</p>
+        <p><button type="button" class="btn primary" id="htmlRetry">Ещё раз</button></p></div>`;
+      $('#htmlRetry').onclick = () => htmlWait(list, again);
+    });
+  }
   const BANKS = BANK.banks || [];
   const bankTitle = id => (BANKS.find(b => b.id === id) || {}).title || id;
 
@@ -1949,8 +2024,9 @@
     if (recent.length > 50) recent.splice(0, recent.length - 50);
     ui.currentId = pick.task.id;
     save();
-    openTask(t0);
-    renderTask();
+    const c = cur, go = () => { if (cur !== c) return; openTask(t0); renderTask(); };
+    if (needHtml([t0])) htmlWait([t0], go);        // условие ещё не скачано — пара сотен миллисекунд
+    else go();
     renderTopbar();
   }
 
@@ -2390,7 +2466,9 @@
     navSilent = true;
     try {
       if (examShown) return;
-      if (st.v === 'course') openCourse();
+      if (st.v === 'hub') openHub();
+      else if (st.v === 'course') openCourse();
+      else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'tourpage') tourOpen();
       else if (st.v === 'exams') openExamsPage();
@@ -2438,9 +2516,10 @@
   }
   function leaveCourse() {
     if (!courseShown) return;
+    if (pageKind === 'lab') { labStop(); document.body.classList.remove('lab-open'); }
     courseShown = false;
     pageKind = null;
-    document.body.classList.remove('asg-wide');
+    document.body.classList.remove('asg-wide', 'hub-on');
     renderMobileNav();
     $('#courseCard')?.classList.remove('on');
   }
@@ -2450,6 +2529,7 @@
   }
   function openCourse() {
     if (!leaveExam()) return;
+    ++courseLessonRequest;
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
     courseShown = true;
@@ -2460,15 +2540,17 @@
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
     const all = COURSE.flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
-    const nextN = all.find(n => lessonState(n) !== 'done');
-    $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">27 тем по плану</span>';
+    const savedN = learningMemory().course;
+    const nextN = all.includes(savedN) ? savedN : all.find(n => lessonState(n) !== 'done');
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">Все задания ЕГЭ</span>';
     trainerEl.innerHTML = `<div class="course">
       <div class="crs-hero">
         <div><div class="crs-kicker">Курс Egeshka</div><h2>ЕГЭ по информатике: от №1 до №27</h2>
-          <p>Уроки идут по плану: от простых тем к сложным. В каждом — презентация с разбором и подборки заданий по уровням.</p></div>
+          <p>Уроки идут по плану: от простых тем к сложным. В каждой теме — разбор метода, учебный пример и практика по уровням. Начни с теории, затем проверь себя на заданиях.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
       </div>
-      ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>следующая тема по плану</small></span></button>` : ''}
+      ${learningFormat}
+      ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
         <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>Модуль ${i + 1}. ${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
           <span class="crs-mod-n">${m.lessons.filter(n => lessonState(n) === 'done').length}/${m.lessons.length}</span></div>
@@ -2476,7 +2558,7 @@
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
           return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
             <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
-            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · презентация · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · теория и пример · ${COURSE_SETS.length} подборок</small></span>
             <span class="crs-go">›</span></button>`;
         }).join('')}</div></section>`).join('')}
     </div>`;
@@ -2485,7 +2567,7 @@
   let DECK = null, deckI = 0;
   function slideHtml(sl, i) {
     const kick = sl.k ? `<div class="sl-k ${sl.kc || ''}">${esc(sl.k)}</div>` : '';
-    const runBtn = (k, ans, out) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button>
+    const runBtn = (k, ans, out) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button><button type="button" class="btn" data-learning-slide="${i}:${k}">По шагам в лаборатории</button>
         ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(ans)}</b></span></details>` : ''}
         ${out ? `<details class="sl-ansbox sl-outbox"><summary>Что выведет программа</summary><pre class="sl-out">${esc(out)}</pre></details>` : ''}</div>`;
     const codeBox = (code, k, ans, out) => `<div class="sl-codecol"><pre class="sl-code">${highlightPy(code)}</pre>${runBtn(k, ans, out)}</div>`;
@@ -2528,6 +2610,7 @@
     if (MARK.on || MARK.strokes.has(`deck:${DECK.n}:${deckI}`)) markAttach();   // рисунок этого слайда
     box.querySelector('.crs-count').textContent = `${deckI + 1} / ${sl.length}`;
     deckSeen(deckI + 1, sl.length);
+    learningRememberSlide();
     box.querySelector('[data-deck="-1"]').disabled = deckI === 0;
     box.querySelector('[data-deck="1"]').disabled = deckI === sl.length - 1;
     box.querySelectorAll('.crs-thumb').forEach((t, k) => t.classList.toggle('on', k === deckI));
@@ -2575,10 +2658,14 @@
   }
   document.addEventListener('fullscreenchange', () => setTimeout(fitSlide, 50));
   window.addEventListener('resize', () => { if (document.fullscreenElement) fitSlide(); });
+  let courseLessonRequest = 0;
   async function openLesson(n) {
     if (!COURSE_OK) return openCourse();
     abandonCurrent();
-    courseShown = true;
+    if (!leaveExam()) return;
+    courseShown = true; pageKind = null; cur = null;
+    const request = ++courseLessonRequest;
+    learningMemory({ course: n });
     navPush({ v: 'lesson', n });
     DECK = null;
     deckI = 0;
@@ -2587,10 +2674,9 @@
     $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(n)}</span>`;
     let lesson = null;
     try { lesson = await api('course/lesson?n=' + n); } catch (e) { if (e.status === 403) { COURSE_OK = false; return openCourse(); } }
-    if (!courseShown) return;                       // пока грузили, ученик ушёл к заданию
+    if (!courseShown || pageKind !== null || request !== courseLessonRequest) return;
     const has = lesson && lesson.slides && lesson.slides.length;
-    if (has) DECK = lesson;
-    const plan = ['Что проверяет задание', 'Разбор типового задания', 'Как решать руками', 'Как решать на Python', 'Частые ошибки', 'Итоги и шпаргалка'];
+    if (has) { DECK = lesson; deckI = learningSlide(n); }
     const deck = has ? `<div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
@@ -2601,17 +2687,13 @@
             <button type="button" class="btn ghost crs-full" data-deck-full title="На весь экран">⤢</button>
             <button type="button" class="btn primary" data-deck="1">Далее →</button></div></div>
         <div class="crs-thumbs">${lesson.slides.map((t, i) => `<button type="button" class="crs-thumb" data-slide="${i}"><span>${i + 1}. ${esc(t.h)}</span></button>`).join('')}</div>
-      </div>` : `<div class="crs-deck">
-        <div class="crs-slide"><span class="crs-slide-no">1 / ${plan.length}</span>
-          <div class="crs-slide-body"><div class="crs-kicker">Egeshka · урок ${numLabel(n)}</div><h3>${esc(NUM_TOPIC[n])}</h3>
-            <p>Презентация с разбором появится здесь</p></div>
-          <span class="crs-soon">скоро</span></div>
-        <div class="crs-thumbs">${plan.map((t, i) => `<div class="crs-thumb${i ? '' : ' on'}"><i></i><i></i><span>${i + 1}. ${t}</span></div>`).join('')}</div>
-      </div>`;
+      </div>` : '<p class="fm-note">Не удалось загрузить теорию. Открой тему ещё раз; практика ниже доступна.</p>';
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
       <div class="crs-l-head"><span class="num-badge">${numLabel(n)}</span><div><div class="crs-kicker">Модуль ${mod + 1} · ${esc(COURSE[mod].title)}</div>
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
+      ${learningFormat}
+      ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
       <div class="fm-h">1. Теория${has ? ` · ${lesson.slides.length} слайдов` : ''}</div>
       ${deck}
       <div class="fm-h">2. Практика по уровням</div>
@@ -2633,6 +2715,8 @@
   function openCourseSet(id) {
     const a = courseSet(id);
     if (!a) return;
+    const objs = a.tasks.map(x => byId.get(x)).filter(Boolean);
+    if (needHtml(objs)) { htmlWait(objs, () => openCourseSet(id)); return; }   // в списке подборки — начало условий
     courseShown = true;
     navPush({ v: 'set', id });
     const left = new Set(asgLeft(a)), total = a.tasks.length, done = total - left.size;
@@ -3046,8 +3130,11 @@
     $('#courseCard')?.classList.toggle('on', (courseShown && !pageKind) || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
     $('#asgCard').classList.toggle('on', asgOn || (courseShown && pageKind === 'asg'));
     $('#pycCard')?.classList.toggle('on', courseShown && pageKind === 'pyc');
+    $('#labCard')?.classList.toggle('on', courseShown && pageKind === 'lab');
+    $('#homeCard')?.classList.toggle('on', courseShown && pageKind === 'hub');
     renderAsgCard();
     renderLevel();
+    hubRefresh();
 
     // переключатель банков
     const bEl = $('#banks');
@@ -3612,6 +3699,8 @@
   }
 
   function renderExam() {
+    const all = EX.items.map(x => byId.get(x.id)).filter(Boolean);
+    if (needHtml(all)) { htmlWait(all, () => { if (EX.items.length) renderExam(); }); return; }   // условия всего варианта — разом
     if (EX.kege) return renderKege();
     document.body.classList.remove('kege-on');
     const it = EX.items[EX.cur];
@@ -4163,6 +4252,7 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
+    if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
       try { localStorage.removeItem(STUDENT_STORE); sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
@@ -4180,6 +4270,8 @@
     ['#teacherBack', '#teacherBackMenu'].forEach(sel => { const el = $(sel); if (el) el.hidden = !TEACHER; });   // учитель решает как ученик — путь назад
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     pycSetAccess(me.pyc, me.pyc_pw);
+    LAB_OK = !!me.lab;
+    $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
     promoUpdate(me.promo);
@@ -5293,6 +5385,7 @@
     if (!t || (PY.task && PY.task.id === t.id)) return;
     if (PY.task) writeCode(PY.task.id, $('#pyCode').value);
     PY.task = t;
+    pycDockTools(t);
     const files = pyFilesOf(t);
     $('#pyTask').textContent = t.pyc ? t.label : `задание ${numLabel(t.n)}`;
     $('#pyFiles').innerHTML = files.length
@@ -6216,6 +6309,7 @@
     const b = $('#rankBtn');
     if (b) b.outerHTML = rankBtnHtml();
     saveLeagueSnap();
+    hubRefresh();
   }
   async function openRating(tab) {
     if (isNarrow()) setSideOpen(false);
@@ -6271,6 +6365,7 @@
   function renderDailyCard() {
     const card = $('#dailyCard');
     if (!card) return;
+    hubRefresh();
     card.hidden = !(DAILY && DAILY.ready);
     if (card.hidden) return;
     $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
@@ -6345,6 +6440,7 @@
     renderDuelCard();
     renderAsgCard();
     renderTourPage();
+    hubRefresh();
   }
   /** Все мои матчи текущего турнира (группа, плей-офф, за 3-е место) с названием стадии. */
   function tourMyMatches() {
@@ -7686,10 +7782,60 @@
 
   }
 
+  // ═══════ src/app/12a-learning.js
+  // Shared lesson navigation; drafts and cursor are scoped to the current account on this device.
+  function learningMemory(patch) {
+    const key = codeKey('learning-position'), raw = readJSON(key);
+    const saved = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    if (patch) { Object.assign(saved, patch); writeJSON(key, saved); }
+    return saved;
+  }
+  function learningRememberSlide() {
+    if (!DECK) return;
+    const saved = learningMemory(), slides = saved.slides || {};
+    slides[DECK.n] = deckI; learningMemory({ slides });
+  }
+  function learningSlide(n) { const i = (learningMemory().slides || {})[n]; return Number.isInteger(i) && i >= 0 ? i : 0; }
+  const learningFormat = '<p class="learning-format">Темы по проекту ФИПИ ЕГЭ-2027. Краткие примеры объясняют метод; полный формат и ограничения читай в условии задания.</p>';
+  function learningLabContext() {
+    return pageKind === 'pyc' && PYC_L ? { kind: 'pyc', m: PYC_L.id, l: PYC_L.l, task: PYC_FOCUS,
+      label: PYC_L.title, code: '', stdin: '' } : { kind: 'course', n: DECK?.n, label: DECK?.label || 'Урок ЕГЭ', code: '', stdin: '' };
+  }
+  async function learningReturn() {
+    const ctx = LAB.context; if (!ctx) return;
+    labSaveDraft(); labStop(); LAB.context = null; LAB.owner = null;
+    if (ctx.kind === 'pyc') { PYC_FOCUS = ctx.task; await openPycLevel(ctx.m, ctx.l, true); }
+    else if (Number.isInteger(ctx.n)) await openLesson(ctx.n);
+    else openCourse();
+  }
+  trainerEl.addEventListener('click', e => {
+    if (e.target.closest('[data-learning-return]')) { learningReturn(); return; }
+    const btn = e.target.closest('[data-learning-lab]');
+    if (btn) {
+      const ctx = learningLabContext();
+      if (btn.dataset.learningLab === 'task') {
+        const t = pycTask(btn.dataset.task); if (!t) return;
+        ctx.task = t.id; ctx.label = t.h; ctx.condition = t.cond;
+        ctx.code = PY.task?.id === 'pyc:' + t.id ? $('#pyCode').value : readCode('pyc:' + t.id) || t.practice?.starter || '';
+        ctx.stdin = t.practice?.stdin || ''; ctx.files = t.files || [];
+        openLab('code', ctx);
+      } else { LAB.mode = btn.dataset.learningLab; openLab('tasks', ctx); }
+      return;
+    }
+    const slide = e.target.closest('[data-learning-slide]');
+    if (slide && DECK) {
+      const [i, k] = slide.dataset.learningSlide.split(':').map(Number), sl = DECK.slides[i];
+      const block = sl.t === 'codes' ? sl.blocks[k] : sl;
+      const ctx = learningLabContext(); ctx.task = null; ctx.code = block.code; ctx.files = block.files || sl.files || []; ctx.label = sl.h;
+      openLab('code', ctx);
+    }
+  });
   // ═══════ src/app/12b-pycourse.js
   // ------------------------------------------------------------ курс «Программирование для ЕГЭ» (закрытый)
   // Вход — по паролю курса, как у раздела «Курс» (пароль задаёт учитель). Модуль = тема, внутри лестница уровней:
   // следующий уровень открывается, когда в текущем решено need задач. Ответы проверяет сервер.
+  let PYC_FOCUS = null, PYC_HELP = Promise.resolve(), pycLevelRequest = 0;
+  const PYC_PENDING_HELP = new Map();
   let PYC_OK = false;
   let PYC_PW = false;                    // учитель задал пароль курса — на экране с замком есть поле для пароля
   let PYC = null;                        // план курса и прогресс с сервера
@@ -7699,7 +7845,7 @@
   const pycDone = id => !!((PYC && PYC.progress[id]) || {}).ok;
   const pycModDone = m => m.levels.reduce((a, lv) => a + lv.tasks.filter(pycDone).length, 0);
   const pycModTotal = m => m.levels.reduce((a, lv) => a + lv.tasks.length, 0);
-  const pycLabel = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : 'Старт');
+  const pycLabel = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
 
   function pycSetAccess(on, pw) {
     PYC_OK = !!on;
@@ -7759,6 +7905,7 @@
   /** План курса: модули по группам, у каждого — лестница уровней. */
   async function openPyc() {
     if (!pycEnter()) return;
+    ++pycLevelRequest;
     navPush({ v: 'pyc' });
     PYC_L = null;
     try { await pycLoad(); } catch (e) { if (e.status !== 401) netError(e); return; }
@@ -7773,6 +7920,9 @@
       if (li >= 0 && (!cont || (pycModDone(m) > 0 && !pycModDone(cont.m)))) cont = { m, li };
       if (cont && pycModDone(cont.m) > 0) break;
     }
+    const remembered = learningMemory().pyc;
+    const rm = remembered && mods.find(m => m.id === remembered.m);
+    if (rm && remembered.l < rm.open) cont = { m: rm, li: remembered.l };
     const card = m => {
       const d = pycModDone(m), t = pycModTotal(m);
       return `<div class="pyc-mod${d === t && t ? ' done' : ''}">
@@ -7787,13 +7937,15 @@
         <i class="xp-bar"><b style="width:${t ? pct(d / t) : 0}%"></b></i></div>`;
     };
     const groups = [['base', 'Старт: язык Python', 'Если программируете впервые — начните отсюда'],
-      ['ege', 'Задания ЕГЭ', 'Каждый номер — от базы до максимума: все приёмы и ловушки']];
+      ['ege', 'Задания ЕГЭ', 'Короткие разборы и практика по темам проекта ЕГЭ-2027'],
+      ['extra', 'Дополнительная практика', 'Архивные форматы: полезны для программирования, но не заменяют актуальную тему экзамена']];
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование</span><span class="scope-stats">${done} из ${all} задач</span>`;
     trainerEl.innerHTML = `<div class="course pyc">
       <div class="crs-hero pyc-hero"><div><div class="crs-kicker">Закрытый курс Egeshka</div><h2>Программирование для ЕГЭ</h2>
         <p>Python от первой строчки до самых сложных номеров. Каждая тема — лестница уровней: короткая теория с примерами, которые можно запустить,
-          и задачи с проверкой. Ответ — то, что напечатала ваша программа.</p></div>
+          и задачи с проверкой ответа. В модуле «Python с нуля» есть учебные тесты кода на разных входных данных.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all} задач решено</span><i class="xp-bar"><b style="width:${all ? pct(done / all) : 0}%"></b></i></div></div>
+      ${learningFormat}
       ${cont ? `<button type="button" class="crs-continue" data-pyc-lv="${cont.m.id}:${cont.li}"><span>▶</span><span>
         <b>Продолжить: ${esc(pycLabel(cont.m))} · ${esc(cont.m.title)}</b><small>уровень ${cont.li + 1} · ${esc(cont.m.levels[cont.li].title)}</small></span></button>` : ''}
       ${groups.map(([g, h, sub]) => {
@@ -7807,6 +7959,7 @@
   /** Уровень: слайды (как в «Курсе») и задачи с проверкой. */
   async function openPycLevel(mid, li, keepScroll) {
     if (!(courseShown && pageKind === 'pyc') && !pycEnter()) return;
+    const request = ++pycLevelRequest;
     navPush({ v: 'pycl', m: mid, l: li });
     let d;
     try {
@@ -7816,13 +7969,16 @@
       if (e.status === 403) { if (PYC && PYC.access) { toast(e.message, 4000); return openPyc(); } pycLock(); return; }
       netError(e); return;
     }
-    if (!courseShown || pageKind !== 'pyc') return;
+    if (!courseShown || pageKind !== 'pyc' || request !== pycLevelRequest) return;
     const y = window.scrollY;
     PYC_L = d;
     const m = PYC.modules.find(x => x.id === mid) || { levels: [], open: 1 };
     const lv = d.level, has = lv.slides.length;
     DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
-    if (!keepScroll) deckI = 0;
+    if (!keepScroll) deckI = learningSlide(`pyc:${mid}:${li}`);
+    const saved = learningMemory().pyc;
+    if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && saved.l === li && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
+    learningMemory({ pyc: { m: mid, l: li, task: PYC_FOCUS } });
     const done = lv.tasks.filter(t => t.ok).length;
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование · ${esc(pycLabel(d))}</span><span class="scope-stats">уровень ${li + 1} из ${d.levels}</span>`;
     trainerEl.innerHTML = `<div class="course lesson pyc">
@@ -7845,7 +8001,9 @@
       </div>` : ''}
       <div class="fm-h">${has ? '2. ' : ''}Задачи уровня · решено ${done} из ${lv.tasks.length}</div>
       ${li + 1 < d.levels ? `<p class="fm-note">${li + 1 < m.open ? '🔓 Следующий уровень уже открыт.' : `Решите ${lv.need} ${plural(lv.need, 'задачу', 'задачи', 'задач')} — откроется уровень ${li + 2}.`}</p>` : ''}
-      <div class="pyc-tasks">${lv.tasks.map((t, i) => pycTaskHtml(t, i)).join('')}</div>
+      <nav class="learning-tasks" aria-label="Задачи урока">${lv.tasks.map((t, i) => `<button type="button" class="btn${t.id === PYC_FOCUS ? ' primary' : ''}" data-pyc-focus="${esc(t.id)}" aria-pressed="${t.id === PYC_FOCUS}">${t.ok ? '✓ ' : ''}${i + 1}. ${esc(t.h)}</button>`).join('')}</nav>
+      <div class="pyc-tasks">${lv.tasks.filter(t => t.id === PYC_FOCUS).map(t => pycTaskHtml(t, lv.tasks.indexOf(t))).join('')}</div>
+      <p class="fm-note">Прогресс задач хранится в аккаунте. Код и место остановки — в этом браузере.</p>
       ${li + 1 < d.levels && li + 1 < m.open ? `<button type="button" class="btn primary pyc-next" data-pyc-lv="${mid}:${li + 1}">Уровень ${li + 2}: ${esc(m.levels[li + 1].title)} →</button>` : ''}
     </div>`;
     if (has) renderDeck();
@@ -7860,24 +8018,27 @@
     const st = t.ok ? 'ok' : t.tries ? 'bad' : '';
     return `<div class="pyc-task ${st}" id="pt-${esc(t.id.replace('.', '-'))}" data-pyc-task="${esc(t.id)}">
       <div class="pyc-th"><span class="pyc-tn">${t.ok ? '✓' : i + 1}</span><b>${esc(t.h)}</b><span class="pyc-stars" title="сложность">${PYC_STARS(t.stars || 1)}</span>
-        <span class="pyc-st">${t.ok ? 'решено' : t.tries ? `попыток: ${t.tries}` : ''}</span></div>
+        <span class="pyc-st">${t.ok ? (t.independent ? 'решено самостоятельно' : t.solution_seen ? 'решено после разбора' : t.hint_used ? 'решено с подсказкой' : 'решено') : t.tries ? `попыток: ${t.tries}` : ''}</span></div>
       <div class="cond pyc-cond">${safeHtml(t.cond)}</div>
       ${pycFilesHtml(t.files)}
+      ${t.practice ? `<div class="learning-practice"><b>Программа должна работать на разных данных</b><p>Первый ввод: <code>${esc(t.practice.stdin.trim())}</code>. Напиши программу, открой Python и проверь тесты. В поле ответа отправь вывод для первого ввода.</p><pre>${esc(t.practice.cases.map((c, i) => `Пример ${i+1}: ввод ${JSON.stringify(c.input.trim())} → ${c.output}`).join('\n'))}</pre></div>` : ''}
       <div class="pyc-act">
         <button type="button" class="btn" data-pyc-py="${esc(t.id)}">▶ Решать в Python</button>
+        <button type="button" class="btn" data-learning-lab="task" data-task="${esc(t.id)}">По шагам в лаборатории</button>
+        ${t.practice ? `<button type="button" class="btn" data-pyc-tests="${esc(t.id)}">Проверить код на ${t.practice.cases.length} примерах</button>` : ''}
         <form class="pyc-form" data-pyc-form="${esc(t.id)}" autocomplete="off">
           <input class="inp pyc-ans" maxlength="300" placeholder="${t.ok ? 'Решено ✓' : 'Ответ'}" value="${t.ok && t.ans ? esc(t.ans) : ''}"${t.ok ? ' readonly' : ''}>
           ${t.ok ? '' : '<button type="submit" class="btn primary">Проверить</button>'}
         </form>
         <span class="pyc-msg" aria-live="polite"></span>
       </div>
-      ${t.hint && !t.ok ? `<details class="pyc-more"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
+      ${t.hint && !t.ok ? `<details class="pyc-more" data-pyc-help="hint" data-task="${esc(t.id)}"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
       ${t.note && t.ok ? `<div class="sl-nuance nk-secret"><b class="nk">💡 Секрет.</b> ${safeHtml(t.note)}</div>` : ''}
       ${t.sol ? pycSolHtml(t) : ''}
     </div>`;
   }
   function pycSolHtml(t) {
-    return `<details class="pyc-more pyc-sol"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
+    return `<details class="pyc-more pyc-sol" data-pyc-help="solution" data-task="${esc(t.id)}"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
       <pre class="sl-code">${highlightPy(t.sol)}</pre>
       <div class="sl-btns"><button type="button" class="btn ghost" data-pyc-sol="${esc(t.id)}">▶ Открыть разбор в Python</button>
         ${t.ok && t.ans ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
@@ -7890,9 +8051,14 @@
   function pycOpenPy(id, code) {
     const t = pycTask(id);
     if (!t) return;
+    const alreadyEditing = pyOpen() && PY.task?.id === 'pyc:' + id;
     const k = PYC_L.level.tasks.indexOf(t) + 1;
     PYC_PY = pycPyTask(t, `${pycLabel(PYC_L)} · ур. ${PYC_L.l + 1} · задача ${k}`);
     if (pyOpen()) pySync(); else togglePy(true);
+    if (t.practice && !alreadyEditing) {
+      $('#pyIn').value = t.practice.stdin;
+      if (code == null && readCode('pyc:' + id) == null) code = t.practice.starter || '';
+    }
     if (code != null) {
       const ta = $('#pyCode');
       ta.value = code;
@@ -7908,7 +8074,7 @@
     const btn = form.querySelector('button[type=submit]');
     if (btn) btn.disabled = true;
     let r;
-    try { r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (btn) btn.disabled = false; netError(e); return; }
+    try { await pycFlushHelp(); r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (btn) btn.disabled = false; netError(e); return; }
     if (btn) btn.disabled = false;
     const t = pycTask(id);
     if (!t) return;
@@ -7933,6 +8099,10 @@
 
   trainerEl.addEventListener('click', e => {
     if (!courseShown || pageKind !== 'pyc') return;
+    const focus = e.target.closest('[data-pyc-focus]');
+    if (focus && PYC_L) { PYC_FOCUS = focus.dataset.pycFocus; openPycLevel(PYC_L.id, PYC_L.l, true); return; }
+    const tests = e.target.closest('[data-pyc-tests]');
+    if (tests) { pycTestCode(tests.dataset.pycTests, tests); return; }
     const lv = e.target.closest('[data-pyc-lv]');
     if (lv && !lv.disabled) { const [m, l] = lv.dataset.pycLv.split(':'); openPycLevel(m, +l); return; }
     if (e.target.closest('[data-pyc-home]')) { openPyc(); return; }
@@ -7956,6 +8126,90 @@
     try { const me = await api('me'); pycSetAccess(me.pyc, me.pyc_pw); } catch (e) { return; }
     if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
   }
+
+  trainerEl.addEventListener('toggle', e => {
+    const el = e.target;
+    if (!el.open || !el.dataset.pycHelp || !el.dataset.task) return;
+    const task = pycTask(el.dataset.task); if (!task) return;
+    const field = el.dataset.pycHelp === 'hint' ? 'hint_used' : 'solution_seen';
+    if (task[field]) return;
+    PYC_PENDING_HELP.set(task.id + ':' + field, { sid: student?.sid, task, kind: el.dataset.pycHelp, field });
+    pycFlushHelp().catch(() => toast('Не удалось сохранить использование подсказки. Проверь подключение.', 4000));
+  }, true);
+  function pycFlushHelp() {
+    PYC_HELP = PYC_HELP.catch(() => {}).then(async () => {
+      for (const [key, item] of PYC_PENDING_HELP) {
+        if (item.sid !== student?.sid) { PYC_PENDING_HELP.delete(key); continue; }
+        await api('pyc/help', { task: item.task.id, kind: item.kind });
+        item.task[item.field] = true; PYC_PENDING_HELP.delete(key);
+      }
+    });
+    return PYC_HELP;
+  }
+  let PYC_TEST = null;
+  function pycStopTests() { if (PYC_TEST) PYC_TEST.cancel(); }
+  async function pycTestCode(id, button) {
+    if (PYC_TEST) { toast('Дождись завершения текущей проверки.', 2500); return; }
+    const task = pycTask(id); if (!task?.practice) return;
+    pycOpenPy(id);
+    const code = $('#pyCode').value, box = button.closest('.pyc-task'), msg = box.querySelector('.pyc-msg');
+    if (!code.trim()) { msg.textContent = 'Сначала напиши программу в редакторе Python.'; return; }
+    const status = text => { msg.textContent = text; if (PY.task?.id === 'pyc:' + id) $('#pycDockStatus').textContent = text; };
+    button.disabled = true; $('#pycDockTests').disabled = true; $('#pycDockStop').hidden = false; status('Загружаю Python для учебной проверки…');
+    let worker;
+    try { worker = new Worker('py-worker.js' + (RULES.py_local ? '?local=1' : '')); }
+    catch (err) { button.disabled = false; $('#pycDockTests').disabled = false; $('#pycDockStop').hidden = true; status('Браузер не смог запустить проверку Python.'); return; }
+    let timer, index = 0, passed = 0, output = '', error = '', finished = false;
+    const finish = text => {
+      if (finished) return; finished = true; clearTimeout(timer); worker.terminate(); PYC_TEST = null;
+      $('#pycDockTests').disabled = false; $('#pycDockStop').hidden = true;
+      if (button.isConnected) { button.disabled = false; status(text); }
+    };
+    PYC_TEST = { button, cancel: () => finish('Проверка остановлена.') };
+    const norm = value => String(value).trim().replace(/\s+/g, ' ');
+    const next = () => {
+      if (!button.isConnected) { finish('Проверка остановлена.'); return; }
+      const test = task.practice.cases[index]; output = ''; error = '';
+      clearTimeout(timer); timer = setTimeout(() => finish(`Пример ${index+1}: остановлено через 5 секунд. Проверь цикл.`), 5000);
+      worker.postMessage({ type: 'run', code, files: (task.files || []).map(f => ({ name: f.name, url: f.url })), stdin: test.input });
+      status(`Проверяю пример ${index+1} из ${task.practice.cases.length}…`);
+    };
+    timer = setTimeout(() => finish('Не удалось загрузить Python. Проверь интернет и повтори.'), 90000);
+    worker.onmessage = e => {
+      const m = e.data; if (finished) return;
+      if (m.type === 'ready') { next(); return; }
+      if (m.type === 'out') output += m.text;
+      if (m.type === 'err') error += m.text;
+      if (output.length + error.length > 8000) { finish('Слишком много вывода. Проверь цикл и print().'); return; }
+      if (m.type !== 'done') return;
+      const test = task.practice.cases[index];
+      if (!m.ok || error) { finish(`Пример ${index+1}: ошибка. ${error.slice(0, 700) || 'Python не загрузился или выполнение прервано.'}`); return; }
+      if (norm(output) !== norm(test.output)) { finish(`Пример ${index+1}: ожидалось «${test.output}», получено «${output.trim()}». Исправь программу.`); return; }
+      passed++; index++;
+      if (index === task.practice.cases.length) finish(`Учебная проверка: ${passed} из ${index} примеров пройдены. Для зачёта отправь ответ для первого ввода.`);
+      else next();
+    };
+    worker.onerror = () => finish('Не удалось запустить Python. Повтори проверку.');
+  }
+  new MutationObserver(() => { if (PYC_TEST && !PYC_TEST.button.isConnected) pycStopTests(); }).observe(trainerEl, { childList: true });
+  window.addEventListener('pagehide', pycStopTests);
+
+  function pycDockTools(t) {
+    const task = t?.pyc && pycTask(t.id.slice(4)), tools = $('#pycDockTools');
+    if (!tools) return;
+    tools.hidden = !task;
+    if (!task) return;
+    $('#pycDockTests').hidden = !task.practice;
+    $('#pycDockStatus').textContent = '';
+  }
+  $('#pycDockTests')?.addEventListener('click', () => { if (PY.task?.pyc) trainerEl.querySelector(`[data-pyc-tests="${CSS.escape(PY.task.id.slice(4))}"]`)?.click(); });
+  $('#pycDockLab')?.addEventListener('click', () => { if (PY.task?.pyc) trainerEl.querySelector(`[data-learning-lab="task"][data-task="${CSS.escape(PY.task.id.slice(4))}"]`)?.click(); });
+  $('#pycDockBack')?.addEventListener('click', () => togglePy(false));
+  $('#pycDockStop')?.addEventListener('click', pycStopTests);
+  $('#pyCode')?.addEventListener('input', () => {
+    if (PYC_TEST) pycStopTests();
+    if ($('#pycDockStatus')?.textContent) $('#pycDockStatus').textContent = 'Код изменён. Запусти проверку ещё раз.';
+  });
   // ═══════ src/app/12c-gifts.js
   // ------------------------------------------------------------ биткоины и подарки
   // Биткоины (₿) считает сервер (GAME.coins): 1 за каждые 10 XP опыта + начисления учителя − покупки. Подарок покупают
@@ -9516,6 +9770,328 @@
     $('#forecastModal').hidden = false;
   }
   $('#togCard')?.addEventListener('click', () => togHistory(true));
+  // ═══════ src/app/12j-labs.js
+  // ------------------------------------------------------------ лаборатории
+  // Модели не обращаются к API ответов: эксперименты не влияют на журнал и экономику.
+  function labNetwork(address, prefix) {
+    const parts = String(address).trim().split('.');
+    if (parts.length !== 4 || parts.some(x => !/^\d{1,3}$/.test(x) || +x > 255) || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) throw Error('Введите IPv4 из четырёх чисел 0–255 и маску от /0 до /32.');
+    const ip = parts.reduce((n, x) => n * 256 + +x, 0), count = 2 ** (32 - prefix);
+    const start = Math.floor(ip / count) * count;
+    const format = n => [24, 16, 8, 0].map(s => Math.floor(n / 2 ** s) % 256).join('.');
+    return { ip, prefix, count, start, end: start + count - 1, mask: format(2 ** 32 - count), network: format(start), last: format(start + count - 1), bits: ip.toString(2).padStart(32, '0') };
+  }
+  function labImageSize(width, height, depth) {
+    if (![width, height, depth].every(Number.isInteger) || width < 1 || height < 1 || width > 8192 || height > 8192 || depth < 1 || depth > 24) throw Error('Размеры — целые числа от 1 до 8192, глубина цвета — от 1 до 24 бит.');
+    const bits = width * height * depth;
+    return { bits, bytes: Math.ceil(bits / 8), colors: 2 ** depth };
+  }
+  function labGameMoves(stones, target, add, factor) {
+    if (![stones, target, add, factor].every(Number.isInteger) || stones < 1 || target < 2 || target > 200 || stones > 1000 || add < 1 || add > 20 || factor < 2 || factor > 5) throw Error('Проверьте параметры игры: цель 2–200, прибавление 1–20, множитель 2–5.');
+    return stones >= target ? [] : [{ label: `+${add}`, value: stones + add }, { label: `×${factor}`, value: stones * factor }];
+  }
+  function labGamePositionMoves(position, target, add, factor) {
+    if (!Array.isArray(position) || ![1, 2].includes(position.length)) throw Error('Нужна одна или две кучи.');
+    position.forEach(n => labGameMoves(n, target, add, factor));
+    if (position.reduce((a, b) => a + b, 0) >= target) return [];
+    return position.flatMap((n, i) => labGameMoves(n, target, add, factor).map(m => ({
+      label: `${position.length === 2 ? `Куча ${i + 1}: ` : ''}${m.label}`,
+      value: position.map((v, j) => j === i ? m.value : v)
+    })));
+  }
+  let LAB_OK = false, labLoadId = 0;
+  function labLock(configured, view) {
+    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатории — по паролю</h2>
+      <p>${configured ? 'Пароль выдаёт учитель. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не настроил доступ к лабораториям.'}</p>
+      ${LAB.context ? '<button class="link-btn" type="button" data-learning-return>← Вернуться к уроку</button>' : ''}
+      ${configured ? '<form id="labPasswordForm" class="login-form crs-lock-form"><input id="labPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лабораторий" aria-label="Пароль лабораторий" required><button class="btn primary">Открыть</button></form><p id="labPasswordError" role="alert"></p>' : ''}</div></div>`;
+    $('#labPasswordForm')?.addEventListener('submit', async e => {
+      e.preventDefault(); const form = e.currentTarget, btn = form.querySelector('button'), msg = $('#labPasswordError'); btn.disabled = true;
+      try { await api('lab/unlock', { password: $('#labPassword').value }); await openLab(view); }
+      catch (err) { msg.textContent = err.message; btn.disabled = false; }
+    });
+  }
+  const LAB_EXAMPLES = {
+    sum: ['Сумма чисел', 'numbers = [4, 7, 2]\ntotal = 0\nfor x in numbers:\n    total += x\nprint(total)'],
+    branch: ['Условие и цикл', 'for n in range(1, 6):\n    if n % 2 == 0:\n        result = n * n\n        print(n, result)'],
+    list: ['Изменение списка', 'numbers = [3, 1, 4]\nfor i in range(len(numbers)):\n    numbers[i] *= 2\nprint(numbers)'],
+    function: ['Вызовы функций', 'def factorial(n):\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\n\nanswer = factorial(4)\nprint(answer)']
+  };
+  const LAB = { view: '', mode: 'net', worker: null, timeout: null, play: null, running: false, result: null, index: 0,
+    code: '', stdin: '', owner: null, net: { ip: '192.168.1.130', prefix: 26 }, picture: { w: 640, h: 480, depth: 8 },
+    context: null, game: { start: 17, second: 29, heaps: 2, target: 133, add: 4, factor: 2, path: [[17, 29]] } };
+  const labActive = () => courseShown && pageKind === 'lab' && !!$('#labRoot');
+  const labFmt = n => n.toLocaleString('ru-RU');
+  const labIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></svg>';
+  function labSaveDraft() { if (LAB.context) { LAB.context.code = LAB.code; LAB.context.stdin = LAB.stdin; if (LAB.context.task) writeCode('pyc:' + LAB.context.task, LAB.code); } else writeJSON(codeKey('laboratory'), { code: LAB.code, stdin: LAB.stdin }); }
+  function labPause() { clearInterval(LAB.play); LAB.play = null; const b = $('#labPlay'); if (b) b.textContent = 'Воспроизвести'; }
+  function labStop() {
+    labPause();
+    clearTimeout(LAB.timeout); LAB.timeout = null;
+    if (LAB.worker) LAB.worker.terminate();
+    LAB.worker = null; LAB.running = false;
+  }
+  async function openLab(view = '', context) {
+    if (!leaveExam()) return;
+    if (!['', 'tasks', 'code'].includes(view)) view = '';
+    labStop();
+    if (LAB.owner && LAB.owner !== codeKey('laboratory')) LAB.context = null;
+    if (context) LAB.context = context;
+    if (LAB.owner !== codeKey('laboratory')) {
+      const saved = readJSON(codeKey('laboratory'));
+      LAB.code = saved && typeof saved.code === 'string' ? saved.code.slice(0, 30000) : LAB_EXAMPLES.sum[1];
+      LAB.stdin = saved && typeof saved.stdin === 'string' ? saved.stdin.slice(0, 10000) : '';
+      LAB.result = null; LAB.index = 0; LAB.owner = codeKey('laboratory');
+    }
+    if (isNarrow()) setSideOpen(false);
+    if (pyOpen()) togglePy(false);
+    if (bdOpen()) toggleBoard(false);
+    abandonCurrent(); cur = null;
+    courseShown = true; pageKind = 'lab'; LAB.view = view;
+    navPush({ v: 'lab', tab: view });
+    const ticket = ++labLoadId;
+    if (SERVER) {
+      trainerEl.innerHTML = '<p class="fm-note">Проверяю доступ к лабораториям…</p>';
+      try {
+        const access = await api('lab');
+        if (ticket !== labLoadId || pageKind !== 'lab' || !courseShown) return;
+        LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !LAB_OK);
+        if (!LAB_OK) { labLock(access.pw, view); return; }
+      } catch (err) { if (ticket === labLoadId && pageKind === 'lab') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Открой лабораторию ещё раз.</p>'; netError(err); } return; }
+    }
+    if (context) { LAB.code = context.code || ''; LAB.stdin = context.stdin || ''; LAB.result = null; LAB.index = 0; }
+    else if (LAB.context) { LAB.code = LAB.context.code || ''; LAB.stdin = LAB.context.stdin || ''; }
+
+    document.body.classList.add('lab-open');
+    document.body.classList.remove('asg-wide');
+    renderSidebar();
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Лаборатория</span><span class="scope-stats">Исследуй и проверяй идеи</span>';
+    $('#sessionInfo').textContent = '';
+    const titles = { '': ['Лаборатория', 'Меняй условия, проверяй гипотезы и разбирайся, как всё работает.'], tasks: ['Лаборатории по заданиям ЕГЭ', 'Сначала предположи результат. Затем проверь его на модели.'], code: ['Лаборатория программирования', 'Свой Python-код, значения переменных и выполнение по шагам.'] };
+    const [title, sub] = titles[view];
+    trainerEl.innerHTML = `<div class="lab" id="labRoot">
+      ${LAB.context ? `<div class="learning-return"><button class="btn" type="button" data-learning-return>← Вернуться к уроку</button><span>${esc(LAB.context.label || 'Код и условие урока')}</span>${LAB.context.condition ? `<div class="cond">${safeHtml(LAB.context.condition)}</div>` : ''}</div>` : ''}
+      ${view ? '<button type="button" class="link-btn lab-back" data-lab-view="">← Все лаборатории</button>' : ''}
+      <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>${title}</h1><p>${sub}</p></div></header>
+      ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : `<div class="lab-cards">
+        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">№ 7 · 10 · 19–21</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
+        <button type="button" class="lab-entry" data-lab-view="code"><span class="lab-kicker">Python</span><h2>Программирование</h2><p>Смотри, какая строка выполняется, как меняются переменные и что выводит программа.</p><b>Открыть лабораторию →</b></button></div>
+        <p class="lab-note">Здесь можно пробовать и ошибаться: эксперименты не меняют оценки и награды за задания.</p>`}
+      </div>`;
+    if (view === 'tasks') labRenderModel();
+    if (view === 'code') labRenderStep();
+    window.scrollTo(0, 0);
+  }
+  function labTasksHtml() {
+    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['net', '№ 10 · IP-сети'], ['image', '№ 7 · Изображения'], ['game', '№ 19–21 · Игры']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по проекту ФИПИ ЕГЭ-2027. IP-сети в ЕГЭ-2026 — №13. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
+  }
+  function labPrediction(question) {
+    return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
+  }
+  function labRenderModel() {
+    const box = $('#labModel'); if (!box) return;
+    if (LAB.mode === 'net') {
+      box.innerHTML = `<section class="lab-panel"><h2>Где заканчивается сеть и начинается адрес узла?</h2>
+        <div class="lab-fields"><label>IPv4-адрес<input class="inp" id="labIp" value="${esc(LAB.net.ip)}" spellcheck="false" maxlength="15"></label><label>Маска /<span id="labPrefixLabel">${LAB.net.prefix}</span><input type="range" id="labPrefix" min="0" max="32" value="${LAB.net.prefix}"></label></div>
+        <p class="lab-note">Голубые биты задают сеть, остальные — адрес внутри неё. Все адреса считаются вместе с адресом сети и широковещательным адресом.</p>
+        <div id="labNetResult" aria-live="polite"></div>
+        ${labPrediction('Сколько всего IPv4-адресов в этой подсети?')}</section>`;
+      labUpdateNetwork();
+    } else if (LAB.mode === 'image') {
+      const p = LAB.picture;
+      box.innerHTML = `<section class="lab-panel"><h2>Как глубина цвета влияет на объём?</h2><div class="lab-fields">
+        <label>Ширина, пиксели<input class="inp" type="number" id="labWidth" min="1" max="8192" value="${p.w}"></label>
+        <label>Высота, пиксели<input class="inp" type="number" id="labHeight" min="1" max="8192" value="${p.h}"></label>
+        <label>Бит на пиксель: <span id="labDepthLabel">${p.depth}</span><input type="range" id="labDepth" min="1" max="24" value="${p.depth}"></label></div>
+        <div class="lab-image-demo"><canvas id="labCanvas" width="256" height="128" aria-label="Пример изменения палитры изображения"></canvas><div id="labImageResult" aria-live="polite"></div></div>
+        <p class="lab-note">Модель без сжатия, заголовков и выравнивания строк. Биты упакованы подряд; итог округляется вверх до целого байта. Иллюстрация показывает изменение палитры, её размер на экране условный.</p>
+        ${labPrediction('Сколько байт занимает это изображение?')}</section>`;
+      labUpdateImage();
+    } else {
+      const g = LAB.game;
+      box.innerHTML = `<section class="lab-panel"><h2>Исследуй ходы Пети и Вани</h2><p class="lab-note">Одна или две кучи. Побеждает тот, кто первым доведёт общее число камней до цели. В демоверсии-2027: две кучи, +4 или ×2, цель 133. Просмотр ходов сам по себе не доказывает выигрышную стратегию.</p>
+        <div class="lab-fields"><label>Куч<select class="inp" id="labHeaps"><option value="1" ${g.heaps === 1 ? 'selected' : ''}>Одна</option><option value="2" ${g.heaps === 2 ? 'selected' : ''}>Две</option></select></label><label>Первая куча<input type="number" class="inp" id="labStart" min="1" max="199" value="${g.start}"></label><label>Вторая куча (для двух)<input type="number" class="inp" id="labSecond" min="1" max="199" value="${g.second}"></label><label>Цель<input type="number" class="inp" id="labTarget" min="2" max="200" value="${g.target}"></label><label>Прибавить<input type="number" class="inp" id="labAdd" min="1" max="20" value="${g.add}"></label><label>Умножить на<input type="number" class="inp" id="labFactor" min="2" max="5" value="${g.factor}"></label><button class="btn" type="button" data-lab-action="game-reset">Начать заново</button></div>
+        <div id="labGameResult" aria-live="polite"></div>
+        <p class="lab-note">Выбери ход, чтобы перейти к новой позиции. Под каждым ходом показаны возможные ответы соперника.</p></section>`;
+      labUpdateGame();
+    }
+  }
+  function labResetFeedback() { if ($('#labFeedback')) $('#labFeedback').textContent = ''; }
+  function labUpdateNetwork() {
+    LAB.net.ip = $('#labIp').value; LAB.net.prefix = +$('#labPrefix').value;
+    $('#labPrefixLabel').textContent = LAB.net.prefix; labResetFeedback();
+    try {
+      const n = labNetwork(LAB.net.ip, LAB.net.prefix);
+      $('#labNetResult').innerHTML = `<div class="lab-bits" aria-label="Двоичная запись адреса">${[0, 8, 16, 24].map(start => `<span class="lab-octet">${n.bits.slice(start, start + 8).split('').map((bit, i) => `<b class="${start + i < n.prefix ? 'network' : 'host'}">${bit}</b>`).join('')}</span>`).join('')}</div>
+        <dl class="lab-facts"><div><dt>Маска</dt><dd>${n.mask}</dd></div><div><dt>Первый адрес</dt><dd>${n.network}</dd></div><div><dt>Последний адрес</dt><dd>${n.last}</dd></div><div><dt>Битов для адреса внутри сети</dt><dd>32 − ${n.prefix} = ${32 - n.prefix}</dd></div></dl>`;
+    } catch (e) { $('#labNetResult').textContent = e.message; }
+  }
+  function labUpdateImage() {
+    LAB.picture = { w: +$('#labWidth').value, h: +$('#labHeight').value, depth: +$('#labDepth').value };
+    const p = LAB.picture; $('#labDepthLabel').textContent = p.depth; labResetFeedback();
+    try {
+      const v = labImageSize(p.w, p.h, p.depth);
+      $('#labImageResult').innerHTML = `<dl class="lab-facts"><div><dt>Возможных цветов</dt><dd>2<sup>${p.depth}</sup> = ${labFmt(v.colors)}</dd></div><div><dt>Пикселей</dt><dd>${labFmt(p.w * p.h)}</dd></div></dl><p>Объём в битах = ширина × высота × глубина цвета.</p>`;
+      const c = $('#labCanvas').getContext('2d');
+      const levels = [Math.ceil(p.depth / 3), Math.floor((p.depth + 1) / 3), Math.floor(p.depth / 3)].map(b => 2 ** b - 1);
+      const quant = (x, max) => max ? Math.round(x * max) * 255 / max : 0;
+      for (let y = 0; y < 128; y += 4) for (let x = 0; x < 256; x += 4) {
+        c.fillStyle = `rgb(${quant(x / 252, levels[0])},${quant(y / 124, levels[1])},${quant(1 - x / 252, levels[2])})`; c.fillRect(x, y, 4, 4);
+      }
+    } catch (e) { $('#labImageResult').textContent = e.message; }
+  }
+  function labUpdateGame() {
+    const g = LAB.game, n = g.path[g.path.length - 1], box = $('#labGameResult');
+    const sum = p => p.reduce((a, b) => a + b, 0), label = p => p.join(' + ');
+    try {
+      const moves = labGamePositionMoves(n, g.target, g.add, g.factor), petya = g.path.length % 2 === 1;
+      box.innerHTML = `<div class="lab-position"><b>${label(n)}</b><span>${moves.length ? `камней · ходит ${petya ? 'Петя' : 'Ваня'}` : `Победил ${petya ? 'Ваня' : 'Петя'}`}</span></div>
+        <p class="lab-path">${g.path.map(p => '(' + label(p) + ')').join(' → ')}</p>
+        <div class="lab-moves">${moves.map((m, i) => `<div><button class="btn" type="button" data-lab-move="${i}">${m.label} → ${label(m.value)}${sum(m.value) >= g.target ? ' · победа' : ''}</button><p>${sum(m.value) >= g.target ? 'Игра завершится' : 'Далее: ' + labGamePositionMoves(m.value, g.target, g.add, g.factor).map(x => `${x.label} → ${label(x.value)}${sum(x.value) >= g.target ? ' (победа соперника)' : ''}`).join(' · ')}</p></div>`).join('')}</div>
+        <button type="button" class="btn ghost" data-lab-action="game-back" ${g.path.length < 2 ? 'disabled' : ''}>← Отменить ход</button>`;
+    } catch (e) { box.textContent = e.message; }
+  }
+  function labCodeHtml() {
+    return `<div class="lab-code-tools"><label>Готовый пример<select class="inp" id="labExample"><option value="">Выбрать пример…</option>${Object.entries(LAB_EXAMPLES).map(([id, [name]]) => `<option value="${id}">${name}</option>`).join('')}</select></label>
+      <button type="button" class="btn primary" id="labRun" data-lab-action="run">Разобрать по шагам</button><button type="button" class="btn" id="labStop" data-lab-action="stop" hidden>Остановить</button>
+      <button type="button" class="btn ghost" data-lab-action="edit" id="labEdit" ${LAB.result ? '' : 'hidden'}>Редактировать код</button></div>
+      <p class="lab-note">Код выполняется в браузере, затем запись можно листать вперёд и назад. Подсвеченная строка ещё не выполнена; переменные показаны перед ней. До 600 событий на запуск.</p>
+      <p class="lab-status" id="labStatus" role="status">${LAB.result ? 'Запись выполнения готова.' : 'Вставь свой код или выбери пример. Ctrl+Enter — разобрать.'}</p>
+      <div class="lab-controls" id="labControls" ${LAB.result && LAB.result.steps.length ? '' : 'hidden'}>
+        <button type="button" class="btn" data-lab-action="prev" id="labPrev">← Назад</button><button type="button" class="btn primary" data-lab-action="next" id="labNext">Следующий шаг →</button><button type="button" class="btn" data-lab-action="play" id="labPlay">Воспроизвести</button>
+        <label>Шаг <span id="labStepLabel"></span><input type="range" id="labStep" min="0" max="0" value="0" aria-label="Шаг выполнения"></label></div>
+      <div class="lab-code-grid"><section class="lab-panel lab-editor"><h2>Код Python</h2>
+        <textarea id="labCode" class="inp" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="30000" aria-label="Код Python" ${LAB.result ? 'hidden' : ''}>${esc(LAB.code)}</textarea>
+        <div id="labTraceCode" class="lab-trace-code" tabindex="0" aria-label="Код с текущей строкой" ${LAB.result ? '' : 'hidden'}></div>
+        <label class="lab-stdin">Входные данные для input()<textarea class="inp" id="labStdin" rows="3" maxlength="10000" spellcheck="false" ${LAB.result ? 'disabled' : ''}>${esc(LAB.stdin)}</textarea></label>
+      </section><section class="lab-panel"><h2>Что происходит</h2><p id="labEvent">Здесь появятся значения переменных на каждом шаге.</p><div id="labStack" class="lab-stack"></div><div id="labVariables"></div><h3>Вывод программы</h3><pre class="lab-output" id="labOutput" aria-label="Вывод программы"></pre></section></div>
+      <p class="lab-note">Списки и значения показаны сокращённо. Python загружается при первом запуске; кнопка «Остановить» прерывает и загрузку, и выполнение.</p>`;
+  }
+  function labSetStatus(text) { if (labActive() && $('#labStatus')) $('#labStatus').textContent = text; }
+  function labSetBusy(busy) {
+    LAB.running = busy;
+    for (const id of ['labRun', 'labExample', 'labCode', 'labStdin']) if ($('#' + id)) $('#' + id).disabled = busy;
+    if ($('#labStop')) $('#labStop').hidden = !busy;
+  }
+  function labRun() {
+    if (LAB.running) return;
+    if (!LAB.code.trim()) { labSetStatus('Сначала напиши код или выбери пример.'); return; }
+    labStop(); LAB.result = null; LAB.index = 0; labSaveDraft();
+    $('#labCode').hidden = false; $('#labTraceCode').hidden = true; $('#labControls').hidden = true; $('#labEdit').hidden = true;
+    $('#labVariables').textContent = ''; $('#labStack').textContent = ''; $('#labOutput').textContent = ''; $('#labEvent').textContent = 'Готовим запись выполнения…';
+    try {
+      const worker = new Worker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); LAB.worker = worker;
+      labSetBusy(true); labSetStatus('Загружаю Python… При первом запуске это может занять около минуты.');
+      const fail = text => { if (LAB.worker !== worker) return; labStop(); labSetBusy(false); labSetStatus(text); };
+      LAB.timeout = setTimeout(() => fail('Python не успел загрузиться. Проверь интернет и повтори запуск.'), 90000);
+      worker.onmessage = e => {
+        if (LAB.worker !== worker || !labActive()) return;
+        const m = e.data;
+        if (m.type === 'tracing') {
+          clearTimeout(LAB.timeout); LAB.timeout = setTimeout(() => fail('Выполнение остановлено через 15 секунд. Уменьши входные данные или проверь цикл.'), 15000);
+          labSetStatus('Записываю выполнение…');
+        } else if (m.type === 'trace') {
+          labStop(); labSetBusy(false); LAB.result = m.result; LAB.index = 0;
+          $('#labCode').hidden = true; $('#labTraceCode').hidden = false; $('#labEdit').hidden = false; $('#labStdin').disabled = true;
+          labRenderStep();
+        } else if (m.type === 'trace-error') fail(m.text);
+        else if (m.type === 'done' && !m.ok) fail('Не удалось загрузить Python. Проверь интернет и повтори запуск.');
+      };
+      worker.onerror = () => fail('Не удалось запустить Python. Обнови страницу и попробуй ещё раз.');
+      worker.postMessage({ type: 'trace', code: LAB.code, stdin: LAB.stdin, files: LAB.context?.files || [] });
+    } catch (e) { labStop(); labSetBusy(false); labSetStatus('Браузер не смог запустить Python. Попробуй современную версию браузера.'); }
+  }
+  function labRenderStep() {
+    if (!labActive() || LAB.view !== 'code' || !LAB.result) return;
+    const r = LAB.result, s = r.steps[LAB.index], previous = r.steps[LAB.index - 1];
+    $('#labControls').hidden = !r.steps.length;
+    if (r.error) labSetStatus('Программа завершилась с ошибкой: ' + r.error);
+    else if (r.truncated) labSetStatus('Запись остановлена на 600 событиях. Уменьши диапазон цикла, чтобы увидеть окончание.');
+    else labSetStatus('Запись готова. Листай шаги и наблюдай за переменными.' + (r.outputTruncated ? ' Вывод сокращён до 6000 символов.' : ''));
+    $('#labTraceCode').innerHTML = LAB.code.split('\n').map((line, i) => `<div class="lab-code-line${s && s.line === i + 1 ? ' current' : ''}" ${s && s.line === i + 1 ? 'aria-current="step"' : ''}><span>${i + 1}</span><code>${highlightPy(line) || ' '}</code></div>`).join('');
+    if (!s) { $('#labEvent').textContent = 'Не удалось начать выполнение. Исправь код и повтори запуск.'; $('#labOutput').textContent = r.output; return; }
+    $('#labEvent').textContent = s.event === 'line' ? `Следующая строка: ${s.line}` : s.event === 'exception' ? `Строка ${s.line}: исключение ${s.exception}` : s.function === '<module>' ? (r.error ? 'Выполнение завершилось с ошибкой' : 'Выполнение основного кода завершено') : `Выход из ${s.function}: ${s.returnValue}`;
+    $('#labStack').textContent = 'Вызовы: ' + s.stack.slice().reverse().map(f => f.name === '<module>' ? 'основной код' : f.name).join(' → ');
+    $('#labVariables').innerHTML = s.variables.length ? `<div class="lab-vars">${s.variables.map(v => {
+      const old = previous && previous.function === s.function && previous.variables.find(x => x.name === v.name);
+      const changed = !old || old.value !== v.value;
+      return `<div class="lab-var${changed ? ' changed' : ''}"><div><b>${esc(v.name)}</b><small>${esc(v.type)}${changed ? ' · изменилось' : ''}</small></div><code>${esc(v.value)}</code>${v.items ? `<div class="lab-array">${v.items.map((x, i) => `<span><small>${i}</small><code>${esc(x)}</code></span>`).join('')}${v.length > v.items.length ? '<span>…</span>' : ''}</div>` : ''}</div>`;
+    }).join('')}</div>` : '<p class="lab-note">Пока нет переменных.</p>';
+    $('#labOutput').textContent = s.output;
+    $('#labStep').max = r.steps.length - 1; $('#labStep').value = LAB.index;
+    $('#labStepLabel').textContent = `${LAB.index + 1} из ${r.steps.length}`;
+    $('#labPrev').disabled = LAB.index === 0; $('#labNext').disabled = LAB.index >= r.steps.length - 1;
+    // Прокручиваем только код, не всю страницу: шаги и переменные остаются на месте.
+    const panel = $('#labTraceCode'), line = $('#labTraceCode .current');
+    if (line) {
+      const p = panel.getBoundingClientRect(), l = line.getBoundingClientRect();
+      if (l.top < p.top + 12) panel.scrollTop -= p.top + 12 - l.top;
+      else if (l.bottom > p.bottom - 12) panel.scrollTop += l.bottom - p.bottom + 12;
+    }
+  }
+  function labStep(delta) { if (!LAB.result) return; LAB.index = Math.max(0, Math.min(LAB.result.steps.length - 1, LAB.index + delta)); labRenderStep(); }
+  $('#labCard')?.addEventListener('click', () => openLab());
+  trainerEl.addEventListener('click', e => {
+    if (!labActive()) return;
+    const view = e.target.closest('[data-lab-view]'); if (view) { openLab(view.dataset.labView); return; }
+    const model = e.target.closest('[data-lab-model]'); if (model) { LAB.mode = model.dataset.labModel; openLab('tasks'); return; }
+    const move = e.target.closest('[data-lab-move]');
+    if (move) { const g = LAB.game, m = labGamePositionMoves(g.path[g.path.length - 1], g.target, g.add, g.factor)[+move.dataset.labMove]; if (m) { g.path.push(m.value); labUpdateGame(); } return; }
+    const a = e.target.closest('[data-lab-action]')?.dataset.labAction;
+    if (a === 'run') labRun();
+    if (a === 'stop') { labStop(); labSetBusy(false); labSetStatus('Остановлено. Код сохранён в этом браузере.'); }
+    if (a === 'edit') { labStop(); LAB.result = null; openLab('code').then(() => $('#labCode')?.focus()); }
+    if (a === 'prev' || a === 'next') { labPause(); labStep(a === 'prev' ? -1 : 1); }
+    if (a === 'play' && LAB.result) {
+      if (LAB.play) { labPause(); return; }
+      if (LAB.index >= LAB.result.steps.length - 1) LAB.index = 0;
+      $('#labPlay').textContent = 'Пауза'; labRenderStep();
+      LAB.play = setInterval(() => { if (!labActive() || LAB.index >= LAB.result.steps.length - 1) { labPause(); return; } labStep(1); }, 850);
+    }
+    if (a === 'game-back') { if (LAB.game.path.length > 1) LAB.game.path.pop(); labUpdateGame(); }
+    if (a === 'game-reset') {
+      const g = { start: +$('#labStart').value, second: +$('#labSecond').value, heaps: +$('#labHeaps').value, target: +$('#labTarget').value, add: +$('#labAdd').value, factor: +$('#labFactor').value };
+      try { const pos = g.heaps === 2 ? [g.start, g.second] : [g.start]; labGamePositionMoves(pos, g.target, g.add, g.factor); if (pos.reduce((a, b) => a + b, 0) >= g.target) throw Error('Сумма камней в начале должна быть меньше цели.'); LAB.game = { ...g, path: [pos] }; labUpdateGame(); }
+      catch (err) { $('#labGameResult').textContent = err.message; }
+    }
+  });
+  trainerEl.addEventListener('input', e => {
+    if (!labActive()) return;
+    const id = e.target.id;
+    if (id === 'labCode' || id === 'labStdin') { LAB[id === 'labCode' ? 'code' : 'stdin'] = e.target.value; labSaveDraft(); }
+    if (id === 'labIp' || id === 'labPrefix') labUpdateNetwork();
+    if (['labWidth', 'labHeight', 'labDepth'].includes(id)) labUpdateImage();
+    if (id === 'labStep') { labPause(); LAB.index = +e.target.value; labRenderStep(); }
+  });
+  trainerEl.addEventListener('change', e => {
+    if (!labActive() || e.target.id !== 'labExample' || !LAB_EXAMPLES[e.target.value]) return;
+    const code = LAB_EXAMPLES[e.target.value][1];
+    if (LAB.code && LAB.code !== code && !confirm('Заменить текущий код выбранным примером?')) { e.target.value = ''; return; }
+    labStop(); LAB.code = code; LAB.result = null; labSaveDraft(); openLab('code');
+  });
+  trainerEl.addEventListener('submit', e => {
+    if (!labActive() || e.target.id !== 'labPredict') return;
+    e.preventDefault();
+    try {
+      const expected = LAB.mode === 'net' ? labNetwork(LAB.net.ip, LAB.net.prefix).count : labImageSize(LAB.picture.w, LAB.picture.h, LAB.picture.depth).bytes;
+      const answer = $('#labGuess').value.trim().replace(/\s/g, '');
+      const right = /^\d+$/.test(answer) && +answer === expected;
+      $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} ${LAB.mode === 'net' ? `2^(32 − ${LAB.net.prefix})` : `Округляем вверх: ${labFmt(LAB.picture.w)} × ${labFmt(LAB.picture.h)} × ${LAB.picture.depth} / 8`} = ${labFmt(expected)}${LAB.mode === 'net' ? ' адресов.' : ' байт.'}`;
+    } catch (err) { $('#labFeedback').textContent = err.message; }
+  });
+  trainerEl.addEventListener('keydown', e => {
+    if (!labActive() || LAB.view !== 'code') return;
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); labRun(); return; }
+    if (e.target.id === 'labCode' && e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); const t = e.target; t.setRangeText('    ', t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input', { bubbles: true })); }
+  });
+  new MutationObserver(() => {
+    if (!labActive()) {
+      labStop();
+      if ((pageKind !== 'lab' || !courseShown) && LAB.context) { labSaveDraft(); LAB.context = null; LAB.owner = null; }
+      document.body.classList.remove('lab-open'); $('#labCard')?.classList.remove('on');
+    }
+  }).observe(trainerEl, { childList: true });
+  window.addEventListener('pagehide', labStop);
   // ═══════ src/app/13-live.js
   // ------------------------------------------------------------ живые обновления (SSE)
   /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя, support — ответ техподдержки,
@@ -9676,6 +10252,7 @@
   // Подписанная навигация на телефоне. Действия используют существующие обработчики.
   const mobileIcon = body => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   document.body.insertAdjacentHTML('beforeend', `<nav class="mobile-nav" id="mobileNav" aria-label="Основные разделы" hidden>
+    <button type="button" data-mobile="home">${mobileIcon('<path d="M3.5 10.6 12 3.5l8.5 7.1V19a2 2 0 0 1-2 2H15v-6.2H9V21H5.5a2 2 0 0 1-2-2z"/>')}<span>Главная</span></button>
     <button type="button" data-mobile="tasks">${mobileIcon('<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>')}<span>Задания</span></button>
     <button type="button" data-mobile="teacher">${mobileIcon('<path d="m2 9 10-5 10 5-10 5zM6 11v6c3 2 9 2 12 0v-6M22 9v7"/>')}<span>От учителя</span></button>
     <button type="button" data-mobile="progress">${mobileIcon('<path d="M5 20V12M12 20V4M19 20V8"/>')}<span>Прогресс</span></button>
@@ -9689,7 +10266,8 @@
     nav.hidden = false;
     const teacher = courseShown && pageKind === 'asg';
     $$('[data-mobile]', nav).forEach(b => {
-      const active = b.dataset.mobile === 'teacher' ? teacher : b.dataset.mobile === 'tasks' && !courseShown && !examShown;
+      const active = b.dataset.mobile === 'teacher' ? teacher : b.dataset.mobile === 'home' ? courseShown && pageKind === 'hub'
+        : b.dataset.mobile === 'tasks' && !courseShown && !examShown;
       b.classList.toggle('on', active);
       if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
@@ -9697,7 +10275,7 @@
   }
   function openMobileMore() {
     const items = [
-      ['numbers', 'Номера заданий'], ['examCard', 'Вариант ЕГЭ'], ['courseCard', 'Курс'], ['pycCard', 'Программирование'],
+      ['labCard', 'Лаборатория'], ['numbers', 'Номера заданий'], ['examCard', 'Вариант ЕГЭ'], ['courseCard', 'Курс'], ['pycCard', 'Курс Python'],
       ['favCard', 'Избранное'], ['histCard', 'История заданий'], ['dailyCard', 'Задание дня'], ['duelCard', 'Дуэли'],
       ['togCard', 'Занятия вместе'], ['coinCard', 'Биткоины и подарки'], ['supportBtn', 'Техподдержка'],
       ['themeBtn', 'Светлая / тёмная тема'], ['sndBtn', 'Звуки для занятий'], ['tourBtn', 'Как работает Egeshka']
@@ -9710,6 +10288,7 @@
     const b = e.target.closest('[data-mobile]');
     if (!b) return;
     setSideOpen(false);
+    if (b.dataset.mobile === 'home') openHub();
     if (b.dataset.mobile === 'tasks') $('#allCard').click();
     if (b.dataset.mobile === 'teacher') { asgTab = 'active'; openAsgPage(); }
     if (b.dataset.mobile === 'progress') $('#forecastBtn').click();
@@ -9724,6 +10303,323 @@
     if (b.dataset.mobileTarget === 'numbers') { setSideOpen(true); window.scrollTo(0, 0); $('#period').focus(); }
     else $('#' + b.dataset.mobileTarget)?.click();
   });
+  // ═══════ src/app/13c-hub.js
+  // ------------------------------------------------------------ главная-пульт ученика
+  /* Отдельная страница, с которой ученик начинает: сверху — уровень, биткоины, лига, огонёк; в центре — «План на сегодня»
+     (что делать сейчас, по порядку); ниже — все разделы плитками. Разделы открываются своими страницами,
+     вернуться — кнопкой «Главная» слева или «Назад» в браузере. */
+
+  // Иконки разделов: основа — цветом текста, смысловая деталь — цветом раздела. Слои: m — основа, a — акцент,
+  // d — приглушённая основа, k — вырез (цвет карточки), s/sa/ks — линии. Сетка 48×48.
+  const HUB_IC = {
+    trainer: ['#5cc8ff', '#1f7ae0', '<rect class="a" x="6" y="6" width="10" height="10" rx="3"/><rect class="a" x="19" y="6" width="10" height="10" rx="3"/><rect class="a" x="32" y="6" width="10" height="10" rx="3"/><rect class="a" x="6" y="19" width="10" height="10" rx="3"/><rect class="a" x="19" y="19" width="10" height="10" rx="3"/><rect class="d" x="32" y="19" width="10" height="10" rx="3"/><rect class="a" x="6" y="32" width="10" height="10" rx="3"/><rect class="d" x="19" y="32" width="10" height="10" rx="3"/><rect class="m" x="32" y="32" width="10" height="10" rx="3"/><path class="ks" d="m34.6 37 1.9 1.9 3.3-3.6" stroke-width="2"/>'],
+    exam: ['#c39bff', '#7c3aed', '<rect class="m" x="7" y="5" width="26" height="36" rx="5"/><rect class="k" x="12" y="12" width="12" height="3" rx="1.5"/><rect class="k" x="12" y="19" width="16" height="3" rx="1.5"/><rect class="k" x="12" y="26" width="9" height="3" rx="1.5"/><circle class="ks" cx="33.5" cy="33.5" r="10.5" stroke-width="3"/><circle class="a" cx="33.5" cy="33.5" r="9.5"/><rect class="a" x="31" y="20" width="5" height="3.5" rx="1.2"/><path class="ks" d="M33.5 28.5v5.2l3.2 2" stroke-width="2.4"/>'],
+    daily: ['#ff8f7a', '#e11d48', '<rect class="m" x="6" y="9" width="36" height="33" rx="7"/><path class="a" d="M6 16a7 7 0 0 1 7-7h22a7 7 0 0 1 7 7v2H6z"/><rect class="ks" x="13.5" y="4.5" width="5" height="9" rx="2.5" stroke-width="2"/><rect class="a" x="13.5" y="4.5" width="5" height="9" rx="2.5"/><rect class="ks" x="29.5" y="4.5" width="5" height="9" rx="2.5" stroke-width="2"/><rect class="a" x="29.5" y="4.5" width="5" height="9" rx="2.5"/><path class="a" d="M26.5 21 17 32.5h6.2L21.5 40 31 28.5h-6.2z"/>'],
+    course: ['#8b9cff', '#4338ca', '<path class="s" d="M10.5 37.5c7.5 0 6.5-10 14-11s8.5-6.5 9-12.5" stroke-width="4.2" stroke-dasharray=".1 7.4"/><circle class="a" cx="10" cy="38" r="6.5"/><circle class="k" cx="10" cy="38" r="2.4"/><rect class="m" x="32" y="4" width="3.4" height="24" rx="1.7"/><path class="a" d="M34 4.5h10.5l-3.6 5 3.6 5H34z"/>'],
+    lab: ['#4fe3cf', '#0f9488', '<path class="m" d="M18.5 4.5h11a1.5 1.5 0 0 1 0 3H28v9.3l10.6 18.6A4.5 4.5 0 0 1 34.7 42H13.3a4.5 4.5 0 0 1-3.9-6.6L20 16.8V7.5h-1.5a1.5 1.5 0 0 1 0-3z"/><path class="a" d="M15 27.5h18l5.6 7.9A4.5 4.5 0 0 1 34.7 42H13.3a4.5 4.5 0 0 1-3.9-6.6z"/><circle class="k" cx="19.5" cy="35.5" r="2.3"/><circle class="k" cx="26.5" cy="32.5" r="1.6"/><circle class="k" cx="27" cy="38.5" r="1.3"/>'],
+    python: ['#6fb1ff', '#2563eb', '<rect class="m" x="4" y="8" width="40" height="32" rx="7"/><circle class="k" cx="10.5" cy="14" r="1.7"/><circle class="k" cx="15.5" cy="14" r="1.7"/><circle class="k" cx="20.5" cy="14" r="1.7"/><path class="sa" d="m12 23 6.5 5L12 33" stroke-width="3.4"/><rect class="a" x="22" y="30.5" width="12" height="3.6" rx="1.8"/>'],
+    history: ['#7dd3fc', '#0284c7', '<rect class="d" x="10.5" y="10" width="3" height="28" rx="1.5"/><circle class="ks" cx="12" cy="10.5" r="5.5" stroke-width="3"/><circle class="a" cx="12" cy="10.5" r="5"/><circle class="ks" cx="12" cy="24" r="5.5" stroke-width="3"/><circle class="a" cx="12" cy="24" r="5"/><circle class="ks" cx="12" cy="37.5" r="5.5" stroke-width="3"/><circle class="m" cx="12" cy="37.5" r="5"/><rect class="m" x="21" y="8" width="21" height="5" rx="2.5"/><rect class="m" x="21" y="21.5" width="16" height="5" rx="2.5"/><rect class="d" x="21" y="35" width="19" height="5" rx="2.5"/>'],
+    fav: ['#ffd75e', '#d99000', '<path class="m" d="M13.5 5h21A3.5 3.5 0 0 1 38 8.5V43l-14-8.5L10 43V8.5A3.5 3.5 0 0 1 13.5 5z"/><path class="a" d="m24 11.5 2.9 5.9 6.5.95-4.7 4.6 1.1 6.5-5.8-3.05-5.8 3.05 1.1-6.5-4.7-4.6 6.5-.95z"/>'],
+    world: ['#ffbe5c', '#ea580c', '<rect class="m" x="9" y="22" width="30" height="20" rx="4"/><rect class="m" x="6" y="14.5" width="36" height="8.5" rx="3.5"/><rect class="k" x="6" y="22.5" width="36" height="2"/><rect class="a" x="21" y="14.5" width="6" height="27.5"/><path class="a" d="M24 14.5c-1.6-5.8-9.5-9-11-5.2-1 2.6 2.4 5.2 11 5.2zM24 14.5c1.6-5.8 9.5-9 11-5.2 1 2.6-2.4 5.2-11 5.2z"/>'],
+    duel: ['#ff86b4', '#db2777', '<rect class="m" x="17" y="23" width="14" height="19" rx="2.5"/><rect class="d" x="4" y="30" width="13" height="12" rx="2.5"/><rect class="d" x="31" y="33" width="13" height="9" rx="2.5"/><rect class="k" x="22.8" y="28" width="2.6" height="9" rx="1.3"/><path class="a" d="m24 4 3 6.1 6.7 1-4.85 4.7 1.15 6.7-6-3.15-6 3.15 1.15-6.7-4.85-4.7 6.7-1z"/>'],
+    together: ['#5ee6a0', '#059669', '<rect class="m" x="4" y="6" width="40" height="28" rx="5"/><path class="s" d="M24 34v8M17 42h14" stroke-width="3"/><path class="sa" d="M10 26c3.5-7 6.5 1 10-5s6 2 8.5-2" stroke-width="2.8"/><path class="k" d="m30.5 15.5 9.5 3.8-4 1.6-1.6 4z"/><path class="a" d="m31.6 16.6 7 2.8-3.1 1.2-1.2 3.1z"/>'],
+    asg: ['#86e04a', '#3f9a06', '<rect class="m" x="8" y="5" width="32" height="38" rx="6"/><rect class="k" x="16" y="2.5" width="16" height="7" rx="3.5"/><rect class="a" x="18" y="4" width="12" height="4" rx="2"/><path class="ks" d="m14.5 21 3 3 5.5-6M14.5 33l3 3 5.5-6" stroke-width="3"/><rect class="k" x="26" y="20" width="9" height="3.2" rx="1.6"/><rect class="k" x="26" y="32" width="9" height="3.2" rx="1.6"/>'],
+  };
+  let hubIcN = 0;
+  function hubIcon(key, size = 56) {
+    const [hl, hd, g] = HUB_IC[key] || HUB_IC.trainer, id = 'hg' + (++hubIcN);
+    const body = g.replace(/class="m"/g, 'style="fill:var(--text)"').replace(/class="a"/g, `fill="url(#${id})"`)
+      .replace(/class="d"/g, 'style="fill:var(--text);fill-opacity:.25"').replace(/class="k"/g, 'style="fill:var(--card)"')
+      .replace(/class="s"/g, 'fill="none" style="stroke:var(--text)" stroke-linecap="round" stroke-linejoin="round"')
+      .replace(/class="sa"/g, `fill="none" stroke="url(#${id})" stroke-linecap="round" stroke-linejoin="round"`)
+      .replace(/class="ks"/g, 'fill="none" style="stroke:var(--card)" stroke-linecap="round" stroke-linejoin="round"');
+    return `<svg class="hub-ic" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${hl}"/><stop offset="1" stop-color="${hd}"/></linearGradient></defs>${body}</svg>`;
+  }
+  const hubColor = key => (HUB_IC[key] || HUB_IC.trainer)[1];
+
+  // ------------------------------------------------------------ данные для плана дня
+  /** Номера, которые сейчас слабее всего: сначала решённые с низким освоением, по возрастанию. */
+  function hubWeakNums(k = 2) {
+    const counts = countByNum(), out = [];
+    for (let n = 1; n <= 27; n++) {
+      if (!counts[n] || (HAS_GROUPS && (n === 20 || n === 21))) continue;
+      const s = statsFor(n);
+      if (s && s.a) out.push([n, s.m]);
+    }
+    out.sort((a, b) => a[1] - b[1]);
+    const weak = out.filter(x => x[1] < CFG.weak);
+    return (weak.length ? weak : out).slice(0, k).map(x => x[0]);
+  }
+  /** Сколько заданий ждут повторения прямо сейчас: типы с ошибкой и сами задания, решённые неверно. */
+  function hubDueCount() {
+    const now = Date.now();
+    let k = Object.values(P.reviews).filter(r => isDue(r, now)).length;
+    for (const id in P.tasks) { const s = P.tasks[id]; if (s.due && s.due <= now && byId.get(id)) k++; }
+    return k;
+  }
+  const hubTodayCount = () => dayCounts().get(dayKey(Date.now())) || 0;
+  const hubMins = k => `≈ ${Math.max(2, Math.round(k))} мин`;
+
+  /** План на сегодня: до 4 дел по порядку важности. Первое несделанное — «сейчас» (зелёная кнопка). */
+  function hubPlan() {
+    const items = [];
+    // 1. Задание от учителя с ближайшим сроком; нет его — тренировка слабых номеров
+    const own = ASG.filter(a => !a.duel && !a.course && !asgFinished(a) && asgLeft(a).length).sort(asgOrder)[0];
+    if (own) {
+      const left = asgLeft(own).length, total = own.tasks.length;
+      const late = own.due && own.due * 1000 < Date.now();
+      items.push({ key: 'asg:' + own.id, ic: 'asg', title: `Задание от учителя: «${own.title}»`,
+        meta: [own.due ? `<span class="${late ? 'hub-late' : 'hub-due'}">${late ? 'срок прошёл' : 'до ' + fmtDay(own.due * 1000)}</span>` : '',
+          `осталось ${left} из ${total}`, hubMins(left * 3)],
+        btn: own.started || left < total ? 'Продолжить' : 'Начать', go: () => (own.strict ? openAsgPage() : setScope('asg', own.id)) });
+    } else {
+      const weak = hubWeakNums(2);
+      if (weak.length) {
+        const s = statsFor(weak[0]);
+        items.push({ key: 'weak', ic: 'trainer', title: `Тренировка слабых номеров: ${weak.map(n => '№' + numLabel(n)).join(', ')}`,
+          meta: [`освоено №${numLabel(weak[0])} на ${pct(s.m)}%`, 'задания подбираются под тебя', hubMins(12)],
+          btn: 'Тренировать', go: () => setScope(weak[0]) });
+      } else {
+        items.push({ key: 'start', ic: 'trainer', title: 'Начни тренировку — тренажёр подберёт задания',
+          meta: ['все номера по очереди', 'через 5–10 ответов станут видны слабые места', hubMins(10)],
+          btn: 'Начать', go: () => setScope('all') });
+      }
+    }
+    // 2. Ошибки, которые пора повторить
+    const due = hubDueCount();
+    if (due) items.push({ key: 'due', ic: 'history', title: 'Повторить ошибки',
+      meta: [`${due} ${plural(due, 'задание ждёт', 'задания ждут', 'заданий ждут')} повторения${due > 10 ? ' — на сегодня хватит 10' : ' — иначе забудутся'}`, hubMins(Math.min(due, 10) * 2)],
+      btn: 'Повторить', go: () => setScope('all') });
+    // 3. Задание дня
+    if (DAILY && DAILY.ready) {
+      const done = !!DAILY.my_place || (!!DAILY.started && !dailyNow());
+      items.push({ key: 'daily', ic: 'daily', title: `Задание дня · №${numLabel(DAILY.n)}`, done,
+        meta: DAILY.my_place ? [`решено за ${fmtMs(DAILY.mine)} · ${DAILY.my_place}-е место`] : DAILY.started ? ['сегодня уже заходили'] : ['одно задание на скорость', 'место — по времени', hubMins(4)],
+        btn: done ? 'Рейтинг' : 'Решить', go: () => openDaily() });   // сначала правила: войти можно один раз, время идёт сразу
+    }
+    // 4. Вызов на дуэль или матч турнира
+    const call = typeof duelCalls === 'function' ? duelCalls()[0] : null, match = typeof tourMyMatch === 'function' ? tourMyMatch() : null;
+    if (call) items.push({ key: 'duel:' + call.id, ic: 'duel', title: `${call.opponent} вызывает на дуэль`, meta: ['задания на скорость', hubMins(6)], btn: 'Ответить', go: () => tourOpen() });
+    else if (match) items.push({ key: 'match', ic: 'duel', title: 'Твой матч в турнире', meta: [esc(match.stage || 'матч ждёт')], btn: 'Играть', go: () => tourOpen() });
+    // 5. Огонёк дня — если в плане есть место
+    if (items.length < 4) {
+      const k = hubTodayCount(), need = fireNeed();
+      items.push({ key: 'fire', ic: 'fire', title: `Огонёк: реши ${need} ${plural(need, 'задание', 'задания', 'заданий')} за день`, done: k >= need,
+        meta: [k >= need ? `сегодня уже ${k} — огонёк горит` : `сделано ${k} из ${need}`, k >= need ? '' : hubMins((need - k) * 3)],
+        btn: k >= need ? 'Ещё задание' : 'Решать', go: () => setScope('all') });
+    }
+    return items.slice(0, 4);
+  }
+
+  // ------------------------------------------------------------ разделы
+  function hubTiles() {
+    const vis = id => { const el = $('#' + id); return !!el && !el.hidden; };
+    const allDone = [...P.log].filter(e => !e.b).length;
+    const bad = P.log.filter(e => e.s < 1 && !e.b && !e.k).length;
+    const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(a => !asgFinished(a) && asgLeft(a).length);
+    const T = [];
+    T.push({ k: 'trainer', name: 'Тренажёр', sub: `номера 1–27 · освоено ${hubMastered()}`, big: true, extra: hubMap(), btn: 'Решать подряд', go: () => setScope('all') });
+    T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
+    if (vis('dailyCard') && DAILY) T.push({ k: 'daily', name: 'Задание дня', sub: DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
+      badge: DAILY.my_place || DAILY.started ? '' : 'сегодня', btn: DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить', hot: !DAILY.started, go: () => openDaily() });
+    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ownOpen.length ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownOpen.reduce((s, a) => s + asgLeft(a).length, 0)}` : 'всё решено',
+      badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
+    T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
+    if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'задания ЕГЭ и программирование', btn: 'Открыть', go: () => $('#labCard').click() });
+    if (vis('pycCard')) T.push({ k: 'python', name: 'Курс Python', sub: 'программирование с нуля', btn: 'Открыть', go: () => $('#pycCard').click() });
+    T.push({ k: 'history', name: 'История', sub: `${allDone} ${plural(allDone, 'ответ', 'ответа', 'ответов')}`, extra: hubWeekBars(), badge: bad ? `${bad} ${plural(bad, 'ошибка', 'ошибки', 'ошибок')}` : '',
+      btn: bad ? 'Разобрать ошибки' : 'Открыть', go: () => { histFilter = bad ? 'bad' : 'all'; histLimit = 100; openHistory(); } });
+    T.push({ k: 'fav', name: 'Избранное', sub: prefs.fav.length ? `${prefs.fav.length} ${plural(prefs.fav.length, 'задание', 'задания', 'заданий')}` : 'отмечай задания звёздочкой',
+      btn: prefs.fav.length ? 'Решать' : 'Как добавить', go: () => setScope('fav') });
+    if (vis('coinCard')) T.push({ k: 'world', name: 'Мой мир', sub: `${(GAME && GAME.coins) || 0} ₿ · магазин и подарки`, btn: 'В магазин', go: () => $('#coinCard').click() });
+    if (vis('duelCard')) { const c = typeof duelCalls === 'function' ? duelCalls().length : 0;
+      T.push({ k: 'duel', name: 'Соревнования', sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
+    if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
+    return T;
+  }
+  function hubMastered() {
+    const counts = countByNum();
+    let k = 0, all = 0;
+    for (let n = 1; n <= 27; n++) { if (!counts[n] || (HAS_GROUPS && (n === 20 || n === 21))) continue; all++; if (level(statsFor(n)) === 'good') k++; }
+    return `${k} из ${all}`;
+  }
+  /** Мини-карта номеров: цвет — освоение, щелчок — сразу к номеру. */
+  function hubMap() {
+    const counts = countByNum();
+    return `<span class="hub-map">${Array.from({ length: 27 }, (_, i) => {
+      const n = i + 1;
+      if (!counts[n] || (HAS_GROUPS && (n === 20 || n === 21))) return '';
+      const st = numStats(n);
+      return `<button type="button" class="hub-n lvl-${st.lvl}${HAS_GROUPS && n === 19 ? ' wide' : ''}" data-hub-n="${n}" title="№${numLabel(n)} · ${LEVEL_TEXT[st.lvl]}">${numLabel(n)}</button>`;
+    }).join('')}</span>`;
+  }
+  /** Ответы по дням за последнюю неделю — столбики. */
+  function hubWeekBars() {
+    const m = dayCounts(), d = new Date(), out = [];
+    for (let i = 6; i >= 0; i--) { const x = new Date(d); x.setDate(d.getDate() - i); out.push(m.get(dayKey(x.getTime())) || 0); }
+    const max = Math.max(3, ...out);
+    return `<span class="hub-bars" title="Ответы за 7 дней: ${out.join(', ')}">${out.map((v, i) => `<i class="${v ? '' : 'z'}" data-bar="w${i}" data-w="${Math.max(12, Math.round(v / max * 100))}"></i>`).join('')}</span>`;
+  }
+
+  // ------------------------------------------------------------ отрисовка
+  let hubPrev = null;                     // что было в прошлый раз: для плавного роста чисел и «только что сделано»
+  const hubFirstName = () => { const p = String((student && student.name) || '').trim().split(/\s+/); return p[1] || p[0] || ''; };
+  function hubHello() {
+    const h = new Date().getHours(), nm = hubFirstName();
+    const w = h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
+    return nm ? `${w}, ${esc(nm)}!` : `${w}!`;
+  }
+  function hubPills() {
+    const L = LB && LB.boards && LB.boards.league, me = L && L.me;
+    const fcOk = P.log.length >= CFG.forecast.minAnswers, fc = fcOk ? forecast().score : null;
+    const days = dayStreak(), lit = hubTodayCount() >= fireNeed();
+    const up = '<svg viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>';
+    const star = '<svg viewBox="0 0 24 24"><path fill="#ffc21a" d="m12 2.5 2.9 5.9 6.5.95-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.05 1.1-6.5-4.7-4.6 6.5-.95z"/></svg>';
+    const out = [`<button type="button" class="hub-pill" data-hub-go="forecast" title="Прогноз балла ЕГЭ">${up}Прогноз <b data-count="fc">${fc == null ? '—' : fc}</b></button>`];
+    if (SERVER && GAME) {
+      out.push(`<button type="button" class="hub-pill" data-hub-go="level" title="Уровень ${GAME.level} · ${esc(GAME.title)} — ${GAME.cur} / ${GAME.need} XP">${star}<b data-count="lvl">${GAME.level}</b><small>уровень</small><i class="hub-xp"><b data-bar="xp" data-w="${pct(GAME.cur / GAME.need)}"></b></i></button>`);
+      if (!TEACHER) out.push(`<button type="button" class="hub-pill" data-hub-go="coins" title="Биткоины и подарки"><span class="btc" aria-hidden="true">₿</span><b data-count="coins">${GAME.coins || 0}</b></button>`);
+    }
+    if (me && me.value) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="${esc(L.name || 'Лига')}">${hubIcon('duel', 22)}Лига <b data-count="place">${me.place}</b>${L.top ? `<small>/${Math.max(L.top.length, me.place)}</small>` : ''}</button>`);
+    out.push(`<button type="button" class="hub-pill fire-pill${lit ? ' lit' : ''}" data-hub-go="fire" title="${lit ? 'Огонёк на сегодня горит' : 'Реши задания сегодня — огонёк не погаснет'}">${FLAME}<b data-count="days">${days}</b><small>${plural(days, 'день', 'дня', 'дней')}</small></button>`);
+    return out.join('');
+  }
+  function renderHub(enter) {
+    if (!courseShown || pageKind !== 'hub') return;
+    const plan = hubPlan(), tiles = hubTiles();
+    const doneN = plan.filter(x => x.done).length, nowIdx = plan.findIndex(x => !x.done);
+    const prevDone = hubPrev ? hubPrev.done : null;
+    const mins = plan.filter(x => !x.done).length;
+    const sub = !mins ? 'План на сегодня выполнен — можно решать дальше или отдохнуть' : doneN ? `Хорошее начало — ${mins === 1 ? 'осталось одно дело' : `осталось ${mins} ${plural(mins, 'дело', 'дела', 'дел')}`}`
+      : `Сегодня ${plan.length} ${plural(plan.length, 'дело', 'дела', 'дел')} — начни с первого`;
+    const stepHtml = (it, i) => {
+      const cls = ['hub-step', it.done ? 'done' : '', i === nowIdx ? 'now' : '', it.done && prevDone && !prevDone.has(it.key) ? 'just' : ''].filter(Boolean).join(' ');
+      const ic = it.ic === 'fire' ? `<span class="hub-fire-ic">${FLAME}</span>` : hubIcon(it.ic, 30);
+      return `<div class="${cls}" data-step="${i}" style="--i:${i}"><span class="hub-num">${it.done ? '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>' : i + 1}</span>
+        <div class="hub-step-body"><b>${ic}<span class="hub-tt">${esc(it.title)}</span></b><span class="hub-meta">${it.meta.filter(Boolean).map(x => `<span>${x}</span>`).join('')}</span></div>
+        <button type="button" class="btn${i === nowIdx ? ' primary' : ''}" data-step-go="${i}">${esc(it.btn)}${i === nowIdx ? ' →' : ''}</button></div>`;
+    };
+    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" style="--sec:${hubColor(t.k)};--i:${i}">
+      ${t.badge ? `<span class="hub-badge">${esc(t.badge)}</span>` : ''}${hubIcon(t.k, 52)}<b>${esc(t.name)}</b><span class="hub-sub">${esc(t.sub)}</span>${t.extra || ''}
+      <span class="btn hub-act${t.hot ? ' hot' : ''}">${esc(t.btn)}</span></div>`;
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
+    const html = `
+      <div class="hub-hello"><div><h1>${hubHello()}</h1><p>${sub}</p></div><div class="hub-pills">${hubPills()}</div></div>
+      <section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${plan.length} сделано</small></h2>
+        ${plan.map(stepHtml).join('')}
+        <div class="hub-day"><span>День</span><i class="hub-track"><b data-bar="day" data-w="${plan.length ? Math.round(doneN / plan.length * 100) : 0}"></b></i>
+          <span>${doneN === plan.length ? 'всё сделано — так держать!' : `сделано ${doneN} из ${plan.length}`}</span></div></section>
+      <h2 class="hub-h2">Все разделы</h2>
+      <div class="hub-tiles">${tiles.map(tileHtml).join('')}</div>`;
+    HUB_ACT = { plan, tiles };
+    if (!enter && html.replace(/hg\d+/g, '') === hubSig && trainerEl.querySelector('.hub')) return;
+    hubSig = html.replace(/hg\d+/g, '');
+    trainerEl.innerHTML = `<div class="hub${enter ? ' hub-enter' : ''}">${html}</div>`;
+    hubLeft = true;
+    if (enter) hubEnterEnd = Date.now() + 900;
+    hubAnimate(enter);
+    hubPrev = { done: new Set(plan.filter(x => x.done).map(x => x.key)), bars: hubPrev ? hubPrev.bars : {}, nums: hubPrev ? hubPrev.nums : {} };
+  }
+  let HUB_ACT = { plan: [], tiles: [] }, hubLeft = false;   // hubLeft — главная была на экране, уход с неё ещё не обработан
+  /** Полоски растут с прошлого значения до нового, числа «добегают» до нового значения. */
+  function hubAnimate(enter) {
+    const prev = hubPrev || { bars: {}, nums: {} }, bars = {}, nums = {};
+    const anim = viewPrefs().anim && !viewPrefs().focus && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    trainerEl.querySelectorAll('[data-bar]').forEach(b => {
+      const k = b.dataset.bar, w = +b.dataset.w || 0;
+      bars[k] = w;
+      const from = enter ? 0 : (prev.bars[k] ?? w);
+      const prop = b.parentElement.classList.contains('hub-bars') ? 'height' : 'width';   // столбики растут вверх, полоски — вправо
+      if (!anim) { b.style[prop] = w + '%'; return; }
+      b.style[prop] = from + '%';
+      requestAnimationFrame(() => requestAnimationFrame(() => { b.style[prop] = w + '%'; }));
+    });
+    trainerEl.querySelectorAll('[data-count]').forEach(el => {
+      const k = el.dataset.count, to = parseInt(el.textContent, 10);
+      if (isNaN(to)) return;
+      nums[k] = to;
+      const from = prev.nums[k];
+      if (!anim || from == null || from === to) return;
+      const t0 = performance.now(), dur = 700;
+      el.textContent = from;
+      const step = t => { const q = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - q, 3);
+        el.textContent = Math.round(from + (to - from) * e); if (q < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+      el.classList.add('hub-bump'); setTimeout(() => el.classList.remove('hub-bump'), 900);
+    });
+    hubPrev = Object.assign(hubPrev || {}, { bars, nums });
+  }
+  let hubTimer = 0, hubEnterEnd = 0, hubSig = '';
+  /** Данные поменялись (решено задание, пришёл вызов, загрузился рейтинг) — главная обновится сама, без мигания:
+      после того как доиграет появление и только если что-то действительно изменилось. */
+  function hubRefresh() {
+    if (!courseShown || pageKind !== 'hub') return;
+    clearTimeout(hubTimer);
+    hubTimer = setTimeout(() => renderHub(false), Math.max(60, hubEnterEnd - Date.now()));
+  }
+  function openHub(initial) {
+    if (!leaveExam()) return;
+    if (isNarrow()) setSideOpen(false);
+    if (!(courseShown && pageKind === 'hub')) {
+      abandonCurrent();
+      if (courseShown) leaveCourse();
+      courseShown = true;
+      pageKind = 'hub';
+      cur = null;
+      if (initial === true) { try { history.replaceState({ v: 'hub' }, ''); } catch (e) { /* не страшно */ } } else navPush({ v: 'hub' });
+    }
+    document.body.classList.add('hub-on');
+    hubSig = '';
+    renderSidebar();
+    window.scrollTo(0, 0);
+    renderHub(true);
+    clearTimeout(hubTimer);
+  }
+  trainerEl.addEventListener('click', e => {
+    if (!courseShown || pageKind !== 'hub') return;
+    const n = e.target.closest('[data-hub-n]');
+    if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
+    const s = e.target.closest('[data-step-go]');
+    if (s) { const it = HUB_ACT.plan[+s.dataset.stepGo]; if (it) it.go(); return; }
+    const p = e.target.closest('[data-hub-go]');
+    if (p) {
+      const k = p.dataset.hubGo;
+      if (k === 'forecast') openForecast();
+      else if (k === 'level') openGame();
+      else if (k === 'coins') $('#coinCard').click();
+      else if (k === 'league') openRating('league');
+      else if (k === 'fire') setScope('all');
+      return;
+    }
+    const t = e.target.closest('[data-tile]');
+    if (t) { const it = HUB_ACT.tiles[+t.dataset.tile]; if (it) it.go(); }
+  });
+  trainerEl.addEventListener('keydown', e => {
+    if (!courseShown || pageKind !== 'hub' || (e.key !== 'Enter' && e.key !== ' ')) return;
+    const t = e.target.closest('[data-tile]');
+    if (t && e.target === t) { e.preventDefault(); t.click(); }
+  });
+  // уход с главной: вернуть боковую панель и верхнюю строку
+  // с главной ушли к заданиям — запись в истории браузера, чтобы «Назад» вернул на главную, а не увёл с сайта
+  new MutationObserver(() => {
+    if (courseShown && pageKind === 'hub') return;
+    if (!hubLeft) return;
+    hubLeft = false;
+    document.body.classList.remove('hub-on');
+    if (!courseShown && history.state && history.state.v === 'hub') navPush({ v: 'main' });
+  }).observe(trainerEl, { childList: true });
+  $('#homeCard')?.addEventListener('click', openHub);
+
+  // ------------------------------------------------------------ плавные переходы между страницами
+  /* Новое содержимое центральной части (задание, страница раздела) мягко проявляется. Работает везде,
+     отключается вместе с «Анимациями» в настройках вида и при «уменьшить движение» в системе. */
+  new MutationObserver(muts => {
+    if (!muts.some(m => m.addedNodes.length)) return;
+    const el = trainerEl.firstElementChild;
+    if (!el || el.classList.contains('pg-in') || el.classList.contains('hub')) return;
+    el.classList.add('pg-in');
+  }).observe(trainerEl, { childList: true });
   // ═══════ src/app/14-boot.js
   // ------------------------------------------------------------ старт
   function start() {
@@ -9755,24 +10651,29 @@
       return;
     }
     renderSidebar();
+    const labRequested = location.hash === '#lab';
     const saved = ui.currentId && byId.get(ui.currentId);
-    if (saved && inScope(saved)) {
+    if (labRequested) {
+      openLab();
+    } else if (SERVER && student) {                  // ученик начинает с главной: план на сегодня и все разделы
+      openHub(true);
+    } else if (saved && inScope(saved)) {
       const s = P.tasks[saved.id];
       show({ task: saved, why: { type: s ? 'repeat' : 'new' } });
     } else {
       next();
     }
-    const fresh = !P.log.length && !tourSeen();
+    const fresh = !labRequested && !P.log.length && !tourSeen();
     if (fresh) { setTimeout(openTour, 400); promoNext = true; }       // новичку — коротко о том, как всё устроено (потом — акция)
     // после обновления — истории «Что нового» (один раз), иначе — объявление об акции (раз в день); сводка дня — в другой раз
-    const promo = !fresh && SERVER && student && (storiesAuto() || promoAuto());
+    const promo = !labRequested && !fresh && SERVER && student && (storiesAuto() || promoAuto());
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
       setTimeout(() => togHistory(false), 1600);                      // записи занятий — кнопка 👥 слева
-      if (!fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
+      if (!labRequested && !fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
     }
   }

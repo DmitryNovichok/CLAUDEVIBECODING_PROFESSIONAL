@@ -417,6 +417,7 @@
     const b = $('#rankBtn');
     if (b) b.outerHTML = rankBtnHtml();
     saveLeagueSnap();
+    hubRefresh();
   }
   async function openRating(tab) {
     if (isNarrow()) setSideOpen(false);
@@ -472,6 +473,7 @@
   function renderDailyCard() {
     const card = $('#dailyCard');
     if (!card) return;
+    hubRefresh();
     card.hidden = !(DAILY && DAILY.ready);
     if (card.hidden) return;
     $('#dailySub').textContent = DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;

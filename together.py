@@ -256,6 +256,9 @@ class Conn:
 
 
 # ================================================================ сеанс
+TEXT_FS_MAX = 200                                  # самый крупный текст на доске (тянут за уголок)
+
+
 def clean_name(v, n):
     """Название сеанса или страницы: одна строка, без управляющих символов, не длиннее n."""
     return " ".join("".join(ch if ch.isprintable() else " " for ch in str(v or "")).split())[:n]
@@ -293,7 +296,7 @@ def _stroke(d):
         st["L"] = "c"
     if k == "t":
         st["txt"] = str(d.get("txt") or "")[:500]
-        st["fs"] = _num(d.get("fs"), 10, 80) or 20
+        st["fs"] = _num(d.get("fs"), 8, TEXT_FS_MAX) or 20
         if not st["txt"].strip():
             return None
     if not st["p"]:
@@ -616,6 +619,14 @@ class Hub:
                     return
                 if t == "s~":
                     st["p"] = pts
+                    if st.get("k") == "t":             # текст: подвинули или растянули за уголок
+                        pts = st["p"] = pts[:1]
+                        fs = _num(m.get("fs"), 8, TEXT_FS_MAX)
+                        if fs:
+                            st["fs"] = fs
+                        s.dirty = True
+                        self._bcast(s, {"t": t, "id": st["id"], "p": pts, "fs": st.get("fs")}, skip=c)
+                        return
                 else:
                     st["p"] = (st["p"] + pts)[:POINTS_MAX]
                 s.dirty = True

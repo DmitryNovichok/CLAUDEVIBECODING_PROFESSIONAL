@@ -52,6 +52,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import hash_pw, check_pw, revoke_access, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
+from learning_access import lab_access
+from learning_content import course_guide
 from private_config import read_private, private_rewards, require_private
 import hints as hints_mod
 PRIVATE_CONFIG = read_private()
@@ -71,7 +73,7 @@ BANK_JS = HERE / "data" / "bank.js"
 EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк Egeshka (tools/gen_egeshka.py) — подмешивается к bank.js
 
 # что можно отдавать из папки trainer
-SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "changelog.js",
+SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
               "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js",
               "terms.html", "privacy.html", "consent.html", "legal.css",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
@@ -338,6 +340,35 @@ def session_alive(r, now):
     if r["shared"]:
         return (time.localtime(r["created"])[:3] == time.localtime(now)[:3]) and now - (r["last_seen"] or r["created"]) < SHARED_IDLE
     return now - (r["last_seen"] or r["created"]) < STUDENT_COOKIE_DAYS * 86400
+
+
+def _app_version():
+    """Версия сайта — самая новая из истории версий (changelog.js); сторож и мониторинг видят, что обновление встало."""
+    try:
+        found = re.findall(r'\["(\d+)\.(\d+)\.(\d+)"', (HERE / "changelog.js").read_text(encoding="utf-8"))
+        return ".".join(map(str, max(tuple(map(int, v)) for v in found))) if found else "?"
+    except OSError:
+        return "?"
+
+
+APP_VERSION = _app_version()
+GZIP_TYPES = re.compile(r"^(text/|application/(javascript|json|manifest\+json)|image/svg)")
+_GZ_CACHE = {}
+_GZ_LOCK = threading.Lock()
+
+
+def static_gz(p, st):
+    """Сжатая копия файла сайта (скрипты, стили) — в памяти, пока файл не поменяют."""
+    key = str(p)
+    hit = _GZ_CACHE.get(key)
+    if hit and hit[0] == (st.st_mtime, st.st_size):
+        return hit[1]
+    data = gzip.compress(p.read_bytes(), 6)
+    with _GZ_LOCK:
+        if len(_GZ_CACHE) > 400:
+            _GZ_CACHE.clear()
+        _GZ_CACHE[key] = ((st.st_mtime, st.st_size), data)
+    return data
 
 
 def student_by_token(db, tok, ip):
@@ -1068,6 +1099,8 @@ class Bank:
         self.broken = []
         self.authored = 0          # сколько заданий с автором
         self.pubs = {}             # настоящий id -> задание без ответа (как в bank.js) — для совместного сеанса
+        self.html_pub = {}         # публичный id -> текст условия (в bank.js условий нет — они по /api/html)
+        self.html_n = {}           # номер -> (gzip, json, etag) условий всех его заданий
         self.mtime = None
         self.extra_mtime = None
         self.lock = threading.Lock()
@@ -1253,11 +1286,30 @@ class Bank:
             print('  Укажите папку, где лежат банки:  python server.py --banks "C:\\путь\\к\\Biblio"', flush=True)
             print("  Или соберите банк так, чтобы всё лежало внутри тренажёра:  python build.py --standalone", flush=True)
 
+    @staticmethod
+    def validate_data(data, extra=False):
+        """Проверяем структуру до замены рабочего банка: незавершённый файл не должен стереть задания."""
+        if not isinstance(data, dict) or not isinstance(data.get("tasks"), list) or not data["tasks"]:
+            raise ValueError("банк должен содержать непустой список заданий")
+        banks = [data.get("bank")] if extra else data.get("banks", [])
+        if not isinstance(banks, list) or any(not isinstance(b, dict) or not isinstance(b.get("id"), str) for b in banks):
+            raise ValueError("неверное описание банка")
+        for task in data["tasks"]:
+            if not isinstance(task, dict):
+                raise ValueError("неверная запись задания")
+            parts = task.get("parts") or []
+            if not isinstance(parts, list):
+                raise ValueError("неверные части задания")
+            for item in [task, *parts]:
+                if (not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+                        or not isinstance(item.get("n"), int)):
+                    raise ValueError("у задания отсутствуют код или номер")
+
     def ensure(self):
         try:
             mt = self.path.stat().st_mtime
-        except FileNotFoundError:
-            return False
+        except OSError:
+            return bool(self.tasks)
         try:
             xmt = EXTRA_BANK.stat().st_mtime
         except OSError:
@@ -1267,17 +1319,27 @@ class Bank:
         with self.lock:
             if mt == self.mtime and xmt == self.extra_mtime:
                 return True
-            text = self.path.read_text(encoding="utf-8")
-            start = text.index("{")
-            end = text.rindex("}")
-            data = json.loads(text[start:end + 1])
+            if xmt is None and self.extra_mtime is not None:
+                return bool(self.tasks)              # авторский банк временно отсутствует при обновлении
+            try:
+                text = self.path.read_text(encoding="utf-8")
+                start = text.index("{")
+                end = text.rindex("}")
+                data = json.loads(text[start:end + 1])
+                self.validate_data(data)
+            except (OSError, ValueError, UnicodeDecodeError) as e:
+                # файл банка переписывают прямо сейчас (обновление сайта) — отдаём прежний, ученики не видят ошибку
+                print(f"! Банк заданий не прочитан, остаётся прежний: {e}", flush=True)
+                return bool(self.tasks)
             if xmt is not None:
                 try:
                     extra = json.loads(EXTRA_BANK.read_text(encoding="utf-8"))
+                    self.validate_data(extra, extra=True)
                     data["tasks"] = data.get("tasks", []) + extra.get("tasks", [])
                     data["banks"] = [b for b in data.get("banks", []) if b.get("id") != extra["bank"]["id"]] + [extra["bank"]]
                 except (ValueError, KeyError, OSError) as e:
                     print(f"! Банк Egeshka не прочитан ({EXTRA_BANK.name}): {e}", flush=True)
+                    return bool(self.tasks)
             self.tasks = {}
             self._snips = {}
             self.files = {}
@@ -1286,6 +1348,7 @@ class Bank:
             self.authored = 0
             self.pubs = {}
             pub_tasks = []
+            html_by_n = {}
             for tid, was, now_n in clusters.fix_numbers(data.get("tasks", [])):
                 print(f"Банк: задание {tid} перенесено из №{was} в №{now_n}", flush=True)
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
@@ -1321,9 +1384,16 @@ class Bank:
                     p["sh"] = shape_of(t.get("ans", ""), t.get("n"))
                     if t.get("sol"):
                         p["hasSol"] = True
-                pub_tasks.append(p)
+                pub_tasks.append({k: v for k, v in p.items() if k != "html"})   # тексты условий — отдельно, по номерам
+                html_by_n.setdefault(p.get("n"), {})[p["id"]] = p.get("html") or ""
                 self.pubs[t["id"]] = p
-            pub = dict(data, tasks=pub_tasks, srv=True, clusters=clusters.catalog())
+            # условия по номерам: ученик качает только тот номер, который открыл (а не все 25 МБ при входе)
+            self.html_pub = {pid: h for chunk in html_by_n.values() for pid, h in chunk.items()}
+            self.html_n = {}
+            for n, chunk in html_by_n.items():
+                body = json.dumps({"html": chunk}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                self.html_n[str(n)] = (gzip.compress(body, 6), body, '"%s"' % hashlib.md5(body).hexdigest()[:16])
+            pub = dict(data, tasks=pub_tasks, srv=True, lazyHtml=True, clusters=clusters.catalog())
             raw = ("window.EGE_BANK = " + json.dumps(pub, ensure_ascii=False, separators=(",", ":")) + ";\n").encode("utf-8")
             self.public_raw = raw
             self.public_gz = gzip.compress(raw, 6)
@@ -1683,6 +1753,10 @@ class DB(Transactional):
                     ("daily_starts", "task_id", "TEXT"),              # личное задание дня ученика; NULL — общее (до 1.53)
                     ("students", "pyc", "INTEGER DEFAULT 0"),         # ученик ввёл пароль курса программирования
                     ("students", "pyc_ts", "REAL"),                   # когда ввёл
+                    ("students", "lab", "INTEGER DEFAULT 0"),
+                    ("pyc_progress", "hint_used", "INTEGER DEFAULT 0"),
+                    ("pyc_progress", "solution_seen", "INTEGER DEFAULT 0"),
+                    ("pyc_progress", "independent", "INTEGER DEFAULT 0"),
                     ("students", "pyc_free", "INTEGER DEFAULT 0"),    # учитель открыл все уровни курса (без замков)
                     ("gifts", "uniq", "TEXT"),                        # улучшенный подарок: номер, фон, узор, эффект (JSON)
                     ("gifts", "kind", "TEXT"),                        # work — подарок за труд (каждые WORK_GIFT_EVERY решённых)
@@ -2004,8 +2078,13 @@ class LiveHub:
 
     def subscribe(self, sid, tid):
         with self.lock:
-            if sum(len(v) for v in self.subs.values()) >= LIVE_MAX or len(self.subs.get(sid, ())) >= LIVE_PER_STUDENT:
+            if sum(len(v) for v in self.subs.values()) >= LIVE_MAX:
                 return None
+            mine = self.subs.get(sid, {})
+            while len(mine) >= LIVE_PER_STUDENT:   # обновили страницу несколько раз подряд — старое соединение уступает новому
+                old = next(iter(mine))
+                mine.pop(old)
+                old.put(None)                      # его поток увидит None и закроется
             q = queue.SimpleQueue()
             self.subs.setdefault(sid, {})[q] = tid
             if not self.thread:
@@ -2231,6 +2310,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------- ответы
     def send_bytes(self, code, body, ctype, extra=None):
+        extra = dict(extra or {})
+        if (code == 200 and len(body) > 2048 and "Content-Encoding" not in extra and GZIP_TYPES.match(ctype)
+                and "gzip" in (self.headers.get("Accept-Encoding") or "")):
+            body = gzip.compress(body, 5)                    # страницы и ответы сервера — сжатыми: на телефоне в разы быстрее
+            extra["Content-Encoding"] = "gzip"
+            extra["Vary"] = (extra["Vary"] + ", Accept-Encoding") if "Vary" in extra else "Accept-Encoding"
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -2284,6 +2369,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.live_admin()
             if path == "/api/together/ws":
                 return self.together_ws(qs)
+            if path == "/api/html":
+                return self.serve_task_html(qs)
             if path.startswith("/api/"):
                 return self.api("GET", path, qs, {})
             return self.static(path)
@@ -2375,6 +2462,12 @@ class Handler(BaseHTTPRequestHandler):
             self.count_visit()
         if rel in ("index.html", "admin.html", "together.html", "welcome.html", "parent.html", "reset.html"):
             return self.serve_page(rel)
+        if rel == "lab-worker.js":
+            s = self.student()
+            if not s:
+                return self.err(401, "нужно войти")
+            if not lab_access(APP.db, s):
+                return self.err(403, "Лаборатории открываются по паролю от учителя")
         if rel in SITE_FILES:
             return self.serve_file(HERE, rel, html=rel.endswith(".html"))
         for d in SITE_DIRS:
@@ -2502,6 +2595,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
         extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
+        if "?v=" in self.path and p.suffix.lower() in (".js", ".css", ".woff2", ".svg", ".png", ".ico"):
+            extra["Cache-Control"] = "public, max-age=31536000, immutable"   # адрес с ?v= меняется при каждом обновлении файла
+        gz = None
+        if GZIP_TYPES.match(ctype) and st.st_size > 2048 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            gz = static_gz(p, st)
+            extra["Content-Encoding"] = "gzip"
+            extra["Vary"] = "Accept-Encoding"
         if html:
             extra["X-Frame-Options"] = "DENY"
             extra["Referrer-Policy"] = "same-origin"
@@ -2511,11 +2611,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             extra["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote_rfc(name)
         self.send_response(200)
         self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(st.st_size))
+        self.send_header("Content-Length", str(len(gz) if gz is not None else st.st_size))
         for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command == "HEAD":
+            return
+        if gz is not None:
+            self.wfile.write(gz)
             return
         with open(p, "rb") as f:
             while True:
@@ -2523,6 +2626,30 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if not chunk:
                     break
                 self.wfile.write(chunk)
+
+    def serve_task_html(self, qs):
+        """Тексты условий: ?n=8 — все задания номера (кэшируется браузером), ?ids=a,b — выбранные (вариант, подборка)."""
+        tok = self.headers.get("X-Token") or self.cookie("egest")
+        if not student_by_token(APP.db, tok, self.client_ip())[0]:
+            return self.err(401, "нужно войти")
+        if not APP.bank.ensure():
+            return self.err(503, "банк заданий не собран")
+        b = APP.bank
+        n = str(qs.get("n") or "")
+        if n:
+            got = b.html_n.get(n)
+            if not got:
+                return self.send_json({"html": {}})
+            gz, raw, etag = got
+            if self.headers.get("If-None-Match") == etag:
+                return self.send_bytes(304, b"", "text/plain", {"ETag": etag})
+            extra = {"ETag": etag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding, Cookie"}
+            if "gzip" in (self.headers.get("Accept-Encoding") or ""):
+                extra["Content-Encoding"] = "gzip"
+                return self.send_bytes(200, gz, "application/json; charset=utf-8", extra)
+            return self.send_bytes(200, raw, "application/json; charset=utf-8", extra)
+        ids = [x for x in str(qs.get("ids") or "").split(",") if x][:300]
+        return self.send_json({"html": {i: b.html_pub[i] for i in ids if i in b.html_pub}})
 
     def serve_bank(self):
         if not student_by_token(APP.db, self.cookie("egest"), self.client_ip())[0]:
@@ -2598,6 +2725,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         topics.add(q.get_nowait())
                     except queue.Empty:
                         break
+                if None in topics:               # это соединение вытеснило более новое того же ученика
+                    return
                 self.wfile.write("".join(f"event: {t}\ndata: {{}}\n\n" for t in sorted(topics)).encode())
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
@@ -2798,7 +2927,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return {"sid": s["id"], "name": s["name"], "token": getattr(self, "tok", None) or s["token"], "prefs": prefs,
                 "shared": bool(getattr(self, "sess", None) and self.sess["shared"]),
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
-                "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s),
+                "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s), "lab": lab_access(APP.db, s), "lab_pw": bool(APP.db.setting("lab_pw")),
                 "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
                 "coin_news": [dict(r) for r in APP.db.q("""SELECT id, delta, reason, note FROM coins
                                                             WHERE student_id=? AND seen=0 ORDER BY ts LIMIT 10""", (s["id"],))],
@@ -2894,8 +3023,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tasks = []
             for t in lv["tasks"]:
                 p = prog.get(t["id"]) or {}
-                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files") if k in t}
-                x.update(ok=bool(p.get("ok")), tries=p.get("tries", 0))
+                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files", "practice") if k in t}
+                x.update(ok=bool(p.get("ok")), tries=p.get("tries", 0), hint_used=bool(p.get("hint_used")), solution_seen=bool(p.get("solution_seen")), independent=bool(p.get("independent")))
                 if p.get("ok") or p.get("tries", 0) >= 3 or teacher:
                     x["sol"] = t["sol"]                 # разбор — после решения или трёх неудачных попыток
                 if p.get("ok") or teacher:
@@ -2905,6 +3034,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "levels": len(mod["levels"]), "l": li,
                                    "level": {"title": lv["title"], "goal": lv["goal"], "need": lv["need"],
                                              "slides": lv["slides"], "tasks": tasks}})
+        if path == "/api/pyc/help" and method == "POST":
+            mod, li, task = pyc_task(str(data.get("task") or "")[:40])
+            kind = data.get("kind")
+            if not task or kind not in ("hint", "solution"):
+                return self.err(400, "нет такой подсказки")
+            if li >= pyc_open_levels(mod, prog, free):
+                return self.err(403, "Уровень ещё закрыт")
+            was = prog.get(task["id"]) or {}
+            if kind == "solution" and not (teacher or was.get("ok") or was.get("tries", 0) >= 3):
+                return self.err(403, "Разбор доступен после решения или трёх попыток")
+            field = "hint_used" if kind == "hint" else "solution_seen"
+            db.x(f"INSERT INTO pyc_progress(student_id,task_id,{field},first_ts,last_ts) VALUES(?,?,1,?,?) "
+                 f"ON CONFLICT(student_id,task_id) DO UPDATE SET {field}=1, last_ts=excluded.last_ts",
+                 (s["id"], task["id"], time.time(), time.time()))
+            live_teacher(s)
+            return self.send_json({"ok": True})
         if path == "/api/pyc/check" and method == "POST":
             tid = str(data.get("task") or "")[:40]
             mod, li, t = pyc_task(tid)
@@ -2931,6 +3076,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     ON CONFLICT(student_id, task_id) DO UPDATE SET ok=excluded.ok, tries=tries + 1, last_ts=excluded.last_ts,
                       ok_ts=COALESCE(ok_ts, excluded.ok_ts), code=COALESCE(excluded.code, code)""",
                  (s["id"], tid, int(ok), 1, now, now if ok else None, now, code))
+            if ok:
+                db.x("UPDATE pyc_progress SET independent=? WHERE student_id=? AND task_id=?",
+                     (int(not was.get("hint_used") and not was.get("solution_seen")), s["id"], tid))
             prog = pyc_solved(db, s["id"])
             n_tries = prog[tid]["tries"]
             out = {"ok": ok, "tries": n_tries}
@@ -2951,7 +3099,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             account_write = method == "POST" and path in ACCOUNT_WRITE_PATHS
             if account_write:
                 self._account_delay = 0
-            if financial_path(path) or account_write:
+            if financial_path(path) or account_write or (method == "POST" and path in ("/api/pyc/check", "/api/pyc/help")):
                 # Slow failed authentication only after releasing the shared database lock.
                 return atomic_response(self, APP.db, lambda: self.api_route(method, path, qs, data),
                                        before_send=(lambda: time.sleep(self._account_delay)) if account_write else None)
@@ -2965,6 +3113,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         # ----- ученик
         if path == "/api/ping":
             return self.send_json({"ok": True, "server": True})
+
+        if path == "/api/health":
+            # для сторожа и внешнего мониторинга: база отвечает и задания загружены; без личных данных
+            try:
+                db.q("SELECT 1", one=True)
+                tasks = len(APP.bank.tasks)
+            except Exception:                    # noqa: BLE001 — любая поломка = «сайт нездоров»
+                return self.send_json({"ok": False, "why": "база не отвечает"}, code=503)
+            if not tasks:
+                return self.send_json({"ok": False, "why": "банк заданий пуст"}, code=503)
+            return self.send_json({"ok": True, "tasks": tasks, "version": APP_VERSION}, extra={"Cache-Control": "no-store"})
 
         if path == "/api/jserr" and method == "POST":
             # ошибка JavaScript в браузере — для вкладки «Ошибки» главного учителя; вход не нужен (ошибка могла быть до входа)
@@ -3510,7 +3669,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             n = to_int(qs.get("n"))
             f = HERE / "course" / f"{n}.json"
             if not (n and 1 <= n <= 27 and f.is_file()):
-                return self.send_json({"n": n, "slides": []})
+                return self.send_json(course_guide(n))
             try:
                 return self.send_json(json.loads(f.read_text(encoding="utf-8")))
             except ValueError:
@@ -3563,6 +3722,27 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(403, "Неверный пароль курса")
             db.x("UPDATE students SET course=1, course_ts=? WHERE id=?", (time.time(), s["id"]))
             return self.send_json({"ok": True})
+
+        if path in ("/api/lab", "/api/lab/unlock"):
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if path == "/api/lab/unlock" and method == "POST" and not lab_access(db, s):
+                stored = db.setting("lab_pw")
+                if not stored:
+                    return self.err(403, "Лаборатории ещё не открыты учителем")
+                now = time.time()
+                with _COURSE_LOCK:
+                    tries = [t for t in _LAB_PW_TRIES.get(s["id"], []) if now - t < COURSE_WINDOW]
+                    if len(tries) >= COURSE_TRIES:
+                        return self.err(429, "Слишком много попыток — попробуйте позже")
+                    tries.append(now)
+                    _LAB_PW_TRIES[s["id"]] = tries
+                if not check_pw(str(data.get("password") or "")[:200], stored):
+                    return self.err(403, "Неверный пароль лабораторий")
+                db.x("UPDATE students SET lab=1 WHERE id=?", (s["id"],))
+                return self.send_json({"access": True})
+            return self.send_json({"access": lab_access(db, s), "pw": bool(db.setting("lab_pw"))})
 
         if path.startswith("/api/pyc"):
             return self.pyc_api(method, path, qs, data)
@@ -5872,7 +6052,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         p = prog.get(t["id"])
                         tasks.append({"id": t["id"], "h": t["h"], "stars": t["stars"], "ok": bool(p and p["ok"]),
                                       "tries": p["tries"] if p else 0, "ts": (p["ok_ts"] or p["last_ts"]) if p else None,
-                                      "code": p["code"] if p else None, "ans": t["ans"]})
+                                      "code": p["code"] if p else None, "ans": t["ans"],
+                                      "hint_used": bool(p and p["hint_used"]), "solution_seen": bool(p and p["solution_seen"]),
+                                      "independent": bool(p and p["independent"])})
                     levels.append({"title": lv["title"], "need": lv["need"], "tasks": tasks})
                 mods.append({"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"], "levels": levels})
             return self.send_json({"name": st["name"], "modules": mods})
@@ -7300,6 +7482,7 @@ _PYC = {}                               # имя файла → (mtime, данн
 _PYC_LOCK = threading.Lock()
 PYC_CHECKS, PYC_WINDOW = 40, 60         # не больше 40 проверок ответа в минуту — перебор ответов не пройдёт
 _PYC_TRIES = {}
+_LAB_PW_TRIES = {}
 _PYC_PW_TRIES = {}                      # попытки ввести пароль курса (лимит — как у раздела «Курс»)
 
 
@@ -7350,8 +7533,8 @@ def pyc_access(s):
 
 
 def pyc_solved(db, sid):
-    return {r["task_id"]: {"ok": r["ok"], "tries": r["tries"]}
-            for r in db.q("SELECT task_id, ok, tries FROM pyc_progress WHERE student_id=?", (sid,))}
+    return {r["task_id"]: {k: r[k] for k in ("ok", "tries", "hint_used", "solution_seen", "independent")}
+            for r in db.q("SELECT task_id, ok, tries, hint_used, solution_seen, independent FROM pyc_progress WHERE student_id=?", (sid,))}
 
 
 def pyc_open_levels(mod, prog, all_open=False):

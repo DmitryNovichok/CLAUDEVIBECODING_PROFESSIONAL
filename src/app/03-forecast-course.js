@@ -427,7 +427,9 @@
     navSilent = true;
     try {
       if (examShown) return;
-      if (st.v === 'course') openCourse();
+      if (st.v === 'hub') openHub();
+      else if (st.v === 'course') openCourse();
+      else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'tourpage') tourOpen();
       else if (st.v === 'exams') openExamsPage();
@@ -475,9 +477,10 @@
   }
   function leaveCourse() {
     if (!courseShown) return;
+    if (pageKind === 'lab') { labStop(); document.body.classList.remove('lab-open'); }
     courseShown = false;
     pageKind = null;
-    document.body.classList.remove('asg-wide');
+    document.body.classList.remove('asg-wide', 'hub-on');
     renderMobileNav();
     $('#courseCard')?.classList.remove('on');
   }
@@ -487,6 +490,7 @@
   }
   function openCourse() {
     if (!leaveExam()) return;
+    ++courseLessonRequest;
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
     courseShown = true;
@@ -497,15 +501,17 @@
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
     const all = COURSE.flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
-    const nextN = all.find(n => lessonState(n) !== 'done');
-    $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">27 тем по плану</span>';
+    const savedN = learningMemory().course;
+    const nextN = all.includes(savedN) ? savedN : all.find(n => lessonState(n) !== 'done');
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">Все задания ЕГЭ</span>';
     trainerEl.innerHTML = `<div class="course">
       <div class="crs-hero">
         <div><div class="crs-kicker">Курс Egeshka</div><h2>ЕГЭ по информатике: от №1 до №27</h2>
-          <p>Уроки идут по плану: от простых тем к сложным. В каждом — презентация с разбором и подборки заданий по уровням.</p></div>
+          <p>Уроки идут по плану: от простых тем к сложным. В каждой теме — разбор метода, учебный пример и практика по уровням. Начни с теории, затем проверь себя на заданиях.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
       </div>
-      ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>следующая тема по плану</small></span></button>` : ''}
+      ${learningFormat}
+      ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
         <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>Модуль ${i + 1}. ${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
           <span class="crs-mod-n">${m.lessons.filter(n => lessonState(n) === 'done').length}/${m.lessons.length}</span></div>
@@ -513,7 +519,7 @@
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
           return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
             <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
-            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · презентация · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · теория и пример · ${COURSE_SETS.length} подборок</small></span>
             <span class="crs-go">›</span></button>`;
         }).join('')}</div></section>`).join('')}
     </div>`;
@@ -522,7 +528,7 @@
   let DECK = null, deckI = 0;
   function slideHtml(sl, i) {
     const kick = sl.k ? `<div class="sl-k ${sl.kc || ''}">${esc(sl.k)}</div>` : '';
-    const runBtn = (k, ans, out) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button>
+    const runBtn = (k, ans, out) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button><button type="button" class="btn" data-learning-slide="${i}:${k}">По шагам в лаборатории</button>
         ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(ans)}</b></span></details>` : ''}
         ${out ? `<details class="sl-ansbox sl-outbox"><summary>Что выведет программа</summary><pre class="sl-out">${esc(out)}</pre></details>` : ''}</div>`;
     const codeBox = (code, k, ans, out) => `<div class="sl-codecol"><pre class="sl-code">${highlightPy(code)}</pre>${runBtn(k, ans, out)}</div>`;
@@ -565,6 +571,7 @@
     if (MARK.on || MARK.strokes.has(`deck:${DECK.n}:${deckI}`)) markAttach();   // рисунок этого слайда
     box.querySelector('.crs-count').textContent = `${deckI + 1} / ${sl.length}`;
     deckSeen(deckI + 1, sl.length);
+    learningRememberSlide();
     box.querySelector('[data-deck="-1"]').disabled = deckI === 0;
     box.querySelector('[data-deck="1"]').disabled = deckI === sl.length - 1;
     box.querySelectorAll('.crs-thumb').forEach((t, k) => t.classList.toggle('on', k === deckI));
@@ -612,10 +619,14 @@
   }
   document.addEventListener('fullscreenchange', () => setTimeout(fitSlide, 50));
   window.addEventListener('resize', () => { if (document.fullscreenElement) fitSlide(); });
+  let courseLessonRequest = 0;
   async function openLesson(n) {
     if (!COURSE_OK) return openCourse();
     abandonCurrent();
-    courseShown = true;
+    if (!leaveExam()) return;
+    courseShown = true; pageKind = null; cur = null;
+    const request = ++courseLessonRequest;
+    learningMemory({ course: n });
     navPush({ v: 'lesson', n });
     DECK = null;
     deckI = 0;
@@ -624,10 +635,9 @@
     $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(n)}</span>`;
     let lesson = null;
     try { lesson = await api('course/lesson?n=' + n); } catch (e) { if (e.status === 403) { COURSE_OK = false; return openCourse(); } }
-    if (!courseShown) return;                       // пока грузили, ученик ушёл к заданию
+    if (!courseShown || pageKind !== null || request !== courseLessonRequest) return;
     const has = lesson && lesson.slides && lesson.slides.length;
-    if (has) DECK = lesson;
-    const plan = ['Что проверяет задание', 'Разбор типового задания', 'Как решать руками', 'Как решать на Python', 'Частые ошибки', 'Итоги и шпаргалка'];
+    if (has) { DECK = lesson; deckI = learningSlide(n); }
     const deck = has ? `<div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
@@ -638,17 +648,13 @@
             <button type="button" class="btn ghost crs-full" data-deck-full title="На весь экран">⤢</button>
             <button type="button" class="btn primary" data-deck="1">Далее →</button></div></div>
         <div class="crs-thumbs">${lesson.slides.map((t, i) => `<button type="button" class="crs-thumb" data-slide="${i}"><span>${i + 1}. ${esc(t.h)}</span></button>`).join('')}</div>
-      </div>` : `<div class="crs-deck">
-        <div class="crs-slide"><span class="crs-slide-no">1 / ${plan.length}</span>
-          <div class="crs-slide-body"><div class="crs-kicker">Egeshka · урок ${numLabel(n)}</div><h3>${esc(NUM_TOPIC[n])}</h3>
-            <p>Презентация с разбором появится здесь</p></div>
-          <span class="crs-soon">скоро</span></div>
-        <div class="crs-thumbs">${plan.map((t, i) => `<div class="crs-thumb${i ? '' : ' on'}"><i></i><i></i><span>${i + 1}. ${t}</span></div>`).join('')}</div>
-      </div>`;
+      </div>` : '<p class="fm-note">Не удалось загрузить теорию. Открой тему ещё раз; практика ниже доступна.</p>';
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
       <div class="crs-l-head"><span class="num-badge">${numLabel(n)}</span><div><div class="crs-kicker">Модуль ${mod + 1} · ${esc(COURSE[mod].title)}</div>
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
+      ${learningFormat}
+      ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
       <div class="fm-h">1. Теория${has ? ` · ${lesson.slides.length} слайдов` : ''}</div>
       ${deck}
       <div class="fm-h">2. Практика по уровням</div>
@@ -670,6 +676,8 @@
   function openCourseSet(id) {
     const a = courseSet(id);
     if (!a) return;
+    const objs = a.tasks.map(x => byId.get(x)).filter(Boolean);
+    if (needHtml(objs)) { htmlWait(objs, () => openCourseSet(id)); return; }   // в списке подборки — начало условий
     courseShown = true;
     navPush({ v: 'set', id });
     const left = new Set(asgLeft(a)), total = a.tasks.length, done = total - left.size;

@@ -113,6 +113,8 @@ def build(only):
             return job, key, files, '', 0.0, None           # рисунок черепахи — вывода нет
         try:
             out, dt = run(obj['code'], files, obj.get('stdin', ''))
+            if kind == 'task' and obj.get('practice'):
+                obj['practice']['cases'] = [{'input': v, 'output': run(obj['code'], files, v)[0].strip()} for v in obj['practice'].pop('inputs')]
         except Exception as e:  # noqa: BLE001
             return job, key, files, None, 0.0, str(e)
         return job, key, files, out, dt, None
@@ -173,6 +175,8 @@ def build(only):
                 tid = f"{mid}.{tk['key']}"
                 t = {'id': tid, 'h': tk['h'], 'cond': tk['cond'], 'stars': tk['stars'], 'ans': tk['_ans'], 'sol': tk['code'],
                      'sec': tk['_sec']}
+                if tk.get('practice'):
+                    t['practice'] = tk['practice']
                 if tk['hint']:
                     t['hint'] = tk['hint']
                 if tk['note']:
@@ -192,7 +196,8 @@ def build(only):
         old = json.loads((OUT / 'index.json').read_text(encoding='utf-8')) if (OUT / 'index.json').exists() else []
         new = {m['id']: m for m in index}
         merged = [new.pop(m['id'], m) for m in old] + list(new.values())
-        index = merged
+        order = {m['id']: i for i, m in enumerate(load_modules(set()))}
+        index = sorted(merged, key=lambda m: order.get(m['id'], 999))
     else:
         keep = {m['id'] for m in mods}
         for f in OUT.glob('m*.json'):

@@ -143,7 +143,7 @@
     if (!SID) return over('Сеанс не найден', 'В ссылке нет номера сеанса.', [['В тренажёр', '/']]);
     try { ws = new WebSocket(wsUrl()); } catch (e) { return retry(); }
     let opened = false;
-    ws.onopen = () => { opened = true; };
+    ws.onopen = () => { opened = true; pingTs = pongAt = 0; };
     ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } onMsg(m); };
     ws.onclose = () => {
       ws = null;
@@ -166,7 +166,10 @@
   }
   setInterval(() => {
     if (!ws || ws.readyState !== 1) return;
-    if (pingTs && performance.now() - pingTs > 9000 && pongAt < pingTs) { ws.close(); return; }   // молчит — переподключиться
+    if (pingTs && pongAt < pingTs) {
+      if (performance.now() - pingTs >= 9000) ws.close();  // молчит — переподключиться
+      return;                                           // не сдвигать срок ожидания новым ping
+    }
     pingTs = performance.now();
     send({ t: 'ping', ts: pingTs });
   }, 3000);
@@ -192,7 +195,14 @@
       case 's+': addStroke(m.s, true); return;
       case 's!': addStroke(m.s, false); return;          // вернули отменённый — уже готовый штрих
       case 's.': return morePoints(m.id, m.p);
-      case 's~': { const st = S.strokes.get(m.id); if (st) { st.p = m.p; liveTouch(m.id); } return; }
+      case 's~': { const st = S.strokes.get(m.id); if (st) {
+        st.p = m.p;
+        if (m.fs) st.fs = m.fs;
+        if (st.k === 't') { S.live.add(m.id); liveAt.set(m.id, Date.now()); redraw(); }   // текст двигают — снять со старого места
+        else liveTouch(m.id);
+        if (TS.id === m.id) placeSel();
+      }
+      return; }
       case 's-': return commitLive(m.id);
       case 'del': m.ids.forEach(i => { S.strokes.delete(i); S.live.delete(i); }); redraw(); return condDraw();
       case 'clr': {
@@ -285,6 +295,7 @@
     condTools();
     $('#tgSheet').classList.toggle('ro', ro || S.ended);
     $('#tgTools').style.display = ro || S.ended ? 'none' : '';
+    if (!canWrite()) selectText(null);
   }
   const canWrite = () => !S.ended && !S.expired && (S.teacher || !S.ro);
   setInterval(() => {
@@ -1439,6 +1450,7 @@
     x.stroke();
   }
   function redraw() {
+    placeSel();
     const x = ctxOf(cv);
     x.clearRect(0, 0, BW, H);
     S.strokes.forEach(s => { if (!S.live.has(s.id) && !isC(s)) drawStroke(x, s); });
@@ -1495,11 +1507,12 @@
     sheet.classList.toggle('pen', S.tool === 'pen' || S.tool === 'line');
     sheet.classList.toggle('txt', S.tool === 'text');
     sheet.classList.toggle('erase', S.tool === 'erase');
+    placeSel();
   }
   $('#tgTools').addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.tool) { S.tool = b.dataset.tool; $('#tgCols').hidden = true; renderTools(); }
+    if (b.dataset.tool) { S.tool = b.dataset.tool; $('#tgCols').hidden = true; renderTools(); placeSel(); }
     else if (b.id === 'tgColor') {
       const c = $('#tgCols');
       c.hidden = !c.hidden;
@@ -1558,7 +1571,13 @@
   }
   sheet.addEventListener('pointerdown', e => {
     if (!canWrite() || e.button > 0) return;
-    if (S.tool === 'text') { e.preventDefault(); return textAt(pt(e)); }
+    if (S.tool === 'text') {
+      e.preventDefault();
+      const hit = textHit(pt(e));
+      if (hit) { selectText(hit.id); return; }
+      if (TS.id) { selectText(null); return; }               // щелчок мимо — снять выделение
+      return textAt(pt(e));
+    }
     sheet.setPointerCapture(e.pointerId);
     e.preventDefault();
     const p = pt(e);
@@ -1617,8 +1636,9 @@
     let hit = false;
     S.strokes.forEach((s, id) => {
       if (D.erase.has(id) || isC(s)) return;
-      const near = s.k === 't'
-        ? p[0] >= s.p[0][0] - r && p[0] <= s.p[0][0] + (s.fs || 20) * 0.6 * String(s.txt).length + r && p[1] >= s.p[0][1] - r && p[1] <= s.p[0][1] + (s.fs || 20) * 1.3 * String(s.txt).split('\n').length + r
+      const b = s.k === 't' && textBox(s);
+      const near = b
+        ? p[0] >= b.x - r && p[0] <= b.x + b.w + r && p[1] >= b.y - r && p[1] <= b.y + b.h + r
         : s.p.some((q, i) => {
           if (Math.hypot(q[0] - p[0], q[1] - p[1]) <= r + s.w) return true;
           const a = s.p[i - 1];
@@ -1658,6 +1678,7 @@
       send({ t: 's+', page: S.page, s });
       S.undo.push(s.id);
       S.redo = [];
+      selectText(s.id);                                    // сразу видно рамку — можно растянуть за уголок
     };
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); }
@@ -1666,6 +1687,107 @@
     inp.addEventListener('input', () => { inp.style.height = 'auto'; inp.style.height = inp.scrollHeight + 'px'; });
     inp.addEventListener('blur', commit);
   }
+  // ---------- текст на доске: щелчок инструментом «Текст» — рамка; за рамку — подвинуть, за уголок — крупнее или мельче
+  const TS = { id: null, el: null, drag: null };
+  const TEXT_FS = [8, 200];
+  let measureCtx = null;
+  /** Рамка текста в единицах доски: x, y — левый верхний угол, w, h — ширина и высота. */
+  function textBox(s) {
+    const fs = s.fs || 20, lines = String(s.txt || '').split('\n');
+    if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+    measureCtx.font = `${fs}px ${getComputedStyle(document.body).fontFamily}`;
+    const w = Math.max(fs * 0.6, ...lines.map(l => measureCtx.measureText(l).width));
+    return { x: s.p[0][0], y: s.p[0][1], w, h: lines.length * fs * 1.25 };
+  }
+  function textHit(p) {
+    let hit = null;
+    S.strokes.forEach(s => {
+      if (s.k !== 't' || isC(s)) return;
+      const b = textBox(s);
+      if (p[0] >= b.x - 6 && p[0] <= b.x + b.w + 6 && p[1] >= b.y - 6 && p[1] <= b.y + b.h + 6) hit = s;   // сверху — последний
+    });
+    return hit;
+  }
+  function selectText(id) {
+    const dragged = TS.drag && TS.id;
+    TS.drag = null;
+    TS.id = id && canWrite() ? id : null;
+    if (dragged) commitLive(dragged);
+    if (!TS.id) { if (TS.el) TS.el.hidden = true; return; }
+    if (!TS.el) {
+      TS.el = document.createElement('div');
+      TS.el.className = 'tg-tsel';
+      TS.el.innerHTML = '<i class="h" title="Потяните — крупнее или мельче"></i>';
+      sheet.appendChild(TS.el);
+      TS.el.addEventListener('pointerdown', textDragStart);
+      TS.el.addEventListener('pointermove', textDragMove);
+      TS.el.addEventListener('pointerup', textDragEnd);
+      TS.el.addEventListener('pointercancel', textDragEnd);
+    }
+    TS.el.hidden = false;
+    placeSel();
+  }
+  function placeSel() {
+    if (!TS.id || !TS.el) return;
+    const s = S.strokes.get(TS.id);
+    if (!s || S.tool !== 'text' || !canWrite()) { selectText(null); return; }
+    const b = textBox(s), pad = 4;
+    Object.assign(TS.el.style, { left: (b.x * k - pad) + 'px', top: (b.y * k - pad) + 'px', width: (b.w * k + pad * 2) + 'px', height: (b.h * k + pad * 2) + 'px' });
+  }
+  function textDragStart(e) {
+    const s = S.strokes.get(TS.id);
+    if (!s || e.button > 0 || !canWrite()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    TS.el.setPointerCapture(e.pointerId);
+    const b = textBox(s);
+    TS.drag = { resize: !!e.target.closest('.h'), p0: pt(e), x: b.x, y: b.y, w: b.w, h: b.h, fs: s.fs || 20 };
+    S.live.add(s.id);                                       // пока тянем — текст на верхнем слое
+    redraw();
+  }
+  const sendText = throttle(() => {
+    const s = S.strokes.get(TS.id);
+    if (s && TS.drag && canWrite()) send({ t: 's~', page: S.page, id: s.id, p: s.p, fs: s.fs });
+  }, 40);
+  function textDragMove(e) {
+    if (!canWrite()) { selectText(null); return; }
+    const d = TS.drag, s = d && S.strokes.get(TS.id);
+    if (!s) return;
+    const p = pt(e);
+    if (d.resize) {                                          // за уголок: во сколько раз выросла рамка — во столько и шрифт
+      const r = Math.max((p[0] - d.x) / d.w, (p[1] - d.y) / d.h);
+      s.fs = Math.round(Math.min(TEXT_FS[1], Math.max(TEXT_FS[0], d.fs * r)));
+    } else {
+      s.p = [[Math.round(Math.max(0, Math.min(BW - 20, d.x + p[0] - d.p0[0])) * 10) / 10, Math.round(Math.max(0, d.y + p[1] - d.p0[1]) * 10) / 10]];
+    }
+    liveTouch(s.id);
+    placeSel();
+    sendText();
+  }
+  function textDragEnd() {
+    if (!canWrite()) { selectText(null); return; }
+    if (!TS.drag) return;
+    TS.drag = null;
+    const s = S.strokes.get(TS.id);
+    if (!s) return;
+    send({ t: 's~', page: S.page, id: s.id, p: s.p, fs: s.fs });
+    commitLive(s.id);
+    send({ t: 's-', page: S.page, id: s.id });
+    redraw();
+  }
+  document.addEventListener('keydown', e => {                // Delete — удалить выделенный текст, Esc — снять рамку
+    if (!TS.id || !canWrite() || (e.target.closest && e.target.closest('input, textarea, [contenteditable]'))) return;
+    if (e.key === 'Escape') selectText(null);
+    else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      const id = TS.id;
+      selectText(null);
+      S.strokes.delete(id);
+      redraw();
+      send({ t: 'del', page: S.page, ids: [id] });
+    }
+  });
+
   // ---------- указатели других участников
   function movePtr(m) {
     let p = S.ptrs.get(m.cid);

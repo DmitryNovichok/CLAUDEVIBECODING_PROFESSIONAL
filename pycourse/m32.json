@@ -1,0 +1,75 @@
+{
+ "id": "m32",
+ "n": 27,
+ "title": "Анализ признаков: формат 2027",
+ "icon": "Σ",
+ "sub": "Учебный переход к №27: кластеризуем по энергии, расстояние считаем по координатам; ответ из двух чисел.",
+ "levels": [
+  {
+   "title": "Признак и метрика",
+   "goal": "Не подменять условие готовым шаблоном кластеризации.",
+   "need": 2,
+   "slides": [
+    {
+     "t": "text",
+     "h": "Разные величины в одной задаче",
+     "html": "<p>В проекте демоверсии-2027 кластеризация использует кинетическую энергию m×(Vx²+Vy²)/2. Центр минимизирует сумму модулей разностей энергий, а отдельный вопрос может использовать расстояния по координатам.</p><p>Наша маленькая задача — подготовительное упражнение. Группы заданы явно; метод для больших данных выбирайте по ограничениям конкретного задания.</p>"
+    },
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Чтение шести столбцов",
+     "ch": "Пример",
+     "cond": "<p>Поля: x y Vx Vy m признак. В файле точки как десятичный разделитель; если будут запятые, замените их при чтении.</p>",
+     "nk": "secret",
+     "code": "rows=[]\nfor line in open('particles.txt'):\n    x,y,vx,vy,m,kind=line.split()\n    x,y,vx,vy,m=map(float,(x,y,vx,vy,m))\n    rows.append((x,y,m*(vx*vx+vy*vy)/2,kind))\n\nprint([p[2] for p in rows])",
+     "out": "[2.0, 3.0, 4.0, 16.0, 17.0, 18.0]",
+     "wide": true,
+     "files": [
+      {
+       "name": "particles.txt",
+       "url": "pyc-data/m32/L1S2/particles.txt?v=dad38440",
+       "size": 91
+      }
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m32.max_energy",
+     "h": "Максимальная энергия",
+     "cond": "<p>Для файла particles.txt найди максимальную кинетическую энергию.</p>",
+     "stars": 1,
+     "ans": "18.0",
+     "sol": "rows=[]\nfor line in open('particles.txt'):\n    x,y,vx,vy,m,kind=line.split()\n    x,y,vx,vy,m=map(float,(x,y,vx,vy,m))\n    rows.append((x,y,m*(vx*vx+vy*vy)/2,kind))\n\nprint(max(p[2] for p in rows))",
+     "sec": 0.01,
+     "hint": "Координаты x,y в формулу энергии не входят.",
+     "files": [
+      {
+       "name": "particles.txt",
+       "url": "pyc-data/m32/max_energy/particles.txt?v=dad38440",
+       "size": 91
+      }
+     ]
+    },
+    {
+     "id": "m32.two_outputs",
+     "h": "Два результата",
+     "cond": "<p>Две группы: энергия меньше 10 и энергия не меньше 10. Центр — частица с минимальной суммой модулей разностей энергий внутри группы. Q1 — наибольшее расстояние между частицами с признаком II одной группы; Q2 — наибольшая энергия центра. Выведи целые части Q1×10000 и Q2×10000 одной строкой.</p>",
+     "stars": 1,
+     "ans": "50000 170000",
+     "sol": "rows=[]\nfor line in open('particles.txt'):\n    x,y,vx,vy,m,kind=line.split()\n    x,y,vx,vy,m=map(float,(x,y,vx,vy,m))\n    rows.append((x,y,m*(vx*vx+vy*vy)/2,kind))\ngroups = [[p for p in rows if p[2]<10], [p for p in rows if p[2]>=10]]\ncenters=[min(g,key=lambda p:sum(abs(p[2]-q[2]) for q in g)) for g in groups]\nfrom math import hypot\nq1=max(hypot(p[0]-q[0],p[1]-q[1]) for g in groups for p in g for q in g if p[3]==q[3]=='II')\nq2=max(p[2] for p in centers)\nprint(int(q1*10000), int(q2*10000))",
+     "sec": 0.01,
+     "hint": "Сначала раздели частицы, потом независимо вычисляй центр по энергии и расстояния по координатам.",
+     "files": [
+      {
+       "name": "particles.txt",
+       "url": "pyc-data/m32/two_outputs/particles.txt?v=dad38440",
+       "size": 91
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

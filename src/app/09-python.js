@@ -207,6 +207,7 @@
     if (!t || (PY.task && PY.task.id === t.id)) return;
     if (PY.task) writeCode(PY.task.id, $('#pyCode').value);
     PY.task = t;
+    pycDockTools(t);
     const files = pyFilesOf(t);
     $('#pyTask').textContent = t.pyc ? t.label : `задание ${numLabel(t.n)}`;
     $('#pyFiles').innerHTML = files.length

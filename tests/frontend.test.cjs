@@ -3,6 +3,125 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+function labModels() {
+  const code = fs.readFileSync('src/app/12j-labs.js', 'utf8');
+  const c = vm.createContext({});
+  vm.runInContext(code.slice(code.indexOf('  function labNetwork('), code.indexOf('  const LAB_EXAMPLES')), c);
+  return c;
+}
+test('IP laboratory handles every prefix without signed overflow', () => {
+  const c = labModels();
+  for (let p = 0; p <= 32; p++) {
+    const n = c.labNetwork('192.168.1.130', p);
+    assert.equal(n.count, 2 ** (32 - p));
+    assert.ok(n.start <= n.ip && n.end >= n.ip);
+    assert.equal(n.end - n.start + 1, n.count);
+  }
+  const n = c.labNetwork('192.168.1.130', 26);
+  assert.equal(n.network, '192.168.1.128');
+  assert.equal(n.last, '192.168.1.191');
+  assert.equal(n.mask, '255.255.255.192');
+  assert.equal(c.labNetwork('255.255.255.255', 0).last, '255.255.255.255');
+  assert.equal(c.labNetwork('255.255.255.255', 32).count, 1);
+  for (const ip of ['', '1.2.3', '1.2.3.256', '-1.2.3.4', '1e2.2.3.4', '<script>']) assert.throws(() => c.labNetwork(ip, 24));
+  assert.throws(() => c.labNetwork('1.2.3.4', 24.5));
+});
+test('image laboratory rounds packed bits to bytes, validates dimensions', () => {
+  const c = labModels();
+  assert.equal(c.labImageSize(1, 1, 1).bytes, 1);
+  assert.equal(c.labImageSize(3, 3, 1).bytes, 2);
+  assert.equal(c.labImageSize(640, 480, 8).bytes, 307200);
+  assert.equal(c.labImageSize(8192, 8192, 24).bytes, 201326592);
+  for (const args of [[0,1,8], [1,1,25], [1.5,1,8], [9000,1,8], [NaN,1,8]]) assert.throws(() => c.labImageSize(...args));
+});
+test('game laboratory stops at victory, including an overshooting move', () => {
+  const c = labModels();
+  assert.equal(c.labGameMoves(7,30,2,2)[0].value, 9);
+  assert.equal(c.labGameMoves(7,30,2,2)[1].value, 14);
+  assert.equal(c.labGameMoves(30,30,2,2).length, 0);
+  assert.equal(c.labGameMoves(199,200,1,5)[1].value, 995);
+  assert.equal(c.labGameMoves(995,200,1,5).length, 0);
+  assert.throws(() => c.labGameMoves(7,30,2,1));
+});
+
+function bankRetryContext(storage, bank) {
+  const box = {innerHTML:''}, timers = [], button = {};
+  let reloads = 0;
+  const c = vm.createContext({window:{EGE_BANK:bank}, sessionStorage:storage,
+    $:s=>s === '#trainer' ? box : button, location:{reload:()=>reloads++},
+    setTimeout:(fn,ms)=>timers.push({fn,ms})});
+  vm.runInContext(sourceBetween('src/app/01-core.js', '  function bankRetry(', '  const BANK ='), c);
+  return {c, box, timers, button, reloads:()=>reloads};
+}
+
+test('empty task bank stops after three automatic reloads', () => {
+  const data = new Map(), storage = {getItem:k=>data.get(k), setItem:(k,v)=>data.set(k,v), removeItem:k=>data.delete(k)};
+  for (let attempt=0; attempt<4; attempt++) {
+    const page = bankRetryContext(storage, {tasks:[]});
+    vm.runInContext('bankRetry(true)', page.c);
+    if (attempt<3) {
+      assert.equal(page.timers.length, 1);
+      assert.equal(page.timers[0].ms, 2000 * 2 ** attempt);
+      page.timers[0].fn();
+      assert.equal(page.reloads(), 1);
+    } else {
+      assert.equal(page.timers.length, 0);
+      assert.match(page.box.innerHTML, /Обновить страницу/);
+      page.button.onclick();
+      assert.equal(data.has('egeTrainer.bankTry'), false);
+    }
+  }
+  data.set('egeTrainer.bankTry', '2');
+  bankRetryContext(storage, {tasks:[{id:'demo'}]});
+  assert.equal(data.has('egeTrainer.bankTry'), false);
+});
+
+test('blocked browser storage cannot trigger endless bank reloads', () => {
+  for (const denied of ['getItem', 'setItem']) {
+    const storage = {getItem:()=>null, setItem:()=>{}, removeItem:()=>{}};
+    storage[denied] = () => { throw Error('storage denied'); };
+    const page = bankRetryContext(storage, null);
+    vm.runInContext('bankRetry(true)', page.c);
+    for (const timer of page.timers) timer.fn();
+    assert.equal(page.reloads(), 0);
+    assert.match(page.box.innerHTML, /Обновить страницу/);
+  }
+});
+
+test('Together closes a socket that stops replying to pings', () => {
+  let tick, now=1000, closed=0;
+  const sent=[];
+  const c=vm.createContext({ws:{readyState:1,close:()=>closed++}, pingTs:0, pongAt:0,
+    performance:{now:()=>now},send:m=>sent.push(m),setInterval:fn=>{tick=fn;}});
+  vm.runInContext(sourceBetween('together.js', '  setInterval(() => {\n    if (!ws', '  function onMsg('), c);
+  tick();
+  for (now=4000; now<=13000; now+=3000) tick();
+  assert.ok(closed>0, 'a stalled connection must reconnect');
+  assert.equal(sent.length,1, 'retain the first unanswered ping deadline');
+});
+
+test('Together keeps a responsive socket open', () => {
+  let tick, now=1000, closed=0;
+  const sent=[];
+  const c=vm.createContext({ws:{readyState:1,close:()=>closed++}, pingTs:0, pongAt:0,
+    performance:{now:()=>now},send:m=>sent.push(m),setInterval:fn=>{tick=fn;}});
+  vm.runInContext(sourceBetween('together.js', '  setInterval(() => {\n    if (!ws', '  function onMsg('), c);
+  for (; now<20000; now+=3000) { tick(); c.pongAt=now+20; }
+  assert.equal(closed,0);
+  assert.equal(sent.length,7);
+});
+
+test('Together read-only mode prevents deleting selected board text', () => {
+  let keydown;
+  const strokes=new Map([['text',{id:'text'}]]), sent=[];
+  const c=vm.createContext({TS:{id:'text'}, S:{strokes,page:'p1'}, canWrite:()=>false,
+    document:{addEventListener:(_,fn)=>{keydown=fn;}}, selectText:()=>{}, redraw:()=>{}, send:m=>sent.push(m)});
+  vm.runInContext(sourceBetween('together.js', "  document.addEventListener('keydown', e => {                // Delete", '  // ---------- указатели'),c);
+  keydown({key:'Delete',target:{closest:()=>null},preventDefault:()=>{}});
+  assert.equal(strokes.has('text'),true);
+  assert.equal(sent.length,0);
+});
+
 // Run the production helpers in a small browser-like environment.
 const examSource = fs.readFileSync('src/app/05-exam.js', 'utf8');
 const completionSource = examSource.slice(examSource.indexOf('  const examKeys'), examSource.indexOf('  const saveExam'));
@@ -201,4 +320,36 @@ test('double send creates one assignment and preserves a newer draft', async () 
   await Promise.all([first,second]);
   assert.equal(count,1);
   assert.equal(c.BLD.d.title,'Новый черновик');
+});
+test('two-heap lab uses total, changes one heap and keeps four command choices', () => {
+  const c = labModels();
+  const moves = c.labGamePositionMoves([17, 29], 133, 4, 2);
+  assert.equal(moves.length, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(moves.map(m => m.value))), [[21,29],[34,29],[17,33],[17,58]]);
+  assert.equal(c.labGamePositionMoves([60,73],133,4,2).length,0);
+  assert.equal(c.labGamePositionMoves([7],13,2,2)[1].value[0],14);
+  assert.throws(() => c.labGamePositionMoves([1,0],133,4,2));
+  assert.throws(() => c.labGamePositionMoves([1,2,3],133,4,2));
+});
+test('checking an active beginner task preserves code that has not been autosaved yet', () => {
+  const source = fs.readFileSync('src/app/12b-pycourse.js','utf8');
+  const task = {id:'m01.example',practice:{stdin:'7\n',starter:'# start'}};
+  const editor={value:'print(14)',dispatchEvent(){}}, input={value:'custom input'};
+  const c=vm.createContext({pycTask:()=>task,pyOpen:()=>true,PY:{task:{id:'pyc:m01.example'}},
+    PYC_L:{n:0,l:1,level:{tasks:[task]}},pycPyTask:()=>({id:'pyc:m01.example'}),pycLabel:()=>'',
+    pySync(){},readCode:()=>null,$:id=>id==='#pyCode'?editor:input,Event:class{}});
+  vm.runInContext(source.slice(source.indexOf('  function pycOpenPy('),source.indexOf('  async function pycCheck(')),c);
+  c.pycOpenPy(task.id);
+  assert.equal(editor.value,'print(14)');assert.equal(input.value,'custom input');
+  c.pycOpenPy(task.id,'print(99)');assert.equal(editor.value,'print(99)');
+});
+test('leaving a lesson lab detaches its draft; loading a protected lab keeps the return context', () => {
+  const code=fs.readFileSync('src/app/12j-labs.js','utf8'); let callback, saved=0;
+  const c=vm.createContext({MutationObserver:class{constructor(fn){callback=fn}observe(){}},trainerEl:{},labActive:()=>false,labStop(){},
+    pageKind:'lab',courseShown:true,LAB:{context:{task:'m01.example'},owner:'student'},labSaveDraft(){saved++},
+    document:{body:{classList:{remove(){}}}},$:()=>({classList:{remove(){}}})});
+  vm.runInContext(code.slice(code.indexOf('  new MutationObserver'),code.indexOf("  window.addEventListener('pagehide'")),c);
+  callback();assert.equal(c.LAB.context.task,'m01.example');assert.equal(saved,0);
+  c.pageKind='pyc';callback();assert.equal(saved,1);assert.equal(c.LAB.context,null);assert.equal(c.LAB.owner,null);
+  callback();assert.equal(saved,1);
 });

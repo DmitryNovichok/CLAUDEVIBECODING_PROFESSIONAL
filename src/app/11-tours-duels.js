@@ -29,6 +29,7 @@
     renderDuelCard();
     renderAsgCard();
     renderTourPage();
+    hubRefresh();
   }
   /** Все мои матчи текущего турнира (группа, плей-офф, за 3-е место) с названием стадии. */
   function tourMyMatches() {

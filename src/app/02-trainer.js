@@ -1285,8 +1285,9 @@
     if (recent.length > 50) recent.splice(0, recent.length - 50);
     ui.currentId = pick.task.id;
     save();
-    openTask(t0);
-    renderTask();
+    const c = cur, go = () => { if (cur !== c) return; openTask(t0); renderTask(); };
+    if (needHtml([t0])) htmlWait([t0], go);        // условие ещё не скачано — пара сотен миллисекунд
+    else go();
     renderTopbar();
   }
 

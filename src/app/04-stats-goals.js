@@ -259,8 +259,11 @@
     $('#courseCard')?.classList.toggle('on', (courseShown && !pageKind) || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
     $('#asgCard').classList.toggle('on', asgOn || (courseShown && pageKind === 'asg'));
     $('#pycCard')?.classList.toggle('on', courseShown && pageKind === 'pyc');
+    $('#labCard')?.classList.toggle('on', courseShown && pageKind === 'lab');
+    $('#homeCard')?.classList.toggle('on', courseShown && pageKind === 'hub');
     renderAsgCard();
     renderLevel();
+    hubRefresh();
 
     // переключатель банков
     const bEl = $('#banks');

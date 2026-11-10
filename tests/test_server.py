@@ -127,6 +127,20 @@ class ServerTest(unittest.TestCase):
             pass
         return (r.status, data, r.getheader("Set-Cookie") or "") if hdrs else (r.status, data)
 
+    def public_bank(self, tok):
+        """Всё, что видит ученик: bank.js (без условий) и условия всех номеров из /api/html."""
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
+        body = c.getresponse().read().decode()
+        c.close()
+        bank = json.loads(body[body.index("{"):body.rindex("}") + 1])
+        self.assertNotIn('"html"', json.dumps(bank["tasks"], ensure_ascii=False))   # условия — только отдельно
+        for n in sorted({t["n"] for t in bank["tasks"]}):
+            st, d = self.req("GET", f"/api/html?n={n}", token=tok)
+            self.assertEqual(st, 200)
+            body += "\n/*html*/" + json.dumps(d, ensure_ascii=False)
+        return body
+
     def login(self, name="Иванов Иван"):
         st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": "1234", "name": name,
                                                 "new_password": "secret1"})
@@ -316,6 +330,8 @@ class ServerTest(unittest.TestCase):
     # ------------------------------------------------------------ файлы
     def test_extra_bank_merged(self):
         # авторский банк Egeshka лежит отдельным файлом и подмешивается к bank.js без пересборки
+        old_bank = server.APP.bank
+        server.APP.bank = server.Bank(old_bank.path, old_bank.secret.decode())
         extra = {"bank": {"id": "egeshka_bank", "title": "Egeshka", "count": 1},
                  "tasks": [{"id": "egeshka_bank:e5-01", "n": 5, "bank": "egeshka_bank", "html": "<p>Задача</p>",
                             "ans": "657", "src": "Egeshka Malevin D.", "y": 2026}]}
@@ -328,7 +344,7 @@ class ServerTest(unittest.TestCase):
             self.assertNotIn('"657"', pub)                          # ответ ученику не уходит
         finally:
             server.EXTRA_BANK.unlink()
-            server.APP.bank.ensure()
+            server.APP.bank = old_bank
 
     def test_egeshka_bank_file_is_sound(self):
         # настоящий авторский банк: id не повторяются, у каждого задания есть ответ, файлы и картинки на месте,
@@ -354,6 +370,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(sorted(by_n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23])
         self.assertTrue(all(v >= 30 for v in by_n.values()), by_n)
         old = server.EXTRA_BANK
+        old_bank = server.APP.bank
+        server.APP.bank = server.Bank(old_bank.path, old_bank.secret.decode())
         server.EXTRA_BANK = root / "data" / "egeshka_bank.json"
         try:
             self.assertTrue(server.APP.bank.ensure())
@@ -361,10 +379,12 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(server.APP.bank.tasks["egeshka_bank:e6-01"]["n"], 6)
         finally:
             server.EXTRA_BANK = old
-            server.APP.bank.ensure()
+            server.APP.bank = old_bank
 
     def test_task9_gets_txt_copy_of_table(self):
         # №9 решают, скопировав таблицу в .txt: сервер сам даёт 9.txt (ячейки через табуляцию)
+        old_bank = server.APP.bank
+        server.APP.bank = server.Bank(old_bank.path, old_bank.secret.decode())
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
         import gen_egeshka
         media = self.tmp / "media" / "t9"
@@ -386,7 +406,7 @@ class ServerTest(unittest.TestCase):
             c.close()
         finally:
             server.EXTRA_BANK.unlink()
-            server.APP.bank.ensure()
+            server.APP.bank = old_bank
 
     def test_answer_alternatives(self):
         # в банке ФИПИ бывает «13992 или 13993»: одна ячейка, засчитывается любой из ответов
@@ -422,10 +442,7 @@ class ServerTest(unittest.TestCase):
 
     def test_bank_hides_everything_that_leads_to_answer(self):
         tok = self.login("Скрытов Семён")
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
-        body = c.getresponse().read().decode()
-        c.close()
+        body = self.public_bank(tok)
         for leak in ("kompege.ru/task", "devinf.ru/task", '"video"', '"link"', "b:5", "b:g19", "7831"):
             self.assertNotIn(leak, body, leak)
         self.assertIn("vk.com/a", body)                    # ссылки на авторов остаются
@@ -442,12 +459,10 @@ class ServerTest(unittest.TestCase):
 
     def test_fipi_files_hide_code_and_unpack_zip(self):
         tok = self.login("Файлов Фёдор")
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
-        body = c.getresponse().read().decode()
-        c.close()
-        bank = json.loads(body[body.index("{"):body.rindex("}") + 1])
+        body = self.public_bank(tok)
+        bank = json.loads(body[body.index("{"):body.index("\n/*html*/")].rstrip().rstrip(";"))
         task = next(t for t in bank["tasks"] if t["n"] == 3)
+        task["html"] = self.req("GET", "/api/html?n=3", token=tok)[1]["html"][task["id"]]
         for leak in ("02143E", "0079D4", "../", "BAD001"):
             self.assertNotIn(leak, json.dumps(task, ensure_ascii=False), leak)
         names = [a["name"] for a in task["att"]]
@@ -484,11 +499,8 @@ class ServerTest(unittest.TestCase):
                         ("Открытый банк ФИПИ", False), ("КомпЕГЭ", False), ("", False), (None, False)):
             self.assertEqual(server.is_authored(src), au, src)
         tok = self.login("Авторов Антон")
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
-        body = c.getresponse().read().decode()
-        c.close()
-        tasks = {t["id"]: t for t in json.loads(body[body.index("{"):body.rindex("}") + 1])["tasks"]}
+        body = self.public_bank(tok)
+        tasks = {t["id"]: t for t in json.loads(body[body.index("{"):body.index("\n/*html*/")].rstrip().rstrip(";"))["tasks"]}
         self.assertEqual(tasks[server.APP.bank.pid("b:6")].get("au"), 1)
         self.assertNotIn("au", tasks[server.APP.bank.pid("b:27")])
         self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["rules"]["authored"])
@@ -2288,12 +2300,37 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["prefs"]["fav"], [pid])
         self.assertEqual(d["prefs"]["notes"], {pid: "заметка"})
 
+    def test_health_for_watchdog(self):
+        st, d = self.req("GET", "/api/health")
+        self.assertEqual((st, d["ok"], d["version"]), (200, True, server.APP_VERSION))
+        self.assertGreater(d["tasks"], 0)
+        saved = server.APP.bank.tasks
+        server.APP.bank.tasks = {}
+        try:
+            self.assertEqual(self.req("GET", "/api/health")[0], 503)
+        finally:
+            server.APP.bank.tasks = saved
+
+    def test_task_texts_load_by_number_and_need_login(self):
+        self.assertEqual(self.req("GET", "/api/html?n=5")[0], 401)
+        tok = self.login("Номеров Нил")
+        pid = server.APP.bank.pid("b:5")
+        st, d = self.req("GET", "/api/html?n=5", token=tok)
+        self.assertEqual((st, d["html"][pid]), (200, "<p>Пять</p>"))
+        self.assertNotIn(server.APP.bank.pid("b:27"), d["html"])          # только задания этого номера
+        st, d = self.req("GET", "/api/html?ids=" + pid + ",nope", token=tok)
+        self.assertEqual(d["html"], {pid: "<p>Пять</p>"})
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/api/html?n=5", headers={"X-Token": tok})
+        etag = c.getresponse().getheader("ETag"); c.close()
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/api/html?n=5", headers={"X-Token": tok, "If-None-Match": etag})
+        self.assertEqual(c.getresponse().status, 304)                      # номер уже скачан — браузер берёт из кэша
+        c.close()
+
     def test_bank_has_no_answers(self):
         tok = self.login()
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
-        body = c.getresponse().read().decode()
-        c.close()
+        body = self.public_bank(tok)
         self.assertIn("Пять", body)
         self.assertNotIn('"ans"', body)
         self.assertNotIn("решение", body)
@@ -2792,7 +2829,8 @@ class ServerTest(unittest.TestCase):
         with server._GIFT_LOCK:
             for _ in range(30):
                 n = server.gift_uniq(db, "robot")
-                self.assertNotEqual((n["bg"], n["sym"], n["fx"]), (burned["bg"], burned["sym"], burned["fx"]))
+                look = lambda u: (u["bg"], u["sym"], u["fx"], u.get("pose", "stand"))   # неповторимо сочетание всех четырёх: с позой
+                self.assertNotEqual(look(n), look(burned))
                 self.assertGreater(n["n"], burned["n"])
         # тираж: кончился — улучшить нельзя; цена улучшения растёт с выпуском
         cap = server.UNIQ_CAP

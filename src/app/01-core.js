@@ -533,6 +533,32 @@
   }
 
   // ------------------------------------------------------------ данные
+  /** Задания не загрузились: 3 попытки с паузой (2, 4, 8 с), удалась — страница перезагружается; нет — понятное сообщение. */
+  function bankRetry(serverEmpty) {
+    const box = $('#trainer');
+    const show = (h, p, btn) => {
+      box.innerHTML = `<div class="empty"><h2>${h}</h2><p>${p}</p>${btn ? '<p><button type="button" class="btn primary" id="bankReload">Обновить страницу</button></p>' : ''}</div>`;
+      const b = $('#bankReload');
+      if (b) b.onclick = () => {
+        try { sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
+        location.reload();
+      };
+    };
+    let n = 0;
+    try {
+      n = Math.max(0, Math.floor(+sessionStorage.getItem('egeTrainer.bankTry') || 0));
+      // Запоминаем попытку до перезагрузки. Без хранилища автоматический цикл ограничить нельзя.
+      if (n < 3) sessionStorage.setItem('egeTrainer.bankTry', String(n + 1));
+    } catch (e) { n = 3; }
+    if (n >= 3) {
+      return show(serverEmpty ? 'Задания временно недоступны' : 'Не удалось загрузить задания',
+        serverEmpty ? 'На сайте идут работы. Попробуйте обновить страницу через пару минут.'
+          : 'Проверьте интернет и обновите страницу. Если не помогает — подождите пару минут: возможно, сайт обновляется.', true);
+    }
+    show('Загружаем задания…', n ? 'Связь прервалась — пробуем ещё раз.' : 'Ещё секунду.', false);
+    setTimeout(() => location.reload(), 2000 * 2 ** n);
+  }
+  try { if (Array.isArray(window.EGE_BANK?.tasks) && window.EGE_BANK.tasks.length) sessionStorage.removeItem('egeTrainer.bankTry'); } catch (e) { /* нет доступа */ }
   const BANK = window.EGE_BANK;
   const trainerEl = $('#trainer');
 
@@ -543,6 +569,10 @@
   }
 
   if (!BANK || !Array.isArray(BANK.tasks) || !BANK.tasks.length) {
+    // Инструкция для разработчика — только когда тренажёр открыт с этого компьютера (файлом или localhost).
+    // Ученикам на сайте: задания не догрузились (оборвалась связь, сервер перезапускался) — тихо пробуем ещё раз.
+    const local = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+    if (!local) { bankRetry(BANK === null); return; }
     trainerEl.innerHTML = `
       <div class="empty">
         <h2>Банк заданий не найден</h2>
@@ -560,6 +590,51 @@
   let student = null;                         // { sid, name, token }
   const TASKS = BANK.tasks;
   const byId = new Map(TASKS.map(t => [t.id, t]));
+  // ------------------------------------------------------------ тексты условий: в bank.js их нет (он лёгкий), догружаем по номерам
+  const HTML_LAZY = !!BANK.lazyHtml;
+  const htmlNum = new Map();                  // номер -> обещание: условия всех его заданий (одна загрузка на номер)
+  const needHtml = list => HTML_LAZY && list.some(t => t && t.html == null);
+  async function htmlFetch(q) {
+    let err;
+    for (let i = 0; i < 3; i++) {             // связь моргнула — ещё две попытки
+      try {
+        const r = await fetch('api/html?' + q, { credentials: 'same-origin' });
+        if (r.ok) {
+          const d = await r.json();
+          Object.entries(d.html || {}).forEach(([id, h]) => { const t = byId.get(id); if (t) t.html = h; });
+          return;
+        }
+        err = new Error(r.status === 401 ? 'Нужно войти заново' : 'Сервер не ответил');
+        if (r.status === 401) break;
+      } catch (e) { err = new Error('Нет связи с сервером'); }
+      await new Promise(res => setTimeout(res, 700 * (i + 1)));
+    }
+    throw err;
+  }
+  /** Условия для списка заданий: сразу нужные — по id (быстро), а весь номер — фоном, чтобы следующие открывались мгновенно. */
+  function loadHtml(list) {
+    const miss = list.filter(t => t && t.html == null);
+    const nums = [...new Set(miss.map(t => t.n))];
+    setTimeout(() => nums.forEach(prefetchNum), 1500);     // весь номер — когда первое задание уже на экране
+    if (!miss.length) return Promise.resolve();
+    const ids = miss.map(t => t.id);
+    const out = [];
+    for (let i = 0; i < ids.length; i += 120) out.push(htmlFetch('ids=' + ids.slice(i, i + 120).map(encodeURIComponent).join(',')));
+    return Promise.all(out);
+  }
+  function prefetchNum(n) {
+    if (!HTML_LAZY || n == null || htmlNum.has(n)) return;
+    htmlNum.set(n, htmlFetch('n=' + n).catch(() => htmlNum.delete(n)));   // не вышло — попробуем при следующем открытии
+  }
+  /** Пока условие грузится — спокойная заглушка; не загрузилось — понятная ошибка и «Ещё раз». */
+  function htmlWait(list, again) {
+    trainerEl.innerHTML = '<div class="empty cond-loading"><p>Загружаю условие…</p></div>';
+    loadHtml(list).then(again, e => {
+      trainerEl.innerHTML = `<div class="empty"><h2>Условие не загрузилось</h2><p>${esc(e.message)}. Проверьте интернет.</p>
+        <p><button type="button" class="btn primary" id="htmlRetry">Ещё раз</button></p></div>`;
+      $('#htmlRetry').onclick = () => htmlWait(list, again);
+    });
+  }
   const BANKS = BANK.banks || [];
   const bankTitle = id => (BANKS.find(b => b.id === id) || {}).title || id;
 

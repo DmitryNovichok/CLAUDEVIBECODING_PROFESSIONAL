@@ -3,5 +3,9 @@
 # Caddy сам получит и будет продлевать HTTPS-сертификат.
 trainer.example.ru {
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:8000
+	reverse_proxy 127.0.0.1:8000 {
+		# пока тренажёр перезапускается после обновления, запросы ждут до 30 с, а не получают ошибку
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
 }
