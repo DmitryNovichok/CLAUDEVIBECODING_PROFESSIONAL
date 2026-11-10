@@ -20,7 +20,7 @@
       b.classList.toggle('on', active);
       if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    $('[data-mobile="teacher"]', nav).classList.toggle('has-work', ASG.some(a => !a.duel && !a.course && !asgFinished(a) && asgLeft(a).length));
+    $('[data-mobile="teacher"]', nav).classList.toggle('has-work', ASG.some(a => !a.duel && !a.course && asgPending(a)));
   }
   function openMobileMore() {
     const items = [

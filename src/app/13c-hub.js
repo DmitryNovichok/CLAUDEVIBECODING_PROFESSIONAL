@@ -44,7 +44,7 @@
     }
     out.sort((a, b) => a[1] - b[1]);
     const weak = out.filter(x => x[1] < CFG.weak);
-    return (weak.length ? weak : out).slice(0, k).map(x => x[0]);
+    return weak.slice(0, k).map(x => x[0]);
   }
   /** Сколько заданий ждут повторения прямо сейчас: типы с ошибкой и сами задания, решённые неверно. */
   function hubDueCount() {
@@ -60,26 +60,19 @@
   function hubPlan() {
     const items = [];
     // 1. Задание от учителя с ближайшим сроком; нет его — тренировка слабых номеров
-    const own = ASG.filter(a => !a.duel && !a.course && !asgFinished(a) && asgLeft(a).length).sort(asgOrder)[0];
+    const own = ASG.filter(a => !a.duel && !a.course && asgPending(a)).sort(asgOrder)[0];
     if (own) {
       const left = asgLeft(own).length, total = own.tasks.length;
       const late = own.due && own.due * 1000 < Date.now();
       items.push({ key: 'asg:' + own.id, ic: 'asg', title: `Задание от учителя: «${own.title}»`,
         meta: [own.due ? `<span class="${late ? 'hub-late' : 'hub-due'}">${late ? 'срок прошёл' : 'до ' + fmtDay(own.due * 1000)}</span>` : '',
-          `осталось ${left} из ${total}`, hubMins(left * 3)],
-        btn: own.started || left < total ? 'Продолжить' : 'Начать', go: () => (own.strict ? openAsgPage() : setScope('asg', own.id)) });
+          left ? `осталось ${left} из ${total}` : 'все ответы внесены — заверши работу', left ? hubMins(left * 3) : ''],
+        btn: !left && own.strict ? 'Завершить' : own.started || left < total ? 'Продолжить' : 'Начать', go: () => (own.strict ? openAsgPage() : setScope('asg', own.id)) });
     } else {
-      const weak = hubWeakNums(2);
-      if (weak.length) {
-        const s = statsFor(weak[0]);
-        items.push({ key: 'weak', ic: 'trainer', title: `Тренировка слабых номеров: ${weak.map(n => '№' + numLabel(n)).join(', ')}`,
-          meta: [`освоено №${numLabel(weak[0])} на ${pct(s.m)}%`, 'задания подбираются под тебя', hubMins(12)],
-          btn: 'Тренировать', go: () => setScope(weak[0]) });
-      } else {
-        items.push({ key: 'start', ic: 'trainer', title: 'Начни тренировку — тренажёр подберёт задания',
-          meta: ['все номера по очереди', 'через 5–10 ответов станут видны слабые места', hubMins(10)],
-          btn: 'Начать', go: () => setScope('all') });
-      }
+      const weak = hubWeakNums(2), need = 5, count = hubTodayCount(), done = count >= need;
+      items.push({ key: 'training', ic: 'trainer', title: `Тренировка: ${need} заданий за день`, done,
+        meta: [`выполнено ${Math.min(count, need)} из ${need}`, weak.length ? `рекомендуем №${weak.map(numLabel).join(', ')}` : 'задания подбираются под тебя', done ? 'на сегодня выполнено' : hubMins((need - count) * 3)],
+        btn: done ? 'Ещё задания' : count ? 'Продолжить' : 'Начать', go: () => setScope(weak[0] || 'all') });
     }
     // 2. Ошибки, которые пора повторить
     const due = hubDueCount();
@@ -112,13 +105,14 @@
     const vis = id => { const el = $('#' + id); return !!el && !el.hidden; };
     const allDone = [...P.log].filter(e => !e.b).length;
     const bad = P.log.filter(e => e.s < 1 && !e.b && !e.k).length;
-    const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(a => !asgFinished(a) && asgLeft(a).length);
+    const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(asgPending);
+    const ownLeft = ownOpen.reduce((s, a) => s + asgLeft(a).length, 0);
     const T = [];
     T.push({ k: 'trainer', name: 'Тренажёр', sub: `номера 1–27 · освоено ${hubMastered()}`, big: true, extra: hubMap(), btn: 'Решать подряд', go: () => setScope('all') });
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
     if (vis('dailyCard') && DAILY) T.push({ k: 'daily', name: 'Задание дня', sub: DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
       badge: DAILY.my_place || DAILY.started ? '' : 'сегодня', btn: DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить', hot: !DAILY.started, go: () => openDaily() });
-    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ownOpen.length ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownOpen.reduce((s, a) => s + asgLeft(a).length, 0)}` : 'всё решено',
+    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
     T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
     if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'задания ЕГЭ и программирование', btn: 'Открыть', go: () => $('#labCard').click() });
@@ -161,6 +155,30 @@
 
   // ------------------------------------------------------------ отрисовка
   let hubPrev = null;                     // что было в прошлый раз: для плавного роста чисел и «только что сделано»
+  const hubMarkup = new WeakMap();
+  const hubMarkupKey = html => html.replace(/hg\d+/g, 'hg');
+  /** Фоновые ответы обновляют только изменившиеся блоки: доступные разделы не исчезают и не теряют фокус. */
+  function hubPatch(current, fresh, tiles = false) {
+    const key = el => tiles ? el.dataset.tileKey : el.classList[0];
+    const old = new Map([...current.children].map(el => [key(el), el]));
+    const keys = new Set([...fresh.children].map(key));
+    old.forEach((el, id) => { if (!keys.has(id)) { el.remove(); old.delete(id); } });
+    [...fresh.children].forEach((next, i) => {
+      const id = key(next), prev = old.get(id);
+      const el = prev || next;
+      if (prev && next.classList.contains('hub-tiles')) {
+        hubPatch(prev, next, true);
+      } else if (prev && hubMarkup.get(prev) !== hubMarkupKey(next.innerHTML)) {
+        prev.innerHTML = next.innerHTML;
+        prev.className = next.className;
+      }
+      if (tiles) { el.dataset.tile = next.dataset.tile; el.style.cssText = next.style.cssText; }
+      hubMarkup.set(el, hubMarkupKey(next.innerHTML));
+      if (current.children[i] !== el) current.insertBefore(el, current.children[i] || null);
+      old.delete(id);
+    });
+    old.forEach(el => el.remove());
+  }
   const hubFirstName = () => { const p = String((student && student.name) || '').trim().split(/\s+/); return p[1] || p[0] || ''; };
   function hubHello() {
     const h = new Date().getHours(), nm = hubFirstName();
@@ -200,7 +218,7 @@
         <div class="hub-step-body"><b>${ic}<span class="hub-tt">${esc(it.title)}</span></b><span class="hub-meta">${it.meta.filter(Boolean).map(x => `<span>${x}</span>`).join('')}</span></div>
         <button type="button" class="btn${i === nowIdx ? ' primary' : ''}" data-step-go="${i}">${esc(it.btn)}${i === nowIdx ? ' →' : ''}</button></div>`;
     };
-    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" style="--sec:${hubColor(t.k)};--i:${i}">
+    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" data-tile-key="${t.k}" style="--sec:${hubColor(t.k)};--i:${i}">
       ${t.badge ? `<span class="hub-badge">${esc(t.badge)}</span>` : ''}${hubIcon(t.k, 52)}<b>${esc(t.name)}</b><span class="hub-sub">${esc(t.sub)}</span>${t.extra || ''}
       <span class="btn hub-act${t.hot ? ' hot' : ''}">${esc(t.btn)}</span></div>`;
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
@@ -217,9 +235,18 @@
         ${SERVER ? '' : '<button type="button" class="link-btn" data-hub-link="exportBtn">Сохранить прогресс в файл</button>'}
         <span class="hub-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Персональные данные</a></span></footer>`;
     HUB_ACT = { plan, tiles };
-    if (!enter && html.replace(/hg\d+/g, '') === hubSig && trainerEl.querySelector('.hub')) return;
-    hubSig = html.replace(/hg\d+/g, '');
-    trainerEl.innerHTML = `<div class="hub${enter ? ' hub-enter' : ''}">${html}</div>`;
+    const current = trainerEl.querySelector('.hub');
+    if (!enter && hubMarkupKey(html) === hubSig && current) return;
+    hubSig = hubMarkupKey(html);
+    if (!enter && current) {
+      current.classList.remove('hub-enter');
+      const fresh = document.createElement('div');
+      fresh.innerHTML = html;
+      hubPatch(current, fresh);
+    } else {
+      trainerEl.innerHTML = `<div class="hub${enter ? ' hub-enter' : ''}">${html}</div>`;
+      trainerEl.querySelectorAll('.hub > *, .hub-tile').forEach(el => hubMarkup.set(el, hubMarkupKey(el.innerHTML)));
+    }
     hubLeft = true;
     if (enter) hubEnterEnd = Date.now() + 900;
     hubAnimate(enter);

@@ -2096,6 +2096,8 @@
   let tab = 'overview';
   let backTab = 'overview';            // куда вернуться из карточки ученика
   function go(t) {
+    ++studentLoadVersion;                 // ответ старой карточки не должен возвращать из другого раздела
+    if (t !== 'student') studentLoadId = null;
     if (t !== 'classes') document.body.classList.remove('jr-full');
     if (t !== 'student') backTab = t;
     tab = t;
@@ -2251,18 +2253,22 @@
 
   // ------------------------------------------------------------ ученики
   let students = [];
+  let studentsLoadVersion = 0;
   let sortKey = 'last', sortAsc = false;
   const picked = new Set();
   async function loadStudents() {
+    const request = ++studentsLoadVersion, scope = $('#studentsScope').value;
     try {
       if (!classes.length) await fetchClasses();
-      const d = await api('students?class_id=' + $('#studentsScope').value);
+      if (request !== studentsLoadVersion || scope !== $('#studentsScope').value) return;
+      const d = await api('students?class_id=' + scope);
+      if (request !== studentsLoadVersion || scope !== $('#studentsScope').value) return;
       students = d.students.map(s => Object.assign(s, {
         last: s.last_attempt || s.last_seen || 0,
         acc: s.total ? (s.ok1 || 0) / s.total : -1,
       }));
       renderStudents();
-    } catch (e) { if (e.status !== 401) toast('Не удалось загрузить учеников: ' + e.message); }
+    } catch (e) { if (request === studentsLoadVersion && e.status !== 401) toast('Не удалось загрузить учеников: ' + e.message); }
   }
   function renderStudents() {
     const q = $('#studentSearch').value.trim().toLowerCase().replace(/ё/g, 'е');
@@ -3233,14 +3239,22 @@
 
   // ------------------------------------------------------------ карточка ученика
   let st = null;          // { student, attempts, forecast_history }
+  let studentLoadVersion = 0;
+  let studentLoadId = null;
+  const studentMoves = new Set();
+  const studentCurrent = s => tab === 'student' && st?.student === s && String(studentLoadId) === String(s.id);
   let jFilter = 'all', jNum = null;
   async function openStudent(id) {
+    const request = ++studentLoadVersion;
+    studentLoadId = id;
     const days = +$('#stPeriod').value, prev = st && st.student ? st.student.id : null;
     let from = 0;
     if (days) { const d = new Date(); d.setHours(0, 0, 0, 0); from = d.getTime() / 1000 - (days - 1) * 86400; }
     try {
-      st = await api(`student?id=${id}&from=${from}`);
-    } catch (e) { if (e.status !== 401) toast(e.message); return; }
+      const result = await api(`student?id=${id}&from=${from}`);
+      if (request !== studentLoadVersion) return;
+      st = result;
+    } catch (e) { if (request === studentLoadVersion && e.status !== 401) toast(e.message); return; }
     jNum = null;
     if (String(prev) !== String(id)) { voidOpen = false; voidPrev = null; }         // другой ученик — панель отмены закрыта
     go('student');
@@ -3248,29 +3262,41 @@
   }
   $('#stPeriod').addEventListener('change', () => { if (st) openStudent(st.student.id); });
   $('#stTeacher').addEventListener('change', async e => {
-    const t = teachers.find(x => x.id === +e.target.value);
+    const s = st.student, teacherId = +e.target.value;
+    if (studentMoves.has(s.id)) return;
+    const t = teachers.find(x => x.id === teacherId);
     if (!confirm(`Передать ученика учителю «${t ? t.name : ''}»? Класс у ученика снимется.`)) { renderStudent(); return; }
+    studentMoves.add(s.id);
+    $('#stTeacher').disabled = $('#stClass').disabled = true;
     try {
-      await api('student/teacher', { id: st.student.id, teacher_id: +e.target.value });
-      st.student.teacher_id = +e.target.value;
-      st.student.class_id = null;
+      await api('student/teacher', { id: s.id, teacher_id: teacherId });
+      s.teacher_id = teacherId;
+      s.class_id = null;
+      if (st?.student.id === s.id) { st.student.teacher_id = teacherId; st.student.class_id = null; }
       await fetchClasses();
-      renderStudent();
       toast('Ученик передан');
     } catch (err) { if (err.status !== 401) toast(err.message); }
+    finally { studentMoves.delete(s.id); if (tab === 'student' && st?.student.id === s.id) renderStudent(); }
   });
   $('#stClass').addEventListener('change', async e => {
+    const s = st.student, classId = +e.target.value || null;
+    if (studentMoves.has(s.id)) return;
+    studentMoves.add(s.id);
+    $('#stTeacher').disabled = $('#stClass').disabled = true;
     try {
-      await api('class/members', { class_id: +e.target.value || null, students: [st.student.id] });
-      st.student.class_id = +e.target.value || null;
+      await api('class/members', { class_id: classId, students: [s.id] });
+      s.class_id = classId;
+      if (st?.student.id === s.id) st.student.class_id = classId;
       await fetchClasses();
       toast('Класс изменён');
     } catch (err) { if (err.status !== 401) toast(err.message); }
+    finally { studentMoves.delete(s.id); if (tab === 'student' && st?.student.id === s.id) renderStudent(); }
   });
   $('#backBtn').addEventListener('click', () => { if (backTab === 'classes' && curClass) { go('classes'); } else go('students'); });
 
   function renderStudent() {
     const s = st.student, A = st.attempts;
+    $('#stTeacher').disabled = $('#stClass').disabled = studentMoves.has(s.id);
     $('#stName').innerHTML = esc(s.name) + (s.role === 'admin' ? ' <span class="adm-tag">👑 admin</span>' : '')
       + (s.no_rank ? ' <span class="adm-tag norank" title="Не участвует в рейтингах: лига, ТОПы, корона, битва классов, Forbes, Эло, сезоны">🚫 вне рейтингов</span>' : '');
     $('#stNoRank').textContent = s.no_rank ? '↺ Вернуть в рейтинги' : '🚫 Убрать из рейтингов';
@@ -3525,13 +3551,13 @@
     try {
       const r = await api('student/rename', { id: s.id, name });
       toast(r.merged_into ? 'Журналы объединены' : 'Переименовано');
-      openStudent(r.merged_into || s.id);
+      if (studentCurrent(s)) openStudent(r.merged_into || s.id);
     } catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#stRole').addEventListener('click', async () => {
     const s = st.student, on = s.role !== 'admin';
     if (!confirm(on ? `Выдать «${s.name}» золотую плашку «👑 admin» рядом с именем на сайте?` : `Снять плашку «👑 admin» у «${s.name}»?`)) return;
-    try { await api('student/role', { id: s.id, admin: on }); toast(on ? 'Плашка выдана' : 'Плашка снята'); openStudent(s.id); }
+    try { await api('student/role', { id: s.id, admin: on }); toast(on ? 'Плашка выдана' : 'Плашка снята'); if (studentCurrent(s)) openStudent(s.id); }
     catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#stCards').addEventListener('click', async e => {
@@ -3544,7 +3570,7 @@
     try {
       const r = await api('student/fire', { id: s.id, days });
       toast(r.added ? `Огонёк восстановлен: ${r.fire} дн.` : `Огонёк уже ${r.fire} дн. — восстанавливать нечего`);
-      openStudent(s.id);
+      if (studentCurrent(s)) openStudent(s.id);
     } catch (x) { if (x.status !== 401) toast(x.message); }
   });
   // ---- отменить ответы за промежуток: в аккаунт зашёл кто-то другой. Сначала — что попадёт, потом — в корзину (можно вернуть)
@@ -3580,12 +3606,20 @@
   $('#stVoidBtn')?.addEventListener('click', () => { voidOpen = !voidOpen; voidPrev = null; stVoidRender(); if (voidOpen) $('#stVoid').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   $('#stVoid')?.addEventListener('click', async e => {
     if (!st) return;
-    const sid = st.student.id;
+    const s = st.student, sid = s.id;
     if (e.target.closest('#voidClose')) { voidOpen = false; voidPrev = null; stVoidRender(); return; }
     if (e.target.closest('#voidPreview')) {
+      const button = e.target.closest('#voidPreview');
+      if (button.disabled) return;
+      button.disabled = true;
       const fv = $('#voidFrom').value, tv = $('#voidTo').value, from = dtTs(fv), to = dtTs(tv) + 59.999;   // конец минуты — включительно
-      try { voidPrev = Object.assign(await api('student/void', { id: sid, from, to, preview: true }), { from, to, from_v: fv, to_v: tv }); }
+      try {
+        const result = await api('student/void', { id: sid, from, to, preview: true });
+        if (!studentCurrent(s) || !voidOpen || !button.isConnected) return;
+        voidPrev = Object.assign(result, { from, to, from_v: fv, to_v: tv });
+      }
       catch (err) { if (err.status !== 401) toast(err.message); return; }
+      finally { if (button.isConnected) button.disabled = false; }
       stVoidRender();
       return;
     }
@@ -3593,6 +3627,7 @@
       if (!confirm(`Отменить ${voidPrev.n} ${pluralRu(voidPrev.n, 'ответ', 'ответа', 'ответов')} у «${st.student.name}»?\n\nОни уберутся из журнала, статистика пересчитается. Вернуть можно здесь же.`)) return;
       try { const r = await api('student/void', { id: sid, from: voidPrev.from, to: voidPrev.to }); toast(`🧹 Отменено: ${r.voided}`); }
       catch (err) { if (err.status !== 401) toast(err.message); return; }
+      if (!studentCurrent(s)) return;
       voidOpen = false; voidPrev = null;
       openStudent(sid);
       return;
@@ -3602,7 +3637,7 @@
       if (!confirm('Вернуть отменённые ответы в журнал?')) return;
       try { const r = await api('student/void-undo', { id: sid, batch: u.dataset.voidUndo }); toast(`↺ Возвращено: ${r.restored}`); }
       catch (err) { if (err.status !== 401) toast(err.message); return; }
-      openStudent(sid);
+      if (studentCurrent(s)) openStudent(sid);
     }
   });
   $('#stNoRank').addEventListener('click', async () => {
@@ -3610,7 +3645,7 @@
     if (!confirm(on ? `Убрать «${s.name}» из всех рейтингов?\n\nЛига, ТОПы дня, недели и месяца, корона задания дня, битва классов, Forbes, Эло и сезоны — его там не будет, `
         + 'и места других сдвинутся. Заниматься, получать биткоины, дарить и торговать он сможет как раньше. Вернуть можно здесь же.'
       : `Вернуть «${s.name}» в рейтинги?`)) return;
-    try { await api('student/norank', { id: s.id, on }); toast(on ? '🚫 Убран из рейтингов' : '↺ Снова в рейтингах'); openStudent(s.id); }
+    try { await api('student/norank', { id: s.id, on }); toast(on ? '🚫 Убран из рейтингов' : '↺ Снова в рейтингах'); if (studentCurrent(s)) openStudent(s.id); }
     catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#stLogout').addEventListener('click', async () => {
@@ -3619,7 +3654,7 @@
     try {
       const r = await api('student/logout', { id: s.id });
       toast(r.ended ? `Вход закрыт на устройствах: ${r.ended}` : 'Открытых входов не было');
-      openStudent(s.id);
+      if (studentCurrent(s)) openStudent(s.id);
     } catch (e) { if (e.status !== 401) toast(e.message); }
   });
   $('#logoutHere').addEventListener('click', async () => {

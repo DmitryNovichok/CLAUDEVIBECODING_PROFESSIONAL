@@ -914,25 +914,32 @@
   }
   async function callCheck(obj, extra) {              // может выбросить ошибку сети
     if (!SERVER) return localCheck(obj, extra);
+    const sid = student?.sid;
     const res = await api('check', payloadFor(obj, extra));
-    if (res && res.game) onGame(res.game);
+    if (res && res.game && student?.sid === sid) onGame(res.game);
     return res;
   }
   function netError(e) {
     if (e && e.status === 401) { toast('Нужно войти заново'); logout(); return; }
     toast(e && e.status && e.message ? e.message : 'Нет связи с сервером — ответ не проверен. Попробуйте ещё раз.', 4000);
   }
-  function setBusy(on) {
+  function setBusy(on, owner = cur) {
+    if (cur !== owner) return;
     busy = on;
     $$('#actions .btn').forEach(b => { b.disabled = on || (b.id === 'giveUpBtn' && thinkLeft() > 0); });
   }
   async function verify(extra) {
+    const c = cur;
     setBusy(true);
-    try { return await callCheck(cur.task, extra); } catch (e) {
+    try {
+      const res = await callCheck(c.task, extra);
+      return cur === c ? res : null;
+    } catch (e) {
+      if (cur !== c) return null;
       // учитель сделал подборку самостоятельной, пока страница была открыта: подтянем подборки и покажем старт
-      if (e.status === 403 && SERVER) { toast(e.message, 4500); loadAssignments().then(() => { if (wkScope()) show(null); }).catch(() => {}); return null; }
+      if (e.status === 403 && SERVER) { toast(e.message, 4500); loadAssignments().then(() => { if (cur === c && wkScope()) show(null); }).catch(() => {}); return null; }
       netError(e); return null;
-    } finally { setBusy(false); }
+    } finally { setBusy(false, c); }
   }
 
   // ---- ответ скрыт: рано (нужно подумать) или исчерпан лимит показов в час
@@ -966,6 +973,7 @@
       btn.disabled = true;
       try {
         const r = SERVER ? await api('reveal', { task: obj.id }) : localReveal(obj);
+        if (!el.isConnected) return;
         if (r.hidden) {
           el.dataset.until = Date.now() + r.hidden.wait * 1000;
           el.dataset.why = r.hidden.why;
@@ -991,9 +999,10 @@
       return;
     }
     const answer = got.join(' ');
+    const c = cur;
     autoAttach(cur.task.id);
     const res = await verify({ answer, cells: cellsIn($('#answerInputs'), cur.shape) });
-    if (!res || !cur || cur.done) return;
+    if (!res || cur !== c || cur.done) return;
     cur.answers = cur.answers.concat(answer);
     cur.attempt = cur.answers.length;
     if (res.correct) return finish(res.score != null ? res.score : (cur.attempt === 1 ? 1 : 0.5), false, res);
@@ -1020,10 +1029,10 @@
   }
   async function getHint() {
     if (!cur || cur.done || busy) return;
-    const task = cur.task.id;
+    const c = cur, task = c.task.id;
     try {
       const h = await api('hint', { task });
-      if (!cur || cur.task.id !== task) return;
+      if (cur !== c || cur.done) return;
       cur.hints = (cur.hints || []).concat([h]);
       renderActions();
     } catch (e) { toast(e.message || 'Подсказка недоступна'); }
@@ -1032,8 +1041,9 @@
   async function giveUp() {
     if (!cur || cur.done || busy || thinkLeft() > 0) return;
     if (cur.group) return giveUpGroup();
+    const c = cur;
     const res = await verify({ gave_up: true });
-    if (res && cur && !cur.done) finish(0, true, res);
+    if (res && cur === c && !cur.done) finish(0, true, res);
   }
 
   // ---- задания 19–21: три части на одной странице
@@ -1087,17 +1097,20 @@
   }
 
   async function runParts(items, extraFor) {
+    const c = cur;
     setBusy(true);
     let results;
     try {
       results = await Promise.allSettled(items.map(o => callCheck(cur.parts[o.i].p, extraFor(o))));
-    } finally { setBusy(false); }
+    } finally { setBusy(false, c); }
+    if (cur !== c) return [];
     const failed = results.find(r => r.status === 'rejected');
     if (failed) netError(failed.reason);
     return results.map(r => (r.status === 'fulfilled' ? r.value : null));
   }
 
   async function checkGroup() {
+    const c = cur;
     const todo = cur.parts.map((x, i) => ({ x, i })).filter(o => !o.x.final);
     const filled = todo.map(o => Object.assign(o, { got: readAnswerIn(partBox(o.i), o.x.shape) })).filter(o => o.got.length);
     if (!filled.length) {
@@ -1107,7 +1120,7 @@
     }
     autoAttach(cur.task.id);
     const results = await runParts(filled, o => ({ answer: o.got.join(' '), cells: cellsIn(partBox(o.i), o.x.shape) }));
-    if (!cur || cur.done) return;
+    if (cur !== c || cur.done) return;
     filled.forEach((o, k) => {
       const res = results[k];
       if (!res) return;
@@ -1126,9 +1139,10 @@
   }
 
   async function giveUpGroup() {
+    const c = cur;
     const todo = cur.parts.map((x, i) => ({ x, i })).filter(o => !o.x.final);
     const results = await runParts(todo, () => ({ gave_up: true }));
-    if (!cur || cur.done) return;
+    if (cur !== c || cur.done) return;
     todo.forEach((o, k) => { if (results[k]) partFinal(o.i, 0, results[k], true); });
     if (cur.parts.every(x => x.final)) finishGroup();
   }
@@ -1252,6 +1266,7 @@
 
   function show(pick) {
     leaveCourse();
+    busy = false;                         // новая задача не ждёт проверку предыдущей
     // самостоятельная ещё не начата (или уже сдана): задания в обычном виде не показываем — только старт или результат
     if (wkScope() && !wkLive() && !examShown) { cur = null; wkGate(wkScope()); return; }
     // идёт самостоятельная: её задание открывается только в её режиме, откуда бы ни пришли (←, поиск, история)

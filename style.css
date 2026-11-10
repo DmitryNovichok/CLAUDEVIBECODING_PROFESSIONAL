@@ -3710,12 +3710,11 @@ body.hub-on .trainer { max-width: 1120px; padding: 4px 20px 60px; }
 .hub-bars i { width: 9px; height: 0; border-radius: 3px; background: color-mix(in srgb, var(--sec) 60%, var(--track)); transition: height .9s cubic-bezier(.22, 1, .36, 1); }
 .hub-bars i.z { background: var(--track); }
 
-/* появление главной: блоки мягко поднимаются друг за другом */
-.hub-enter .hub-hello, .hub-enter .hub-plan, .hub-enter .hub-h2, .hub-enter .hub-tile { animation: hubIn .55s cubic-bezier(.22, 1, .36, 1) both; }
+/* Шапка и план появляются плавно; карточки разделов доступны сразу, без скрывающей их задержки. */
+.hub-enter .hub-hello, .hub-enter .hub-plan, .hub-enter .hub-h2 { animation: hubIn .55s cubic-bezier(.22, 1, .36, 1) both; }
 .hub-enter .hub-plan { animation-delay: .06s; }
 .hub-enter .hub-step { animation: hubIn .5s cubic-bezier(.22, 1, .36, 1) both; animation-delay: calc(.12s + var(--i) * .06s); }
 .hub-enter .hub-h2 { animation-delay: .2s; }
-.hub-enter .hub-tile { animation-delay: calc(.22s + var(--i) * .035s); }
 @keyframes hubIn { from { opacity: 0; transform: translateY(14px); } }
 
 /* плавные переходы между страницами и окнами — по всему сайту */
