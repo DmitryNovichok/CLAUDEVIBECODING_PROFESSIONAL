@@ -250,6 +250,7 @@
     writeJSON(VIEW_STORE, vp);
     applyTheme(effectiveTheme());
     applyView();
+    hubRefresh();
   }
   const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
   const effectiveTheme = () => document.documentElement.dataset.theme || (mqDark.matches ? 'dark' : 'light');
@@ -2442,10 +2443,17 @@
   let navSilent = false;
   function navPush(st) {
     if (navSilent) return;
+    if (hubQueueNavigation(st)) return;
     try {
       const was = history.state;
       if (!was) history.replaceState({ v: 'main' }, '');
       else if (JSON.stringify(was) === JSON.stringify(st)) return;
+      // Действие в окне открыло раздел: окно занимает его место в истории.
+      // Иначе «Назад» попадёт на уже закрытое окно или пропустит главную.
+      if (was && was.v === 'modal' && $('#forecastModal').hidden && st.v !== 'modal') {
+        history.replaceState(st, '');
+        return;
+      }
       history.pushState(st, '');
     } catch (e) {}
   }
@@ -2462,10 +2470,10 @@
     navPush({ v: 'task', set: a.id, id: t.id });
   }
   window.addEventListener('popstate', e => {
-    const st = e.state || { v: 'main' };
-    // закрылось окно-страница: страница под ним уже на экране — перерисовывать её не нужно
-    if (typeof hubSkipPop !== 'undefined' && hubSkipPop) { hubSkipPop = false; return; }
-    if (typeof hubModalState !== 'undefined' && hubModalState) return;
+    let st = e.state || { v: 'main' };
+    if (hubModalPop(st)) return;
+    const restoreModal = st.v === 'modal' && st.id === hubModalId;
+    if (st.v === 'modal') st = st.base || { v: 'main' };
     navSilent = true;
     try {
       if (examShown) return;
@@ -2487,7 +2495,10 @@
         if (inCourseSet()) { ui.scope = 'all'; save(); renderSidebar(); }
         next();
       }
-    } finally { navSilent = false; }
+    } finally {
+      navSilent = false;
+      if (restoreModal) { hubModalState = true; $('#forecastModal').hidden = false; }
+    }
   });
   let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
   function courseLock() {
@@ -4095,6 +4106,7 @@
         renderTopbar();
         toast(`❄️ Заморозка куплена. В запасе: ${(GAME && GAME.freezes) || 0} из ${FREEZE_MAX}`, 3500);
       } catch (x) { toast(x.message || 'Не получилось — попробуйте ещё раз', 3500); renderTopbar(); }
+      finally { if (!$('#forecastModal').hidden && $('.hub-streak')) hubFire(); }
       return;
     }
     const menu = $('#goalMenu');
@@ -4120,7 +4132,7 @@
     if (vs) { setView('size', +vs.dataset.viewSize); openThemes(); return; }
     const va = e.target.closest('[data-view-accent]');
     if (va) { setView('accent', va.dataset.viewAccent); openThemes(); return; }
-    if (e.target.closest('[data-view-reset]')) { writeJSON(VIEW_STORE, VIEW_DEF); applyTheme(effectiveTheme()); applyView(); openThemes(); return; }
+    if (e.target.closest('[data-view-reset]')) { writeJSON(VIEW_STORE, VIEW_DEF); applyTheme(effectiveTheme()); applyView(); hubRefresh(); openThemes(); return; }
     const ho = e.target.closest('[data-open]');
     if (ho) { closeForecast(); openPast(ho.dataset.open); navPush({ v: 'past', id: ho.dataset.open }); return; }
     const hf = e.target.closest('[data-hf]');
@@ -10398,10 +10410,10 @@
       btn: 'Повторить', go: () => setScope('all') });
     // 3. Задание дня
     if (DAILY && DAILY.ready) {
-      const done = !!DAILY.my_place || (!!DAILY.started && !dailyNow());
+      const done = !!DAILY.my_place;
       items.push({ key: 'daily', ic: 'daily', title: `Задание дня · №${numLabel(DAILY.n)}`, done,
-        meta: DAILY.my_place ? [`решено за ${fmtMs(DAILY.mine)} · ${DAILY.my_place}-е место`] : DAILY.started ? ['сегодня уже заходили'] : ['одно задание на скорость', 'место — по времени', hubMins(4)],
-        btn: done ? 'Рейтинг' : 'Решить', go: () => openDaily() });   // сначала правила: войти можно один раз, время идёт сразу
+        meta: DAILY.my_place ? [`решено за ${fmtMs(DAILY.mine)} · ${DAILY.my_place}-е место`] : DAILY.started ? [DAILY.fast ? 'результат не засчитан' : 'попытка использована · результата нет'] : ['одно задание на скорость', 'место — по времени', hubMins(4)],
+        btn: done || DAILY.started ? 'Рейтинг' : 'Решить', go: () => openDaily() });   // сначала правила: войти можно один раз, время идёт сразу
     }
     // 4. Вызов на дуэль или матч турнира
     const call = typeof duelCalls === 'function' ? duelCalls()[0] : null, match = typeof tourMyMatch === 'function' ? tourMyMatch() : null;
@@ -10414,7 +10426,7 @@
         meta: [k >= need ? `сегодня уже ${k} — огонёк горит` : `сделано ${k} из ${need}`, k >= need ? '' : hubMins((need - k) * 3)],
         btn: k >= need ? 'Ещё задание' : 'Решать', go: () => setScope('all') });
     }
-    return items.slice(0, 4);
+    return items.filter(it => !viewPrefs().focus || !['daily', 'duel', 'fire'].includes(it.ic)).slice(0, 4);
   }
 
   // ------------------------------------------------------------ разделы
@@ -10441,7 +10453,7 @@
     if (vis('duelCard')) { const c = typeof duelCalls === 'function' ? duelCalls().length : 0;
       T.push({ k: 'duel', name: 'Соревнования', sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
     if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
-    return T;
+    return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
   }
   function hubMastered() {
     const counts = countByNum();
@@ -10477,19 +10489,20 @@
   }
   function hubPills() {
     const L = LB && LB.boards && LB.boards.league, me = L && L.me;
+    const focus = viewPrefs().focus;
     const fcOk = P.log.length >= CFG.forecast.minAnswers, fc = fcOk ? forecast().score : null;
     const days = dayStreak(), lit = hubTodayCount() >= fireNeed();
     const up = '<svg viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>';
     const star = '<svg viewBox="0 0 24 24"><path fill="#ffc21a" d="m12 2.5 2.9 5.9 6.5.95-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.05 1.1-6.5-4.7-4.6 6.5-.95z"/></svg>';
     const out = [`<button type="button" class="hub-pill" data-hub-go="forecast" title="Прогноз балла ЕГЭ">${up}Прогноз <b data-count="fc">${fc == null ? '—' : fc}</b></button>`];
     if (SERVER && GAME) {
-      out.push(`<button type="button" class="hub-pill" data-hub-go="level" title="Уровень ${GAME.level} · ${esc(GAME.title)} — ${GAME.cur} / ${GAME.need} XP">${star}<b data-count="lvl">${GAME.level}</b><small>уровень</small><i class="hub-xp"><b data-bar="xp" data-w="${pct(GAME.cur / GAME.need)}"></b></i></button>`);
+      if (!focus) out.push(`<button type="button" class="hub-pill" data-hub-go="level" title="Уровень ${GAME.level} · ${esc(GAME.title)} — ${GAME.cur} / ${GAME.need} XP">${star}<b data-count="lvl">${GAME.level}</b><small>уровень</small><i class="hub-xp"><b data-bar="xp" data-w="${pct(GAME.cur / GAME.need)}"></b></i></button>`);
       if (!TEACHER) out.push(`<button type="button" class="hub-pill" data-hub-go="coins" title="Биткоины и подарки"><span class="btc" aria-hidden="true">₿</span><b data-count="coins">${GAME.coins || 0}</b></button>`);
     }
-    if (me && me.value) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="${esc(L.name || 'Лига')} — рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Лига <b data-count="place">${me.place}</b>${L.top ? `<small>/${Math.max(L.top.length, me.place)}</small>` : ''}</button>`);
-    else if (SERVER && student) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="Рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Рейтинг</button>`);
+    if (!focus && me && me.value) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="${esc(L.name || 'Лига')} — рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Лига <b data-count="place">${me.place}</b>${L.top ? `<small>/${Math.max(L.top.length, me.place)}</small>` : ''}</button>`);
+    else if (!focus && SERVER && student) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="Рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Рейтинг</button>`);
     if (typeof PROMO !== 'undefined' && PROMO && !TEACHER) out.push(`<button type="button" class="hub-pill promo-pill-h" data-hub-go="promo" title="${esc(PROMO.title)}">⚡ <b>${xTxt(Math.max(PROMO.task, PROMO.exam))} ₿</b></button>`);
-    out.push(`<button type="button" class="hub-pill fire-pill${lit ? ' lit' : ''}" data-hub-go="fire" title="${lit ? 'Огонёк на сегодня горит' : 'Реши задания сегодня — огонёк не погаснет'}">${FLAME}<b data-count="days">${days}</b><small>${plural(days, 'день', 'дня', 'дней')}</small></button>`);
+    if (!focus) out.push(`<button type="button" class="hub-pill fire-pill${lit ? ' lit' : ''}" data-hub-go="fire" title="${lit ? 'Огонёк на сегодня горит' : 'Реши задания сегодня — огонёк не погаснет'}">${FLAME}<b data-count="days">${days}</b><small>${plural(days, 'день', 'дня', 'дней')}</small></button>`);
     return out.join('');
   }
   function renderHub(enter) {
@@ -10571,6 +10584,8 @@
   }
   function openHub(initial) {
     if (!leaveExam()) return;
+    if (pyOpen()) togglePy(false);            // сохраняет код до ухода с задания
+    if (bdOpen()) toggleBoard(false);         // сохраняет рисунок и незавершённый текст
     if (isNarrow()) setSideOpen(false);
     if (!(courseShown && pageKind === 'hub')) {
       abandonCurrent();
@@ -10620,7 +10635,6 @@
   }
   $('#forecastModal').addEventListener('click', e => {
     if (e.target.closest('#hubFireGo')) { closeForecast(); setScope('all'); return; }
-    if (e.target.closest('.hub-streak #freezeBuy')) setTimeout(() => { if (!$('#forecastModal').hidden && $('.hub-streak')) hubFire(); }, 900);
   });
   trainerEl.addEventListener('keydown', e => {
     if (!courseShown || pageKind !== 'hub' || (e.key !== 'Enter' && e.key !== ' ')) return;
@@ -10634,7 +10648,9 @@
     if (!hubLeft) return;
     hubLeft = false;
     document.body.classList.remove('hub-on');
-    if (!courseShown && history.state && history.state.v === 'hub') navPush({ v: 'main' });
+    const st = history.state;
+    const base = st && st.v === 'modal' ? st.base : st;
+    if (!courseShown && base && base.v === 'hub') navPush({ v: 'main' });
   }).observe(trainerEl, { childList: true });
   $('#homeCard')?.addEventListener('click', openHub);
 
@@ -10682,17 +10698,44 @@
   $('#searchForm')?.addEventListener('submit', () => setTimeout(() => hubDrawer(false), 0));
 
   // окно как страница: открылось — запись в истории браузера, «Назад» закрывает его
-  let hubModalState = false, hubSkipPop = false;
+  let hubModalState = false, hubModalId = 0, hubModalBase = null;
+  let hubClosingHistory = false, hubPendingRoute = null;
+  function hubQueueNavigation(st) {
+    if (!hubClosingHistory) return false;
+    hubPendingRoute = st;
+    return true;
+  }
+  function hubModalPop(st) {
+    if (hubClosingHistory) {
+      hubClosingHistory = false;
+      const next = hubPendingRoute;
+      hubPendingRoute = null;
+      if (next) navPush(next);               // действие успело открыть раздел, пока браузер закрывал окно
+      return true;
+    }
+    if (!hubModalState) return false;
+    hubModalState = false;
+    closeForecast();
+    // Обычный шаг назад только закрывает окно; history.go(-2) также меняет раздел.
+    return JSON.stringify(st) === JSON.stringify(hubModalBase);
+  }
   new MutationObserver(() => {
     const open = !$('#forecastModal').hidden;
     if (!hubNav() || open === hubModalState) return;
     hubModalState = open;
-    if (open) { try { if (!history.state) history.replaceState({ v: 'main' }, ''); history.pushState({ v: 'modal' }, ''); } catch (e) { /* не страшно */ } }
-    else if (history.state && history.state.v === 'modal') { hubSkipPop = true; history.back(); }   // закрыли кнопкой — убрать запись
+    if (open) {
+      hubModalBase = (history.state?.v === 'modal' ? history.state.base : history.state) || { v: 'main' };
+      navPush({ v: 'modal', id: ++hubModalId, base: hubModalBase });
+    } else {
+      const id = hubModalId;
+      // Сначала обработать переход из окна в раздел (в том числе наблюдатель trainerEl).
+      queueMicrotask(() => {
+        if (!$('#forecastModal').hidden || history.state?.v !== 'modal' || history.state.id !== id) return;
+        hubClosingHistory = true;
+        history.back();
+      });
+    }
   }).observe($('#forecastModal'), { attributes: true, attributeFilter: ['hidden'] });
-  window.addEventListener('popstate', () => {
-    if (hubModalState && !$('#forecastModal').hidden) { hubModalState = false; closeForecast(); }
-  });
 
   // ------------------------------------------------------------ рядом с логотипом: «by Malevin» и техподдержка
   {

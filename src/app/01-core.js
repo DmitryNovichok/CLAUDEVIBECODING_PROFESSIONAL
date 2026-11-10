@@ -249,6 +249,7 @@
     writeJSON(VIEW_STORE, vp);
     applyTheme(effectiveTheme());
     applyView();
+    hubRefresh();
   }
   const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
   const effectiveTheme = () => document.documentElement.dataset.theme || (mqDark.matches ? 'dark' : 'light');

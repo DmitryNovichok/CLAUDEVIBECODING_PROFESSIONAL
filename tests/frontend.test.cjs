@@ -353,3 +353,110 @@ test('leaving a lesson lab detaches its draft; loading a protected lab keeps the
   c.pageKind='pyc';callback();assert.equal(saved,1);assert.equal(c.LAB.context,null);assert.equal(c.LAB.owner,null);
   callback();assert.equal(saved,1);
 });
+
+function hubHistoryContext() {
+  const microtasks = [], traversals = [], entries = [{v:'hub'}], rendered = [];
+  let at = 0, observer, pop, hidden = true;
+  const modal = {};
+  Object.defineProperty(modal, 'hidden', {get:()=>hidden, set:v=>{hidden=v; microtasks.push(()=>observer());}});
+  const clone = x => JSON.parse(JSON.stringify(x));
+  const history = {get state(){return entries[at];},
+    pushState:s=>{entries.splice(++at); entries.push(clone(s));},
+    replaceState:s=>{entries[at]=clone(s);}, back:()=>traversals.push(-1)};
+  const c = vm.createContext({history, navSilent:false, $:()=>modal,
+    hubNav:()=>true, queueMicrotask:fn=>microtasks.push(fn),
+    MutationObserver:class {constructor(cb){observer=cb;} observe(){}},
+    window:{addEventListener:(_,cb)=>{pop=cb;}}, closeForecast:()=>{modal.hidden=true;},
+    examShown:false, courseShown:true, inCourseSet:()=>false,
+    openHub:()=>rendered.push('hub'), openCourse:()=>rendered.push('course'),
+    openLesson:n=>rendered.push('lesson:'+n), leaveCourse:()=>rendered.push('leave'), next:()=>rendered.push('task')});
+  vm.runInContext(sourceBetween('src/app/03-forecast-course.js', '  function navPush(', '  function inCourseSet('), c);
+  const hub = fs.readFileSync('src/app/13c-hub.js','utf8');
+  const start = hub.indexOf('  let hubModalState');
+  vm.runInContext(hub.slice(start,hub.indexOf('  // ------------------------------------------------------------ рядом',start)),c);
+  vm.runInContext(sourceBetween('src/app/03-forecast-course.js', "  window.addEventListener('popstate'", '  let COURSE_OK'),c);
+  const flush = () => {let i=0;while(microtasks.length){assert.ok(++i<50);microtasks.shift()();}};
+  const go = delta => {at+=delta;assert.ok(at>=0 && at<entries.length);pop({state:history.state});flush();};
+  return {c,modal,history,rendered,traversals,entries,flush,go,
+    navigate:s=>c.navPush(s), open:()=>{modal.hidden=false;flush();}, close:()=>{modal.hidden=true;flush();},
+    settle:()=>{while(traversals.length)go(traversals.shift());}};
+}
+
+test('hub modal Back preserves its page and Forward restores the window', () => {
+  const h=hubHistoryContext();h.open();
+  assert.equal(h.history.state.v,'modal');const id=h.history.state.id;
+  h.go(-1);
+  assert.equal(h.modal.hidden,true);
+  assert.deepEqual(h.rendered,[], 'closing an overlay must not restart a task');
+  h.go(1);
+  assert.equal(h.modal.hidden,false);
+  assert.equal(h.history.state.id,id);
+  assert.deepEqual(h.rendered,['hub']);
+  assert.equal(h.entries.length,2,'restoring does not push another window');
+});
+
+test('navigation from a modal replaces it and Back returns to the hub', () => {
+  const h=hubHistoryContext();h.open();
+  h.modal.hidden=true;h.navigate({v:'course'});h.flush();
+  assert.deepEqual(h.entries.map(x=>x.v),['hub','course']);
+  assert.deepEqual(h.traversals,[]);
+  h.go(-1);assert.deepEqual(h.rendered,['hub']);
+});
+
+test('trainer navigation in a mutation observer wins over closing the modal', () => {
+  const h=hubHistoryContext();h.open();h.modal.hidden=true;
+  // The modal observer runs first, then the trainer observer, then the queued close.
+  h.c.queueMicrotask(()=>h.navigate({v:'main'}));h.flush();
+  assert.equal(h.history.state.v,'main');assert.deepEqual(h.traversals,[]);
+  h.go(-1);assert.deepEqual(h.rendered,['hub']);
+});
+
+test('a delayed navigation survives the browser pending Back event', () => {
+  const h=hubHistoryContext();h.open();h.close();
+  assert.deepEqual(h.traversals,[-1]);
+  h.navigate({v:'lesson',n:5});h.settle();
+  assert.deepEqual(h.entries.map(x=>x.v),['hub','lesson']);
+  assert.deepEqual(h.rendered,[],'the action already rendered its destination');
+  h.go(-1);assert.deepEqual(h.rendered,['hub']);
+});
+
+test('another modal opened while Back is pending retains the original page', () => {
+  const h=hubHistoryContext();h.open();h.close();h.open();h.settle();
+  assert.equal(h.history.state.v,'modal');
+  assert.equal(h.history.state.base.v,'hub');
+  h.go(-1);assert.equal(h.modal.hidden,true);
+  assert.deepEqual(h.rendered,[]);
+});
+
+test('jumping over a modal restores the target route, including Forward', () => {
+  const h=hubHistoryContext();h.navigate({v:'course'});h.open();
+  h.go(-2);assert.deepEqual(h.rendered,['hub']);assert.equal(h.modal.hidden,true);
+  h.go(2);assert.deepEqual(h.rendered,['hub','course']);assert.equal(h.modal.hidden,false);
+});
+
+function hubPlanContext() {
+  const c=vm.createContext({ASG:[], asgOrder:()=>0, DAILY:null, hubWeakNums:()=>[],
+    hubDueCount:()=>0, fireNeed:()=>3, hubTodayCount:()=>0, hubMins:()=>'',
+    numLabel:n=>String(n), plural:()=>'', fmtMs:()=>'', viewPrefs:()=>({focus:false})});
+  vm.runInContext(sourceBetween('src/app/13c-hub.js', '  function hubPlan()', '  // ------------------------------------------------------------ разделы'),c);
+  return c;
+}
+
+test('daily challenge completion requires an accepted result, not merely opening it', () => {
+  const c=hubPlanContext();
+  for(const daily of [{ready:true,n:5},{ready:true,n:5,started:123},{ready:true,n:5,started:123,fast:true}]) {
+    c.DAILY=daily;const item=c.hubPlan().find(x=>x.key==='daily');
+    assert.equal(item.done,false);
+    assert.equal(item.btn,daily.started?'Рейтинг':'Решить');
+  }
+  c.DAILY={ready:true,n:5,started:123,my_place:2,mine:20000};
+  assert.equal(c.hubPlan().find(x=>x.key==='daily').done,true);
+});
+
+test('Focus mode removes game objectives from the hub plan', () => {
+  const c=hubPlanContext();c.DAILY={ready:true,n:5};c.duelCalls=()=>[{id:1,opponent:'Макетов Пример'}];
+  assert.ok(c.hubPlan().some(x=>x.ic==='daily'));
+  c.viewPrefs=()=>({focus:true});
+  assert.ok(c.hubPlan().length>0);
+  assert.ok(c.hubPlan().every(x=>!['daily','duel','fire'].includes(x.ic)));
+});

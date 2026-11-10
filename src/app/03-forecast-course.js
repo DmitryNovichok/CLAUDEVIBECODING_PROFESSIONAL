@@ -403,10 +403,17 @@
   let navSilent = false;
   function navPush(st) {
     if (navSilent) return;
+    if (hubQueueNavigation(st)) return;
     try {
       const was = history.state;
       if (!was) history.replaceState({ v: 'main' }, '');
       else if (JSON.stringify(was) === JSON.stringify(st)) return;
+      // Действие в окне открыло раздел: окно занимает его место в истории.
+      // Иначе «Назад» попадёт на уже закрытое окно или пропустит главную.
+      if (was && was.v === 'modal' && $('#forecastModal').hidden && st.v !== 'modal') {
+        history.replaceState(st, '');
+        return;
+      }
       history.pushState(st, '');
     } catch (e) {}
   }
@@ -423,10 +430,10 @@
     navPush({ v: 'task', set: a.id, id: t.id });
   }
   window.addEventListener('popstate', e => {
-    const st = e.state || { v: 'main' };
-    // закрылось окно-страница: страница под ним уже на экране — перерисовывать её не нужно
-    if (typeof hubSkipPop !== 'undefined' && hubSkipPop) { hubSkipPop = false; return; }
-    if (typeof hubModalState !== 'undefined' && hubModalState) return;
+    let st = e.state || { v: 'main' };
+    if (hubModalPop(st)) return;
+    const restoreModal = st.v === 'modal' && st.id === hubModalId;
+    if (st.v === 'modal') st = st.base || { v: 'main' };
     navSilent = true;
     try {
       if (examShown) return;
@@ -448,7 +455,10 @@
         if (inCourseSet()) { ui.scope = 'all'; save(); renderSidebar(); }
         next();
       }
-    } finally { navSilent = false; }
+    } finally {
+      navSilent = false;
+      if (restoreModal) { hubModalState = true; $('#forecastModal').hidden = false; }
+    }
   });
   let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
   function courseLock() {
