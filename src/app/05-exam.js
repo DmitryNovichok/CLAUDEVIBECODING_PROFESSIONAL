@@ -677,6 +677,7 @@
         renderTopbar();
         toast(`❄️ Заморозка куплена. В запасе: ${(GAME && GAME.freezes) || 0} из ${FREEZE_MAX}`, 3500);
       } catch (x) { toast(x.message || 'Не получилось — попробуйте ещё раз', 3500); renderTopbar(); }
+      finally { if (!$('#forecastModal').hidden && $('.hub-streak')) hubFire(); }
       return;
     }
     const menu = $('#goalMenu');
@@ -702,7 +703,7 @@
     if (vs) { setView('size', +vs.dataset.viewSize); openThemes(); return; }
     const va = e.target.closest('[data-view-accent]');
     if (va) { setView('accent', va.dataset.viewAccent); openThemes(); return; }
-    if (e.target.closest('[data-view-reset]')) { writeJSON(VIEW_STORE, VIEW_DEF); applyTheme(effectiveTheme()); applyView(); openThemes(); return; }
+    if (e.target.closest('[data-view-reset]')) { writeJSON(VIEW_STORE, VIEW_DEF); applyTheme(effectiveTheme()); applyView(); hubRefresh(); openThemes(); return; }
     const ho = e.target.closest('[data-open]');
     if (ho) { closeForecast(); openPast(ho.dataset.open); navPush({ v: 'past', id: ho.dataset.open }); return; }
     const hf = e.target.closest('[data-hf]');
