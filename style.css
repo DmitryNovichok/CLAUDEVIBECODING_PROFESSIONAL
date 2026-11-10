@@ -3617,7 +3617,7 @@ body.lab-open .trainer { max-width: 1260px; }
 /* ============================================================ главная-пульт ученика */
 /* по краям ничего не отвлекает: слева нет панели, сверху — только название и профиль */
 body.hub-on:not(.hubnav) .sidebar { display: none; }
-@media (max-width: 860px) { body.hub-on .sidebar { display: none; } }
+@media (max-width: 860px) { body.hub-on .sidebar:not(.open) { display: none; } }   /* на телефоне номера с главной — через «Ещё» */
 body.hub-on .topbar { justify-content: space-between; padding: 14px max(20px, calc((100% - 1080px) / 2)); border-bottom-color: transparent; background: transparent; backdrop-filter: none; position: static; }
 body.hub-on .topbar .forecast, body.hub-on .scope-info, body.hub-on .session-info { display: none; }
 body.hub-on .me-box > :not(.who):not(.teacher-back) { display: none; }
