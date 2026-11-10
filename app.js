@@ -2799,6 +2799,12 @@
     ta.value = code;
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     $('#pyTask').textContent = DECK.pyc ? DECK.label + ' · пример' : `курс · №${DECK.n}`;
+    if (!DECK.pyc) {                      // урок курса: файлы данных слайда кладём рядом с кодом — open('24.txt') работает
+      const files = (sl.blocks ? (sl.blocks[k || 0] || {}).files : null) || sl.files || [];
+      PY.task = files.length ? { id: `course:${DECK.n}:${i}:${k || 0}`, n: 0, pyc: true, label: `курс · №${DECK.n}`,
+        att: files.map(f => ({ name: f.name, href: f.url })) } : null;
+      $('#pyFiles').innerHTML = files.length ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ') : '';
+    }
   }
   document.addEventListener('keydown', e => {
     if (!courseShown || !DECK || !$('#crsDeck') || e.target.closest('input, textarea, select')) return;

@@ -2483,6 +2483,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_bank()
         if rel.startswith("files/"):
             return self.serve_task_file(rel)
+        if rel.startswith("course-data/"):        # файлы данных к программам на слайдах курса (без ответов)
+            return self.serve_file(HERE / "course" / "data", rel[len("course-data/"):])
         if rel.startswith("pyc-data/"):           # файлы к задачам курса программирования (без ответов)
             return self.serve_file(HERE / "pycourse" / "data", rel[len("pyc-data/"):])
         # файлы сайта

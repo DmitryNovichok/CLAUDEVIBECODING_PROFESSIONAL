@@ -177,7 +177,7 @@ self.onmessage = async ev => {
     for (const file of (msg.files || []).slice(0, 10)) {
       if (!/^[A-Za-z0-9_.-]{1,60}$/.test(file.name) || file.name === '.' || file.name === '..') throw Error('Недопустимое имя файла');
       const url = new URL(file.url, self.location.href);
-      if (url.origin !== self.location.origin || !url.pathname.startsWith('/pyc-data/')) throw Error('Недопустимый файл урока');
+      if (url.origin !== self.location.origin || !/^\/(pyc|course)-data\//.test(url.pathname)) throw Error('Недопустимый файл урока');
       const r = await fetch(url, { credentials: 'same-origin' });
       if (!r.ok) throw Error('Не удалось загрузить файл ' + file.name);
       const data = new Uint8Array(await r.arrayBuffer());

@@ -2370,6 +2370,19 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(sorted(ids(t["id"])), sorted(r["id"] for r in everyone if r["teacher_id"] == t["id"]))
         self.assertIn("students_teacher", [r["name"] for r in db.q("PRAGMA index_list(students)")])
 
+    def test_course_data_files_are_served(self):
+        """Файлы данных к программам на слайдах курса: отдаются по course-data/, сама презентация course/*.json — нет."""
+        d = server.HERE / "course" / "data" / "24"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "24.txt").write_text("ABCABC\n", encoding="utf-8")
+        (server.HERE / "course" / "24.json").write_text('{"n": 24, "slides": []}', encoding="utf-8")
+        st, body = self.req("GET", "/course-data/24/24.txt?v=abc12345")
+        self.assertEqual((st, body if isinstance(body, str) else body), (200, body))
+        self.assertIn("ABCABC", body if isinstance(body, str) else body.decode())
+        self.assertEqual(self.req("GET", "/course-data/24/none.txt")[0], 404)
+        self.assertEqual(self.req("GET", "/course-data/../24.json")[0], 404)
+        self.assertEqual(self.req("GET", "/course/24.json")[0], 404)
+
     def test_arduino_lab_is_served(self):
         """Лаборатория Arduino — отдельное приложение в папке arduino/: страница, скрипты, шрифты; компилятора на сервере нет."""
         import shutil
