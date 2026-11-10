@@ -2829,7 +2829,8 @@ class ServerTest(unittest.TestCase):
         with server._GIFT_LOCK:
             for _ in range(30):
                 n = server.gift_uniq(db, "robot")
-                self.assertNotEqual((n["bg"], n["sym"], n["fx"]), (burned["bg"], burned["sym"], burned["fx"]))
+                look = lambda u: (u["bg"], u["sym"], u["fx"], u.get("pose", "stand"))   # неповторимо сочетание всех четырёх: с позой
+                self.assertNotEqual(look(n), look(burned))
                 self.assertGreater(n["n"], burned["n"])
         # тираж: кончился — улучшить нельзя; цена улучшения растёт с выпуском
         cap = server.UNIQ_CAP
