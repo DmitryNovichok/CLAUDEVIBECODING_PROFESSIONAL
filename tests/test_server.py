@@ -1125,6 +1125,40 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(r["pw_set"], False)
         self.assertEqual(self.req("GET", "/api/lab", token=tok)[1], {"access": False, "pw": False})
 
+    def test_access_passwords_in_one_place(self):
+        """«Пароли и доступы»: курс по заданиям, курс программирования и лаборатории — одна точка; в базе только хеши."""
+        tok = self.login("Доступов Денис")
+        st, d = self.admin("GET", "/api/admin/access")
+        self.assertEqual((st, d["course"]["set"], d["pyc"]["set"], d["lab"]["set"]), (200, False, False, False))
+        self.assertEqual(self.admin("POST", "/api/admin/access", {"kind": "course", "password": "12"})[0], 400)
+        self.assertEqual(self.admin("POST", "/api/admin/access", {"kind": "nope", "password": "abcd1234"})[0], 400)
+        d = self.admin("POST", "/api/admin/access", {"kind": "course", "password": "synthetic-course-1"})[1]
+        self.assertEqual((d["course"]["set"], d["pyc"]["set"], d["lab"]["set"]), (True, False, False))
+        self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "synthetic-course-1"}, tok)[0], 200)
+        self.assertEqual(self.admin("GET", "/api/admin/access")[1]["course"]["students"], 1)
+        # смена пароля: вошедший остаётся, новый пароль работает, старый — нет
+        self.admin("POST", "/api/admin/access", {"kind": "course", "password": "synthetic-course-2"})
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["course"])
+        self.admin("POST", "/api/admin/access", {"kind": "course", "revoke": True})
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["course"])
+        self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "synthetic-course-1"}, tok)[0], 403)
+        self.assertEqual(self.req("POST", "/api/course/unlock", {"password": "synthetic-course-2"}, tok)[0], 200)
+        # один пароль на всё
+        d = self.admin("POST", "/api/admin/access", {"all": "synthetic-all-3"})[1]
+        self.assertTrue(all(d[k]["set"] for k in ("course", "pyc", "lab")))
+        self.assertTrue(self.req("POST", "/api/lab/unlock", {"password": "synthetic-all-3"}, tok)[1]["access"])
+        self.assertEqual(self.req("POST", "/api/pyc/unlock", {"password": "synthetic-all-3"}, tok)[0], 200)
+        dump = json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")])
+        for pw in ("synthetic-course-1", "synthetic-course-2", "synthetic-all-3"):
+            self.assertNotIn(pw, dump)
+        # выключить один раздел — остальные не трогаются
+        d = self.admin("POST", "/api/admin/access", {"kind": "pyc", "off": True})[1]
+        self.assertEqual((d["course"]["set"], d["pyc"]["set"], d["lab"]["set"], d["pyc"]["students"]), (True, False, True, 0))
+        for k in ("course", "lab"):                          # общая база тестов: возвращаем всё как было
+            self.admin("POST", "/api/admin/access", {"kind": k, "off": True})
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        server.APP.db.x("DELETE FROM students WHERE id=?", (sid,))      # лишний ученик сдвинул бы лиги в других тестах
+
     def test_funny_achievements(self):
         db = server.APP.db
         sid = db.x("INSERT INTO students(name,name_key,token,created,last_seen) VALUES('Шутов Шура','шутов шура','tkfun',0,0)")

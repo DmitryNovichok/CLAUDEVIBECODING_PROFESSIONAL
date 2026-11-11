@@ -77,6 +77,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <button type="button" data-tab="teachers" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.3 4-6.5 8-6.5s7 2.2 8 6.5"/></svg></i>Учителя</button>
       <button type="button" data-tab="site" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></i>Статистика сайта</button>
       <button type="button" data-tab="errors" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="13" rx="5"/><path d="M12 7V4M9 4.5 10 7M15 4.5 14 7M3 12h4M17 12h4M4 18l3-2M20 18l-3-2M4 7l3 2M20 7l-3 2"/></svg></i>Ошибки <b class="tab-n" id="errN" hidden></b></button>
+      <button type="button" data-tab="access" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg></i>Пароли и доступы</button>
       <button type="button" data-tab="settings"><i aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></i>Настройки</button>
     </nav>
     <div class="adm-side-foot">
@@ -209,34 +210,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
         <button type="button" class="btn ghost" id="pycReload">Обновить</button></div>
       <p class="adm-hint" style="margin:0 0 12px">Ученики, которые открыли курс паролем (как в «Прогрессе курса»). Итог — доля решённых задач курса; красное число — задачи, которые ученик пробовал, но пока не решил. Нажмите на ученика — увидите каждую задачу:
         <span class="cp-sq ok"></span> решена, <span class="cp-sq bad"></span> есть неверные попытки, <span class="cp-sq"></span> не начата; по клику — его код. Там же кнопка «Открыть все уровни» — уровни тем без замков (например, для тестового аккаунта).</p>
-      <form class="adm-box main-only" id="pycPwAdmForm" style="margin-bottom:14px">
-        <h3 class="adm-h3">Пароль курса</h3>
-        <p class="fm-note">Курс программирования у учеников открывается по этому паролю. Ученик вводит его один раз. Новый пароль действует для новых входов; «Закрыть всем» снова попросит пароль у всех; «Выключить курс» сбросит пароль и закроет курс у всех.</p>
-        <div class="login-form">
-          <input class="inp" id="pycPwAdm" type="text" autocomplete="off" maxlength="200" placeholder="новый пароль курса">
-          <button class="btn primary" type="submit">Сохранить</button>
-        </div>
-        <div class="adm-row-btns">
-          <button class="btn ghost" type="button" id="pycRevoke">Закрыть всем</button>
-          <button class="btn ghost" type="button" id="pycPwOff">Выключить курс</button>
-        </div>
-        <p class="fm-note" id="pycPwState"></p>
-        <div class="login-err" id="pycPwMsgAdm"></div>
-      </form>
-      <form class="adm-box main-only" id="labPwAdmForm" style="margin-bottom:14px">
-        <h3 class="adm-h3">Пароль лабораторий</h3>
-        <p class="fm-note">Лабораторные работы, «Исправление ошибок» и лаборатория Arduino открываются у ученика по этому паролю — он вводит его один раз. «Закрыть всем» снова попросит пароль у всех; «Выключить» сбросит пароль и закроет лаборатории у всех.</p>
-        <div class="login-form">
-          <input class="inp" id="labPwAdm" type="text" autocomplete="off" maxlength="200" placeholder="новый пароль лабораторий">
-          <button class="btn primary" type="submit">Сохранить</button>
-        </div>
-        <div class="adm-row-btns">
-          <button class="btn ghost" type="button" id="labRevoke">Закрыть всем</button>
-          <button class="btn ghost" type="button" id="labPwOff">Выключить</button>
-        </div>
-        <p class="fm-note" id="labPwState"></p>
-        <div class="login-err" id="labPwMsgAdm"></div>
-      </form>
+      <p class="adm-hint main-only" style="margin:0 0 12px">Пароль курса программирования — во вкладке <a href="#" data-goto-tab="access">«Пароли и доступы»</a>.</p>
       <div id="pycBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
@@ -489,6 +463,23 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     </section>
 
     <!-- Настройки -->
+    <section class="adm-view" id="view-access" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Пароли и доступы</h2></div>
+      <p class="adm-hint" style="margin:0 0 14px">Все разделы, которые ученик открывает паролем, — в одном месте. Ученик вводит пароль один раз.
+        Новый пароль действует для новых входов: кто уже вошёл, остаётся с доступом. «Закрыть всем» снова попросит пароль у всех;
+        «Выключить» сбросит пароль и закроет раздел у всех. В базе хранится только зашифрованный вид пароля.</p>
+      <div class="acc-grid" id="accGrid"></div>
+      <form class="adm-box acc-all" id="accAllForm">
+        <h3 class="adm-h3">Один пароль на всё</h3>
+        <p class="fm-note">Задать одинаковый пароль сразу курсу по заданиям, курсу программирования и лабораториям. Уже открытые доступы у учеников не закрываются.</p>
+        <div class="login-form">
+          <input class="inp" id="accAll" type="text" autocomplete="off" maxlength="200" placeholder="общий пароль">
+          <button class="btn primary" type="submit">Задать всем трём</button>
+        </div>
+        <div class="login-err" id="accAllMsg"></div>
+      </form>
+    </section>
+
     <section class="adm-view" id="view-settings" hidden>
       <h2 class="adm-h">Настройки</h2>
       <div class="adm-settings">
@@ -530,24 +521,6 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
           <p class="fm-note" id="authoredNote"></p>
           <div class="login-err" id="authoredMsg"></div>
         </div>
-        <form class="adm-box main-only" id="courseForm">
-          <h3 class="adm-h3">Пароль курса</h3>
-          <p class="fm-note">Раздел «Курс» у учеников открывается по этому паролю. Ученик вводит его один раз. Новый пароль действует для новых входов; «Закрыть всем» снова попросит пароль у всех.</p>
-          <div class="login-form">
-            <input class="inp" id="coursePwAdm" type="text" autocomplete="off" maxlength="200" placeholder="новый пароль курса">
-            <button class="btn primary" type="submit">Сохранить</button>
-          </div>
-          <div class="adm-row-btns">
-            <button class="btn ghost" type="button" id="courseRevoke">Закрыть всем</button>
-            <button class="btn ghost" type="button" id="courseOff">Выключить курс</button>
-          </div>
-          <p class="fm-note" id="courseState"></p>
-          <details class="course-who" id="courseWho">
-            <summary><span class="course-count" id="courseCount">0</span> <span id="courseCountTxt">учеников открыли курс</span></summary>
-            <div id="courseList" class="course-list"></div>
-          </details>
-          <div class="login-err" id="courseMsgAdm"></div>
-        </form>
         <form class="adm-box" id="inviteForm">
           <h3 class="adm-h3">Код приглашения</h3>
           <p class="fm-note">Без него ученик не войдёт на сайт. Скажите код классу; если он разошёлся дальше — поменяйте. Уже вошедшие ученики остаются в системе.</p>

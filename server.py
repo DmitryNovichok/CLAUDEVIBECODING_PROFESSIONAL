@@ -5747,6 +5747,40 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"lessons": lessons, "students": out,
                                    "set_names": {"warm": "Разминка", "base": "Базовый", "exam": "Как на ЕГЭ", "hard": "Сложные", "test": "Контрольная"}})
 
+        if path == "/api/admin/access":
+            # все пароли разделов в одном месте: курс по заданиям, курс программирования, лаборатории.
+            # GET — состояние; POST {kind, password | revoke | off} или {all: пароль} — один пароль на все три раздела
+            if not self.T["is_main"]:
+                return self.err(403, "Пароли разделов задаёт главный учитель")
+            kinds = {"course": ("course_pw", "course"), "pyc": ("pyc_pw", "pyc"), "lab": ("lab_pw", "lab")}
+            if method == "POST":
+                every = str(data.get("all") or "").strip()
+                kind = data.get("kind")
+                if every:
+                    if len(every) < 4:
+                        return self.err(400, "Пароль — не короче 4 символов")
+                    for key, _col in kinds.values():
+                        db.setting(key, hash_pw(every[:200]))      # у каждого раздела своя соль
+                elif kind in kinds:
+                    key, col = kinds[kind]
+                    pw = str(data.get("password") or "").strip()
+                    if pw:
+                        if len(pw) < 4:
+                            return self.err(400, "Пароль — не короче 4 символов")
+                        db.setting(key, hash_pw(pw[:200]))
+                    if data.get("off"):
+                        db.setting(key, "")
+                    if data.get("revoke") or data.get("off"):
+                        db.x(f"UPDATE students SET {col}=0")
+                else:
+                    return self.err(400, "неизвестный раздел")
+                LIVE.send([r["id"] for r in db.q("SELECT id FROM students")], "pyc")    # замки и поля пароля у учеников обновятся сразу
+            out = {}
+            for kind, (key, col) in kinds.items():
+                n = db.q(f"SELECT COUNT(*) c FROM students WHERE {col}=1 AND COALESCE(is_teacher, 0)=0", one=True)["c"]
+                out[kind] = {"set": bool(db.setting(key)), "students": n}
+            return self.send_json(out)
+
         if path == "/api/admin/course" and method == "POST":
             # пароль курса: задать или сменить; revoke — закрыть курс всем, кто уже вошёл
             if not self.T["is_main"]:

@@ -290,7 +290,12 @@
   $('#pycCard')?.addEventListener('click', () => openPyc());
   /** Учитель задал пароль, закрыл курс всем или выключил его — замок и экран курса обновляются сразу. */
   async function pycLive() {
-    try { const me = await api('me'); pycSetAccess(me.pyc, me.pyc_pw); } catch (e) { return; }
+    try {
+      const me = await api('me');
+      pycSetAccess(me.pyc, me.pyc_pw);
+      COURSE_OK = !!me.course; $('#courseCard')?.classList.toggle('locked', !COURSE_OK);   // пароли курса и лабораторий меняются там же
+      LAB_OK = !!me.lab; $('#labCard')?.classList.toggle('locked', !LAB_OK);
+    } catch (e) { return; }
     if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
   }
 

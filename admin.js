@@ -1745,62 +1745,8 @@
   async function loadPyc() {
     try { PYA.d = await api('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     PYA.detail = {};
-    pycPwState(PYA.d.pw_set, PYA.d.students.length);
-    labPwLoad();
     renderPyc();
   }
-  function pycPwState(set, n) {
-    $('#pycPwState').textContent = set ? `Курс включён · вошли по паролю: ${n || 0}` : 'Курс выключен: пароль не задан';
-  }
-  async function pycPwSave(body, okText) {
-    const msg = $('#pycPwMsgAdm');
-    msg.className = 'login-err';
-    msg.textContent = '';
-    try {
-      const r = await api('pyc/password', body);
-      pycPwState(r.pw_set, r.students);
-      $('#pycPwAdm').value = '';
-      msg.className = 'login-err ok';
-      msg.textContent = okText;
-      loadPyc();
-    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
-  }
-  $('#pycPwAdmForm').addEventListener('submit', e => {
-    e.preventDefault();
-    if ($('#pycPwAdm').value.trim()) pycPwSave({ password: $('#pycPwAdm').value }, 'Пароль курса сохранён');
-  });
-  $('#pycRevoke').addEventListener('click', () => {
-    if (confirm('Закрыть курс программирования всем ученикам? Им придётся снова ввести пароль.')) pycPwSave({ revoke: true }, 'Курс закрыт всем — нужен пароль');
-  });
-  $('#pycPwOff').addEventListener('click', () => {
-    if (confirm('Выключить курс программирования? Пароль сбросится, курс будет закрыт у всех.')) pycPwSave({ off: true }, 'Курс выключен');
-  });
-  // пароль лабораторий — так же, как у курса программирования
-  function labPwState(r) {
-    $('#labPwState').textContent = r.pw_set ? `Лаборатории открыты по паролю · вошли: ${r.students || 0}` : 'Лаборатории закрыты: пароль не задан';
-  }
-  async function labPwLoad() { try { labPwState(await api('lab/password')); } catch (err) { /* не главный учитель или нет связи */ } }
-  async function labPwSave(body, okText) {
-    const msg = $('#labPwMsgAdm');
-    msg.className = 'login-err';
-    msg.textContent = '';
-    try {
-      labPwState(await api('lab/password', body));
-      $('#labPwAdm').value = '';
-      msg.className = 'login-err ok';
-      msg.textContent = okText;
-    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
-  }
-  $('#labPwAdmForm').addEventListener('submit', e => {
-    e.preventDefault();
-    if ($('#labPwAdm').value.trim()) labPwSave({ password: $('#labPwAdm').value }, 'Пароль лабораторий сохранён');
-  });
-  $('#labRevoke').addEventListener('click', () => {
-    if (confirm('Закрыть лаборатории всем ученикам? Им придётся снова ввести пароль.')) labPwSave({ revoke: true }, 'Лаборатории закрыты всем — нужен пароль');
-  });
-  $('#labPwOff').addEventListener('click', () => {
-    if (confirm('Выключить лаборатории? Пароль сбросится, лаборатории закроются у всех.')) labPwSave({ off: true }, 'Лаборатории выключены');
-  });
   const pycLbl = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
   function renderPyc() {
     const d = PYA.d, q = ($('#pycFind').value || '').trim().toLowerCase();
@@ -2130,7 +2076,7 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     document.body.classList.toggle('builder-open', t === 'build');
     if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
@@ -2148,6 +2094,7 @@
     if (t === 'classes') loadClasses();
     if (t === 'feed') { $('#feedDot').hidden = true; renderFeed(); }
     if (t === 'settings') loadSettings();
+    if (t === 'access') loadAccess();
     if (t === 'comp') loadComp();
     refreshSteps();
     window.scrollTo({ top: 0 });
@@ -4129,7 +4076,6 @@
       $('#reportState').textContent = ME.mail_on ? '' : (ME.is_main
         ? 'Отправка писем на сервере не настроена — отчёты не уходят. Настройка SMTP — в deploy/DEPLOY.md.'
         : 'Отправка писем на сервере пока не включена — отчёт можно посмотреть кнопкой выше.');
-      courseState(d.course_set, d.course_students);
       $('#authoredOn').checked = d.authored_on !== false;
       $('#authoredNote').textContent = `Авторских в банке: ${d.authored_tasks || 0} из ${d.tasks}. Ученики увидят изменение, когда обновят страницу. Найти задание по номеру и открыть из избранного или истории можно в любом случае.`;
     } catch (e) { /* не страшно */ }
@@ -4179,48 +4125,70 @@
     }
   });
   const pluralRu = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 10 || b >= 20) ? few : many; };
-  function courseState(set, n) {
-    const el = $('#courseState');
-    if (el) el.textContent = set ? 'Курс включён' : 'Курс выключен: пароль не задан';
-    if ($('#courseCount')) {
-      $('#courseCount').textContent = n || 0;
-      $('#courseCountTxt').textContent = `${pluralRu(n || 0, 'ученик открыл', 'ученика открыли', 'учеников открыли')} курс паролем`;
-      if ($('#courseWho').open) loadCourseList();
-    }
+  // ------------------------------------------------------------ пароли и доступы: курс, программирование, лаборатории
+  const ACC = [
+    { kind: 'course', title: 'Курс по заданиям', icon: '🎓', what: 'Раздел «Курс ЕГЭ»: уроки по номерам 1–27 и подборки к ним.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
+    { kind: 'pyc', title: 'Курс программирования', icon: '🐍', what: 'Курс «Программирование для ЕГЭ»: Python с нуля и темы по номерам.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
+    { kind: 'lab', title: 'Лаборатории', icon: '🧪', what: 'Лабораторные работы, пошаговая лаборатория программирования, «Исправление ошибок» и Arduino.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
+  ];
+  function renderPasswords(d) {
+    $('#accGrid').innerHTML = ACC.map(a => {
+      const st = d[a.kind] || {};
+      return `<form class="adm-box acc-card" data-acc="${a.kind}">
+        <div class="acc-h"><span class="acc-ic" aria-hidden="true">${a.icon}</span><div><h3 class="adm-h3">${a.title}</h3>
+          <span class="acc-state ${st.set ? 'on' : 'off'}">${st.set ? 'Открывается по паролю' : 'Выключен: пароль не задан'}</span></div></div>
+        <p class="fm-note">${a.what}</p>
+        <p class="acc-n"><b>${st.students || 0}</b> ${pluralRu(st.students || 0, ...a.who)}</p>
+        <div class="login-form">
+          <input class="inp" name="pw" type="text" autocomplete="off" maxlength="200" placeholder="${st.set ? 'новый пароль' : 'задать пароль'}" aria-label="Пароль: ${a.title}">
+          <button class="btn primary" type="submit">${st.set ? 'Сменить' : 'Включить'}</button>
+        </div>
+        <div class="adm-row-btns">
+          <button class="btn ghost" type="button" data-acc-act="revoke"${st.students ? '' : ' disabled'}>Закрыть всем</button>
+          <button class="btn ghost" type="button" data-acc-act="off"${st.set ? '' : ' disabled'}>Выключить</button>
+        </div>
+        <div class="login-err" data-acc-msg></div>
+      </form>`;
+    }).join('');
   }
-  async function loadCourseList() {
-    const box = $('#courseList');
-    box.textContent = 'Загружаю…';
+  async function loadAccess() {
+    try { renderPasswords(await api('access')); } catch (err) { if (err.status !== 401) $('#accGrid').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; }
+  }
+  async function accSave(body, okText, msgEl) {
+    msgEl.className = 'login-err';
+    msgEl.textContent = '';
     try {
-      const r = await api('course/list');
-      box.innerHTML = r.students.length
-        ? `<table class="adm-table course-table"><tr><th>Ученик</th><th>Класс</th><th>Когда открыл</th></tr>${r.students.map(x =>
-            `<tr><td>${esc(x.name)}</td><td>${esc(x.class || '—')}</td><td>${x.ts ? `${fmtDate(x.ts)} ${fmtTime(x.ts)}` : '—'}</td></tr>`).join('')}</table>`
-        : '<p class="fm-note">Пока никто не вводил пароль курса.</p>';
-    } catch (err) { box.textContent = err.message; }
+      const d = await api('access', body);
+      renderPasswords(d);
+      const m = body.kind ? $(`[data-acc="${body.kind}"] [data-acc-msg]`) : msgEl;
+      m.className = 'login-err ok';
+      m.textContent = okText;
+      return true;
+    } catch (err) { if (err.status !== 401) msgEl.textContent = err.message; return false; }
   }
-  $('#courseWho')?.addEventListener('toggle', e => { if (e.target.open) loadCourseList(); });
-  async function courseSave(body, okText) {
-    const msg = $('#courseMsgAdm');
-    msg.className = 'login-err';
-    msg.textContent = '';
-    try {
-      const r = await api('course', body);
-      courseState(r.set, r.students);
-      $('#coursePwAdm').value = '';
-      msg.className = 'login-err ok';
-      msg.textContent = okText;
-    } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
-  }
-  $('#courseForm')?.addEventListener('submit', e => {
+  $('#accGrid').addEventListener('submit', e => {
     e.preventDefault();
-    if ($('#coursePwAdm').value.trim()) courseSave({ password: $('#coursePwAdm').value }, 'Пароль курса сохранён');
+    const f = e.target.closest('[data-acc]'), pw = f.elements.pw.value.trim();
+    if (pw) accSave({ kind: f.dataset.acc, password: pw }, 'Пароль сохранён', f.querySelector('[data-acc-msg]'));
   });
-  $('#courseRevoke')?.addEventListener('click', () => {
-    if (confirm('Закрыть курс всем ученикам? Им придётся снова ввести пароль.')) courseSave({ revoke: true }, 'Курс закрыт всем — нужен пароль');
+  $('#accGrid').addEventListener('click', e => {
+    const b = e.target.closest('[data-acc-act]');
+    if (!b) return;
+    const f = b.closest('[data-acc]'), a = ACC.find(x => x.kind === f.dataset.acc);
+    if (b.dataset.accAct === 'revoke' && confirm(`«${a.title}»: закрыть всем ученикам? Им придётся снова ввести пароль.`))
+      accSave({ kind: a.kind, revoke: true }, 'Закрыто всем — нужен пароль', f.querySelector('[data-acc-msg]'));
+    if (b.dataset.accAct === 'off' && confirm(`«${a.title}»: выключить? Пароль сбросится, раздел закроется у всех.`))
+      accSave({ kind: a.kind, off: true }, 'Выключено', f.querySelector('[data-acc-msg]'));
   });
-  $('#courseOff')?.addEventListener('click', () => {
-    if (confirm('Выключить курс? Пароль сбросится, раздел будет закрыт у всех.')) courseSave({ off: true }, 'Курс выключен');
+  $('#accAllForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const pw = $('#accAll').value.trim();
+    if (!pw || !confirm('Задать этот пароль курсу по заданиям, курсу программирования и лабораториям?')) return;
+    if (await accSave({ all: pw }, 'Пароль задан всем трём разделам', $('#accAllMsg'))) $('#accAll').value = '';
+  });
+  document.addEventListener('click', e => {
+    const a = e.target.closest('[data-goto-tab]');
+    if (a) { e.preventDefault(); go(a.dataset.gotoTab); }
   });
   $('#inviteForm').addEventListener('submit', async e => {
     e.preventDefault();
