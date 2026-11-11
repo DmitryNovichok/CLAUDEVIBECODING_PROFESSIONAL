@@ -22,7 +22,7 @@
       links.push(`<a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener">💬 Telegram @${esc(tg)}</a>`);
     }
     if (c.phone) links.push(`<a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">📞 ${esc(c.phone)}</a>`);
-    if (links.length) $('#contacts-list').innerHTML = links.join('');
+    if (links.length) { $('#contacts-list').innerHTML = links.join(''); $('#contacts').hidden = false; }
   }).catch(() => { /* без контактов */ });
 
   // ---- регистрация учителя: условия пробного периода покажет панель сразу после входа

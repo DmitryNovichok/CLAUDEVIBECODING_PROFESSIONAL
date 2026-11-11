@@ -11173,7 +11173,13 @@ pre{background:#f7f8fb;border:1px solid #e5e7eb;padding:8px 10px;white-space:pre
             f'<table><tr><th>№</th><th>Ученик</th><th>Статус</th><th>Баллы</th><th>С ответом</th><th>%</th><th>Оценка</th></tr>{summary}</table></section>'
             f'<section><div class="bar"></div><div class="brand">КИМ ПОДБОРКИ</div><h1>{E(title)}</h1>{"".join(kim_html)}</section>')
     return (f'<!doctype html><html lang="ru"><head><meta charset="utf-8"><base href="/"><title>Архив работ — {E(title)}</title>'
-            f'<link rel="stylesheet" href="vendor/katex/katex.min.css"><style>{css}</style></head><body>'
+            f'<link rel="stylesheet" href="vendor/katex/katex.min.css"><style>{css}</style>'
+            # формулы в условиях (\( … \), $$ … $$, data-math) рисуем, как на сайте, — иначе в PDF остаётся исходный TeX
+            '<script defer src="vendor/katex/katex.min.js"></script><script defer src="vendor/katex/contrib/auto-render.min.js"></script>'
+            '<script>addEventListener("DOMContentLoaded",function(){var w=document.querySelector(".wrap");if(!w||!window.renderMathInElement)return;'
+            'if(window.katex)w.querySelectorAll("[data-math]").forEach(function(n){try{katex.render(n.getAttribute("data-math"),n,{throwOnError:false})}catch(e){}});'
+            'try{renderMathInElement(w,{delimiters:[{left:"$$",right:"$$",display:true},{left:"\\\\[",right:"\\\\]",display:true},{left:"\\\\(",right:"\\\\)",display:false}],throwOnError:false})}catch(e){}});</script>'
+            '</head><body>'
             '<div class="tools"><button type="button" onclick="window.print()">🖨 Сохранить в PDF / напечатать</button> '
             '<span style="color:#667;font-size:13px">В окне печати выберите «Сохранить как PDF». Каждый ученик — с новой страницы.</span></div>'
             f'<div class="wrap">{head}{"".join(rows_html)}</div></body></html>')
