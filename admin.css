@@ -504,7 +504,7 @@ tr.comp-void td { opacity: .55; }
 .pyc-free-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pyc-free { font-size: 13px; }
 
-/* подарки и биткоины */
+/* подарки и монеты */
 .gift-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .gift-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
 .gift-form select { min-width: 220px; }
@@ -522,7 +522,7 @@ tr.comp-void td { opacity: .55; }
 .gift-own-ic { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 10px; font-size: 24px; background: var(--card-hover, rgba(0,0,0,.05)); }
 .gift-own-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .gift-own-t small { color: var(--muted); font-size: 12px; }
-/* экономика: биткоины и подарки */
+/* экономика: монеты и подарки */
 .eco-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; margin: 12px 0; }
 .eco-grid .adm-box { margin: 0; }
 .eco-flow-t { width: 100%; border-collapse: collapse; font-size: 13.5px; }

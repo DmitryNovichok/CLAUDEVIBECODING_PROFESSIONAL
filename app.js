@@ -5954,9 +5954,9 @@
     el.title = `Уровень ${GAME.level} · ${GAME.title} — опыт и достижения`;
     const c = $('#coinCard');
     if (c) {
-      c.hidden = TEACHER;                    // учитель дарит из панели — биткоины ему не нужны
+      c.hidden = TEACHER;                    // учитель дарит из панели — монеты ему не нужны
       $('#coinNum').textContent = GAME.coins || 0;
-      c.title = `Биткоины: ${GAME.coins || 0} ₿ — магазин подарков`;
+      c.title = `Монеты: ${GAME.coins || 0} ₿ — магазин подарков`;
     }
   }
   function xpPop(v, unit = 'XP') {
@@ -5991,10 +5991,10 @@
     if (!old) return;
     if (g.froze) toast(`❄️ Заморозка спасла огонёк`, 5000);
     if (g.gift_drop) setTimeout(giftLive, 1500);           // решил очередные 25 — подарок за труд
-    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено слишком быстро — биткоины даются за труд', 5000);
+    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено слишком быстро — монеты даются за труд', 5000);
     if (g.exam_coins > (old.exam_coins || 0)) toast(`🎓 +${g.exam_coins - (old.exam_coins || 0)} ₿ — бонус за вариант`, 5000);
     if (g.xp !== old.xp) xpPop(g.xp - old.xp);
-    if (g.xp !== old.xp && g.coins !== old.coins) setTimeout(() => xpPop(g.coins - old.coins, '₿'), 180);   // биткоины за труд — тоже всплывают
+    if (g.xp !== old.xp && g.coins !== old.coins) setTimeout(() => xpPop(g.coins - old.coins, '₿'), 180);   // монеты за труд — тоже всплывают
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
     (g.ach || []).filter(a => a.got && !had.has(a.id))
@@ -6312,7 +6312,7 @@
       <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : g.img ? `<span class="ug plain img r-${g.rar.k}"><span class="ug-ic">${giftImg(g.img)}</span></span>`
           : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
         <small>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
-      ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху): уникальные летают в шапке профиля.</p>' : ''}`;
+      ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Монеты и подарки» (кнопка ₿ вверху): уникальные летают в шапке профиля.</p>' : ''}`;
   }
   async function saveBadges(keys) {
     try { await api('profile/badges', { keys }); } catch (e) { toast(e.message || 'Не получилось сохранить'); return; }
@@ -6366,7 +6366,7 @@
     await loadRating();
     if (!LB) { $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Нет связи с сервером.</p>'; return; }
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг</h2>
-      ${LB.spectator && !TEACHER ? '<p class="daily-used">Сейчас ты не участвуешь в рейтингах — решай задания как обычно: опыт и биткоины начисляются.</p>' : ''}${LB.spectator && TEACHER ? '<p class="daily-used">🎓 Вы учитель: рейтинг ваших учеников виден, но вы сами в нём не участвуете — ни в лиге, ни в ТОП-10, ни в дуэлях.</p>' : ''}
+      ${LB.spectator && !TEACHER ? '<p class="daily-used">Сейчас ты не участвуешь в рейтингах — решай задания как обычно: опыт и монеты начисляются.</p>' : ''}${LB.spectator && TEACHER ? '<p class="daily-used">🎓 Вы учитель: рейтинг ваших учеников виден, но вы сами в нём не участвуете — ни в лиге, ни в ТОП-10, ни в дуэлях.</p>' : ''}
       <p class="fm-note">${LB.spectator && TEACHER ? 'Ваши ученики' : 'Ученики твоего учителя'}. Лига — очки с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
   }
 
@@ -8302,8 +8302,8 @@
     if ($('#pycDockStatus')?.textContent) $('#pycDockStatus').textContent = 'Код изменён. Запусти проверку ещё раз.';
   });
   // ═══════ src/app/12c-gifts.js
-  // ------------------------------------------------------------ биткоины и подарки
-  // Биткоины (₿) считает сервер (GAME.coins): 1 за каждые 10 XP опыта + начисления учителя − покупки. Подарок покупают
+  // ------------------------------------------------------------ монеты и подарки
+  // Монеты (₿) считает сервер (GAME.coins): 1 за каждые 10 XP опыта + начисления учителя − покупки. Подарок покупают
   // себе или однокласснику, «🎲 Случайный подарок» выпадает любой (дорогие — реже), учитель дарит из панели.
   // Свой подарок можно улучшить — он станет уникальным: номер и случайные фон, узор и эффект, у каждого своя редкость.
   // Редкость считает сервер: у обычного — шанс выпасть в «🎲», у уникального — шанс сочетания («1 из N»); видна на подарке.
@@ -8316,7 +8316,7 @@
   let gfTab = 'shop';                     // вкладка окна: shop, market, mine, forbes, log
   const gfDate = ts => { const d = new Date(ts * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`; };
   const gfMate = sid => (GF.mates.find(m => String(m.sid) === String(sid)) || {}).name || '';
-  const btcWord = n => plural(n, 'биткоин', 'биткоина', 'биткоинов');
+  const btcWord = n => plural(n, 'монета', 'монеты', 'монет');
   const gfFrom = g => (g.market ? 'с рынка · ' + g.market : g.from === 'учитель' ? 'от учителя' : g.from === 'труд' ? 'за труд'
     : g.from === 'сам себе' ? 'купил себе' : g.from ? 'от ' + g.from : '') + (g.box ? ' · выпал в 🎲' : '');
   // комиссия рынка — в банк; у выпавшего в «🎲» (g.fee) при первой продаже — 50 %
@@ -8389,7 +8389,7 @@
     const shop = !(GF.hw_all || []).includes(gid) || (GF.hw || []).some(x => x.gift === gid);   // лимитка с картинкой после своего срока в магазине не продаётся
     return `<small class="bx-sup">📦 ${!shop ? `тираж ${num(x.cap)}` : x.left ? `в магазине ${num(x.left)} из ${num(x.cap)}` : `раскупили (тираж ${num(x.cap)})`} · в обороте ${num(x.alive)}${x.burned ? ` · сгорело ${num(x.burned)}` : ''}${x.up ? ` · улучшено ${num(x.up)}` : ''}</small>`;
   };
-  // Окно «Биткоины» как приложение: вкладки снизу (Магазин / Рынок / Мои / Forbes / История), нажал на подарок — снизу шторка
+  // Окно «Монеты» как приложение: вкладки снизу (Магазин / Рынок / Мои / Forbes / История), нажал на подарок — снизу шторка
   // с крупными кнопками; правила и экономика — под «?». Текста на экране — минимум: суммы и действия.
   let gfSheet = null;                     // шторка: { k: 'mine' | 'shop' | 'mk' | 'help', id } или null
   let gfMkOpen = false;                   // в шторке своего подарка открыта строка «выставить на рынок»
@@ -8439,7 +8439,7 @@
       ['mine', '🎁', 'Мои', G.mine.length], ['forbes', '🏆', 'Forbes'], ['log', '📜', 'История']];
     const body = { shop: shopTab, market: marketTab, mine: mineTab, forbes: forbesTab, log: logTab }[gfTab] || shopTab;
     $('#forecastBody').innerHTML = `<div class="bx${gfSheet ? ' has-sheet' : ''}">
-      <div class="bx-top"><h2>Биткоины</h2><span class="bx-pill" title="${num(G.coins)} ${btcWord(G.coins)}">₿ ${num(G.coins)}</span>
+      <div class="bx-top"><h2>Монеты</h2><span class="bx-pill" title="${num(G.coins)} ${btcWord(G.coins)}">₿ ${num(G.coins)}</span>
         <button type="button" class="bx-q" data-bx-help title="Как заработать и как всё устроено">?</button></div>
       ${G.promo && !G.teacher ? `<button type="button" class="bx-promo" id="promoOpen">⚡ <b>${esc(G.promo.title)}</b>
         <span>задания ${xTxt(G.promo.task)} · варианты ${xTxt(G.promo.exam)} · до ${G.promo.day.slice(8, 10)}.${G.promo.day.slice(5, 7)} включительно</span></button>` : ''}
@@ -8528,7 +8528,7 @@
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts).slice(0, 5)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (['mbuy', 'msell', 'bid', 'bidback'].includes(r.reason) ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
       <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${num(Math.abs(r.delta))}</td></tr>`).join('');
     return `${sum.length ? `<div class="bx-sum">${sum.map(x => `<span>${x}</span>`).join('')}</div>` : ''}
-      ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Биткоины за опыт приходят сами — их здесь нет</small></div>'}`;
+      ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Монеты за опыт приходят сами — их здесь нет</small></div>'}`;
   }
   // ---- Forbes (общий на весь сайт): обложка журнала, список и вкладки
   const fbAv = (r, s) => (r.avatar && !r.avatar.uniq ? `<span class="fb-av img r-limited" style="--s:${s}px">${giftImg(r.avatar.img)}</span>`   // лимитка без улучшения
@@ -8565,7 +8565,7 @@
         `<span class="fb-tiers">${tiers(r) || '<small>обычные подарки</small>'}</span>`)).join('')}</div>`;
     }
     const L = FB.rich;
-    if (!L.length) return head + '<div class="bx-empty"><span>💰</span><b>Пока пусто</b><small>Решай задания — биткоины приходят сами</small></div>';
+    if (!L.length) return head + '<div class="bx-empty"><span>💰</span><b>Пока пусто</b><small>Решай задания — монеты приходят сами</small></div>';
     const h = L[0];
     const hero = `<button type="button" class="fb-hero" data-prof="${h.sid}" data-fb-prof><span class="crown">👑</span>${fbAv(h, 64)}
       <span class="fb-hm"><b class="nm">${esc(h.name)} ${fbTags(h)}</b><b class="big"><span>₿</span> ${num(h.total)}</b>
@@ -8573,7 +8573,7 @@
         <span class="fb-bar"><i style="width:${h.total ? Math.round(100 * h.wallet / h.total) : 0}%"></i></span></span>
       <span class="fb-tops">${h.tops.slice(0, 2).map(g => gfTile(g, 46)).join('')}</span></button>`;
     return head + hero + `<div class="fb-list">${L.slice(1).map((r, i, l) => row(r, i, l, `<b><span class="coin">₿</span> ${num(r.total)}</b>${fbDelta(r.week)}`, shelf(r))).join('')}</div>
-      <p class="fb-foot">Состояние — биткоины и подарки вместе · у всех вместе ₿ ${num(FB.sum)}</p>`;
+      <p class="fb-foot">Состояние — монеты и подарки вместе · у всех вместе ₿ ${num(FB.sum)}</p>`;
   }
   // ---- шторки
   function sheetHtml(G) {
@@ -8725,10 +8725,10 @@
   function helpSheet(G) {
     return `<h3 class="bx-h">Как это устроено</h3>
       <ul class="bx-help">
-        <li>⚒ Биткоины — только трудом: 1 ₿ за ${G.coin_xp} XP опыта${G.econ.earn !== 1 ? ` (сейчас весь заработок ×${idxTxt(G.econ.earn)})` : ''} и ещё сверху за каждое решённое задание — чем сложнее, тем больше.</li>
+        <li>⚒ Монеты — только трудом: 1 ₿ за ${G.coin_xp} XP опыта${G.econ.earn !== 1 ? ` (сейчас весь заработок ×${idxTxt(G.econ.earn)})` : ''} и ещё сверху за каждое решённое задание — чем сложнее, тем больше.</li>
         <li>🎓 Вариант ЕГЭ — бонус по тестовому баллу: ${examBtcTxt(G)}. Самостоятельные от учителя — так же.</li>
         <li>🎁 Каждые ${G.work_every} решённых заданий — подарок в награду.</li>
-        <li>🔥 Огонёк — +1% к опыту и биткоинам за задания и варианты за каждый его день, до +${(GAME && GAME.fire_bonus_max) || 30}%${GAME && GAME.fire_bonus ? `. Сейчас у тебя <b>+${GAME.fire_bonus}%</b>` : ''}.</li>
+        <li>🔥 Огонёк — +1% к опыту и монетам за задания и варианты за каждый его день, до +${(GAME && GAME.fire_bonus_max) || 30}%${GAME && GAME.fire_bonus ? `. Сейчас у тебя <b>+${GAME.fire_bonus}%</b>` : ''}.</li>
         <li>⏱ Решено слишком быстро — минус 1 ₿: быстрее ${G.fine_sec} секунд, №24–27 — быстрее ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.</li>
         <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
         ${(G.hw || []).filter(x => x.gift.startsWith('sw_')).length ? `<li>⚔️ Световые мечи: синий и красный — по ₿ ${num(G.hw.find(x => x.gift.startsWith('sw_')).price)}, всего по ${G.hw.find(x => x.gift.startsWith('sw_')).cap} штук каждого на весь сайт, в магазине до ${G.hw.find(x => x.gift.startsWith('sw_')).until.slice(8, 10)}.${G.hw.find(x => x.gift.startsWith('sw_')).until.slice(5, 7)} включительно, потом — только на рынке. Не улучшаются.</li>` : ''}
@@ -8737,7 +8737,7 @@
         <li>🔨 Или выставь его на аукцион одноклассникам: старт — цена продажи сразу, торги — 1, 6 или 24 ч, каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше. Ставка (и небольшой сбор с покупателя) замораживается, перебьют — всё вернётся. С продавца при сделке — тоже небольшой сбор. Ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги. Подарок уйдёт тому, чья ставка выше.</li>
         <li>📈 У каждого подарка есть рыночная цена — по ней он стоит в портфеле и Forbes: растёт рынок — растёт и твоё состояние. Она идёт от цены в магазине (дорожает, когда тираж раскупают) и меняется после каждой сделки: за подарок торговались — цена растёт, купили по старту без соперников — падает. Свежие сделки важнее старых, за сутки — не больше чем на 25%. Рядом с ценой — ▲▼ за неделю: купи дешевле, продай дороже. Чем больше уникальных сгорело, тем дороже оставшиеся.</li>
         <li>⏳ Купленный на рынке подарок можно снова выставить через ${G.relist_h} ч, а свой проданный — выкупить через ${G.buyback_days} дней. Ставка — не дороже трёх рыночных цен подарка.</li>
-        <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько биткоинов и подарков у всех. Копить очень много невыгодно.</li>
+        <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько монет и подарков у всех. Копить очень много невыгодно.</li>
         <li>📦 У каждого подарка свой тираж на весь сайт: замков — 20, драконов — 30, печенек — 2000. Чем меньше осталось в магазине, тем дороже. Проданные сразу и улучшенные в тираж не возвращаются — оставшиеся становятся реже и дороже, а с ними и улучшение. Распродан — купить можно только на рынке. У одного ученика — не больше 10% тиража одного вида.</li>
       </ul>
       <div class="bx-sum"><span>⚒ заработок <b>×${idxTxt(G.econ.earn)}</b></span><span>🏷 цены <b>×${idxTxt(G.econ.idx)}</b></span><span>🏦 банк <b>₿ ${num(G.econ.bank)}</b></span></div>`;
@@ -8807,11 +8807,11 @@
     if (!x) return;
     const amount = own ? Math.round(+($('#bidAmt') || {}).value || 0) : x.next;
     if (amount < x.next || amount > x.max) { toast(`Ставка — от ${x.next} до ${x.max} ₿`); return; }
-    if (withFee(amount) > GF.coins) { toast(`Не хватает биткоинов: нужно ${withFee(amount)} ₿ (со сбором), у тебя ${GF.coins} ₿`); return; }
+    if (withFee(amount) > GF.coins) { toast(`Не хватает монет: нужно ${withFee(amount)} ₿ (со сбором), у тебя ${GF.coins} ₿`); return; }
     try {
       const r = await api('gifts/bid', { id, amount });
       if (r.game) onGame(r.game);
-      toast(r.bought ? `🏪 ${x.i} ${x.t} — теперь у тебя` : `🔨 Ставка ₿ ${r.price} — твоя выше всех. Перебьют — биткоины вернутся`, 4500);
+      toast(r.bought ? `🏪 ${x.i} ${x.t} — теперь у тебя` : `🔨 Ставка ₿ ${r.price} — твоя выше всех. Перебьют — монеты вернутся`, 4500);
       await openGifts(undefined, undefined, r.bought ? 'mine' : 'market');
       if (!r.bought) { gfSheet = { k: 'mk', id }; renderGifts(); }
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось сделать ставку'); await openGifts(undefined, undefined, 'market'); }
@@ -8828,12 +8828,12 @@
     document.body.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 5200);
   }
-  /** Учитель начислил или снял биткоины — короткое уведомление с причиной, один раз. */
+  /** Учитель начислил или снял монеты — короткое уведомление с причиной, один раз. */
   function coinNotify(list) {
     if (!list || !list.length || TEACHER) return;
     list.forEach((c, i) => setTimeout(() => toast(c.reason === 'msell' ? `🏪 Твой подарок купили на рынке: +${c.delta} ₿ (покупатель — ${c.note})`
       : c.reason === 'bidback' ? `🔨 ${c.note}: ₿ ${c.delta} вернулись`
-      : c.reason === 'storage' ? `📦 Плата за хранение большой суммы: −${-c.delta} ₿. Биткоины выгоднее тратить, чем копить`
+      : c.reason === 'storage' ? `📦 Плата за хранение большой суммы: −${-c.delta} ₿. Монеты выгоднее тратить, чем копить`
       : c.reason === 'stipend' ? `🎓 Стипендия из банка рынка: +${c.delta} ₿ — ${c.note}`
       : c.reason === 'class' ? `🏆 Битва классов: +${c.delta} ₿ — ${c.note}`
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
@@ -8843,10 +8843,10 @@
   function giftNotify(list) {
     if (!list || !list.length || TEACHER) return;
     list.slice(0, 3).forEach((g, i) => setTimeout(() => giftToast(g), 700 + i * 1700));
-    if (list.length > 3) setTimeout(() => toast(`🎁 И ещё ${list.length - 3} — в «Биткоины и подарки»`, 5000), 700 + 3 * 1700);
+    if (list.length > 3) setTimeout(() => toast(`🎁 И ещё ${list.length - 3} — в «Монеты и подарки»`, 5000), 700 + 3 * 1700);
     api('gifts/seen', { ids: list.map(g => g.id) }).catch(() => {});
   }
-  /** Подарили или начислили биткоины — уведомление и новый счёт сразу. */
+  /** Подарили или начислили монеты — уведомление и новый счёт сразу. */
   async function giftLive() {
     let me;
     try { me = await api('me'); } catch (e) { return; }
@@ -8855,7 +8855,7 @@
     coinNotify(me.coin_news);
     if (GF && !gfSheet && !$('#forecastModal').hidden && $('#forecastBody .bx')) openGifts(undefined, undefined, gfTab);
   }
-  // ---- акция (например, перед пробником): значок вверху, объявление при входе раз в день, полоска в «Биткоинах»
+  // ---- акция (например, перед пробником): значок вверху, объявление при входе раз в день, полоска в «Монетах»
   let PROMO = null;                       // { title, task, exam, day } с сервера или null
   const xTxt = v => '×' + String(Math.round(v * 100) / 100).replace('.', ',');
   const promoDay = P => new Date(P.day + 'T12:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
@@ -8868,7 +8868,7 @@
     b.hidden = !PROMO || TEACHER;
     if (PROMO) {
       $('#promoTxt').textContent = `${xTxt(Math.max(PROMO.task, PROMO.exam))} ₿`;
-      b.title = `${PROMO.title}: биткоины за задания ${xTxt(PROMO.task)}, за вариант ЕГЭ ${xTxt(PROMO.exam)} — до ${promoDay(PROMO)} включительно`;
+      b.title = `${PROMO.title}: монеты за задания ${xTxt(PROMO.task)}, за вариант ЕГЭ ${xTxt(PROMO.exam)} — до ${promoDay(PROMO)} включительно`;
     }
   }
   function openPromo() {
@@ -8879,10 +8879,10 @@
       <div class="promo-hero"><span class="promo-bolt" aria-hidden="true">⚡</span><h2>${esc(P.title)}</h2>
         <p>до ${promoDay(P)} включительно · ${left ? `осталось ${left} ${plural(left, 'день', 'дня', 'дней')}` : 'сегодня последний день'}</p></div>
       <div class="promo-tiles">
-        ${P.task > 1 ? `<div class="promo-tile"><span aria-hidden="true">🧩</span><b>${xTxt(P.task)}</b><small>биткоинов за каждое решённое задание</small></div>` : ''}
-        ${P.exam > 1 ? `<div class="promo-tile hot"><span aria-hidden="true">📝</span><b>${xTxt(P.exam)}</b><small>биткоинов за вариант ЕГЭ</small></div>` : ''}
+        ${P.task > 1 ? `<div class="promo-tile"><span aria-hidden="true">🧩</span><b>${xTxt(P.task)}</b><small>монет за каждое решённое задание</small></div>` : ''}
+        ${P.exam > 1 ? `<div class="promo-tile hot"><span aria-hidden="true">📝</span><b>${xTxt(P.exam)}</b><small>монет за вариант ЕГЭ</small></div>` : ''}
       </div>
-      <p class="promo-note">Решай и пиши варианты — бонус начисляется сразу. Биткоины тратятся в магазине подарков 🎁</p>
+      <p class="promo-note">Решай и пиши варианты — бонус начисляется сразу. Монеты тратятся в магазине подарков 🎁</p>
       <div class="promo-acts"><button type="button" class="btn primary" id="tourGo">🧩 Решать задания</button>
         ${P.exam > 1 ? '<button type="button" class="btn" id="promoExam">📝 Написать вариант</button>' : ''}</div></div>`;
     $('#forecastModal').hidden = false;
@@ -8908,7 +8908,7 @@
   });
   $('#coinCard')?.addEventListener('click', () => openGifts(undefined, undefined, 'shop'));
   $('#whoGifts')?.addEventListener('click', () => { setWhoMenu(false); openGifts(undefined, undefined, 'shop'); });
-  /** Forbes — вкладка окна «Биткоины» (и возврат к ней из профиля). */
+  /** Forbes — вкладка окна «Монеты» (и возврат к ней из профиля). */
   const openForbes = () => openGifts(undefined, undefined, 'forbes');
   document.addEventListener('click', e => {
     const to = e.target.closest('[data-gift-to]');
@@ -9000,13 +9000,13 @@
     const saber = c => `<img class="sw-s sw-${c}" src="vendor/sabers/saber_${c}.svg" alt="" draggable="false">`;
     const list = [];
     if (swOn) list.push({ cls: 'n1', ico: '⚔️', head: 'Лимитки', title: 'Световые мечи',
-      text: `В «Биткоинах» — синий и красный световые мечи: ₿ ${num(SW_PRICE)}, всего по ${SW_N} штук на весь сайт и только до 9 ноября включительно. Кто первый, тот и успел!`,
+      text: `В «Монетах» — синий и красный световые мечи: ₿ ${num(SW_PRICE)}, всего по ${SW_N} штук на весь сайт и только до 9 ноября включительно. Кто первый, тот и успел!`,
       art: `<div class="sto-sw"><div class="sw-pair">${saber('blue')}${saber('red')}</div>
         <div class="sw-tag">по ${SW_N} штук · до 9 ноября</div>
         <div class="sw-have">у тебя ₿ ${num(coins)}${coins >= SW_PRICE ? ' — хватает ✓' : ` · ещё ₿ ${num(SW_PRICE - coins)}`}</div></div>` });
     list.push(
       { cls: 'n2', ico: '👥', head: 'Новое', title: 'Занятия «Вместе»',
-        text: 'Решай с учителем в одном редакторе: общий код и запуск программы, доска для рисунков и пометки прямо на условии задачи. Ответы, которые ты сдаёшь сам, засчитываются — с опытом и биткоинами.',
+        text: 'Решай с учителем в одном редакторе: общий код и запуск программы, доска для рисунков и пометки прямо на условии задачи. Ответы, которые ты сдаёшь сам, засчитываются — с опытом и монетами.',
         art: `<div class="sto-tg"><div class="tg-w"><div class="tg-l"><i class="ln w1"></i><i class="ln w2"></i><i class="ln w3"></i><i class="ln w2"></i>
           <span class="cur t">Учитель</span><span class="cur s">Ты</span></div>
           <div class="tg-r"><svg viewBox="0 0 100 80" aria-hidden="true"><path d="M10 60 C 30 10, 55 10, 70 45 S 90 70, 92 30" /></svg></div></div>
@@ -9404,7 +9404,7 @@
       b.textContent = crMuted ? '🔇' : '🔊';
     }
   });
-  window.addEventListener('keydown', e => {                       // раньше Esc окна «Биткоины»: сначала — кейс
+  window.addEventListener('keydown', e => {                       // раньше Esc окна «Монеты»: сначала — кейс
     if (!CR || e.key !== 'Escape') return;
     e.preventDefault();
     e.stopPropagation();
@@ -10717,7 +10717,7 @@
     const items = [
       ['labCard', 'Лаборатория'], ['numbers', 'Номера заданий'], ['examCard', 'Вариант ЕГЭ'], ['courseCard', 'Курс'], ['pycCard', 'Курс Python'],
       ['favCard', 'Избранное'], ['histCard', 'История заданий'], ['dailyCard', 'Задание дня'], ['duelCard', 'Дуэли'],
-      ['togCard', 'Занятия вместе'], ['coinCard', 'Биткоины и подарки'], ['supportBtn', 'Техподдержка'],
+      ['togCard', 'Занятия вместе'], ['coinCard', 'Монеты и подарки'], ['supportBtn', 'Техподдержка'],
       ['themeBtn', 'Светлая / тёмная тема'], ['sndBtn', 'Звуки для занятий'], ['tourBtn', 'Как работает Egeshka']
     ];
     $('#mobileMoreLinks').innerHTML = items.filter(([id]) => id === 'numbers' || ($('#' + id) && !$('#' + id).hidden)).map(([id, label]) =>
@@ -10745,7 +10745,7 @@
   });
   // ═══════ src/app/13c-hub.js
   // ------------------------------------------------------------ главная-пульт ученика
-  /* Отдельная страница, с которой ученик начинает: сверху — уровень, биткоины, лига, огонёк; в центре — «План на сегодня»
+  /* Отдельная страница, с которой ученик начинает: сверху — уровень, монеты, лига, огонёк; в центре — «План на сегодня»
      (что делать сейчас, по порядку); ниже — все разделы плитками. Разделы открываются своими страницами,
      вернуться — кнопкой «Главная» слева или «Назад» в браузере. */
 
@@ -10943,7 +10943,7 @@
     const out = [`<button type="button" class="hub-pill" data-hub-go="forecast" title="Прогноз балла ЕГЭ">${up}Прогноз <b data-count="fc">${fc == null ? '—' : fc}</b></button>`];
     if (SERVER && GAME) {
       if (!focus) out.push(`<button type="button" class="hub-pill" data-hub-go="level" title="Уровень ${GAME.level} · ${esc(GAME.title)} — ${GAME.cur} / ${GAME.need} XP">${star}<b data-count="lvl">${GAME.level}</b><small>уровень</small><i class="hub-xp"><b data-bar="xp" data-w="${pct(GAME.cur / GAME.need)}"></b></i></button>`);
-      if (!TEACHER) out.push(`<button type="button" class="hub-pill" data-hub-go="coins" title="Биткоины и подарки"><span class="btc" aria-hidden="true">₿</span><b data-count="coins">${GAME.coins || 0}</b></button>`);
+      if (!TEACHER) out.push(`<button type="button" class="hub-pill" data-hub-go="coins" title="Монеты и подарки"><span class="btc" aria-hidden="true">₿</span><b data-count="coins">${GAME.coins || 0}</b></button>`);
     }
     if (!focus && me && me.value) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="${esc(L.name || 'Лига')} — рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Лига <b data-count="place">${me.place}</b>${L.top ? `<small>/${Math.max(L.top.length, me.place)}</small>` : ''}</button>`);
     else if (!focus && SERVER && student) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="Рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Рейтинг</button>`);

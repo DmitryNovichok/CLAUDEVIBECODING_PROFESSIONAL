@@ -271,7 +271,7 @@
       b.textContent = crMuted ? '🔇' : '🔊';
     }
   });
-  window.addEventListener('keydown', e => {                       // раньше Esc окна «Биткоины»: сначала — кейс
+  window.addEventListener('keydown', e => {                       // раньше Esc окна «Монеты»: сначала — кейс
     if (!CR || e.key !== 'Escape') return;
     e.preventDefault();
     e.stopPropagation();

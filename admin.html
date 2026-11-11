@@ -215,15 +215,15 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     </section>
 
     <section class="adm-view" id="view-gifts" hidden>
-      <div class="adm-toolbar"><h2 class="adm-h">Подарки и биткоины</h2></div>
-      <p class="adm-hint" style="margin:0 0 12px">Биткоины (₿) ученики получают сами: 1 ₿ за каждые 10 XP опыта и бонус за каждое решённое задание (чем сложнее, тем больше). На биткоины покупают подарки — себе или однокласснику,
+      <div class="adm-toolbar"><h2 class="adm-h">Подарки и монеты</h2></div>
+      <p class="adm-hint" style="margin:0 0 12px">Монеты (₿) ученики получают сами: 1 ₿ за каждые 10 XP опыта и бонус за каждое решённое задание (чем сложнее, тем больше). На монеты покупают подарки — себе или однокласснику,
         «🎲 случайный подарок» и улучшение: улучшенный подарок становится уникальным — с номером и случайными фоном, узором и эффектом.
-        Подарки видны маленькими значками у ника в рейтинге и профиле. Здесь можно подарить подарок или начислить биткоины — ученику, классу или всем сразу;
+        Подарки видны маленькими значками у ника в рейтинге и профиле. Здесь можно подарить подарок или начислить монеты — ученику, классу или всем сразу;
         «🎲 Случайный» — каждому свой (дорогие выпадают реже). Ученик сразу увидит уведомление.
         Экономика саморегулируется: термостат раз в сутки двигает цены, заработок и комиссию рынка к норме среднего кошелька (вкладка «Экономика»),
         тираж уникальных каждого вида — 100, проданный подарок сгорает, а за каждые 25 решённых заданий ученик сам получает подарок. За вариант ЕГЭ (не быстрее 20 минут) — бонус по тестовому баллу:
         40+ — 15 ₿, 60+ — 30 ₿, 80+ — 50 ₿, 90+ — 100 ₿ (× заработок термостата); самостоятельная — так же (короче варианта — пропорционально).
-        Начисляете вы — из 🏦 банка рынка (туда приходит комиссия рынка и плата за хранение), снимаете — в банк: биткоины не берутся из воздуха.</p>
+        Начисляете вы — из 🏦 банка рынка (туда приходит комиссия рынка и плата за хранение), снимаете — в банк: монеты не берутся из воздуха.</p>
       <div class="adm-cards" id="giftEcon" style="margin-bottom:12px"></div>
       <form class="adm-box" id="giftBoxForm" hidden>
         <h3 class="adm-h3">Цена случайного подарка</h3>
@@ -246,7 +246,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
           <label>Кому<select class="inp" id="giftTo"></select></label>
           <label>Подарок<select class="inp" id="giftKind"></select></label>
           <label class="gift-uniq"><span><input type="checkbox" id="giftUniq"> ✨ сразу уникальный</span></label>
-          <label>Биткоины ₿<span class="gift-coins"><select class="inp" id="giftCoinMode"><option value="add">➕ начислить</option><option value="take">➖ снять</option></select>
+          <label>Монеты ₿<span class="gift-coins"><select class="inp" id="giftCoinMode"><option value="add">➕ начислить</option><option value="take">➖ снять</option></select>
             <input class="inp" id="giftCoins" type="number" min="0" max="1000" step="1" value="0"></span></label>
           <label class="gift-note">Подпись или причина (необязательно)<input class="inp" id="giftNote" maxlength="80" placeholder="Например: за победу в битве классов"></label>
           <button class="btn primary" type="submit" id="giftSubmit">Подарить</button>
@@ -256,7 +256,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div class="adm-box" style="margin-top:14px">
         <h3 class="adm-h3">Подарки ученика</h3>
         <p class="fm-note">Выберите ученика — увидите все его подарки. Лишний (например, подаренный не по правилам) можно удалить из профиля:
-          подарок сгорает без возврата биткоинов, номер и сочетание уникального больше никому не выпадут.</p>
+          подарок сгорает без возврата монет, номер и сочетание уникального больше никому не выпадут.</p>
         <select class="inp" id="giftOwner" style="max-width:360px"><option value="">— выберите ученика —</option></select>
         <div id="giftWallet" style="margin-top:10px"></div>
         <div id="giftOwned" style="margin-top:10px"></div>
@@ -303,9 +303,9 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div id="supplyBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
     <section class="adm-view" id="view-econ" hidden>
-      <div class="adm-toolbar"><h2 class="adm-h">Экономика: биткоины и подарки</h2>
+      <div class="adm-toolbar"><h2 class="adm-h">Экономика: монеты и подарки</h2>
         <button type="button" class="btn ghost" id="econReload">Обновить</button></div>
-      <p class="adm-hint" style="margin:0 0 12px">Термостат и банк рынка, графики рынка всего сайта; ниже — ваши ученики: откуда пришли биткоины и куда ушли,
+      <p class="adm-hint" style="margin:0 0 12px">Термостат и банк рынка, графики рынка всего сайта; ниже — ваши ученики: откуда пришли монеты и куда ушли,
         у кого больше всего, какие подарки на руках и журнал всех изменений в профилях. Нажмите на имя — откроются кошелёк, подарки и история этого ученика.</p>
       <div id="econBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
