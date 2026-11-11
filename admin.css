@@ -853,13 +853,3 @@ tr.t-renew td { background: var(--review-soft); }
 .acc-card .login-form { margin-top: auto; }
 .acc-all { max-width: 640px; }
 @media (max-width: 1100px) { .acc-grid { grid-template-columns: 1fr; } }
-
-/* ---- окно после регистрации: пробный период и первые шаги */
-.hello-panel { max-width: 520px; text-align: left; }
-.hello-ic { font-size: 44px; line-height: 1; margin-bottom: 6px; animation: helloPop .6s cubic-bezier(.34, 1.56, .64, 1); }
-@keyframes helloPop { from { transform: scale(.4) rotate(-20deg); opacity: 0; } }
-.hello-trial { margin: 6px 0 14px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); line-height: 1.5; }
-.hello-steps { margin: 0 0 18px; padding: 0; list-style: none; counter-reset: h; display: grid; gap: 12px; }
-.hello-steps li { counter-increment: h; display: grid; grid-template-columns: 30px 1fr; gap: 2px 12px; }
-.hello-steps li::before { content: counter(h); grid-row: span 2; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #fff; background: var(--good); }
-.hello-steps span { color: var(--muted); font-size: 14px; line-height: 1.45; }

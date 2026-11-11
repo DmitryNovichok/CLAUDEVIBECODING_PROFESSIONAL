@@ -75,7 +75,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
-              "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js",
+              "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js", "onboard.js",
               "terms.html", "privacy.html", "consent.html", "legal.css",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
               "favicon.ico", "favicon.svg", "favicon-96.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "site.webmanifest"}
@@ -83,10 +83,10 @@ SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "ad
 LEGAL_VERSION = "2026-11-07"
 SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
-PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr|egeshka|elements)\.js|(?:style|admin-theme|admin|legal|welcome|academy|lab|classroom)\.css)"')
+PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr|egeshka|elements|onboard)\.js|(?:style|admin-theme|admin|legal|welcome|academy|lab|classroom)\.css)"')
 PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
                "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css",
-               "egeshka.js", "elements.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
+               "egeshka.js", "elements.js", "onboard.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
 _PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
