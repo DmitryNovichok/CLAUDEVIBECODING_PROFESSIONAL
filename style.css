@@ -1937,7 +1937,7 @@ button.pf-item:hover { border-color: var(--accent); }
 .wk-nav .ex-nav-btn.on { background: var(--card); color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .wk-nav .ex-nav-btn.on.done { background: var(--good); color: var(--on-good, #fff); border-color: var(--accent); }
 .xp-pop.minus { color: var(--weak); }
-.xp-pop.btc-pop { top: 44%; color: #f7931a; }            /* биткоины — чуть ниже опыта, цветом биткоина */
+.xp-pop.btc-pop { top: 44%; color: #f7931a; }            /* монеты — чуть ниже опыта, цветом монеты */
 .xp-pop.btc-pop.minus { color: var(--weak); }
 .fb-fast { margin-top: 6px; color: var(--weak); }
 /* контрольная: всплывающая сводка вместо полосы над заданием */
@@ -2384,13 +2384,13 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
   .pyc-st { margin-left: 0; width: 100%; }
 }
 
-/* ---------- биткоины и подарки */
+/* ---------- монеты и подарки */
 .coin-pill {
   display: flex; align-items: center; gap: 6px; padding: 5px 11px; cursor: pointer; font: inherit; color: var(--text);
   border: 2px solid var(--border); border-radius: 14px; background: var(--card); font-weight: 900; font-size: 15px; white-space: nowrap;
 }
 .coin-pill:hover { background: var(--card-hover); }
-/* акция: значок вверху, объявление, полоска в «Биткоинах» */
+/* акция: значок вверху, объявление, полоска в «Монетах» */
 .promo-pill { display: flex; align-items: center; gap: 4px; padding: 5px 10px; border: 0; border-radius: 14px; cursor: pointer; font: inherit;
   font-weight: 900; font-size: 14px; color: #fff; white-space: nowrap; background: linear-gradient(135deg, #ff9600, #ff4b4b);
   box-shadow: 0 3px 0 #c43c3c; animation: promoGlow 2.4s ease-in-out infinite; }
@@ -2662,7 +2662,7 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .gf-trend.up { color: var(--r-legend); } .gf-trend.down { color: var(--r-rare); }
 
 /* =====================================================================
-   Окно «Биткоины» как приложение: вкладки снизу, шторка с кнопками; Forbes класса
+   Окно «Монеты» как приложение: вкладки снизу, шторка с кнопками; Forbes класса
    ===================================================================== */
 #forecastBody .bx { display: flex; flex-direction: column; min-height: min(76vh, 760px); }
 /* вкладки снизу прилипают к низу экрана: у окна нет нижнего отступа */
@@ -3274,7 +3274,7 @@ body.hw .brand-title b, body.hw .side-panel .brand b { color: #ff9100; }
 @keyframes hwBat { 0% { transform: translate(0, 0); } 5% { transform: translate(14vw, -3vh) scaleY(.7); } 10% { transform: translate(28vw, 2vh); }
   15% { transform: translate(42vw, -4vh) scaleY(.7); } 20% { transform: translate(56vw, 1vh); } 25% { transform: translate(70vw, -3vh) scaleY(.7); }
   30% { transform: translate(86vw, 0); } 35%, 100% { transform: translate(110vw, -2vh); } }
-/* окно «Биткоины» в ивент: гирлянда тыкв сверху и тёплая подсветка */
+/* окно «Монеты» в ивент: гирлянда тыкв сверху и тёплая подсветка */
 body.hw #forecastModal .fm-close { z-index: 4; }
 body.hw #forecastModal .modal-panel:has(.bx)::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 30px; pointer-events: none; z-index: 2;
   background: url(vendor/halloween/garland.svg) center top / auto 30px repeat-x; border-radius: inherit; }

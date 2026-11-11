@@ -73,7 +73,7 @@ class ServerTest(unittest.TestCase):
         (cls.tmp / "vendor" / "ok.css").write_text("body{}")
         cls.saved = {k: getattr(server, k) for k in ("HERE", "DB_PATH", "BANK_JS", "EXTRA_BANK", "THINK_SEC_DEFAULT", "THINK_SEC_HARD",
                                                      "ACH_CLOCK", "BTC_RATE_FREE")}
-        server.BTC_RATE_FREE = 10 ** 9      # курс биткоина в тестах не плавает (кроме теста курса): учеников «онлайн» здесь много
+        server.BTC_RATE_FREE = 10 ** 9      # курс монеты в тестах не плавает (кроме теста курса): учеников «онлайн» здесь много
         # «забавные» достижения (ночью, в обед, в выходные, 31 декабря…) зависят от часов — тесты идут в обычную среду, 10:00
         server.ACH_CLOCK = lambda ts: time.struct_time((2026, 3, 4, 10, 0, 0, 2, 63, -1))
         server.HERE = cls.tmp
@@ -320,7 +320,7 @@ class ServerTest(unittest.TestCase):
         server._THERMO["db"] = None
 
     def thermo_reset(self, db):
-        """Термостат и недельные действия — как до первого запуска: другие тесты считают биткоины без множителя."""
+        """Термостат и недельные действия — как до первого запуска: другие тесты считают монеты без множителя."""
         db.x("DELETE FROM thermo")
         db.x("DELETE FROM limited")
         db.x("DELETE FROM coins WHERE reason IN ('storage', 'stipend')")
@@ -2884,7 +2884,7 @@ class ServerTest(unittest.TestCase):
 
     def test_btc_rate_demand_site(self):
         db = server.APP.db
-        # курс: много верно решающих сейчас — биткоин дороже (но не дороже BTC_RATE_MAX XP); прошлое не пересчитывается
+        # курс: много верно решающих сейчас — монета дороже (но не дороже BTC_RATE_MAX XP); прошлое не пересчитывается
         tok = self.login("Курсов Кирилл")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
         db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?, 'duel:1')", (sid, time.time() - 7200, 1000))
@@ -3029,14 +3029,14 @@ class ServerTest(unittest.TestCase):
         tok = self.login("Спешкин Семён")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
         ids = [t["id"] for t in BANK["tasks"]]
-        # быстрее 30 секунд — минус биткоин (как «быстрее минуты — минус опыт»)
+        # быстрее 30 секунд — минус монета (как «быстрее минуты — минус опыт»)
         db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time() - 600, 100))
         g0 = server.game_summary(db, sid)
         db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,5,1,?)", (sid, time.time(), ids[0] + "#f1", 9000))
         g1 = server.game_summary(db, sid)
         self.assertEqual((g1["btc_fast"], g1["coins"]), (1, g0["coins"] - 1))
         db.x("INSERT INTO attempts(student_id, ts, task_id, n, score, spent_ms) VALUES(?,?,?,5,1,?)", (sid, time.time() + 0.001, ids[1] + "#f2", 45000))
-        self.assertEqual(server.game_summary(db, sid)["btc_fast"], 1)          # 45 секунд: минус опыт, но не биткоин
+        self.assertEqual(server.game_summary(db, sid)["btc_fast"], 1)          # 45 секунд: минус опыт, но не монета
         self.assertEqual(self.req("GET", "/api/gifts", token=tok)[1]["fines"], 1)
         # учитель снимает: не больше, чем есть; ученик видит уведомление с причиной
         have = server.game_summary(db, sid)["coins"]
@@ -3394,7 +3394,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(row["delta"], labor_today())
 
     def test_forbes(self):
-        # Forbes класса: состояние = биткоины + оценка подарков; дорогой подарок, коллекция, редкость, рост за неделю
+        # Forbes класса: состояние = монеты + оценка подарков; дорогой подарок, коллекция, редкость, рост за неделю
         db = server.APP.db
         tokA, tokB = self.login("Форбсов Филипп"), self.login("Богатеева Белла")
         sidA = self.req("GET", "/api/me", token=tokA)[1]["sid"]
@@ -4509,7 +4509,7 @@ class ServerTest(unittest.TestCase):
         self.assertNotIn("task_btc", json.dumps(d))                    # таблицу бонусов ученику не отдаём
 
     def test_promo(self):
-        # акция: биткоины за задания ×1,5, за вариант ×2 — за заработанное во время акции; ученик видит акцию, учитель меняет
+        # акция: монеты за задания ×1,5, за вариант ×2 — за заработанное во время акции; ученик видит акцию, учитель меняет
         P = self.seeded_promo                                                   # при первом запуске — сама, до конца 24 октября
         self.assertEqual((P["task"], P["exam"], P["to"]), (1.5, 2.0, server.day_end("2026-10-24")))
         self.assertEqual(time.strftime("%H:%M:%S", time.localtime(P["to"])), "23:59:59")

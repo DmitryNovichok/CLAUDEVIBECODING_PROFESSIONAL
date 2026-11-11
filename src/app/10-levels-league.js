@@ -14,9 +14,9 @@
     el.title = `Уровень ${GAME.level} · ${GAME.title} — опыт и достижения`;
     const c = $('#coinCard');
     if (c) {
-      c.hidden = TEACHER;                    // учитель дарит из панели — биткоины ему не нужны
+      c.hidden = TEACHER;                    // учитель дарит из панели — монеты ему не нужны
       $('#coinNum').textContent = GAME.coins || 0;
-      c.title = `Биткоины: ${GAME.coins || 0} ₿ — магазин подарков`;
+      c.title = `Монеты: ${GAME.coins || 0} ₿ — магазин подарков`;
     }
   }
   function xpPop(v, unit = 'XP') {
@@ -51,10 +51,10 @@
     if (!old) return;
     if (g.froze) toast(`❄️ Заморозка спасла огонёк`, 5000);
     if (g.gift_drop) setTimeout(giftLive, 1500);           // решил очередные 25 — подарок за труд
-    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено слишком быстро — биткоины даются за труд', 5000);
+    if (g.btc_fast > (old.btc_fast || 0)) toast('−1 ₿: задание решено слишком быстро — монеты даются за труд', 5000);
     if (g.exam_coins > (old.exam_coins || 0)) toast(`🎓 +${g.exam_coins - (old.exam_coins || 0)} ₿ — бонус за вариант`, 5000);
     if (g.xp !== old.xp) xpPop(g.xp - old.xp);
-    if (g.xp !== old.xp && g.coins !== old.coins) setTimeout(() => xpPop(g.coins - old.coins, '₿'), 180);   // биткоины за труд — тоже всплывают
+    if (g.xp !== old.xp && g.coins !== old.coins) setTimeout(() => xpPop(g.coins - old.coins, '₿'), 180);   // монеты за труд — тоже всплывают
     if (g.level > old.level) setTimeout(() => levelUp(g), 900);
     const had = new Set((old.ach || []).filter(a => a.got).map(a => a.id));
     (g.ach || []).filter(a => a.got && !had.has(a.id))
@@ -372,7 +372,7 @@
       <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : g.img ? `<span class="ug plain img r-${g.rar.k}"><span class="ug-ic">${giftImg(g.img)}</span></span>`
           : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
         <small>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>
-      ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Биткоины и подарки» (кнопка ₿ вверху): уникальные летают в шапке профиля.</p>' : ''}`;
+      ${P.me ? '<p class="fm-note">Улучшить подарок до уникального — в «Монеты и подарки» (кнопка ₿ вверху): уникальные летают в шапке профиля.</p>' : ''}`;
   }
   async function saveBadges(keys) {
     try { await api('profile/badges', { keys }); } catch (e) { toast(e.message || 'Не получилось сохранить'); return; }
@@ -426,7 +426,7 @@
     await loadRating();
     if (!LB) { $('#forecastBody').innerHTML = '<h2 class="fm-title">Рейтинг</h2><p class="fm-muted">Нет связи с сервером.</p>'; return; }
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Рейтинг</h2>
-      ${LB.spectator && !TEACHER ? '<p class="daily-used">Сейчас ты не участвуешь в рейтингах — решай задания как обычно: опыт и биткоины начисляются.</p>' : ''}${LB.spectator && TEACHER ? '<p class="daily-used">🎓 Вы учитель: рейтинг ваших учеников виден, но вы сами в нём не участвуете — ни в лиге, ни в ТОП-10, ни в дуэлях.</p>' : ''}
+      ${LB.spectator && !TEACHER ? '<p class="daily-used">Сейчас ты не участвуешь в рейтингах — решай задания как обычно: опыт и монеты начисляются.</p>' : ''}${LB.spectator && TEACHER ? '<p class="daily-used">🎓 Вы учитель: рейтинг ваших учеников виден, но вы сами в нём не участвуете — ни в лиге, ни в ТОП-10, ни в дуэлях.</p>' : ''}
       <p class="fm-note">${LB.spectator && TEACHER ? 'Ваши ученики' : 'Ученики твоего учителя'}. Лига — очки с понедельника; день, неделя, месяц — ТОП-10.</p>${boardsHtml(LB, tab || 'league')}`;
   }
 

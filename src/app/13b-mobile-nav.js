@@ -28,7 +28,7 @@
     const items = [
       ['labCard', 'Лаборатория'], ['numbers', 'Номера заданий'], ['examCard', 'Вариант ЕГЭ'], ['courseCard', 'Курс'], ['pycCard', 'Курс Python'],
       ['favCard', 'Избранное'], ['histCard', 'История заданий'], ['dailyCard', 'Задание дня'], ['duelCard', 'Дуэли'],
-      ['togCard', 'Занятия вместе'], ['coinCard', 'Биткоины и подарки'], ['supportBtn', 'Техподдержка'],
+      ['togCard', 'Занятия вместе'], ['coinCard', 'Монеты и подарки'], ['supportBtn', 'Техподдержка'],
       ['themeBtn', 'Светлая / тёмная тема'], ['sndBtn', 'Звуки для занятий'], ['tourBtn', 'Как работает Egeshka']
     ];
     $('#mobileMoreLinks').innerHTML = items.filter(([id]) => id === 'numbers' || ($('#' + id) && !$('#' + id).hidden)).map(([id, label]) =>

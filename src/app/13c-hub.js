@@ -1,5 +1,5 @@
   // ------------------------------------------------------------ главная-пульт ученика
-  /* Отдельная страница, с которой ученик начинает: сверху — уровень, биткоины, лига, огонёк; в центре — «План на сегодня»
+  /* Отдельная страница, с которой ученик начинает: сверху — уровень, монеты, лига, огонёк; в центре — «План на сегодня»
      (что делать сейчас, по порядку); ниже — все разделы плитками. Разделы открываются своими страницами,
      вернуться — кнопкой «Главная» слева или «Назад» в браузере. */
 
@@ -197,7 +197,7 @@
     const out = [`<button type="button" class="hub-pill" data-hub-go="forecast" title="Прогноз балла ЕГЭ">${up}Прогноз <b data-count="fc">${fc == null ? '—' : fc}</b></button>`];
     if (SERVER && GAME) {
       if (!focus) out.push(`<button type="button" class="hub-pill" data-hub-go="level" title="Уровень ${GAME.level} · ${esc(GAME.title)} — ${GAME.cur} / ${GAME.need} XP">${star}<b data-count="lvl">${GAME.level}</b><small>уровень</small><i class="hub-xp"><b data-bar="xp" data-w="${pct(GAME.cur / GAME.need)}"></b></i></button>`);
-      if (!TEACHER) out.push(`<button type="button" class="hub-pill" data-hub-go="coins" title="Биткоины и подарки"><span class="btc" aria-hidden="true">₿</span><b data-count="coins">${GAME.coins || 0}</b></button>`);
+      if (!TEACHER) out.push(`<button type="button" class="hub-pill" data-hub-go="coins" title="Монеты и подарки"><span class="btc" aria-hidden="true">₿</span><b data-count="coins">${GAME.coins || 0}</b></button>`);
     }
     if (!focus && me && me.value) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="${esc(L.name || 'Лига')} — рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Лига <b data-count="place">${me.place}</b>${L.top ? `<small>/${Math.max(L.top.length, me.place)}</small>` : ''}</button>`);
     else if (!focus && SERVER && student) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="Рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Рейтинг</button>`);

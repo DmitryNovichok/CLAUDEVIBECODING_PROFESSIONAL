@@ -1129,7 +1129,7 @@
   $('#cpFind').addEventListener('input', () => { if (CP.d) renderCourseProgress(); });
   $('#cpReload').addEventListener('click', loadCourseProgress);
 
-  // ------------------------------------------------------------ подарки и биткоины: подарить ученику, классу или всем
+  // ------------------------------------------------------------ подарки и монеты: подарить ученику, классу или всем
   let GFA = null;
   let giftPick = null;                    // ученик, открытый из «Экономики»: показать его кошелёк, подарки и историю
   async function loadGifts() {
@@ -1155,7 +1155,7 @@
     $('#giftEcon').innerHTML = card('Цены и заработок', `×${String(E.idx).replace('.', ',')} · ×${String(E.earn).replace('.', ',')}`,
         `термостат: среднее состояние (кошелёк + подарки) ${E.avg} ₿ при норме ${E.target} ₿ — подробно во вкладке «Экономика»`)
       + card('🏦 Банк рынка', E.bank + ' ₿', 'ваши начисления — из банка, снятое — в банк')
-      + card('Биткоинов у учеников', E.total, `у ${E.active} ${pluralRu(E.active, 'активного', 'активных', 'активных')} за 30 дней`)
+      + card('Монет у учеников', E.total, `у ${E.active} ${pluralRu(E.active, 'активного', 'активных', 'активных')} за 30 дней`)
       + card('Уникальных выпущено', GFA.uniq_total, `тираж — ${GFA.cap} на каждый вид подарка`)
       + card('За труд', '1 ₿ / ' + GFA.coin_xp + ' XP', `и подарок за каждые ${GFA.work_every} решённых`)
       + card('🎲 Случайный подарок', GFA.box.now + ' ₿', GFA.box.set ? 'цену задал главный учитель' : `${GFA.box.default} ₿ × индекс цен`);
@@ -1229,7 +1229,7 @@
         ${withName ? `<td><button type="button" class="link-btn eco-name" data-eco-sid="${e.sid}">${esc(e.name)}</button></td>` : ''}
         <td>${ecoWhat(e)}</td><td class="num">${ecoDelta(e.delta)}</td></tr>`).join('')}</tbody></table></div>`;
   }
-  /** Откуда пришли и куда ушли биткоины: строки со значением и долей (полоска одного цвета). */
+  /** Откуда пришли и куда ушли монеты: строки со значением и долей (полоска одного цвета). */
   function ecoFlowHtml(title, rows, week) {
     const sum = rows.reduce((a, r) => a + r[1], 0) || 1;
     return `<div class="adm-box eco-flow"><h3 class="adm-h3">${title}</h3><table class="eco-flow-t">${rows.map(([lbl, v, wk, hint]) => `<tr title="${esc(hint || '')}">
@@ -1353,10 +1353,10 @@
     return `<div class="ch-grid">
       ${chartBox('flow', 'Пришло и ушло по дням', 'Пришло — за опыт, бонусы за задания и варианты, начисления, стипендии и продажи; ушло — покупки, улучшения, снятия, плата за хранение и штрафы', flow,
         keyHtml('c1', 'пришло') + keyHtml('c2', 'ушло'))}
-      ${chartBox('bal', 'Биткоинов на руках', 'Сумма кошельков ваших учеников к концу каждого дня', bal)}
+      ${chartBox('bal', 'Монет на руках', 'Сумма кошельков ваших учеников к концу каждого дня', bal)}
       ${chartBox('gifts', 'Подарки по дням', 'Сколько куплено в магазине, улучшено до уникальных и продано на рынке', gifts,
         keyHtml('c1', 'куплено') + keyHtml('c2', 'улучшено') + keyHtml('c3', 'рынок'))}
-      ${chartBox('rate', 'Курс биткоина', 'Сколько XP стоил 1 ₿: 10 — обычно, дороже — когда одновременно решает много учеников', rate)}
+      ${chartBox('rate', 'Курс монеты', 'Сколько XP стоил 1 ₿: 10 — обычно, дороже — когда одновременно решает много учеников', rate)}
     </div>${table}`;
   }
   // ------------------------------------------------------------ рынок всего сайта: графики как в модели экономики
@@ -1429,9 +1429,9 @@
     const evRows = i => [...R[i].ev.map(t => ['', t, '⚑']), ...inSpan(i)];
     const x = v => '×' + xfmt(v);
     const charts = [
-      ['m-wal', 'Кошелёк и состояние, ₿', `Сколько биткоинов у активного ученика (решал что-то за 30 дней) и его состояние — кошелёк + подарки по цене продажи (с 2.7.1): его термостат сравнивает с нормой, полоса — норма ${M.band[0]}–${M.band[1]} ₿.`,
+      ['m-wal', 'Кошелёк и состояние, ₿', `Сколько монет у активного ученика (решал что-то за 30 дней) и его состояние — кошелёк + подарки по цене продажи (с 2.7.1): его термостат сравнивает с нормой, полоса — норма ${M.band[0]}–${M.band[1]} ₿.`,
         [{ key: 'savg', cls: 'c2', t: 'состояние' }, { key: 'avg', cls: 'c1', t: 'кошелёк средний' }, { key: 'med', cls: 'c3', t: 'кошелёк медиана' }], numFmt, { band: M.band }],
-      ['m-idx', 'Цены и заработок', 'Индекс цен — во сколько раз подарки дороже каталога; заработок — множитель биткоинов за труд.',
+      ['m-idx', 'Цены и заработок', 'Индекс цен — во сколько раз подарки дороже каталога; заработок — множитель монет за труд.',
         [{ key: 'idx', cls: 'c1', t: 'цены' }, { key: 'earn', cls: 'c2', t: 'заработок' }], x, { min: 0.5, span: 1 }],
       ['m-aff', 'Заданий на средний подарок', `Сколько заданий решить, чтобы купить подарок средней цены (${M.avg_gift} ₿ по каталогу) — то, что чувствует ученик.`,
         [{ key: 'afford', cls: 'c1', t: 'заданий' }], numFmt, {}],
@@ -1469,7 +1469,7 @@
     const cards = card('Среднее состояние', `${E.avg} ₿`, `кошелёк + подарки; медиана ${E.med} ₿ при норме ${E.target} ₿ — ${state}. `
         + `Кошельки: средний ${E.w_avg} ₿, медиана ${E.w_med} ₿; подарков на ${numFmt(E.worth)} ₿; активных ${E.active}`)
       + card('Цены', '×' + xfmt(E.idx), `подарки, «🎲» и улучшение${toGoal(E.idx, G && G.idx, v => '×' + xfmt(Math.round(v * 100) / 100))}`)
-      + card('Заработок', '×' + xfmt(E.earn), `биткоины за опыт, задания и варианты${toGoal(E.earn, G && G.earn, v => '×' + xfmt(Math.round(v * 100) / 100))}`)
+      + card('Заработок', '×' + xfmt(E.earn), `монеты за опыт, задания и варианты${toGoal(E.earn, G && G.earn, v => '×' + xfmt(Math.round(v * 100) / 100))}`)
       + card('Комиссия рынка', pctFmt(E.fee), `с каждой сделки — в банк${toGoal(E.fee, G && G.fee, pctFmt)}; с покупок и улучшений — ${pctFmt(E.op_fee)}, с продаж сразу — 10%`)
       + card('Плата за хранение', E.tax ? pctFmt(E.tax) + ' в неделю' : 'нет', `с суммы больше ${E.tax_from} ₿ — в банк, по понедельникам`)
       + card('🏦 Банк рынка', `${numFmt(E.bank)} ₿`, `пришло ${numFmt(inSum)} ₿ (от заработка ${numFmt(S.labor || 0)}, рынок ${numFmt(S.fee || 0)}, с подарков ${numFmt(S.ops || 0)}, 🎲 ${numFmt(S.box || 0)}, хранение ${numFmt(S.storage || 0)}), ушло ${numFmt(outSum)} ₿`)
@@ -1517,9 +1517,9 @@
     const pday = ts => new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const iso = ts => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
     const promo = `<div class="adm-box th-promo"><h3 class="adm-h3">Акция ${PN ? `идёт: «${esc(PN.title)}»` : '— сейчас нет'}</h3>
-      <p class="fm-note">${PN ? `Биткоины за задания ×${xfmt(PN.task)}, за вариант ЕГЭ ×${xfmt(PN.exam)} — до ${pday(PN.to)} включительно. `
+      <p class="fm-note">${PN ? `Монеты за задания ×${xfmt(PN.task)}, за вариант ЕГЭ ×${xfmt(PN.exam)} — до ${pday(PN.to)} включительно. `
         + 'Ученик видит объявление при входе (раз в день) и значок ⚡ вверху; бонус — только за заработанное во время акции.'
-        : 'Во время акции биткоины за задания (опыт за решение, бонус за задание, самостоятельные) и за вариант ЕГЭ — в N раз больше.'}</p>
+        : 'Во время акции монеты за задания (опыт за решение, бонус за задание, самостоятельные) и за вариант ЕГЭ — в N раз больше.'}</p>
       ${T.is_main ? `<form class="th-form" id="promoForm">
         <label class="th-note">Название<input class="inp" id="prTitle" maxlength="60" value="${esc(PS ? PS.title : 'Бонус перед пробником')}"></label>
         <label>Задания ×<input class="inp" id="prTask" type="number" step="0.1" min="1" max="${T.promo_max}" value="${PS ? PS.task : 1.5}"></label>
@@ -1591,13 +1591,13 @@
     const tierChips = (list, pre) => list.map(([k, t]) => `<span class="eco-chip"><span class="eco-rar r-${k}">${esc(t)}</span> <b>${d.tiers[pre + k] || 0}</b></span>`).join('');
     const kind = $('#econKind') ? $('#econKind').value : '';
     const S = d.site;
-    // весь сайт — главному учителю: подарки, биткоины, курс, популярное и самое редкое
+    // весь сайт — главному учителю: подарки, монеты, курс, популярное и самое редкое
     const site = !S ? '' : `<div class="adm-box eco-site"><h3 class="adm-h3">Весь сайт</h3>
       <div class="adm-cards">
         ${card('Подарков на сайте', S.gifts.on_hand, `уникальных ${S.gifts.uniq_on_hand}, у ${S.gifts.owners} ${pluralRu(S.gifts.owners, 'ученика', 'учеников', 'учеников')} · в каталоге ${S.catalog}`)}
         ${card('Куплено подарков', S.gifts.bought, `за 7 дней ${S.gifts.bought_week}, в подарок одноклассникам ${S.gifts.to_mates}`)}
-        ${card('Биткоинов на руках', S.coins.balance, `у ${S.coins.with_coins} из ${S.students} учеников`)}
-        ${card('Потрачено биткоинов', S.spent, 'на подарки и улучшения')}
+        ${card('Монет на руках', S.coins.balance, `у ${S.coins.with_coins} из ${S.students} учеников`)}
+        ${card('Потрачено монет', S.spent, 'на подарки и улучшения')}
         ${card('Заработано трудом', S.coins.mined + S.coins.task + S.coins.exam, `за опыт ${S.coins.mined}, бонусы за задания ${S.coins.task}, за варианты и самостоятельные ${S.coins.exam}`)}
         ${card('Курс сейчас', `1 ₿ = ${S.rate} XP`, `верно решают ${S.active}; обычно ${S.rate_base}, не дороже ${S.rate_max}`, S.rate > S.rate_base ? '#f57c00' : '')}
         ${card('Продано · сгорело', `${S.gifts.sold} · ${S.gifts.burned}`, `получено за продажи ${S.ledger.sell || 0} ₿`)}
@@ -1614,19 +1614,19 @@
       <h3 class="adm-h3" style="margin:14px 0 4px">Рынок всего сайта</h3><div id="mktCharts">${marketChartsHtml(d.market)}</div>
       ${site}<h3 class="adm-h3" style="margin:6px 0 8px">Ваши ученики</h3><div class="adm-cards">
         ${card('Цены и заработок', `×${xfmt(E.idx)} · ×${xfmt(E.earn)}`, `термостат: среднее состояние (кошелёк + подарки) активных учеников сайта — ${E.avg} ₿ при норме ${E.target} ₿`)}
-        ${card('Биткоинов на руках', T.balance, `у ${d.with_coins} из ${d.students} ваших учеников`)}
+        ${card('Монет на руках', T.balance, `у ${d.with_coins} из ${d.students} ваших учеников`)}
         ${card('Заработано трудом', T.mined + T.task + T.exam, `за опыт, задания и варианты; курс сейчас 1 ₿ = ${d.rate} XP`)}
         ${card('Штрафы за спешку', T.fines, 'решено слишком быстро (быстрее 30 секунд, №24–27 — быстрее 10/5/20/25 минут) — по −1 ₿')}
       </div>
       ${d.charts ? econChartsHtml(d.charts) : ''}
       <div class="eco-grid">
-        ${ecoFlowHtml('Откуда пришли биткоины', [['⚒ За опыт (труд)', T.mined, null, 'Решённые задания: по курсу на момент заработка (обычно 1 ₿ за 10 XP)'],
+        ${ecoFlowHtml('Откуда пришли монеты', [['⚒ За опыт (труд)', T.mined, null, 'Решённые задания: по курсу на момент заработка (обычно 1 ₿ за 10 XP)'],
           ['🧩 Бонусы за задания', T.task, null, 'За каждое впервые решённое задание — сверх опыта, чем сложнее, тем больше'],
           ['🎓 За варианты и самостоятельные', T.exam, null, 'Бонус по тестовому баллу: 40+ — 15 ₿, 60+ — 30, 80+ — 50, 90+ — 100; самостоятельная — так же, короткая — пропорционально'],
           ['➕ Начислил учитель', T.grant, W.grant || 0], ['💰 Продажи подарков', T.sell, W.sell || 0],
           ['🏪 Продажи на рынке', T.mkt_in, W.msell || 0, `Одноклассник купил подарок: продавцу — цена минус комиссия рынка (сейчас ${pctFmt(E.fee)}, у выпавшего в 🎲 — 50%; уходит в банк)`],
           ['🎓 Стипендии из банка', T.stipend, W.stipend || 0, 'Когда денег у учеников мало, банк раз в неделю платит решившим 10+ заданий']])}
-        ${ecoFlowHtml('Куда ушли биткоины', [['🎁 Покупки подарков', T.gift, W.gift || 0], ['✨ Улучшения', T.upgrade, W.upgrade || 0],
+        ${ecoFlowHtml('Куда ушли монеты', [['🎁 Покупки подарков', T.gift, W.gift || 0], ['✨ Улучшения', T.upgrade, W.upgrade || 0],
           ['🏪 Покупки на рынке', T.mkt_out, W.mbuy || 0, 'Купил подарок у одноклассника; комиссия с цены уходит в банк рынка'],
           ['➖ Снял учитель', T.take, W.take || 0], ['📦 Плата за хранение', T.storage, -(W.storage || 0), 'Раз в неделю — процент с суммы больше нормы, в банк рынка'],
           ['⏱ Штрафы за спешку', T.fines, null]])}
@@ -1663,7 +1663,7 @@
     const b = e.target.closest('[data-bank]');
     if (b) {
       const sum = Math.round(+$('#bankSum').value || 0), sign = +b.dataset.bank;
-      if (sum <= 0) { $('#thMsg').textContent = 'Сколько биткоинов?'; return; }
+      if (sum <= 0) { $('#thMsg').textContent = 'Сколько монет?'; return; }
       if (sign < 0 && !confirm(`Изъять ${sum} ₿ из банка? Они уйдут из экономики.`)) return;
       thermoSend('bank', { delta: sign * sum, note: $('#bankNote').value }, sign > 0 ? `🏦 Банк пополнен на ${sum} ₿` : `🔥 Из банка изъято ${sum} ₿`);
     }
@@ -1720,14 +1720,14 @@
     const take = $('#giftCoinMode').value === 'take';
     $('#giftKind').disabled = take;
     $('#giftUniq').disabled = take;
-    $('#giftSubmit').textContent = take ? '➖ Снять биткоины' : '🎁 Подарить';
+    $('#giftSubmit').textContent = take ? '➖ Снять монеты' : '🎁 Подарить';
     $('#giftSubmit').classList.toggle('danger', take);
   });
   $('#giftOwned').addEventListener('click', async e => {
     const b = e.target.closest('[data-gift-del]');
     if (!b) return;
     const name = b.closest('.gift-own').querySelector('b').textContent;
-    if (!confirm(`Удалить «${name}» из профиля ученика? Подарок сгорит, биткоины не вернутся.`)) return;
+    if (!confirm(`Удалить «${name}» из профиля ученика? Подарок сгорит, монеты не вернутся.`)) return;
     try { await api('gifts/remove', { id: +b.dataset.giftDel }); toast('Подарок удалён'); } catch (err) { if (err.status !== 401) toast(err.message); }
     loadOwnedGifts();
   });
@@ -1737,7 +1737,7 @@
     const msg = $('#giftMsg'), to = $('#giftTo').value, gift = take ? '' : $('#giftKind').value, n = Math.max(0, Math.floor(+$('#giftCoins').value || 0));
     msg.className = 'login-err';
     msg.textContent = '';
-    if (!gift && !n) { msg.textContent = take ? 'Сколько биткоинов снять?' : 'Выберите подарок или сколько биткоинов начислить'; return; }
+    if (!gift && !n) { msg.textContent = take ? 'Сколько монет снять?' : 'Выберите подарок или сколько монет начислить'; return; }
     const body = { gift, coins: take ? -n : n, note: $('#giftNote').value, unique: $('#giftUniq').checked };
     if (to === 'all') body.all = true; else if (to.startsWith('c:')) body.class_id = +to.slice(2); else body.student_id = +to.slice(2);
     const label = $('#giftTo').selectedOptions[0].textContent;
@@ -3574,7 +3574,7 @@
     if (!voidOpen) { box.innerHTML = past ? `<div class="adm-box void-box">${past}</div>` : ''; return; }
     const now = Date.now() / 1000, P = voidPrev;
     box.innerHTML = `<div class="adm-box void-box"><h3 class="adm-h3" style="margin-top:0">Отменить ответы за промежуток</h3>
-      <p class="adm-hint">Если в аккаунт зашёл кто-то другой: его ответы уберутся из журнала, а опыт, биткоины за задания, точность, огонёк,
+      <p class="adm-hint">Если в аккаунт зашёл кто-то другой: его ответы уберутся из журнала, а опыт, монеты за задания, точность, огонёк,
         прогноз и место в рейтингах пересчитаются сами. Отменённое хранится — его можно вернуть. Время — по журналу ниже (с точностью до минуты, конец включительно).</p>
       <div class="th-form"><label>С<input class="inp" type="datetime-local" id="voidFrom" value="${esc(P ? P.from_v : dtLocal(now - 3600))}"></label>
         <label>По<input class="inp" type="datetime-local" id="voidTo" value="${esc(P ? P.to_v : dtLocal(now))}"></label>
@@ -3630,7 +3630,7 @@
   $('#stNoRank').addEventListener('click', async () => {
     const s = st.student, on = !s.no_rank;
     if (!confirm(on ? `Убрать «${s.name}» из всех рейтингов?\n\nЛига, ТОПы дня, недели и месяца, корона задания дня, битва классов, Forbes, Эло и сезоны — его там не будет, `
-        + 'и места других сдвинутся. Заниматься, получать биткоины, дарить и торговать он сможет как раньше. Вернуть можно здесь же.'
+        + 'и места других сдвинутся. Заниматься, получать монеты, дарить и торговать он сможет как раньше. Вернуть можно здесь же.'
       : `Вернуть «${s.name}» в рейтинги?`)) return;
     try { await api('student/norank', { id: s.id, on }); toast(on ? '🚫 Убран из рейтингов' : '↺ Снова в рейтингах'); if (studentCurrent(s)) openStudent(s.id); }
     catch (e) { if (e.status !== 401) toast(e.message); }

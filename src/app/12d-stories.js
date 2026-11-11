@@ -22,13 +22,13 @@
     const saber = c => `<img class="sw-s sw-${c}" src="vendor/sabers/saber_${c}.svg" alt="" draggable="false">`;
     const list = [];
     if (swOn) list.push({ cls: 'n1', ico: '⚔️', head: 'Лимитки', title: 'Световые мечи',
-      text: `В «Биткоинах» — синий и красный световые мечи: ₿ ${num(SW_PRICE)}, всего по ${SW_N} штук на весь сайт и только до 9 ноября включительно. Кто первый, тот и успел!`,
+      text: `В «Монетах» — синий и красный световые мечи: ₿ ${num(SW_PRICE)}, всего по ${SW_N} штук на весь сайт и только до 9 ноября включительно. Кто первый, тот и успел!`,
       art: `<div class="sto-sw"><div class="sw-pair">${saber('blue')}${saber('red')}</div>
         <div class="sw-tag">по ${SW_N} штук · до 9 ноября</div>
         <div class="sw-have">у тебя ₿ ${num(coins)}${coins >= SW_PRICE ? ' — хватает ✓' : ` · ещё ₿ ${num(SW_PRICE - coins)}`}</div></div>` });
     list.push(
       { cls: 'n2', ico: '👥', head: 'Новое', title: 'Занятия «Вместе»',
-        text: 'Решай с учителем в одном редакторе: общий код и запуск программы, доска для рисунков и пометки прямо на условии задачи. Ответы, которые ты сдаёшь сам, засчитываются — с опытом и биткоинами.',
+        text: 'Решай с учителем в одном редакторе: общий код и запуск программы, доска для рисунков и пометки прямо на условии задачи. Ответы, которые ты сдаёшь сам, засчитываются — с опытом и монетами.',
         art: `<div class="sto-tg"><div class="tg-w"><div class="tg-l"><i class="ln w1"></i><i class="ln w2"></i><i class="ln w3"></i><i class="ln w2"></i>
           <span class="cur t">Учитель</span><span class="cur s">Ты</span></div>
           <div class="tg-r"><svg viewBox="0 0 100 80" aria-hidden="true"><path d="M10 60 C 30 10, 55 10, 70 45 S 90 70, 92 30" /></svg></div></div>

@@ -1658,7 +1658,7 @@ class DB(Transactional):
                 PRIMARY KEY(student_id, case_id));
             CREATE TABLE IF NOT EXISTS fire_cover(
                 student_id INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, ts REAL, PRIMARY KEY(student_id, day));
-            -- подарки: от учителя (from_teacher) или купленные учеником за биткоины (from_sid); seen — уведомление показано;
+            -- подарки: от учителя (from_teacher) или купленные учеником за монеты (from_sid); seen — уведомление показано;
             -- uniq — улучшенный (уникальный) подарок
             CREATE TABLE IF NOT EXISTS gifts(
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, gift TEXT NOT NULL, ts REAL NOT NULL,
@@ -1666,7 +1666,7 @@ class DB(Transactional):
             CREATE INDEX IF NOT EXISTS gifts_student ON gifts(student_id, ts);
             -- экономика по дням — для графиков в «Экономике»: индекс цен, кошельки, рычаги термостата и банк на последний пересчёт дня
             CREATE TABLE IF NOT EXISTS econ_hist(day TEXT PRIMARY KEY, idx REAL, avg REAL, total INTEGER, active INTEGER);
-            -- банк рынка биткоинов: сюда — комиссия рынка, плата за хранение, снятое учителем; отсюда — начисления
+            -- банк рынка монет: сюда — комиссия рынка, плата за хранение, снятое учителем; отсюда — начисления
             -- учителей и стипендии; главный учитель может пополнить или изъять
             CREATE TABLE IF NOT EXISTS bank(
                 id INTEGER PRIMARY KEY, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT NOT NULL, note TEXT,
@@ -1697,9 +1697,9 @@ class DB(Transactional):
             CREATE TABLE IF NOT EXISTS limited(
                 id INTEGER PRIMARY KEY, gift TEXT NOT NULL, start REAL NOT NULL, stop REAL NOT NULL, cap INTEGER NOT NULL,
                 price INTEGER NOT NULL, who TEXT);
-            -- курс биткоина: с какого момента 1 ₿ стоит k XP (меняется, когда одновременно занимается много учеников)
+            -- курс монеты: с какого момента 1 ₿ стоит k XP (меняется, когда одновременно занимается много учеников)
             CREATE TABLE IF NOT EXISTS btc_rate(ts REAL PRIMARY KEY, k INTEGER NOT NULL, active INTEGER);
-            -- биткоины сверх заработанных опытом: начислил учитель (grant, +), снял учитель (take, −), продал подарок (sell, +),
+            -- монеты сверх заработанных опытом: начислил учитель (grant, +), снял учитель (take, −), продал подарок (sell, +),
             -- потратил на подарок (gift, −) или улучшение (upgrade, −)
             CREATE TABLE IF NOT EXISTS coins(
                 id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, ts REAL NOT NULL, delta INTEGER NOT NULL, reason TEXT,
@@ -1873,9 +1873,9 @@ class DB(Transactional):
             c.execute("UPDATE assignments SET strict = CASE WHEN kind='self' THEN 1 ELSE 0 END")
             # «быстрее минуты — минус опыт» действует с первого запуска новой версии, задним числом опыт не отнимаем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('fast_xp_since', ?)", (str(time.time()),))
-            # «быстрее 30 секунд — минус биткоин» — тоже с первого запуска версии, задним числом не штрафуем
+            # «быстрее 30 секунд — минус монета» — тоже с первого запуска версии, задним числом не штрафуем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('btc_fast_since', ?)", (str(time.time()),))
-            # биткоины за вариант ЕГЭ по тестовому баллу — за варианты после этой версии (старые не начисляем разом)
+            # монеты за вариант ЕГЭ по тестовому баллу — за варианты после этой версии (старые не начисляем разом)
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('exam_btc_since', ?)", (str(time.time()),))
             # бонус ₿ за решённое задание и за самостоятельную — тоже с первого запуска версии (за прошлое разом не начисляем)
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('task_btc_since', ?)", (str(time.time()),))
@@ -1912,7 +1912,7 @@ class DB(Transactional):
                 c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('promo', ?)", (json.dumps(P, ensure_ascii=False),))
                 c.execute("INSERT INTO settings(key, value) VALUES('promo_seeded', '1')")
             # журнал тиражей — один раз восстановить прошлое: выпуск — по подаркам, улучшения, продажи сразу и сделки — по журналу
-            # биткоинов, удалённые учителем — по отметке sold без продажи
+            # монет, удалённые учителем — по отметке sold без продажи
             if not c.execute("SELECT 1 FROM settings WHERE key='gift_log_backfill'").fetchone():
                 rows = []
                 for gid, gift, ts, frm, tch, kind, owner, price in c.execute(
@@ -1934,7 +1934,7 @@ class DB(Transactional):
                 c.execute("INSERT INTO settings(key, value) VALUES('gift_log_backfill', '1')")
             # банку — половина заработка учеников: с первого запуска версии, за прошлое не начисляем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('labor_bank_since', ?)", (str(time.time()),))
-            # банк рынка биткоинов открывается со стартовым капиталом (один раз)
+            # банк рынка монет открывается со стартовым капиталом (один раз)
             c.execute("""INSERT INTO bank(ts, delta, reason, note) SELECT ?, ?, 'start', 'Стартовый капитал банка'
                          WHERE NOT EXISTS (SELECT 1 FROM bank)""", (time.time(), BANK_START))
             # «перерешал уже решённое — без опыта и огонька» действует на всю историю: нафармленное повторами снимаем
@@ -3494,8 +3494,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path in ("/api/gifts", "/api/gifts/buy", "/api/gifts/seen", "/api/gifts/upgrade", "/api/gifts/sell",
                     "/api/gifts/list", "/api/gifts/unlist", "/api/gifts/mbuy", "/api/gifts/bid"):
-            # биткоины и подарки: магазин (цены по индексу термостата), свои подарки, подарить себе или однокласснику (ученику того же
-            # учителя), улучшить до уникального (тираж ограничен) и продать — подарок сгорает, биткоины возвращаются;
+            # монеты и подарки: магазин (цены по индексу термостата), свои подарки, подарить себе или однокласснику (ученику того же
+            # учителя), улучшить до уникального (тираж ограничен) и продать — подарок сгорает, монеты возвращаются;
             # рынок: выставить свой подарок за свою цену и купить у одноклассника (комиссия термостата — в банк рынка)
             s = self.student(data)
             if not s:
@@ -3512,7 +3512,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if path != "/api/gifts" and method != "POST":
                 return self.err(405, "нужен POST")
             if path != "/api/gifts" and s["is_teacher"]:
-                return self.err(403, "Учительскому аккаунту биткоины не нужны — дарите из панели учителя")
+                return self.err(403, "Учительскому аккаунту монеты не нужны — дарите из панели учителя")
             e = econ(db)
             sup_all = gift_supply(db)                     # тиражи: множители цены, улучшения и редкость — по ним
             if path == "/api/gifts/buy":
@@ -3552,7 +3552,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                              "больше одному ученику нельзя. Учитываются и текущие ставки")
                     have = game_summary(db, s["id"])["coins"]
                     if have < price:
-                        return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
+                        return self.err(400, f"Не хватает монет: нужно {price} ₿, у тебя {have} ₿")
                     # за сколько достался: из «🎲» — нынешняя цена выпавшего (а не коробки), иначе — заплаченное
                     paid = gift_price(g[0], e, gift_demand(db)) if box else price
                     gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen, kind, paid) VALUES(?,?,?,?,?,?,?)",
@@ -3593,7 +3593,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                             return self.err(409, f"Тираж уникальных «{GIFT_BY[r['gift']][2]}» закончился: выпущено {UNIQ_CAP} из {UNIQ_CAP}")
                         have = game_summary(db, s["id"])["coins"]
                         if have < price:
-                            return self.err(400, f"Не хватает биткоинов: нужно {price} ₿, у тебя {have} ₿")
+                            return self.err(400, f"Не хватает монет: нужно {price} ₿, у тебя {have} ₿")
                         db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'upgrade', ?)", (s["id"], now, -price, r["id"]))
                         uq = hw_uniq(db, r["gift"]) if r["gift"] in HW_BY else gift_uniq(db, r["gift"])
                         db.x("UPDATE gifts SET uniq=?, up_base=? WHERE id=?", (json.dumps(uq), gift_up_raw(r["gift"]), r["id"]))
@@ -3689,7 +3689,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                              "Учитываются и текущие ставки")
                     have, total = game_summary(db, s["id"])["coins"], amount + buy_fee(amount)   # ставка и сбор покупателя
                     if have < total:
-                        return self.err(400, f"Не хватает биткоинов: нужно {total} ₿, у тебя {have} ₿")
+                        return self.err(400, f"Не хватает монет: нужно {total} ₿, у тебя {have} ₿")
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id, note) VALUES(?,?,?, 'bid', ?, ?)",
                          (s["id"], now, -total, r["id"], short_name(seller["name"])))
                     db.x("INSERT INTO bids(gift_id, sid, amount, ts) VALUES(?,?,?,?)", (r["id"], s["id"], amount, now))
@@ -5495,7 +5495,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path in ("/api/admin/student/void", "/api/admin/student/void-undo") and method == "POST":
             # отменить ответы ученика за промежуток (в аккаунт зашёл кто-то другой): предпросмотр, затем — в корзину attempts_void;
-            # опыт, биткоины за труд, точность, огонёк, прогноз и рейтинги пересчитываются сами — они считаются по журналу ответов
+            # опыт, монеты за труд, точность, огонёк, прогноз и рейтинги пересчитываются сами — они считаются по журналу ответов
             sid = to_int(data.get("id"))
             if not self.sees_student(sid):
                 return self.err(404, "ученик не найден")
@@ -5830,7 +5830,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "students": out, "pw_set": bool(db.setting("pyc_pw"))})
 
         if path == "/api/admin/gifts":
-            # подарки и биткоины: каталог, кому можно подарить (ученики этого учителя и классы), что дарили недавно
+            # подарки и монеты: каталог, кому можно подарить (ученики этого учителя и классы), что дарили недавно
             where, args = self.student_scope()
             studs = db.q(f"""SELECT s.id, s.name, s.class_id, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id
                              WHERE {where} ORDER BY s.name""", args)
@@ -5913,7 +5913,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "wallet": econ_wallet(db, sid), "feed": econ_feed(db, where, args, sid=sid, limit=100)})
 
         if path == "/api/admin/econ":
-            # экономика учеников этого учителя: откуда пришли биткоины и куда ушли, кошельки, подарки по редкости, журнал
+            # экономика учеников этого учителя: откуда пришли монеты и куда ушли, кошельки, подарки по редкости, журнал
             where, args = self.student_scope()
             studs = db.q(f"SELECT s.id, s.name, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where}", args)
             wallets = [dict(econ_wallet(db, r["id"]), id=r["id"], name=r["name"], cls=r["cls"]) for r in studs]
@@ -5940,7 +5940,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "thermo": thermo_info(db, self.T), "market": market_hist(db)})
 
         if path == "/api/admin/promo" and method == "POST":
-            # акция: биткоины за задания и варианты в N раз больше до дня to включительно — главный учитель; stop — закончить
+            # акция: монеты за задания и варианты в N раз больше до дня to включительно — главный учитель; stop — закончить
             if not self.T["is_main"]:
                 return self.err(403, "Акции запускает главный учитель")
             now, P = time.time(), promo_get(db)
@@ -6019,7 +6019,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "thermo": thermo_info(db, self.T)})
 
         if path == "/api/admin/bank" and method == "POST":
-            # пополнить банк рынка (новые биткоины в экономике) или изъять из него — главный учитель
+            # пополнить банк рынка (новые монеты в экономике) или изъять из него — главный учитель
             if not self.T["is_main"]:
                 return self.err(403, "Пополнять банк и изымать из него может главный учитель")
             v = to_int(data.get("delta")) or 0
@@ -6057,7 +6057,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "hw_chance": hw_box_chance(db)})
 
         if path == "/api/admin/gifts/remove" and method == "POST":
-            # удалить подарок из профиля ученика: он сгорает (как при продаже, но без биткоинов) — номер и сочетание
+            # удалить подарок из профиля ученика: он сгорает (как при продаже, но без монет) — номер и сочетание
             # уникального больше не выдаются
             where, args = self.student_scope()
             r = db.q(f"""SELECT g.id, g.student_id FROM gifts g JOIN students s ON s.id = g.student_id
@@ -6076,7 +6076,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True})
 
         if path == "/api/admin/gifts/give" and method == "POST":
-            # подарок (один на всех или «случайный» — каждому свой, можно сразу уникальный) и/или биткоины: ученику, классу или всем
+            # подарок (один на всех или «случайный» — каждому свой, можно сразу уникальный) и/или монеты: ученику, классу или всем
             where, args = self.student_scope()
             if data.get("student_id") is not None:
                 rows = db.q(f"SELECT s.id FROM students s WHERE s.id=? AND {where}", (to_int(data.get("student_id")),) + args)
@@ -6094,11 +6094,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(400, "Нет такого подарка")
             coins = to_int(data.get("coins")) or 0          # меньше нуля — снять (не больше, чем есть у ученика)
             if not -COINS_GRANT_MAX <= coins <= COINS_GRANT_MAX:
-                return self.err(400, f"Биткоинов за раз — не больше {COINS_GRANT_MAX}")
+                return self.err(400, f"Монет за раз — не больше {COINS_GRANT_MAX}")
             if not gift and not coins:
-                return self.err(400, "Выберите подарок или сколько биткоинов начислить или снять")
+                return self.err(400, "Выберите подарок или сколько монет начислить или снять")
             if coins < 0 and gift:
-                return self.err(400, "Снимать биткоины — без подарка")
+                return self.err(400, "Снимать монеты — без подарка")
             uniq = bool(data.get("unique")) and bool(gift)
             note = re.sub(r"\s+", " ", str(data.get("note") or "")).strip()[:GIFT_NOTE_MAX]
             now, rnd, taken = time.time(), random.SystemRandom(), 0
@@ -6106,7 +6106,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 issued = uniq_issued(db)
                 if uniq and gift != "random" and issued.get(gift, 0) + len(sids) > UNIQ_CAP:
                     return self.err(409, f"Тираж уникальных «{GIFT_BY[gift][2]}»: осталось {max(0, UNIQ_CAP - issued.get(gift, 0))} из {UNIQ_CAP}")
-                # начисление — из банка рынка: биткоины не берутся из воздуха; снятое — возвращается в банк
+                # начисление — из банка рынка: монеты не берутся из воздуха; снятое — возвращается в банк
                 bank = bank_balance(db)
                 if coins > 0 and coins * len(sids) > bank:
                     return self.err(409, f"В банке рынка {bank} ₿, а на начисление нужно {coins * len(sids)} ₿ "
@@ -7340,7 +7340,7 @@ ACH_XP = {
     "speedrun": 80, "lucky": 25, "dejavu": 10,
 }
 EXAM_MIN_SEC_FOR_XP = 20 * 60          # вариант, сданный быстрее, опыта не даёт (иначе его «фармят»)
-# биткоины за вариант ЕГЭ по тестовому баллу: (не меньше баллов, ₿) — засчитывается самый высокий уровень
+# монеты за вариант ЕГЭ по тестовому баллу: (не меньше баллов, ₿) — засчитывается самый высокий уровень
 EXAM_BTC = [(90, 100), (80, 50), (60, 30), (40, 15)]
 
 
@@ -7363,7 +7363,7 @@ def exam_btc_since(db):
     return setting_since(db, "exam_btc_since")
 
 
-# Акция (например, перед пробником): с from по to биткоины за задания (опыт за решение, бонус за задание, самостоятельные) —
+# Акция (например, перед пробником): с from по to монеты за задания (опыт за решение, бонус за задание, самостоятельные) —
 # × task, за вариант ЕГЭ (опыт и бонус за балл) — × exam. Меняет главный учитель («Экономика»). Каждая акция (и каждая смена
 # множителей) — свой период в истории promo_hist: заработанное во время прошлых периодов считается по их множителям, новая
 # акция и смена множителей прошлое не трогают (раньше акция хранилась одна — новая стирала бонусы прежней, и у тех, кто их уже
@@ -7461,7 +7461,7 @@ def day_end(day):
     return time.mktime(datetime.strptime(day, "%Y-%m-%d").timetuple()) + 86399
 
 
-# бонус ₿ за впервые решённое задание (сверх биткоинов за опыт) по номеру; со 2-й попытки — половина.
+# бонус ₿ за впервые решённое задание (сверх монет за опыт) по номеру; со 2-й попытки — половина.
 # На сайте таблицу не показываем — ученику только «чем сложнее задание, тем больше».
 TASK_BTC = private_rewards(PRIVATE_CONFIG)
 
@@ -7481,7 +7481,7 @@ def work_btc(items):
 
 FAST_XP_MS = 60000          # верный ответ быстрее минуты с открытия задания…
 FAST_XP_PENALTY = -1        # …даёт −1 XP вместо опыта
-BTC_FAST_MS = 30000         # а быстрее 30 секунд — ещё и −1 ₿: биткоины не даются просто так
+BTC_FAST_MS = 30000         # а быстрее 30 секунд — ещё и −1 ₿: монеты не даются просто так
 BTC_FAST_FINE = 1
 # №24–27 — долгие задачи: верный ответ быстрее этого с открытия задания не засчитывается — −1 XP и −1 ₿
 HARD_MIN_MS = {24: 10 * 60000, 25: 3 * 60000, 26: 20 * 60000, 27: 25 * 60000}
@@ -7505,7 +7505,7 @@ _FAST_SINCE = []
 
 
 def btc_fast_since(db):
-    """С какого момента действует «быстрее 30 секунд — минус биткоин» (раньше решённое не штрафуем)."""
+    """С какого момента действует «быстрее 30 секунд — минус монета» (раньше решённое не штрафуем)."""
     if not _BTC_SINCE:
         _BTC_SINCE.append(to_float(db.setting("btc_fast_since")) or 0)
     return _BTC_SINCE[0]
@@ -7741,15 +7741,15 @@ def lb_person(db, m, crown, crowns=None):
             "rank": {k: g["rank"][k] for k in ("day", "week", "month", "wk")}}
 
 
-# ---------------------------------------------------------------- биткоины и подарки
-COIN_XP = 10                           # обычный курс: 1 биткоин (₿) за 10 XP заработанного опыта
-# Курс плавает: если верно решают сразу много учеников (за последние BTC_RATE_WINDOW), биткоин дорожает —
-# до BTC_RATE_FREE человек курс обычный, каждые следующие BTC_RATE_STEP — ещё +1 XP за биткоин, но не больше BTC_RATE_MAX.
+# ---------------------------------------------------------------- монеты и подарки
+COIN_XP = 10                           # обычный курс: 1 монета (₿) за 10 XP заработанного опыта
+# Курс плавает: если верно решают сразу много учеников (за последние BTC_RATE_WINDOW), монета дорожает —
+# до BTC_RATE_FREE человек курс обычный, каждые следующие BTC_RATE_STEP — ещё +1 XP за монету, но не больше BTC_RATE_MAX.
 BTC_RATE_MAX = 20
 BTC_RATE_FREE, BTC_RATE_STEP = 10, 5
 BTC_RATE_WINDOW = 15 * 60
 _BTC_RATES = {"db": None, "ts": [], "k": [], "tick": 0.0, "active": 0}
-GIFTS = [                              # id, значок, название, цена в биткоинах
+GIFTS = [                              # id, значок, название, цена в монетах
     ("cookie", "🍪", "Печенька", 11), ("candy", "🍬", "Конфета", 17), ("tea", "☕", "Чай", 22), ("tulip", "🌷", "Тюльпан", 28),
     ("balloon", "🎈", "Шарик", 33), ("pizza", "🍕", "Пицца", 44), ("cat", "🐱", "Котик", 55), ("dog", "🐶", "Пёсик", 55),
     ("panda", "🐼", "Панда", 66), ("teddy", "🧸", "Мишка", 83), ("cake", "🎂", "Торт", 99), ("guitar", "🎸", "Гитара", 121),
@@ -7828,7 +7828,7 @@ GIFT_BOX_PRICE = 60                    # «🎲 Случайный подаро�
 GIFTS_SHOW = 5                         # сколько подарков видно у ника
 GIFTS_PER_DAY = 10 ** 9                # подарков в сутки: без ограничения (поле осталось для старых страниц)
 GIFT_NOTE_MAX = 80
-COINS_GRANT_MAX = 1000                 # биткоинов за одно начисление учителем
+COINS_GRANT_MAX = 1000                 # монет за одно начисление учителем
 _GIFT_LOCK = STATE_LOCK          # проверка баланса, покупка и номер уникального подарка — одним шагом
 
 # Улучшение делает подарок уникальным: случайные фон, узор и эффект (у каждого — своя редкость) и номер среди
@@ -7849,7 +7849,7 @@ UNIQ_SYM = [                           # id, название, символ, в�
     ("dot", "Точки", "•", 14), ("star", "Звёзды", "★", 12), ("heart", "Сердечки", "♥", 12), ("note", "Ноты", "♪", 10),
     ("plus", "Плюсы", "+", 10), ("code", "Код", "</>", 8), ("bit", "Биты", "01", 8), ("bolt", "Молнии", "⚡", 6),
     ("snow", "Снежинки", "❄", 6), ("leaf", "Клевер", "☘", 5), ("pi", "Пи", "π", 4), ("sigma", "Сигма", "Σ", 4),
-    ("inf", "Бесконечность", "∞", 3), ("crown", "Короны", "♛", 2), ("btc", "Биткоины", "₿", 1),
+    ("inf", "Бесконечность", "∞", 3), ("crown", "Короны", "♛", 2), ("btc", "Монеты", "₿", 1),
     ("circle", "Кольца", "○", 10), ("square", "Квадраты", "■", 9), ("diamond", "Ромбы", "◆", 8), ("tri", "Треугольники", "▲", 8),
     ("arrow", "Стрелки", "➜", 7), ("check", "Галочки", "✓", 7), ("hash", "Решётки", "#", 6), ("cloud", "Облака", "☁", 6),
     ("flower", "Цветы", "✿", 6), ("brace", "Скобки", "{}", 5), ("sun", "Солнышки", "☀", 5), ("sqrt", "Корни", "√", 3),
@@ -7875,7 +7875,7 @@ WORK_GIFT_EVERY = 25                   # за каждые 25 впервые р�
 # Термостат экономики. Раз в сутки сравнивает средний кошелёк учеников, решавших что-то за 30 дней, с нормой (ECON_TARGET,
 # главный учитель может поменять) и сдвигает рычаги на THERMO_STEP пути к цели — за неделю примерно наполовину:
 #   индекс цен — ×0,8…2,5 от каталога, по корню из (среднее + медиана) / 2 / норма: копят — дорожает, тратят — дешевеет;
-#   заработок — множитель биткоинов за опыт, задания и варианты ×0,5…1,3: денег много — платим меньше, мало — больше;
+#   заработок — множитель монет за опыт, задания и варианты ×0,5…1,3: денег много — платим меньше, мало — больше;
 #   комиссия рынка — 5…20 %, растёт вместе с кошельками; уходит в банк рынка.
 # Раз в неделю: плата за хранение — TAX_RATE с суммы сверх TAX_FROM нормы (в банк); стипендия из банка старательным,
 # когда денег у учеников мало; лимитированный подарок недели, когда много. В ручном режиме рычаги ставит главный учитель.
@@ -7903,7 +7903,7 @@ _THERMO = {"db": None, "ts": [], "earn": [], "last": None}
 # Продажа сразу (подарок сгорает): цена — за сколько подарок достался, но не дороже, чем он сейчас в магазине (иначе выгодно
 # скупить одинаковые, поднять спрос и сдать дороже); у уникального — плюс доля базовой цены улучшения (без надбавки за тираж)
 # по редкости. Ученику — SELL_SHARE этой цены, остальное (10 %) — в банк рынка. В среднем улучшение убыточно (продажей
-# возвращается ≈ 0,78 его цены) — биткоины уходят из оборота; редкий — дешевле улучшения, мифический — в разы дороже.
+# возвращается ≈ 0,78 его цены) — монеты уходят из оборота; редкий — дешевле улучшения, мифический — в разы дороже.
 SELL_SHARE = 0.9
 SELL_UNIQ = {"rare": 0.45, "epic": 0.9, "legend": 2.2, "myth": 6.0}
 # Рынок: ученик выставляет свой подарок за свою цену, одноклассник (ученик того же учителя) покупает; подарок переходит
@@ -7924,7 +7924,7 @@ AUC_HOURS = 24
 AUC_HOURS_SET = (1, 6, 24)
 AUC_STEP = 0.05
 AUC_SNIPE = 300
-# Против накрутки: ставка — не дороже MARKET_CAP рыночных цен (иначе через рынок переводят биткоины); купленный на рынке —
+# Против накрутки: ставка — не дороже MARKET_CAP рыночных цен (иначе через рынок переводят монеты); купленный на рынке —
 # снова на торги через RELIST_H часов; свой проданный подарок выкупить — через BUYBACK_DAYS дней; с части цены выше
 # OVER_K рыночных цен — комиссия продавца не меньше OVER_FEE (переплата «своему» невыгодна).
 RELIST_H = 48
@@ -8826,7 +8826,7 @@ def work_gifts(db, sid, solved):
 
 
 def econ_feed(db, where, args, sid=None, limit=150):
-    """Журнал экономики: движения биткоинов (покупки, улучшения, продажи, начисления и снятия учителем) и подарки
+    """Журнал экономики: движения монет (покупки, улучшения, продажи, начисления и снятия учителем) и подарки
     без денег (от учителя, за труд, удалённые учителем). where/args — ученики этого учителя (alias s)."""
     one = " AND s.id = ?" if sid else ""
     a = args + ((sid,) if sid else ())
@@ -8866,7 +8866,7 @@ _SITE_ECON = {"t": 0.0, "v": None, "db": None}
 
 
 def econ_site(db, fresh=False):
-    """Экономика всего сайта (главному учителю): подарки, биткоины, курс, популярное и редкое. Пересчёт раз в 5 минут."""
+    """Экономика всего сайта (главному учителю): подарки, монеты, курс, популярное и редкое. Пересчёт раз в 5 минут."""
     now = time.time()
     if not fresh and _SITE_ECON["v"] and _SITE_ECON["db"] is db and now - _SITE_ECON["t"] < 300:
         return _SITE_ECON["v"]
@@ -8920,7 +8920,7 @@ def econ_site(db, fresh=False):
 
 def econ_charts(db, sids, where, args, balance):
     """Графики «Экономики» за ECON_DAYS дней: по дням — пришло (труд, бонусы, начисления, продажи) и ушло (покупки,
-    улучшения, снятия, штрафы), биткоинов на руках (от нынешнего остатка назад), куплено и улучшено подарков, сделки
+    улучшения, снятия, штрафы), монет на руках (от нынешнего остатка назад), куплено и улучшено подарков, сделки
     на рынке, самый дорогой курс за день (индекс цен и кошельки всего сайта — в market_hist)."""
     now = time.time()
     days = [(datetime.now().date() - timedelta(days=i)).isoformat() for i in range(ECON_DAYS - 1, -1, -1)]
@@ -9134,7 +9134,7 @@ def thermo_info(db, T):
 
 
 def econ_wallet(db, sid):
-    """Кошелёк ученика: откуда пришли биткоины и куда ушли."""
+    """Кошелёк ученика: откуда пришли монеты и куда ушли."""
     g = game_summary(db, sid, brief=True)
     led = {r["reason"]: r["s"] for r in db.q("SELECT reason, SUM(delta) s FROM coins WHERE student_id=? GROUP BY reason", (sid,))}
     return {"balance": g["coins"], "mined": g["mined"], "exam": g["exam_coins"], "task": g["task_coins"],
@@ -9280,7 +9280,7 @@ def gift_value(rows, e, dem):
             "top": [{k: r[k] for k in ("id", "gift", "i", "t", "uniq", "rar", "sell", "worth")} for r in top]}
 
 
-# Forbes — общий на весь сайт: среди учеников всех учителей (кроме убранных из рейтингов). Состояние = биткоины + оценка подарков (сколько дадут, если продать все сейчас);
+# Forbes — общий на весь сайт: среди учеников всех учителей (кроме убранных из рейтингов). Состояние = монеты + оценка подарков (сколько дадут, если продать все сейчас);
 # вкладки — самый дорогой подарок, самая дорогая коллекция (только подарки) и самая редкая коллекция (очки редкости).
 FORBES_TOP = 10
 FORBES_NEW_DAYS = 14                    # «новичок» — в тренажёре меньше двух недель
@@ -9316,7 +9316,7 @@ def gift_tile(g):
 @atomic
 def forbes_data(db, tid=None, e=None):
     """Forbes (пересчёт раз в 10 минут): по умолчанию — общий по ученикам всех учителей, с tid — только учеников учителя tid.
-    Все с биткоинами или подарками — состояние, рост за неделю (по снимкам forbes_hist), лучшие подарки, редкость коллекции;
+    Все с монетами или подарками — состояние, рост за неделю (по снимкам forbes_hist), лучшие подарки, редкость коллекции;
     сегодняшний снимок записывается."""
     now = time.time()
     hit = _FORBES.get(tid)
@@ -9516,7 +9516,7 @@ def game_summary(db, sid, brief=False, windows=None):
 
 def _game_summary(db, sid, brief=False, windows=None):
     """Опыт, уровень и достижения. windows — {имя: (с, до)}: опыт за произвольные промежутки (лиги, прошлая неделя)."""
-    rate, _ = btc_rate_now(db)                     # курс биткоина: раз в минуту — сколько учеников занимается сейчас
+    rate, _ = btc_rate_now(db)                     # курс монеты: раз в минуту — сколько учеников занимается сейчас
     windows = windows or {}
     sums = {k: 0 for k in windows}
     rows = db.q("""SELECT task_id, grp, n, score, ts, exam, spent_ms, gave_up, reason, revealed FROM attempts WHERE student_id=? ORDER BY ts, id""", (sid,))
@@ -9545,7 +9545,7 @@ def _game_summary(db, sid, brief=False, windows=None):
 
     xplog = []                                     # последние изменения опыта с причиной — показываем ученику
 
-    mined_xp = {}                                  # (курс биткоина — XP за 1 ₿, множитель заработка) → опыт, заработанный так
+    mined_xp = {}                                  # (курс монеты — XP за 1 ₿, множитель заработка) → опыт, заработанный так
     day_cut = now - (HIST_DAYS + 1) * 86400
     btc_days, fine_days = {}, {}                   # день → заработано ₿ (дробно) и штрафов — для графиков учителя
     dkey = lambda ts: time.strftime("%Y-%m-%d", time.localtime(ts))
@@ -9576,7 +9576,7 @@ def _game_summary(db, sid, brief=False, windows=None):
         if why:
             xplog.append((ts, v, why))
         xp += v
-        k, m = btc_rate_at(db, ts), earn_at(db, ts)   # биткоины — по курсу и множителю термостата на момент заработка
+        k, m = btc_rate_at(db, ts), earn_at(db, ts)   # монеты — по курсу и множителю термостата на момент заработка
         if boost and v > 0:
             m *= promo_mult(db, ts, boost)              # (и акции — за задания или вариант):
         if mine:
@@ -9803,7 +9803,7 @@ def _game_summary(db, sid, brief=False, windows=None):
         why = (f"турнир — {rs.split(':')[-1]}-е место" if rs.startswith("tour:")
                else "дуэль — участие" if rs.startswith("duelp:") else "дуэль — серия побед" if rs.startswith(("streak:", "dstreak:"))
                else "дуэль — победа" if a["delta"] > 0 else "дуэль — поражение")
-        # новые награды дуэли (dwin, duelp, dstreak) платят биткоины отдельно (coins, reason='duel') — их опыт ₿ не добывает;
+        # новые награды дуэли (dwin, duelp, dstreak) платят монеты отдельно (coins, reason='duel') — их опыт ₿ не добывает;
         # прежние (duel, streak) и турниры — как раньше, чтобы уже заработанное не пропало
         gain(a["delta"], a["ts"], why, mine=not rs.startswith(("dwin:", "duelp:", "dstreak:")))
     xp = max(0, xp)
@@ -9811,7 +9811,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     fire = fire_streak(fire_days, cover)
     xp = max(0, xp)                    # штрафы за «быстрее минуты» не уводят опыт ниже нуля
     lvl, title, cur_xp, need = level_of(xp)
-    # биткоины: заработанный опыт по курсу на момент заработка (покупка заморозок их не отнимает) + начисления − покупки
+    # монеты: заработанный опыт по курсу на момент заработка (покупка заморозок их не отнимает) + начисления − покупки
     mined = max(0, math.floor(sum((Fraction(v, k) * m for (k, m), v in mined_xp.items()), Fraction(0))))
     exam_coins = math.floor(exam_coins)
     extra = db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=?", (sid,), one=True)["s"]
@@ -9950,11 +9950,11 @@ DUEL_TASKS = 5
 DUEL_NUMS = list(range(1, 19)) + [22, 23, 24, 25, 26, 27]   # 19–21 — игра из трёх вопросов, в дуэль не годится
 DUEL_TASK_SEC = {n: (30 if n >= 24 else 10) * 60 for n in range(1, 28)}   # время на задание дуэли: №1–23 — 10 мин, №24–27 — 30
 DUEL_MIN_NUMS = 3          # меньше общих номеров у двоих ищущих — их не сводим
-# Награды дуэли — точными суммами: опыт за дуэль биткоины не «намайнивает», биткоины начисляются отдельно (coins, reason='duel')
+# Награды дуэли — точными суммами: опыт за дуэль монеты не «намайнивает», монеты начисляются отдельно (coins, reason='duel')
 DUEL_STAKE = 300           # опыт победителю (у проигравшего не отнимается)
-DUEL_WIN_BTC = 50          # биткоины победителю
+DUEL_WIN_BTC = 50          # монеты победителю
 DUEL_PLAY_XP = 50          # за участие (сыграл и не победил: проигрыш или ничья) — опыт…
-DUEL_PLAY_BTC = 1          # …и биткоины
+DUEL_PLAY_BTC = 1          # …и монеты
 DUEL_FULL_PER_DAY = 3      # полная награда за победу — за первые 3 победы в сутки, дальше победа — как участие
 DUEL_STAKE_LATE = DUEL_PLAY_XP
 DUEL_HOURS = 24
