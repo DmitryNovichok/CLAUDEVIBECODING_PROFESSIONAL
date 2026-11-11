@@ -6254,7 +6254,7 @@
       const more = (n, w) => n ? `<p class="pf-more">${w}</p>` : '';
       body = `<div class="pf-tabs" role="tablist">${tab('gifts', `🎁 Подарки ${P.gifts_total}`)}${tab('awards', `🏆 Награды ${earned.length}`)}${tab('ach', `⭐ ${P.ach.length}/${P.ach_total}`)}</div>
         ${profTab === 'gifts' ? profGiftsHtml(P)
-          : profTab === 'awards' ? `${earned.length ? `<div class="ach-grid">${earned.map(a => profItem(a, a.k === 'fire' || a.k === 'diamond' ? 'extra' : 'award')).join('')}</div>` : '<p class="fm-muted">Пока ни одной — награды дают за корону дня, лиги, дуэли и турниры.</p>'}
+          : profTab === 'awards' ? `${earned.length ? `<div class="ach-grid">${earned.map(a => profItem(a, a.k === 'fire' || a.k === 'diamond' ? 'extra' : 'award')).join('')}</div>` : '<p class="fm-muted">Пока ни одной — награды дают за корону дня, лиги и дуэли.</p>'}
             ${locked.length ? (profMore ? `<div class="ach-grid pf-locked">${locked.map(a => profItem(a, 'award')).join('')}</div>`
               : `<button type="button" class="pf-more" data-pmore>🔒 Ещё ${locked.length} ${plural(locked.length, 'награду', 'награды', 'наград')} можно получить — показать</button>`) : ''}`
           : `${P.ach.length ? `<div class="ach-grid">${P.ach.map(a => profItem(a, 'ach')).join('')}</div>` : '<p class="fm-muted">Пока ни одного.</p>'}
@@ -10873,7 +10873,8 @@
       btn: prefs.fav.length ? 'Решать' : 'Как добавить', go: () => setScope('fav') });
     if (vis('coinCard')) T.push({ k: 'world', name: 'Мой мир', sub: `${(GAME && GAME.coins) || 0} ₿ · магазин и подарки`, btn: 'В магазин', go: () => $('#coinCard').click() });
     if (SERVER && student && !TEACHER) { const c = typeof duelCalls === 'function' ? duelCalls().length : 0;
-      T.push({ k: 'duel', name: 'Дуэли и турниры', sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
+      T.push({ k: 'duel', name: TOUR && TOUR.tours ? 'Дуэли и турниры' : 'Дуэли',   // турниры выключены на сервере (TOURS_ON) — только дуэли
+        sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
     if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
     return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
   }
