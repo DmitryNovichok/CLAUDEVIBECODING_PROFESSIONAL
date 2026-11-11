@@ -3952,3 +3952,92 @@ body.hubnav.hub-on .me-box { order: 3; }
 .ide-vars .lab-var > .ide-var-row { justify-content: flex-start; }
 .ide-var-row small { font-size: 12px; }
 .ide-hl, .lab-editor .ide-code, .ide-trace .lab-code-line, .bug-hl, .bug-code.ide #bugCode { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+
+/* ---------- знакомство с сайтом (onboard.js): слайды и обучение на месте — у ученика и в панели учителя */
+.ob-lock { overflow: hidden; }
+.ob-ov { position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center; padding: 20px; background: rgba(12, 18, 34, .62); backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity .25s; font-family: "Nunito", system-ui, sans-serif; }
+.ob-ov.in { opacity: 1; } .ob-ov.out { opacity: 0; }
+.ob-card { position: relative; width: min(1060px, 100%); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; overflow: hidden; border-radius: 30px; background: #fbf9f4; color: #1d2433;
+  box-shadow: 0 40px 90px rgba(0, 0, 0, .4); transform: translateY(24px) scale(.97); transition: transform .45s cubic-bezier(.22, 1, .36, 1); }
+.ob-ov.in .ob-card { transform: none; }
+.ob-x { position: absolute; z-index: 3; top: 14px; right: 14px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .9); color: #1d2433; font: 900 22px "Nunito"; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }
+.ob-track { position: relative; flex: 1; min-height: 0; display: grid; }
+.ob-slide { grid-area: 1 / 1; display: grid; grid-template-columns: 1.15fr 1fr; min-height: 470px; opacity: 0; visibility: hidden; transform: translateX(40px);
+  transition: opacity .4s, transform .5s cubic-bezier(.22, 1, .36, 1), visibility 0s .5s; }
+.ob-slide.past { transform: translateX(-40px); }
+.ob-slide.on { opacity: 1; visibility: visible; transform: none; transition: opacity .45s .05s, transform .55s cubic-bezier(.22, 1, .36, 1); }
+.ob-vis { position: relative; display: grid; place-items: center; padding: 34px; overflow: hidden; }
+.c-g .ob-vis { background: linear-gradient(145deg, #7ee02a, #58cc02 50%, #3fae00); } .c-b .ob-vis { background: linear-gradient(145deg, #5fd0ff, #1cb0f6 50%, #1478d4); }
+.c-v .ob-vis { background: linear-gradient(145deg, #b69bff, #8b5cf6 50%, #6d28d9); } .c-o .ob-vis { background: linear-gradient(145deg, #ffbe5c, #ff9600 50%, #f06a00); }
+.c-r .ob-vis { background: linear-gradient(145deg, #ff8d8d, #ff4b4b 50%, #d92b3a); } .c-n .ob-vis { background: linear-gradient(145deg, #2c4372, #14213d); }
+.ob-vis::before, .ob-vis::after { content: ""; position: absolute; border-radius: 50%; background: rgba(255, 255, 255, .13); }
+.ob-vis::before { width: 300px; height: 300px; right: -90px; top: -100px; } .ob-vis::after { width: 200px; height: 200px; left: -60px; bottom: -70px; }
+.ob-shot { position: relative; z-index: 1; margin: 0; width: 100%; border-radius: 16px; overflow: hidden; background: #fff; box-shadow: 0 26px 50px rgba(0, 0, 0, .28);
+  transform: rotate(-2deg) translateY(16px); opacity: 0; transition: transform .7s cubic-bezier(.22, 1, .36, 1) .12s, opacity .5s .12s; }
+.ob-slide.on .ob-shot { transform: rotate(-2deg); opacity: 1; }
+.ob-shot img { display: block; width: 100%; height: auto; max-height: 380px; object-fit: cover; object-position: top left; }
+.ob-emo { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 420px; }
+.ob-emo div { display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 20px; background: rgba(255, 255, 255, .95); box-shadow: 0 10px 24px rgba(0, 0, 0, .14);
+  opacity: 0; transform: translateY(16px) scale(.95); transition: opacity .45s, transform .5s cubic-bezier(.34, 1.56, .64, 1); transition-delay: calc(var(--j) * 80ms + 150ms); }
+.ob-slide.on .ob-emo div { opacity: 1; transform: none; }
+.ob-emo span { font-size: 30px; } .ob-emo b { font-size: 15px; font-weight: 900; color: #1d2433; line-height: 1.25; }
+.ob-txt { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 40px 38px; }
+.ob-kick { font-weight: 900; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #46a302; }
+.c-b .ob-kick { color: #1899d6; } .c-v .ob-kick { color: #7c3aed; } .c-o .ob-kick { color: #e86a00; } .c-r .ob-kick { color: #d92b3a; } .c-n .ob-kick { color: #2c4372; }
+.ob-txt h2 { margin: 0; font-size: 32px; line-height: 1.12; font-weight: 1000; letter-spacing: -.01em; }
+.ob-txt p { margin: 0; font-size: 16.5px; line-height: 1.55; color: #5f6878; }
+.ob-txt ul { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.ob-txt li { display: flex; gap: 10px; align-items: flex-start; font-weight: 800; font-size: 15.5px; line-height: 1.4; }
+.ob-txt li > i { flex: none; width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center; font-style: normal; font-size: 14px; background: #fff; border: 2px solid #ece6d8; }
+.ob-txt li small { display: block; font-weight: 700; color: #5f6878; font-size: 13.5px; margin-top: 1px; }
+.ob-note { padding: 12px 14px; border-radius: 14px; background: #e9f9db; color: #2e5f00 !important; font-weight: 700; font-size: 15px !important; }
+.ob-txt a { color: #1899d6; font-weight: 800; }
+.ob-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-top: 1px solid #ece6d8; background: #fff; }
+.ob-back, .ob-skip { border: 0; background: none; font: 800 15px "Nunito"; color: #5f6878; cursor: pointer; padding: 10px 6px; }
+.ob-dots { display: flex; gap: 8px; }
+.ob-dots button { width: 10px; height: 10px; padding: 0; border-radius: 6px; border: 0; background: #ddd5c3; cursor: pointer; transition: width .3s, background .3s; }
+.ob-dots button.on { width: 28px; background: #58cc02; }
+.ob-act { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.ob-btn { height: 46px; padding: 0 20px; border-radius: 14px; border: 2px solid #e8e2d4; background: #fff; color: #1d2433; font: 900 15px "Nunito"; cursor: pointer; box-shadow: 0 4px 0 #e8e2d4;
+  transition: transform .12s, filter .12s; }
+.ob-btn:hover { transform: translateY(-1px); filter: brightness(1.03); } .ob-btn:active { transform: translateY(2px); box-shadow: none; }
+.ob-btn.primary { background: #58cc02; border-color: #58cc02; color: #fff; box-shadow: 0 4px 0 #46a302; }
+.ob-btn:focus-visible, .ob-dots button:focus-visible, .ob-x:focus-visible { outline: 3px solid rgba(28, 176, 246, .55); outline-offset: 2px; }
+/* обучение на месте */
+.ob-coach { position: fixed; inset: 0; z-index: 9000; opacity: 0; transition: opacity .25s; font-family: "Nunito", system-ui, sans-serif; }
+.ob-coach.in { opacity: 1; } .ob-coach.out { opacity: 0; }
+.ob-hole { position: fixed; border-radius: 16px; box-shadow: 0 0 0 200vmax rgba(12, 18, 34, .62), 0 0 0 3px #58cc02, 0 0 26px 6px rgba(88, 204, 2, .55);
+  transition: left .4s cubic-bezier(.22, 1, .36, 1), top .4s cubic-bezier(.22, 1, .36, 1), width .4s cubic-bezier(.22, 1, .36, 1), height .4s cubic-bezier(.22, 1, .36, 1);
+  animation: obGlow 1.8s ease-in-out infinite; pointer-events: none; }
+@keyframes obGlow { 50% { box-shadow: 0 0 0 200vmax rgba(12, 18, 34, .62), 0 0 0 3px #58cc02, 0 0 34px 12px rgba(88, 204, 2, .35); } }
+.ob-tip { position: fixed; padding: 16px 18px 14px; border-radius: 18px; background: #fff; color: #1d2433; box-shadow: 0 22px 50px rgba(0, 0, 0, .35);
+  transition: left .4s cubic-bezier(.22, 1, .36, 1), top .4s cubic-bezier(.22, 1, .36, 1); }
+.ob-tip.pop { animation: obPop .4s cubic-bezier(.34, 1.56, .64, 1); }
+@keyframes obPop { from { transform: scale(.92); opacity: 0; } }
+.ob-tip::before { content: ""; position: absolute; left: var(--ax, 50%); top: 100%; margin-left: -8px; border: 8px solid transparent; border-top-color: #fff; }
+.ob-tip.below::before { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: #fff; }
+.ob-step { display: block; font-weight: 900; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #46a302; margin-bottom: 4px; }
+.ob-tip b { display: block; font-size: 18px; font-weight: 1000; margin-bottom: 4px; }
+.ob-tip p { margin: 0; font-size: 15px; line-height: 1.5; color: #5f6878; }
+.ob-tip-act { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 12px; }
+.ob-tip-act span { display: flex; gap: 6px; } .ob-tip .ob-btn { height: 40px; padding: 0 16px; font-size: 14px; }
+@media (max-width: 760px) {
+  .ob-ov { padding: 0; align-items: stretch; }
+  .ob-card { border-radius: 0; max-height: 100dvh; height: 100dvh; }
+  .ob-slide { grid-template-columns: 1fr; grid-template-rows: auto 1fr; min-height: 0; overflow-y: auto; }
+  .ob-vis { padding: 54px 18px 22px; } .ob-shot img { max-height: 210px; } .ob-emo { gap: 8px; } .ob-emo div { padding: 10px 12px; } .ob-emo span { font-size: 24px; }
+  .ob-txt { padding: 20px 18px; justify-content: flex-start; } .ob-txt h2 { font-size: 25px; } .ob-txt p { font-size: 15.5px; }
+  .ob-nav { padding: 10px 12px; flex-wrap: wrap; } .ob-dots { order: -1; width: 100%; justify-content: center; } .ob-act { margin-left: auto; }
+  .ob-btn { height: 44px; padding: 0 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-ov, .ob-card, .ob-slide, .ob-shot, .ob-emo div, .ob-coach, .ob-hole, .ob-tip { transition: none !important; animation: none !important; }
+}
+/* в панели учителя свои стили b/h2 — здесь шрифт и толщина знакомства должны быть одинаковыми */
+.ob-ov .ob-card, .ob-ov .ob-card *, .ob-coach .ob-tip, .ob-coach .ob-tip * { font-family: "Nunito", system-ui, sans-serif; }
+.ob-ov .ob-emo b, .ob-ov .ob-txt li span { font-weight: 900; }
+.ob-ov .ob-txt li small { font-weight: 700; }
+.ob-ov .ob-txt h2, .ob-coach .ob-tip b { font-weight: 1000; letter-spacing: 0; }
+.ob-tip.side::before { left: -16px; top: 18px; margin-left: 0; border-top-color: transparent; border-right-color: #fff; }

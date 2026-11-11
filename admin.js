@@ -209,19 +209,62 @@
     bar.hidden = false;
   }
   const DEMO_CLASS = '11 «Демо»';
-  /** Сразу после регистрации на главной странице: условия пробного периода и первые шаги (на странице их больше нет). */
-  function showHello() {
-    let flag = null;
-    try { flag = localStorage.getItem('egeshka.trialHello'); localStorage.removeItem('egeshka.trialHello'); } catch (e) { /* без окна */ }
-    const a = ME.access || {};
-    if (!flag || ME.guest) return;
-    const left = Math.max(0, Math.ceil(((a.until || 0) - Date.now() / 1000) / 86400));
-    $('#helloTrial').innerHTML = a.state === 'trial' && !a.expired
-      ? `<b>Пробный период — ${left} ${daysWord(left)}</b>, до ${fmtDate(a.until)}. Все возможности панели открыты, оплата и карта не нужны. Сколько осталось — видно в полосе сверху.`
-      : 'Все возможности панели открыты.';
-    $('#helloModal').hidden = false;
+  // ------------------------------------------------------------ знакомство с панелью (onboard.js)
+  const adminTourKey = () => `egeshka.atour.v1.${ME.guest ? 'guest' : ME.id || 'x'}`;
+  /** Первый вход: после регистрации, в гостевом доступе или пока у учителя нет ни одного класса — один раз. */
+  async function maybeAdminTour() {
+    let fresh = null, seen = true;
+    try { fresh = localStorage.getItem('egeshka.trialHello'); localStorage.removeItem('egeshka.trialHello'); seen = !!localStorage.getItem(adminTourKey()); } catch (e) { /* без знакомства */ }
+    if (!fresh && seen) return;
+    if (!fresh && !ME.guest) {
+      try { if ((await api('classes')).classes?.length) { try { localStorage.setItem(adminTourKey(), '1'); } catch (e) { /* не страшно */ } return; } } catch (e) { return; }
+    }
+    openAdminTour();
   }
-  $('#helloGo').addEventListener('click', () => { $('#helloModal').hidden = true; go('classes'); });
+  function openAdminTour() {
+    try { localStorage.setItem(adminTourKey(), '1'); } catch (e) { /* не страшно */ }
+    if (!window.EgOnboard) return;
+    const a = ME.access || {}, li = (ic, t, d) => `<li><i>${ic}</i><span>${t}${d ? `<small>${d}</small>` : ''}</span></li>`;
+    const left = Math.max(0, Math.ceil(((a.until || 0) - Date.now() / 1000) / 86400));
+    const note = ME.guest ? `<p class="ob-note">Гостевой доступ: «${esc(DEMO_CLASS)}» — демо-класс с вымышленными учениками. Регистрация сохранит всё, что вы создадите.</p>`
+      : a.state === 'trial' && !a.expired ? `<p class="ob-note">Пробный период — ${left} ${daysWord(left)}, до ${fmtDate(a.until)}. Все возможности открыты, оплата и карта не нужны.</p>` : '';
+    window.EgOnboard.slides([
+      { color: 'g', kicker: 'Добро пожаловать', title: 'Панель учителя Egeshka',
+        emoji: [['🏫', 'Создайте класс'], ['🔗', 'Позовите учеников'], ['⚡', 'Выдайте подборку'], ['📊', 'Смотрите результаты']],
+        html: `<p>Здесь вы ведёте классы: выдаёте подборки и контрольные, видите каждый ответ и прогноз балла учеников.</p>${note}` },
+      { color: 'b', title: 'Класс и ученики', img: 'promo/panel_digest.jpg', imgAlt: 'Класс: сводка недели',
+        html: `<p>Создайте класс во вкладке «Классы» — и позовите учеников.</p>
+          <ul>${li('🔗', 'Ссылка-приглашение или QR-код', 'ученик регистрируется и сразу попадает в ваш класс')}${li('📄', 'Список из Excel', 'и карточки входа с QR — распечатать и раздать')}</ul>` },
+      { color: 'v', title: 'Подборка за минуту', img: 'promo/panel_build.jpg', imgAlt: 'Создать подборку',
+        html: `<p>Во вкладке «Создать подборку»: выберите задания слева, класс и срок — справа.</p>
+          <ul>${li('⚡', 'Шаблоны', '«Вариант ЕГЭ», «10 заданий на номер», «Работа над ошибками класса»')}${li('🔎', 'Фильтры', 'номер, сложность, тип задания, банк, годы')}</ul>` },
+      { color: 'o', title: 'Журнал и сводка', img: 'promo/panel_journal.jpg', imgAlt: 'Журнал класса',
+        html: `<p>У каждого класса — «Сводка недели» и «Журнал».</p>
+          <ul>${li('📊', 'Сводка', 'средний прогноз, кто отстаёт, слабые номера — и подборка по ним')}${li('📒', 'Журнал', 'оценки за работы и прогноз; по клику — ответы, время и код')}${li('📬', 'Итоги недели на почту', 'и ссылка для родителей — только просмотр')}</ul>` },
+      { color: 'n', title: 'Контрольные и архив', img: 'promo/panel_archive.jpg', imgAlt: 'Архив работы в PDF',
+        html: `<ul>${li('🖥️', 'Контрольная', 'на весь экран, одна попытка, уходы со вкладки видны учителю')}${li('🗂️', '«Мои работы»', 'копия подборки, PDF-архив, разбор на занятии во «Вместе»')}${ME.is_main ? li('🔐', 'Курсы и лаборатории', 'открываются по паролю — вкладка «Пароли и доступы»') : ''}</ul>
+          <p class="ob-note">Покажем в панели, где что находится, — это займёт полминуты.</p>` },
+    ], { label: 'Знакомство с панелью', buttons: [
+      { label: 'Создать класс', onClick: () => go('classes') },
+      { label: 'Показать в панели', primary: true, onClick: coachAdmin },
+    ] });
+  }
+  /** Обучение на месте: подсветка разделов меню панели. */
+  function coachAdmin() {
+    if (!window.EgOnboard) return;
+    window.EgOnboard.coach([
+      { sel: '#tabs [data-tab="classes"]', title: 'Классы', text: 'Создайте класс и пригласите учеников. Внутри класса — сводка недели, журнал и список учеников.' },
+      { sel: '#tabs [data-tab="build"]', title: 'Создать подборку', text: 'Задания по номерам или шаблон «Вариант ЕГЭ» — и выдача классу со сроком.' },
+      { sel: '#tabs [data-tab="archive"]', title: 'Мои работы', text: 'Все выданные подборки: копия, архив в PDF, разбор на занятии.' },
+      { sel: '#tabs [data-tab="feed"]', title: 'Лента', text: 'Что ученики решают прямо сейчас.' },
+      { sel: '#tabs [data-tab="tog"]', title: 'Вместе', text: 'Занятие с учеником в одном окне: общий код и доска.' },
+      { sel: '#asStudentBtn', title: 'Решать как ученик', text: 'Тренажёр вашим аккаунтом — в рейтингах и списках учеников вас не будет.' },
+      { sel: '#tabs [data-tab="access"]', title: 'Пароли и доступы', text: 'Курс ЕГЭ, курс Python и лаборатории открываются у учеников по паролю — он задаётся здесь.' },
+      { sel: '#tabs [data-tab="settings"]', title: 'Настройки', text: 'Код приглашения, подсказки ученикам, авторские задания, отчёт на почту.' },
+      { sel: '#adminTourBtn', title: 'Повторить знакомство', text: 'Это обучение можно открыть снова здесь.' },
+    ]);
+  }
+  $('#adminTourBtn').addEventListener('click', openAdminTour);
   function openRenew() {
     if (ME.guest) { if (confirm('Гостевой доступ только для просмотра. Зарегистрироваться? Всё, что вы создали, сохранится.')) location.href = '/welcome#signup'; return; }
     const o = ME.offer || { tariffs: [], contacts: {} }, a = ME.access || {};
@@ -261,8 +304,8 @@
       api('logout', {}).catch(() => {}).finally(() => { location.href = '/admin'; });
       return;
     }
-    if (e.target.closest('[data-close-modal]') || (e.target.classList && e.target.classList.contains('modal') && ['renewModal', 'qrModal', 'parentModal', 'helloModal'].includes(e.target.id))) {
-      $('#renewModal').hidden = true; $('#qrModal').hidden = true; $('#parentModal').hidden = true; $('#helloModal').hidden = true; return;
+    if (e.target.closest('[data-close-modal]') || (e.target.classList && e.target.classList.contains('modal') && ['renewModal', 'qrModal', 'parentModal'].includes(e.target.id))) {
+      $('#renewModal').hidden = true; $('#qrModal').hidden = true; $('#parentModal').hidden = true; return;
     }
     if (e.target.closest('[data-inv-copy]')) {
       const link = inviteLink();
@@ -4277,7 +4320,7 @@
       showApp();
       go('overview');       // обзор последнего класса, для гостя — демо-класса
       startFeed();
-      showHello();
+      maybeAdminTour();
     } catch (e) {
       if (e.status !== 401) {
         showLogin();
