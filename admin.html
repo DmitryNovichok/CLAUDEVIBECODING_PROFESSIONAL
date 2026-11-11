@@ -610,6 +610,21 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
   </div>
 </div>
 
+<div class="modal" id="helloModal" hidden>
+  <div class="modal-panel renew-panel hello-panel" role="dialog" aria-modal="true" aria-labelledby="helloTitle">
+    <button type="button" class="icon-btn renew-x" data-close-modal aria-label="Закрыть">×</button>
+    <div class="hello-ic" aria-hidden="true">🎉</div>
+    <h2 class="fm-title" id="helloTitle">Аккаунт создан</h2>
+    <p class="hello-trial" id="helloTrial"></p>
+    <ol class="hello-steps">
+      <li><b>Создайте класс</b><span>Во вкладке «Классы» — или сразу загрузите список из Excel.</span></li>
+      <li><b>Позовите учеников</b><span>Ссылка-приглашение или QR-код на доске: ученик регистрируется и сразу попадает к вам.</span></li>
+      <li><b>Выдайте первую подборку</b><span>«Вариант ЕГЭ» или «10 заданий на номер» — и смотрите ответы в журнале.</span></li>
+    </ol>
+    <div class="adm-row-btns"><button type="button" class="btn primary" id="helloGo">Создать класс</button><button type="button" class="btn ghost" data-close-modal>Понятно</button></div>
+  </div>
+</div>
+
 <div class="modal" id="qrModal" hidden>
   <div class="modal-panel qr-panel" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
     <button type="button" class="icon-btn renew-x" data-close-modal aria-label="Закрыть">×</button>

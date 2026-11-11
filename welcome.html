@@ -3,107 +3,227 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Egeshka — тренажёр ЕГЭ по информатике для учителя и класса</title>
-<meta name="description" content="Тренажёр ЕГЭ по информатике: банк заданий 1–27 с разборами, подборки и контрольные за минуту, журнал и сводка класса, архив работ в PDF. 7 дней бесплатно для учителя.">
-<meta name="color-scheme" content="light dark">
+<title>Egeshka — тренажёр ЕГЭ по информатике</title>
+<meta name="description" content="Тренажёр ЕГЭ по информатике: задания всех 27 номеров с проверкой ответа и разбором, уроки по номерам, курс Python, пошаговый отладчик в браузере. Панель учителя: подборки, контрольные, журнал и сводка класса.">
+<meta name="color-scheme" content="light">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#58cc02">
-<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="welcome.css">
 <script defer src="welcome.js"></script>
 </head>
 <body>
-<header class="w-top">
+<div class="w-progress" aria-hidden="true"><i id="wProgress"></i></div>
+
+<header class="w-top" id="wTop">
   <div class="w-wrap w-top-in">
     <a class="w-brand" href="/welcome" aria-label="Egeshka — на главную">
       <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="4" y="9" width="56" height="51" rx="16" fill="#58a700"/><rect x="4" y="4" width="56" height="51" rx="16" fill="#58cc02"/><rect x="20" y="15" width="9" height="29" rx="4" fill="#fff"/><rect x="20" y="15" width="24" height="8.5" rx="4.25" fill="#fff"/><rect x="20" y="25.5" width="19" height="8" rx="4" fill="#fff"/><rect x="20" y="35.5" width="24" height="8.5" rx="4.25" fill="#fff"/><circle cx="48.5" cy="43" r="5" fill="#1cb0f6" stroke="#fff" stroke-width="2.5"/></svg>
-      <span><b>Ege</b>shka</span>
+      <span>Egeshka <small>by Malevin</small></span>
     </a>
     <nav class="w-nav" aria-label="Разделы">
-      <a href="#features">Возможности</a><a href="#shots">Как выглядит</a><a href="#start">Как начать</a><a href="#contacts">Контакты</a>
+      <a href="#features">Что есть на сайте</a><a href="#tasks">Задания</a><a href="#lessons">Уроки</a><a href="#python">Python</a><a href="#teacher">Учителю</a>
     </nav>
     <div class="w-top-act">
-      <a class="w-btn ghost sm" href="/?login=1">Я ученик</a>
-      <a class="w-btn ghost sm" href="/admin?switch=1">Вход учителя</a>
+      <a class="w-btn line sm" href="/?login=1">Я ученик</a>
+      <a class="w-btn line sm" href="/admin?switch=1">Вход учителя</a>
     </div>
   </div>
 </header>
 
 <main>
+  <!-- ======================================================= первый экран -->
   <section class="w-hero">
     <div class="w-wrap w-hero-in">
       <div class="w-hero-txt">
-        <p class="w-kicker">Тренажёр ЕГЭ по информатике</p>
-        <h1>Класс решает — вы&nbsp;видите каждый ответ</h1>
-        <p class="w-lead">Банк заданий всех номеров 1–27 с разборами, подборки и контрольные за минуту, журнал с прогнозом балла
-          и сводка «кто отстаёт». Ученики занимаются сами — с уровнями, лигами и дуэлями.</p>
-        <div class="w-cta">
-          <button type="button" class="w-btn primary lg" data-signup>Я учитель — попробовать <span id="trialDays">7</span> дней бесплатно</button>
-          <a class="w-btn lg" href="/?login=1">Я ученик — войти или зарегистрироваться</a>
+        <span class="w-tag w-in" style="--d:0"><i></i>ЕГЭ по информатике · 11 класс</span>
+        <h1 class="w-in" style="--d:1"><span class="g">Задания</span>, <span class="b">уроки</span> и&nbsp;<span class="v">Python</span> для подготовки к&nbsp;ЕГЭ — в&nbsp;одном месте</h1>
+        <p class="w-lead w-in" style="--d:2">Все 27 номеров с проверкой ответа и разбором. Каждый день сайт сам собирает короткий план: что потренировать и какие ошибки повторить. Учитель видит результаты класса.</p>
+        <div class="w-cta w-in" style="--d:3">
+          <a class="w-btn green lg" href="/?login=1">Я ученик</a>
+          <button type="button" class="w-btn white lg" data-signup>Я учитель</button>
         </div>
-        <p class="w-guest"><button type="button" class="w-link" id="guestBtn">Посмотреть панель без регистрации</button>
-          — гостевой доступ на <span id="guestMin">60</span> минут с демо-классом.
+        <p class="w-guest w-in" style="--d:4"><button type="button" class="w-link" id="guestBtn">Посмотреть панель учителя без регистрации</button>
           <small>Нажимая, вы принимаете <a href="terms.html" target="_blank" rel="noopener">соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">политику</a>.</small></p>
         <p class="w-err" id="guestErr" role="alert"></p>
       </div>
-      <figure class="w-hero-shot">
-        <img src="promo/digest.png" alt="Сводка класса в панели учителя: средний прогноз балла, слабые номера, кто не занимался" width="1280" height="800" loading="eager">
-      </figure>
+      <div class="w-stage" id="wStage">
+        <div class="w-blob"></div>
+        <figure class="w-frame w-hub" id="wTilt"><div class="w-bar"><i></i><i></i><i></i><span>Главная ученика</span></div>
+          <img src="promo/hub.jpg" alt="Главная ученика: план на сегодня, прогноз балла, огонёк" width="2560" height="1600" loading="eager" data-zoom></figure>
+        <div class="w-chip c1"><span class="ic">✅</span><div>Верно!<small>ответ проверен сразу</small></div></div>
+        <div class="w-chip c2"><span class="ic">🔥</span><div>Огонёк<small>дни подряд</small></div></div>
+        <div class="w-chip c3"><span class="ic">📈</span><div>Прогноз балла<small>после каждого ответа</small></div></div>
+        <div class="w-chip c4">План на сегодня<small>3–4 дела</small></div>
+      </div>
     </div>
+    <a class="w-scrollhint" href="#features" aria-label="Листать вниз"><span></span></a>
   </section>
 
-  <section class="w-sec" id="features">
+  <!-- ======================================================= что есть на сайте -->
+  <section class="w-feat" id="features">
     <div class="w-wrap">
-      <h2>Что умеет Egeshka</h2>
-      <div class="w-grid">
-        <article class="w-card"><i>📚</i><h3>Банк заданий 1–27</h3><p>Задания всех номеров ЕГЭ с ответами и разборами, по типам и сложности. Файлы к заданиям, проверка ответа сразу.</p></article>
-        <article class="w-card"><i>⚡</i><h3>Подборка за минуту</h3><p>Шаблоны в один клик: вариант ЕГЭ, 10 заданий на номер, работа над ошибками класса. Или соберите сами по фильтрам.</p></article>
-        <article class="w-card"><i>📝</i><h3>Контрольные без списывания</h3><p>Одна попытка, полный экран, уходы со вкладки видны вам онлайн. Ответы нейросети и вставка из буфера помечаются.</p></article>
-        <article class="w-card"><i>📊</i><h3>Журнал и сводка класса</h3><p>Оценки за каждую работу, прогноз балла и его динамика, слабые номера класса, кто отстаёт и кто давно не заходил.</p></article>
-        <article class="w-card"><i>🗂</i><h3>Архив работ в PDF</h3><p>Одним файлом: сводная таблица, КИМ с ответами и по каждому ученику — ответы, время на задание и код программы.</p></article>
-        <article class="w-card"><i>👥</i><h3>Вместе</h3><p>Разбираете задачу с учеником в одном окне: общий код и доска. Ответ засчитывается ученику.</p></article>
-        <article class="w-card"><i>🏆</i><h3>Ученики занимаются сами</h3><p>Уровни, огонёк дней подряд, лиги, дуэли и задание дня. Тренажёр подбирает то, что получается хуже.</p></article>
-        <article class="w-card"><i>📬</i><h3>Итоги недели на почту</h3><p>По понедельникам — короткий отчёт по каждому классу: кто занимался, кто просел, что не сдано в срок.</p></article>
+      <div class="w-feat-h" data-reveal><h2>Что есть на сайте</h2><p>Наведите на пункт — появится подробность.</p></div>
+      <div class="w-fcols">
+        <div class="w-fcol st" data-reveal>
+          <div class="w-fcol-h"><span>🎒</span><b>Ученику</b><em><b data-count="16">16</b> разделов и инструментов</em></div>
+          <div class="w-fgrid" data-stagger>
+            <button type="button" class="w-ft" data-more="Задания номеров 1–27 по типам и сложности. Ответ проверяется сразу, есть подсказки и разбор."><span class="fi">🧩</span><span><b>Тренажёр</b><small>задания номеров 1–27</small></span></button>
+            <button type="button" class="w-ft" data-more="27 заданий на 3 ч 55 мин. Режим «как на КЕГЭ» — экран, похожий на экзаменационный: номера вверху, ответ засчитывается после «Сохранить»."><span class="fi">⏱️</span><span><b>Вариант ЕГЭ</b><small>27 заданий, режим «как на КЕГЭ»</small></span></button>
+            <button type="button" class="w-ft" data-more="Одно задание для всех учеников. Место в списке — по времени решения."><span class="fi">📅</span><span><b>Задание дня</b><small>одно задание для всех</small></span></button>
+            <button type="button" class="w-ft" data-more="Подборки и контрольные, которые выдал учитель, со сроками и результатами."><span class="fi">📋</span><span><b>Задания от учителя</b><small>подборки и контрольные</small></span></button>
+            <button type="button" class="w-ft" data-more="Уроки-презентации по всем 27 номерам: типы задания, решение на примерах, программа и типичные ошибки. К уроку — подборки по уровням."><span class="fi">🎓</span><span><b>Курс ЕГЭ</b><small>уроки по всем 27 номерам</small></span></button>
+            <button type="button" class="w-ft" data-more="«Программирование для ЕГЭ»: Python с нуля и темы по номерам экзамена — 24 темы, 365 задач с проверкой."><span class="fi">🐍</span><span><b>Курс Python</b><small>24 темы, 365 задач</small></span></button>
+            <button type="button" class="w-ft" data-more="Модели заданий ЕГЭ, свой код по шагам с отладчиком и «Исправление ошибок» — 16 задач, где нужно починить чужое решение."><span class="fi">🧪</span><span><b>Лаборатория</b><small>модели, отладчик, исправление ошибок</small></span></button>
+            <button type="button" class="w-ft" data-more="Схемы из плат и деталей, код и симулятор в браузере. Два курса по 36 уроков."><span class="fi">🔌</span><span><b>Arduino</b><small>схемы, код и симулятор</small></span></button>
+            <button type="button" class="w-ft" data-more="Прогноз балла считается по всем номерам и обновляется после каждого ответа. Видно, какие номера тянут вниз."><span class="fi">📈</span><span><b>Прогноз балла</b><small>после каждого ответа</small></span></button>
+            <button type="button" class="w-ft" data-more="Задание с ошибкой через несколько дней приходит снова — на похожем примере. Вся история решений сохраняется."><span class="fi">🔁</span><span><b>История и повторение</b><small>ошибки возвращаются</small></span></button>
+            <button type="button" class="w-ft" data-more="Отметить задание звёздочкой и записать к нему заметку."><span class="fi">⭐</span><span><b>Избранное и заметки</b><small>к любому заданию</small></span></button>
+            <button type="button" class="w-ft" data-more="Окно Python с файлами задания, доска для рисунков, калькулятор и маркер поверх условия — не выходя из задания."><span class="fi">🧮</span><span><b>Python, доска, калькулятор</b><small>рядом с каждым заданием</small></span></button>
+            <button type="button" class="w-ft" data-more="Дуэли с одноклассниками, турниры и недельные лиги: лучшие по итогам недели поднимаются в лигу выше."><span class="fi">⚔️</span><span><b>Дуэли, турниры, лиги</b><small>с одноклассниками</small></span></button>
+            <button type="button" class="w-ft" data-more="На главной — план на сегодня из 3–4 дел. Огонёк горит, если за день решено хотя бы 3 задания; есть заморозки на пропуск."><span class="fi">🔥</span><span><b>Огонёк и план на день</b><small>3–4 дела на сегодня</small></span></button>
+            <button type="button" class="w-ft" data-more="Монеты за решения, магазин и подарки — можно дарить одноклассникам."><span class="fi">🎁</span><span><b>Мой мир</b><small>монеты, магазин, подарки</small></span></button>
+            <button type="button" class="w-ft" data-more="Занятие с учителем в одном окне: общий код и доска. Записи занятий сохраняются."><span class="fi">👥</span><span><b>Вместе с учителем</b><small>общий код и доска</small></span></button>
+          </div>
+        </div>
+        <div class="w-fcol te" data-reveal>
+          <div class="w-fcol-h"><span>🧑‍🏫</span><b>Учителю</b><em><b data-count="14">14</b> возможностей панели</em></div>
+          <div class="w-fgrid" data-stagger>
+            <button type="button" class="w-ft" data-more="Несколько классов, список учеников из Excel и карточки входа с QR-кодом для печати."><span class="fi">🏫</span><span><b>Классы и ученики</b><small>список из Excel, карточки с QR</small></span></button>
+            <button type="button" class="w-ft" data-more="Ссылка-приглашение или QR-код на доске: ученик регистрируется и сразу попадает в ваш класс."><span class="fi">🔗</span><span><b>Приглашение</b><small>ссылка или QR-код</small></span></button>
+            <button type="button" class="w-ft" data-more="Шаблоны в один клик: «Вариант ЕГЭ», «10 заданий на номер», «Работа над ошибками класса». Или своя подборка по фильтрам."><span class="fi">⚡</span><span><b>Подборки по шаблонам</b><small>за минуту</small></span></button>
+            <button type="button" class="w-ft" data-more="Одна попытка, полный экран, уходы со вкладки видны учителю. Вставка из буфера помечается."><span class="fi">🖥️</span><span><b>Контрольные</b><small>на весь экран, одна попытка</small></span></button>
+            <button type="button" class="w-ft" data-more="Оценка за каждую работу, каждый ответ, время на задание и код решения."><span class="fi">📒</span><span><b>Журнал</b><small>ответы, время и код</small></span></button>
+            <button type="button" class="w-ft" data-more="Средний прогноз класса, кто отстаёт и кто не занимался, слабые номера — и кнопка подборки по ним."><span class="fi">📊</span><span><b>Сводка класса</b><small>кто отстаёт, слабые номера</small></span></button>
+            <button type="button" class="w-ft" data-more="Короткий отчёт по каждому классу раз в неделю: кто занимался, кто просел, что не сдано в срок."><span class="fi">📬</span><span><b>Итоги недели на почту</b><small>по каждому классу</small></span></button>
+            <button type="button" class="w-ft" data-more="Ссылка только для просмотра: занятия, прогноз, оценки и что не сдано. Можно отправлять письмо раз в неделю."><span class="fi">👪</span><span><b>Ссылка для родителей</b><small>только просмотр</small></span></button>
+            <button type="button" class="w-ft" data-more="Работа одним PDF: сводная таблица, КИМ с ответами и по каждому ученику — ответы, время и код программы."><span class="fi">🗂️</span><span><b>Архив работ в PDF</b><small>одним файлом</small></span></button>
+            <button type="button" class="w-ft" data-more="Разбор задачи с учеником в одном окне: общий код и доска. Ответ засчитывается ученику."><span class="fi">👥</span><span><b>Вместе</b><small>занятие в одном окне</small></span></button>
+            <button type="button" class="w-ft" data-more="Подсказки по шагам у ваших учеников: включить или выключить одной галочкой."><span class="fi">💡</span><span><b>Подсказки ученикам</b><small>включить или выключить</small></span></button>
+            <button type="button" class="w-ft" data-more="Курс ЕГЭ, курс Python и лаборатории открываются по паролю, который задаёте вы."><span class="fi">🔐</span><span><b>Пароли и доступы</b><small>курсы и лаборатории</small></span></button>
+            <button type="button" class="w-ft" data-more="Кто какие уроки просмотрел и сколько задач решил в каждой теме курса."><span class="fi">🎓</span><span><b>Прогресс курсов</b><small>по каждому ученику</small></span></button>
+            <button type="button" class="w-ft" data-more="Дуэли, подарки и монеты класса: что включить и как награждать."><span class="fi">🏅</span><span><b>Мотивация класса</b><small>дуэли, подарки, монеты</small></span></button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="w-sec alt" id="shots">
-    <div class="w-wrap">
-      <h2>Как это выглядит</h2>
-      <div class="w-tabs" role="tablist">
-        <button type="button" role="tab" class="on" data-shot="digest">Сводка класса</button>
-        <button type="button" role="tab" data-shot="journal">Журнал</button>
-        <button type="button" role="tab" data-shot="build">Создать подборку</button>
-        <button type="button" role="tab" data-shot="archive">Архив в PDF</button>
+  <!-- ======================================================= цифры -->
+  <section class="w-facts">
+    <div class="w-wrap w-facts-in" data-stagger>
+      <div class="w-fact f1"><b data-count="27">27</b><div class="w-mini">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span>номеров ЕГЭ — задания с проверкой ответа и разбором</span><span class="em">✓</span></div>
+      <div class="w-fact f2"><b data-count="9">9</b><span>номеров с полными уроками, к остальным — краткие разборы</span><span class="em">📘</span></div>
+      <div class="w-fact f3"><b data-count="24">24</b><span>темы курса Python, в них 365 задач</span><span class="em">🐍</span></div>
+      <div class="w-fact f4"><b data-count="16">16</b><span>задач «Найди и исправь ошибку в коде»</span><span class="em">🐞</span></div>
+      <div class="w-fact f5"><b>2×<span data-count="36">36</span></b><span>уроков в лаборатории Arduino</span><span class="em">🔌</span></div>
+    </div>
+  </section>
+
+  <!-- ======================================================= задания -->
+  <section class="w-sec" id="tasks">
+    <div class="w-wrap w-sec-in">
+      <div data-reveal>
+        <span class="w-lbl"><i>✓</i>Задания</span>
+        <h2>Все номера экзамена, проверка сразу</h2>
+        <p>Не получается — подсказка в два шага, потом разбор. Задание с ошибкой через несколько дней вернётся на похожем примере.</p>
+        <div class="w-pts" data-stagger>
+          <div><em>🧮</em><span>Python, доска, калькулятор<small>прямо рядом с условием</small></span></div>
+          <div><em>🔁</em><span>Повторение ошибок<small>само, по расписанию</small></span></div>
+        </div>
       </div>
-      <figure class="w-shot"><img id="shotImg" src="promo/digest.png" alt="Сводка класса" width="1280" height="800" loading="lazy">
-        <figcaption id="shotCap">Сводка недели: средний прогноз, слабые номера класса, кто отстаёт и кто не занимался. Кнопка — подборка по слабым номерам.</figcaption></figure>
-      <p class="w-note">На снимках — демо-класс с вымышленными учениками.</p>
+      <div class="w-art g" data-reveal="right">
+        <figure class="w-frame" data-parallax><div class="w-bar"><i></i><i></i><i></i><span>Тренажёр · задание 8</span></div>
+          <img src="promo/task.jpg" alt="Задание в тренажёре: условие, поле ответа, подсказка и инструменты" width="2560" height="1240" loading="lazy" data-zoom></figure>
+        <span class="w-sticker s-orange" style="left:-12px;top:70px">прогноз балла</span>
+        <span class="w-sticker s-green" style="right:6px;bottom:44px">подсказка 1 из 2</span>
+      </div>
     </div>
   </section>
 
-  <section class="w-sec" id="start">
-    <div class="w-wrap">
-      <h2>Как начать</h2>
-      <ol class="w-steps">
-        <li><b>Зарегистрируйтесь</b><span>ФИО, почта и пароль — и панель учителя открыта. <span class="trial-txt">7 дней</span> бесплатно, без карты.</span></li>
-        <li><b>Создайте класс и позовите учеников</b><span>Ссылка-приглашение или QR-код на доске: ученик регистрируется и сразу попадает к вам.</span></li>
-        <li><b>Выдайте первую подборку</b><span>Шаблон «Вариант ЕГЭ» или «10 заданий на номер» — и смотрите ответы в журнале.</span></li>
-      </ol>
-      <div class="w-cta center"><button type="button" class="w-btn primary lg" data-signup>Начать бесплатно</button></div>
+  <!-- ======================================================= уроки -->
+  <section class="w-sec flip" id="lessons">
+    <div class="w-wrap w-sec-in">
+      <div data-reveal>
+        <span class="w-lbl b"><i>📘</i>Уроки</span>
+        <h2>Урок по каждому номеру</h2>
+        <p>Все типы задания на примерах: решение, программа и типичные ошибки. Программу со слайда можно запустить одной кнопкой или пройти по шагам.</p>
+        <div class="w-nums" id="wNums"><span class="full">1</span><span>2</span><span class="full">3</span><span>4</span><span class="full">5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span class="full">15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span class="full">23</span><span class="full">24</span><span class="full">25</span><span class="full">26</span><span class="full">27</span></div>
+        <p class="w-leg"><i></i>полный урок, 18–34 слайда · остальные — краткий разбор</p>
+      </div>
+      <div class="w-art b" data-reveal="left">
+        <figure class="w-frame" data-parallax><div class="w-bar"><i></i><i></i><i></i><span>Курс · №24</span></div>
+          <img src="promo/lesson.jpg" alt="Слайд урока №24: задание, программа на Python и подсказка" width="1268" height="1056" loading="lazy" data-zoom></figure>
+        <span class="w-sticker s-blue" style="right:-10px;top:40px">разбор с программой</span>
+        <span class="w-sticker s-green" style="left:-10px;bottom:56px">запуск в один клик</span>
+      </div>
     </div>
   </section>
 
-  <section class="w-sec" id="contacts">
-    <div class="w-wrap">
-      <h2>Контакты</h2>
-      <p class="w-lead">Подключение школы и вопросы — напишите нам.</p>
-      <div class="w-contacts" id="contacts-list"><p class="w-note">Контакты появятся здесь.</p></div>
+  <!-- ======================================================= python -->
+  <section class="w-sec" id="python">
+    <div class="w-wrap w-sec-in">
+      <div data-reveal>
+        <span class="w-lbl v"><i>🐍</i>Python</span>
+        <h2>Python и отладчик прямо в браузере</h2>
+        <p>Ничего не нужно устанавливать. Код выполняется по шагам: видно текущую строку и значение каждой переменной.</p>
+        <div class="w-pts" data-stagger>
+          <div><em>🔴</em><span>Точки останова<small>щелчок по номеру строки</small></span></div>
+          <div><em>🐞</em><span>Исправление ошибок<small>чужой код, который надо починить</small></span></div>
+        </div>
+      </div>
+      <div class="w-art v" data-reveal="right">
+        <figure class="w-frame" data-parallax><img src="promo/ide.jpg" alt="Отладчик: строка выполнения, точка останова, значения переменных в строках кода" width="1076" height="852" loading="lazy" data-zoom></figure>
+        <span class="w-sticker s-red" style="left:-14px;top:42%">точка останова</span>
+        <span class="w-sticker s-violet" style="right:-10px;top:60px">значения переменных</span>
+      </div>
     </div>
+  </section>
+
+  <!-- ======================================================= учителю -->
+  <section class="w-teach" id="teacher">
+    <div class="w-wrap">
+      <div class="w-teach-h" data-reveal>
+        <div><span class="w-lbl"><i>🧑‍🏫</i>Учителю</span><h2>Весь класс — в одной панели</h2></div>
+        <p>Подборки по шаблонам, контрольные, журнал с ответами каждого ученика и сводка по слабым номерам. На снимках — демо-класс с вымышленными учениками.</p>
+      </div>
+      <div class="w-tg" data-stagger>
+        <figure class="w-card big"><img src="promo/digest.png" alt="Сводка класса" width="1280" height="800" loading="lazy" data-zoom><figcaption><b>Сводка класса</b><span>Средний прогноз, кто отстаёт и какие номера проседают — и кнопка подборки по слабым номерам.</span></figcaption></figure>
+        <figure class="w-card"><img src="promo/build.png" alt="Создать подборку" width="1280" height="800" loading="lazy" data-zoom><figcaption><b>Подборка за минуту</b><span>«Вариант ЕГЭ», «10 заданий на номер», «Работа над ошибками».</span></figcaption></figure>
+        <figure class="w-card"><img src="promo/journal.png" alt="Журнал класса" width="1280" height="800" loading="lazy" data-zoom><figcaption><b>Журнал</b><span>Каждый ответ, время и код решения.</span></figcaption></figure>
+        <figure class="w-card"><img src="promo/archive.png" alt="Архив работ в PDF" width="1280" height="800" loading="lazy" data-zoom><figcaption><b>Архив в PDF</b><span>Работа одним файлом: таблица и ответы.</span></figcaption></figure>
+        <div class="w-card w-card-txt"><b>🖥️ Контрольные на весь экран</b><span>Одна попытка, уходы со вкладки видны учителю.</span><b>📬 Итоги недели на почту</b><span>Кто занимался и кто отстаёт.</span></div>
+      </div>
+      <div class="w-cta" data-reveal><button type="button" class="w-btn blue lg" data-signup>Зарегистрироваться как учитель</button><button type="button" class="w-btn white lg" data-guest>Посмотреть без регистрации</button></div>
+    </div>
+  </section>
+
+  <!-- ======================================================= каждый день -->
+  <section class="w-daily">
+    <div class="w-daily-in"><div class="w-wrap w-center">
+      <div data-reveal><span class="w-lbl o"><i>⚡</i>Каждый день</span>
+        <h2>Чтобы заниматься регулярно</h2>
+        <p>На главной ученика — план на сегодня из 3–4 дел. А это помогает не бросать:</p></div>
+      <div class="w-dgrid" data-stagger>
+        <div class="d1" data-tilt><span class="e">🔥</span><b>Огонёк</b><span>Дни подряд, когда решено хотя бы 3 задания. Есть заморозки на пропуск.</span></div>
+        <div class="d2" data-tilt><span class="e">📅</span><b>Задание дня</b><span>Одно задание для всех, место — по времени решения.</span></div>
+        <div class="d3" data-tilt><span class="e">⚔️</span><b>Дуэли и турниры</b><span>Соревнования с одноклассниками.</span></div>
+        <div class="d4" data-tilt><span class="e">🏆</span><b>Лиги</b><span>Недельный рейтинг: лучшие поднимаются в лигу выше.</span></div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ======================================================= старт -->
+  <section class="w-start" id="start">
+    <div class="w-wrap w-start-in" data-stagger>
+      <div class="w-scard st"><h3>Ученику</h3><ol><li>Зарегистрируйся: ФИО, логин и пароль. Если учитель дал код — ты сразу в классе.</li><li>Открой план на сегодня — сайт подберёт номера, где больше всего ошибок.</li></ol><a class="w-btn white" href="/?login=1">Я ученик</a></div>
+      <div class="w-scard te"><h3>Учителю</h3><ol><li>Зарегистрируйтесь: ФИО, почта и пароль.</li><li>Создайте класс, позовите учеников ссылкой или QR-кодом и выдайте первую подборку.</li></ol><button type="button" class="w-btn white" data-signup>Я учитель</button></div>
+    </div>
+    <div class="w-wrap" id="contacts"><div class="w-contacts" id="contacts-list"></div></div>
   </section>
 </main>
 
@@ -114,17 +234,22 @@
   </div>
 </footer>
 
+<!-- нижняя панель на телефоне: появляется после первого экрана -->
+<div class="w-dock" id="wDock"><a class="w-btn green" href="/?login=1">Я ученик</a><button type="button" class="w-btn blue" data-signup>Я учитель</button></div>
+<button type="button" class="w-up" id="wUp" aria-label="Наверх">↑</button>
+<div class="w-pop" id="wPop" role="tooltip" hidden></div>
+<div class="w-zoom" id="wZoom" hidden><img alt=""><button type="button" class="w-x" aria-label="Закрыть">×</button></div>
+
 <div class="w-modal" id="signupModal" hidden>
   <form class="w-dialog" id="signupForm" role="dialog" aria-modal="true" aria-labelledby="signupTitle" autocomplete="on">
     <button type="button" class="w-x" data-close aria-label="Закрыть">×</button>
     <h2 id="signupTitle">Регистрация учителя</h2>
-    <p class="w-note"><span class="trial-txt">7 дней</span> бесплатно, все возможности. Карта не нужна.</p>
     <label>Фамилия, имя и отчество<input id="suName" name="name" autocomplete="name" maxlength="80" required placeholder="Иванова Мария Сергеевна"></label>
     <label>Почта <small>— для входа и отчётов</small><input id="suEmail" name="email" type="email" autocomplete="email" maxlength="120" required placeholder="you@school.ru"></label>
     <label>Пароль <small>— не короче 8 символов</small><input id="suPass" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="200" required></label>
     <label class="w-check"><input type="checkbox" id="suAccept" required>
       <span>Принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">Политику</a>, даю <a href="consent.html" target="_blank" rel="noopener">согласие на обработку персональных данных</a></span></label>
-    <button class="w-btn primary lg block" type="submit">Создать аккаунт</button>
+    <button class="w-btn green lg block" type="submit">Создать аккаунт</button>
     <p class="w-err" id="suErr" role="alert"></p>
     <p class="w-note center">Уже зарегистрированы? <a href="/admin">Войти</a></p>
   </form>
