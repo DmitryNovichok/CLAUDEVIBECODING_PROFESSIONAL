@@ -838,3 +838,18 @@ tr.t-renew td { background: var(--review-soft); }
 .parent-list > div { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
 .parent-list > div > span { flex: 1; }
 .imp-text { width: 100%; min-height: 180px; font-family: var(--font); resize: vertical; }
+
+/* ---- Пароли и доступы: три раздела в одном месте */
+.acc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.acc-card { margin: 0; }
+.acc-h { display: flex; align-items: center; gap: 12px; }
+.acc-h .adm-h3 { margin: 0; }
+.acc-ic { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--accent-soft); font-size: 21px; }
+.acc-state { display: inline-block; margin-top: 3px; font-size: 12.5px; font-weight: 700; }
+.acc-state.on { color: var(--good); }
+.acc-state.off { color: var(--muted); }
+.acc-n { margin: 0; color: var(--muted); font-size: 13.5px; }
+.acc-n b { color: var(--text); font-size: 18px; margin-right: 2px; }
+.acc-card .login-form { margin-top: auto; }
+.acc-all { max-width: 640px; }
+@media (max-width: 1100px) { .acc-grid { grid-template-columns: 1fr; } }

@@ -99,8 +99,9 @@
           <div class="bug-hints" id="bugHints"></div>
         </section>
         <section class="lab-panel bug-editor"><div class="bug-ed-head"><h2>Решение · ${esc(c.who)}</h2><span class="fm-muted" id="bugDiff"></span></div>
-          <div class="bug-code"><pre class="bug-gutter" id="bugGutter" aria-hidden="true"></pre>
-            <textarea id="bugCode" class="inp" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" maxlength="20000" aria-label="Код решения">${esc(code)}</textarea></div>
+          <div class="bug-code ide"><pre class="bug-gutter" id="bugGutter" aria-hidden="true"></pre>
+            <div class="ide-area"><pre class="ide-hl bug-hl" id="bugCodeHl" aria-hidden="true"></pre>
+            <textarea id="bugCode" class="inp" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" maxlength="20000" aria-label="Код решения">${esc(code)}</textarea></div></div>
           <div class="bug-actions"><button type="button" class="btn primary" id="bugCheck" data-bug-act="check">Проверить</button>
             <button type="button" class="btn" id="bugStop" data-bug-act="stop" hidden>Остановить</button>
             <button type="button" class="btn" data-bug-act="hint" id="bugHintBtn"></button>
@@ -120,6 +121,8 @@
     const lines = ta.value.split('\n'), ch = bugChanged(c.code, ta.value);
     $('#bugGutter').innerHTML = lines.map((_, i) => `<span class="${ch.has(i) ? 'ch' : ''}">${i + 1}</span>`).join('\n');
     $('#bugGutter').scrollTop = ta.scrollTop;
+    $('#bugCodeHl').innerHTML = '<div class="ide-hl-in">' + highlightPy(ta.value) + '\n</div>';
+    bugScrollHl();
     ta.style.height = Math.max(180, Math.min(620, lines.length * 22 + 24)) + 'px';
     $('#bugDiff').textContent = ta.value.replace(/\s+$/, '') === c.code.replace(/\s+$/, '') ? 'код не менялся' : `изменено строк: ${ch.size}`;
   }
@@ -259,7 +262,11 @@
     writeJSON(bugDraftKey(c.id), { code: e.target.value });
     bugSyncEditor();
   });
-  trainerEl.addEventListener('scroll', e => { if (e.target.id === 'bugCode' && $('#bugGutter')) $('#bugGutter').scrollTop = e.target.scrollTop; }, true);
+  function bugScrollHl() {
+    const ta = $('#bugCode'), inner = $('#bugCodeHl')?.firstElementChild;
+    if (ta && inner) inner.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+  }
+  trainerEl.addEventListener('scroll', e => { if (e.target.id === 'bugCode' && $('#bugGutter')) { $('#bugGutter').scrollTop = e.target.scrollTop; bugScrollHl(); } }, true);
   trainerEl.addEventListener('keydown', e => {
     if (!bugActive() || !bugCase()) return;
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); bugCheck(); return; }

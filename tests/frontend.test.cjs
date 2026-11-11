@@ -744,3 +744,11 @@ test('bug lab never installs previous pupil progress from a delayed response',as
   assert.equal(vm.runInContext('BUG.cases',x.c),null);
   assert.equal(vm.runInContext('BUG.cur',x.c),null);
 });
+test('admin.js and app.js do not declare the same function twice in one scope', () => {
+  // повторное объявление молча заменяет первую функцию — так однажды сломался вход в панель учителя
+  for (const f of ['admin.js', 'app.js']) {
+    const names = {};
+    for (const m of fs.readFileSync(f, 'utf8').matchAll(/^  (?:async )?function (\w+)\(/gm)) names[m[1]] = (names[m[1]] || 0) + 1;
+    assert.deepEqual(Object.entries(names).filter(([, n]) => n > 1), [], f);
+  }
+});

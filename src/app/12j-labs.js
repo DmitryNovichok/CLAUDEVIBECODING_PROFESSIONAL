@@ -46,7 +46,7 @@
   };
   const LAB = { view: '', mode: 'net', worker: null, timeout: null, play: null, running: false, result: null, index: 0,
     code: '', stdin: '', owner: null, net: { ip: '192.168.1.130', prefix: 26 }, picture: { w: 640, h: 480, depth: 8 },
-    context: null, game: { start: 17, second: 29, heaps: 2, target: 133, add: 4, factor: 2, path: [[17, 29]] } };
+    context: null, bps: new Set(), seen: null, game: { start: 17, second: 29, heaps: 2, target: 133, add: 4, factor: 2, path: [[17, 29]] } };
   const labActive = () => courseShown && pageKind === 'lab' && !!$('#labRoot');
   const labFmt = n => n.toLocaleString('ru-RU');
   const labIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></svg>';
@@ -107,7 +107,7 @@
         <p class="lab-note">Здесь можно пробовать и ошибаться: эксперименты не меняют оценки и награды за задания.</p>`}
       </div>`;
     if (view === 'tasks') labRenderModel();
-    if (view === 'code') labRenderStep();
+    if (view === 'code') { if (LAB.result && !LAB.seen) labIndexSteps(); labPaintEditor(); labRenderStep(); }
     if (view === 'bugs') bugLabInit();
     window.scrollTo(0, 0);
   }
@@ -187,13 +187,19 @@
       <p class="lab-note">Код выполняется в браузере, затем запись можно листать вперёд и назад. Подсвеченная строка ещё не выполнена; переменные показаны перед ней. Запись идёт до конца программы.</p>
       <p class="lab-status" id="labStatus" role="status">${LAB.result ? 'Запись выполнения готова.' : 'Вставь свой код или выбери пример. Ctrl+Enter — разобрать.'}</p>
       <div class="lab-controls" id="labControls" ${LAB.result && LAB.result.steps.length ? '' : 'hidden'}>
-        <button type="button" class="btn" data-lab-action="prev" id="labPrev">← Назад</button><button type="button" class="btn primary" data-lab-action="next" id="labNext">Следующий шаг →</button><button type="button" class="btn" data-lab-action="play" id="labPlay">Воспроизвести</button><button type="button" class="btn" data-lab-action="end" id="labEnd">В конец ⇥</button>
+        <button type="button" class="btn" data-lab-action="prev" id="labPrev" title="Шаг назад (F7)">← Назад</button><button type="button" class="btn primary" data-lab-action="next" id="labNext" title="Следующий шаг (F8)">Следующий шаг →</button><button type="button" class="btn" data-lab-action="resume" id="labResume" title="До следующей точки останова (F9)">До точки останова ▶▶</button><button type="button" class="btn" data-lab-action="play" id="labPlay">Воспроизвести</button><button type="button" class="btn" data-lab-action="end" id="labEnd">В конец ⇥</button>
         <label>Шаг <span id="labStepLabel"></span><input type="range" id="labStep" min="0" max="0" value="0" aria-label="Шаг выполнения"></label></div>
       <div class="lab-code-grid"><section class="lab-panel lab-editor"><h2>Код Python</h2>
-        <textarea id="labCode" class="inp" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="30000" aria-label="Код Python" ${LAB.result ? 'hidden' : ''}>${esc(LAB.code)}</textarea>
-        <div id="labTraceCode" class="lab-trace-code" tabindex="0" aria-label="Код с текущей строкой" ${LAB.result ? '' : 'hidden'}></div>
+        <div class="ide">
+          <div class="ide-tabs"><span class="ide-tab"><i class="ide-pyico" aria-hidden="true"></i>main.py</span><span class="ide-mode" id="labIdeMode">${LAB.result ? 'Отладка' : 'Редактор'}</span></div>
+          <div class="ide-ed" id="labEd" ${LAB.result ? 'hidden' : ''}><div class="ide-gutter" id="labGutter" aria-hidden="true"></div>
+            <div class="ide-area"><pre class="ide-hl" id="labCodeHl" aria-hidden="true"></pre>
+              <textarea id="labCode" class="ide-code" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" maxlength="30000" aria-label="Код Python">${esc(LAB.code)}</textarea></div></div>
+          <div id="labTraceCode" class="lab-trace-code ide-trace" tabindex="0" aria-label="Код с текущей строкой" ${LAB.result ? '' : 'hidden'}></div>
+          <div class="ide-foot">Щёлкни по номеру строки — поставишь точку останова <i class="ide-bp-dot" aria-hidden="true"></i></div>
+        </div>
         <label class="lab-stdin">Входные данные для input()<textarea class="inp" id="labStdin" rows="3" maxlength="10000" spellcheck="false" ${LAB.result ? 'disabled' : ''}>${esc(LAB.stdin)}</textarea></label>
-      </section><section class="lab-panel"><h2>Что происходит</h2><p id="labEvent">Здесь появятся значения переменных на каждом шаге.</p><div id="labStack" class="lab-stack"></div><div id="labVariables"></div><h3>Вывод программы</h3><pre class="lab-output" id="labOutput" aria-label="Вывод программы"></pre></section></div>
+      </section><section class="lab-panel"><h2>Что происходит</h2><p id="labEvent">Здесь появятся значения переменных на каждом шаге.</p><div id="labStack" class="lab-stack"></div><div id="labVariables"></div><h3>Вывод программы</h3><pre class="lab-output ide-out" id="labOutput" aria-label="Вывод программы"></pre></section></div>
       <p class="lab-note">Списки и значения показаны сокращённо. Python загружается при первом запуске; кнопка «Остановить» прерывает и загрузку, и выполнение.</p>`;
   }
   function labSetStatus(text) { if (labActive() && $('#labStatus')) $('#labStatus').textContent = text; }
@@ -206,7 +212,7 @@
     if (LAB.running) return;
     if (!LAB.code.trim()) { labSetStatus('Сначала напиши код или выбери пример.'); return; }
     labStop(); LAB.result = null; LAB.index = 0; labSaveDraft();
-    $('#labCode').hidden = false; $('#labTraceCode').hidden = true; $('#labControls').hidden = true; $('#labEdit').hidden = true;
+    $('#labEd').hidden = false; $('#labTraceCode').hidden = true; $('#labControls').hidden = true; $('#labEdit').hidden = true; $('#labIdeMode').textContent = 'Редактор';
     $('#labVariables').textContent = ''; $('#labStack').textContent = ''; $('#labOutput').textContent = ''; $('#labEvent').textContent = 'Готовим запись выполнения…';
     try {
       const worker = new Worker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); LAB.worker = worker;
@@ -220,8 +226,8 @@
           clearTimeout(LAB.timeout); LAB.timeout = setTimeout(() => fail('Выполнение остановлено через минуту. Уменьши входные данные или проверь цикл.'), 60000);
           labSetStatus('Записываю выполнение…');
         } else if (m.type === 'trace') {
-          labStop(); labSetBusy(false); LAB.result = m.result; LAB.index = 0;
-          $('#labCode').hidden = true; $('#labTraceCode').hidden = false; $('#labEdit').hidden = false; $('#labStdin').disabled = true;
+          labStop(); labSetBusy(false); LAB.result = m.result; LAB.index = 0; labIndexSteps();
+          $('#labEd').hidden = true; $('#labTraceCode').hidden = false; $('#labEdit').hidden = false; $('#labStdin').disabled = true; $('#labIdeMode').textContent = 'Отладка';
           labRenderStep();
         } else if (m.type === 'trace-error') fail(m.text);
         else if (m.type === 'done' && !m.ok) fail('Не удалось загрузить Python. Проверь интернет и повтори запуск.');
@@ -238,19 +244,31 @@
     else if (r.truncated) labSetStatus(r.stop === 'time' ? 'Программа выполнялась дольше 25 секунд — запись остановлена. Похоже на бесконечный цикл или слишком большие данные.'
       : `Запись остановлена на ${r.steps.length.toLocaleString('ru-RU')} шагах — похоже, программа не заканчивается. Проверь условие цикла или уменьши данные.`);
     else labSetStatus(`Программа выполнена до конца: ${r.steps.length.toLocaleString('ru-RU')} ${plural(r.steps.length, 'шаг', 'шага', 'шагов')}. Листай шаги и наблюдай за переменными.` + (r.outputTruncated ? ' Вывод сокращён до 20000 символов.' : ''));
-    $('#labTraceCode').innerHTML = LAB.code.split('\n').map((line, i) => `<div class="lab-code-line${s && s.line === i + 1 ? ' current' : ''}" ${s && s.line === i + 1 ? 'aria-current="step"' : ''}><span>${i + 1}</span><code>${highlightPy(line) || ' '}</code></div>`).join('');
+    const vals = new Map((s ? s.variables : []).map(v => [v.name, v]));
+    $('#labTraceCode').innerHTML = LAB.code.split('\n').map((line, i) => {
+      const n = i + 1, cur = s && s.line === n, bp = LAB.bps.has(n);
+      // значения переменных прямо в строке — только для уже выполненных строк текущей функции (как в PyCharm)
+      let inline = '';
+      if (s && LAB.seen && LAB.seen.first.get(n) <= LAB.index && LAB.seen.func.get(n) === s.function) {
+        const names = [...new Set(line.replace(/#.*$/, '').replace(/(['"])(?:\\.|(?!\1).)*\1/g, '').match(/[A-Za-z_][\w]*/g) || [])].filter(w => vals.has(w) && !PY_KW.has(w));
+        if (names.length) inline = `<em class="ide-inline">${names.slice(0, 5).map(w => `${esc(w)}: ${esc(labShort(vals.get(w).value))}`).join('&nbsp;&nbsp; ')}</em>`;
+      }
+      return `<div class="lab-code-line${cur ? ' current' : ''}${bp ? ' bp' : ''}" ${cur ? 'aria-current="step"' : ''}><span class="ide-ln" data-lab-bp="${n}" title="Точка останова">${n}</span><code>${highlightPy(line) || ' '}</code>${inline}</div>`;
+    }).join('');
     if (!s) { $('#labEvent').textContent = 'Не удалось начать выполнение. Исправь код и повтори запуск.'; $('#labOutput').textContent = r.output; return; }
     $('#labEvent').textContent = s.event === 'line' ? `Следующая строка: ${s.line}` : s.event === 'exception' ? `Строка ${s.line}: исключение ${s.exception}` : s.function === '<module>' ? (r.error ? 'Выполнение завершилось с ошибкой' : 'Выполнение основного кода завершено') : `Выход из ${s.function}: ${s.returnValue}`;
     $('#labStack').textContent = 'Вызовы: ' + s.stack.slice().reverse().map(f => f.name === '<module>' ? 'основной код' : f.name).join(' → ');
-    $('#labVariables').innerHTML = s.variables.length ? `<div class="lab-vars">${s.variables.map(v => {
+    $('#labVariables').innerHTML = s.variables.length ? `<div class="lab-vars ide-vars">${s.variables.map(v => {
       const old = previous && previous.function === s.function && previous.variables.find(x => x.name === v.name);
       const changed = !old || old.value !== v.value;
-      return `<div class="lab-var${changed ? ' changed' : ''}"><div><b>${esc(v.name)}</b><small>${esc(v.type)}${changed ? ' · изменилось' : ''}</small></div><code>${esc(v.value)}</code>${v.items ? `<div class="lab-array">${v.items.map((x, i) => `<span><small>${i}</small><code>${esc(x)}</code></span>`).join('')}${v.length > v.items.length ? '<span>…</span>' : ''}</div>` : ''}</div>`;
+      const kind = v.type === 'str' ? 'str' : ['int', 'float', 'complex'].includes(v.type) ? 'num' : ['bool', 'NoneType'].includes(v.type) ? 'kw' : '';
+      return `<div class="lab-var${changed ? ' changed' : ''}"><div class="ide-var-row"><i class="ide-var-ic ${kind || 'obj'}" aria-hidden="true"></i><b>${esc(v.name)}</b><span class="ide-eq">=</span><small>{${esc(v.type)}}</small>${v.length != null ? `<small>len ${v.length}</small>` : ''}<code class="${kind ? 'hl-' + kind : ''}">${esc(v.value)}</code>${changed ? '<span class="ide-chg" title="Значение изменилось на этом шаге">изменилось</span>' : ''}</div>${v.items ? `<div class="lab-array">${v.items.map((x, i) => `<span><small>${i}</small><code>${esc(x)}</code></span>`).join('')}${v.length > v.items.length ? '<span>…</span>' : ''}</div>` : ''}</div>`;
     }).join('')}</div>` : '<p class="lab-note">Пока нет переменных.</p>';
     $('#labOutput').textContent = s.out != null ? r.output.slice(0, s.out) : (s.output || '');
     $('#labStep').max = r.steps.length - 1; $('#labStep').value = LAB.index;
     $('#labStepLabel').textContent = `${LAB.index + 1} из ${r.steps.length}`;
     $('#labPrev').disabled = LAB.index === 0; $('#labNext').disabled = $('#labEnd').disabled = LAB.index >= r.steps.length - 1;
+    $('#labResume').disabled = LAB.index >= r.steps.length - 1;
     // Прокручиваем только код, не всю страницу: шаги и переменные остаются на месте.
     const panel = $('#labTraceCode'), line = $('#labTraceCode .current');
     if (line) {
@@ -258,6 +276,37 @@
       if (l.top < p.top + 12) panel.scrollTop -= p.top + 12 - l.top;
       else if (l.bottom > p.bottom - 12) panel.scrollTop += l.bottom - p.bottom + 12;
     }
+  }
+  /** Для каждой строки: первый шаг, на котором она выполнялась, и в какой функции — по ним показываем значения в строках. */
+  function labIndexSteps() {
+    const first = new Map(), func = new Map();
+    (LAB.result?.steps || []).forEach((st, i) => { if (!first.has(st.line)) { first.set(st.line, i); func.set(st.line, st.function); } });
+    LAB.seen = { first, func };
+  }
+  const labShort = v => (v.length > 28 ? v.slice(0, 26) + '…' : v);
+  /** «До точки останова» (F9): следующий шаг на строке с точкой; если точек нет или дальше их нет — в конец. */
+  function labResume() {
+    const st = LAB.result?.steps || [];
+    let i = LAB.index + 1;
+    while (i < st.length && !(st[i].event === 'line' && LAB.bps.has(st[i].line))) i++;
+    LAB.index = Math.min(i, st.length - 1);
+    if (i >= st.length && LAB.bps.size) labSetStatus('Дальше точек останова нет — программа дошла до конца.');
+    labRenderStep();
+  }
+  /** Редактор: раскрашенная копия под прозрачным полем и номера строк с точками останова. */
+  function labPaintEditor() {
+    const ta = $('#labCode'), hl = $('#labCodeHl');
+    if (!ta || !hl) return;
+    hl.innerHTML = '<div class="ide-hl-in">' + highlightPy(ta.value) + '\n</div>';
+    const n = ta.value.split('\n').length;
+    $('#labGutter').innerHTML = '<div class="ide-gutter-in">' + Array.from({ length: n }, (_, i) => `<span class="ide-ln${LAB.bps.has(i + 1) ? ' bp' : ''}" data-lab-bp="${i + 1}">${i + 1}</span>`).join('') + '</div>';
+    labScrollEditor();
+  }
+  function labScrollEditor() {
+    const ta = $('#labCode'), inner = $('#labCodeHl')?.firstElementChild, g = $('#labGutter')?.firstElementChild;
+    if (!ta || !inner) return;
+    inner.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+    if (g) g.style.transform = `translateY(${-ta.scrollTop}px)`;
   }
   function labStep(delta) { if (!LAB.result) return; LAB.index = Math.max(0, Math.min(LAB.result.steps.length - 1, LAB.index + delta)); labRenderStep(); }
   $('#labCard')?.addEventListener('click', () => openLab());
@@ -273,6 +322,13 @@
     if (a === 'edit') { labStop(); LAB.result = null; openLab('code').then(() => $('#labCode')?.focus()); }
     if (a === 'prev' || a === 'next') { labPause(); labStep(a === 'prev' ? -1 : 1); }
     if (a === 'end' && LAB.result) { labPause(); LAB.index = LAB.result.steps.length - 1; labRenderStep(); }
+    if (a === 'resume' && LAB.result) { labPause(); labResume(); }
+    const bp = e.target.closest('[data-lab-bp]');
+    if (bp) {
+      const n = +bp.dataset.labBp;
+      if (LAB.bps.has(n)) LAB.bps.delete(n); else LAB.bps.add(n);
+      if (LAB.result) labRenderStep(); else labPaintEditor();
+    }
     if (a === 'play' && LAB.result) {
       if (LAB.play) { labPause(); return; }
       if (LAB.index >= LAB.result.steps.length - 1) LAB.index = 0;
@@ -290,6 +346,7 @@
     if (!labActive()) return;
     const id = e.target.id;
     if (id === 'labCode' || id === 'labStdin') { LAB[id === 'labCode' ? 'code' : 'stdin'] = e.target.value; labSaveDraft(); }
+    if (id === 'labCode') labPaintEditor();
     if (id === 'labIp' || id === 'labPrefix') labUpdateNetwork();
     if (['labWidth', 'labHeight', 'labDepth'].includes(id)) labUpdateImage();
     if (id === 'labStep') { labPause(); LAB.index = +e.target.value; labRenderStep(); }
@@ -309,6 +366,13 @@
       const right = /^\d+$/.test(answer) && +answer === expected;
       $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} ${LAB.mode === 'net' ? `2^(32 − ${LAB.net.prefix})` : `Округляем вверх: ${labFmt(LAB.picture.w)} × ${labFmt(LAB.picture.h)} × ${LAB.picture.depth} / 8`} = ${labFmt(expected)}${LAB.mode === 'net' ? ' адресов.' : ' байт.'}`;
     } catch (err) { $('#labFeedback').textContent = err.message; }
+  });
+  trainerEl.addEventListener('scroll', e => { if (e.target.id === 'labCode') labScrollEditor(); }, true);
+  // клавиши отладчика PyCharm: F7 — шаг назад, F8 — шаг, F9 — до точки останова
+  document.addEventListener('keydown', e => {
+    if (!labActive() || LAB.view !== 'code' || !LAB.result || !['F7', 'F8', 'F9'].includes(e.key) || e.target.closest?.('input, select, textarea')) return;
+    e.preventDefault(); labPause();
+    if (e.key === 'F9') labResume(); else labStep(e.key === 'F7' ? -1 : 1);
   });
   trainerEl.addEventListener('keydown', e => {
     if (!labActive() || LAB.view !== 'code') return;
