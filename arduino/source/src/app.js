@@ -1,3 +1,4 @@
+import {accountLocalStorage as localStorage} from './account-storage.js';
 import {powerCheck,powered,echoDuration} from './power.js';
 import {wireNets} from './circuit-check.js';
 import {captureChange, restoreChange, saveVersion, persistProject} from './persistence.js';

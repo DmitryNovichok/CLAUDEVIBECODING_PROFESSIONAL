@@ -1,3 +1,4 @@
+import {accountLocalStorage as localStorage, accountStorageEventKey} from './account-storage.js';
 import {progressStore} from './persistence.js';
 import {createExchange} from './exchange.js';
 import {learningPath} from './learning-path.js';
@@ -146,6 +147,6 @@ export function initAcademy(api){
  document.addEventListener('microlab-change',()=>{lastCheck=null;const feedback=$('#lessonFeedback');if(feedback){feedback.hidden=true;feedback.textContent=''}});
  document.addEventListener('microlab-rendered',()=>{if(route==='lab'){if(activeLesson!==(api.getProject().lessonId||null)){chooseGrade(api.getProject().lessonId?.startsWith('hs-')?'senior':'junior');labDock();sidebar();topbar();}api.fit()}});
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('menu-open'))$('#sidebar .rail-close')?.click()});
- window.addEventListener('storage',e=>{if(e.key?.startsWith('microlab.progress.')||e.key==='microlab.academy.v1'){persistProgress();if(route==='lab')labDock();if(route.startsWith('course'))course();}});
+ window.addEventListener('storage',e=>{const key=accountStorageEventKey(e.key);if(key===null||key?.startsWith('microlab.progress.')||key==='microlab.academy.v1'){persistProgress();if(route==='lab')labDock();if(route.startsWith('course'))course();}});
  window.addEventListener('hashchange',renderRoute);window.addEventListener('beforeunload',e=>{if(!api.persist()){e.preventDefault();e.returnValue=''}});renderRoute();
 }

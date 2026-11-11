@@ -2799,6 +2799,12 @@
     ta.value = code;
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     $('#pyTask').textContent = DECK.pyc ? DECK.label + ' · пример' : `курс · №${DECK.n}`;
+    if (!DECK.pyc) {                      // урок курса: файлы данных слайда кладём рядом с кодом — open('24.txt') работает
+      const files = (sl.blocks ? (sl.blocks[k || 0] || {}).files : null) || sl.files || [];
+      PY.task = files.length ? { id: `course:${DECK.n}:${i}:${k || 0}`, n: 0, pyc: true, label: `курс · №${DECK.n}`,
+        att: files.map(f => ({ name: f.name, href: f.url })) } : null;
+      $('#pyFiles').innerHTML = files.length ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ') : '';
+    }
   }
   document.addEventListener('keydown', e => {
     if (!courseShown || !DECK || !$('#crsDeck') || e.target.closest('input, textarea, select')) return;
@@ -4293,7 +4299,7 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
-    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); }
+    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); resetBugLab(); }
     if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
@@ -10039,10 +10045,10 @@
     return `<div class="lab-code-tools"><label>Готовый пример<select class="inp" id="labExample"><option value="">Выбрать пример…</option>${Object.entries(LAB_EXAMPLES).map(([id, [name]]) => `<option value="${id}">${name}</option>`).join('')}</select></label>
       <button type="button" class="btn primary" id="labRun" data-lab-action="run">Разобрать по шагам</button><button type="button" class="btn" id="labStop" data-lab-action="stop" hidden>Остановить</button>
       <button type="button" class="btn ghost" data-lab-action="edit" id="labEdit" ${LAB.result ? '' : 'hidden'}>Редактировать код</button></div>
-      <p class="lab-note">Код выполняется в браузере, затем запись можно листать вперёд и назад. Подсвеченная строка ещё не выполнена; переменные показаны перед ней. До 600 событий на запуск.</p>
+      <p class="lab-note">Код выполняется в браузере, затем запись можно листать вперёд и назад. Подсвеченная строка ещё не выполнена; переменные показаны перед ней. Запись идёт до конца программы.</p>
       <p class="lab-status" id="labStatus" role="status">${LAB.result ? 'Запись выполнения готова.' : 'Вставь свой код или выбери пример. Ctrl+Enter — разобрать.'}</p>
       <div class="lab-controls" id="labControls" ${LAB.result && LAB.result.steps.length ? '' : 'hidden'}>
-        <button type="button" class="btn" data-lab-action="prev" id="labPrev">← Назад</button><button type="button" class="btn primary" data-lab-action="next" id="labNext">Следующий шаг →</button><button type="button" class="btn" data-lab-action="play" id="labPlay">Воспроизвести</button>
+        <button type="button" class="btn" data-lab-action="prev" id="labPrev">← Назад</button><button type="button" class="btn primary" data-lab-action="next" id="labNext">Следующий шаг →</button><button type="button" class="btn" data-lab-action="play" id="labPlay">Воспроизвести</button><button type="button" class="btn" data-lab-action="end" id="labEnd">В конец ⇥</button>
         <label>Шаг <span id="labStepLabel"></span><input type="range" id="labStep" min="0" max="0" value="0" aria-label="Шаг выполнения"></label></div>
       <div class="lab-code-grid"><section class="lab-panel lab-editor"><h2>Код Python</h2>
         <textarea id="labCode" class="inp" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="30000" aria-label="Код Python" ${LAB.result ? 'hidden' : ''}>${esc(LAB.code)}</textarea>
@@ -10072,7 +10078,7 @@
         if (LAB.worker !== worker || !labActive()) return;
         const m = e.data;
         if (m.type === 'tracing') {
-          clearTimeout(LAB.timeout); LAB.timeout = setTimeout(() => fail('Выполнение остановлено через 15 секунд. Уменьши входные данные или проверь цикл.'), 15000);
+          clearTimeout(LAB.timeout); LAB.timeout = setTimeout(() => fail('Выполнение остановлено через минуту. Уменьши входные данные или проверь цикл.'), 60000);
           labSetStatus('Записываю выполнение…');
         } else if (m.type === 'trace') {
           labStop(); labSetBusy(false); LAB.result = m.result; LAB.index = 0;
@@ -10090,8 +10096,9 @@
     const r = LAB.result, s = r.steps[LAB.index], previous = r.steps[LAB.index - 1];
     $('#labControls').hidden = !r.steps.length;
     if (r.error) labSetStatus('Программа завершилась с ошибкой: ' + r.error);
-    else if (r.truncated) labSetStatus('Запись остановлена на 600 событиях. Уменьши диапазон цикла, чтобы увидеть окончание.');
-    else labSetStatus('Запись готова. Листай шаги и наблюдай за переменными.' + (r.outputTruncated ? ' Вывод сокращён до 6000 символов.' : ''));
+    else if (r.truncated) labSetStatus(r.stop === 'time' ? 'Программа выполнялась дольше 25 секунд — запись остановлена. Похоже на бесконечный цикл или слишком большие данные.'
+      : `Запись остановлена на ${r.steps.length.toLocaleString('ru-RU')} шагах — похоже, программа не заканчивается. Проверь условие цикла или уменьши данные.`);
+    else labSetStatus(`Программа выполнена до конца: ${r.steps.length.toLocaleString('ru-RU')} ${plural(r.steps.length, 'шаг', 'шага', 'шагов')}. Листай шаги и наблюдай за переменными.` + (r.outputTruncated ? ' Вывод сокращён до 20000 символов.' : ''));
     $('#labTraceCode').innerHTML = LAB.code.split('\n').map((line, i) => `<div class="lab-code-line${s && s.line === i + 1 ? ' current' : ''}" ${s && s.line === i + 1 ? 'aria-current="step"' : ''}><span>${i + 1}</span><code>${highlightPy(line) || ' '}</code></div>`).join('');
     if (!s) { $('#labEvent').textContent = 'Не удалось начать выполнение. Исправь код и повтори запуск.'; $('#labOutput').textContent = r.output; return; }
     $('#labEvent').textContent = s.event === 'line' ? `Следующая строка: ${s.line}` : s.event === 'exception' ? `Строка ${s.line}: исключение ${s.exception}` : s.function === '<module>' ? (r.error ? 'Выполнение завершилось с ошибкой' : 'Выполнение основного кода завершено') : `Выход из ${s.function}: ${s.returnValue}`;
@@ -10101,10 +10108,10 @@
       const changed = !old || old.value !== v.value;
       return `<div class="lab-var${changed ? ' changed' : ''}"><div><b>${esc(v.name)}</b><small>${esc(v.type)}${changed ? ' · изменилось' : ''}</small></div><code>${esc(v.value)}</code>${v.items ? `<div class="lab-array">${v.items.map((x, i) => `<span><small>${i}</small><code>${esc(x)}</code></span>`).join('')}${v.length > v.items.length ? '<span>…</span>' : ''}</div>` : ''}</div>`;
     }).join('')}</div>` : '<p class="lab-note">Пока нет переменных.</p>';
-    $('#labOutput').textContent = s.output;
+    $('#labOutput').textContent = s.out != null ? r.output.slice(0, s.out) : (s.output || '');
     $('#labStep').max = r.steps.length - 1; $('#labStep').value = LAB.index;
     $('#labStepLabel').textContent = `${LAB.index + 1} из ${r.steps.length}`;
-    $('#labPrev').disabled = LAB.index === 0; $('#labNext').disabled = LAB.index >= r.steps.length - 1;
+    $('#labPrev').disabled = LAB.index === 0; $('#labNext').disabled = $('#labEnd').disabled = LAB.index >= r.steps.length - 1;
     // Прокручиваем только код, не всю страницу: шаги и переменные остаются на месте.
     const panel = $('#labTraceCode'), line = $('#labTraceCode .current');
     if (line) {
@@ -10126,6 +10133,7 @@
     if (a === 'stop') { labStop(); labSetBusy(false); labSetStatus('Остановлено. Код сохранён в этом браузере.'); }
     if (a === 'edit') { labStop(); LAB.result = null; openLab('code').then(() => $('#labCode')?.focus()); }
     if (a === 'prev' || a === 'next') { labPause(); labStep(a === 'prev' ? -1 : 1); }
+    if (a === 'end' && LAB.result) { labPause(); LAB.index = LAB.result.steps.length - 1; labRenderStep(); }
     if (a === 'play' && LAB.result) {
       if (LAB.play) { labPause(); return; }
       if (LAB.index >= LAB.result.steps.length - 1) LAB.index = 0;
@@ -10182,7 +10190,7 @@
      «Проверить»: код выполняется в браузере на входных данных тестов, выводы уходят на сервер, сервер сравнивает их
      с ожидаемыми (правильные решения и ответы скрытых тестов в браузер не попадают). После решения — разбор ошибок. */
   const BUG = { cases: null, levels: {}, kinds: {}, cur: null, filter: 0, worker: null, timer: null, busy: false,
-    results: {}, hints: {}, explain: {} };
+    results: {}, hints: {}, explain: {}, owner: null, loadId: 0, runId: 0, cancel: null };
   const bugActive = () => labActive() && LAB.view === 'bugs' && !!$('#bugRoot');
   const bugCase = () => (BUG.cases || []).find(c => c.id === BUG.cur) || null;
   const bugDraftKey = id => codeKey('bug:' + id);
@@ -10207,16 +10215,37 @@
     }
     return out;
   }
-  function bugStop() {
+  function bugReleaseWorker() {
     clearTimeout(BUG.timer); BUG.timer = null;
     if (BUG.worker) BUG.worker.terminate();
-    BUG.worker = null; BUG.busy = false;
+    BUG.worker = null; BUG.cancel = null;
   }
+  function bugStop() {
+    const cancel = BUG.cancel;
+    ++BUG.runId;
+    bugReleaseWorker(); BUG.busy = false;
+    if (cancel) cancel(Error('stopped'));
+  }
+  function resetBugLab() {
+    bugStop(); ++BUG.loadId;
+    Object.assign(BUG, { cases: null, levels: {}, kinds: {}, cur: null, filter: 0,
+      results: {}, hints: {}, explain: {}, owner: null });
+  }
+  const bugCurrent = (c, run, sid) => bugActive() && bugCase() === c && BUG.runId === run && student?.sid === sid;
   function bugLabHtml() { return '<div id="bugRoot"><p class="fm-note">Загружаю задачи…</p></div>'; }
   async function bugLabInit() {
+    const sid = student?.sid;
+    if (BUG.owner !== sid) { resetBugLab(); BUG.owner = sid; }
+    const load = ++BUG.loadId;
     if (!BUG.cases) {
-      try { const d = await api('lab/bugs'); BUG.cases = d.cases || []; BUG.levels = d.levels || {}; BUG.kinds = d.kinds || {}; }
-      catch (e) { if ($('#bugRoot')) $('#bugRoot').innerHTML = '<p class="fm-note">Не удалось загрузить задачи. Открой лабораторию ещё раз.</p>'; return; }
+      try {
+        const d = await api('lab/bugs');
+        if (load !== BUG.loadId || student?.sid !== sid) return;
+        BUG.cases = d.cases || []; BUG.levels = d.levels || {}; BUG.kinds = d.kinds || {};
+      } catch (e) {
+        if (load === BUG.loadId && student?.sid === sid && bugActive()) $('#bugRoot').innerHTML = '<p class="fm-note">Не удалось загрузить задачи. Открой лабораторию ещё раз.</p>';
+        return;
+      }
     }
     if (!bugActive()) return;
     if (bugCase()) bugRenderCase(); else bugRenderList();
@@ -10267,7 +10296,7 @@
           <p class="lab-status" id="bugStatus" role="status">Ctrl+Enter — проверить. Код выполняется в браузере.</p>
           <details class="bug-own"><summary>Запустить на своих данных</summary>
             <textarea class="inp" id="bugStdin" rows="3" maxlength="10000" spellcheck="false" placeholder="Входные данные для input()"></textarea>
-            <button type="button" class="btn" data-bug-act="run">Запустить</button><pre id="bugOwnOut" class="bug-out" hidden></pre></details>
+            <button type="button" class="btn" data-bug-act="run" id="bugOwnRun">Запустить</button><pre id="bugOwnOut" class="bug-out" hidden></pre></details>
           <div id="bugResult"></div>
         </section></div>`;
     bugSyncEditor(); bugRenderHints(); bugRenderResult();
@@ -10314,30 +10343,36 @@
   }
   function bugSetBusy(on, text) {
     BUG.busy = on;
-    for (const id of ['bugCheck', 'bugCode']) if ($('#' + id)) $('#' + id).disabled = on;
+    for (const id of ['bugCheck', 'bugCode', 'bugOwnRun']) if ($('#' + id)) $('#' + id).disabled = on;
     if ($('#bugStop')) $('#bugStop').hidden = !on;
     if (text && $('#bugStatus')) $('#bugStatus').textContent = text;
   }
   /** Выполнить код на наборе входных данных. Возвращает [{out, err, kind, line} | {timeout, skipped}] по каждому входу. */
   function bugRunAll(code, inputs) {
     return new Promise((resolve, reject) => {
-      bugStop();
       const runs = [];
       let worker;
       try { worker = new Worker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); } catch (e) { reject(Error('Браузер не смог запустить Python.')); return; }
       BUG.worker = worker;
-      const finish = () => { bugStop(); for (let i = runs.length; i < inputs.length; i++) runs.push({ timeout: true, skipped: i > runs.length }); resolve(runs); };
-      BUG.timer = setTimeout(() => { bugStop(); reject(Error('Python не успел загрузиться. Проверь интернет и повтори.')); }, 90000);
+      BUG.cancel = reject;
+      const fail = message => { bugReleaseWorker(); reject(Error(message)); };
+      const finish = () => {
+        bugReleaseWorker();
+        const missing = runs.length;
+        for (let i = missing; i < inputs.length; i++) runs.push({ timeout: true, skipped: i > missing });
+        resolve(runs);
+      };
+      BUG.timer = setTimeout(() => fail('Python не успел загрузиться. Проверь интернет и повтори.'), 90000);
       worker.onmessage = e => {
         if (BUG.worker !== worker) return;
         const m = e.data;
         if (m.type === 'tests-start') { clearTimeout(BUG.timer); BUG.timer = setTimeout(finish, 12000); bugSetBusy(true, 'Выполняю программу на тестах…'); }
         else if (m.type === 'test') { runs[m.i] = m.result; clearTimeout(BUG.timer); BUG.timer = setTimeout(finish, 12000); }   // на каждый тест — до 12 секунд
         else if (m.type === 'tests-done') finish();
-        else if (m.type === 'tests-error') { bugStop(); reject(Error(m.text)); }
-        else if (m.type === 'done' && !m.ok) { bugStop(); reject(Error('Не удалось загрузить Python. Проверь интернет и повтори.')); }
+        else if (m.type === 'tests-error') fail(m.text);
+        else if (m.type === 'done' && !m.ok) fail('Не удалось загрузить Python. Проверь интернет и повтори.');
       };
-      worker.onerror = () => { bugStop(); reject(Error('Не удалось запустить Python. Обнови страницу и попробуй ещё раз.')); };
+      worker.onerror = () => { if (BUG.worker === worker) fail('Не удалось запустить Python. Обнови страницу и попробуй ещё раз.'); };
       worker.postMessage({ type: 'tests', code, inputs });
     });
   }
@@ -10346,15 +10381,17 @@
     if (!c || BUG.busy) return;
     const code = $('#bugCode').value;
     if (!code.trim()) { $('#bugStatus').textContent = 'Код пустой — нажми «Сбросить код», чтобы вернуть исходное решение.'; return; }
+    bugStop();
+    const run = BUG.runId, sid = student?.sid;
     bugSetBusy(true, 'Загружаю Python… При первом запуске это может занять около минуты.');
     let runs;
     try { runs = await bugRunAll(code, c.tests.map(t => t.in)); }
-    catch (e) { if (bugActive()) bugSetBusy(false, e.message === 'stopped' ? 'Остановлено.' : e.message); return; }
-    if (!bugActive() || bugCase() !== c) return;
+    catch (e) { if (bugCurrent(c, run, sid)) bugSetBusy(false, e.message === 'stopped' ? 'Остановлено.' : e.message); return; }
+    if (!bugCurrent(c, run, sid)) return;
     let r;
     try { r = await api('lab/bugs/check', { id: c.id, code, runs: runs.map(x => ({ out: String(x.out || '').slice(0, 6000), err: x.err ? 1 : 0, timeout: x.timeout ? 1 : 0 })) }); }
-    catch (e) { bugSetBusy(false, e.message || 'Не удалось проверить — попробуй ещё раз.'); return; }
-    if (!bugActive() || bugCase() !== c) return;
+    catch (e) { if (bugCurrent(c, run, sid)) bugSetBusy(false, e.message || 'Не удалось проверить — попробуй ещё раз.'); return; }
+    if (!bugCurrent(c, run, sid)) return;
     c.my = r.my;
     BUG.results[c.id] = { ok: r.ok, tests: r.tests, runs, changed: r.changed, par: r.par, star: r.ok && r.changed <= r.par && !!r.my.star, explain: r.explain };
     if (r.explain) BUG.explain[c.id] = r.explain;
@@ -10367,14 +10404,16 @@
   async function bugRunOwn() {
     const c = bugCase(), out = $('#bugOwnOut');
     if (!c || BUG.busy) return;
+    bugStop();
+    const run = BUG.runId, sid = student?.sid;
     bugSetBusy(true, 'Загружаю Python…');
     out.hidden = false; out.textContent = 'Выполняю…';
     try {
       const [r] = await bugRunAll($('#bugCode').value, [$('#bugStdin').value]);
-      if (!bugActive()) return;
+      if (!bugCurrent(c, run, sid)) return;
       out.textContent = r.timeout ? 'Не дождались ответа — программа работает слишком долго.' : `${r.out || ''}${r.err ? `${r.out ? '\n' : ''}${bugErrText(r)}\n${r.err.trim()}` : ''}` || '(программа ничего не вывела)';
       bugSetBusy(false, 'Запуск завершён.');
-    } catch (e) { if (bugActive()) { out.textContent = e.message; bugSetBusy(false, e.message); } }
+    } catch (e) { if (bugCurrent(c, run, sid)) { out.textContent = e.message; bugSetBusy(false, e.message); } }
   }
   trainerEl.addEventListener('click', async e => {
     if (!bugActive()) return;
@@ -10390,13 +10429,15 @@
     if (act === 'hint') { BUG.hints[c.id] = Math.min(c.hints.length, (BUG.hints[c.id] || 0) + 1); bugRenderHints(); }
     if (act === 'reset') {
       if ($('#bugCode').value !== c.code && !confirm('Вернуть исходное решение? Твои правки пропадут.')) return;
+      bugStop(); bugSetBusy(false);
       $('#bugCode').value = c.code; try { localStorage.removeItem(bugDraftKey(c.id)); } catch (x) { /* не страшно */ }
       delete BUG.results[c.id]; bugSyncEditor(); bugRenderResult(); $('#bugStatus').textContent = 'Код возвращён к исходному.';
     }
     if (act === 'explain') {
       if (!c.my.ok && !confirm('Показать разбор ошибок? После этого ★ за точную правку в этой задаче не даётся.')) return;
-      try { const r = await api('lab/bugs/explain', { id: c.id }); BUG.explain[c.id] = r.explain; if (!c.my.ok) c.my.seen = 1; bugRenderHints(); bugRenderResult(); }
-      catch (x) { toast(x.message || 'Не получилось открыть разбор', 3500); }
+      const run = BUG.runId, sid = student?.sid;
+      try { const r = await api('lab/bugs/explain', { id: c.id }); if (!bugCurrent(c, run, sid)) return; BUG.explain[c.id] = r.explain; if (!c.my.ok) c.my.seen = 1; bugRenderHints(); bugRenderResult(); }
+      catch (x) { if (bugCurrent(c, run, sid)) toast(x.message || 'Не получилось открыть разбор', 3500); }
     }
   });
   trainerEl.addEventListener('input', e => {
@@ -10582,6 +10623,8 @@
   $('.topbar')?.insertAdjacentHTML('afterbegin', '<span class="mobile-brand" aria-label="Egeshka"><b>Ege</b>shka</span>');
 
   function renderMobileNav() {
+    // прогноз в шапке — только у тренажёра номеров; на страницах разделов он лишний (на главной есть свой)
+    document.body.classList.toggle('sect-on', !!(courseShown || examShown));
     const nav = $('#mobileNav');
     if (!nav) return;
     nav.hidden = false;

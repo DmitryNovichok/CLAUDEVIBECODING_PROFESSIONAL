@@ -3869,3 +3869,6 @@ body.hubnav.hub-on .me-box { order: 3; }
 .bug-table tr.ok td:first-child { color: var(--good); font-weight: 900; } .bug-table tr.bad td:first-child { color: var(--weak); font-weight: 900; }
 .bug-table tr.bad td:last-child pre { outline: 1px solid color-mix(in srgb, var(--weak) 50%, transparent); }
 @media (max-width: 1000px) { .bug-work { grid-template-columns: minmax(0, 1fr); } .lab-cards:has(> .lab-entry:nth-of-type(3)) { grid-template-columns: minmax(0, 1fr); } }
+
+/* Прогноз ЕГЭ в шапке: только в тренажёре номеров и только заполненный */
+.topbar .forecast:empty, body.sect-on .topbar .forecast { display: none; }

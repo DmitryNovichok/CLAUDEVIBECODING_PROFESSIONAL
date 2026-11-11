@@ -19,3 +19,9 @@ jobs:
       - run: node --check app.js && node --check admin.js && node --check together.js && node --check lab-worker.js
       - run: node --test tests/frontend.test.cjs
       - run: timeout 900 python3 -m unittest discover -s tests
+      - name: Arduino dependencies
+        run: npm ci --ignore-scripts
+        working-directory: arduino/source
+      - name: Arduino build and tests
+        run: npm run build && cmp dist/app.js ../app.js && npm test
+        working-directory: arduino/source

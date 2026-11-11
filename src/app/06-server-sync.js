@@ -51,7 +51,7 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
-    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); }
+    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); resetBugLab(); }
     if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера

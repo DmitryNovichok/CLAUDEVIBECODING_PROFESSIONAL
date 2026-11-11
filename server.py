@@ -83,9 +83,10 @@ SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "ad
 LEGAL_VERSION = "2026-11-07"
 SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
-PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr)\.js|(?:style|admin-theme|admin|legal|welcome)\.css)"')
+PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr|egeshka|elements)\.js|(?:style|admin-theme|admin|legal|welcome|academy|lab|classroom)\.css)"')
 PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
-               "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css")      # все имена из PAGE_ASSET_RE
+               "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css",
+               "egeshka.js", "elements.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
 _PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
@@ -2482,12 +2483,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_bank()
         if rel.startswith("files/"):
             return self.serve_task_file(rel)
+        if rel.startswith("course-data/"):        # файлы данных к программам на слайдах курса (без ответов)
+            return self.serve_file(HERE / "course" / "data", rel[len("course-data/"):])
         if rel.startswith("pyc-data/"):           # файлы к задачам курса программирования (без ответов)
             return self.serve_file(HERE / "pycourse" / "data", rel[len("pyc-data/"):])
         # файлы сайта
         if rel in ("index.html", "welcome.html"):
             self.count_visit()
         if rel in ("index.html", "admin.html", "together.html", "welcome.html", "parent.html", "reset.html"):
+            return self.serve_page(rel)
+        if rel == "arduino/index.html":
+            s = self.student()
+            if not s or not lab_access(APP.db, s):
+                return self.send_bytes(302, b"", "text/plain", {
+                    "Location": "/" if not s else "/#lab", "Cache-Control": "no-store"})
             return self.serve_page(rel)
         if rel == "lab-worker.js":
             s = self.student()
@@ -2553,7 +2562,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.not_found(p)
         for name in PAGE_ASSETS:                             # версия любого скрипта или стиля меняет страницу
             try:
-                st = (HERE / name).stat()
+                st = (p.parent / name).stat()
                 stamp.append((st.st_mtime, st.st_size))
             except OSError:
                 stamp.append(None)
@@ -2565,7 +2574,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.not_found(p)
 
             def ver(m):
-                f = HERE / m.group(2)
+                f = p.parent / m.group(2)
                 try:
                     st = f.stat()
                     return f'{m.group(1)}="{m.group(2)}?v={int(st.st_mtime):x}{st.st_size:x}"'
@@ -2577,9 +2586,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         _, body, etag, gz = hit
         if self.headers.get("If-None-Match") == etag:
             return self.send_bytes(304, b"", "text/plain", {"ETag": etag})
-        extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin"}
+        extra = {"ETag": etag, "Cache-Control": "private, no-cache" if rel.startswith("arduino/") else "no-cache",
+                 "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin", "Vary": "Accept-Encoding, Cookie"}
         if "gzip" in (self.headers.get("Accept-Encoding") or ""):
-            body, extra["Content-Encoding"], extra["Vary"] = gz, "gzip", "Accept-Encoding"
+            body, extra["Content-Encoding"] = gz, "gzip"
         return self.send_bytes(200, body, "text/html; charset=utf-8", extra)
 
     def serve_task_file(self, rel):

@@ -1,3 +1,4 @@
+import {accountLocalStorage as localStorage, accountStorageKeys} from './account-storage.js';
 const clean = (v,max=6000) => typeof v==='string'?v.slice(0,max):'';
 export function validatePacket(p, lessons, validateProject) {
   if(!p || typeof p!=='object' || p.version!==1)throw Error('Нужен учебный файл MicroLab версии 1');
@@ -33,7 +34,7 @@ export function createExchange({api,lessons,store,onProgress}) {
   const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const read=(k,fallback)=>{try{return JSON.parse(localStorage.getItem(k))??fallback}catch{return fallback}};
   const put=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
-  const list=prefix=>Object.keys(localStorage).filter(k=>k.startsWith(prefix)).map(k=>read(k,null)).filter(Boolean);
+  const list=prefix=>accountStorageKeys().filter(k=>k.startsWith(prefix)).map(k=>read(k,null)).filter(Boolean);
   let mode='student',message='';
   const title=id=>lessons.find(l=>l.id===id)?.title||id;
   function render(){

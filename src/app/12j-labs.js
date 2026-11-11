@@ -184,10 +184,10 @@
     return `<div class="lab-code-tools"><label>Готовый пример<select class="inp" id="labExample"><option value="">Выбрать пример…</option>${Object.entries(LAB_EXAMPLES).map(([id, [name]]) => `<option value="${id}">${name}</option>`).join('')}</select></label>
       <button type="button" class="btn primary" id="labRun" data-lab-action="run">Разобрать по шагам</button><button type="button" class="btn" id="labStop" data-lab-action="stop" hidden>Остановить</button>
       <button type="button" class="btn ghost" data-lab-action="edit" id="labEdit" ${LAB.result ? '' : 'hidden'}>Редактировать код</button></div>
-      <p class="lab-note">Код выполняется в браузере, затем запись можно листать вперёд и назад. Подсвеченная строка ещё не выполнена; переменные показаны перед ней. До 600 событий на запуск.</p>
+      <p class="lab-note">Код выполняется в браузере, затем запись можно листать вперёд и назад. Подсвеченная строка ещё не выполнена; переменные показаны перед ней. Запись идёт до конца программы.</p>
       <p class="lab-status" id="labStatus" role="status">${LAB.result ? 'Запись выполнения готова.' : 'Вставь свой код или выбери пример. Ctrl+Enter — разобрать.'}</p>
       <div class="lab-controls" id="labControls" ${LAB.result && LAB.result.steps.length ? '' : 'hidden'}>
-        <button type="button" class="btn" data-lab-action="prev" id="labPrev">← Назад</button><button type="button" class="btn primary" data-lab-action="next" id="labNext">Следующий шаг →</button><button type="button" class="btn" data-lab-action="play" id="labPlay">Воспроизвести</button>
+        <button type="button" class="btn" data-lab-action="prev" id="labPrev">← Назад</button><button type="button" class="btn primary" data-lab-action="next" id="labNext">Следующий шаг →</button><button type="button" class="btn" data-lab-action="play" id="labPlay">Воспроизвести</button><button type="button" class="btn" data-lab-action="end" id="labEnd">В конец ⇥</button>
         <label>Шаг <span id="labStepLabel"></span><input type="range" id="labStep" min="0" max="0" value="0" aria-label="Шаг выполнения"></label></div>
       <div class="lab-code-grid"><section class="lab-panel lab-editor"><h2>Код Python</h2>
         <textarea id="labCode" class="inp" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="30000" aria-label="Код Python" ${LAB.result ? 'hidden' : ''}>${esc(LAB.code)}</textarea>
@@ -217,7 +217,7 @@
         if (LAB.worker !== worker || !labActive()) return;
         const m = e.data;
         if (m.type === 'tracing') {
-          clearTimeout(LAB.timeout); LAB.timeout = setTimeout(() => fail('Выполнение остановлено через 15 секунд. Уменьши входные данные или проверь цикл.'), 15000);
+          clearTimeout(LAB.timeout); LAB.timeout = setTimeout(() => fail('Выполнение остановлено через минуту. Уменьши входные данные или проверь цикл.'), 60000);
           labSetStatus('Записываю выполнение…');
         } else if (m.type === 'trace') {
           labStop(); labSetBusy(false); LAB.result = m.result; LAB.index = 0;
@@ -235,8 +235,9 @@
     const r = LAB.result, s = r.steps[LAB.index], previous = r.steps[LAB.index - 1];
     $('#labControls').hidden = !r.steps.length;
     if (r.error) labSetStatus('Программа завершилась с ошибкой: ' + r.error);
-    else if (r.truncated) labSetStatus('Запись остановлена на 600 событиях. Уменьши диапазон цикла, чтобы увидеть окончание.');
-    else labSetStatus('Запись готова. Листай шаги и наблюдай за переменными.' + (r.outputTruncated ? ' Вывод сокращён до 6000 символов.' : ''));
+    else if (r.truncated) labSetStatus(r.stop === 'time' ? 'Программа выполнялась дольше 25 секунд — запись остановлена. Похоже на бесконечный цикл или слишком большие данные.'
+      : `Запись остановлена на ${r.steps.length.toLocaleString('ru-RU')} шагах — похоже, программа не заканчивается. Проверь условие цикла или уменьши данные.`);
+    else labSetStatus(`Программа выполнена до конца: ${r.steps.length.toLocaleString('ru-RU')} ${plural(r.steps.length, 'шаг', 'шага', 'шагов')}. Листай шаги и наблюдай за переменными.` + (r.outputTruncated ? ' Вывод сокращён до 20000 символов.' : ''));
     $('#labTraceCode').innerHTML = LAB.code.split('\n').map((line, i) => `<div class="lab-code-line${s && s.line === i + 1 ? ' current' : ''}" ${s && s.line === i + 1 ? 'aria-current="step"' : ''}><span>${i + 1}</span><code>${highlightPy(line) || ' '}</code></div>`).join('');
     if (!s) { $('#labEvent').textContent = 'Не удалось начать выполнение. Исправь код и повтори запуск.'; $('#labOutput').textContent = r.output; return; }
     $('#labEvent').textContent = s.event === 'line' ? `Следующая строка: ${s.line}` : s.event === 'exception' ? `Строка ${s.line}: исключение ${s.exception}` : s.function === '<module>' ? (r.error ? 'Выполнение завершилось с ошибкой' : 'Выполнение основного кода завершено') : `Выход из ${s.function}: ${s.returnValue}`;
@@ -246,10 +247,10 @@
       const changed = !old || old.value !== v.value;
       return `<div class="lab-var${changed ? ' changed' : ''}"><div><b>${esc(v.name)}</b><small>${esc(v.type)}${changed ? ' · изменилось' : ''}</small></div><code>${esc(v.value)}</code>${v.items ? `<div class="lab-array">${v.items.map((x, i) => `<span><small>${i}</small><code>${esc(x)}</code></span>`).join('')}${v.length > v.items.length ? '<span>…</span>' : ''}</div>` : ''}</div>`;
     }).join('')}</div>` : '<p class="lab-note">Пока нет переменных.</p>';
-    $('#labOutput').textContent = s.output;
+    $('#labOutput').textContent = s.out != null ? r.output.slice(0, s.out) : (s.output || '');
     $('#labStep').max = r.steps.length - 1; $('#labStep').value = LAB.index;
     $('#labStepLabel').textContent = `${LAB.index + 1} из ${r.steps.length}`;
-    $('#labPrev').disabled = LAB.index === 0; $('#labNext').disabled = LAB.index >= r.steps.length - 1;
+    $('#labPrev').disabled = LAB.index === 0; $('#labNext').disabled = $('#labEnd').disabled = LAB.index >= r.steps.length - 1;
     // Прокручиваем только код, не всю страницу: шаги и переменные остаются на месте.
     const panel = $('#labTraceCode'), line = $('#labTraceCode .current');
     if (line) {
@@ -271,6 +272,7 @@
     if (a === 'stop') { labStop(); labSetBusy(false); labSetStatus('Остановлено. Код сохранён в этом браузере.'); }
     if (a === 'edit') { labStop(); LAB.result = null; openLab('code').then(() => $('#labCode')?.focus()); }
     if (a === 'prev' || a === 'next') { labPause(); labStep(a === 'prev' ? -1 : 1); }
+    if (a === 'end' && LAB.result) { labPause(); LAB.index = LAB.result.steps.length - 1; labRenderStep(); }
     if (a === 'play' && LAB.result) {
       if (LAB.play) { labPause(); return; }
       if (LAB.index >= LAB.result.steps.length - 1) LAB.index = 0;
