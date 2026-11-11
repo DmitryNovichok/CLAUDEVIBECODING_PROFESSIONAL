@@ -209,6 +209,19 @@
     bar.hidden = false;
   }
   const DEMO_CLASS = '11 «Демо»';
+  /** Сразу после регистрации на главной странице: условия пробного периода и первые шаги (на странице их больше нет). */
+  function showHello() {
+    let flag = null;
+    try { flag = localStorage.getItem('egeshka.trialHello'); localStorage.removeItem('egeshka.trialHello'); } catch (e) { /* без окна */ }
+    const a = ME.access || {};
+    if (!flag || ME.guest) return;
+    const left = Math.max(0, Math.ceil(((a.until || 0) - Date.now() / 1000) / 86400));
+    $('#helloTrial').innerHTML = a.state === 'trial' && !a.expired
+      ? `<b>Пробный период — ${left} ${daysWord(left)}</b>, до ${fmtDate(a.until)}. Все возможности панели открыты, оплата и карта не нужны. Сколько осталось — видно в полосе сверху.`
+      : 'Все возможности панели открыты.';
+    $('#helloModal').hidden = false;
+  }
+  $('#helloGo').addEventListener('click', () => { $('#helloModal').hidden = true; go('classes'); });
   function openRenew() {
     if (ME.guest) { if (confirm('Гостевой доступ только для просмотра. Зарегистрироваться? Всё, что вы создали, сохранится.')) location.href = '/welcome#signup'; return; }
     const o = ME.offer || { tariffs: [], contacts: {} }, a = ME.access || {};
@@ -248,8 +261,8 @@
       api('logout', {}).catch(() => {}).finally(() => { location.href = '/admin'; });
       return;
     }
-    if (e.target.closest('[data-close-modal]') || (e.target.classList && e.target.classList.contains('modal') && ['renewModal', 'qrModal', 'parentModal'].includes(e.target.id))) {
-      $('#renewModal').hidden = true; $('#qrModal').hidden = true; $('#parentModal').hidden = true; return;
+    if (e.target.closest('[data-close-modal]') || (e.target.classList && e.target.classList.contains('modal') && ['renewModal', 'qrModal', 'parentModal', 'helloModal'].includes(e.target.id))) {
+      $('#renewModal').hidden = true; $('#qrModal').hidden = true; $('#parentModal').hidden = true; $('#helloModal').hidden = true; return;
     }
     if (e.target.closest('[data-inv-copy]')) {
       const link = inviteLink();
@@ -4264,6 +4277,7 @@
       showApp();
       go('overview');       // обзор последнего класса, для гостя — демо-класса
       startFeed();
+      showHello();
     } catch (e) {
       if (e.status !== 401) {
         showLogin();
