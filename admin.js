@@ -2124,7 +2124,9 @@
   // ------------------------------------------------------------ вкладки
   let tab = 'overview';
   let backTab = 'overview';            // куда вернуться из карточки ученика
+  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'course'];
   function go(t) {
+    if (MAIN_ONLY_TABS.includes(t) && !ME.is_main) t = 'overview';   // экономика, подарки и сервис сайта — только главный учитель
     ++studentLoadVersion;                 // ответ старой карточки не должен возвращать из другого раздела
     if (t !== 'student') studentLoadId = null;
     if (t !== 'classes') document.body.classList.remove('jr-full');
@@ -2146,7 +2148,7 @@
     if (t === 'build') openBuilder();
     if (t === 'archive') loadArchive();
     if (t === 'teachers') loadTeachers();
-    if (t === 'students') loadStudents();
+    if (t === 'students') { loadStudents(); loadVisitors(); }
     if (t === 'classes') loadClasses();
     if (t === 'feed') { $('#feedDot').hidden = true; renderFeed(); }
     if (t === 'settings') loadSettings();
@@ -2281,6 +2283,39 @@
     go('build');
   }
 
+  // ------------------------------------------------------------ гости на сайте (для главного): нажали «Я ученик» или «Я учитель»,
+  // смотрят панель гостем. Видны, пока на сайте; ушли — пропадают (сервер держит отметки в памяти, без ФИО).
+  const VISIT_TXT = {
+    'student:login': ['🎒', 'Гость-ученик', 'открыл окно входа'],
+    'student:reg': ['🎒', 'Гость-ученик', 'регистрируется'],
+    'student:forgot': ['🎒', 'Гость-ученик', 'восстанавливает пароль'],
+    'teacher:signup': ['🧑‍🏫', 'Гость-учитель', 'заполняет регистрацию'],
+    'guest:panel': ['👀', 'Учитель в гостевом доступе', 'смотрит панель'],
+  };
+  let visitorsBusy = false;
+  async function loadVisitors() {
+    const box = $('#visitorsBox');
+    const want = ME && ME.id && ME.is_main && !$('#view-students').hidden && $('#studentsScope').value === 'none';
+    if (!want) { box.hidden = true; return; }
+    if (visitorsBusy) return;
+    visitorsBusy = true;
+    try {
+      const d = await api('visitors');
+      const mins = ts => Math.max(1, Math.round((d.now - ts) / 60));
+      const rows = d.visitors.map(v => {
+        const [ico, who, what] = VISIT_TXT[v.role + ':' + v.stage] || ['👤', 'Гость', ''];
+        const until = v.guest ? ` · доступ до ${new Date(v.guest * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : '';
+        return `<li class="vis-${v.role}"><span class="vis-ico" aria-hidden="true">${ico}</span><b>${esc(who)}</b> <span>${esc(what)}</span><small>на сайте ${mins(v.since)} мин${until}</small></li>`;
+      });
+      box.innerHTML = `<div class="vis-head"><span class="vis-dot" aria-hidden="true"></span>Сейчас на сайте без входа${rows.length ? ` · <b>${rows.length}</b>` : ''}
+        <span class="adm-hint">видны, пока на сайте; ушли или вошли — пропадают</span></div>`
+        + (rows.length ? `<ul>${rows.join('')}</ul>` : '<p class="adm-hint vis-none">Никого: гости появятся здесь, когда нажмут «Я ученик» или «Я учитель» либо откроют панель без регистрации.</p>');
+      box.hidden = false;
+    } catch (e) { box.hidden = true; }
+    finally { visitorsBusy = false; }
+  }
+  setInterval(() => { if (!document.hidden) loadVisitors(); }, 10000);
+
   // ------------------------------------------------------------ ученики
   let students = [];
   let studentsLoadVersion = 0;
@@ -2348,7 +2383,7 @@
       ? classes.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('') + '<option value="0">— без класса —</option>'
       : '<option value="">сначала создайте класс</option>';
   }
-  $('#studentsScope').addEventListener('change', () => { picked.clear(); loadStudents(); });
+  $('#studentsScope').addEventListener('change', () => { picked.clear(); loadStudents(); loadVisitors(); });
   $('#chkAll').addEventListener('change', e => {
     $$('#studentsTable tbody [data-pick]').forEach(c => { c.checked = e.target.checked; picked[e.target.checked ? 'add' : 'delete'](+c.dataset.pick); });
     renderBulk();
@@ -4321,6 +4356,7 @@
       go('overview');       // обзор последнего класса, для гостя — демо-класса
       startFeed();
       maybeAdminTour();
+      if (ME.guest && window.EgVisit) EgVisit.start('guest', 'panel');   // главный учитель видит гостя, пока панель открыта
     } catch (e) {
       if (e.status !== 401) {
         showLogin();

@@ -403,6 +403,7 @@
         Object.entries(forms).forEach(([kk, f]) => { f.hidden = kk !== k; });
         errEl.textContent = msg || '';
         errEl.classList.toggle('info', !!info);
+        if (window.EgVisit) EgVisit.start('student', k === 'reg' ? 'reg' : 'login');   // главный учитель видит гостя у окна входа
         const empty = Array.from(forms[k].querySelectorAll('input')).find(i => !i.value);
         (empty || forms[k].querySelector('input')).focus();
       };
@@ -442,6 +443,7 @@
           if (r.shared) { try { sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ } }   // компьютер в классе
           if (!temp && !r.shared) writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
+          if (window.EgVisit) EgVisit.stop();                       // вошёл — уже не гость
           ['#loginPass', '#regPass', '#regPass2', '#regCode', '#regLogin', '#regEmail'].forEach(sel => { $(sel).value = ''; });
           resolve(r);
         } catch (err) {
@@ -467,7 +469,11 @@
         run(forms.login, { mode: 'login', name, password: $('#loginPass').value });
       };
       // «Забыли пароль?»: ссылка на почту
-      $('#forgotOpen').onclick = () => { $('#forgotBox').hidden = !$('#forgotBox').hidden; if (!$('#forgotBox').hidden) $('#forgotWho').focus(); };
+      $('#forgotOpen').onclick = () => {
+        $('#forgotBox').hidden = !$('#forgotBox').hidden;
+        if (window.EgVisit) EgVisit.start('student', $('#forgotBox').hidden ? 'login' : 'forgot');
+        if (!$('#forgotBox').hidden) $('#forgotWho').focus();
+      };
       $('#forgotSend').onclick = async () => {
         const who = $('#forgotWho').value.trim() || $('#loginName').value.trim();
         if (!who) { errEl.textContent = 'Введите логин, почту или ФИО'; return; }
@@ -10982,6 +10988,7 @@
       <footer class="hub-foot"><button type="button" class="link-btn" data-hub-link="tourBtn">Как работает Egeshka</button>
         <button type="button" class="link-btn" data-hub-link="versionBtn">${esc(($('#versionBtn') || {}).textContent || 'Что нового')}</button>
         ${SERVER ? '' : '<button type="button" class="link-btn" data-hub-link="exportBtn">Сохранить прогресс в файл</button>'}
+        <a class="link-btn hub-help" href="help.html#student" target="_blank" rel="noopener">Инструкция</a>
         <span class="hub-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Персональные данные</a></span></footer>`;
     HUB_ACT = { plan, tiles };
     const current = trainerEl.querySelector('.hub');
