@@ -481,6 +481,49 @@
     grip.addEventListener('pointercancel', up);
     grip.addEventListener('dblclick', () => { dockSetW(dock, 0); try { localStorage.removeItem(key); } catch (e) {} });
   }
+  // граница между кодом и выводом Python: тянуть вверх-вниз (мышью, пальцем или стрелками), двойной щелчок — как было
+  (() => {
+    const split = $('#pySplit'), ed = document.querySelector('#pyDock .py-editor'), dock = $('#pyDock');
+    if (!split || !ed) return;
+    const KEY = 'egeTrainer.pyEdH';
+    const maxH = () => Math.max(160, dock.getBoundingClientRect().height - 260);       // выводу остаётся не меньше ~100 px
+    const setH = h => {
+      if (!h) { ed.classList.remove('sized'); ed.style.removeProperty('--py-ed-h'); return; }
+      // панель скрыта (высота 0) — сохранённое значение как есть, а верхний предел — под высоту окна, когда откроется
+      const cap = dock.hidden ? window.innerHeight - 260 : maxH();
+      ed.style.setProperty('--py-ed-h', Math.round(Math.max(120, Math.min(Math.max(160, cap), h))) + 'px');
+      ed.classList.add('sized');
+    };
+    const save = () => { try { localStorage.setItem(KEY, String(Math.round(ed.getBoundingClientRect().height))); } catch (e) { /* без хранилища — до перезагрузки */ } };
+    try { const v = +localStorage.getItem(KEY); if (v >= 120) setH(v); } catch (e) { /* нет доступа */ }
+    let drag = null;
+    split.addEventListener('pointerdown', e => {
+      if (e.button > 0) return;
+      e.preventDefault();
+      split.setPointerCapture(e.pointerId);
+      drag = { y: e.clientY, h: ed.getBoundingClientRect().height };
+      split.classList.add('on');
+      document.body.classList.add('py-split-drag');
+    });
+    split.addEventListener('pointermove', e => { if (drag) setH(drag.h + e.clientY - drag.y); });
+    const up = () => {
+      if (!drag) return;
+      drag = null;
+      split.classList.remove('on');
+      document.body.classList.remove('py-split-drag');
+      save();
+    };
+    split.addEventListener('pointerup', up);
+    split.addEventListener('pointercancel', up);
+    split.addEventListener('dblclick', () => { setH(0); try { localStorage.removeItem(KEY); } catch (e) { /* нет доступа */ } });
+    split.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      setH(ed.getBoundingClientRect().height + (e.key === 'ArrowUp' ? -30 : 30));
+      save();
+    });
+    window.addEventListener('resize', () => { if (ed.classList.contains('sized') && !dock.hidden) setH(parseFloat(ed.style.getPropertyValue('--py-ed-h'))); });
+  })();
   window.addEventListener('resize', () => {
     for (const id of Object.keys(DOCK_W)) {
       const dock = $('#' + id);
