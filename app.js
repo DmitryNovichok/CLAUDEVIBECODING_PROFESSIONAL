@@ -4316,6 +4316,7 @@
     if (me.rules) { Object.assign(RULES, me.rules); sndRules(false); }
     ADMINS = new Set(me.admins || []);
     CONSENT_NEEDED = !!me.consent_needed;
+    EMAIL_NEED = me.email_need ? me.email : '';     // почта указана, но не подтверждена — напоминание на главной
     if (me.game) GAME = me.game;
     if (GAME && GAME.froze) setTimeout(() => toast(`❄️ Ты пропустил ${GAME.froze === 1 ? 'день' : `${GAME.froze} ${plural(GAME.froze, 'день', 'дня', 'дней')}`} — заморозка спасла огонёк`, 6000), 1500);
     COURSE_OK = !!me.course;
@@ -4381,6 +4382,7 @@
   }
   // ---- согласие на обработку персональных данных: уже зарегистрированные подтверждают при входе
   let CONSENT_NEEDED = false;
+  let EMAIL_NEED = '';                    // неподтверждённая почта ученика ('' — напоминать не о чем)
   function askConsent() {
     if (!CONSENT_NEEDED) return Promise.resolve();
     return new Promise(resolve => {
@@ -4485,12 +4487,16 @@
       save.disabled = true;
       try {
         const r = await api('account', body2);
+        const mailChanged = r.email !== ACCT.email;
         ACCT = { login: r.login, email: r.email, self_reg: r.self_reg, teacher_name: r.teacher };
+        EMAIL_NEED = r.email_need ? r.email : '';
+        if (typeof renderHub === 'function') renderHub();
         loginInput.value = r.login;
         loginInput.disabled = !!r.login;
         emailInput.value = r.email;
         msg.className = 'login-err ok';
-        msg.textContent = body2.code ? `Готово: теперь вы ученик учителя «${r.teacher}»` : 'Сохранено';
+        msg.textContent = body2.code ? `Готово: теперь вы ученик учителя «${r.teacher}»`
+          : mailChanged && r.email_need ? `Сохранено. На ${r.email} отправлено письмо — откройте ссылку в нём, чтобы подтвердить почту` : 'Сохранено';
         if (body2.code) setTimeout(() => location.reload(), 1200);
       } catch (e) { msg.textContent = e.message || 'Нет связи с сервером'; }
       finally { save.disabled = false; }
@@ -11005,6 +11011,16 @@
     if (!focus) out.push(`<button type="button" class="hub-pill fire-pill${lit ? ' lit' : ''}" data-hub-go="fire" title="${lit ? 'Огонёк на сегодня горит' : 'Реши задания сегодня — огонёк не погаснет'}">${FLAME}<b data-count="days">${days}</b><small>${plural(days, 'день', 'дня', 'дней')}</small></button>`);
     return out.join('');
   }
+  /** Напоминание «подтверди почту»: аккаунт работает и без этого, но без подтверждения пароль можно не восстановить. */
+  let hubMailLater = false;
+  try { hubMailLater = sessionStorage.getItem('egeshka.mailLater') === '1'; } catch (e) { /* нет доступа */ }
+  function hubMail() {
+    if (!SERVER || !student || TEACHER || !EMAIL_NEED || hubMailLater) return '';
+    return `<section class="hub-mail" aria-label="Подтверждение почты"><span class="hub-mail-ic" aria-hidden="true">✉️</span>
+      <div><b>Подтверди почту</b><p>Адрес <b>${esc(EMAIL_NEED)}</b> ещё не подтверждён. Открой ссылку из письма — тогда по этой почте можно будет восстановить пароль. Нет письма? Загляни в «Спам» или отправь его заново.</p></div>
+      <div class="hub-mail-act"><button type="button" class="btn" data-mail="resend">Отправить письмо</button>
+        <button type="button" class="link-btn" data-mail="change">Изменить почту</button><button type="button" class="link-btn" data-mail="later">Позже</button></div></section>`;
+  }
   function renderHub(enter) {
     if (!courseShown || pageKind !== 'hub') return;
     const plan = hubPlan(), tiles = hubTiles();
@@ -11026,7 +11042,7 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
     const html = `
       <div class="hub-hello"><div><h1>${hubHello()}</h1><p>${sub}</p></div><div class="hub-pills">${hubPills()}</div></div>
-      <section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
+      ${hubMail()}<section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
         ${plan.map(stepHtml).join('')}
         <div class="hub-day"><span>День</span><i class="hub-track"><b data-bar="day" data-w="${goalN ? Math.round(doneN / goalN * 100) : 0}"></b></i>
           <span>${doneN === goalN ? 'всё сделано — так держать!' : `сделано ${doneN} из ${goalN}`}</span></div></section>
@@ -11121,6 +11137,18 @@
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
     const hl = e.target.closest('[data-hub-link]');
     if (hl) { $('#' + hl.dataset.hubLink)?.click(); return; }
+    const ml = e.target.closest('[data-mail]');
+    if (ml) {
+      if (ml.dataset.mail === 'change') openAccount();
+      else if (ml.dataset.mail === 'later') { hubMailLater = true; try { sessionStorage.setItem('egeshka.mailLater', '1'); } catch (x) { /* до перезагрузки */ } renderHub(); }
+      else {
+        ml.disabled = true;
+        api('email/resend', {}).then(r => {
+          if (r.confirmed) { EMAIL_NEED = ''; renderHub(); toast('Почта уже подтверждена ✓'); } else toast(`Письмо отправлено на ${r.email}`);
+        }).catch(err => toast(err.message || 'Не удалось отправить письмо')).finally(() => { ml.disabled = false; });
+      }
+      return;
+    }
     const s = e.target.closest('[data-step-go]');
     if (s) { const it = HUB_ACT.plan[+s.dataset.stepGo]; if (it) it.go(); return; }
     const p = e.target.closest('[data-hub-go]');

@@ -864,3 +864,12 @@ tr.t-renew td { background: var(--review-soft); }
 .acc-card .login-form { margin-top: auto; }
 .acc-all { max-width: 640px; }
 @media (max-width: 1100px) { .acc-grid { grid-template-columns: 1fr; } }
+
+/* подтверждение почты после регистрации учителя */
+.mail-gate { text-align: center; }
+.mail-gate .login-form .btn { width: 100%; align-self: stretch; }
+.mail-gate-ic { width: 64px; height: 64px; margin: 0 auto 8px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; background: var(--accent-soft); }
+.mail-gate .login-err.ok { color: var(--good); }
+.mail-gate-change { margin-top: 12px; text-align: left; }
+.mail-gate-change summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+.mail-gate-change form { margin-top: 10px; }
