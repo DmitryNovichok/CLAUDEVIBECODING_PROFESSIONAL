@@ -1,10 +1,10 @@
   // ------------------------------------------------------------ истории (как в Instagram/Telegram): что нового на сайте —
-  // световые мечи (лимитки до 9 ноября), занятия «Вместе» и их записи, дуэли вместо турниров. Один раз (STORIES_VER) —
+  // лаборатория «Исправление ошибок», отладчик, полные уроки курса, инструкция, мелочи. Один раз (STORIES_VER) —
   // при первом входе (новичку — после знакомства с сайтом), потом — из «Что нового».
   // Слайд листается сам за STORY_MS; касание справа — дальше, слева — назад, удержание — пауза, свайп вниз, ✕ или Esc — закрыть.
   // На компьютере — в рамке iPhone с Dynamic Island (в нём на миг — номер слайда), на телефоне — на весь экран.
-  const STORIES_VER = 'sabers-together-2026-11', STORY_MS = 7000;    // новая версия — истории покажутся всем ещё раз
-  const STORIES_UNTIL = '2026-11-17';     // до этого дня истории показываются сами
+  const STORIES_VER = 'labs-lessons-2026-11', STORY_MS = 8000;    // новая версия — истории покажутся всем ещё раз
+  const STORIES_UNTIL = '2026-11-27';     // до этого дня истории показываются сами
   const HW_START = '2026-10-26', HW_END = '2026-11-03';   // хеллоуинская тема сайта (прошла); посмотреть — ?halloween=1
   if ((d => d >= HW_START && d < HW_END)(dayKey(Date.now())) || /[?&]halloween=1/.test(location.search)) {
     document.body.classList.add('hw');
@@ -14,36 +14,35 @@
     bats.innerHTML = '<img src="vendor/halloween/bat.svg" alt=""><img src="vendor/halloween/bat.svg" alt=""><img src="vendor/halloween/bat.svg" alt="">';
     document.body.appendChild(bats);
   }
-  const SW_END = '2026-11-10', SW_N = 5, SW_PRICE = 10000;  // световые мечи: SW_END / cap / price в server.py
   let ST = null;                          // { k, list, paused, go } — открытые истории
   const storyKey = () => `egeshka.stories.${STORIES_VER}.${student ? student.sid : 'local'}`;
   function storySlides() {
-    const g = GAME || {}, coins = g.coins || 0, swOn = dayKey(Date.now()) < SW_END;
-    const saber = c => `<img class="sw-s sw-${c}" src="vendor/sabers/saber_${c}.svg" alt="" draggable="false">`;
-    const list = [];
-    if (swOn) list.push({ cls: 'n1', ico: '⚔️', head: 'Лимитки', title: 'Световые мечи',
-      text: `В «Монетах» — синий и красный световые мечи: ₿ ${num(SW_PRICE)}, всего по ${SW_N} штук на весь сайт и только до 9 ноября включительно. Кто первый, тот и успел!`,
-      art: `<div class="sto-sw"><div class="sw-pair">${saber('blue')}${saber('red')}</div>
-        <div class="sw-tag">по ${SW_N} штук · до 9 ноября</div>
-        <div class="sw-have">у тебя ₿ ${num(coins)}${coins >= SW_PRICE ? ' — хватает ✓' : ` · ещё ₿ ${num(SW_PRICE - coins)}`}</div></div>` });
-    list.push(
-      { cls: 'n2', ico: '👥', head: 'Новое', title: 'Занятия «Вместе»',
-        text: 'Решай с учителем в одном редакторе: общий код и запуск программы, доска для рисунков и пометки прямо на условии задачи. Ответы, которые ты сдаёшь сам, засчитываются — с опытом и монетами.',
-        art: `<div class="sto-tg"><div class="tg-w"><div class="tg-l"><i class="ln w1"></i><i class="ln w2"></i><i class="ln w3"></i><i class="ln w2"></i>
-          <span class="cur t">Учитель</span><span class="cur s">Ты</span></div>
-          <div class="tg-r"><svg viewBox="0 0 100 80" aria-hidden="true"><path d="M10 60 C 30 10, 55 10, 70 45 S 90 70, 92 30" /></svg></div></div>
-          <div class="tg-ok">✓ решено с учителем · +XP · +₿</div></div>` },
-      { cls: 'n3', ico: '📼', head: 'Записи', title: 'Занятие не пропадёт',
-        text: 'После занятия всё сохраняется: код и рисунки по каждой задаче. Открой «Занятия вместе» 👥 в меню слева — и повтори всё, что разбирали.',
-        art: `<div class="sto-rec"><div class="rc-h">👥 Занятия вместе</div>
-          ${[['сегодня', '№ 9 · № 17 · № 24'], ['вчера', '№ 8 · № 25'], ['2 ноября', '№ 6 · № 15 · № 27']].map(([d, t], i) =>
-            `<div class="rc-i" style="--i:${i}"><b>${d}</b><span>${t}</span><em>▶</em></div>`).join('')}</div>` },
-      { cls: 'n4', ico: '🤺', head: 'Вместо турниров', title: 'Дуэли',
-        text: 'Турниров больше нет — теперь дуэли один на один, и награды выше: за победу +300 XP и +50 ₿, за участие +50 XP и +1 ₿.',
-        art: `<div class="sto-duel"><div class="dl-vs"><span>🧑‍🎓</span><b>VS</b><span>🧑‍💻</span></div>
-          <div class="dl-pr"><div><small>победа</small><b>+300 XP</b><b>+50 ₿</b></div><div><small>участие</small><b>+50 XP</b><b>+1 ₿</b></div></div></div>`,
-        go: ['⚔️ К дуэлям', 'duel'] });
-    return list;
+    const row = (i, b, t, mark) => `<div class="rc-i" style="--i:${i}"><b>${b}</b><span>${t}</span><em>${mark}</em></div>`;
+    return [
+      { cls: 's4', ico: '🐞', head: 'Новая лаборатория', title: 'Исправление ошибок',
+        text: 'Задача и чужое решение на Python — в нём ошибка, пропуск или оно слишком медленное. Почини код так, чтобы он прошёл все тесты. 16 задач трёх уровней, за точную правку — ★.',
+        art: `<div class="sto-bug"><div class="bg-code"><i class="ln w2"></i><i class="ln bad"><s>range(1, n)</s></i><i class="ln fix">range(1, n + 1)</i><i class="ln w1"></i><i class="ln w3"></i></div>
+          <div class="bg-tests">${[1, 2, 3, 4, 5].map(k => `<span style="--i:${k}">✓</span>`).join('')}<b>тесты 5 из 5</b></div></div>` },
+      { cls: 'n2', ico: '🔍', head: 'Лаборатория', title: 'Отладчик как в PyCharm',
+        text: 'Программа выполняется по шагам: синяя строка — где сейчас, значения переменных — прямо в коде. Щёлкни по номеру строки — поставишь точку останова. F8 — шаг, F7 — назад, F9 — до точки.',
+        art: `<div class="sto-dbg"><div class="db-row"><u>1</u><code>s = 0</code><em>s: 0</em></div>
+          <div class="db-row bp"><u>●</u><code>for i in range(4):</code><em>i: 2</em></div>
+          <div class="db-row cur"><u>➜</u><code>&nbsp;&nbsp;s += i * i</code><em>s: 5</em></div>
+          <div class="db-row"><u>4</u><code>print(s)</code></div>
+          <div class="db-keys"><kbd>F7</kbd><kbd>F8</kbd><kbd>F9</kbd></div></div>` },
+      { cls: 'n3', ico: '🎓', head: 'Курс ЕГЭ', title: 'Полные уроки: №15 и 23–27',
+        text: 'Вместо кратких разборов — уроки по 18–25 слайдов: типы заданий, программы, ловушки, шпаргалка и задачи с ответами. №23 и №27 — в формате ЕГЭ-2027. Файлы к задачам сразу открываются в Python.',
+        art: `<div class="sto-les"><div class="ls-nums">${[15, 23, 24, 25, 26, 27].map((n, i) => `<b style="--i:${i}">№${n}</b>`).join('')}</div>
+          <div class="ls-tag">18–25 слайдов в каждом уроке</div></div>` },
+      { cls: 's3', ico: '🧭', head: 'Помощь', title: 'Инструкция и подсказки',
+        text: 'Внизу главной — «Инструкция»: как устроен сайт, по шагам. А «Как работает Egeshka» подсветит разделы прямо на странице и объяснит каждый.',
+        art: `<div class="sto-rec"><div class="rc-h">🧭 Внизу главной</div>
+          ${row(0, 'Инструкция', 'вход, задания, курсы, вопросы', '📖')}${row(1, 'Как работает Egeshka', 'подсказки на главной', '💡')}${row(2, 'Техподдержка', 'ответ придёт туда же', '💬')}</div>` },
+      { cls: 's5', ico: '✨', head: 'Ещё', title: 'Мелочи, но приятно',
+        text: 'Окно Python: границу между кодом и выводом можно тянуть. Забыл пароль — «Забыли пароль?» пришлёт ссылку на почту. А биткоины теперь называются монетами — значок ₿ и счёт те же.',
+        art: `<div class="sto-rec"><div class="rc-h">✨ Что ещё изменилось</div>
+          ${row(0, 'Окно Python', 'тяни границу кода и вывода', '↕')}${row(1, 'Пароль по почте', 'если указал почту', '🔑')}${row(2, 'Монеты', 'новое имя биткоинов', '₿')}</div>`,
+        go: ['🧪 В лабораторию', 'lab'] }];
   }
   const stClock = () => { const d = new Date(); return `${d.getHours()}:${pad2(d.getMinutes())}`; };
   function openStories() {
@@ -136,7 +135,7 @@
   document.addEventListener('pointercancel', () => { if (stDown) { clearTimeout(stDown.hold); if (stDown.held) stPause(false); stDown = null; } });
   document.addEventListener('click', e => {
     const b = e.target.closest('#storiesOv [data-st]');
-    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); }, duel: () => { closeStories(); tourOpen(); } })[b.dataset.st](); return; }
+    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); }, duel: () => { closeStories(); tourOpen(); }, lab: () => { closeStories(); const c = $('#labCard'); if (c) c.click(); } })[b.dataset.st](); return; }
     if (ST && e.target.id === 'storiesOv') closeStories();          // клик мимо телефона
     if (e.target.closest('#storiesGo')) { closeForecast(); openStories(); }
   });
