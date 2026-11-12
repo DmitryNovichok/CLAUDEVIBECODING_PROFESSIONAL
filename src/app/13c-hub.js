@@ -182,7 +182,12 @@
     });
     old.forEach(el => el.remove());
   }
-  const hubFirstName = () => { const p = String((student && student.name) || '').trim().split(/\s+/); return p[1] || p[0] || ''; };
+  /** Имя для приветствия: в «Фамилия Имя» — второе слово; если там инициал («Дмитрий Б.») — первое полное слово. */
+  const hubFirstName = () => {
+    const p = String((student && student.name) || '').trim().split(/\s+/).filter(Boolean);
+    const full = w => !!w && w.replace(/[.,]/g, '').length > 1 && !/\.$/.test(w);
+    return full(p[1]) ? p[1] : p.find(full) || p[1] || p[0] || '';
+  };
   function hubHello() {
     const h = new Date().getHours(), nm = hubFirstName();
     const w = h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
