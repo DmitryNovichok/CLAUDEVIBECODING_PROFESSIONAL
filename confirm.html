@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Egeshka · подтверждение почты</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/vendor/fonts/fonts.css">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6f9; color: #0f1b2d; font: 500 16px/1.5 "Nunito", system-ui, sans-serif; padding: 16px; }
+main { background: #fff; border: 1px solid #e3e7ee; border-radius: 20px; padding: 32px 28px; width: min(440px, 100%); text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.ic { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; font-size: 34px; background: #eef2f7; }
+.ic.ok { background: #e3f6d8; } .ic.bad { background: #fde8e6; }
+h1 { margin: 0; font-size: 24px; line-height: 1.2; }
+p { margin: 0; color: #5b6678; font-size: 15px; }
+b { color: #0f1b2d; }
+a.btn { display: inline-block; margin-top: 6px; background: #58cc02; color: #fff; text-decoration: none; border-radius: 12px; padding: 12px 22px; font-weight: 800; box-shadow: 0 3px 0 #46a302; }
+a.btn:focus-visible { outline: 3px solid #1cb0f6; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main aria-live="polite">
+  <div class="ic" id="ic" aria-hidden="true">✉️</div>
+  <h1 id="h">Подтверждаем почту…</h1>
+  <p id="p">Секунду.</p>
+  <a class="btn" id="go" href="/" hidden>На сайт</a>
+</main>
+<script>
+(function () {
+  'use strict';
+  const t = new URLSearchParams(location.search).get('t') || '';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const show = (cls, icon, h, p, href, label) => {
+    $('ic').className = 'ic ' + cls; $('ic').textContent = icon; $('h').textContent = h; $('p').innerHTML = p;
+    const go = $('go'); go.href = href; go.textContent = label; go.hidden = false;
+  };
+  (async () => {
+    try {
+      const r = await fetch('/api/email/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Не получилось подтвердить почту — попробуйте ещё раз');
+      history.replaceState(null, '', location.pathname);
+      if (d.kind === 't') show('ok', '✅', 'Почта подтверждена', `Адрес <b>${esc(d.email)}</b> подтверждён. Панель учителя открыта.`, '/admin', 'Открыть панель');
+      else show('ok', '✅', 'Почта подтверждена', `Адрес <b>${esc(d.email)}</b> подтверждён. Теперь по нему можно восстановить пароль.`, '/', 'К заданиям');
+    } catch (x) {
+      show('bad', '⚠️', 'Ссылка не сработала', esc(x.message) + '<br>Войдите на сайт и нажмите «Отправить письмо ещё раз».', '/', 'На сайт');
+    }
+  })();
+})();
+</script>
+</body>
+</html>

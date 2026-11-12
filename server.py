@@ -76,7 +76,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
               "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js", "onboard.js", "visit.js",
-              "terms.html", "privacy.html", "consent.html", "legal.css", "help.html", "help.css",
+              "terms.html", "privacy.html", "consent.html", "legal.css", "help.html", "help.css", "confirm.html",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
               "favicon.ico", "favicon.svg", "favicon-96.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "site.webmanifest"}
 # редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
@@ -238,6 +238,8 @@ def make_login(db, name):
 
 
 PW_RESET_SEC = 3600                      # ссылка «Забыли пароль?» действует час
+EMAIL_CONFIRM_SEC = 3 * 86400            # ссылка «Подтвердить почту» действует три дня
+EMAIL_RESEND_SEC = 60                    # повторное письмо с подтверждением — не чаще раза в минуту на аккаунт
 NAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'’.\- ]{3,79}$")
 
 
@@ -1793,6 +1795,8 @@ class DB(Transactional):
                     ("teachers", "sounds", "INTEGER DEFAULT 1"),      # 0 — учитель выключил звуки на сайте у своих учеников (урок)
                     ("students", "login", "TEXT"),                   # логин ученика (кроме ФИО) — для входа
                     ("students", "email", "TEXT"),                   # почта ученика — восстановление пароля
+                    ("students", "email_ok", "INTEGER DEFAULT 0"),   # почта подтверждена по ссылке из письма
+                    ("teachers", "email_ok", "INTEGER DEFAULT 0"),   # то же у учителя: без подтверждения панель закрыта
                     ("students", "self_reg", "INTEGER DEFAULT 0"),   # 1 — зарегистрировался без кода учителя
                     ("pw_resets", "account_state", "TEXT"),          # привязка ссылки к аккаунту, паролю и почте
                     ("students", "parent_token", "TEXT"),            # секретная ссылка для родителей (только просмотр)
@@ -1852,6 +1856,10 @@ class DB(Transactional):
                     WHERE t.id=classes.teacher_id AND t.guest=1
                     AND classes.created BETWEEN t.created-3456600 AND t.created-3455400)""")
                 c.execute("INSERT INTO settings(key,value) VALUES('demo_identity_seeded','1')")
+            if not c.execute("SELECT 1 FROM settings WHERE key='email_ok_seeded'").fetchone():
+                # учителя, зарегистрированные до появления подтверждения почты, панель не теряют
+                c.execute("UPDATE teachers SET email_ok=1")
+                c.execute("INSERT INTO settings(key,value) VALUES('email_ok_seeded','1')")
             if not c.execute("SELECT 1 FROM settings WHERE key='solution_history_seeded'").fetchone():
                 c.execute("INSERT INTO solution_history(student_id,task_id,code,ts) SELECT student_id,task_id,code,ts FROM solutions WHERE ts IS NOT NULL")
                 c.execute("INSERT INTO settings(key,value) VALUES('solution_history_seeded','1')")
@@ -2509,6 +2517,8 @@ class Handler(BaseHTTPRequestHandler):
             path = "/together.html"
         if path in ("/welcome", "/welcome/", "/teachers", "/teachers/"):
             path = "/welcome.html"
+        if path in ("/confirm", "/confirm/"):
+            path = "/confirm.html"
         if path in ("/help", "/help/"):
             path = "/help.html"
         if path in ("/parent", "/parent/"):
@@ -3038,6 +3048,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "teacher": bool(s["is_teacher"]), "promo": promo_now(APP.db),
                 "consent_needed": not s["is_teacher"] and s["consent_ver"] != LEGAL_VERSION,
                 "login": s["login"] or "", "email": s["email"] or "", "self_reg": bool(s["self_reg"]),
+                "email_need": bool(s["email"] and not s["email_ok"] and not s["is_teacher"] and mail_ready()),
                 "teacher_name": "" if s["self_reg"] else (teacher_of(s)["name"] or ""),
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
@@ -3384,6 +3395,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 s = db.q("SELECT * FROM students WHERE name_key=?", (key,), one=True)
                 db.x("UPDATE students SET consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?", (LEGAL_VERSION, now, ip, s["id"]))
                 s = db.q("SELECT * FROM students WHERE id=?", (s["id"],), one=True)
+                if email and not s["email_ok"]:
+                    send_confirm(db, "s", s)             # мягко: аккаунт работает сразу, на главной — напоминание
             db.x("UPDATE students SET last_seen=?, last_ip=? WHERE id=?", (now, ip, s["id"]))
             # вход — свой на этом устройстве; в школьной сети (и «Чужой компьютер») — временный
             shared = shared_ip(db, ip) or self.headers.get("X-Temp") == "1"
@@ -3401,7 +3414,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 email = str(data.get("email") or "").strip().lower()[:120]
                 if email and not EMAIL_RE.fullmatch(email):
                     return self.err(400, "Проверьте адрес почты")
-                db.x("UPDATE students SET email=? WHERE id=?", (email or None, s["id"]))
+                if (email or None) != (s["email"] or None):       # новый адрес — подтверждается заново
+                    db.x("UPDATE students SET email=?, email_ok=0 WHERE id=?", (email or None, s["id"]))
+                    if email:
+                        send_confirm(db, "s", db.q("SELECT * FROM students WHERE id=?", (s["id"],), one=True))
             if data.get("login") and not s["login"]:
                 login = str(data.get("login")).strip().lower()
                 if not STUDENT_LOGIN_RE.fullmatch(login):
@@ -3429,7 +3445,42 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if s["self_reg"] and not s["email"]:
                 return self.err(400, "Без учителя нужна почта для восстановления пароля. Укажите почту или код учителя")
             return self.send_json({"ok": True, "login": s["login"] or "", "email": s["email"] or "",
+                                   "email_need": bool(s["email"] and not s["email_ok"] and mail_ready()),
                                    "teacher": teacher_of(s)["name"], "self_reg": bool(s["self_reg"])})
+
+        if path == "/api/email/resend" and method == "POST":
+            # ученик просит прислать письмо с подтверждением ещё раз
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not s["email"]:
+                return self.err(400, "Сначала укажите почту")
+            if s["email_ok"]:
+                return self.send_json({"ok": True, "confirmed": True})
+            r = send_confirm(db, "s", s)
+            if r == "wait":
+                return self.err(429, "Письмо уже отправлено — подождите минуту и проверьте папку «Спам»")
+            if not r:
+                return self.err(503, "Письма с сайта пока не отправляются")
+            return self.send_json({"ok": True, "email": s["email"]})
+
+        if path == "/api/email/confirm" and method == "POST":
+            # ссылка из письма «Подтвердите почту»: ученик или учитель
+            ip = self.client_ip()
+            wait = THROTTLE.blocked("find", ip)
+            if wait:
+                return self.err(429, self.wait_msg(wait))
+            tok = str(data.get("t") or "")
+            r = db.q("SELECT * FROM pw_resets WHERE token=? AND used=0 AND expires>? AND kind IN ('es','et')",
+                     (hashlib.sha256(tok.encode()).hexdigest(), time.time()), one=True) if tok else None
+            table = "teachers" if r and r["kind"] == "et" else "students"
+            account = db.q(f"SELECT * FROM {table} WHERE id=?", (r["uid"],), one=True) if r else None
+            if not account or not hmac.compare_digest(r["account_state"] or "", confirm_state(account)):
+                THROTTLE.fail("find", ip)
+                return self.err(404, "Ссылка устарела или адрес почты уже изменён — запросите письмо ещё раз")
+            db.x(f"UPDATE {table} SET email_ok=1 WHERE id=?", (r["uid"],))
+            db.x("UPDATE pw_resets SET used=1 WHERE kind=? AND uid=?", (r["kind"], r["uid"]))
+            return self.send_json({"ok": True, "kind": "t" if r["kind"] == "et" else "s", "email": account["email"]})
 
         if path == "/api/pw/forgot" and method == "POST":
             # «Забыли пароль?»: ссылка на почту. Ответ всегда одинаковый — по нему не узнать, есть ли такой аккаунт
@@ -3474,7 +3525,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path == "/api/pw/reset" and method == "POST":
             tok = str(data.get("t") or "")
-            r = db.q("SELECT * FROM pw_resets WHERE token=? AND used=0 AND expires>?",
+            r = db.q("SELECT * FROM pw_resets WHERE token=? AND used=0 AND expires>? AND kind IN ('s','t')",
                      (hashlib.sha256(tok.encode()).hexdigest(), time.time()), one=True) if tok else None
             if not r:
                 return self.err(404, "Ссылка устарела или уже использована — запросите новую")
@@ -3488,12 +3539,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE pw_resets SET used=1 WHERE kind=? AND uid=?", (r["kind"], r["uid"]))
             if r["kind"] == "t":
                 encoded = hash_pw(pw)
-                db.x("UPDATE teachers SET pw=? WHERE id=?", (encoded, r["uid"]))
+                db.x("UPDATE teachers SET pw=?, email_ok=1 WHERE id=?", (encoded, r["uid"]))    # ссылка пришла на почту — адрес подтверждён
                 if account["is_main"]:
                     db.setting("admin_password", encoded)
                 db.x("DELETE FROM admin_sessions WHERE COALESCE(teacher_id, ?)=?", (main_teacher()["id"], r["uid"]))
             else:
-                db.x("UPDATE students SET pw=? WHERE id=?", (hash_pw(pw), r["uid"]))
+                db.x("UPDATE students SET pw=?, email_ok=1 WHERE id=?", (hash_pw(pw), r["uid"]))
                 sessions_end(db, r["uid"])
             return self.send_json({"ok": True, "kind": r["kind"]})
 
@@ -4517,16 +4568,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if guest:                                # гость регистрируется — его классы и подборки остаются, демо-класс уходит
                 drop_demo(db, guest["id"])
                 tid = guest["id"]
-                db.x("""UPDATE teachers SET name=?, login=?, email=?, pw=?, guest=0, paid=0, until=?,
+                db.x("""UPDATE teachers SET name=?, login=?, email=?, pw=?, guest=0, paid=0, until=?, email_ok=?,
                         consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?""",
-                     (name, email, email, hash_pw(pw), until, LEGAL_VERSION, now, ip, tid))
+                     (name, email, email, hash_pw(pw), until, 0 if mail_ready() else 1, LEGAL_VERSION, now, ip, tid))
                 db.x("UPDATE students SET name=? WHERE is_teacher=1 AND teacher_id=?", (name, tid))
                 db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
             else:
-                tid = db.x("""INSERT INTO teachers(name, login, email, pw, invite, is_main, created, until, consent_ver, consent_ts, consent_ip)
-                              VALUES(?,?,?,?,?,0,?,?,?,?,?)""", (name, email, email, hash_pw(pw), new_invite(db), now, until,
-                                                               LEGAL_VERSION, now, ip))
-            return self.send_json({"ok": True, "until": until}, extra={"Set-Cookie": self.admin_login(tid, ADMIN_SESSION_DAYS * 86400)})
+                tid = db.x("""INSERT INTO teachers(name, login, email, pw, invite, is_main, created, until, consent_ver, consent_ts, consent_ip, email_ok)
+                              VALUES(?,?,?,?,?,0,?,?,?,?,?,?)""", (name, email, email, hash_pw(pw), new_invite(db), now, until,
+                                                                 LEGAL_VERSION, now, ip, 0 if mail_ready() else 1))
+            # строго: панель откроется после перехода по ссылке из письма (без настроенной почты подтверждение не требуется)
+            send_confirm(db, "t", db.q("SELECT * FROM teachers WHERE id=?", (tid,), one=True))
+            return self.send_json({"ok": True, "until": until, "email_need": mail_ready()}, extra={"Set-Cookie": self.admin_login(tid, ADMIN_SESSION_DAYS * 86400)})
 
         if path == "/api/teacher/guest" and method == "POST":
             ip = self.client_ip()
@@ -4564,6 +4617,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path.startswith("/api/admin/"):
             if not self.is_admin():
                 return self.err(401, "нужен вход учителя")
+            if path not in EMAIL_GATE_OK and teacher_email_pending(self.T):
+                # учитель зарегистрировался, но ещё не перешёл по ссылке из письма — панель закрыта
+                return self.send_json({"error": "Подтвердите почту: откройте ссылку из письма", "need_email": True}, 403)
             if method == "POST" and path not in ACCESS_RO_OK and teacher_access(self.T)["expired"]:
                 # пробный период (или гостевой час) закончился: всё видно, но менять ничего нельзя
                 return self.send_json({"error": "Гостевой час закончился — зарегистрируйтесь, чтобы продолжить" if self.T["guest"]
@@ -6328,9 +6384,34 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             out["consent_needed"] = not row or row["consent_ver"] != LEGAL_VERSION
             self.site_origin()
             out.update(access=teacher_access(self.T), guest=bool(self.T["guest"]), email=self.T["email"] or "",
+                       email_need=teacher_email_pending(self.T),
                        report=bool(self.T["report"]), mail_on=bool(smtp_conf()), steps=teacher_steps(db, self.T["id"]),
                        steps_off=bool(self.T["steps_off"]), renew_ts=self.T["renew_ts"], offer=offer_get(db), trial_days=TRIAL_DAYS)
             return self.send_json(out)
+
+        if path == "/api/admin/email/resend" and method == "POST":
+            if not teacher_email_pending(self.T):
+                return self.send_json({"ok": True, "confirmed": True})
+            r = send_confirm(db, "t", self.T)
+            if r == "wait":
+                return self.err(429, "Письмо уже отправлено — подождите минуту и проверьте папку «Спам»")
+            if not r:
+                return self.err(503, "Письма с сайта пока не отправляются")
+            return self.send_json({"ok": True, "email": self.T["email"]})
+
+        if path == "/api/admin/email/change" and method == "POST":
+            # ошибся в адресе при регистрации: пока почта не подтверждена, её можно исправить (она же — логин)
+            if not teacher_email_pending(self.T):
+                return self.err(409, "Почта уже подтверждена — изменить её можно в «Настройках»")
+            email = str(data.get("email") or "").strip().lower()[:120]
+            if not EMAIL_RE.fullmatch(email):
+                return self.err(400, "Проверьте адрес почты")
+            if db.q("SELECT 1 FROM teachers WHERE (lower(email)=? OR lower(login)=?) AND id<>?", (email, email, self.T["id"]), one=True):
+                return self.err(409, "Учитель с такой почтой уже зарегистрирован")
+            db.x("UPDATE teachers SET email=?, login=? WHERE id=?", (email, email, self.T["id"]))
+            _CONFIRM_SENT.pop(("t", self.T["id"]), None)          # новый адрес — письмо уходит сразу
+            send_confirm(db, "t", db.q("SELECT * FROM teachers WHERE id=?", (self.T["id"],), one=True))
+            return self.send_json({"ok": True, "email": email})
 
         if path == "/api/admin/steps-off" and method == "POST":
             db.x("UPDATE teachers SET steps_off=? WHERE id=?", (0 if data.get("show") else 1, self.T["id"]))
@@ -6574,7 +6655,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             else:
                 if len(pw) < 6:
                     return self.err(400, "Пароль — не короче 6 символов")
-                tid = db.x("INSERT INTO teachers(name, login, pw, invite, is_main, created) VALUES(?,?,?,?,0,?)",
+                tid = db.x("INSERT INTO teachers(name, login, pw, invite, is_main, created, email_ok) VALUES(?,?,?,?,0,?,1)",
                            (name, login, hash_pw(pw), invite, now))
             return self.send_json({"ok": True, "id": tid, "invite": invite})
 
@@ -11604,6 +11685,61 @@ def class_digest(db, cid):
             "top": top[:3], "active": len(members) - len(inactive), "total": len(members),
             "forecast_avg": fc_avg, "forecast_then": round(sum(then_v) / len(then_v)) if then_v else None,
             "weak": weak, "behind": behind}
+
+
+# ---------- подтверждение почты: ученику — напоминание на главной, учителю — панель после перехода по ссылке
+EMAIL_GATE_OK = {"/api/admin/me", "/api/admin/info", "/api/admin/logout", "/api/admin/consent", "/api/admin/ui",
+                 "/api/admin/email/resend", "/api/admin/email/change"}
+_CONFIRM_SENT = {}                       # (вид, id) -> когда отправили письмо
+
+
+def mail_ready():
+    """Письма уходят и адрес сайта для ссылок задан: только тогда подтверждение почты имеет смысл."""
+    return bool(smtp_conf() and recovery_origin(SITE_URL))
+
+
+def confirm_state(account):
+    """Ссылка подтверждения привязана к аккаунту и адресу: сменили почту — старая ссылка не сработает."""
+    return hashlib.sha256(json.dumps(["confirm", account["id"], account["created"], account["email"]], ensure_ascii=False).encode()).hexdigest()
+
+
+def teacher_email_pending(t):
+    """Учитель сам зарегистрировался и ещё не подтвердил почту (главного, добавленных вручную и гостей не касается)."""
+    return bool(not t["is_main"] and not t["guest"] and t["email"] and not t["email_ok"] and mail_ready())
+
+
+def send_confirm(db, kind, account):
+    """Письмо «Подтвердите почту» ученику ("s") или учителю ("t"). True — отправляется, "wait" — недавно уже отправляли,
+    False — почта на сервере не настроена или адреса нет."""
+    origin = recovery_origin(SITE_URL)
+    if not smtp_conf() or not origin or not account["email"]:
+        return False
+    now, key = time.time(), (kind, account["id"])
+    if now - _CONFIRM_SENT.get(key, 0) < EMAIL_RESEND_SEC:
+        return "wait"
+    if len(_CONFIRM_SENT) > 5000:
+        _CONFIRM_SENT.clear()
+    _CONFIRM_SENT[key] = now
+    tok = secrets.token_urlsafe(24)
+    db.x("INSERT INTO pw_resets(token, kind, uid, expires, account_state) VALUES(?,?,?,?,?)",
+         (hashlib.sha256(tok.encode()).hexdigest(), "e" + kind, account["id"], now + EMAIL_CONFIRM_SEC, confirm_state(account)))
+    link = f"{origin}/confirm?t={tok}"
+    name, to = account["name"], account["email"]
+    what = "панель учителя откроется после подтверждения" if kind == "t" else "так вы сможете восстановить пароль, если забудете его"
+
+    def mail():
+        try:
+            send_mail(to, "Egeshka: подтвердите почту",
+                      f"<p>{html_mod.escape(name)}, подтвердите адрес почты на Egeshka — {what}.</p>"
+                      f"<p><a href='{html_mod.escape(link)}'>Подтвердить почту</a></p>"
+                      f"<p style='color:#888'>Если кнопка не открывается, скопируйте ссылку в браузер:<br>{html_mod.escape(link)}</p>"
+                      "<p style='color:#888'>Ссылка действует 3 дня. Если вы не регистрировались на Egeshka — просто удалите это письмо.</p>",
+                      f"{name}, подтвердите адрес почты на Egeshka — {what}.\n{link}\n\n"
+                      "Ссылка действует 3 дня. Если вы не регистрировались на Egeshka — просто удалите это письмо.")
+        except Exception as e:                       # noqa: BLE001 — письмо не должно ломать регистрацию
+            print(f"[подтверждение почты] {e!r}", flush=True)
+    threading.Thread(target=mail, daemon=True).start()
+    return True
 
 
 # ---------- доступ учителя: сам зарегистрировался — пробный период; кончился — панель только для чтения

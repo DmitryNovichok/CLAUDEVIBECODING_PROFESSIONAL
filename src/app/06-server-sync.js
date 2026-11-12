@@ -62,6 +62,7 @@
     if (me.rules) { Object.assign(RULES, me.rules); sndRules(false); }
     ADMINS = new Set(me.admins || []);
     CONSENT_NEEDED = !!me.consent_needed;
+    EMAIL_NEED = me.email_need ? me.email : '';     // почта указана, но не подтверждена — напоминание на главной
     if (me.game) GAME = me.game;
     if (GAME && GAME.froze) setTimeout(() => toast(`❄️ Ты пропустил ${GAME.froze === 1 ? 'день' : `${GAME.froze} ${plural(GAME.froze, 'день', 'дня', 'дней')}`} — заморозка спасла огонёк`, 6000), 1500);
     COURSE_OK = !!me.course;
@@ -127,6 +128,7 @@
   }
   // ---- согласие на обработку персональных данных: уже зарегистрированные подтверждают при входе
   let CONSENT_NEEDED = false;
+  let EMAIL_NEED = '';                    // неподтверждённая почта ученика ('' — напоминать не о чем)
   function askConsent() {
     if (!CONSENT_NEEDED) return Promise.resolve();
     return new Promise(resolve => {
@@ -231,12 +233,16 @@
       save.disabled = true;
       try {
         const r = await api('account', body2);
+        const mailChanged = r.email !== ACCT.email;
         ACCT = { login: r.login, email: r.email, self_reg: r.self_reg, teacher_name: r.teacher };
+        EMAIL_NEED = r.email_need ? r.email : '';
+        if (typeof renderHub === 'function') renderHub();
         loginInput.value = r.login;
         loginInput.disabled = !!r.login;
         emailInput.value = r.email;
         msg.className = 'login-err ok';
-        msg.textContent = body2.code ? `Готово: теперь вы ученик учителя «${r.teacher}»` : 'Сохранено';
+        msg.textContent = body2.code ? `Готово: теперь вы ученик учителя «${r.teacher}»`
+          : mailChanged && r.email_need ? `Сохранено. На ${r.email} отправлено письмо — откройте ссылку в нём, чтобы подтвердить почту` : 'Сохранено';
         if (body2.code) setTimeout(() => location.reload(), 1200);
       } catch (e) { msg.textContent = e.message || 'Нет связи с сервером'; }
       finally { save.disabled = false; }

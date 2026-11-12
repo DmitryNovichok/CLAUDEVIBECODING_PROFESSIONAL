@@ -3752,6 +3752,79 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{gid}:%",)))
         self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[0], 401)
 
+    def test_email_confirmation_soft_for_students_strict_for_teachers(self):
+        db = server.APP.db
+        sent = []
+        wait_mail = lambda n: [time.sleep(0.05) for _ in range(60) if len(sent) < n]
+        link_of = lambda text: re.search(r"/confirm\?t=(\S+)", text).group(1)
+        server._CONFIRM_SENT.clear()
+        server.THROTTLE.fails.clear()
+        with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+             mock.patch.object(server, "SITE_URL", "https://trainer.example.test"), \
+             mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, t)) or True):
+            # ---- ученик: аккаунт работает сразу, почта помечена как неподтверждённая
+            st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "new_password": "secret1",
+                                                    "name": "Почтин Павел", "login": "pochtin", "email": "pochtin@example.ru"})
+            self.assertEqual((st, d["email_need"]), (200, True), d)
+            tok = d["token"]
+            wait_mail(1)
+            self.assertEqual(sent[0][0], "pochtin@example.ru")
+            self.assertEqual(self.req("GET", "/api/me", token=tok)[0], 200)                       # сайт открыт и без подтверждения
+            self.assertEqual(self.req("POST", "/api/email/resend", {}, tok)[0], 429)             # не чаще раза в минуту
+            s_link = link_of(sent[0][1])
+            self.assertEqual(self.req("POST", "/api/pw/reset", {"t": s_link, "password": "hacked123"})[0], 404)   # это не ссылка сброса пароля
+            self.assertEqual(self.req("POST", "/api/email/confirm", {"t": "bad"})[0], 404)
+            st, d = self.req("POST", "/api/email/confirm", {"t": s_link})
+            self.assertEqual((st, d["kind"], d["email"]), (200, "s", "pochtin@example.ru"))
+            self.assertEqual(self.req("POST", "/api/email/confirm", {"t": s_link})[0], 404)       # ссылка одноразовая
+            self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["email_need"])
+            # сменил адрес — подтверждается заново, старая ссылка к новому адресу не подходит
+            server._CONFIRM_SENT.clear()
+            st, d = self.req("POST", "/api/account", {"email": "pochtin2@example.ru"}, tok)
+            self.assertEqual((st, d["email_need"]), (200, True), d)
+            wait_mail(2)
+            self.assertEqual(sent[1][0], "pochtin2@example.ru")
+            self.req("POST", "/api/account", {"email": "pochtin3@example.ru"}, tok)               # письмо не успело (минута), но адрес другой
+            self.assertEqual(self.req("POST", "/api/email/confirm", {"t": link_of(sent[1][1])})[0], 404)
+            # ---- учитель: панель закрыта, пока не открыл ссылку
+            server.THROTTLE.fails.clear()
+            st, d, ck = self.creq("POST", "/api/teacher/signup", {"name": "Письмова Ирина", "email": "pismova@example.ru",
+                                                                  "password": "secret123", "accept": True}, ip="203.0.113.77")
+            self.assertEqual((st, d["email_need"]), (200, True), d)
+            wait_mail(3)
+            self.assertEqual(sent[-1][0], "pismova@example.ru")
+            st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+            self.assertEqual((st, me["email_need"]), (200, True))
+            for method, path, body in (("GET", "/api/admin/classes", None), ("GET", "/api/admin/students", None),
+                                       ("POST", "/api/admin/class/save", {"name": "11А"})):
+                st, d, _ = self.creq(method, path, body, cookie=ck)
+                self.assertEqual((st, d.get("need_email")), (403, True), path)
+            self.assertEqual(self.creq("POST", "/api/admin/email/resend", {}, cookie=ck)[0], 429)
+            # ошибся в адресе — исправил, письмо ушло на новый, старая ссылка больше не работает
+            old_link = link_of(sent[-1][1])
+            self.assertEqual(self.creq("POST", "/api/admin/email/change", {"email": "плохо"}, cookie=ck)[0], 400)
+            st, d, _ = self.creq("POST", "/api/admin/email/change", {"email": "Pismova.I@example.ru"}, cookie=ck)
+            self.assertEqual((st, d["email"]), (200, "pismova.i@example.ru"))
+            wait_mail(4)
+            self.assertEqual(sent[-1][0], "pismova.i@example.ru")
+            self.assertEqual(self.req("POST", "/api/email/confirm", {"t": old_link})[0], 404)
+            st, d = self.req("POST", "/api/email/confirm", {"t": link_of(sent[-1][1])})
+            self.assertEqual((st, d["kind"]), (200, "t"))
+            self.assertFalse(self.creq("GET", "/api/admin/me", cookie=ck)[1]["email_need"])
+            self.assertEqual(self.creq("GET", "/api/admin/classes", cookie=ck)[0], 200)           # панель открылась
+            self.assertEqual(self.creq("POST", "/api/admin/email/change", {"email": "x@example.ru"}, cookie=ck)[0], 409)
+            # главный учитель и учителя, добавленные им вручную, подтверждать ничего не должны
+            self.assertFalse(self.admin("GET", "/api/admin/me")[1]["email_need"])
+        # почта на сервере не настроена — подтверждение не требуется вовсе
+        server.THROTTLE.fails.clear()
+        st, d, ck2 = self.creq("POST", "/api/teacher/signup", {"name": "Безпочтова Анна", "email": "nomail@example.ru",
+                                                               "password": "secret123", "accept": True}, ip="203.0.113.78")
+        self.assertEqual((st, d["email_need"]), (200, False), d)
+        self.assertEqual(self.creq("GET", "/api/admin/classes", cookie=ck2)[0], 200)
+        server.delete_student(db, db.q("SELECT id FROM students WHERE login='pochtin'", one=True)["id"])
+        db.x("DELETE FROM teachers WHERE email IN ('pismova.i@example.ru', 'nomail@example.ru')")
+        server._CONFIRM_SENT.clear()
+
     def test_economy_and_gifts_only_for_main_teacher(self):
         st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Экономова Ольга", "login": "econ2",
                                                                 "password": "secret77", "invite": "ECON22"})

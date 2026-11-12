@@ -104,6 +104,7 @@
       openRenew();
       throw Object.assign(new Error(data.error || 'Доступ закончился'), { status: 402 });
     }
+    if (r.status === 403 && data.need_email) { showMailGate(); throw Object.assign(new Error(data.error), { status: 401 }); }
     if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status });
     return data;
   }
@@ -155,12 +156,70 @@
     $('#loginView').hidden = false;
     setTimeout(() => $('#admPassword').focus(), 30);
   }
+  // ------------------------------------------------------------ подтверждение почты после регистрации
+  let mailGateTimer = 0;
+  function showMailGate() {
+    $('#appView').hidden = true;
+    $('#loginView').hidden = true;
+    $('#mailGate').hidden = false;
+    if (ME && ME.email) $('#mailGateAddr').textContent = ME.email;
+    clearInterval(mailGateTimer);
+    mailGateTimer = setInterval(() => { if (!document.hidden) mailGateCheck(true); }, 5000);     // подтвердил в другой вкладке — откроемся сами
+  }
+  async function mailGateRaw(path, body) {
+    const r = await fetch('api/admin/' + path, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401) { clearInterval(mailGateTimer); $('#mailGate').hidden = true; showLogin(); throw new Error('Войдите заново'); }
+    if (!r.ok) throw new Error(d.error || 'Нет связи с сервером');
+    return d;
+  }
+  async function mailGateCheck(quiet) {
+    const msg = $('#mailGateMsg');
+    try {
+      const me = await mailGateRaw('me');
+      if (!me.email_need) { clearInterval(mailGateTimer); location.reload(); return; }
+      $('#mailGateAddr').textContent = me.email;
+      if (!quiet) { msg.className = 'login-err'; msg.textContent = 'Почта ещё не подтверждена — откройте ссылку из письма'; }
+    } catch (e) { if (!quiet) { msg.className = 'login-err'; msg.textContent = e.message; } }
+  }
+  $('#mailGateCheck').addEventListener('click', () => mailGateCheck(false));
+  $('#mailGateResend').addEventListener('click', async e => {
+    const msg = $('#mailGateMsg');
+    e.target.disabled = true;
+    try {
+      const r = await mailGateRaw('email/resend', {});
+      if (r.confirmed) { location.reload(); return; }
+      msg.className = 'login-err ok'; msg.textContent = `Письмо отправлено на ${r.email}`;
+    } catch (err) { msg.className = 'login-err'; msg.textContent = err.message; }
+    finally { e.target.disabled = false; }
+  });
+  $('#mailGateForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = $('#mailGateMsg'), btn = e.target.querySelector('button');
+    btn.disabled = true;
+    try {
+      const r = await mailGateRaw('email/change', { email: $('#mailGateNew').value.trim() });
+      $('#mailGateAddr').textContent = r.email;
+      $('#mailGateNew').value = '';
+      e.target.closest('details').open = false;
+      msg.className = 'login-err ok'; msg.textContent = `Адрес изменён. Письмо отправлено на ${r.email}`;
+    } catch (err) { msg.className = 'login-err'; msg.textContent = err.message; }
+    finally { btn.disabled = false; }
+  });
+  $('#mailGateOut').addEventListener('click', async () => {
+    clearInterval(mailGateTimer);
+    try { await fetch('api/admin/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin' }); } catch (e) { /* выйдем всё равно */ }
+    location.href = '/welcome';
+  });
+
   // кто вошёл: главный учитель видит всех учеников и управляет учителями
   let ME = { is_main: 1 };
   let teachers = [];
   async function loadMe() {
     const previous = bldKey();
     ME = await api('me');
+    if (ME.email_need) { showMailGate(); throw Object.assign(new Error('Подтвердите почту'), { status: 401 }); }   // панель — после подтверждения
     if (previous !== bldKey()) bldLoad();
     document.body.classList.toggle('is-main', !!ME.is_main);
     $('#admWho').textContent = ME.name + (ME.is_main ? ' · главный' : '');
