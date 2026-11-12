@@ -27,11 +27,13 @@
 
   // ---- регистрация учителя: условия пробного периода покажет панель сразу после входа
   const modal = $('#signupModal');
-  const open = () => { modal.hidden = false; setTimeout(() => $('#suName').focus(), 30); };
+  const visit = on => { if (window.EgVisit) on ? EgVisit.start('teacher', 'signup') : EgVisit.stop(); };   // главный учитель видит, что кто-то регистрируется
+  const open = () => { modal.hidden = false; visit(true); setTimeout(() => $('#suName').focus(), 30); };
   document.addEventListener('click', e => {
     if (e.target.closest('[data-signup]')) { e.preventDefault(); open(); }
-    if (e.target.closest('[data-close]') || e.target === modal) modal.hidden = true;
+    if (e.target.closest('[data-close]') || e.target === modal) { modal.hidden = true; visit(false); }
   });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) { modal.hidden = true; visit(false); } });
   if (location.hash === '#signup') open();
   $('#signupForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -41,6 +43,7 @@
     try {
       await post('api/teacher/signup', { name: $('#suName').value, email: $('#suEmail').value, password: $('#suPass').value, accept: $('#suAccept').checked });
       try { localStorage.setItem('egeshka.trialHello', '1'); } catch (x) { /* окно просто не покажется */ }
+      visit(false);
       location.href = '/admin';
     } catch (err) { $('#suErr').textContent = err.message; btn.disabled = false; }
   });

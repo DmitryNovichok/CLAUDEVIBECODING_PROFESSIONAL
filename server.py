@@ -75,7 +75,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
-              "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js", "onboard.js",
+              "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js", "onboard.js", "visit.js",
               "terms.html", "privacy.html", "consent.html", "legal.css",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
               "favicon.ico", "favicon.svg", "favicon-96.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "site.webmanifest"}
@@ -83,10 +83,10 @@ SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "ad
 LEGAL_VERSION = "2026-11-07"
 SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
-PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr|egeshka|elements|onboard)\.js|(?:style|admin-theme|admin|legal|welcome|academy|lab|classroom)\.css)"')
+PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|legal|welcome|academy|lab|classroom)\.css)"')
 PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
                "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css",
-               "egeshka.js", "elements.js", "onboard.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
+               "egeshka.js", "elements.js", "onboard.js", "visit.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
 _PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
@@ -2181,6 +2181,49 @@ class LiveHub:
 
 LIVE = LiveHub()
 
+# Кто сейчас на сайте без входа: нажал «Я ученик» (окно входа), «Я учитель» (регистрация) или смотрит панель гостем.
+# Только в памяти, без ФИО и адресов: браузер раз в 20 секунд сообщает случайный номер вкладки и этап;
+# замолчал дольше VISIT_TTL или закрыл вкладку — пропадает из списка главного учителя.
+VISIT_TTL = 90                               # вкладка в фоне отмечается реже (браузер раз в минуту)
+VISIT_MAX = 3000
+VISIT_STAGES = {"student": ("login", "reg", "forgot"), "teacher": ("signup",), "guest": ("panel",)}
+
+
+class Visits:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.rows = {}               # номер вкладки -> {role, stage, since, last, guest}
+
+    def ping(self, vid, role, stage, guest=None, leave=False):
+        now = time.time()
+        with self.lock:
+            if leave:
+                self.rows.pop(vid, None)
+                return
+            r = self.rows.get(vid)
+            if r and r["role"] == role:
+                r.update(stage=stage, last=now, guest=guest or r.get("guest"))
+                return
+            if len(self.rows) >= VISIT_MAX:
+                self._sweep(now)
+                if len(self.rows) >= VISIT_MAX:
+                    return
+            self.rows[vid] = {"role": role, "stage": stage, "since": now, "last": now, "guest": guest}
+
+    def _sweep(self, now):
+        for k in [k for k, r in self.rows.items() if now - r["last"] > VISIT_TTL]:
+            self.rows.pop(k)
+
+    def now(self):
+        t = time.time()
+        with self.lock:
+            self._sweep(t)
+            return sorted(({"id": k[:8], **{x: r[x] for x in ("role", "stage", "since", "guest")}} for k, r in self.rows.items()),
+                          key=lambda r: r["since"])
+
+
+VISITS = Visits()
+
 
 def live_teacher(s, main=False):
     """Учителю ученика (и главному, если main) — «в ленте новое»: ответ, сдача работы, вариант, обращение."""
@@ -3878,6 +3921,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if self.student(data) and self.sess:
                 db.x("UPDATE student_sessions SET ended=? WHERE id=?", (time.time(), self.sess["id"]))
             return self.send_json({"ok": True}, extra={"Set-Cookie": "egest=; Path=/; Max-Age=0" + self.cookie_attrs()})
+
+        if path == "/api/visit" and method == "POST":
+            # «я на сайте» от окна входа, регистрации учителя и гостевой панели (см. Visits) — без личных данных
+            vid, role, stage = str(data.get("vid") or ""), data.get("role"), data.get("stage")
+            if not re.fullmatch(r"[a-z0-9]{12,40}", vid) or stage not in VISIT_STAGES.get(role, ()):
+                return self.err(400, "неверная отметка")
+            guest = None
+            if role == "guest":
+                if not (self.is_admin() and self.T["guest"]):
+                    return self.err(403, "только для гостевого входа")
+                guest = self.T["until"]
+            VISITS.ping(vid, role, stage, guest, bool(data.get("leave")))
+            return self.send_json({"ok": True})
 
         if path == "/api/net":
             # школьная ли сеть — окно входа не запоминает ФИО и не даёт браузеру сохранить пароль
@@ -6429,6 +6485,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE support SET status=? WHERE id=?", (status, sid))
             LIVE.send([r["student_id"]], "support")      # ответ появится у ученика сразу
             return self.send_json({"ok": True})
+
+        if path == "/api/admin/visitors":
+            # главный учитель видит, кто сейчас на сайте без входа (Visits); ушёл — пропал
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            return self.send_json({"visitors": VISITS.now(), "now": time.time()}, extra={"Cache-Control": "no-store"})
 
         if path == "/api/admin/teachers":
             if not self.T["is_main"]:

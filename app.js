@@ -403,6 +403,7 @@
         Object.entries(forms).forEach(([kk, f]) => { f.hidden = kk !== k; });
         errEl.textContent = msg || '';
         errEl.classList.toggle('info', !!info);
+        if (window.EgVisit) EgVisit.start('student', k === 'reg' ? 'reg' : 'login');   // главный учитель видит гостя у окна входа
         const empty = Array.from(forms[k].querySelectorAll('input')).find(i => !i.value);
         (empty || forms[k].querySelector('input')).focus();
       };
@@ -442,6 +443,7 @@
           if (r.shared) { try { sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ } }   // компьютер в классе
           if (!temp && !r.shared) writeJSON(LAST_NAME_STORE, r.name);
           m.hidden = true;
+          if (window.EgVisit) EgVisit.stop();                       // вошёл — уже не гость
           ['#loginPass', '#regPass', '#regPass2', '#regCode', '#regLogin', '#regEmail'].forEach(sel => { $(sel).value = ''; });
           resolve(r);
         } catch (err) {
@@ -467,7 +469,11 @@
         run(forms.login, { mode: 'login', name, password: $('#loginPass').value });
       };
       // «Забыли пароль?»: ссылка на почту
-      $('#forgotOpen').onclick = () => { $('#forgotBox').hidden = !$('#forgotBox').hidden; if (!$('#forgotBox').hidden) $('#forgotWho').focus(); };
+      $('#forgotOpen').onclick = () => {
+        $('#forgotBox').hidden = !$('#forgotBox').hidden;
+        if (window.EgVisit) EgVisit.start('student', $('#forgotBox').hidden ? 'login' : 'forgot');
+        if (!$('#forgotBox').hidden) $('#forgotWho').focus();
+      };
       $('#forgotSend').onclick = async () => {
         const who = $('#forgotWho').value.trim() || $('#loginName').value.trim();
         if (!who) { errEl.textContent = 'Введите логин, почту или ФИО'; return; }

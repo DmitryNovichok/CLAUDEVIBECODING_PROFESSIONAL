@@ -3752,6 +3752,26 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{gid}:%",)))
         self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[0], 401)
 
+    def test_visitors_seen_by_main_while_present(self):
+        server.VISITS.rows.clear()
+        self.assertEqual(self.creq("POST", "/api/visit", {"vid": "short", "role": "student", "stage": "login"})[0], 400)
+        self.assertEqual(self.creq("POST", "/api/visit", {"vid": "a" * 16, "role": "student", "stage": "panel"})[0], 400)
+        self.assertEqual(self.creq("POST", "/api/visit", {"vid": "b" * 16, "role": "guest", "stage": "panel"})[0], 403)  # не гость
+        self.assertEqual(self.creq("POST", "/api/visit", {"vid": "s" * 16, "role": "student", "stage": "reg"})[0], 200)
+        self.assertEqual(self.creq("POST", "/api/visit", {"vid": "t" * 16, "role": "teacher", "stage": "signup"})[0], 200)
+        st, d, ck = self.creq("POST", "/api/teacher/guest", {}, ip="203.0.113.92")
+        self.assertEqual(self.creq("POST", "/api/visit", {"vid": "g" * 16, "role": "guest", "stage": "panel"}, cookie=ck)[0], 200)
+        st, v = self.admin("GET", "/api/admin/visitors")
+        self.assertEqual(st, 200)
+        self.assertEqual(sorted((x["role"], x["stage"]) for x in v["visitors"]),
+                         [("guest", "panel"), ("student", "reg"), ("teacher", "signup")])
+        self.assertTrue(next(x for x in v["visitors"] if x["role"] == "guest")["guest"])
+        self.assertEqual(self.creq("GET", "/api/admin/visitors", cookie=ck)[0], 403)            # только главному
+        self.creq("POST", "/api/visit", {"vid": "s" * 16, "role": "student", "stage": "reg", "leave": True})   # ушёл
+        server.VISITS.rows["t" * 16]["last"] -= server.VISIT_TTL + 1                                         # замолчал
+        self.assertEqual([x["role"] for x in self.admin("GET", "/api/admin/visitors")[1]["visitors"]], ["guest"])
+        server.VISITS.rows.clear()
+
     def test_admin_ui_theme(self):
         self.assertEqual(self.admin("GET", "/api/admin/me")[1]["ui_theme"], "blue")
         self.assertEqual(self.admin("POST", "/api/admin/ui", {"theme": "nope"})[0], 400)
