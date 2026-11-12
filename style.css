@@ -3122,7 +3122,9 @@ body.sto-open { overflow: hidden; }
   .sto-bezel, .sto-screen { padding: 0; border-radius: 0; }
   .sto-scr { padding: calc(env(safe-area-inset-top, 0px) + 12px) 18px calc(env(safe-area-inset-bottom, 0px) + 18px); }
 }
-@media (max-height: 700px) { .sto-art-in { transform: scale(.82); } .sto-ttl { font-size: 25px; } .sto-txt { font-size: 14.5px; } }
+@media (max-height: 700px) { .sto-ttl { font-size: 25px; } .sto-txt { font-size: 14.5px; } }
+.sto-art { overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.sto-art-in { width: max-content; transform-origin: center; }   /* по ширине картинки: тогда её можно уменьшить ровно по центру */
 @media (prefers-reduced-motion: reduce) { .sto-art-in, .sto-ttl, .sto-phone, .sto-up .ic, .sto-bonus .bolt, .sto-cong .conf i, .sto-cong .cap, .sto-hw-duo img, .sto-hw-duo .bat, .sto-hw-one .hero, .sto-hw-save .coin, .sto-hw-themes .tw-w, .sto-hw-themes .tw-bat, .sto-sw .sw-s, .sto-tg .cur, .sto-tg path, .sto-rec .rc-i, .sto-duel .dl-vs b { animation: none; } .sto-island { transition: none; } }
 
 /* ---- «🎲 Случайный подарок» как кейс (12e-case.js): коробка трясётся → крышка слетает → лента → лучи и искры цвета редкости.
@@ -4020,6 +4022,13 @@ body.hubnav.hub-on .me-box { order: 3; }
 .ob-slide.on .ob-emo div { opacity: 1; transform: none; }
 .ob-emo span { font-size: 30px; } .ob-emo b { font-size: 15px; font-weight: 900; color: #1d2433; line-height: 1.25; }
 .ob-txt { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 40px 38px; }
+/* невысокий экран ноутбука: слайд не тянется на 470 px, текст при нехватке места прокручивается, а не наезжает на кнопки */
+@media (min-width: 761px) and (max-height: 640px) {
+  .ob-track { grid-template-rows: minmax(0, 1fr); } .ob-slide { min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .ob-txt { min-height: 0; overflow-y: auto; justify-content: flex-start; padding: 26px 30px; gap: 9px; }
+  .ob-txt h2 { font-size: 26px; } .ob-txt p { font-size: 15px; line-height: 1.45; } .ob-txt li { font-size: 14.5px; } .ob-vis { padding: 22px; }
+  .ob-shot img { max-height: 300px; } .ob-emo { gap: 8px; } .ob-emo div { padding: 10px 14px; } .ob-emo span { font-size: 24px; }
+}
 .ob-kick { font-weight: 900; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #46a302; }
 .c-b .ob-kick { color: #1899d6; } .c-v .ob-kick { color: #7c3aed; } .c-o .ob-kick { color: #e86a00; } .c-r .ob-kick { color: #d92b3a; } .c-n .ob-kick { color: #2c4372; }
 .ob-txt h2 { margin: 0; font-size: 32px; line-height: 1.12; font-weight: 1000; letter-spacing: -.01em; }

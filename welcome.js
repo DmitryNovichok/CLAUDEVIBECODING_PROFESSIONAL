@@ -25,6 +25,20 @@
     if (links.length) { $('#contacts-list').innerHTML = links.join(''); $('#contacts').hidden = false; }
   }).catch(() => { /* без контактов */ });
 
+  // ---- воронка для «Статистики сайта»: какие кнопки нажимают (без личных данных; переход не ждёт ответа)
+  const funnel = step => {
+    const body = JSON.stringify({ step });
+    try {
+      if (navigator.sendBeacon && navigator.sendBeacon('api/funnel', new Blob([body], { type: 'application/json' }))) return;
+    } catch (x) { /* ниже — обычный запрос */ }
+    fetch('api/funnel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+  };
+  document.addEventListener('click', e => {
+    if (e.target.closest('[data-signup]')) funnel('teacher');
+    else if (e.target.closest('#guestBtn, [data-guest]')) funnel('guest');
+    else if (e.target.closest('a[href^="/?login"]')) funnel('student');
+  }, true);
+
   // ---- регистрация учителя: условия пробного периода покажет панель сразу после входа
   const modal = $('#signupModal');
   const visit = on => { if (window.EgVisit) on ? EgVisit.start('teacher', 'signup') : EgVisit.stop(); };   // главный учитель видит, что кто-то регистрируется
