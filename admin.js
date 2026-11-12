@@ -545,9 +545,43 @@
     loadErrors(false);
   });
 
+  /** Воронка главной для учителей: где теряются те, кто пришёл на /welcome. */
+  let funnelDays = 7;
+  function funnelHtml(F) {
+    if (!F) return '';
+    const f = F[funnelDays] || F[7], n = v => Number(v || 0).toLocaleString('ru-RU');
+    const steps = [
+      ['Открыли главную', f.welcome, 'посетителей /welcome (уникальных за день)'],
+      ['Нажали «Я учитель»', f.teacher, 'открыли окно регистрации'],
+      ['Зарегистрировались', f.signup, 'создали аккаунт учителя'],
+      ['Подтвердили почту', f.confirmed, 'открыли ссылку из письма'],
+      ['Создали класс', f.classes, 'начали работать'],
+    ];
+    const top = Math.max(1, ...steps.map(x => x[1]));
+    const rows = steps.map(([t, v, sub], i) => {
+      const prev = i ? steps[i - 1][1] : 0, conv = i && prev && v <= prev ? Math.round(v / prev * 100) : null;   // >100 % бывает, пока воронка копит данные
+      return `<div class="fn-row"><div class="fn-l"><b>${t}</b><small>${sub}</small></div>
+        <div class="fn-bar"><i style="width:${Math.max(v ? 2 : 0, v / top * 100)}%"></i></div>
+        <div class="fn-v"><b>${n(v)}</b>${conv != null ? `<small class="${conv < 30 ? 'low' : ''}">${conv}% от шага выше</small>` : '<small>&nbsp;</small>'}</div></div>`;
+    }).join('');
+    return `<h3 class="adm-h3">Воронка учителей <span class="adm-hint">где теряются те, кто пришёл на главную</span>
+        <span class="fn-sw">${[7, 30].map(k => `<button type="button" class="fn-chip${k === funnelDays ? ' on' : ''}" data-fn-days="${k}">${k} дней</button>`).join('')}</span></h3>
+      <div class="fn">${rows}
+        <p class="adm-hint fn-side">Ещё на главной: «Посмотреть без регистрации» — <b>${n(f.guest)}</b>, «Я ученик» — <b>${n(f.student)}</b>.
+        Период — с ${f.since.split('-').reverse().join('.')}. Посещения и нажатия начали считаться с версии 2.51.0, а регистрации видны и раньше, —
+        поэтому первое время нижние шаги могут быть больше верхних.</p></div>`;
+  }
+  $('#siteBody').addEventListener('click', e => {
+    const b = e.target.closest('[data-fn-days]');
+    if (!b || !SITE_LAST) return;
+    funnelDays = +b.dataset.fnDays;
+    $('#fnWrap').innerHTML = funnelHtml(SITE_LAST.funnel);
+  });
+  let SITE_LAST = null;
   async function loadSite() {
     let d;
     try { d = await api('site-stats'); } catch (err) { if (err.status !== 401) $('#siteBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    SITE_LAST = d;
     const n = v => Number(v || 0).toLocaleString('ru-RU');
     const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
     const maxS = Math.max(1, ...d.series.map(x => Math.max(x.solved, x.visitors, x.active)));
@@ -574,6 +608,7 @@
         ${card('Варианты ЕГЭ', n(d.exams), d.exam_avg != null ? `средний балл ${d.exam_avg}` : 'ещё не решали')}
         ${card('Учителей', n(d.teachers), `курс открыт у ${n(d.course)} учеников · дуэлей ${n(d.duels)}`)}
       </div>
+      <div id="fnWrap">${funnelHtml(d.funnel)}</div>
       <h3 class="adm-h3">По дням <span class="adm-hint"><i class="lg b-solved"></i> решено <i class="lg b-active"></i> занимались <i class="lg b-vis"></i> посетители</span></h3>
       <div class="st-chart">${bars}</div>
       <h3 class="adm-h3">По номерам ЕГЭ <span class="adm-hint">ответов за всё время · доля верных</span></h3>

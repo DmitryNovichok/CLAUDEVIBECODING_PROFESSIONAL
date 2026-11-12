@@ -3825,6 +3825,30 @@ class ServerTest(unittest.TestCase):
         db.x("DELETE FROM teachers WHERE email IN ('pismova.i@example.ru', 'nomail@example.ru')")
         server._CONFIRM_SENT.clear()
 
+    def test_teacher_funnel_in_site_stats(self):
+        db = server.APP.db
+        db.x("DELETE FROM funnel")
+        before = self.admin("GET", "/api/admin/site-stats")[1]["funnel"]["7"]
+        for ip in ("198.51.100.1", "198.51.100.2", "198.51.100.3"):          # трое открыли главную
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            c.request("GET", "/welcome", headers={"X-Forwarded-For": ip, "User-Agent": "funnel-test"})
+            c.getresponse().read(); c.close()
+        for ip in ("198.51.100.1", "198.51.100.2"):
+            self.assertEqual(self.creq("POST", "/api/funnel", {"step": "teacher"}, ip=ip)[0], 200)
+        self.creq("POST", "/api/funnel", {"step": "teacher"}, ip="198.51.100.1")              # повтор того же — не считается
+        self.creq("POST", "/api/funnel", {"step": "student"}, ip="198.51.100.3")
+        self.assertEqual(self.creq("POST", "/api/funnel", {"step": "hack"})[0], 400)
+        server.THROTTLE.fails.clear()
+        st, d, ck = self.creq("POST", "/api/teacher/signup", {"name": "Воронкова Анна", "email": "funnel@example.ru",
+                                                              "password": "secret123", "accept": True}, ip="198.51.100.1")
+        self.assertEqual(st, 200, d)
+        f = self.admin("GET", "/api/admin/site-stats")[1]["funnel"]["7"]
+        self.assertEqual((f["welcome"], f["teacher"], f["student"]), (3, 2, 1))
+        self.assertEqual(f["signup"], before["signup"] + 1)
+        self.assertEqual(f["confirmed"], before["confirmed"] + 1)       # почта на тестовом сервере не настроена — подтверждена сразу
+        db.x("DELETE FROM teachers WHERE email='funnel@example.ru'")
+        db.x("DELETE FROM funnel")
+
     def test_economy_and_gifts_only_for_main_teacher(self):
         st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Экономова Ольга", "login": "econ2",
                                                                 "password": "secret77", "invite": "ECON22"})

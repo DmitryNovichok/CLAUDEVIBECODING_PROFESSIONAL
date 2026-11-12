@@ -1592,6 +1592,9 @@ class DB(Transactional):
                 student_id INTEGER NOT NULL, n INTEGER NOT NULL, slide INTEGER, total INTEGER, ts REAL, PRIMARY KEY(student_id, n));
             CREATE TABLE IF NOT EXISTS visits(
                 day TEXT NOT NULL, vid TEXT NOT NULL, ts REAL, PRIMARY KEY(day, vid));
+            -- воронка главной для учителей: шаги обезличенного посетителя за день (тот же хеш, что в visits)
+            CREATE TABLE IF NOT EXISTS funnel(
+                day TEXT NOT NULL, vid TEXT NOT NULL, step TEXT NOT NULL, ts REAL, PRIMARY KEY(day, vid, step));
             CREATE TABLE IF NOT EXISTS daily_starts(
                 day TEXT NOT NULL, student_id INTEGER NOT NULL, ts REAL, PRIMARY KEY(day, student_id));
             CREATE TABLE IF NOT EXISTS duels(
@@ -1797,6 +1800,7 @@ class DB(Transactional):
                     ("students", "email", "TEXT"),                   # почта ученика — восстановление пароля
                     ("students", "email_ok", "INTEGER DEFAULT 0"),   # почта подтверждена по ссылке из письма
                     ("teachers", "email_ok", "INTEGER DEFAULT 0"),   # то же у учителя: без подтверждения панель закрыта
+                    ("teachers", "self_signup", "INTEGER DEFAULT 0"), # зарегистрировался сам на главной (для воронки)
                     ("students", "self_reg", "INTEGER DEFAULT 0"),   # 1 — зарегистрировался без кода учителя
                     ("pw_resets", "account_state", "TEXT"),          # привязка ссылки к аккаунту, паролю и почте
                     ("students", "parent_token", "TEXT"),            # секретная ссылка для родителей (только просмотр)
@@ -1856,6 +1860,10 @@ class DB(Transactional):
                     WHERE t.id=classes.teacher_id AND t.guest=1
                     AND classes.created BETWEEN t.created-3456600 AND t.created-3455400)""")
                 c.execute("INSERT INTO settings(key,value) VALUES('demo_identity_seeded','1')")
+            if not c.execute("SELECT 1 FROM settings WHERE key='self_signup_seeded'").fetchone():
+                # до воронки сами зарегистрировавшиеся учителя входили по почте: логин совпадает с почтой
+                c.execute("UPDATE teachers SET self_signup=1 WHERE COALESCE(is_main,0)=0 AND COALESCE(guest,0)=0 AND email IS NOT NULL AND lower(login)=lower(email)")
+                c.execute("INSERT INTO settings(key,value) VALUES('self_signup_seeded','1')")
             if not c.execute("SELECT 1 FROM settings WHERE key='email_ok_seeded'").fetchone():
                 # учителя, зарегистрированные до появления подтверждения почты, панель не теряют
                 c.execute("UPDATE teachers SET email_ok=1")
@@ -2198,6 +2206,7 @@ MAIN_ONLY_ECON = frozenset({"/api/admin/gifts", "/api/admin/gifts/student", "/ap
                             "/api/admin/thermo", "/api/admin/bank"})
 VISIT_TTL = 90                               # вкладка в фоне отмечается реже (браузер раз в минуту)
 VISIT_MAX = 3000
+FUNNEL_STEPS = {"teacher", "student", "guest"}   # кнопки главной, которые считает воронка (welcome — сам просмотр)
 VISIT_STAGES = {"student": ("login", "reg", "forgot"), "teacher": ("signup",), "guest": ("panel",)}
 
 
@@ -2498,13 +2507,19 @@ class Handler(BaseHTTPRequestHandler):
         return "; Secure" if self.is_https() else ""
 
     # ---------- статика
-    def count_visit(self):
-        """Посетитель сайта за день — обезличенно: хеш адреса и браузера с датой, сам адрес не храним."""
+    def visitor_id(self):
+        """Обезличенный посетитель за день: хеш даты, адреса и браузера; сам адрес не храним."""
+        day = datetime.now().strftime("%Y-%m-%d")
+        raw = f"{day}|{self.client_ip()}|{self.headers.get('User-Agent') or ''}"
+        return day, hashlib.sha256(raw.encode()).hexdigest()[:20]
+
+    def count_visit(self, step=None):
+        """Посетитель сайта за день; step — шаг воронки главной (welcome — открыл страницу)."""
         try:
-            day = datetime.now().strftime("%Y-%m-%d")
-            raw = f"{day}|{self.client_ip()}|{self.headers.get('User-Agent') or ''}"
-            APP.db.x("INSERT OR IGNORE INTO visits(day, vid, ts) VALUES(?,?,?)",
-                     (day, hashlib.sha256(raw.encode()).hexdigest()[:20], time.time()))
+            day, vid = self.visitor_id()
+            APP.db.x("INSERT OR IGNORE INTO visits(day, vid, ts) VALUES(?,?,?)", (day, vid, time.time()))
+            if step:
+                APP.db.x("INSERT OR IGNORE INTO funnel(day, vid, step, ts) VALUES(?,?,?,?)", (day, vid, step, time.time()))
         except Exception as e:           # счётчик не должен мешать открыть сайт
             self.log_error_safe(e)
 
@@ -2548,7 +2563,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_file(HERE / "pycourse" / "data", rel[len("pyc-data/"):])
         # файлы сайта
         if rel in ("index.html", "welcome.html"):
-            self.count_visit()
+            self.count_visit("welcome" if rel == "welcome.html" else None)
         if rel in ("index.html", "admin.html", "together.html", "welcome.html", "parent.html", "reset.html"):
             return self.serve_page(rel)
         if rel == "arduino/index.html":
@@ -3979,6 +3994,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE student_sessions SET ended=? WHERE id=?", (time.time(), self.sess["id"]))
             return self.send_json({"ok": True}, extra={"Set-Cookie": "egest=; Path=/; Max-Age=0" + self.cookie_attrs()})
 
+        if path == "/api/funnel" and method == "POST":
+            # главная для учителей: нажал «Я учитель», «Я ученик» или «Посмотреть без регистрации» — без личных данных
+            step = data.get("step")
+            if step not in FUNNEL_STEPS:
+                return self.err(400, "неизвестный шаг")
+            self.count_visit(step)
+            return self.send_json({"ok": True})
+
         if path == "/api/visit" and method == "POST":
             # «я на сайте» от окна входа, регистрации учителя и гостевой панели (см. Visits) — без личных данных
             vid, role, stage = str(data.get("vid") or ""), data.get("role"), data.get("stage")
@@ -4568,14 +4591,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if guest:                                # гость регистрируется — его классы и подборки остаются, демо-класс уходит
                 drop_demo(db, guest["id"])
                 tid = guest["id"]
-                db.x("""UPDATE teachers SET name=?, login=?, email=?, pw=?, guest=0, paid=0, until=?, email_ok=?,
+                db.x("""UPDATE teachers SET name=?, login=?, email=?, pw=?, guest=0, paid=0, until=?, email_ok=?, self_signup=1,
                         consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?""",
                      (name, email, email, hash_pw(pw), until, 0 if mail_ready() else 1, LEGAL_VERSION, now, ip, tid))
                 db.x("UPDATE students SET name=? WHERE is_teacher=1 AND teacher_id=?", (name, tid))
                 db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
             else:
-                tid = db.x("""INSERT INTO teachers(name, login, email, pw, invite, is_main, created, until, consent_ver, consent_ts, consent_ip, email_ok)
-                              VALUES(?,?,?,?,?,0,?,?,?,?,?,?)""", (name, email, email, hash_pw(pw), new_invite(db), now, until,
+                tid = db.x("""INSERT INTO teachers(name, login, email, pw, invite, is_main, created, until, consent_ver, consent_ts, consent_ip, email_ok, self_signup)
+                              VALUES(?,?,?,?,?,0,?,?,?,?,?,?,1)""", (name, email, email, hash_pw(pw), new_invite(db), now, until,
                                                                  LEGAL_VERSION, now, ip, 0 if mail_ready() else 1))
             # строго: панель откроется после перехода по ссылке из письма (без настроенной почты подтверждение не требуется)
             send_confirm(db, "t", db.q("SELECT * FROM teachers WHERE id=?", (tid,), one=True))
@@ -6515,6 +6538,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     FROM teachers t WHERE COALESCE(t.guest, 0) = 0 ORDER BY t.is_main DESC, t.name""", (main_id, main_id, now - 7 * 86400, main_id, now - 7 * 86400))]
             ex = one("SELECT COUNT(*) AS n, AVG(test_score) AS avg FROM exams WHERE finished IS NOT NULL")
             return self.send_json({
+                "funnel": {k: funnel_stats(db, k) for k in (7, 30)},
                 "users": st["users"] or 0, "new_today": st["new_today"] or 0, "new_week": st["new_week"] or 0,
                 "online": st["online"] or 0, "seen_today": st["seen_today"] or 0, "course": st["course"] or 0,
                 "teachers": one("SELECT COUNT(*) c FROM teachers WHERE COALESCE(guest, 0) = 0")["c"],
@@ -11685,6 +11709,23 @@ def class_digest(db, cid):
             "top": top[:3], "active": len(members) - len(inactive), "total": len(members),
             "forecast_avg": fc_avg, "forecast_then": round(sum(then_v) / len(then_v)) if then_v else None,
             "weak": weak, "behind": behind}
+
+
+# ---------- воронка главной для учителей (вкладка «Статистика сайта»)
+def funnel_stats(db, days):
+    """За последние days дней: сколько раз открыли /welcome, нажали «Я учитель» / «Я ученик» / «без регистрации»,
+    сколько учителей зарегистрировались сами и сколько из них подтвердили почту. Посетитель — уникальный за день."""
+    since_day = (datetime.now() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    since_ts = datetime.strptime(since_day, "%Y-%m-%d").timestamp()
+    if days >= 30:                       # старше 120 дней воронка не нужна
+        db.x("DELETE FROM funnel WHERE day < ?", ((datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d"),))
+    steps = {r["step"]: r["c"] for r in db.q("SELECT step, COUNT(*) c FROM funnel WHERE day >= ? GROUP BY step", (since_day,))}
+    t = db.q("""SELECT COUNT(*) AS reg, SUM(COALESCE(email_ok, 0)) AS ok,
+                         SUM(EXISTS (SELECT 1 FROM classes c WHERE c.teacher_id = teachers.id AND COALESCE(c.is_demo, 0) = 0)) AS cls
+                  FROM teachers WHERE self_signup = 1 AND COALESCE(guest, 0) = 0 AND created >= ?""", (since_ts,), one=True)
+    return {"days": days, "since": since_day, "welcome": steps.get("welcome", 0), "teacher": steps.get("teacher", 0),
+            "student": steps.get("student", 0), "guest": steps.get("guest", 0),
+            "signup": t["reg"] or 0, "confirmed": t["ok"] or 0, "classes": t["cls"] or 0}
 
 
 # ---------- подтверждение почты: ученику — напоминание на главной, учителю — панель после перехода по ссылке

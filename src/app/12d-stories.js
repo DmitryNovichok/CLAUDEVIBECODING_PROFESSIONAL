@@ -86,6 +86,7 @@
       <h2 class="sto-ttl">${s.title}</h2><p class="sto-txt">${s.text}</p>
       ${last && s.go ? `<button type="button" class="sto-go" data-st="${s.go[1]}">${s.go[0]}</button>` : '<div class="sto-tap"><span>‹ назад</span><span>дальше ›</span></div>'}</div>`;
     ov.classList.toggle('paused', ST.paused);
+    stFitArt(ov);
     ov.querySelector('[data-st="prev"]').disabled = ST.k === 0;
     const isl = ov.querySelector('.sto-island');               // Dynamic Island на миг раскрывается: значок и номер слайда
     ov.querySelector('.sto-isl').textContent = `${s.ico} ${ST.k + 1} из ${n}`;
@@ -95,6 +96,15 @@
     const c = $('#stClock');
     if (c) c.textContent = stClock();
   }
+  /** Картинка слайда — целиком внутри экрана: на невысоком мониторе телефон узкий, картинку уменьшаем по месту. */
+  function stFitArt(ov) {
+    const box = ov.querySelector('.sto-art'), art = ov.querySelector('.sto-art-in');
+    if (!box || !art) return;
+    art.style.scale = '';                    // свойство scale не спорит с анимацией появления (она на transform)
+    const w = art.scrollWidth, h = art.scrollHeight, k = Math.min(1, (box.clientWidth - 4) / w, (box.clientHeight - 4) / h);
+    if (k < 1) art.style.scale = Math.max(0.5, k).toFixed(3);
+  }
+  window.addEventListener('resize', () => { const ov = $('#storiesOv'); if (ov) stFitArt(ov); });
   function stNext() { if (!ST) return; if (ST.k < ST.list.length - 1) stShow(ST.k + 1); else closeStories(); }
   function stPrev() { if (ST) stShow(ST.k - 1); }
   function stPause(on) {

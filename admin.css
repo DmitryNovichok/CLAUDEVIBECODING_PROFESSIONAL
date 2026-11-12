@@ -873,3 +873,16 @@ tr.t-renew td { background: var(--review-soft); }
 .mail-gate-change { margin-top: 12px; text-align: left; }
 .mail-gate-change summary { cursor: pointer; font-weight: 700; color: var(--accent); }
 .mail-gate-change form { margin-top: 10px; }
+
+/* воронка учителей во вкладке «Статистика сайта» */
+.fn { display: grid; gap: 8px; margin: 0 0 22px; }
+.fn-row { display: grid; grid-template-columns: minmax(170px, 230px) 1fr 130px; gap: 14px; align-items: center; }
+.fn-l b { display: block; font-size: 14px; } .fn-l small, .fn-v small { color: var(--muted); font-size: 12px; }
+.fn-bar { height: 26px; border-radius: 8px; background: var(--card-hover); overflow: hidden; }
+.fn-bar i { display: block; height: 100%; border-radius: 8px; background: var(--accent); transition: width .4s; }
+.fn-v { text-align: right; } .fn-v b { display: block; font-size: 18px; } .fn-v small.low { color: var(--weak, #d93b3b); font-weight: 700; }
+.fn-side { margin: 6px 0 0; }
+.fn-sw { display: inline-flex; gap: 6px; margin-left: 10px; vertical-align: middle; }
+.fn-chip { cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; padding: 3px 12px; font: inherit; font-size: 12.5px; font-weight: 600; }
+.fn-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (max-width: 700px) { .fn-row { grid-template-columns: 1fr 90px; } .fn-bar { grid-column: 1 / -1; grid-row: 2; } }

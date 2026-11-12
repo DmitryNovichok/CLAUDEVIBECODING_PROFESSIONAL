@@ -26,6 +26,68 @@
       value: position.map((v, j) => j === i ? m.value : v)
     })));
   }
+  // ---- №15: логическое выражение с параметром A. Клетка x красная — при этом A выражение ложно (контрпример)
+  const labImp = (a, b) => !a || b;
+  const LAB_LOGIC = {
+    div: { name: 'Делимость', expr: '¬ДЕЛ(x, A) → (ДЕЛ(x, 6) → ¬ДЕЛ(x, 4))', ask: 'max', a0: 5, aMax: 60, xMax: 120,
+      note: 'ДЕЛ(x, A) — «x делится на A без остатка». Ищем наибольшее A, при котором нет ни одной красной клетки.',
+      f: (x, a) => labImp(x % a !== 0, labImp(x % 6 === 0, x % 4 !== 0)),
+      parts: (x, a) => [[`ДЕЛ(x, ${a})`, x % a === 0], ['ДЕЛ(x, 6)', x % 6 === 0], ['ДЕЛ(x, 4)', x % 4 === 0]] },
+    bit: { name: 'Биты', expr: '(x & 53 ≠ 0) → ((x & 41 = 0) → (x & A ≠ 0))', ask: 'min', a0: 1, aMax: 63, xMax: 127,
+      note: '& — поразрядная конъюнкция. Наведите на клетку — увидите x в двоичной записи. Ищем наименьшее A без красных клеток.',
+      f: (x, a) => labImp((x & 53) !== 0, labImp((x & 41) === 0, (x & a) !== 0)),
+      parts: (x, a) => [['x & 53 ≠ 0', (x & 53) !== 0], ['x & 41 = 0', (x & 41) === 0], [`x & ${a} ≠ 0`, (x & a) !== 0]] },
+    seg: { name: 'Отрезки', expr: '((x ∈ P) ∧ ¬(x ∈ Q)) → (x ∈ A)', ask: 'len', P: [10, 35], Q: [25, 50], xMax: 60,
+      note: 'P = [10; 35], Q = [25; 50], x — любое число, не только целое. Подберите концы отрезка A так, чтобы красных точек не осталось, и найдите наименьшую длину A.',
+      f: (x, a, b) => labImp(x >= 10 && x <= 35 && !(x >= 25 && x <= 50), x >= a && x <= b) },
+  };
+  /** Ответ к модели №15 — тем же перебором, что в уроке курса (x — с запасом). */
+  function labLogicAnswer(kind) {
+    const m = LAB_LOGIC[kind];
+    if (kind === 'seg') {
+      const xs = Array.from({ length: 241 }, (_, i) => i / 4);
+      let best = Infinity;
+      for (let a = 0; a <= 60; a++) for (let b = a; b <= 60; b++) if (b - a < best && xs.every(x => m.f(x, a, b))) best = b - a;
+      return best;
+    }
+    const ok = a => { for (let x = 1; x <= 2000; x++) if (!m.f(x, a)) return false; return true; };
+    if (m.ask === 'min') { for (let a = 1; a <= 1000; a++) if (ok(a)) return a; return null; }
+    let best = null; for (let a = 1; a <= 1000; a++) if (ok(a)) best = a; return best;
+  }
+
+  // ---- №23: ациклический граф. Значение в вершине — ответ «отсюда до конца»: количество путей, кратчайший или самый длинный путь
+  const LAB_G = {
+    v: { A: [0, 1], B: [1, 0], D: [1, 2], C: [2, 1], E: [3, 0], F: [3, 2], G: [4, 1], H: [5, 1] },
+    e: [['A', 'B', 3], ['A', 'C', 5], ['A', 'D', 2], ['B', 'C', 1], ['B', 'E', 4], ['D', 'C', 2], ['D', 'F', 7], ['C', 'E', 2],
+        ['C', 'F', 6], ['E', 'G', 3], ['E', 'H', 8], ['F', 'G', 1], ['F', 'H', 2], ['G', 'H', 4]],
+    order: ['A', 'B', 'D', 'C', 'E', 'F', 'G', 'H'],          // топологический порядок: стрелки идут только вперёд
+  };
+  /** Значения «из вершины до end» в обратном топологическом порядке; banned — вершины, через которые нельзя. */
+  function labGraphTo(kind, end, banned) {
+    const val = {}, next = {}, steps = [];
+    for (const v of [...LAB_G.order].reverse()) {
+      if (banned.has(v)) { val[v] = null; steps.push(v); continue; }
+      if (v === end) { val[v] = kind === 'count' ? 1 : 0; steps.push(v); continue; }
+      let best = null;
+      for (const [a, b, w] of LAB_G.e) {
+        if (a !== v || val[b] == null || (kind === 'count' && val[b] === 0)) continue;
+        if (kind === 'count') best = (best || 0) + val[b];
+        else { const c = w + val[b]; if (best == null || (kind === 'short' ? c < best : c > best)) { best = c; next[v] = b; } }
+      }
+      val[v] = kind === 'count' ? best || 0 : best;
+      steps.push(v);
+    }
+    return { val, next, steps };
+  }
+  /** Ответ: из start в end, через via (если задана), в обход banned. Для min/max — сам путь. */
+  function labGraphSolve(kind, start, end, banned, via) {
+    const seg = (a, b) => { const r = labGraphTo(kind, b, banned); const path = [a]; if (kind !== 'count' && r.val[a] != null) while (path[path.length - 1] !== b) path.push(r.next[path[path.length - 1]]); return { r, v: r.val[a], path }; };
+    if (!via || via === start || via === end) { const s1 = seg(start, end); return { answer: s1.v, path: s1.path, table: s1.r }; }
+    const s1 = seg(start, via), s2 = seg(via, end);
+    if (s1.v == null || s2.v == null || (kind === 'count' && (!s1.v || !s2.v))) return { answer: kind === 'count' ? 0 : null, path: [], table: s2.r, parts: [s1.v, s2.v] };
+    return { answer: kind === 'count' ? s1.v * s2.v : s1.v + s2.v, path: [...s1.path, ...s2.path.slice(1)], table: s2.r, parts: [s1.v, s2.v] };
+  }
+
   let LAB_OK = false, labLoadId = 0;
   function labLock(configured, view) {
     trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатории — по паролю</h2>
@@ -46,7 +108,9 @@
   };
   const LAB = { view: '', mode: 'net', worker: null, timeout: null, play: null, running: false, result: null, index: 0,
     code: '', stdin: '', owner: null, net: { ip: '192.168.1.130', prefix: 26 }, picture: { w: 640, h: 480, depth: 8 },
-    context: null, bps: new Set(), seen: null, game: { start: 17, second: 29, heaps: 2, target: 133, add: 4, factor: 2, path: [[17, 29]] } };
+    context: null, bps: new Set(), seen: null, game: { start: 17, second: 29, heaps: 2, target: 133, add: 4, factor: 2, path: [[17, 29]] },
+    logic: { kind: 'div', a: 5, segA: 5, segB: 20 },
+    graph: { kind: 'count', start: 'A', end: 'H', via: '', banned: new Set(), shown: 99 } };
   const labActive = () => courseShown && pageKind === 'lab' && !!$('#labRoot');
   const labFmt = n => n.toLocaleString('ru-RU');
   const labIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></svg>';
@@ -112,7 +176,7 @@
     window.scrollTo(0, 0);
   }
   function labTasksHtml() {
-    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['net', '№ 10 · IP-сети'], ['image', '№ 7 · Изображения'], ['game', '№ 19–21 · Игры']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по проекту ФИПИ ЕГЭ-2027. IP-сети в ЕГЭ-2026 — №13. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
+    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['image', '№ 7 · Изображения'], ['net', '№ 10 · IP-сети'], ['logic', '№ 15 · Логика'], ['game', '№ 19–21 · Игры'], ['graph', '№ 23 · Графы']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по проекту ФИПИ ЕГЭ-2027. IP-сети в ЕГЭ-2026 — №13. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
   }
   function labPrediction(question) {
     return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
@@ -136,6 +200,27 @@
         <p class="lab-note">Модель без сжатия, заголовков и выравнивания строк. Биты упакованы подряд; итог округляется вверх до целого байта. Иллюстрация показывает изменение палитры, её размер на экране условный.</p>
         ${labPrediction('Сколько байт занимает это изображение?')}</section>`;
       labUpdateImage();
+    } else if (LAB.mode === 'logic') {
+      const L = LAB.logic, m = LAB_LOGIC[L.kind];
+      box.innerHTML = `<section class="lab-panel"><h2>При каком A выражение истинно для любого x?</h2>
+        <div class="lab-tabs lab-subtabs">${Object.entries(LAB_LOGIC).map(([k, x]) => `<button type="button" class="btn${k === L.kind ? ' primary' : ''}" data-lab-logic="${k}">${x.name}</button>`).join('')}</div>
+        <p class="lab-expr">${m.expr}</p><p class="lab-note">${m.note}</p>
+        <div class="lab-fields">${L.kind === 'seg'
+          ? `<label>Начало A: <span id="labSegALabel">${L.segA}</span><input type="range" id="labSegA" min="0" max="60" value="${L.segA}"></label><label>Конец A: <span id="labSegBLabel">${L.segB}</span><input type="range" id="labSegB" min="0" max="60" value="${L.segB}"></label>`
+          : `<label>A = <span id="labALabel">${L.a}</span><input type="range" id="labA" min="1" max="${m.aMax}" value="${L.a}"></label>`}</div>
+        <div id="labLogicResult" aria-live="polite"></div>
+        ${labPrediction(L.kind === 'seg' ? 'Какова наименьшая возможная длина отрезка A?' : `Какое ${m.ask === 'max' ? 'наибольшее' : 'наименьшее'} натуральное A подходит?`)}</section>`;
+      labUpdateLogic();
+    } else if (LAB.mode === 'graph') {
+      const G = LAB.graph, opt = sel => LAB_G.order.map(v => `<option${v === sel ? ' selected' : ''}>${v}</option>`).join('');
+      box.innerHTML = `<section class="lab-panel"><h2>Как программа считает пути в графе</h2>
+        <p class="lab-note">Граф ациклический: стрелки ведут только вперёд. Число в вершине — ответ «отсюда до конца». Программа из урока считает его так же: от конечной вершины назад, складывая (или выбирая min / max) ответы соседей. Щёлкните вершину: первый щелчок — «обязательно через неё», второй — «запрещена», третий — как было.</p>
+        <div class="lab-fields"><label>Вопрос<select class="inp" id="labGKind">${[['count', 'Сколько путей'], ['short', 'Кратчайший путь'], ['long', 'Самый длинный путь']].map(([k, t]) => `<option value="${k}"${k === G.kind ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label>Откуда<select class="inp" id="labGStart">${opt(G.start)}</select></label><label>Куда<select class="inp" id="labGEnd">${opt(G.end)}</select></label>
+          <button class="btn" type="button" data-lab-action="graph-step">По шагам от конца</button><button class="btn ghost" type="button" data-lab-action="graph-reset">Сбросить</button></div>
+        <div id="labGraphResult" aria-live="polite"></div>
+        ${labPrediction('Чему равен ответ для выбранных вершин? Сначала посчитайте сами, потом нажмите «По шагам от конца».')}</section>`;
+      labUpdateGraph();
     } else {
       const g = LAB.game;
       box.innerHTML = `<section class="lab-panel"><h2>Исследуй ходы Пети и Вани</h2><p class="lab-note">Одна или две кучи. Побеждает тот, кто первым доведёт общее число камней до цели. В демоверсии-2027: две кучи, +4 или ×2, цель 133. Просмотр ходов сам по себе не доказывает выигрышную стратегию.</p>
@@ -144,6 +229,57 @@
         <p class="lab-note">Выбери ход, чтобы перейти к новой позиции. Под каждым ходом показаны возможные ответы соперника.</p></section>`;
       labUpdateGame();
     }
+  }
+  function labUpdateLogic() {
+    const L = LAB.logic, m = LAB_LOGIC[L.kind], box = $('#labLogicResult'); if (!box) return;
+    if (L.kind === 'seg') {
+      L.segA = +$('#labSegA').value; L.segB = +$('#labSegB').value;
+      if (L.segB < L.segA) { L.segB = L.segA; $('#labSegB').value = L.segB; }
+      $('#labSegALabel').textContent = L.segA; $('#labSegBLabel').textContent = L.segB;
+      const xs = Array.from({ length: 241 }, (_, i) => i / 4), bad = xs.filter(x => !m.f(x, L.segA, L.segB));
+      const pos = x => (x / 60 * 100).toFixed(2) + '%', bar = (a, b, cls, t) => `<i class="${cls}" style="left:${pos(a)};width:${pos(b - a)}"><span>${t}</span></i>`;
+      box.innerHTML = `<div class="lab-line">${bar(10, 35, 'p', 'P')}${bar(25, 50, 'q', 'Q')}${bar(L.segA, Math.max(L.segB, L.segA + 0.4), 'a', 'A')}
+          ${bad.map(x => `<b style="left:${pos(x)}" title="x = ${String(x).replace('.', ',')}"></b>`).join('')}
+          <div class="lab-ticks">${[0, 10, 20, 30, 40, 50, 60].map(t => `<span style="left:${pos(t)}">${t}</span>`).join('')}</div></div>
+        <dl class="lab-facts"><div><dt>Отрезок A</dt><dd>[${L.segA}; ${L.segB}], длина ${L.segB - L.segA}</dd></div>
+          <div><dt>Контрпримеров</dt><dd class="${bad.length ? 'lab-bad' : 'lab-good'}">${bad.length ? `${bad.length} точек, например x = ${String(bad[0]).replace('.', ',')}` : 'нет — выражение истинно при любом x'}</dd></div></dl>`;
+      return;
+    }
+    L.a = +$('#labA').value; $('#labALabel').textContent = L.a;
+    const xs = Array.from({ length: m.xMax }, (_, i) => i + 1), bad = xs.filter(x => !m.f(x, L.a));
+    const why = bad.length ? m.parts(bad[0], L.a).map(([t, v]) => `<span class="${v ? 'lab-good' : 'lab-bad'}">${t}: ${v ? 'да' : 'нет'}</span>`).join(' · ') : '';
+    box.innerHTML = `<div class="lab-xgrid">${xs.map(x => `<i class="${m.f(x, L.a) ? 'ok' : 'no'}" title="x = ${x}${L.kind === 'bit' ? ' = ' + x.toString(2).padStart(7, '0') + '₂' : ''}">${x}</i>`).join('')}</div>
+      <dl class="lab-facts"><div><dt>Проверено x</dt><dd>от 1 до ${m.xMax}</dd></div>
+        <div><dt>Контрпримеров</dt><dd class="${bad.length ? 'lab-bad' : 'lab-good'}">${bad.length ? `${bad.length}, первый x = ${bad[0]}${L.kind === 'bit' ? ' = ' + bad[0].toString(2) + '₂' : ''}` : 'нет на этом отрезке'}</dd></div></dl>
+      ${bad.length ? `<p class="lab-note">Почему при x = ${bad[0]} выражение ложно: ${why}. Импликация ложна, только когда слева «да», а справа «нет».</p>`
+        : '<p class="lab-note">Красных клеток нет. Но «при любом x» — это бесконечно много чисел: программа в уроке проверяет x до нескольких тысяч, а здесь видна лишь часть.</p>'}`;
+  }
+  function labUpdateGraph() {
+    const G = LAB.graph, box = $('#labGraphResult'); if (!box) return;
+    G.kind = $('#labGKind').value; G.start = $('#labGStart').value; G.end = $('#labGEnd').value;
+    const r = labGraphSolve(G.kind, G.start, G.end, G.banned, G.via), t = r.table;
+    const shown = new Set(t.steps.slice(0, G.shown)), onPath = new Set(G.kind === 'count' ? [] : r.path);
+    const edgeOn = (a, b) => { const i = r.path.indexOf(a); return i >= 0 && r.path[i + 1] === b; };
+    const X = c => 40 + c * 108, Y = r_ => 52 + r_ * 96, fmt = v => v == null ? '∞' : v;
+    const cur = G.shown < t.steps.length ? t.steps[G.shown - 1] : null;
+    const svg = `<svg class="lab-graph" viewBox="0 0 620 300" role="img" aria-label="Граф с вершинами A–H">
+      <defs><marker id="labArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+      ${LAB_G.e.map(([a, b, w]) => { const [x1, y1] = [X(LAB_G.v[a][0]), Y(LAB_G.v[a][1])], [x2, y2] = [X(LAB_G.v[b][0]), Y(LAB_G.v[b][1])];
+        const k = 24 / Math.hypot(x2 - x1, y2 - y1), sx = x1 + (x2 - x1) * k, sy = y1 + (y2 - y1) * k, ex = x2 - (x2 - x1) * k, ey = y2 - (y2 - y1) * k;
+        const dim = G.banned.has(a) || G.banned.has(b);
+        return `<g class="e${edgeOn(a, b) ? ' on' : ''}${dim ? ' dim' : ''}"><line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" marker-end="url(#labArr)"/>${G.kind === 'count' ? '' : `<text x="${(sx + ex) / 2}" y="${(sy + ey) / 2 - 5}">${w}</text>`}</g>`; }).join('')}
+      ${LAB_G.order.map(v => { const [c, r_] = LAB_G.v[v], cls = [G.banned.has(v) ? 'ban' : '', v === G.via ? 'via' : '', v === G.start || v === G.end ? 'end' : '', onPath.has(v) ? 'on' : '', v === cur ? 'cur' : ''].filter(Boolean).join(' ');
+        return `<g class="v ${cls}" data-lab-gv="${v}" tabindex="0" role="button" aria-label="Вершина ${v}"><circle cx="${X(c)}" cy="${Y(r_)}" r="22"/><text x="${X(c)}" y="${Y(r_) + 6}">${v}</text>
+          ${shown.has(v) ? `<text class="val" x="${X(c)}" y="${Y(r_) + (r_ === 0 ? -30 : 42)}">${fmt(t.val[v])}</text>` : ''}</g>`; }).join('')}</svg>`;
+    const kindTxt = { count: 'сколько путей ведёт отсюда в конец', short: 'длина кратчайшего пути отсюда до конца', long: 'длина самого длинного пути отсюда до конца' }[G.kind];
+    const how = G.kind === 'count' ? 'в конце пути — 1, иначе сумма чисел соседей' : `в конце пути — 0, иначе ${G.kind === 'short' ? 'min' : 'max'}(вес ребра + число соседа)`;
+    const allShown = G.shown >= t.steps.length;
+    box.innerHTML = svg + `<dl class="lab-facts"><div><dt>Число в вершине</dt><dd class="lab-small">${kindTxt}; ${how}</dd></div>
+      <div><dt>Ответ ${G.start} → ${G.end}${G.via ? ` через ${G.via}` : ''}${G.banned.size ? ` в обход ${[...G.banned].join(', ')}` : ''}</dt>
+        <dd>${allShown ? (r.answer == null ? 'пути нет' : `${r.answer}${r.parts ? ` = ${r.parts[0]} ${G.kind === 'count' ? '×' : '+'} ${r.parts[1]}` : ''}`) : '…'}</dd></div></dl>
+      ${allShown && G.kind !== 'count' && r.path.length > 1 ? `<p class="lab-path">Путь: ${r.path.join(' → ')}</p>` : ''}
+      ${G.via && allShown ? `<p class="lab-note">Через вершину ${G.via} путь собирается из двух кусков: ${G.start} → ${G.via} и ${G.via} → ${G.end}. Количества путей ${G.kind === 'count' ? 'перемножаются' : '— нет, тут длины складываются'}. Числа на графе показаны для второго куска.</p>` : ''}
+      ${!allShown ? `<p class="lab-note">Шаг ${G.shown} из ${t.steps.length}: считаем вершину <b>${cur}</b>. Порядок — от конца к началу, чтобы у соседей ответ уже был.</p>` : ''}`;
   }
   function labResetFeedback() { if ($('#labFeedback')) $('#labFeedback').textContent = ''; }
   function labUpdateNetwork() {
@@ -336,6 +472,23 @@
       LAB.play = setInterval(() => { if (!labActive() || LAB.index >= LAB.result.steps.length - 1) { labPause(); return; } labStep(1); }, 850);
     }
     if (a === 'game-back') { if (LAB.game.path.length > 1) LAB.game.path.pop(); labUpdateGame(); }
+    if (a === 'graph-step') {                     // первый щелчок — только конечная вершина, дальше по одной к началу
+      const G = LAB.graph, n = labGraphTo(G.kind, G.end, G.banned).steps.length;
+      G.shown = G.shown >= n ? 1 : G.shown + 1; labUpdateGraph();
+      const b = trainerEl.querySelector('[data-lab-action="graph-step"]'); if (b) b.textContent = G.shown >= n ? 'По шагам от конца' : 'Следующий шаг →';
+    }
+    if (a === 'graph-reset') { Object.assign(LAB.graph, { via: '', banned: new Set(), shown: 99 }); labRenderModel(); }
+    const lg = e.target.closest('[data-lab-logic]');
+    if (lg) { LAB.logic.kind = lg.dataset.labLogic; labRenderModel(); return; }
+    const gv = e.target.closest('[data-lab-gv]');
+    if (gv) {                                     // обычная → обязательная → запрещённая → обычная
+      const G = LAB.graph, v = gv.dataset.labGv;
+      if (v === G.start || v === G.end) return;
+      if (G.banned.has(v)) G.banned.delete(v);
+      else if (G.via === v) { G.via = ''; G.banned.add(v); }
+      else G.via = v;
+      labResetFeedback(); labUpdateGraph(); return;
+    }
     if (a === 'game-reset') {
       const g = { start: +$('#labStart').value, second: +$('#labSecond').value, heaps: +$('#labHeaps').value, target: +$('#labTarget').value, add: +$('#labAdd').value, factor: +$('#labFactor').value };
       try { const pos = g.heaps === 2 ? [g.start, g.second] : [g.start]; labGamePositionMoves(pos, g.target, g.add, g.factor); if (pos.reduce((a, b) => a + b, 0) >= g.target) throw Error('Сумма камней в начале должна быть меньше цели.'); LAB.game = { ...g, path: [pos] }; labUpdateGame(); }
@@ -349,9 +502,15 @@
     if (id === 'labCode') labPaintEditor();
     if (id === 'labIp' || id === 'labPrefix') labUpdateNetwork();
     if (['labWidth', 'labHeight', 'labDepth'].includes(id)) labUpdateImage();
+    if (['labA', 'labSegA', 'labSegB'].includes(id)) { labResetFeedback(); labUpdateLogic(); }
     if (id === 'labStep') { labPause(); LAB.index = +e.target.value; labRenderStep(); }
   });
   trainerEl.addEventListener('change', e => {
+    if (labActive() && ['labGKind', 'labGStart', 'labGEnd'].includes(e.target.id)) {
+      const G = LAB.graph; G.shown = 99;
+      if (e.target.id !== 'labGKind') { G.via = ''; G.banned.clear(); }
+      labResetFeedback(); labUpdateGraph(); return;
+    }
     if (!labActive() || e.target.id !== 'labExample' || !LAB_EXAMPLES[e.target.value]) return;
     const code = LAB_EXAMPLES[e.target.value][1];
     if (LAB.code && LAB.code !== code && !confirm('Заменить текущий код выбранным примером?')) { e.target.value = ''; return; }
@@ -361,8 +520,23 @@
     if (!labActive() || e.target.id !== 'labPredict') return;
     e.preventDefault();
     try {
-      const expected = LAB.mode === 'net' ? labNetwork(LAB.net.ip, LAB.net.prefix).count : labImageSize(LAB.picture.w, LAB.picture.h, LAB.picture.depth).bytes;
       const answer = $('#labGuess').value.trim().replace(/\s/g, '');
+      if (LAB.mode === 'logic' || LAB.mode === 'graph') {
+        let expected, why;
+        if (LAB.mode === 'logic') {
+          const k = LAB.logic.kind, m = LAB_LOGIC[k]; expected = labLogicAnswer(k);
+          why = k === 'seg' ? 'Отрезок A должен накрыть [10; 25): точки P, которых нет в Q. Длина 25 − 10 = 15.'
+            : `Перебор A с проверкой x до 2000 — как программа в уроке «Курс ЕГЭ · №15» (${m.ask === 'max' ? 'последнее' : 'первое'} подходящее A).`;
+        } else {
+          const G = LAB.graph, r = labGraphSolve(G.kind, G.start, G.end, G.banned, G.via); expected = r.answer;
+          G.shown = 99; labUpdateGraph();
+          why = expected == null ? 'Пути нет.' : G.kind === 'count' ? 'Числа на графе — сколько путей из каждой вершины.' : `Путь: ${r.path.join(' → ')}.`;
+        }
+        const right = /^-?\d+$/.test(answer) && expected != null && +answer === expected;
+        $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} Ответ: ${expected == null ? 'пути нет' : expected}. ${why}`;
+        return;
+      }
+      const expected = LAB.mode === 'net' ? labNetwork(LAB.net.ip, LAB.net.prefix).count : labImageSize(LAB.picture.w, LAB.picture.h, LAB.picture.depth).bytes;
       const right = /^\d+$/.test(answer) && +answer === expected;
       $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} ${LAB.mode === 'net' ? `2^(32 − ${LAB.net.prefix})` : `Округляем вверх: ${labFmt(LAB.picture.w)} × ${labFmt(LAB.picture.h)} × ${LAB.picture.depth} / 8`} = ${labFmt(expected)}${LAB.mode === 'net' ? ' адресов.' : ' байт.'}`;
     } catch (err) { $('#labFeedback').textContent = err.message; }

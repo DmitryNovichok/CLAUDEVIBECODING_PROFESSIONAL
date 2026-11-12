@@ -3122,7 +3122,9 @@ body.sto-open { overflow: hidden; }
   .sto-bezel, .sto-screen { padding: 0; border-radius: 0; }
   .sto-scr { padding: calc(env(safe-area-inset-top, 0px) + 12px) 18px calc(env(safe-area-inset-bottom, 0px) + 18px); }
 }
-@media (max-height: 700px) { .sto-art-in { transform: scale(.82); } .sto-ttl { font-size: 25px; } .sto-txt { font-size: 14.5px; } }
+@media (max-height: 700px) { .sto-ttl { font-size: 25px; } .sto-txt { font-size: 14.5px; } }
+.sto-art { overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.sto-art-in { width: max-content; transform-origin: center; }   /* по ширине картинки: тогда её можно уменьшить ровно по центру */
 @media (prefers-reduced-motion: reduce) { .sto-art-in, .sto-ttl, .sto-phone, .sto-up .ic, .sto-bonus .bolt, .sto-cong .conf i, .sto-cong .cap, .sto-hw-duo img, .sto-hw-duo .bat, .sto-hw-one .hero, .sto-hw-save .coin, .sto-hw-themes .tw-w, .sto-hw-themes .tw-bat, .sto-sw .sw-s, .sto-tg .cur, .sto-tg path, .sto-rec .rc-i, .sto-duel .dl-vs b { animation: none; } .sto-island { transition: none; } }
 
 /* ---- «🎲 Случайный подарок» как кейс (12e-case.js): коробка трясётся → крышка слетает → лента → лучи и искры цвета редкости.
@@ -3585,6 +3587,30 @@ body.lab-open .trainer { max-width: 1260px; }
 .lab-moves p { font-size: 13px; color: var(--muted); }
 .lab-moves .btn { width: 100%; white-space: normal; }
 .lab-code-tools label { flex: 1 1 200px; max-width: 300px; }
+/* лаборатории №15 (логика) и №23 (графы) */
+.lab-subtabs { margin: 0 0 6px; }
+.lab-expr { margin: 8px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); font: 700 16px/1.5 var(--mono); overflow-wrap: anywhere; }
+.lab-good { color: var(--good); } .lab-bad { color: var(--weak); }
+.lab-small { font: 600 14px/1.5 var(--font) !important; }
+.lab-xgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 4px; margin: 16px 0; }
+.lab-xgrid i { display: grid; place-items: center; height: 30px; border-radius: 6px; font: 700 12px var(--mono); font-style: normal; cursor: default; }
+.lab-xgrid .ok { background: color-mix(in srgb, var(--good) 18%, var(--card)); color: var(--good); }
+.lab-xgrid .no { background: var(--weak); color: #fff; }
+.lab-line { position: relative; height: 112px; margin: 20px 6px 8px; border-bottom: 2px solid var(--border-strong); }
+.lab-line > i { position: absolute; height: 22px; border-radius: 6px; font-style: normal; font: 800 12px/22px var(--font); color: #fff; padding-left: 6px; overflow: hidden; }
+.lab-line > i.p { top: 6px; background: #1cb0f6; } .lab-line > i.q { top: 34px; background: #a560e8; } .lab-line > i.a { top: 62px; background: var(--good); }
+.lab-line > b { position: absolute; bottom: -5px; width: 4px; height: 10px; margin-left: -2px; border-radius: 2px; background: var(--weak); }
+.lab-ticks span { position: absolute; top: 116px; transform: translateX(-50%); font: 12px var(--mono); color: var(--muted); }
+.lab-graph { display: block; width: 100%; max-width: 760px; margin: 12px auto 6px; color: var(--muted); }
+.lab-graph .e line { stroke: currentColor; stroke-width: 2; } .lab-graph .e text { font: 700 13px var(--mono); fill: var(--muted); text-anchor: middle; }
+.lab-graph .e.on { color: var(--good); } .lab-graph .e.on line { stroke-width: 3.5; } .lab-graph .e.dim { opacity: .25; }
+.lab-graph .v { cursor: pointer; } .lab-graph .v circle { fill: var(--card); stroke: var(--border-strong); stroke-width: 2.5; }
+.lab-graph .v text { font: 800 17px var(--font); fill: var(--text); text-anchor: middle; pointer-events: none; }
+.lab-graph .v .val { font: 800 15px var(--mono); fill: var(--accent-text); }
+.lab-graph .v.end circle { stroke: var(--accent); stroke-width: 3.5; } .lab-graph .v.on circle { fill: color-mix(in srgb, var(--good) 22%, var(--card)); stroke: var(--good); }
+.lab-graph .v.via circle { fill: #ffd84d; stroke: #d9a400; } .lab-graph .v.ban circle { fill: color-mix(in srgb, var(--weak) 25%, var(--card)); stroke: var(--weak); stroke-dasharray: 5 4; }
+.lab-graph .v.cur circle { stroke: #ff9600; stroke-width: 4; }
+.lab-graph .v:focus { outline: none; } .lab-graph .v:focus-visible circle { stroke: var(--accent); stroke-width: 4; }
 .lab-status { padding: 12px 16px; border-radius: 10px; background: var(--subtle); border: 1px solid var(--border); font-size: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .lab-editor #labCode { resize: vertical; min-height: 330px; line-height: 1.75; font: 14px/1.75 var(--mono); tab-size: 4; white-space: pre; overflow: auto; }
 .lab-stdin { margin-top: 18px; }
@@ -4020,6 +4046,13 @@ body.hubnav.hub-on .me-box { order: 3; }
 .ob-slide.on .ob-emo div { opacity: 1; transform: none; }
 .ob-emo span { font-size: 30px; } .ob-emo b { font-size: 15px; font-weight: 900; color: #1d2433; line-height: 1.25; }
 .ob-txt { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 40px 38px; }
+/* невысокий экран ноутбука: слайд не тянется на 470 px, текст при нехватке места прокручивается, а не наезжает на кнопки */
+@media (min-width: 761px) and (max-height: 640px) {
+  .ob-track { grid-template-rows: minmax(0, 1fr); } .ob-slide { min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .ob-txt { min-height: 0; overflow-y: auto; justify-content: flex-start; padding: 26px 30px; gap: 9px; }
+  .ob-txt h2 { font-size: 26px; } .ob-txt p { font-size: 15px; line-height: 1.45; } .ob-txt li { font-size: 14.5px; } .ob-vis { padding: 22px; }
+  .ob-shot img { max-height: 300px; } .ob-emo { gap: 8px; } .ob-emo div { padding: 10px 14px; } .ob-emo span { font-size: 24px; }
+}
 .ob-kick { font-weight: 900; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #46a302; }
 .c-b .ob-kick { color: #1899d6; } .c-v .ob-kick { color: #7c3aed; } .c-o .ob-kick { color: #e86a00; } .c-r .ob-kick { color: #d92b3a; } .c-n .ob-kick { color: #2c4372; }
 .ob-txt h2 { margin: 0; font-size: 32px; line-height: 1.12; font-weight: 1000; letter-spacing: -.01em; }
