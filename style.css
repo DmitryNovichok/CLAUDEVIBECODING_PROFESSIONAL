@@ -807,6 +807,13 @@ h3.fm-sub { font-size: 15px; color: var(--text); font-weight: 700; margin: 16px 
 .py-files code { font: 12px var(--mono); color: var(--text); background: var(--code-bg); padding: 1px 5px; margin-right: 4px; }
 .py-editor { flex: 1 1 52%; min-height: 160px; display: flex; background: var(--py-bg); border: 2px solid var(--border-strong); }
 .py-editor:focus-within { border-color: var(--good); }
+.py-editor.sized { flex: 0 0 var(--py-ed-h); }       /* высоту задали ползунком — вывод занимает остальное */
+.py-split { flex: 0 0 12px; margin: -6px 0 -4px; position: relative; cursor: ns-resize; touch-action: none; z-index: 2; }
+.py-split::before { content: ""; position: absolute; left: 50%; top: 4px; width: 56px; height: 4px; margin-left: -28px; border-radius: 3px;
+  background: var(--border-strong); transition: background .15s, width .15s, margin .15s; }
+.py-split:hover::before, .py-split.on::before, .py-split:focus-visible::before { background: var(--accent); width: 96px; margin-left: -48px; }
+.py-split:focus-visible { outline: none; }
+body.py-split-drag, body.py-split-drag * { cursor: ns-resize !important; user-select: none !important; }
 .py-gutter { margin: 0; padding: 10px 8px 10px 10px; min-width: 38px; text-align: right; color: var(--faint); user-select: none;
   font: 13.5px/1.5 var(--mono); overflow: hidden; border-right: 1px solid var(--border); }
 .py-code { flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: transparent; color: var(--text);
