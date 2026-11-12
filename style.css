@@ -2947,6 +2947,27 @@ body.sto-open { overflow: hidden; }
 .sto-rec .rc-h { font-weight: 900; font-size: 15px; }
 .sto-rec .rc-i { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 8px 10px; border-radius: 12px; background: #eef7f2; animation: stIn .4s ease-out both; animation-delay: calc(var(--i) * .15s); }
 .sto-rec .rc-i b { font-size: 13px; } .sto-rec .rc-i span { grid-row: 2; font-size: 12px; font-weight: 800; color: #5a6b7a; } .sto-rec .rc-i em { grid-row: 1 / 3; grid-column: 2; font-style: normal; color: #2fbf71; }
+/* истории: исправление ошибок, отладчик, уроки курса */
+.sto-bug { display: grid; justify-items: center; gap: 12px; }
+.sto-bug .bg-code { display: grid; gap: 8px; width: 240px; padding: 14px 12px; border-radius: 16px; background: #1e2430; box-shadow: 0 12px 26px rgba(0, 0, 0, .3); font: 800 12px/1 var(--mono); }
+.sto-bug .ln { display: block; height: 8px; border-radius: 4px; background: #5c6b82; font-style: normal; } .sto-bug .w1 { width: 70%; } .sto-bug .w2 { width: 88%; } .sto-bug .w3 { width: 50%; }
+.sto-bug .ln.bad, .sto-bug .ln.fix { height: auto; width: auto; padding: 5px 8px; }
+.sto-bug .ln.bad { background: rgba(255, 75, 75, .22); color: #ff9a9a; } .sto-bug .ln.fix { background: rgba(88, 204, 2, .22); color: #a6f06b; animation: stIn .5s ease-out .5s both; }
+.sto-bug .bg-tests { display: flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 999px; background: #fff; color: #2a7a12; font-size: 13px; }
+.sto-bug .bg-tests span { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #58cc02; color: #fff; font-weight: 900; font-size: 12px; animation: stIn .3s ease-out both; animation-delay: calc(.6s + var(--i) * .15s); }
+.sto-bug .bg-tests b { margin-left: 4px; font-weight: 900; }
+.sto-dbg { display: grid; gap: 4px; width: 250px; padding: 12px 10px; border-radius: 16px; background: #2b2b2b; color: #a9b7c6; box-shadow: 0 12px 26px rgba(0, 0, 0, .3); font: 700 12.5px/1.2 var(--mono); }
+.sto-dbg .db-row { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 6px; }
+.sto-dbg .db-row u { text-decoration: none; text-align: center; color: #606366; } .sto-dbg code { font: inherit; white-space: nowrap; } .sto-dbg em { font-style: italic; font-size: 11px; color: #7a8a99; }
+.sto-dbg .bp u { color: #ff5c5c; } .sto-dbg .bp { background: rgba(255, 92, 92, .16); }
+.sto-dbg .cur { background: #2d6099; color: #fff; } .sto-dbg .cur u, .sto-dbg .cur em { color: #cfe4ff; }
+.sto-dbg .db-keys { display: flex; justify-content: center; gap: 8px; margin-top: 6px; } .sto-dbg kbd { padding: 3px 9px; border-radius: 7px; background: #3c3f41; color: #fff; font: 800 11px var(--font); box-shadow: 0 2px 0 #1e1f20; }
+.sto-les { display: grid; justify-items: center; gap: 14px; }
+.sto-les .ls-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.sto-les .ls-nums b { display: grid; place-items: center; width: 74px; height: 58px; border-radius: 16px; background: #fff; color: #14806f; font-size: 19px; font-weight: 900; box-shadow: 0 4px 0 rgba(0, 0, 0, .16);
+  animation: stIn .4s ease-out both; animation-delay: calc(var(--i) * .1s); }
+.sto-les .ls-tag { padding: 5px 14px; border-radius: 999px; background: rgba(255, 255, 255, .2); font-size: 13px; font-weight: 900; }
+.sto-scr.s5 .sto-go { color: #1f6f8b; }
 .sto-duel { display: grid; justify-items: center; gap: 14px; }
 .sto-duel .dl-vs { display: flex; align-items: center; gap: 14px; font-size: 58px; } .sto-duel .dl-vs b { font-size: 26px; font-weight: 900; padding: 6px 10px; border-radius: 12px; background: rgba(255, 255, 255, .22); animation: stBob 1.8s ease-in-out infinite; }
 .sto-duel .dl-pr { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
