@@ -138,7 +138,11 @@ body.app-loading .sidebar, body.app-loading .topbar { display: none !important; 
 .who-name b { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .who .link-btn { font-size: 12px; flex: 0 0 auto; }
 
-.modal.login-modal { align-items: center; background: var(--overlay-strong); backdrop-filter: blur(6px); }
+.modal.login-modal { background: var(--overlay-strong); backdrop-filter: blur(6px); }
+/* по центру, но без обрезки сверху: на невысоком экране (ноутбук с панелью закладок, масштаб 125%) окно
+   начинается у верхнего края и прокручивается целиком — align-items: center уводил его верх за край экрана */
+.modal.login-modal > .modal-panel, #pwModal > .modal-panel { margin: auto 0; }
+@media (max-height: 760px) { .modal.login-modal, #pwModal { padding-top: 16px; padding-bottom: 16px; } }
 .login-panel { max-width: 460px; }
 .login-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .login-form .inp { flex: 1 1 240px; font-family: inherit; }
@@ -602,7 +606,6 @@ body.app-loading .sidebar, body.app-loading .topbar { display: none !important; 
 .login-err.info { color: var(--text); background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; }
 .login-panel .login-form[hidden] { display: none; }
 .who-actions { display: inline-flex; gap: 10px; flex: 0 0 auto; }
-#pwModal { align-items: center; }
 
 /* ---------------- история заданий ---------------- */
 .hist-card { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
