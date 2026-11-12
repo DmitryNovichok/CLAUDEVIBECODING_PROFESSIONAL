@@ -2677,18 +2677,43 @@
   let DECK_SCALE = 1;
   try { DECK_SCALE = +localStorage.getItem('egeTrainer.deckScale') || 1; } catch (e) { /* нет доступа */ }
   const DECK_W = 960;                                    // «расчётная» ширина слайда для полноэкранного режима
+  /** Размер слайда. Обычный вид — масштаб кнопками − / +; на весь экран — по ширине экрана, и масштаб больше 100 %
+      не раздвигает слайд шире экрана: текст крупнее, а слайд уже и прокручивается вниз.
+      data-w — сколько места у слайда в его собственных пикселях: по нему колонки складываются в одну (CSS ниже). */
   function fitSlide() {
     const deck = $('#crsDeck'), stage = deck && deck.querySelector('.crs-stage'), sl = stage && stage.querySelector('.sl');
     if (!sl) return;
     sl.style.zoom = '';
     sl.style.width = '';
+    // раскладка под ширину inner (в «своих» пикселях слайда): data-w для колонок; код не помещается — пара колонок
+    // складывается в одну, не хватает и так — код чуть мельче
+    const layout = inner => {
+      sl.dataset.w = inner < 520 ? 'xs' : inner < 840 ? 'sm' : inner < 1180 ? 'md' : 'lg';
+      const wide = c => c.scrollWidth > c.clientWidth + 3;
+      sl.querySelectorAll('.sl-split, .sl-blocks').forEach(g => g.classList.remove('one'));
+      sl.querySelectorAll('.sl-code').forEach(c => c.classList.remove('tight'));
+      sl.querySelectorAll('.sl-split, .sl-blocks').forEach(g => { if ([...g.querySelectorAll('.sl-code')].some(wide)) g.classList.add('one'); });
+      sl.querySelectorAll('.sl-code').forEach(c => { if (wide(c)) c.classList.add('tight'); });
+    };
     if (document.fullscreenElement !== deck) {
       if (DECK_SCALE !== 1) sl.style.zoom = DECK_SCALE;
+      layout((stage.clientWidth - 4) / DECK_SCALE);
       return;
     }
-    sl.style.width = DECK_W + 'px';
-    const h = sl.scrollHeight, W = stage.clientWidth - 8, H = stage.clientHeight - 8;
-    sl.style.zoom = Math.max(0.4, Math.min(W / DECK_W, H / h) * DECK_SCALE);
+    // на весь экран: масштаб меняет «расчётную» ширину слайда (130 % — слайд уже, текст крупнее),
+    // а потом слайд целиком вписывается в экран и по ширине, и по высоте — ничего не уезжает за край
+    const W = stage.clientWidth - 8, H = stage.clientHeight - 8;
+    const fit = inner => { sl.style.width = inner + 'px'; layout(inner); return Math.min(W / inner, H / sl.scrollHeight); };
+    // пробуем несколько ширин и берём ту, где текст крупнее всего: короткий слайд — узкий и крупный,
+    // три программы рядом — широкий, чтобы они не встали столбиком и не уменьшились
+    const base = Math.max(560, Math.min(1400, DECK_W / DECK_SCALE));
+    let best = null;
+    for (const w of [...new Set([base, 960, 1200, 1400].filter(w => w >= base))]) {
+      const z = fit(w);
+      if (!best || z > best.z * 1.04) best = { w, z };
+    }
+    fit(best.w);                                                     // раскладка — под выбранную ширину
+    sl.style.zoom = Math.max(0.5, best.z);
   }
   function deckZoom(d) {
     DECK_SCALE = d ? Math.round(Math.min(1.8, Math.max(0.6, DECK_SCALE + d * 0.1)) * 10) / 10 : 1;
@@ -2698,7 +2723,8 @@
     if (lbl) lbl.textContent = Math.round(DECK_SCALE * 100) + '%';
   }
   document.addEventListener('fullscreenchange', () => setTimeout(fitSlide, 50));
-  window.addEventListener('resize', () => { if (document.fullscreenElement) fitSlide(); });
+  window.addEventListener('resize', () => { if ($('#crsDeck')) fitSlide(); });
+  document.fonts?.ready.then(() => { if ($('#crsDeck')) fitSlide(); });   // моноширинный шрифт догрузился — ширина кода другая
   let courseLessonRequest = 0;
   async function openLesson(n) {
     if (!COURSE_OK) return openCourse();
