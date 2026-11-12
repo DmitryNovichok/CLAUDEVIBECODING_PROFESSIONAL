@@ -6,7 +6,7 @@
    "t": "title",
    "k": "ЕГЭ · Информатика · проект 2027",
    "h": "Задание 23",
-   "sub": "Граф из файла: сколько путей, кратчайший и самый длинный путь, обязательные и запрещённые участки",
+   "sub": "Граф из файла: сколько путей, кратчайший и самый длинный путь, обязательные и запрещённые участки, пути с условием",
    "aside": "<span class=\"mute\">310 → 151</span><span class=\"b\">151 → 816</span><span class=\"mute\">816 → 559</span><span><span class=\"o\">@lru_cache</span></span><span class=\"w\">ways · short · long</span>"
   },
   {
@@ -24,14 +24,14 @@
   {
    "t": "text",
    "k": "Введение",
-   "h": "Карта урока: четыре вопроса",
-   "html": "<div class=\"sl-cards c4 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>Сколько путей</b><code>sum(...)</code><p>Из A в B; через вершину; в обход вершины.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>Кратчайший путь</b><code>min(...)</code><p>Минимальная сумма весов, в ответе — целая часть.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>Самый длинный путь</b><code>max(...)</code><p>Максимальная сумма весов или наибольшее число рёбер.</p></div><div class=\"sl-card t1\"><i class=\"t1\">4</i><b>Достижимость</b><code>set()</code><p>Сколько вершин можно достичь из данной.</p></div></div><div class=\"sl-callout\"><b>Одна функция на всё</b><p>Меняется только то, что возвращаем в конце (0 или 1) и как объединяем соседей: sum, min или max.</p></div>"
+   "h": "Карта урока: пять вопросов",
+   "html": "<div class=\"sl-cards c5 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>Сколько путей</b><code>sum(...)</code><p>Из A в B; через вершину; в обход вершины.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>Кратчайший путь</b><code>min(...)</code><p>Минимальная сумма весов, в ответе — целая часть.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>Самый длинный путь</b><code>max(...)</code><p>Максимальная сумма весов или наибольшее число рёбер.</p></div><div class=\"sl-card t1\"><i class=\"t1\">4</i><b>Достижимость</b><code>set()</code><p>Сколько вершин можно достичь из данной.</p></div><div class=\"sl-card t2\"><i class=\"t2\">5</i><b>Путь с условием</b><code>(длина, ещё что-то)</code><p>Предел веса ребра, чётное число рёбер, рёбра кратчайшего пути.</p></div></div><div class=\"sl-callout\"><b>Одна функция на всё</b><p>Меняется только то, что возвращаем в конце (0 или 1) и как объединяем соседей: sum, min или max.</p></div>"
   },
   {
    "t": "text",
    "k": "Инструменты",
    "h": "Схема решения",
-   "html": "<div class=\"sl-steps\"><div><i>1</i><b>Файл</b><span>читаем строки, split()</span></div><div><i>2</i><b>g</b><span>словарь: вершина → список (сосед, вес)</span></div><div class=\"dark\"><i>3</i><b>f(v, end)</b><span>рекурсия по соседям</span></div><div><i>4</i><b>@lru_cache</b><span>память о посчитанном</span></div><div><i>5</i><b>print</b><span>целая часть, если вес дробный</span></div></div><table class=\"sl-tab\"><tr><th>Вопрос</th><th>В конечной вершине</th><th>Объединяем соседей</th><th>Если соседей нет</th></tr><tr><td>сколько путей</td><td><code>1</code></td><td><code>sum(f(u))</code></td><td><code>0</code> (сумма пустого)</td></tr><tr><td>кратчайший</td><td><code>0</code></td><td><code>min(w + f(u))</code></td><td><code>inf</code></td></tr><tr><td>самый длинный</td><td><code>0</code></td><td><code>max(w + f(u))</code></td><td><code>-inf</code></td></tr><tr><td>больше всего рёбер</td><td><code>0</code></td><td><code>max(1 + f(u))</code></td><td><code>-inf</code></td></tr></table>"
+   "html": "<div class=\"sl-steps\"><div><i>1</i><b>Файл</b><span>читаем строки, split()</span></div><div><i>2</i><b>g</b><span>словарь: вершина → список (сосед, вес)</span></div><div class=\"dark\"><i>3</i><b>f(v, end)</b><span>рекурсия по соседям</span></div><div><i>4</i><b>@lru_cache</b><span>память о посчитанном</span></div><div><i>5</i><b>print</b><span>целая часть, если вес дробный</span></div></div><table class=\"sl-tab\"><tr><th>Вопрос</th><th>В конечной вершине</th><th>Объединяем соседей</th><th>Если соседей нет</th></tr><tr><td>сколько путей</td><td><code>1</code></td><td><code>sum(f(u))</code></td><td><code>0</code> (сумма пустого)</td></tr><tr><td>кратчайший</td><td><code>0</code></td><td><code>min(w + f(u))</code></td><td><code>inf</code></td></tr><tr><td>самый длинный</td><td><code>0</code></td><td><code>max(w + f(u))</code></td><td><code>-inf</code></td></tr><tr><td>больше всего рёбер</td><td><code>0</code></td><td><code>max(1 + f(u))</code></td><td><code>-inf</code></td></tr><tr><td>меньше всего рёбер</td><td><code>0</code></td><td><code>min(1 + f(u))</code></td><td><code>inf</code></td></tr></table>"
   },
   {
    "t": "solve",
@@ -254,29 +254,154 @@
    ]
   },
   {
+   "t": "section",
+   "k": "Тип 4",
+   "kc": "t2",
+   "h": "Путь с условием",
+   "tag": "условие → в перебор соседей или в ответ функции",
+   "sub": "Предел веса ребра · чётное число рёбер · сколько рёбер в кратчайшем пути · самое лёгкое ребро · рёбра на путях · две вершины по порядку."
+  },
+  {
+   "t": "code",
+   "k": "Тип 4 · Путь с условием · 1 из 6",
+   "kc": "t2",
+   "h": "Вес каждого ребра не больше заданного",
+   "ch": "Задание",
+   "cond": "<p>В файле <code>23.txt</code> — ациклический ориентированный взвешенный граф. В каждой строке: два натуральных числа L и M (ребро ведёт из L в M) и положительное вещественное число W — вес ребра. </p><p>Найдите целую часть длины кратчайшего пути из <b>301</b> в <b>880</b>, в котором вес каждого ребра <b>не превышает 35</b>.</p>",
+   "note": "Слишком тяжёлые рёбра просто не берём: условие <code>if w &lt;= 35</code> стоит в конце перебора соседей. Без ограничения ответ был бы 191 — короткий путь шёл по тяжёлому ребру.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef short(v, end):\n    if v == end:\n        return 0\n    return min([w + short(u, end) for u, w in g.get(v, []) if w <= 35],\n               default=float('inf'))\n\nprint(int(short(301, 880)))",
+   "sub": "",
+   "ans": "211",
+   "files": [
+    {
+     "name": "23.txt",
+     "url": "course-data/23/23.txt?v=9b1389e7"
+    }
+   ]
+  },
+  {
+   "t": "code",
+   "k": "Тип 4 · Путь с условием · 2 из 6",
+   "kc": "t2",
+   "h": "Чётное количество рёбер",
+   "ch": "Задание",
+   "cond": "<p>В файле <code>23.txt</code> — ациклический ориентированный взвешенный граф. В каждой строке: два натуральных числа L и M (ребро ведёт из L в M) и положительное вещественное число W — вес ребра. </p><p>Найдите целую часть длины кратчайшего пути из <b>301</b> в <b>315</b>, состоящего из <b>чётного</b> количества рёбер.</p>",
+   "note": "У функции третий параметр: <code>odd</code> — нечётно ли число пройденных рёбер. Каждое ребро его переворачивает. В конечной вершине путь годится, только если <code>odd</code> ложно; иначе возвращаем бесконечность.",
+   "nk": "warn",
+   "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef short(v, end, odd):\n    if v == end:\n        return float('inf') if odd else 0\n    return min([w + short(u, end, not odd) for u, w in g.get(v, [])],\n               default=float('inf'))\n\nprint(int(short(301, 315, False)))",
+   "sub": "",
+   "ans": "163",
+   "files": [
+    {
+     "name": "23.txt",
+     "url": "course-data/23/23.txt?v=9b1389e7"
+    }
+   ]
+  },
+  {
+   "t": "code",
+   "k": "Тип 4 · Путь с условием · 3 из 6",
+   "kc": "t2",
+   "h": "Сколько рёбер в кратчайшем пути",
+   "ch": "Задание",
+   "cond": "<p>В файле <code>23.txt</code> — ациклический ориентированный взвешенный граф. В каждой строке: два натуральных числа L и M (ребро ведёт из L в M) и положительное вещественное число W — вес ребра. </p><p>Сколько рёбер в кратчайшем (по сумме весов) пути из <b>301</b> в <b>126</b>?</p>",
+   "note": "Функция возвращает пару <b>(длина, число рёбер)</b>. Пары сравниваются по первому элементу, поэтому <code>min</code> выбирает самый короткий путь, а число рёбер «едет» вместе с ним. В ответ идёт второй элемент пары.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef short(v, end):\n    if v == end:\n        return (0, 0)\n    best = (float('inf'), 0)\n    for u, w in g.get(v, []):\n        d, k = short(u, end)\n        best = min(best, (w + d, k + 1))\n    return best\n\nprint(short(301, 126)[1])",
+   "sub": "",
+   "ans": "10",
+   "wide": true,
+   "files": [
+    {
+     "name": "23.txt",
+     "url": "course-data/23/23.txt?v=9b1389e7"
+    }
+   ]
+  },
+  {
+   "t": "code",
+   "k": "Тип 4 · Путь с условием · 4 из 6",
+   "kc": "t2",
+   "h": "Самое лёгкое ребро на самом длинном пути",
+   "ch": "Задание",
+   "cond": "<p>В файле <code>23.txt</code> — ациклический ориентированный взвешенный граф. В каждой строке: два натуральных числа L и M (ребро ведёт из L в M) и положительное вещественное число W — вес ребра. </p><p>Найдите самый длинный путь из <b>301</b> в <b>126</b>. В ответе запишите вес самого лёгкого ребра на этом пути — так, как он записан в файле.</p>",
+   "note": "Тот же приём: пара <b>(длина, самое лёгкое ребро)</b>. В конце пути лёгкого ребра ещё нет — ставим бесконечность, дальше берём <code>min(w, m)</code>. Ответ дробный: <code>int()</code> здесь не нужен.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef long(v, end):\n    if v == end:\n        return (0, float('inf'))\n    best = (float('-inf'), 0)\n    for u, w in g.get(v, []):\n        d, m = long(u, end)\n        best = max(best, (w + d, min(w, m)))\n    return best\n\nprint(long(301, 126)[1])",
+   "sub": "",
+   "ans": "5.7",
+   "wide": true,
+   "files": [
+    {
+     "name": "23.txt",
+     "url": "course-data/23/23.txt?v=9b1389e7"
+    }
+   ]
+  },
+  {
+   "t": "code",
+   "k": "Тип 4 · Путь с условием · 5 из 6",
+   "kc": "t2",
+   "h": "Рёбра, лежащие на путях",
+   "ch": "Задание",
+   "cond": "<p>В файле <code>23.txt</code> — ациклический ориентированный взвешенный граф. В каждой строке: два натуральных числа L и M (ребро ведёт из L в M) и положительное вещественное число W — вес ребра. </p><p>Найдите сумму весов всех рёбер, которые лежат хотя бы на одном пути из <b>209</b> в <b>558</b>. Ответ запишите с одним знаком после запятой.</p>",
+   "note": "Ребро a → b лежит на каком-то пути, если до a можно дойти из 209, а из b — дойти до 558. «Можно дойти» — это «путей больше нуля», функция <code>ways</code> уже есть.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef ways(v, end):\n    if v == end:\n        return 1\n    return sum(ways(u, end) for u, w in g.get(v, []))\n\ns = 0\nfor a in g:\n    for b, w in g[a]:\n        if ways(209, a) > 0 and ways(b, 558) > 0:\n            s += w\nprint(round(s, 1))",
+   "sub": "",
+   "ans": "1833.4",
+   "wide": true,
+   "files": [
+    {
+     "name": "23.txt",
+     "url": "course-data/23/23.txt?v=9b1389e7"
+    }
+   ]
+  },
+  {
+   "t": "code",
+   "k": "Тип 4 · Путь с условием · 6 из 6",
+   "kc": "t2",
+   "h": "Через две вершины по порядку",
+   "ch": "Задание",
+   "cond": "<p>В файле <code>23.txt</code> — ациклический ориентированный взвешенный граф. В каждой строке: два натуральных числа L и M (ребро ведёт из L в M) и положительное вещественное число W — вес ребра. </p><p>Найдите целую часть длины кратчайшего пути из <b>301</b> в <b>126</b>, проходящего сначала через вершину <b>212</b>, а затем через вершину <b>574</b>.</p>",
+   "note": "Три куска складываются. Если порядок вершин не задан («через обе»), посчитайте оба порядка и возьмите меньший: в ациклическом графе один из них даст бесконечность.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef short(v, end):\n    if v == end:\n        return 0\n    return min([w + short(u, end) for u, w in g.get(v, [])],\n               default=float('inf'))\n\nprint(int(short(301, 212) + short(212, 574) + short(574, 126)))",
+   "sub": "",
+   "ans": "230",
+   "files": [
+    {
+     "name": "23.txt",
+     "url": "course-data/23/23.txt?v=9b1389e7"
+    }
+   ]
+  },
+  {
    "t": "text",
    "k": "Ловушки",
-   "h": "Шесть ошибок, которые стоят балла",
-   "html": "<ul class=\"sl-bad\"><li><b>Нет <code>@lru_cache</code>.</b> Программа считает одни и те же вершины миллионы раз и не успевает.</li><li><b><code>g[v]</code> вместо <code>g.get(v, [])</code>.</b> У конечных вершин нет исходящих рёбер — будет KeyError.</li><li><b>Сложили вместо умножения.</b> «Через вершину C» — это ways(A, C) × ways(C, B).</li><li><b>Запрет проверяется после конца пути.</b> Проверку запрещённой вершины ставим первой строкой функции.</li><li><b>Округлили вместо отбрасывания.</b> «Целая часть» — это <code>int(x)</code>, а не <code>round(x)</code>.</li><li><b>Перепутали направление.</b> В строке «L M W» ребро идёт из L в M, обратно пройти нельзя.</li></ul><div class=\"sl-callout\"><b>Проверка за 20 секунд</b><p>Выведите <code>len(g)</code> и число рёбер и сравните с числом строк файла. Потом запустите функцию на паре соседних вершин — ответ должен совпасть с тем, что видно в файле.</p></div>"
+   "h": "Восемь ошибок, которые стоят балла",
+   "html": "<ul class=\"sl-bad\"><li><b>Нет <code>@lru_cache</code>.</b> Программа считает одни и те же вершины миллионы раз и не успевает.</li><li><b><code>g[v]</code> вместо <code>g.get(v, [])</code>.</b> У конечных вершин нет исходящих рёбер — будет KeyError.</li><li><b>Сложили вместо умножения.</b> «Через вершину C» — это ways(A, C) × ways(C, B).</li><li><b>Запрет проверяется после конца пути.</b> Проверку запрещённой вершины ставим первой строкой функции.</li><li><b>Округлили вместо отбрасывания.</b> «Целая часть» — это <code>int(x)</code>, а не <code>round(x)</code>.</li><li><b>Перепутали направление.</b> В строке «L M W» ребро идёт из L в M, обратно пройти нельзя.</li><li><b>Посчитали рёбра не того пути.</b> «Сколько рёбер в кратчайшем пути» — это не «наименьшее число рёбер»: сначала длина, потом рёбра.</li><li><b>Не тот формат ответа.</b> Целая часть, один знак после запятой или число «как в файле» — перечитайте последнюю фразу условия.</li></ul><div class=\"sl-callout\"><b>Проверка за 20 секунд</b><p>Выведите <code>len(g)</code> и число рёбер и сравните с числом строк файла. Потом запустите функцию на паре соседних вершин — ответ должен совпасть с тем, что видно в файле.</p></div>"
   },
   {
    "t": "text",
    "k": "Шпаргалка",
    "h": "Весь №23 на одном слайде",
-   "html": "<div class=\"sl-cheat\"><div><b>Чтение</b><code>a, b, w = line.split()<br>g.setdefault(int(a), []).append((int(b), float(w)))</code></div><div><b>Количество путей</b><code>if v == end: return 1<br>return sum(ways(u, end) for u, w in g.get(v, []))</code></div><div><b>Кратчайший</b><code>if v == end: return 0<br>return min([w + f(u, end) ...], default=float('inf'))</code></div><div><b>Самый длинный</b><code>return max([w + f(u, end) ...], default=float('-inf'))</code></div><div><b>Через вершину C</b><code>f(A, C) * f(C, B)</code> — для количества<br><code>f(A, C) + f(C, B)</code> — для длины</div><div><b>Запрет вершины X</b><code>if v == X: return 0</code> — количество<br><code>if v == X: return float('inf')</code> — кратчайший</div></div>"
+   "html": "<div class=\"sl-cheat\"><div><b>Чтение</b><code>a, b, w = line.split()<br>g.setdefault(int(a), []).append((int(b), float(w)))</code></div><div><b>Количество путей</b><code>if v == end: return 1<br>return sum(ways(u, end) for u, w in g.get(v, []))</code></div><div><b>Кратчайший</b><code>if v == end: return 0<br>return min([w + f(u, end) ...], default=float('inf'))</code></div><div><b>Самый длинный</b><code>return max([w + f(u, end) ...], default=float('-inf'))</code></div><div><b>Через вершину C</b><code>f(A, C) * f(C, B)</code> — для количества<br><code>f(A, C) + f(C, B)</code> — для длины</div><div><b>Запрет вершины X</b><code>if v == X: return 0</code> — количество<br><code>if v == X: return float('inf')</code> — кратчайший</div><div><b>Предел веса ребра</b><code>... for u, w in g.get(v, []) if w &lt;= K</code></div><div><b>Чётное число рёбер</b><code>def f(v, end, odd):<br>if v == end: return inf if odd else 0</code></div><div><b>Рёбра кратчайшего пути</b><code>best = min(best, (w + d, k + 1))</code> — пара (длина, рёбра)</div><div><b>Ребро a→b на пути</b><code>ways(A, a) &gt; 0 and ways(b, B) &gt; 0</code></div></div>"
   },
   {
    "t": "text",
    "k": "Практика",
    "h": "Решите самостоятельно",
-   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1 · количество</i><b></b><p>Сколько путей ведёт из вершины <b>677</b> в вершину <b>315</b>?</p></div><div class=\"sl-card t2\"><i class=\"t2\">2 · самый длинный</i><b></b><p>Найдите целую часть длины самого длинного пути из <b>437</b> в <b>951</b>, проходящего через вершину <b>644</b>.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3 · кратчайший</i><b></b><p>Найдите целую часть длины кратчайшего пути из <b>192</b> в <b>880</b>, не проходящего через вершину <b>320</b>.</p></div></div><p class=\"sl-note\">Файл тот же — 23.txt. Откройте любую программу урока в Python, измените номера вершин и функцию. Ответы и решения — на следующих слайдах.</p>"
+   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1 · количество</i><b></b><p>Сколько путей ведёт из вершины <b>677</b> в вершину <b>315</b>?</p></div><div class=\"sl-card t2\"><i class=\"t2\">2 · самый длинный</i><b></b><p>Найдите целую часть длины самого длинного пути из <b>437</b> в <b>951</b>, проходящего через вершину <b>644</b>.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3 · кратчайший</i><b></b><p>Найдите целую часть длины кратчайшего пути из <b>192</b> в <b>880</b>, не проходящего через вершину <b>320</b>.</p></div><div class=\"sl-card t2\"><i class=\"t2\">4 · рёбра пути</i><b></b><p>Сколько рёбер в кратчайшем пути из <b>248</b> в <b>119</b>?</p></div><div class=\"sl-card t2\"><i class=\"t2\">5 · предел веса</i><b></b><p>Найдите целую часть длины самого длинного пути из <b>276</b> в <b>678</b>, в котором вес каждого ребра не превышает <b>40</b>.</p></div></div><p class=\"sl-note\">Файл тот же — 23.txt. Откройте любую программу урока в Python, измените номера вершин и функцию. Ответы и решения — на следующих слайдах.</p>"
   },
   {
    "t": "text",
    "k": "Урок пройден!",
    "h": "Ответы",
    "dark": true,
-   "html": "<div class=\"sl-cards c3 answers\"><div class=\"sl-card t1\"><i>Задача 1</i><b>332161</b><p>sum и lru_cache</p></div><div class=\"sl-card t2\"><i>Задача 2</i><b>1045</b><p>два куска складываем</p></div><div class=\"sl-card t3\"><i>Задача 3</i><b>162</b><p>запрет — первой строкой</p></div></div><div class=\"sl-callout dark\"><b>Не сошлось?</b><p>Проверьте три вещи: направление ребра, g.get(v, []) и порядок проверок в функции. Затем откройте программу «По шагам в лаборатории» и посмотрите, в какие вершины она заходит.</p></div>"
+   "html": "<div class=\"sl-cards c5 answers\"><div class=\"sl-card t1\"><i>Задача 1</i><b>332161</b><p>sum и lru_cache</p></div><div class=\"sl-card t2\"><i>Задача 2</i><b>1045</b><p>два куска складываем</p></div><div class=\"sl-card t3\"><i>Задача 3</i><b>162</b><p>запрет — первой строкой</p></div><div class=\"sl-card t2\"><i>Задача 4</i><b>8</b><p>пара (длина, рёбра)</p></div><div class=\"sl-card t2\"><i>Задача 5</i><b>289</b><p>if w <= K в переборе</p></div></div><div class=\"sl-callout dark\"><b>Не сошлось?</b><p>Проверьте три вещи: направление ребра, g.get(v, []) и порядок проверок в функции. Затем откройте программу «По шагам в лаборатории» и посмотрите, в какие вершины она заходит.</p></div>"
   },
   {
    "t": "codes",
@@ -309,6 +434,35 @@
      "cond": "<b>Задача 3.</b> Запрещённая вершина даёт бесконечность.",
      "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef short(v, end):\n    if v == 320:\n        return float('inf')\n    if v == end:\n        return 0\n    return min([w + short(u, end) for u, w in g.get(v, [])],\n               default=float('inf'))\n\nprint(int(short(192, 880)))",
      "ans": "162",
+     "files": [
+      {
+       "name": "23.txt",
+       "url": "course-data/23/23.txt?v=9b1389e7"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "t": "codes",
+   "k": "Практика",
+   "h": "Решения задач 4–5",
+   "blocks": [
+    {
+     "cond": "<b>Задача 4.</b> Пара (длина, число рёбер): min выбирает по длине.",
+     "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef short(v, end):\n    if v == end:\n        return (0, 0)\n    best = (float('inf'), 0)\n    for u, w in g.get(v, []):\n        d, k = short(u, end)\n        best = min(best, (w + d, k + 1))\n    return best\n\nprint(short(248, 119)[1])",
+     "ans": "8",
+     "files": [
+      {
+       "name": "23.txt",
+       "url": "course-data/23/23.txt?v=9b1389e7"
+      }
+     ]
+    },
+    {
+     "cond": "<b>Задача 5.</b> Самый длинный путь по рёбрам не тяжелее предела.",
+     "code": "from functools import lru_cache\n\ng = {}\nfor line in open('23.txt'):\n    a, b, w = line.split()\n    g.setdefault(int(a), []).append((int(b), float(w)))\n\n@lru_cache(None)\ndef long(v, end):\n    if v == end:\n        return 0\n    return max([w + long(u, end) for u, w in g.get(v, []) if w <= 40],\n               default=float('-inf'))\n\nprint(int(long(276, 678)))",
+     "ans": "289",
      "files": [
       {
        "name": "23.txt",
