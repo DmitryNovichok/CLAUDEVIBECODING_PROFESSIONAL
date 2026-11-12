@@ -10988,6 +10988,7 @@
       <footer class="hub-foot"><button type="button" class="link-btn" data-hub-link="tourBtn">Как работает Egeshka</button>
         <button type="button" class="link-btn" data-hub-link="versionBtn">${esc(($('#versionBtn') || {}).textContent || 'Что нового')}</button>
         ${SERVER ? '' : '<button type="button" class="link-btn" data-hub-link="exportBtn">Сохранить прогресс в файл</button>'}
+        <a class="link-btn hub-help" href="help.html#student" target="_blank" rel="noopener">Инструкция</a>
         <span class="hub-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Персональные данные</a></span></footer>`;
     HUB_ACT = { plan, tiles };
     const current = trainerEl.querySelector('.hub');

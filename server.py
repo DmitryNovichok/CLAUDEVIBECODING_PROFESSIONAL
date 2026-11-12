@@ -76,16 +76,16 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
               "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js", "onboard.js", "visit.js",
-              "terms.html", "privacy.html", "consent.html", "legal.css",
+              "terms.html", "privacy.html", "consent.html", "legal.css", "help.html", "help.css",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
               "favicon.ico", "favicon.svg", "favicon-96.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "site.webmanifest"}
 # редакция документов (соглашение, политика, согласие на обработку ПДн): сменилась — ученик подтверждает заново
 LEGAL_VERSION = "2026-11-07"
 SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
-PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|legal|welcome|academy|lab|classroom)\.css)"')
+PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|legal|welcome|academy|lab|classroom|help)\.css)"')
 PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
-               "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css",
+               "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css", "help.css",
                "egeshka.js", "elements.js", "onboard.js", "visit.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
 _PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
@@ -2184,6 +2184,10 @@ LIVE = LiveHub()
 # Кто сейчас на сайте без входа: нажал «Я ученик» (окно входа), «Я учитель» (регистрация) или смотрит панель гостем.
 # Только в памяти, без ФИО и адресов: браузер раз в 20 секунд сообщает случайный номер вкладки и этап;
 # замолчал дольше VISIT_TTL или закрыл вкладку — пропадает из списка главного учителя.
+# Экономика, подарки и тиражи — только главный учитель (остальные учителя этих разделов не видят)
+MAIN_ONLY_ECON = frozenset({"/api/admin/gifts", "/api/admin/gifts/student", "/api/admin/gifts/give", "/api/admin/gifts/remove",
+                            "/api/admin/gifts/box", "/api/admin/econ", "/api/admin/supply", "/api/admin/promo",
+                            "/api/admin/thermo", "/api/admin/bank"})
 VISIT_TTL = 90                               # вкладка в фоне отмечается реже (браузер раз в минуту)
 VISIT_MAX = 3000
 VISIT_STAGES = {"student": ("login", "reg", "forgot"), "teacher": ("signup",), "guest": ("panel",)}
@@ -2505,6 +2509,8 @@ class Handler(BaseHTTPRequestHandler):
             path = "/together.html"
         if path in ("/welcome", "/welcome/", "/teachers", "/teachers/"):
             path = "/welcome.html"
+        if path in ("/help", "/help/"):
+            path = "/help.html"
         if path in ("/parent", "/parent/"):
             path = "/parent.html"
         if path in ("/reset", "/reset/"):
@@ -5884,6 +5890,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                                 "levels": [{"title": lv["title"], "tasks": len(lv["tasks"])} for lv in m["levels"]]}
                                                for m in mods],
                                    "students": out, "pw_set": bool(db.setting("pyc_pw"))})
+
+        if path in MAIN_ONLY_ECON and not self.T["is_main"]:
+            # экономика, подарки и тиражи — у всех учителей общие на сайт, поэтому управляет ими только главный учитель
+            return self.err(403, "Экономикой и подарками управляет главный учитель")
 
         if path == "/api/admin/gifts":
             # подарки и монеты: каталог, кому можно подарить (ученики этого учителя и классы), что дарили недавно

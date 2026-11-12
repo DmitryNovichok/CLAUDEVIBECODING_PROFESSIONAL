@@ -3752,6 +3752,25 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{gid}:%",)))
         self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[0], 401)
 
+    def test_economy_and_gifts_only_for_main_teacher(self):
+        st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Экономова Ольга", "login": "econ2",
+                                                                "password": "secret77", "invite": "ECON22"})
+        self.assertEqual(st, 200, d)
+        server.THROTTLE.fails.clear()
+        st, d, ck = self.teacher_req("", "POST", "/api/admin/login", {"login": "econ2", "password": "secret77"})
+        self.assertEqual(st, 200, d)
+        cookie = ck.split(";")[0]
+        self.teacher_req(cookie, "POST", "/api/admin/consent", {"accept": True})
+        for method, path, body in (("GET", "/api/admin/gifts", None), ("GET", "/api/admin/econ", None), ("GET", "/api/admin/supply", None),
+                                   ("GET", "/api/admin/gifts/student?id=1", None), ("POST", "/api/admin/gifts/give", {"all": True, "coins": 5}),
+                                   ("POST", "/api/admin/gifts/remove", {"id": 1}), ("POST", "/api/admin/gifts/box", {"reset": True}),
+                                   ("POST", "/api/admin/promo", {"stop": True}), ("POST", "/api/admin/thermo", {"mode": "auto"}),
+                                   ("POST", "/api/admin/bank", {"delta": 5})):
+            st, d, _ = self.teacher_req(cookie, method, path, body)
+            self.assertEqual(st, 403, (path, d))
+        self.assertEqual(self.admin("GET", "/api/admin/gifts")[0], 200)                      # главному — можно
+        self.assertEqual(self.admin("GET", "/api/admin/econ")[0], 200)
+
     def test_visitors_seen_by_main_while_present(self):
         server.VISITS.rows.clear()
         self.assertEqual(self.creq("POST", "/api/visit", {"vid": "short", "role": "student", "stage": "login"})[0], 400)
@@ -4689,7 +4708,7 @@ class ServerTest(unittest.TestCase):
         self.admin("POST", "/api/admin/teacher/save", {"name": "Ольга Петровна", "login": "olga", "password": "secret77", "invite": "OLGA01"})
         server.THROTTLE.fails.clear()
         ck = self.teacher_req("", "POST", "/api/admin/login", {"login": "olga", "password": "secret77"})[2].split(";")[0]
-        self.assertFalse(self.teacher_req(ck, "GET", "/api/admin/gifts")[1]["is_main"])
+        self.assertEqual(self.teacher_req(ck, "GET", "/api/admin/gifts")[0], 403)       # подарки — только главный учитель
         self.assertEqual(self.teacher_req(ck, "POST", "/api/admin/gifts/box", {"price": 9})[0], 403)
         st, r = self.admin("POST", "/api/admin/gifts/box", {"reset": True})
         self.assertEqual((st, r["set"]), (200, None))
