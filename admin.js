@@ -2215,6 +2215,140 @@
     }
   });
 
+  // ------------------------------------------------------------ МЦКО: работы классам и банк заданий
+  let mkTab = 'works', MKW = null, MKB = null, mkType = 1, mkOpenWork = null;
+  const mkDate = t => t ? new Date(t * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  async function mkLoad() {
+    $$('[data-mk-tab]').forEach(b => b.classList.toggle('on', b.dataset.mkTab === mkTab));
+    const box = $('#mkBody');
+    try {
+      if (mkTab === 'works') { MKW = await api('mcko/works'); mkOpenWork ? mkResults(mkOpenWork) : mkWorks(); }
+      else { MKB = await api('mcko/bank'); mkBank(); }
+    } catch (e) { if (e.status !== 401) box.innerHTML = `<p class="adm-empty">${esc(e.message)}</p>`; }
+  }
+  function mkWorks() {
+    const d = MKW, cls = d.classes;
+    const opts = cls.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    $('#mkBody').innerHTML = `
+      <div class="adm-box mk-new">
+        <h3 class="adm-h3">Выдать работу классу</h3>
+        ${cls.length ? `<div class="mk-quick"><label>Класс<select class="inp" id="mkClass">${opts}</select></label>
+          <button type="button" class="btn primary" data-mk="random">🎲 Выдать случайный вариант</button>
+          <span class="adm-hint">каждому ученику — свой: по случайному заданию на каждый номер, 60 минут, одна попытка</span></div>
+        <details class="mk-more"><summary>Другие настройки работы</summary>
+          <div class="mk-form">
+            <label>Название<input class="inp" id="mkTitle" maxlength="120" placeholder="Тренировочная работа МЦКО"></label>
+            <label>Вариант<select class="inp" id="mkMode"><option value="random">Каждому свой (случайный)</option>${d.variants.map(v => `<option value="${v}">Вариант ${v} — один на всех</option>`).join('')}</select></label>
+            <label>Время, минут<input class="inp" id="mkMin" type="number" min="5" max="240" value="60"></label>
+            <label>Попыток<input class="inp" id="mkTries" type="number" min="1" max="10" value="1"></label>
+            <label>Принимать до (необязательно)<input class="inp" id="mkCloses" type="datetime-local"></label>
+            <label class="mk-check"><input type="checkbox" id="mkHide"> Не показывать ученику баллы после сдачи</label>
+            <button type="button" class="btn primary" data-mk="create">Выдать работу</button>
+          </div></details>`
+        : '<p class="adm-hint">Сначала создайте класс во вкладке «Классы» — работы выдаются классу.</p>'}
+        <p class="adm-hint">Ученик увидит работу в разделе «МЦКО» на своей главной, введёт фамилию, имя и класс и начнёт выполнение. Время идёт на сервере: перезагрузка страницы его не сбрасывает, по истечении работа сдаётся сама.</p>
+      </div>
+      <h3 class="adm-h3">Выданные работы</h3>
+      ${d.works.length ? `<div class="adm-table-wrap"><table class="adm-table mk-works"><thead><tr><th>Работа</th><th>Класс</th><th>Вариант</th><th class="num">Сдали</th><th class="num">Средний балл</th><th>Статус</th><th></th></tr></thead><tbody>
+        ${d.works.map(w => `<tr><td class="name"><button type="button" class="link-btn" data-mk-res="${w.id}">${esc(w.title)}</button><small>${mkDate(w.created)} · ${w.minutes} мин${w.tries > 1 ? ` · ${w.tries} попыток` : ''}</small></td>
+          <td>${esc(w.cls || '—')}</td><td>${w.mode === 'fixed' ? `№${w.variant} на всех` : 'каждому свой'}</td>
+          <td class="num">${w.finished} из ${w.pupils}${w.started > w.finished ? `<small>идут: ${w.started - w.finished}</small>` : ''}</td>
+          <td class="num">${w.avg != null ? `${w.avg} / ${w.max}` : '—'}</td>
+          <td>${w.open ? '<span class="mk-chip good">открыта</span>' : '<span class="mk-chip">закрыта</span>'}</td>
+          <td class="num mk-act"><button type="button" class="btn ghost" data-mk-res="${w.id}">Результаты</button>
+            <button type="button" class="link-btn" data-mk-st="${w.id}" data-open="${w.open ? 0 : 1}">${w.open ? 'Закрыть' : 'Открыть'}</button></td></tr>`).join('')}
+        </tbody></table></div>` : '<p class="adm-empty">Работ пока нет. Выдайте первую — кнопкой «Выдать случайный вариант».</p>'}`;
+  }
+  async function mkResults(id) {
+    mkOpenWork = id;
+    const box = $('#mkBody');
+    let d;
+    try { d = await api('mcko/results?id=' + id); } catch (e) { if (e.status !== 401) box.innerHTML = `<p class="adm-empty">${esc(e.message)}</p>`; return; }
+    const w = d.work, rows = d.rows, n = Math.max(0, ...rows.map(r => r.tasks.length));
+    const cell = t => `<td class="num mk-cell ${t.points >= t.max ? 'ok' : t.points ? 'part' : (t.answer || []).some(x => String(x).trim()) ? 'bad' : 'none'}"
+      title="№${t.type} · ${esc(t.topic)}${t.variant ? ` · вар. ${t.variant}` : ''}\nОтвет: ${esc((t.answer || []).join(', ') || '—')}\nВерно: ${esc((t.key || []).join(', '))}">${t.points}</td>`;
+    box.innerHTML = `<div class="mk-res-head"><button type="button" class="link-btn" data-mk-back>← Все работы</button>
+        <h3 class="adm-h3">${esc(w.title)} <span class="adm-hint">${esc(w.cls || '')} · ${w.minutes} мин · максимум ${w.max} ${pluralRu(w.max, 'балл', 'балла', 'баллов')}</span></h3>
+        <span class="mk-res-btns"><a class="btn ghost" href="api/admin/mcko/results.csv?id=${w.id}">Скачать CSV</a>
+          <button type="button" class="btn ghost" data-mk-st="${w.id}" data-open="${w.open ? 0 : 1}">${w.open ? 'Закрыть приём' : 'Открыть снова'}</button>
+          <button type="button" class="link-btn danger" data-mk-del="${w.id}">Удалить работу</button></span></div>
+      ${rows.length ? `<div class="adm-table-wrap"><table class="adm-table mk-res"><thead><tr><th>Ученик</th><th>Класс</th><th>Сдано</th><th class="num">Баллы</th>${Array.from({ length: n }, (_, i) => `<th class="num">${i + 1}</th>`).join('')}</tr></thead><tbody>
+        ${rows.map(r => `<tr><td class="name">${esc(r.fio || r.student)}${r.fio && r.fio !== r.student ? `<small>аккаунт: ${esc(r.student)}</small>` : ''}${r.try > 1 ? `<small>попытка ${r.try}</small>` : ''}</td>
+          <td>${esc(r.klass || '')}</td><td>${r.finished ? mkDate(r.finished) + (r.reason === 'time' ? '<small>время вышло</small>' : '') : `<span class="mk-chip">идёт · до ${mkDate(r.deadline)}</span>`}</td>
+          <td class="num"><b>${r.finished ? r.score : '—'}</b> / ${r.max}</td>${r.tasks.map(cell).join('')}</tr>`).join('')}</tbody></table></div>
+        <p class="adm-hint">Наведите на клетку — увидите ответ ученика и верный ответ. Зелёный — верно, жёлтый — частично, красный — неверно, серый — нет ответа.</p>`
+        : '<p class="adm-empty">Пока никто не начал эту работу.</p>'}`;
+  }
+  function mkBank() {
+    const d = MKB, types = [...new Set([...d.types, ...d.own.map(q => q.type)])].sort((a, b) => a - b);
+    if (!types.includes(mkType)) mkType = types[0] || 1;
+    const list = [...d.bank.filter(q => q.type === mkType), ...d.own.filter(q => q.type === mkType)];
+    const on = list.filter(q => !q.off).length;
+    $('#mkBody').innerHTML = `<p class="adm-hint">${esc(d.description || '')} Отключённые задания не попадают в случайные варианты. Свои задания добавляются к номеру и выпадают наравне с заданиями банка.</p>
+      <div class="mk-types">${types.map(t => `<button type="button" class="mk-chip${t === mkType ? ' on' : ''}" data-mk-type="${t}">№${t}</button>`).join('')}</div>
+      <div class="mk-bank-head"><h3 class="adm-h3">№${mkType}. ${esc(d.topics[mkType] || 'Свои задания')} <span class="adm-hint">в работе: ${on} из ${list.length}</span></h3>
+        <button type="button" class="btn" data-mk="new-task">+ Своё задание</button></div>
+      <div id="mkTaskForm"></div>
+      <div class="mk-bank">${list.map(q => `<article class="mk-q${q.off ? ' off' : ''}">
+        <header><b>${q.custom ? 'Своё задание' : `Разновидность ${q.variant}`}</b><span class="adm-hint">${q.max} ${pluralRu(q.max, 'балл', 'балла', 'баллов')}</span>
+          <label class="mk-check"><input type="checkbox" data-mk-off="${esc(q.id)}" ${q.off ? '' : 'checked'}> в работе</label>
+          ${q.custom ? `<button type="button" class="link-btn" data-mk-edit="${q.db_id}">изменить</button><button type="button" class="link-btn danger" data-mk-rm="${q.db_id}">удалить</button>` : ''}</header>
+        <div class="mk-html">${q.html}</div>
+        <p class="mk-key"><b>Ответ:</b> ${esc(q.key.join(' · '))}${q.file ? ` · <a href="api/admin/mcko/file?q=${esc(q.id)}">${esc(q.file)}</a>` : ''}</p>
+        ${q.solution ? `<details><summary>Решение</summary><p>${esc(q.solution)}</p></details>` : ''}</article>`).join('') || '<p class="adm-empty">Заданий этого номера нет.</p>'}</div>`;
+    $$('#mkBody .mk-html input').forEach(i => { i.disabled = true; });
+  }
+  function mkTaskForm(q) {
+    $('#mkTaskForm').innerHTML = `<div class="adm-box mk-form-box"><h3 class="adm-h3">${q ? 'Изменить задание' : 'Новое задание'}</h3><div class="mk-form">
+      <label>Номер задания<input class="inp" id="mkTNum" type="number" min="1" max="30" value="${q ? q.type : mkType}"></label>
+      <label>Тема<input class="inp" id="mkTTopic" maxlength="80" value="${esc(q ? q.topic : MKB.topics[mkType] || '')}"></label>
+      <label class="wide">Условие (пустая строка — новый абзац)<textarea class="inp" id="mkTText" rows="5" maxlength="4000">${esc(q ? q.text : '')}</textarea></label>
+      <label>Ответ: по строке на каждое поле, варианты через «|»<textarea class="inp" id="mkTKey" rows="2" maxlength="600">${esc(q ? q.key.join('\n') : '')}</textarea></label>
+      <label>Баллов<input class="inp" id="mkTPts" type="number" min="1" max="10" value="${q ? q.points : 1}"></label>
+      <label class="mk-check"><input type="checkbox" id="mkTPart" ${q && q.partial ? 'checked' : ''}> по баллу за каждое верное поле</label>
+      <label class="wide">Решение (видите только вы)<textarea class="inp" id="mkTSol" rows="2" maxlength="2000">${esc(q ? q.solution : '')}</textarea></label>
+      <span class="mk-form-btns"><button type="button" class="btn primary" data-mk="save-task" data-id="${q ? q.db_id : ''}">Сохранить</button><button type="button" class="link-btn" data-mk="cancel-task">Отмена</button></span></div></div>`;
+    $('#mkTText').focus();
+  }
+  $$('[data-mk-tab]').forEach(b => b.addEventListener('click', () => { mkTab = b.dataset.mkTab; mkOpenWork = null; mkLoad(); }));
+  $('#mkBody').addEventListener('change', async e => {
+    const off = e.target.closest('[data-mk-off]');
+    if (!off) return;
+    try { await api('mcko/off', { q: off.dataset.mkOff, off: !off.checked }); off.closest('.mk-q').classList.toggle('off', !off.checked);
+      const q = [...MKB.bank, ...MKB.own].find(x => x.id === off.dataset.mkOff); if (q) q.off = !off.checked; }
+    catch (err) { off.checked = !off.checked; toast(err.message); }
+  });
+  $('#mkBody').addEventListener('click', async e => {
+    const b = e.target.closest('[data-mk], [data-mk-res], [data-mk-st], [data-mk-del], [data-mk-back], [data-mk-type], [data-mk-edit], [data-mk-rm]');
+    if (!b) return;
+    try {
+      if (b.dataset.mkRes) { await mkResults(+b.dataset.mkRes); return; }
+      if ('mkBack' in b.dataset) { mkOpenWork = null; mkLoad(); return; }
+      if (b.dataset.mkType) { mkType = +b.dataset.mkType; mkBank(); return; }
+      if (b.dataset.mkSt) { await api('mcko/work/status', { id: +b.dataset.mkSt, open: b.dataset.open === '1' }); toast(b.dataset.open === '1' ? 'Работа снова открыта' : 'Приём закрыт: новые попытки начать нельзя, начатые идут до своего срока'); mkLoad(); return; }
+      if (b.dataset.mkDel) { if (!confirm('Удалить работу вместе с результатами учеников? Это нельзя отменить.')) return; await api('mcko/work/delete', { id: +b.dataset.mkDel }); mkOpenWork = null; toast('Работа удалена'); mkLoad(); return; }
+      if (b.dataset.mkEdit) { mkTaskForm(MKB.own.find(q => q.db_id === +b.dataset.mkEdit)); return; }
+      if (b.dataset.mkRm) { if (!confirm('Удалить своё задание? Из уже начатых работ оно пропадёт.')) return; await api('mcko/task/delete', { id: +b.dataset.mkRm }); mkLoad(); return; }
+      const k = b.dataset.mk;
+      if (k === 'random') {
+        b.disabled = true;
+        await api('mcko/work', { class_id: +$('#mkClass').value, mode: 'random' });
+        toast('Работа выдана — ученики увидят её в разделе «МЦКО»'); mkLoad();
+      } else if (k === 'create') {
+        const mode = $('#mkMode').value, closes = $('#mkCloses').value;
+        await api('mcko/work', { class_id: +$('#mkClass').value, title: $('#mkTitle').value, mode: mode === 'random' ? 'random' : 'fixed', variant: +mode || null,
+          minutes: +$('#mkMin').value, tries: +$('#mkTries').value, hide_result: $('#mkHide').checked, closes: closes ? new Date(closes).getTime() / 1000 : null });
+        toast('Работа выдана'); mkLoad();
+      } else if (k === 'new-task') mkTaskForm(null);
+      else if (k === 'cancel-task') $('#mkTaskForm').innerHTML = '';
+      else if (k === 'save-task') {
+        const r = await api('mcko/task', { id: +b.dataset.id || null, num: +$('#mkTNum').value, topic: $('#mkTTopic').value, text: $('#mkTText').value,
+          key: $('#mkTKey').value, points: +$('#mkTPts').value, partial: $('#mkTPart').checked, solution: $('#mkTSol').value });
+        if (r.ok) { mkType = +$('#mkTNum').value; toast('Задание сохранено'); MKB = await api('mcko/bank'); mkBank(); }
+      }
+    } catch (err) { b.disabled = false; if (err.status !== 401) toast(err.message); }
+  });
+
   // ------------------------------------------------------------ вкладки
   let tab = 'overview';
   let backTab = 'overview';            // куда вернуться из карточки ученика
@@ -2228,7 +2362,7 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     document.body.classList.toggle('builder-open', t === 'build');
     if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
@@ -2241,6 +2375,7 @@
     if (t === 'site') loadSite();
     if (t === 'build') openBuilder();
     if (t === 'archive') loadArchive();
+    if (t === 'mcko') mkLoad();
     if (t === 'teachers') loadTeachers();
     if (t === 'students') { loadStudents(); loadVisitors(); }
     if (t === 'classes') loadClasses();
