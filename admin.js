@@ -1912,14 +1912,14 @@
         <td class="muted">${s.last ? fmtWhen(s.last) : s.lab ? 'ещё не занимался' : '—'}</td></tr>
         ${ARD.open === s.id ? `<tr class="cp-detail"><td colspan="${cols}">${ardDetailHtml(s.id)}</td></tr>` : ''}`).join('');
     $('#ardBody').innerHTML = `<div class="adm-cards">
-        ${card('С доступом', d.students.length, 'учеников открыли лаборатории')}
+        ${card('С доступом', d.students.length, 'учеников открыли Arduino')}
         ${card('Занимались', active.length, 'есть пройденные шаги уроков')}
         ${card('Пройдено уроков', d.students.reduce((a, s) => a + d.tracks.reduce((b, t) => b + ((s[t.id] || {}).done || 0), 0), 0), 'всеми учениками вместе')}
         ${card('За неделю', d.students.filter(s => (s.last || 0) >= week).length, 'занимались в Arduino')}
       </div>
-      ${d.pw_set ? '' : '<p class="adm-hint main-only">Пароль лабораторий ещё не задан — во вкладке <a href="#" data-goto-tab="access">«Пароли и доступы»</a>.</p>'}
+      ${d.pw_set ? '' : '<p class="adm-hint main-only">Пароль лаборатории Arduino ещё не задан — во вкладке <a href="#" data-goto-tab="access">«Пароли и доступы»</a>.</p>'}
       <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th>${d.tracks.map(t => `<th class="num">${esc(t.title)}</th>`).join('')}<th>Последнее занятие</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="${cols}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Пока никто не открыл лаборатории — сообщите ученикам пароль лабораторий.'}</td></tr>`}</tbody></table></div>`;
+        <tbody>${rows || `<tr><td colspan="${cols}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Пока никто не открыл лабораторию Arduino — сообщите ученикам её пароль.'}</td></tr>`}</tbody></table></div>`;
   }
   function ardDetailHtml(sid) {
     const x = ARD.detail[sid];
@@ -4508,7 +4508,8 @@
   const ACC = [
     { kind: 'course', title: 'Курс по заданиям', icon: '🎓', what: 'Раздел «Курс ЕГЭ»: уроки по номерам 1–27 и подборки к ним.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
     { kind: 'pyc', title: 'Курс программирования', icon: '🐍', what: 'Курс «Программирование для ЕГЭ»: Python с нуля и темы по номерам.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
-    { kind: 'lab', title: 'Лаборатории', icon: '🧪', what: 'Лабораторные работы, пошаговая лаборатория программирования, «Исправление ошибок» и Arduino.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
+    { kind: 'lab', title: 'Лаборатории', icon: '🧪', what: 'Лабораторные работы, пошаговая лаборатория программирования и «Исправление ошибок».', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
+    { kind: 'ard', title: 'Лаборатория Arduino', icon: '🔌', what: 'Отдельное приложение: схемы, код и симулятор Arduino, 2 курса по 36 уроков. Свой пароль — пароль лабораторий его не открывает.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
   ];
   function renderPasswords(d) {
     $('#accGrid').innerHTML = ACC.map(a => {

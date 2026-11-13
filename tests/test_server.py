@@ -1151,6 +1151,21 @@ class ServerTest(unittest.TestCase):
         dump = json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")])
         for pw in ("synthetic-course-1", "synthetic-course-2", "synthetic-all-3"):
             self.assertNotIn(pw, dump)
+        # лаборатория Arduino: «один пароль на всё» её не задаёт; пароль лабораторий её не открывает — у неё свой
+        self.assertFalse(d["ard"]["set"])
+        self.assertEqual(self.req("POST", "/api/arduino/unlock", {"password": "synthetic-all-3"}, tok)[0], 403)
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertEqual((me["lab"], me["ard"], me["ard_pw"]), (True, False, False))
+        d = self.admin("POST", "/api/admin/access", {"kind": "ard", "password": "synthetic-ard-4"})[1]
+        self.assertTrue(d["ard"]["set"])
+        self.assertEqual(self.req("POST", "/api/arduino/unlock", {"password": "synthetic-all-3"}, tok)[0], 403)
+        self.assertTrue(self.req("POST", "/api/arduino/unlock", {"password": "synthetic-ard-4"}, tok)[1]["access"])
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["ard"])
+        self.assertEqual(self.admin("GET", "/api/admin/access")[1]["ard"]["students"], 1)
+        self.assertNotIn("synthetic-ard-4", json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")]))
+        d = self.admin("POST", "/api/admin/access", {"kind": "ard", "off": True})[1]
+        self.assertEqual((d["ard"]["set"], d["ard"]["students"], d["lab"]["set"]), (False, 0, True))
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["ard"])
         # выключить один раздел — остальные не трогаются
         d = self.admin("POST", "/api/admin/access", {"kind": "pyc", "off": True})[1]
         self.assertEqual((d["course"]["set"], d["pyc"]["set"], d["lab"]["set"], d["pyc"]["students"]), (True, False, True, 0))
@@ -2425,19 +2440,19 @@ class ServerTest(unittest.TestCase):
         tok = self.login("Макетов Электрон")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
         db = server.APP.db
-        old_pw = db.setting("lab_pw")
-        self.addCleanup(db.setting, "lab_pw", old_pw or "")
+        old_pw = db.setting("ard_pw")
+        self.addCleanup(db.setting, "ard_pw", old_pw or "")
         self.addCleanup(db.x, "DELETE FROM students WHERE id=?", (sid,))
-        db.setting("lab_pw", server.hash_pw("synthetic-arduino-lab"))
+        db.setting("ard_pw", server.hash_pw("synthetic-arduino-lab"))
         for path in ("/arduino/", "/arduino/index.html"):
             self.assertEqual(self.req("GET", path)[0], 302)
             self.assertEqual(self.req("GET", path, token=tok)[0], 302)
-        server.APP.db.x("UPDATE students SET lab=1 WHERE id=?", (sid,))
+        server.APP.db.x("UPDATE students SET ard=1 WHERE id=?", (sid,))
         st, body = self.req("GET", "/arduino/", token=tok)
         self.assertEqual(st, 200)
         self.assertIn(b'egeshka.js?v=', body)
         self.assertIn(b'data-src="app.js?v=', body)
-        server.APP.db.x("UPDATE students SET lab=0 WHERE id=?", (sid,))
+        server.APP.db.x("UPDATE students SET ard=0 WHERE id=?", (sid,))
         self.assertEqual(self.req("GET", "/arduino/", token=tok)[0], 302)
         self.assertIn(b"egeshka.js", body)
         self.assertIn(b"app.js", body)
@@ -2446,10 +2461,10 @@ class ServerTest(unittest.TestCase):
         for f in files:                                   # код приложения — только с доступом к лабораториям
             self.assertEqual(self.req("GET", "/arduino/" + f)[0], 403, f)
             self.assertEqual(self.req("GET", "/arduino/" + f, token=tok)[0], 403, f)
-        server.APP.db.x("UPDATE students SET lab=1 WHERE id=?", (sid,))
+        server.APP.db.x("UPDATE students SET ard=1 WHERE id=?", (sid,))
         for f in files:
             self.assertEqual(self.req("GET", "/arduino/" + f, token=tok)[0], 200, f)
-        server.APP.db.x("UPDATE students SET lab=0 WHERE id=?", (sid,))
+        server.APP.db.x("UPDATE students SET ard=0 WHERE id=?", (sid,))
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         c.request("GET", "/arduino")
         r = c.getresponse(); r.read(); c.close()
@@ -5287,12 +5302,12 @@ class ServerTest(unittest.TestCase):
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
         junior = [["first-light", "Первый свет", 1, 1, 1], ["blink", "Мигание", 1, 0, 0]] + [[f"l{i}", f"Урок {i}", 0, 0, 0] for i in range(3, 37)]
         body = {"tracks": {"junior": junior, "senior": []}}
-        # без доступа к лабораториям прогресс не принимается
+        # без пароля лаборатории Arduino прогресс не принимается
         self.assertTrue(self.req("POST", "/api/arduino/progress", body, tok)[1].get("skipped"))
-        server.APP.db.x("UPDATE students SET lab=1 WHERE id=?", (sid,))
-        pw = server.APP.db.setting("lab_pw")
+        server.APP.db.x("UPDATE students SET ard=1 WHERE id=?", (sid,))
+        pw = server.APP.db.setting("ard_pw")
         if not pw:
-            server.APP.db.x("INSERT OR REPLACE INTO settings(key, value) VALUES('lab_pw', 'x')")
+            server.APP.db.x("INSERT OR REPLACE INTO settings(key, value) VALUES('ard_pw', 'x')")
         try:
             self.assertEqual(self.req("POST", "/api/arduino/progress", {"tracks": {"junior": [["Bad id!", "", 1, 1, 1]]}}, tok)[0], 400)
             self.assertEqual(self.req("POST", "/api/arduino/progress", {"tracks": "x"}, tok)[0], 400)
@@ -5320,7 +5335,7 @@ class ServerTest(unittest.TestCase):
             server.APP.db.x("DELETE FROM arduino_progress WHERE student_id=?", (sid,))
             self.admin("POST", "/api/admin/student/delete", {"id": sid})      # лишний ученик не должен менять рейтинги других тестов
             if not pw:
-                server.APP.db.x("DELETE FROM settings WHERE key='lab_pw'")
+                server.APP.db.x("DELETE FROM settings WHERE key='ard_pw'")
 
 
 class NumberFixTest(unittest.TestCase):

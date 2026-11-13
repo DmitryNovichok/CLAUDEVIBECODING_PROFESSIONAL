@@ -442,6 +442,7 @@
       else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'mcko') openMcko();
+      else if (st.v === 'ardgate') openArdGate();
       else if (st.v === 'tourpage') tourOpen();
       else if (st.v === 'exams') openExamsPage();
       else if (st.v === 'history') openHistory();

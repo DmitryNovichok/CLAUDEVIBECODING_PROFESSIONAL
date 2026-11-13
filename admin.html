@@ -240,7 +240,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div class="adm-toolbar"><h2 class="adm-h">Лаборатория Arduino</h2>
         <input class="inp" id="ardFind" placeholder="Поиск по ФИО" style="max-width:240px">
         <button type="button" class="btn ghost" id="ardReload">Обновить</button></div>
-      <p class="adm-hint" style="margin:0 0 12px">Ученики с доступом к лабораториям и их прогресс в двух курсах Arduino: 7 класс и 10–11 классы (по 36 уроков).
+      <p class="adm-hint" style="margin:0 0 12px">Ученики, открывшие лабораторию Arduino её паролем, и их прогресс в двух курсах Arduino: 7 класс и 10–11 классы (по 36 уроков).
         Урок пройден, когда выполнены все три шага: <b>теория</b>, <b>схема</b> и <b>запуск</b>. Прогресс приходит, когда ученик занимается в лаборатории Arduino на сайте.
         Нажмите на ученика — увидите каждый урок: <span class="cp-sq ok"></span> пройден, <span class="cp-sq part"></span> начат, <span class="cp-sq"></span> не начат.</p>
       <div id="ardBody"><p class="adm-hint">Загружаю…</p></div>
@@ -512,7 +512,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div class="acc-grid" id="accGrid"></div>
       <form class="adm-box acc-all" id="accAllForm">
         <h3 class="adm-h3">Один пароль на всё</h3>
-        <p class="fm-note">Задать одинаковый пароль сразу курсу по заданиям, курсу программирования и лабораториям. Уже открытые доступы у учеников не закрываются.</p>
+        <p class="fm-note">Задать одинаковый пароль сразу курсу по заданиям, курсу программирования и лабораториям. Лаборатории Arduino это не касается — у неё всегда свой пароль. Уже открытые доступы у учеников не закрываются.</p>
         <div class="login-form">
           <input class="inp" id="accAll" type="text" autocomplete="off" maxlength="200" placeholder="общий пароль">
           <button class="btn primary" type="submit">Задать всем трём</button>

@@ -52,7 +52,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import hash_pw, check_pw, revoke_access, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
-from learning_access import lab_access
+from learning_access import lab_access, ard_access
 import buglab
 import mcko
 from learning_content import course_guide
@@ -1802,6 +1802,7 @@ class DB(Transactional):
                     ("students", "pyc", "INTEGER DEFAULT 0"),         # ученик ввёл пароль курса программирования
                     ("students", "pyc_ts", "REAL"),                   # когда ввёл
                     ("students", "lab", "INTEGER DEFAULT 0"),
+                    ("students", "ard", "INTEGER DEFAULT 0"),         # ученик ввёл пароль лаборатории Arduino
                     ("pyc_progress", "hint_used", "INTEGER DEFAULT 0"),
                     ("pyc_progress", "solution_seen", "INTEGER DEFAULT 0"),
                     ("pyc_progress", "independent", "INTEGER DEFAULT 0"),
@@ -2602,7 +2603,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_page(rel)
         if rel == "arduino/index.html":
             s = self.student()
-            if not s or not lab_access(APP.db, s):
+            if not s or not ard_access(APP.db, s):
                 return self.send_bytes(302, b"", "text/plain", {
                     "Location": "/" if not s else "/#lab-arduino", "Cache-Control": "no-store"})
             return self.serve_page(rel)
@@ -2619,10 +2620,10 @@ class Handler(BaseHTTPRequestHandler):
             f = site_asset(rel)
             return self.serve_file(f.parent, f.name, private=True)
         if rel.startswith("arduino/") and rel != "arduino/index.html":
-            # приложение Arduino (и его исходники по GPL) — ученикам и учителям с доступом к лабораториям
+            # приложение Arduino (и его исходники по GPL) — ученикам и учителям с паролем лаборатории Arduino
             s = self.student()
-            if not s or not lab_access(APP.db, s):
-                return self.err(403, "Лаборатории открываются по паролю от учителя")
+            if not s or not ard_access(APP.db, s):
+                return self.err(403, "Лаборатория Arduino открывается по паролю от учителя")
         if rel in SITE_FILES:
             f = site_asset(rel)
             return self.serve_file(f.parent, f.name, html=rel.endswith(".html"))
@@ -3106,6 +3107,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "shared": bool(getattr(self, "sess", None) and self.sess["shared"]),
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s), "lab": lab_access(APP.db, s), "lab_pw": bool(APP.db.setting("lab_pw")),
+                "ard": ard_access(APP.db, s), "ard_pw": bool(APP.db.setting("ard_pw")),
                 "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
                 "coin_news": [dict(r) for r in APP.db.q("""SELECT id, delta, reason, note FROM coins
                                                             WHERE student_id=? AND seen=0 ORDER BY ts LIMIT 10""", (s["id"],))],
@@ -4240,12 +4242,34 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path.startswith("/api/mcko"):
             return self.mcko_api(method, path, qs, data)
 
+        if path == "/api/arduino/unlock" and method == "POST":
+            # пароль лаборатории Arduino — свой, не пароль лабораторий; попытки ограничены, как у других разделов
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if ard_access(db, s):
+                return self.send_json({"access": True})
+            stored = db.setting("ard_pw")
+            if not stored:
+                return self.err(403, "Лабораторию Arduino ещё не открыл учитель")
+            now = time.time()
+            with _COURSE_LOCK:
+                tries = [t for t in _LAB_PW_TRIES.get(("ard", s["id"]), []) if now - t < COURSE_WINDOW]
+                if len(tries) >= COURSE_TRIES:
+                    return self.err(429, "Слишком много попыток — попробуйте позже")
+                tries.append(now)
+                _LAB_PW_TRIES[("ard", s["id"])] = tries
+            if not check_pw(str(data.get("password") or "")[:200], stored):
+                return self.err(403, "Неверный пароль лаборатории Arduino")
+            db.x("UPDATE students SET ard=1 WHERE id=?", (s["id"],))
+            return self.send_json({"access": True})
+
         if path == "/api/arduino/progress" and method == "POST":
             # страница Arduino присылает сводку прогресса уроков; учитель видит её во вкладке «Arduino»
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
-            if s["is_teacher"] or not lab_access(APP.db, s):
+            if s["is_teacher"] or not ard_access(APP.db, s):
                 return self.send_json({"ok": True, "skipped": True})
             clean = arduino_clean(data.get("tracks"))
             if clean is None:
@@ -5531,9 +5555,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/admin/arduino" and method == "GET":
             # прогресс лаборатории Arduino по ученикам этого учителя: курсы 7 класс и 10–11 классы
             where, args = self.student_scope()
-            rows = db.q(f"""SELECT s.id, s.name, COALESCE(s.lab, 0) AS lab, c.name AS cls, a.data, a.updated, a.first
+            rows = db.q(f"""SELECT s.id, s.name, COALESCE(s.ard, 0) AS lab, c.name AS cls, a.data, a.updated, a.first
                             FROM students s LEFT JOIN classes c ON c.id = s.class_id LEFT JOIN arduino_progress a ON a.student_id = s.id
-                            WHERE (a.student_id IS NOT NULL OR s.lab = 1) AND {where} ORDER BY s.name""", args)
+                            WHERE (a.student_id IS NOT NULL OR s.ard = 1) AND {where} ORDER BY s.name""", args)
             totals = dict(ARDUINO_TOTALS)
             out = []
             for r in rows:
@@ -5547,7 +5571,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                              "steps": [x[2] + x[3] + x[4] for x in ls]}
                 out.append({"id": r["id"], "name": r["name"], "class": r["cls"], "lab": bool(r["lab"]), "last": r["updated"], "first": r["first"], **tr})
             return self.send_json({"tracks": [{"id": k, "title": t, "total": totals[k]} for k, t in ARDUINO_TRACKS.items()], "students": out,
-                                   "pw_set": bool(db.setting("lab_pw"))})
+                                   "pw_set": bool(db.setting("ard_pw"))})
         if path == "/api/admin/arduino/student" and method == "GET":
             sid = to_int(qs.get("id"))
             where, args = self.student_scope()
@@ -6212,15 +6236,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             # GET — состояние; POST {kind, password | revoke | off} или {all: пароль} — один пароль на все три раздела
             if not self.T["is_main"]:
                 return self.err(403, "Пароли разделов задаёт главный учитель")
-            kinds = {"course": ("course_pw", "course"), "pyc": ("pyc_pw", "pyc"), "lab": ("lab_pw", "lab")}
+            kinds = {"course": ("course_pw", "course"), "pyc": ("pyc_pw", "pyc"), "lab": ("lab_pw", "lab"), "ard": ("ard_pw", "ard")}
             if method == "POST":
                 every = str(data.get("all") or "").strip()
                 kind = data.get("kind")
                 if every:
                     if len(every) < 4:
                         return self.err(400, "Пароль — не короче 4 символов")
-                    for key, _col in kinds.values():
-                        db.setting(key, hash_pw(every[:200]))      # у каждого раздела своя соль
+                    for kind_, (key, _col) in kinds.items():
+                        if kind_ != "ard":                          # у Arduino — всегда свой пароль
+                            db.setting(key, hash_pw(every[:200]))   # у каждого раздела своя соль
                 elif kind in kinds:
                     key, col = kinds[kind]
                     pw = str(data.get("password") or "").strip()
