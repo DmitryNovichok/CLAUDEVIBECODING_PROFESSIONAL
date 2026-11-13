@@ -1709,6 +1709,17 @@ label.vw-row { cursor: pointer; }
   .sl-stats { grid-template-columns: repeat(2, 1fr); }
 }
 @container (max-width: 480px) { .sl-cards.c4, .sl-cards.c5, .sl-steps, .sl-cols, .sl-cards.c3, .sl-cards.c2, .sl-stats, .sl-split, .sl-blocks { grid-template-columns: 1fr; } }
+/* сколько места у слайда с учётом масштаба (data-w ставит fitSlide): при 130 % в узком окне колонки складываются */
+.sl[data-w="md"] .sl-blocks.n3 { grid-template-columns: 1fr; }
+.sl[data-w="sm"] .sl-blocks, .sl[data-w="sm"] .sl-blocks.n3, .sl[data-w="sm"] .sl-split, .sl[data-w="sm"] .sl-split.wide { grid-template-columns: minmax(0, 1fr); }
+.sl[data-w="sm"] .sl-cards.c4 { grid-template-columns: repeat(2, 1fr); } .sl[data-w="sm"] .sl-cards.c5 { grid-template-columns: repeat(3, 1fr); }
+.sl[data-w="sm"] .sl-steps { grid-template-columns: repeat(3, 1fr); } .sl[data-w="sm"] .sl-stats { grid-template-columns: repeat(2, 1fr); }
+.sl[data-w="xs"] :is(.sl-blocks, .sl-blocks.n3, .sl-split, .sl-split.wide, .sl-cards.c2, .sl-cards.c3, .sl-cards.c4, .sl-cards.c5, .sl-steps, .sl-cols, .sl-stats) { grid-template-columns: minmax(0, 1fr); }
+.sl-block .btn, .sl-codecol .btn { white-space: normal; }
+#crsDeck:fullscreen .crs-stage { justify-content: safe center; overflow-x: hidden; }
+.sl .sl-split.one, .sl .sl-blocks.one { grid-template-columns: minmax(0, 1fr); }
+.sl .sl-split.one .sl-left { max-width: 920px; }
+.sl .sl-code.tight { font-size: 12px; }
 
 /* код в таблицах и карточках слайдов: переносится целиком, не по символам */
 .sl-tab code, .sl-card code { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
@@ -3541,6 +3552,9 @@ a.wm-item { text-decoration: none; color: inherit; display: block; }
 
 /* Лаборатория: самостоятельные модели и просмотр Python по шагам. */
 body.lab-open .trainer { max-width: 1260px; }
+/* урок курса: слайду нужна ширина — на широком экране страница урока шире обычной */
+.trainer:has(> .course.lesson) { max-width: 1400px; }
+.course.lesson { max-width: 1340px; }
 .lab { min-width: 0; }
 .lab [hidden] { display: none !important; }
 .lab-header { display: flex; align-items: center; gap: 18px; margin: 12px 0 28px; }
