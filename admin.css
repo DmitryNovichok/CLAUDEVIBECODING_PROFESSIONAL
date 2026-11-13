@@ -892,3 +892,44 @@ tr.t-renew td { background: var(--review-soft); }
 .adm-main label { min-width: 0; }
 .eco-grid > div { min-width: 0; overflow-x: auto; }
 .adm-draft-row .inp { min-width: 0; flex: 1 1 140px; }
+
+/* МЦКО */
+.mk-tabs, .mk-types { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+.mk-chip { display: inline-block; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; padding: 5px 14px; font: inherit; font-size: 13.5px; font-weight: 600; }
+button.mk-chip { cursor: pointer; }
+button.mk-chip:hover { background: var(--card-hover); }
+button.mk-chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+td .mk-chip { font-size: 12px; padding: 1px 8px; }
+.mk-new { margin-bottom: 18px; }
+.mk-quick { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
+.mk-quick label, .mk-form label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); min-width: 0; }
+.mk-quick label { flex: 0 1 220px; }
+.mk-more { margin: 12px 0 6px; } .mk-more summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.mk-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 10px 14px; align-items: end; margin-top: 10px; }
+.mk-form .wide { grid-column: 1 / -1; }
+.mk-form .mk-check, .mk-check { flex-direction: row !important; align-items: center; gap: 8px; color: var(--text) !important; font-size: 13.5px; }
+.mk-form-btns { display: flex; gap: 12px; align-items: center; }
+.mk-works .name small, .mk-res .name small, .mk-works td small { display: block; color: var(--muted); font-size: 12px; }
+.mk-act { white-space: nowrap; }
+.mk-chip.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); border-color: transparent; }
+.mk-res-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
+.mk-res-head h3 { margin: 0; flex: 1 1 260px; }
+.mk-res-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.link-btn.danger { color: var(--weak, #d93b3b); }
+.mk-cell { font-weight: 700; min-width: 30px; }
+.mk-cell.ok { background: color-mix(in srgb, var(--good) 20%, transparent); }
+.mk-cell.part { background: rgba(255, 196, 0, .25); }
+.mk-cell.bad { background: color-mix(in srgb, var(--weak, #d93b3b) 18%, transparent); }
+.mk-cell.none { color: var(--muted); }
+.mk-bank-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.mk-bank { display: grid; gap: 12px; margin-top: 10px; }
+.mk-q { border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; background: var(--card); min-width: 0; }
+.mk-q.off { opacity: .55; }
+.mk-q header { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 6px; }
+.mk-q header .mk-check { margin-left: auto; }
+.mk-html { overflow-x: auto; font-size: 14.5px; line-height: 1.55; }
+.mk-html p { margin: 6px 0; } .mk-html table { border-collapse: collapse; margin: 6px 0; } .mk-html td, .mk-html th { border: 1px solid var(--border); padding: 4px 10px; }
+.mk-html input { width: 110px !important; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.mk-html pre { white-space: pre-wrap; }
+.mk-key { margin: 8px 0 0; font-size: 14px; }
+.mk-form-box { margin: 10px 0; }

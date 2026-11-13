@@ -5106,6 +5106,127 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(T.op_apply(T.op_apply(doc, a), b1), T.op_apply(T.op_apply(doc, b), a1))
 
 
+    # ------------------------------------------------------------ МЦКО
+    def test_mcko_bank_and_scoring(self):
+        import mcko
+        self.assertEqual((len(mcko.QUESTIONS), mcko.TYPES, len(mcko.VARIANTS), mcko.MAX_SCORE), (390, list(range(1, 14)), 30, 14))
+        q = mcko.BY_ID["inf10-t01-v01"]
+        self.assertEqual(mcko.score(q, q["key"]), q["points"])
+        self.assertEqual(mcko.score(q, ["неверно"] * len(q["key"])), 0)
+        f = mcko.BY_ID["inf10-t13-v01"]                      # тип 13: по баллу за поле, файл строится из seed
+        self.assertEqual(mcko.score(f, [f["key"][0], "x"]), 1)
+        self.assertEqual(mcko.max_points(f), 2)
+        self.assertEqual(len(mcko.file_text(f).split()), 10000)
+        self.assertNotIn("key", mcko.public(q))
+        self.assertEqual(mcko.norm(" 3,5 "), "3.5")
+        c = mcko.custom_question({"id": 7, "num": 2, "topic": "", "text": "<b>x</b>\n\nвторой", "key": '["да|yes", "5"]',
+                                  "points": 2, "partial": 0, "solution": ""})
+        self.assertIn("&lt;b&gt;", c["html"])
+        self.assertEqual((mcko.score(c, ["YES", "5"]), mcko.score(c, ["да", "4"])), (2, 0))
+
+    def test_mcko_work_flow(self):
+        import mcko
+        tok = self.login("Мцков Михаил")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        other = self.login("Чужов Олег")
+        self.assertEqual(self.req("GET", "/api/mcko", token=tok)[1]["works"], [])          # пустая главная
+        self.assertFalse(self.req("GET", "/api/mcko", token=tok)[1]["has_class"])
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "10М"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
+        st, d = self.admin("POST", "/api/admin/mcko/work", {"class_id": cid, "mode": "fixed", "variant": 3, "minutes": 45, "tries": 1})
+        self.assertEqual(st, 200, d)
+        wid = d["id"]
+        rid = self.admin("POST", "/api/admin/mcko/work", {"class_id": cid, "mode": "random", "hide_result": True})[1]["id"]
+        d = self.req("GET", "/api/mcko", token=tok)[1]
+        self.assertEqual(d["me"], {"last_name": "Мцков", "first_name": "Михаил", "middle_name": "", "klass": "10М"})
+        w = next(x for x in d["works"] if x["id"] == wid)
+        self.assertEqual((w["tasks"], w["max"], w["minutes"], w["active"]), (13, 14, 45, None))
+        self.assertEqual(self.req("GET", "/api/mcko", token=other)[1]["works"], [])        # другой класс работ не видит
+        self.assertEqual(self.req("POST", "/api/mcko/start", {"work": wid, "last_name": "Чужов", "first_name": "О", "klass": "9"}, other)[0], 404)
+        self.assertEqual(self.req("POST", "/api/mcko/start", {"work": wid, "last_name": "Мцков", "first_name": "", "klass": "10М"}, tok)[0], 400)
+        st, d = self.req("POST", "/api/mcko/start", {"work": wid, "last_name": "Мцков", "first_name": "Михаил", "klass": "10М"}, tok)
+        self.assertEqual(st, 200, d)
+        run = d["run"]
+        self.assertEqual(self.req("POST", "/api/mcko/start", {"work": wid}, tok)[1]["run"], run)    # повторный вход — та же попытка
+        v = self.req("GET", f"/api/mcko/run?run={run}", token=tok)[1]
+        self.assertEqual([t["id"] for t in v["tasks"]], [f"inf10-t{t:02d}-v03" for t in range(1, 14)])
+        self.assertNotIn("key", json.dumps(v, ensure_ascii=False).replace('"keys', ""))
+        self.assertNotIn("solution", v["tasks"][0])
+        self.assertEqual(self.req("GET", f"/api/mcko/run?run={run}", token=other)[0], 404)
+        f = self.req("GET", f"/api/mcko/file?run={run}&q=inf10-t13-v03", token=tok)
+        self.assertEqual((f[0], len(f[1].decode().split())), (200, 10000))
+        self.assertEqual(self.req("GET", f"/api/mcko/file?run={run}&q=inf10-t13-v04", token=tok)[0], 404)
+        q1, q13 = mcko.BY_ID["inf10-t01-v03"], mcko.BY_ID["inf10-t13-v03"]
+        self.assertEqual(self.req("POST", "/api/mcko/save", {"run": run, "q": q1["id"], "values": q1["key"]}, tok)[1]["saved"], 1)
+        self.req("POST", "/api/mcko/save", {"run": run, "q": q13["id"], "values": [q13["key"][0], "0"]}, tok)
+        self.assertEqual(self.req("POST", "/api/mcko/save", {"run": run, "q": "inf10-t02-v04", "values": ["1"]}, tok)[0], 404)
+        d = self.req("POST", "/api/mcko/finish", {"run": run}, tok)[1]
+        self.assertEqual((d["score"], d["max"], d["reason"]), (q1["points"] + 1, 14, "student"))
+        self.assertEqual(self.req("POST", "/api/mcko/save", {"run": run, "q": q1["id"], "values": ["x"]}, tok)[0], 409)
+        self.assertEqual(self.req("POST", "/api/mcko/start", {"work": wid, "last_name": "М", "first_name": "М", "klass": "10"}, tok)[0], 409)
+        # случайный вариант: по заданию каждого типа; баллы скрыты
+        run2 = self.req("POST", "/api/mcko/start", {"work": rid, "last_name": "Мцков", "first_name": "Михаил", "klass": "10М"}, tok)[1]["run"]
+        v = self.req("GET", f"/api/mcko/run?run={run2}", token=tok)[1]
+        self.assertEqual([t["type"] for t in v["tasks"]], list(range(1, 14)))
+        self.assertNotIn("score", self.req("POST", "/api/mcko/finish", {"run": run2}, tok)[1])
+        # учитель: результаты и CSV
+        st, d = self.admin("GET", f"/api/admin/mcko/results?id={wid}")
+        self.assertEqual((st, len(d["rows"]), d["rows"][0]["score"], d["rows"][0]["fio"]), (200, 1, q1["points"] + 1, "Мцков Михаил"))
+        self.assertEqual(d["rows"][0]["tasks"][12]["points"], 1)
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", f"/api/admin/mcko/results.csv?id={wid}", headers={"Cookie": "egeadm=admtest"})
+        body = c.getresponse().read().decode("utf-8")
+        c.close()
+        self.assertTrue(body.startswith("\ufeff") and "Мцков Михаил" in body)
+        works = self.admin("GET", "/api/admin/mcko/works")[1]["works"]
+        self.assertEqual(next(x for x in works if x["id"] == wid)["finished"], 1)
+        # закрытая работа без попыток не видна; удалённая — тоже
+        self.admin("POST", "/api/admin/mcko/work/status", {"id": rid, "open": False})
+        self.assertEqual(self.req("POST", "/api/mcko/start", {"work": rid, "last_name": "М", "first_name": "М", "klass": "1"}, tok)[0], 409)
+        self.admin("POST", "/api/admin/mcko/work/delete", {"id": wid})
+        self.assertNotIn(wid, [x["id"] for x in self.req("GET", "/api/mcko", token=tok)[1]["works"]])
+        self.admin("POST", "/api/admin/mcko/work/delete", {"id": rid})
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
+    def test_mcko_time_limit_and_teacher_bank(self):
+        tok = self.login("Временов Тимур")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "10Т"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
+        # своё задание учителя и отключённые задания банка: случайный вариант №1 берёт только своё
+        st, d = self.admin("POST", "/api/admin/mcko/task", {"num": 1, "text": "Сколько будет 2+2?", "key": "4\nчетыре|4", "points": 1})
+        self.assertEqual(st, 200, d)
+        cq = d["id"]
+        for v in range(1, 31):
+            self.admin("POST", "/api/admin/mcko/off", {"q": f"inf10-t01-v{v:02d}", "off": True})
+        bank = self.admin("GET", "/api/admin/mcko/bank")[1]
+        self.assertEqual((len(bank["bank"]), len(bank["own"]), bank["own"][0]["db_id"]), (390, 1, cq))
+        self.assertTrue(all(q["off"] for q in bank["bank"] if q["type"] == 1))
+        wid = self.admin("POST", "/api/admin/mcko/work", {"class_id": cid, "mode": "random", "minutes": 5})[1]["id"]
+        run = self.req("POST", "/api/mcko/start", {"work": wid, "last_name": "Временов", "first_name": "Тимур", "klass": "10Т"}, tok)[1]["run"]
+        v = self.req("GET", f"/api/mcko/run?run={run}", token=tok)[1]
+        self.assertEqual(v["tasks"][0]["id"], f"c{cq}")
+        self.assertNotIn("четыре", json.dumps(v, ensure_ascii=False))
+        self.req("POST", "/api/mcko/save", {"run": run, "q": f"c{cq}", "values": ["4", "4"]}, tok)
+        # время вышло: работа сдаётся сама при следующем обращении, сохранить ответ уже нельзя
+        server.APP.db.x("UPDATE mcko_runs SET deadline=? WHERE id=?", (time.time() - 60, run))
+        self.assertEqual(self.req("POST", "/api/mcko/save", {"run": run, "q": f"c{cq}", "values": ["1"]}, tok)[0], 409)
+        v = self.req("GET", f"/api/mcko/run?run={run}", token=tok)[1]
+        self.assertEqual((v["reason"], v["score"]), ("time", 1))
+        # учитель-ученик в разделе не участвует; чужая работа учителю не видна
+        st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Другая Учительница", "login": "mkother", "password": "secret77", "invite": "MKOTH1"})
+        self.assertEqual(st, 200, d)
+        server.APP.db.x("INSERT INTO admin_sessions(token, expires, teacher_id) VALUES('mkoth', ?, ?)", (time.time() + 3600, d["id"]))
+        self.assertEqual(self.teacher_req("egeadm=mkoth", "GET", f"/api/admin/mcko/results?id={wid}")[0], 404)
+        self.assertEqual(self.teacher_req("egeadm=mkoth", "POST", "/api/admin/mcko/work", {"class_id": cid})[0], 404)
+        self.assertEqual(self.teacher_req("egeadm=mkoth", "GET", "/api/admin/mcko/bank")[1]["own"], [])
+        self.admin("POST", "/api/admin/teacher/delete", {"id": d["id"]})
+        self.admin("POST", "/api/admin/mcko/task/delete", {"id": cq})
+        server.APP.db.x("DELETE FROM mcko_off")
+        self.admin("POST", "/api/admin/mcko/work/delete", {"id": wid})
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
 class NumberFixTest(unittest.TestCase):
     def test_turtle_moves_to_6(self):
         import clusters

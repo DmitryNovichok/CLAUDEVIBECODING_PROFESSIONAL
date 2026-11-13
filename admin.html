@@ -84,6 +84,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <button type="button" data-tab="tog"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></i>Вместе</button>
       <div class="nav-h">Задания</div>
       <button type="button" data-tab="build"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg></i>Создать подборку</button>
+      <button type="button" data-tab="mcko"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/><path d="m15 15 1.5 1.5L19 14"/></svg></i>МЦКО</button>
       <button type="button" data-tab="archive"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/></svg></i>Мои работы</button>
       <button type="button" data-tab="course" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5M22 9v6"/></svg></i>Курс</button>
       <button type="button" data-tab="pyc"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></i>Программирование</button>
@@ -210,6 +211,11 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <button type="button" class="bld-mobile-summary" id="bldMobileSummary" aria-controls="bldDraft">Выбрано 0 заданий →</button>
     </section>
 
+    <section class="adm-view" id="view-mcko" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">МЦКО <span class="adm-hint">тренировочные работы по типам диагностики МЦКО · не официальный сервис МЦКО</span></h2></div>
+      <div class="mk-tabs" role="tablist"><button type="button" class="mk-chip on" data-mk-tab="works">Работы</button><button type="button" class="mk-chip" data-mk-tab="bank">Банк заданий</button></div>
+      <div id="mkBody"><p class="adm-empty">Загружаю…</p></div>
+    </section>
     <section class="adm-view" id="view-archive" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Мои работы</h2>
         <input class="inp adm-search" id="arcQ" placeholder="Поиск по названию или классу" autocomplete="off">

@@ -19,6 +19,7 @@
     duel: ['#ff86b4', '#db2777', '<rect class="m" x="17" y="23" width="14" height="19" rx="2.5"/><rect class="d" x="4" y="30" width="13" height="12" rx="2.5"/><rect class="d" x="31" y="33" width="13" height="9" rx="2.5"/><rect class="k" x="22.8" y="28" width="2.6" height="9" rx="1.3"/><path class="a" d="m24 4 3 6.1 6.7 1-4.85 4.7 1.15 6.7-6-3.15-6 3.15 1.15-6.7-4.85-4.7 6.7-1z"/>'],
     together: ['#5ee6a0', '#059669', '<rect class="m" x="4" y="6" width="40" height="28" rx="5"/><path class="s" d="M24 34v8M17 42h14" stroke-width="3"/><path class="sa" d="M10 26c3.5-7 6.5 1 10-5s6 2 8.5-2" stroke-width="2.8"/><path class="k" d="m30.5 15.5 9.5 3.8-4 1.6-1.6 4z"/><path class="a" d="m31.6 16.6 7 2.8-3.1 1.2-1.2 3.1z"/>'],
     asg: ['#86e04a', '#3f9a06', '<rect class="m" x="8" y="5" width="32" height="38" rx="6"/><rect class="k" x="16" y="2.5" width="16" height="7" rx="3.5"/><rect class="a" x="18" y="4" width="12" height="4" rx="2"/><path class="ks" d="m14.5 21 3 3 5.5-6M14.5 33l3 3 5.5-6" stroke-width="3"/><rect class="k" x="26" y="20" width="9" height="3.2" rx="1.6"/><rect class="k" x="26" y="32" width="9" height="3.2" rx="1.6"/>'],
+    mcko: ['#7cc8ff', '#1c74d9', '<rect class="m" x="7" y="4" width="28" height="38" rx="5"/><rect class="k" x="12" y="11" width="18" height="3.2" rx="1.6"/><rect class="k" x="12" y="18" width="13" height="3.2" rx="1.6"/><rect class="k" x="12" y="25" width="15" height="3.2" rx="1.6"/><circle class="a" cx="34" cy="34" r="10"/><path class="ks" d="M34 28.5V34l3.6 2.4" stroke-width="2.8"/>'],
   };
   let hubIcN = 0;
   function hubIcon(key, size = 56) {
@@ -116,6 +117,7 @@
       hot: !!DAILY?.ready && !DAILY.started && DAILY_STATE !== 'error', go: () => openDaily() });
     if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
+    if (SERVER && student && !TEACHER) T.push({ k: 'mcko', name: 'МЦКО', sub: 'тренировочные работы от учителя', btn: 'Открыть', go: () => openMcko() });
     T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
     if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'модели заданий ЕГЭ, Python по шагам, исправление ошибок', btn: 'Открыть', go: () => $('#labCard').click() });
     if (vis('labCard')) T.push({ k: 'arduino', name: 'Лаборатория Arduino', sub: 'схемы, код и симулятор · 2 курса по 36 уроков', btn: LAB_OK ? 'Открыть' : 'Открыть по паролю',

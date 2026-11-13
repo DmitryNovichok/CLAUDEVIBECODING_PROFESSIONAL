@@ -54,6 +54,7 @@ from auth import hash_pw, check_pw, revoke_access, ACCOUNT_WRITE_PATHS, reset_fi
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
 from learning_access import lab_access
 import buglab
+import mcko
 from learning_content import course_guide
 from private_config import read_private, private_rewards, require_private
 import hints as hints_mod
@@ -1590,6 +1591,21 @@ class DB(Transactional):
                 day TEXT NOT NULL, student_id INTEGER NOT NULL, task_id TEXT, ms INTEGER, ts REAL, PRIMARY KEY(day, student_id));
             CREATE TABLE IF NOT EXISTS course_seen(
                 student_id INTEGER NOT NULL, n INTEGER NOT NULL, slide INTEGER, total INTEGER, ts REAL, PRIMARY KEY(student_id, n));
+            -- МЦКО-тренировка (mcko.py): свои задания учителя, отключённые задания банка, работы классам и попытки учеников
+            CREATE TABLE IF NOT EXISTS mcko_custom(
+                id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, num INTEGER NOT NULL, topic TEXT, text TEXT NOT NULL,
+                key TEXT NOT NULL, points INTEGER DEFAULT 1, partial INTEGER DEFAULT 0, solution TEXT, created REAL);
+            CREATE TABLE IF NOT EXISTS mcko_off(teacher_id INTEGER NOT NULL, qid TEXT NOT NULL, PRIMARY KEY(teacher_id, qid));
+            CREATE TABLE IF NOT EXISTS mcko_works(
+                id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, class_id INTEGER NOT NULL, title TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'random', variant INTEGER, minutes INTEGER NOT NULL DEFAULT 60, tries INTEGER NOT NULL DEFAULT 1,
+                show_result INTEGER DEFAULT 1, status TEXT NOT NULL DEFAULT 'open', created REAL, closes REAL);
+            CREATE TABLE IF NOT EXISTS mcko_runs(
+                id INTEGER PRIMARY KEY, work_id INTEGER NOT NULL, student_id INTEGER NOT NULL, try_no INTEGER NOT NULL DEFAULT 1,
+                last_name TEXT, first_name TEXT, middle_name TEXT, klass TEXT, qids TEXT NOT NULL, answers TEXT,
+                started REAL, deadline REAL, finished REAL, reason TEXT, score INTEGER, max INTEGER,
+                UNIQUE(work_id, student_id, try_no));
+            CREATE INDEX IF NOT EXISTS mcko_runs_work ON mcko_runs(work_id);
             CREATE TABLE IF NOT EXISTS visits(
                 day TEXT NOT NULL, vid TEXT NOT NULL, ts REAL, PRIMARY KEY(day, vid));
             -- воронка главной для учителей: шаги обезличенного посетителя за день (тот же хеш, что в visits)
@@ -3222,6 +3238,226 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json(out)
         return self.err(404, "нет такого метода")
 
+    # ---------- МЦКО-тренировка
+    def mcko_api(self, method, path, qs, data):
+        """Ученик: работы своего класса, начало (ФИО и класс), сохранение ответов, сдача, файл к заданию."""
+        db = APP.db
+        s = self.student(data)
+        if not s:
+            return self.err(401, "нужно войти")
+        if s["is_teacher"]:
+            return self.err(403, "Работы МЦКО выполняют ученики")
+        if path == "/api/mcko" and method == "GET":
+            works = db.q("""SELECT w.* FROM mcko_works w WHERE w.class_id=? AND w.teacher_id=? ORDER BY w.created DESC""",
+                         (s["class_id"] or -1, teacher_of(s)["id"]))
+            out = []
+            for w in works:
+                runs = [mcko_finish_if_late(db, r) for r in db.q("SELECT * FROM mcko_runs WHERE work_id=? AND student_id=? ORDER BY try_no", (w["id"], s["id"]))]
+                if w["status"] != "open" and not runs:
+                    continue
+                active = next((r for r in runs if not r["finished"]), None)
+                last = runs[-1] if runs else None
+                out.append({"id": w["id"], "title": w["title"], "minutes": w["minutes"], "tries": w["tries"], "used": len(runs),
+                            "open": mcko_work_open(w), "closes": w["closes"], "tasks": mcko_work_size(db, w), "max": mcko_work_max(db, w),
+                            "active": active["id"] if active else None, "deadline": active["deadline"] if active else None,
+                            "results": [{"run": r["id"], "finished": r["finished"], "score": r["score"] if w["show_result"] else None,
+                                         "max": r["max"] if w["show_result"] else None} for r in runs if r["finished"]],
+                            "fio": {k: (last or {})[k] if last else "" for k in ("last_name", "first_name", "middle_name", "klass")}})
+            klass = db.q("SELECT name FROM classes WHERE id=?", (s["class_id"],), one=True) if s["class_id"] else None
+            parts = s["name"].split()
+            return self.send_json({"works": out, "me": {"last_name": parts[0] if parts else "", "first_name": parts[1] if len(parts) > 1 else "",
+                                                        "middle_name": " ".join(parts[2:]), "klass": klass["name"] if klass else ""},
+                                   "has_class": bool(s["class_id"]), "bank": mcko.BANK.get("title", "")})
+        if path == "/api/mcko/start" and method == "POST":
+            w = db.q("SELECT * FROM mcko_works WHERE id=?", (to_int(data.get("work")),), one=True)
+            if not w or w["class_id"] != s["class_id"] or w["teacher_id"] != teacher_of(s)["id"]:
+                return self.err(404, "Работа не найдена")
+            clean = lambda k, n: re.sub(r"\s+", " ", str(data.get(k) or "")).strip()[:n]
+            fio = {"last_name": clean("last_name", 60), "first_name": clean("first_name", 60), "middle_name": clean("middle_name", 60), "klass": clean("klass", 20)}
+            runs = [mcko_finish_if_late(db, r) for r in db.q("SELECT * FROM mcko_runs WHERE work_id=? AND student_id=? ORDER BY try_no", (w["id"], s["id"]))]
+            active = next((r for r in runs if not r["finished"]), None)
+            if active:
+                return self.send_json({"run": active["id"]})
+            if not mcko_work_open(w):
+                return self.err(409, "Работа закрыта — новую попытку начать нельзя")
+            if len(runs) >= w["tries"]:
+                return self.err(409, "Все попытки уже использованы")
+            if not fio["last_name"] or not fio["first_name"] or not fio["klass"]:
+                return self.err(400, "Заполните фамилию, имя и класс")
+            qs_ = mcko_make_variant(db, w)
+            if not qs_:
+                return self.err(409, "В банке нет заданий для этой работы — сообщите учителю")
+            now = time.time()
+            try:
+                rid = db.x("""INSERT INTO mcko_runs(work_id, student_id, try_no, last_name, first_name, middle_name, klass, qids, answers, started, deadline, max)
+                              VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           (w["id"], s["id"], len(runs) + 1, fio["last_name"], fio["first_name"], fio["middle_name"], fio["klass"],
+                            json.dumps(qs_), "{}", now, now + w["minutes"] * 60, sum(mcko.max_points(mcko_q(db, q)) for q in qs_)))
+            except sqlite3.IntegrityError:                  # двойной щелчок — вторая попытка не создаётся
+                r = db.q("SELECT id FROM mcko_runs WHERE work_id=? AND student_id=? AND finished IS NULL", (w["id"], s["id"]), one=True)
+                return self.send_json({"run": r["id"]}) if r else self.err(409, "Попытка уже начата")
+            return self.send_json({"run": rid})
+        r = db.q("SELECT * FROM mcko_runs WHERE id=? AND student_id=?", (to_int(data.get("run") or qs.get("run")), s["id"]), one=True)
+        if not r:
+            return self.err(404, "Попытка не найдена")
+        r = mcko_finish_if_late(db, r)
+        w = db.q("SELECT * FROM mcko_works WHERE id=?", (r["work_id"],), one=True)
+        if path == "/api/mcko/file" and method == "GET":
+            qid = str(qs.get("q") or "")
+            if qid not in json.loads(r["qids"]):
+                return self.err(404, "Файл не относится к этой работе")
+            text = mcko.file_text(mcko_q(db, qid) or {})
+            if not text:
+                return self.err(404, "Файла нет")
+            name = (mcko_q(db, qid).get("file") or {}).get("name", "data.txt")
+            return self.send_bytes(200, text.encode(), "text/plain; charset=utf-8",
+                                   {"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "private, max-age=3600"})
+        if path == "/api/mcko/run" and method == "GET":
+            return self.send_json(mcko_run_view(db, r, w))
+        if path == "/api/mcko/save" and method == "POST":
+            if r["finished"]:
+                return self.err(409, "Работа уже сдана")
+            qid = str(data.get("q") or "")
+            if qid not in json.loads(r["qids"]):
+                return self.err(404, "Нет такого задания")
+            vals = data.get("values")
+            if not isinstance(vals, list) or len(vals) > 8:
+                return self.err(400, "Неверный ответ")
+            vals = [str(v)[:100] for v in vals]
+            with db.transaction():
+                cur = json.loads(db.q("SELECT answers FROM mcko_runs WHERE id=?", (r["id"],), one=True)["answers"] or "{}")
+                cur[qid] = vals
+                db.x("UPDATE mcko_runs SET answers=? WHERE id=? AND finished IS NULL", (json.dumps(cur, ensure_ascii=False), r["id"]))
+            return self.send_json({"ok": True, "saved": sum(1 for v in cur.values() if any(x.strip() for x in v))})
+        if path == "/api/mcko/finish" and method == "POST":
+            mcko_finish(db, r, "student")
+            r = db.q("SELECT * FROM mcko_runs WHERE id=?", (r["id"],), one=True)
+            return self.send_json(mcko_run_view(db, r, w))
+        return self.err(404, "нет такого метода")
+
+    def admin_mcko(self, method, path, qs, data):
+        """Учитель: банк заданий (просмотр, отключение, свои задания), работы классам, результаты и CSV."""
+        db = APP.db
+        tid, main_id = self.T["id"], main_teacher()["id"]
+        if path == "/api/admin/mcko/bank" and method == "GET":
+            off = {r["qid"] for r in db.q("SELECT qid FROM mcko_off WHERE teacher_id=?", (tid,))}
+            bank = [dict({k: q[k] for k in ("id", "type", "variant", "topic", "key", "points", "solution")}, max=mcko.max_points(q),
+                         html=q["html"].replace("__FILE__", f"api/admin/mcko/file?q={q['id']}"), off=q["id"] in off, file=(q.get("file") or {}).get("name"))
+                    for q in mcko.QUESTIONS]
+            own = [dict(mcko.custom_question(c), text=c["text"], db_id=c["id"], off=f"c{c['id']}" in off)
+                   for c in db.q("SELECT * FROM mcko_custom WHERE teacher_id=? ORDER BY num, id", (tid,))]
+            return self.send_json({"title": mcko.BANK.get("title"), "description": mcko.BANK.get("description"), "topics": mcko.TOPICS,
+                                   "types": mcko.TYPES, "variants": mcko.VARIANTS, "max": mcko.MAX_SCORE, "bank": bank, "own": own})
+        if path == "/api/admin/mcko/file" and method == "GET":
+            q = mcko_q(db, str(qs.get("q") or ""))
+            text = mcko.file_text(q or {})
+            if not text:
+                return self.err(404, "Файла нет")
+            return self.send_bytes(200, text.encode(), "text/plain; charset=utf-8",
+                                   {"Content-Disposition": f'attachment; filename="{q["file"]["name"]}"'})
+        if path == "/api/admin/mcko/off" and method == "POST":
+            qid = str(data.get("q") or "")
+            if qid not in mcko.BY_ID and not (qid.startswith("c") and db.q("SELECT 1 FROM mcko_custom WHERE id=? AND teacher_id=?", (to_int(qid[1:]), tid), one=True)):
+                return self.err(404, "Нет такого задания")
+            if data.get("off"):
+                db.x("INSERT OR IGNORE INTO mcko_off(teacher_id, qid) VALUES(?,?)", (tid, qid))
+            else:
+                db.x("DELETE FROM mcko_off WHERE teacher_id=? AND qid=?", (tid, qid))
+            return self.send_json({"ok": True})
+        if path == "/api/admin/mcko/task" and method == "POST":
+            # своё задание: номер (тип) 1–13 или дополнительный, текст, ответ (по полю на строку, варианты через «|»)
+            num = to_int(data.get("num")) or 0
+            text = str(data.get("text") or "").strip()[:4000]
+            keys = [k.strip()[:100] for k in str(data.get("key") or "").splitlines() if k.strip()][:6]
+            if not 1 <= num <= 30:
+                return self.err(400, "Номер задания — от 1 до 30")
+            if len(text) < 5:
+                return self.err(400, "Напишите условие задания")
+            if not keys:
+                return self.err(400, "Укажите ответ (по одной строке на поле)")
+            vals = (num, re.sub(r"\s+", " ", str(data.get("topic") or "")).strip()[:80], text, json.dumps(keys, ensure_ascii=False),
+                    max(1, min(10, to_int(data.get("points")) or 1)), 1 if data.get("partial") and len(keys) > 1 else 0, str(data.get("solution") or "").strip()[:2000])
+            cid = to_int(data.get("id"))
+            if cid:
+                if not db.q("SELECT 1 FROM mcko_custom WHERE id=? AND teacher_id=?", (cid, tid), one=True):
+                    return self.err(404, "Нет такого задания")
+                db.x("UPDATE mcko_custom SET num=?, topic=?, text=?, key=?, points=?, partial=?, solution=? WHERE id=?", vals + (cid,))
+            else:
+                cid = db.x("INSERT INTO mcko_custom(num, topic, text, key, points, partial, solution, teacher_id, created) VALUES(?,?,?,?,?,?,?,?,?)",
+                           vals + (tid, time.time()))
+            return self.send_json({"ok": True, "id": cid})
+        if path == "/api/admin/mcko/task/delete" and method == "POST":
+            db.x("DELETE FROM mcko_custom WHERE id=? AND teacher_id=?", (to_int(data.get("id")), tid))
+            return self.send_json({"ok": True})
+        if path == "/api/admin/mcko/works" and method == "GET":
+            classes = db.q("SELECT id, name FROM classes WHERE COALESCE(teacher_id, ?)=? AND COALESCE(is_demo, 0)=0 ORDER BY name", (main_id, tid))
+            works = []
+            for w in db.q("SELECT w.*, c.name AS cls FROM mcko_works w LEFT JOIN classes c ON c.id=w.class_id WHERE w.teacher_id=? ORDER BY w.created DESC LIMIT 200", (tid,)):
+                runs = [mcko_finish_if_late(db, r) for r in db.q("SELECT * FROM mcko_runs WHERE work_id=?", (w["id"],))]
+                done = [r for r in runs if r["finished"]]
+                works.append(dict(dict(w), open=mcko_work_open(w), started=len({r["student_id"] for r in runs}), finished=len(done),
+                                  avg=round(sum(r["score"] or 0 for r in done) / len(done), 1) if done else None, max=mcko_work_max(db, w),
+                                  pupils=db.q("SELECT COUNT(*) c FROM students WHERE class_id=? AND COALESCE(is_teacher,0)=0", (w["class_id"],), one=True)["c"]))
+            return self.send_json({"works": works, "classes": [dict(c) for c in classes], "variants": mcko.VARIANTS, "max": mcko.MAX_SCORE})
+        if path == "/api/admin/mcko/work" and method == "POST":
+            # новая работа: класс, название, «каждому свой вариант» или один вариант на всех, время, попытки, срок
+            cid = to_int(data.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "Выберите свой класс")
+            mode = "fixed" if data.get("mode") == "fixed" else "random"
+            variant = to_int(data.get("variant")) if mode == "fixed" else None
+            if mode == "fixed" and variant not in mcko.VARIANTS:
+                return self.err(400, f"Вариант — от 1 до {len(mcko.VARIANTS)}")
+            title = re.sub(r"\s+", " ", str(data.get("title") or "")).strip()[:120] or f"Тренировочная работа МЦКО · {datetime.now():%d.%m}"
+            minutes = max(5, min(240, to_int(data.get("minutes")) or 60))
+            tries = max(1, min(10, to_int(data.get("tries")) or 1))
+            closes = to_float(data.get("closes")) or None
+            wid = db.x("""INSERT INTO mcko_works(teacher_id, class_id, title, mode, variant, minutes, tries, show_result, status, created, closes)
+                          VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (tid, cid, title, mode, variant, minutes, tries, 0 if data.get("hide_result") else 1, "open", time.time(), closes))
+            return self.send_json({"ok": True, "id": wid})
+        w = db.q("SELECT w.*, c.name AS cls FROM mcko_works w LEFT JOIN classes c ON c.id=w.class_id WHERE w.id=? AND w.teacher_id=?",
+                 (to_int(data.get("id") or qs.get("id")), tid), one=True)
+        if not w:
+            return self.err(404, "Работа не найдена")
+        if path == "/api/admin/mcko/work/status" and method == "POST":
+            db.x("UPDATE mcko_works SET status=? WHERE id=?", ("open" if data.get("open") else "closed", w["id"]))
+            return self.send_json({"ok": True})
+        if path == "/api/admin/mcko/work/delete" and method == "POST":
+            db.x("DELETE FROM mcko_runs WHERE work_id=?", (w["id"],))
+            db.x("DELETE FROM mcko_works WHERE id=?", (w["id"],))
+            return self.send_json({"ok": True})
+        if path in ("/api/admin/mcko/results", "/api/admin/mcko/results.csv") and method == "GET":
+            rows = []
+            for r in db.q("""SELECT r.*, s.name FROM mcko_runs r JOIN students s ON s.id=r.student_id WHERE r.work_id=?
+                             ORDER BY s.name, r.try_no""", (w["id"],)):
+                r = mcko_finish_if_late(db, r)
+                ans = json.loads(r["answers"] or "{}")
+                tasks = []
+                for qid in json.loads(r["qids"]):
+                    q = mcko_q(db, qid) or {"key": [], "points": 0, "type": 0, "topic": "?", "variant": 0}
+                    got = ans.get(qid) or []
+                    tasks.append({"q": qid, "type": q["type"], "variant": q.get("variant"), "topic": q["topic"], "answer": got, "key": q["key"],
+                                  "points": mcko.score(q, got) if q["key"] else 0, "max": mcko.max_points(q) if q["key"] else 0})
+                rows.append({"run": r["id"], "student": r["name"], "try": r["try_no"],
+                             "fio": " ".join(x for x in (r["last_name"], r["first_name"], r["middle_name"]) if x), "klass": r["klass"],
+                             "started": r["started"], "finished": r["finished"], "deadline": r["deadline"], "reason": r["reason"],
+                             "score": r["score"], "max": r["max"], "tasks": tasks})
+            if path.endswith(".csv"):
+                buf = io.StringIO()
+                wr = csv.writer(buf, delimiter=";")
+                n = max((len(x["tasks"]) for x in rows), default=0)
+                wr.writerow(["Ученик (аккаунт)", "ФИО в работе", "Класс", "Попытка", "Начало", "Сдано", "Баллы", "Максимум"] + [f"№{i + 1}" for i in range(n)])
+                for x in rows:
+                    fmt = lambda t: datetime.fromtimestamp(t).strftime("%d.%m.%Y %H:%M") if t else ""
+                    wr.writerow([csv_cell(v) for v in [x["student"], x["fio"], x["klass"], x["try"], fmt(x["started"]), fmt(x["finished"]),
+                                                       x["score"] if x["finished"] else "", x["max"]] + [f'{t["points"]}/{t["max"]}' for t in x["tasks"]]])
+                fname = re.sub(r"[^\w\- ]+", "", w["title"], flags=re.U)[:60] or "mcko"
+                return self.send_bytes(200, ("\ufeff" + buf.getvalue()).encode("utf-8"), "text/csv; charset=utf-8",
+                                       {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}.csv"})
+            return self.send_json({"work": dict(dict(w), open=mcko_work_open(w), max=mcko_work_max(db, w)), "rows": rows,
+                                   "topics": mcko.TOPICS})
+        return self.err(404, "нет такого метода")
+
     def api_buglab(self, method, path, data, s):
         """Лаборатория исправления ошибок. Код ученика выполняется у него в браузере; сюда приходят выводы по тестам."""
         db = APP.db
@@ -3967,6 +4203,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path.startswith("/api/pyc"):
             return self.pyc_api(method, path, qs, data)
+
+        if path.startswith("/api/mcko"):
+            return self.mcko_api(method, path, qs, data)
 
         if path == "/api/history":
             # Прогресс ученика страница восстанавливает из журнала попыток — один источник правды
@@ -5239,6 +5478,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         db = APP.db
         now = time.time()
         day0 = datetime.combine(datetime.now().date(), datetime.min.time()).timestamp()
+
+        if path.startswith("/api/admin/mcko"):
+            return self.admin_mcko(method, path, qs, data)
 
         if path == "/api/admin/logout" and method == "POST":
             c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
@@ -11709,6 +11951,99 @@ def class_digest(db, cid):
             "top": top[:3], "active": len(members) - len(inactive), "total": len(members),
             "forecast_avg": fc_avg, "forecast_then": round(sum(then_v) / len(then_v)) if then_v else None,
             "weak": weak, "behind": behind}
+
+
+# ---------- МЦКО-тренировка: варианты, проверка, сроки (банк и проверка ответов — mcko.py)
+MCKO_GRACE = 30                             # секунд после срока: ответ, отправленный в последний момент, ещё принимается
+
+
+def mcko_q(db, qid):
+    """Задание банка или своё задание учителя (c<id>)."""
+    if qid in mcko.BY_ID:
+        return mcko.BY_ID[qid]
+    if str(qid).startswith("c"):
+        row = db.q("SELECT * FROM mcko_custom WHERE id=?", (to_int(qid[1:]),), one=True)
+        return mcko.custom_question(row) if row else None
+    return None
+
+
+def mcko_pools(db, w):
+    """Номер задания → задания, из которых он выбирается: банк без отключённых учителем + свои задания учителя."""
+    off = {r["qid"] for r in db.q("SELECT qid FROM mcko_off WHERE teacher_id=?", (w["teacher_id"],))}
+    pools = {}
+    for q in mcko.QUESTIONS:
+        if q["id"] not in off:
+            pools.setdefault(q["type"], []).append(q["id"])
+    for c in db.q("SELECT id, num FROM mcko_custom WHERE teacher_id=?", (w["teacher_id"],)):
+        if f"c{c['id']}" not in off:
+            pools.setdefault(c["num"], []).append(f"c{c['id']}")
+    return pools
+
+
+def mcko_make_variant(db, w):
+    """Состав попытки: «один вариант на всех» — задания банка этого варианта; «каждому свой» — по случайному заданию на каждый номер."""
+    if w["mode"] == "fixed":
+        return [f"inf10-t{t:02d}-v{w['variant']:02d}" for t in mcko.TYPES if f"inf10-t{t:02d}-v{w['variant']:02d}" in mcko.BY_ID]
+    rnd = random.SystemRandom()
+    return [rnd.choice(pool) for _, pool in sorted(mcko_pools(db, w).items()) if pool]
+
+
+def mcko_work_size(db, w):
+    return len(mcko.TYPES) if w["mode"] == "fixed" else len([p for p in mcko_pools(db, w).values() if p])
+
+
+def mcko_work_max(db, w):
+    if w["mode"] == "fixed":
+        return mcko.MAX_SCORE
+    total = 0
+    for _, pool in sorted(mcko_pools(db, w).items()):
+        if pool:
+            total += mcko.max_points(mcko_q(db, pool[0]))
+    return total
+
+
+def mcko_work_open(w):
+    return w["status"] == "open" and (not w["closes"] or w["closes"] > time.time())
+
+
+def mcko_finish(db, r, reason):
+    """Сдать попытку: баллы считает сервер по сохранённым ответам. Повторный вызов ничего не меняет."""
+    if r["finished"]:
+        return
+    ans = json.loads(r["answers"] or "{}")
+    total = 0
+    for qid in json.loads(r["qids"]):
+        q = mcko_q(db, qid)
+        if q and q["key"]:
+            total += mcko.score(q, ans.get(qid) or [])
+    db.x("UPDATE mcko_runs SET finished=?, reason=?, score=? WHERE id=? AND finished IS NULL",
+         (min(time.time(), r["deadline"] + MCKO_GRACE) if reason == "time" else time.time(), reason, total, r["id"]))
+
+
+def mcko_finish_if_late(db, r):
+    """Время вышло — попытка сдаётся сама (при следующем обращении ученика или учителя)."""
+    if r and not r["finished"] and time.time() > r["deadline"] + MCKO_GRACE:
+        mcko_finish(db, r, "time")
+        return db.q("SELECT * FROM mcko_runs WHERE id=?", (r["id"],), one=True)
+    return r
+
+
+def mcko_run_view(db, r, w):
+    """Попытка для ученика: условия без ответов, свои сохранённые ответы, срок; после сдачи — баллы, если учитель разрешил."""
+    qids = json.loads(r["qids"])
+    tasks = []
+    for i, qid in enumerate(qids):
+        q = mcko_q(db, qid)
+        if not q:
+            continue
+        tasks.append(dict(mcko.public(q, f"api/mcko/file?run={r['id']}&q={qid}"), n=i + 1))
+    view = {"run": r["id"], "work": w["id"], "title": w["title"], "minutes": w["minutes"], "started": r["started"], "deadline": r["deadline"],
+            "now": time.time(), "finished": r["finished"], "reason": r["reason"], "tasks": tasks,
+            "answers": json.loads(r["answers"] or "{}"), "max": r["max"],
+            "fio": " ".join(x for x in (r["last_name"], r["first_name"], r["middle_name"]) if x), "klass": r["klass"]}
+    if r["finished"] and w["show_result"]:
+        view["score"] = r["score"]
+    return view
 
 
 # ---------- воронка главной для учителей (вкладка «Статистика сайта»)
