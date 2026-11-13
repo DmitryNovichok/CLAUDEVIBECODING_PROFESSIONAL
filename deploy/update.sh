@@ -7,6 +7,21 @@
 # Данные (server_data) и картинки (media) не трогает. Пока служба перезапускается, Caddy держит запросы учеников
 # (lb_try_duration в Caddyfile) — они видят короткую паузу, а не ошибку.
 set -eu
+if [ "${1:-}" = "--set-token" ]; then
+    # токен вводится скрыто и не попадает ни в историю команд, ни в папку сайта
+    F=${EGE_GH_TOKEN_FILE:-/root/.egeshka-github-token}
+    printf 'Токен GitHub (ввод не отображается): '
+    stty -echo 2>/dev/null || true; read -r T; stty echo 2>/dev/null || true; echo
+    [ -n "$T" ] || { echo "Пустой токен — ничего не изменено" >&2; exit 2; }
+    umask 077; printf '%s' "$T" > "$F"; chmod 600 "$F"
+    echo "Токен сохранён в $F (длина ${#T}). Проверка доступа…"
+    if curl -fsS -o /dev/null -H "Authorization: Bearer $T" "https://api.github.com/repos/${EGE_REPO:-DmitryNovichok/CLAUDEVIBECODING_PROFESSIONAL}"; then
+        echo "Доступ к репозиторию есть."
+    else
+        echo "GitHub не дал доступ этим токеном — проверьте права (Contents: Read-only) и срок." >&2; exit 1
+    fi
+    exit 0
+fi
 SHA=${1:?Укажите SHA коммита: sh update.sh <sha>}
 REPO=${EGE_REPO:-DmitryNovichok/CLAUDEVIBECODING_PROFESSIONAL}
 APP=${EGE_APP:-/opt/trainer}
@@ -49,7 +64,17 @@ sh "$APP/deploy/backup.sh" "$APP/server_data/trainer.db" "${EGE_BACKUPS:-/opt/tr
 echo "2/5 Скачиваю $SHA…"
 NEW=$(mktemp -d /tmp/egeshka-new.XXXXXX)
 trap 'rm -rf "$NEW"' EXIT HUP INT TERM
-curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$SHA" | tar xz --strip-components=1 -C "$NEW"
+# Репозиторий приватный: архив скачивается с токеном GitHub (только чтение), который лежит у root вне папки сайта.
+# Положить токен:  sh /opt/trainer/deploy/update.sh --set-token   (без токена — как раньше, для открытого репозитория)
+TOKEN_FILE=${EGE_GH_TOKEN_FILE:-/root/.egeshka-github-token}
+if [ -s "$TOKEN_FILE" ]; then
+    curl -fsSL -H "Authorization: Bearer $(cat "$TOKEN_FILE")" -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$REPO/tarball/$SHA" | tar xz --strip-components=1 -C "$NEW" \
+        || { echo "Не удалось скачать $SHA: проверьте токен в $TOKEN_FILE (доступ Contents: Read-only к репозиторию)" >&2; exit 1; }
+else
+    curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$SHA" | tar xz --strip-components=1 -C "$NEW" \
+        || { echo "Не удалось скачать $SHA. Репозиторий приватный? Положите токен: sh $0 --set-token" >&2; exit 1; }
+fi
 [ -s "$NEW/data/bank.js" ] || { echo "В архиве нет data/bank.js — обновление отменено" >&2; exit 1; }
 python3 -m py_compile "$NEW/server.py" "$NEW/together.py" || { echo "Новый server.py не компилируется — обновление отменено" >&2; exit 1; }
 find "$NEW" -name '__pycache__' -type d -prune -exec rm -rf {} +

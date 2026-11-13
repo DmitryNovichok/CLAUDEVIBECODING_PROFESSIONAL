@@ -89,6 +89,19 @@ PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.j
                "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css", "help.css",
                "egeshka.js", "elements.js", "onboard.js", "visit.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
 _PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
+# Сжатые копии скриптов и стилей (min/, собирает tools/minify.py): посетителю уходит код без комментариев и с короткими
+# именами вместо читаемых исходников. Нет копии (разработка) — отдаётся исходный файл.
+MIN_FILES = ("app.js", "admin.js", "together.js", "welcome.js", "onboard.js", "visit.js",
+             "style.css", "admin.css", "admin-theme.css", "welcome.css", "help.css", "legal.css")
+
+
+def site_asset(name):
+    """Файл, который сервер отдаёт под этим именем: сжатая копия из min/, если она есть."""
+    if name in MIN_FILES:
+        m = HERE / "min" / name
+        if m.is_file():
+            return m
+    return HERE / name
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
             ".txt", ".csv", ".tsv", ".xlsx", ".xls", ".xlsm", ".ods", ".odt", ".docx", ".doc", ".rtf",
@@ -2599,8 +2612,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.err(401, "нужно войти")
             if not lab_access(APP.db, s):
                 return self.err(403, "Лаборатории открываются по паролю от учителя")
+        if rel == "admin.js":
+            # код панели — только вошедшему учителю; остальным — маленький скрипт формы входа (тот же адрес, без кэша)
+            if not self.is_admin():
+                return self.serve_file(HERE, "admin-login.js", private=True)
+            f = site_asset(rel)
+            return self.serve_file(f.parent, f.name, private=True)
+        if rel.startswith("arduino/") and rel != "arduino/index.html":
+            # приложение Arduino (и его исходники по GPL) — ученикам и учителям с доступом к лабораториям
+            s = self.student()
+            if not s or not lab_access(APP.db, s):
+                return self.err(403, "Лаборатории открываются по паролю от учителя")
         if rel in SITE_FILES:
-            return self.serve_file(HERE, rel, html=rel.endswith(".html"))
+            f = site_asset(rel)
+            return self.serve_file(f.parent, f.name, html=rel.endswith(".html"))
         for d in SITE_DIRS:
             if rel.startswith(d):
                 return self.serve_file(HERE / d.rstrip("/"), rel[len(d):])
@@ -2657,7 +2682,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.not_found(p)
         for name in PAGE_ASSETS:                             # версия любого скрипта или стиля меняет страницу
             try:
-                st = (p.parent / name).stat()
+                st = (site_asset(name) if p.parent == HERE else p.parent / name).stat()
                 stamp.append((st.st_mtime, st.st_size))
             except OSError:
                 stamp.append(None)
@@ -2669,7 +2694,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.not_found(p)
 
             def ver(m):
-                f = p.parent / m.group(2)
+                f = site_asset(m.group(2)) if p.parent == HERE else p.parent / m.group(2)
                 try:
                     st = f.stat()
                     return f'{m.group(1)}="{m.group(2)}?v={int(st.st_mtime):x}{st.st_size:x}"'
@@ -2725,7 +2750,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.send_bytes(200, body, ctype, {
             "Cache-Control": "no-cache", "Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name)})
 
-    def serve_file(self, root: Path, rel, html=False, download_name=None):
+    def serve_file(self, root: Path, rel, html=False, download_name=None, private=False):
         root = root.resolve()
         p = (root / rel).resolve()
         try:
@@ -2742,13 +2767,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
         extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
-        if "?v=" in self.path and p.suffix.lower() in (".js", ".css", ".woff2", ".svg", ".png", ".ico"):
+        if private:                                  # содержимое зависит от входа: не кэшировать надолго и не делить между людьми
+            extra["Cache-Control"] = "private, no-cache"
+            extra["Vary"] = "Cookie"
+        elif "?v=" in self.path and p.suffix.lower() in (".js", ".css", ".woff2", ".svg", ".png", ".ico"):
             extra["Cache-Control"] = "public, max-age=31536000, immutable"   # адрес с ?v= меняется при каждом обновлении файла
         gz = None
         if GZIP_TYPES.match(ctype) and st.st_size > 2048 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
             gz = static_gz(p, st)
             extra["Content-Encoding"] = "gzip"
-            extra["Vary"] = "Accept-Encoding"
+            extra["Vary"] = "Accept-Encoding, Cookie" if private else "Accept-Encoding"
         if html:
             extra["X-Frame-Options"] = "DENY"
             extra["Referrer-Policy"] = "same-origin"

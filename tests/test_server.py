@@ -2441,9 +2441,15 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/arduino/", token=tok)[0], 302)
         self.assertIn(b"egeshka.js", body)
         self.assertIn(b"app.js", body)
-        for f in ("app.js", "elements.js", "egeshka.js", "lab.css", "blink-uno.hex", "licenses.txt", "LICENSE",
-                  "fonts/ibm-plex-sans-cyrillic-400-normal.woff2"):
-            self.assertEqual(self.req("GET", "/arduino/" + f)[0], 200, f)
+        files = ("app.js", "elements.js", "egeshka.js", "lab.css", "blink-uno.hex", "licenses.txt", "LICENSE",
+                 "fonts/ibm-plex-sans-cyrillic-400-normal.woff2")
+        for f in files:                                   # код приложения — только с доступом к лабораториям
+            self.assertEqual(self.req("GET", "/arduino/" + f)[0], 403, f)
+            self.assertEqual(self.req("GET", "/arduino/" + f, token=tok)[0], 403, f)
+        server.APP.db.x("UPDATE students SET lab=1 WHERE id=?", (sid,))
+        for f in files:
+            self.assertEqual(self.req("GET", "/arduino/" + f, token=tok)[0], 200, f)
+        server.APP.db.x("UPDATE students SET lab=0 WHERE id=?", (sid,))
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         c.request("GET", "/arduino")
         r = c.getresponse(); r.read(); c.close()
@@ -5228,6 +5234,53 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("DELETE FROM mcko_off")
         self.admin("POST", "/api/admin/mcko/work/delete", {"id": wid})
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
+    # ------------------------------------------------------------ код сайта для посетителей
+    def raw(self, path, cookie=None):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", path, headers={"Cookie": cookie} if cookie else {})
+        r = c.getresponse()
+        body = r.read().decode("utf-8", "replace")
+        c.close()
+        return r.status, body, r.getheader("Cache-Control") or ""
+
+    def test_site_code_for_visitors(self):
+        import shutil
+        repo = Path(__file__).resolve().parent.parent
+        for name in ("admin.html", "admin.js", "admin-login.js", "app.js"):
+            shutil.copy(repo / name, self.tmp / name)
+        (self.tmp / "min").mkdir(exist_ok=True)
+        (self.tmp / "min" / "app.js").write_text("/* © Egeshka */(function(){})();", encoding="utf-8")
+        try:
+            self._site_code_checks()
+        finally:
+            shutil.rmtree(self.tmp / "min")
+            for name in ("admin.html", "admin.js", "admin-login.js", "app.js"):
+                (self.tmp / name).unlink()
+
+    def _site_code_checks(self):
+        # панель учителя: без входа — только форма входа, с входом — код панели; ни то ни другое не кэшируется надолго
+        st, body, cc = self.raw("/admin.js?v=1")
+        self.assertEqual(st, 200)
+        self.assertIn("api/admin/login", body)
+        self.assertNotIn("mkBank", body)
+        self.assertIn("private", cc)
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        st, body, cc = self.raw("/admin.js?v=1", "egeadm=admtest")
+        self.assertEqual(st, 200)
+        self.assertGreater(len(body), 100000)
+        self.assertIn("private", cc)
+        # посетителю уходит сжатая копия (если min/ собран), а исходные модули и сервер не отдаются
+        st, body, _ = self.raw("/app.js")
+        self.assertEqual(st, 200)
+        self.assertTrue(body.startswith("/* © Egeshka"))
+        for path in ("/src/app/01-core.js", "/server.py", "/data/mcko_bank.json", "/tools/minify.py", "/min/app.js"):
+            self.assertEqual(self.raw(path)[0], 404, path)
+        page = self.raw("/admin")[1]
+        self.assertRegex(page, r'admin\.js\?v=[0-9a-f]+')
+        # приложение Arduino и его исходники — только с доступом к лабораториям
+        self.assertEqual(self.raw("/arduino/app.js")[0], 403)
+        self.assertEqual(self.raw("/arduino/source/src/app.js")[0], 403)
+
     # ------------------------------------------------------------ прогресс лаборатории Arduino
     def test_arduino_progress_for_teacher(self):
         tok = self.login("Ардуинов Артём")

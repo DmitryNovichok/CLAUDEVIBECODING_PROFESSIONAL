@@ -25,3 +25,5 @@ jobs:
       - name: Arduino build and tests
         run: npm run build && cmp dist/app.js ../app.js && npm test
         working-directory: arduino/source
+      - name: Minified copies for visitors (min/)
+        run: python3 tools/minify.py --check && for f in min/*.js; do node --check "$f"; done
