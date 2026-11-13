@@ -436,8 +436,22 @@
     hl.innerHTML = '<div class="ide-hl-in">' + highlightPy(ta.value) + '\n</div>';
     const n = ta.value.split('\n').length;
     $('#labGutter').innerHTML = '<div class="ide-gutter-in">' + Array.from({ length: n }, (_, i) => `<span class="ide-ln${LAB.bps.has(i + 1) ? ' bp' : ''}" data-lab-bp="${i + 1}">${i + 1}</span>`).join('') + '</div>';
+    labFitCode();
     labScrollEditor();
   }
+  /** Код целиком по ширине: самая длинная строка не помещается в колонку рядом с переменными — колонки друг под другом. */
+  let labCharW = 0;
+  function labFitCode() {
+    const grid = trainerEl.querySelector('.lab-code-grid'), hl = $('#labCodeHl');
+    if (!grid || !hl) return;
+    if (!labCharW) { const c = document.createElement('canvas').getContext('2d'); c.font = getComputedStyle(hl).font; labCharW = c.measureText('M'.repeat(40)).width / 40 || 8.5; }
+    const longest = Math.max(0, ...String(LAB.code || '').split('\n').map(l => l.replace(/\t/g, '    ').length));
+    const need = longest * labCharW + 28 + 54 + 6;                  // текст + отступы + номера строк
+    const col = (grid.clientWidth - 20) * 1.45 / 2.45;               // ширина редактора, когда колонки рядом
+    grid.classList.toggle('one', innerWidth > 1100 && need > col);
+  }
+  window.addEventListener('resize', () => { if (labActive()) labFitCode(); });
+  document.fonts?.ready.then(() => { labCharW = 0; if (labActive()) labFitCode(); });   // моноширинный шрифт догрузился
   function labScrollEditor() {
     const ta = $('#labCode'), inner = $('#labCodeHl')?.firstElementChild, g = $('#labGutter')?.firstElementChild;
     if (!ta || !inner) return;

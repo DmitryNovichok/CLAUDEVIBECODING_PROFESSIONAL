@@ -3564,7 +3564,9 @@ body.lab-open .trainer { max-width: 1260px; }
 .lab-mark svg { width: 34px; height: 34px; }
 .lab-back { padding: 0; margin-bottom: 8px; }
 .lab-cards, .lab-code-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-.lab-code-grid { align-items: start; }
+.lab-code-grid { align-items: start; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); }
+/* длинные строки кода не помещаются рядом с панелью переменных — редактор во всю ширину, переменные под ним */
+.lab-code-grid.one { grid-template-columns: minmax(0, 1fr); }
 .lab-entry { display: flex; flex-direction: column; gap: 16px; text-align: left; padding: 30px; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 20px; cursor: pointer; }
 .lab-entry:hover { border-color: var(--accent); background: var(--card-hover); }
 .lab-entry h2 { font-size: 26px; line-height: 1.25; margin: 0; }
