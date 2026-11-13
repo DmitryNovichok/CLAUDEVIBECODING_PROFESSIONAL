@@ -12041,8 +12041,16 @@ def mcko_run_view(db, r, w):
             "now": time.time(), "finished": r["finished"], "reason": r["reason"], "tasks": tasks,
             "answers": json.loads(r["answers"] or "{}"), "max": r["max"],
             "fio": " ".join(x for x in (r["last_name"], r["first_name"], r["middle_name"]) if x), "klass": r["klass"]}
+    view["answered"] = sum(1 for v in view["answers"].values() if any(str(x).strip() for x in v))
     if r["finished"] and w["show_result"]:
         view["score"] = r["score"]
+        # протокол: по каждому заданию — есть ли ответ и сколько баллов (без верных ответов)
+        rows = []
+        for t in tasks:
+            got = view["answers"].get(t["id"]) or []
+            q = mcko_q(db, t["id"])
+            rows.append({"n": t["n"], "answered": any(str(x).strip() for x in got), "points": mcko.score(q, got), "max": t["points"]})
+        view["rows"] = rows
     return view
 
 

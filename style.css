@@ -4130,7 +4130,7 @@ body.hubnav.hub-on .me-box { order: 3; }
 
 /* ---------- МЦКО: тренировочные работы от учителя */
 .mk { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
-.mk-head h1, .mk-intro h1, .mk-done h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.2; }
+.mk-head h1, .mk-intro h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.2; }
 .mk-head p { margin: 0; color: var(--muted); }
 .mk-list { display: flex; flex-direction: column; gap: 10px; }
 .mk-card { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 16px 18px; border: 2px solid var(--border); border-radius: 18px; background: var(--card); }
@@ -4141,12 +4141,10 @@ body.hubnav.hub-on .me-box { order: 3; }
 .mk-st.new { background: var(--accent-soft); color: var(--accent-text); }
 .mk-st.go { background: var(--weak-soft); color: var(--weak); }
 .mk-st.done { background: var(--good-soft); color: var(--good-strong); }
-.mk-empty, .mk-done { text-align: center; padding: 48px 20px; border: 2px dashed var(--border); border-radius: 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.mk-done { border-style: solid; background: var(--card); }
+.mk-empty { text-align: center; padding: 48px 20px; border: 2px dashed var(--border); border-radius: 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .mk-empty h2 { margin: 0; font-size: 20px; }
-.mk-empty p, .mk-done p { margin: 0; color: var(--muted); max-width: 46ch; }
+.mk-empty p { margin: 0; color: var(--muted); max-width: 46ch; }
 .mk-empty-ic { font-size: 44px; line-height: 1; }
-.mk-score { font-size: 18px; } .mk-score b { font-size: 40px; color: var(--text); }
 .mk-intro { display: flex; flex-direction: column; gap: 14px; }
 .mk-facts { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }
 .mk-facts li { padding: 6px 12px; border-radius: 12px; background: var(--subtle); font-size: 14px; }
@@ -4157,44 +4155,68 @@ body.hubnav.hub-on .me-box { order: 3; }
 .mk-form label small { color: var(--muted); font-weight: 600; }
 .mk-form .inp { width: 100%; }
 .mk-form .inp[readonly] { opacity: .7; }
-.mk-rules { background: var(--subtle); border-radius: 14px; padding: 12px 16px; }
-.mk-rules h3 { margin: 0 0 6px; font-size: 15px; }
-.mk-rules ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
-.mk-run { display: flex; flex-direction: column; gap: 12px; }
-.mk-bar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border: 2px solid var(--border); border-radius: 16px; background: var(--card); }
-.mk-bar > div { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; }
-.mk-bar small { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mk-time { font: 800 16px var(--mono); padding: 6px 12px; border-radius: 10px; background: var(--subtle); white-space: nowrap; }
-.mk-time.low { background: var(--weak-soft); color: var(--weak); }
-.mk-nums { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.mk-nums button { min-width: 40px; height: 40px; border-radius: 10px; border: 2px solid var(--border); background: var(--card); color: var(--text); font-weight: 800; cursor: pointer; }
-.mk-nums button.has { background: var(--good-soft); border-color: var(--good); }
-.mk-nums button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-.mk-count { margin-left: auto; color: var(--muted); font-size: 13px; }
-.mk-task { padding: 20px; border: 2px solid var(--border); border-radius: 18px; background: var(--card); min-width: 0; }
-.mk-task h2 { margin: 0 0 12px; font-size: 20px; }
-.mk-task h2 small { color: var(--muted); font-size: 14px; font-weight: 600; margin-left: 6px; }
-.mk-q { overflow-x: auto; line-height: 1.55; }
-.mk-q p { margin: 0 0 10px; }
-.mk-q img, .mk-q svg { max-width: 100%; height: auto; }
-.mk-q table { border-collapse: collapse; margin: 8px 0; max-width: 100%; }
-.mk-q td, .mk-q th { border: 1px solid var(--border-strong); padding: 4px 8px; }
-.mk-q pre, .mk-q code { font-family: var(--mono); background: var(--code-bg); border-radius: 6px; }
-.mk-q pre { padding: 10px 12px; overflow-x: auto; }
-.mk-q input { font: inherit; padding: 8px 10px; border: 2px solid var(--border-strong); border-radius: 10px; background: var(--input-bg); color: var(--text); max-width: 100%; }
-.mk-q input:focus { outline: none; border-color: var(--accent); }
-.mk-q .answer { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 700; }
-.mk-q a, .mk-file a { color: var(--link); font-weight: 700; }
-.mk-file { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
-.mk-act { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
-.mk-act [data-mk-step="1"] { margin-left: auto; }
-.mk-saved { color: var(--good-strong); font-weight: 700; font-size: 14px; }
-@media (max-width: 640px) {
-  .mk-form { grid-template-columns: 1fr; } .mk-task { padding: 14px; } .mk-count { margin-left: 0; width: 100%; }
-  .mk-bar { gap: 6px 10px; padding: 8px 12px; }
-  .mk-bar > div { flex-basis: 100%; }
-  .mk-bar b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mk-time { font-size: 14px; padding: 4px 10px; }
-  .mk-bar .btn { margin-left: auto; padding: 6px 12px; font-size: 13px; }
-  .mk-nums button { min-width: 36px; height: 36px; }
-}
+@media (max-width: 640px) { .mk-form { grid-template-columns: 1fr; } }
+
+
+/* ---------- МЦКО: экран тестирования в классическом формате компьютерного тестирования (своя вёрстка Egeshka) */
+body.mkx-open { overflow: hidden; }
+.mkx { position: fixed; inset: 0; z-index: 400; overflow: auto; background: #fff; color: #111; font: 14px/1.45 Arial, "Helvetica Neue", Helvetica, sans-serif; color-scheme: light; }
+.mkx-in { max-width: 1100px; margin: 0 auto; padding: 0 16px 24px; min-height: 100%; display: flex; flex-direction: column; }
+.mkx-top { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; padding: 10px 0 8px; border-bottom: 2px solid #4a6b93; }
+.mkx-top b { font-size: 16px; color: #1f3d66; }
+.mkx-top span { color: #444; }
+.mkx-who { margin-left: auto; font-weight: bold; color: #111 !important; }
+.mkx-exit { font: inherit; padding: 4px 12px; border: 1px solid #8a99ad; border-radius: 3px; background: #f3f5f8; cursor: pointer; }
+.mkx-pal { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px 0; background: #eef2f7; border-bottom: 1px solid #c9d3df; margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.mkx-lbl { font-weight: bold; margin-right: 4px; }
+.mkx-n { min-width: 32px; height: 30px; padding: 0 6px; font: bold 13px Arial, sans-serif; color: #1a1a1a; background: #fff; border: 1px solid #8a99ad; border-radius: 2px; cursor: pointer; }
+.mkx-n:hover:not(:disabled) { background: #e3ebf5; }
+.mkx-n.wide { font-weight: normal; padding: 0 10px; }
+.mkx-n.has { background: #ffe866; border-color: #b59a00; }
+.mkx-n.cur { outline: 2px solid #c2001b; outline-offset: 0; }
+.mkx-n:disabled { cursor: default; opacity: .55; }
+.mkx-time { margin-left: auto; font-weight: bold; white-space: nowrap; padding-left: 10px; }
+.mkx-time.low { color: #c2001b; }
+.mkx-box { margin-top: 16px; padding: 16px 18px; border: 1px solid #c9d3df; background: #fff; }
+.mkx-box h2 { margin: 0 0 12px; font-size: 18px; color: #1f3d66; }
+.mkx-h small { font-weight: normal; color: #555; font-size: 13px; }
+.mkx-desc ol { margin: 8px 0 16px; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.mkx-q { overflow-x: auto; }
+.mkx-q p { margin: 0 0 10px; }
+.mkx-q img, .mkx-q svg { max-width: 100%; height: auto; }
+.mkx-q table { border-collapse: collapse; margin: 8px 0; }
+.mkx-q td, .mkx-q th { border: 1px solid #888; padding: 3px 8px; }
+.mkx-q pre { font: 13px/1.45 "Courier New", monospace; background: #f6f6f6; border: 1px solid #ddd; padding: 8px 10px; overflow-x: auto; }
+.mkx-q input { font: 15px Arial, sans-serif; padding: 4px 6px; border: 1px solid #555; border-radius: 0; background: #fff; color: #111; max-width: 100%; }
+.mkx-q input:focus { outline: 2px solid #4a6b93; }
+.mkx-q .answer { margin-top: 14px; font-weight: bold; }
+.mkx-q a, .mkx-file a { color: #0033cc; }
+.mkx-file { margin: 10px 0 0; }
+.mkx-act { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.mkx-sp { flex: 1; }
+.mkx-act > .mkx-btn { flex: 0 0 auto; width: auto; }
+.mkx-btn { font: 14px Arial, sans-serif; padding: 6px 14px; border: 1px solid #6d7f96; border-radius: 3px; background: #f3f5f8; color: #111; cursor: pointer; }
+.mkx-btn:hover:not(:disabled) { background: #e3ebf5; }
+.mkx-btn.mkx-primary { background: #2f5d94; border-color: #23477a; color: #fff; font-weight: bold; }
+.mkx-btn.mkx-primary:hover:not(:disabled) { background: #23477a; }
+.mkx-btn:disabled { opacity: .5; cursor: default; }
+.mkx-status { font-size: 13px; }
+.mkx-status.ok { color: #1b7a1b; } .mkx-status.warn { color: #b05a00; }
+.mkx-link { font: inherit; color: #0033cc; text-decoration: underline; background: none; border: 0; padding: 0; cursor: pointer; }
+.mkx-note { color: #777; font-style: italic; font-size: 13px; }
+.mkx-confirm p { margin: 10px 0; }
+.mkx-proto h2 { text-align: center; font-size: 20px; }
+.mkx-proto h3 { text-align: center; margin: 0 0 12px; font-size: 15px; }
+.mkx-who-t td { padding: 2px 10px 2px 0; } .mkx-who-t td:first-child { color: #555; }
+.mkx-proto-grid { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin-top: 14px; }
+.mkx-res, .mkx-total { border-collapse: collapse; }
+.mkx-res th, .mkx-res td, .mkx-total th, .mkx-total td { border: 1px solid #999; padding: 4px 12px; text-align: center; }
+.mkx-res thead th { background: #dfe6ef; font-size: 13px; }
+.mkx-res tr.ok td, .mkx-total tr.ok > * { background: #9be89b; }
+.mkx-res tr.part td { background: #fff27a; }
+.mkx-res tr.bad td { background: #ffaaaa; }
+.mkx-res tr.skip td, .mkx-total tr.skip > * { background: #f1f1f1; }
+.mkx-total th { text-align: left; }
+.mkx-foot { margin-top: auto; padding-top: 24px; text-align: center; font-size: 11px; color: #999; }
+@media (max-width: 640px) { .mkx-pal { position: static; } .mkx-who { margin-left: 0; width: 100%; } .mkx-time { width: 100%; margin-left: 0; padding: 4px 0 0; } .mkx-box { padding: 12px; } }
+@media print { body.mkx-open > :not(.mkx) { display: none !important; } .mkx { position: static; overflow: visible; } .mkx-pal, .mkx-exit, .mkx-act { display: none !important; } }
