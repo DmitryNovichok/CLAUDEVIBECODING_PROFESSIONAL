@@ -36,6 +36,7 @@
         <button id="export" class="ghost"><i data-icon="download"></i><span>Экспорт</span></button>
         <button id="help" class="ghost icon-only" title="Справка" aria-label="Справка"><i data-icon="help"></i></button>
         <button id="versions" class="ghost icon-only" aria-label="История сохранений" title="История сохранений"><i data-icon="clock"></i></button>
+        <button id="labFull" class="ghost" title="Лаборатория на весь экран" aria-pressed="false"><i data-icon="expand"></i><span>На весь экран</span></button>
         <button id="save" class="primary"><i data-icon="save"></i><span>Сохранить</span></button>
       </header>
 
@@ -51,6 +52,7 @@
             <button data-tab="libraries" role="tab"><i data-icon="package"></i><span>Библиотеки</span></button>
             <div class="spacer"></div>
             <span class="board-tag" id="editorBoard">Arduino Uno</span>
+            <button id="codeMax" class="pane-max" title="Развернуть код на всю ширину" aria-pressed="false"><i data-icon="expand"></i></button>
           </nav>
 
           <div class="editor-area" id="codePanel">
@@ -67,6 +69,7 @@
           </div>
           <div id="libraryPanel" hidden></div>
 
+          <div class="hsplit" id="consoleSplitter" role="separator" aria-orientation="horizontal" tabindex="0" title="Потяните, чтобы изменить высоту монитора порта · двойной щелчок — как было" aria-label="Изменить высоту монитора порта"></div>
           <div class="console">
             <nav>
               <button class="active" data-console="serial"><i data-icon="terminal"></i><span>Монитор порта</span></button>
@@ -87,7 +90,7 @@
           </div>
         </section>
 
-        <div class="splitter" id="splitter" role="separator" aria-label="Изменить ширину панелей"></div>
+        <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" tabindex="0" title="Потяните, чтобы изменить ширину окон · двойной щелчок — как было" aria-label="Изменить ширину панелей"></div>
 
         <section class="simulation-pane">
           <div class="sim-toolbar">
@@ -99,6 +102,7 @@
             <button id="compile" class="tool labeled" title="Собрать прошивку через Arduino CLI" hidden><i data-icon="hammer"></i><span>Собрать HEX</span></button>
             <div class="spacer"></div>
             <button id="engineBadge" class="mode-chip"></button>
+            <button id="simMax" class="tool" title="Развернуть схему на всю ширину" aria-label="Развернуть схему" aria-pressed="false"><i data-icon="expand"></i></button>
             <button id="settings" class="tool" title="Настройки симуляции" aria-label="Настройки"><i data-icon="settings"></i></button>
           </div>
           <div id="canvas">
