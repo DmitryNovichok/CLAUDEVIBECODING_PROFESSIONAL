@@ -2284,7 +2284,7 @@
     if (!types.includes(mkType)) mkType = types[0] || 1;
     const list = [...d.bank.filter(q => q.type === mkType), ...d.own.filter(q => q.type === mkType)];
     const on = list.filter(q => !q.off).length;
-    $('#mkBody').innerHTML = `<p class="adm-hint">${esc(d.description || '')} Отключённые задания не попадают в случайные варианты. Свои задания добавляются к номеру и выпадают наравне с заданиями банка.</p>
+    $('#mkBody').innerHTML = `<h3 class="adm-h3">${esc(d.title || 'Информатика · банк заданий')}</h3><p class="adm-hint">${esc(d.description || '')} Отключённые задания не попадают в случайные варианты. Свои задания добавляются к номеру и выпадают наравне с заданиями банка.</p>
       <div class="mk-types">${types.map(t => `<button type="button" class="mk-chip${t === mkType ? ' on' : ''}" data-mk-type="${t}">№${t}</button>`).join('')}</div>
       <div class="mk-bank-head"><h3 class="adm-h3">№${mkType}. ${esc(d.topics[mkType] || 'Свои задания')} <span class="adm-hint">в работе: ${on} из ${list.length}</span></h3>
         <button type="button" class="btn" data-mk="new-task">+ Своё задание</button></div>

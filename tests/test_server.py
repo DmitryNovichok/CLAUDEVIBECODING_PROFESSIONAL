@@ -5109,7 +5109,7 @@ class ServerTest(unittest.TestCase):
     # ------------------------------------------------------------ МЦКО
     def test_mcko_bank_and_scoring(self):
         import mcko
-        self.assertEqual((len(mcko.QUESTIONS), mcko.TYPES, len(mcko.VARIANTS), mcko.MAX_SCORE), (390, list(range(1, 14)), 30, 14))
+        self.assertEqual((len(mcko.QUESTIONS), mcko.TYPES, len(mcko.VARIANTS), mcko.MAX_SCORE), (520, list(range(1, 14)), 40, 14))
         q = mcko.BY_ID["inf10-t01-v01"]
         self.assertEqual(mcko.score(q, q["key"]), q["points"])
         self.assertEqual(mcko.score(q, ["неверно"] * len(q["key"])), 0)
@@ -5200,10 +5200,10 @@ class ServerTest(unittest.TestCase):
         st, d = self.admin("POST", "/api/admin/mcko/task", {"num": 1, "text": "Сколько будет 2+2?", "key": "4\nчетыре|4", "points": 1})
         self.assertEqual(st, 200, d)
         cq = d["id"]
-        for v in range(1, 31):
+        for v in range(1, 41):
             self.admin("POST", "/api/admin/mcko/off", {"q": f"inf10-t01-v{v:02d}", "off": True})
         bank = self.admin("GET", "/api/admin/mcko/bank")[1]
-        self.assertEqual((len(bank["bank"]), len(bank["own"]), bank["own"][0]["db_id"]), (390, 1, cq))
+        self.assertEqual((len(bank["bank"]), len(bank["own"]), bank["own"][0]["db_id"]), (520, 1, cq))
         self.assertTrue(all(q["off"] for q in bank["bank"] if q["type"] == 1))
         wid = self.admin("POST", "/api/admin/mcko/work", {"class_id": cid, "mode": "random", "minutes": 5})[1]["id"]
         run = self.req("POST", "/api/mcko/start", {"work": wid, "last_name": "Временов", "first_name": "Тимур", "klass": "10Т"}, tok)[1]["run"]

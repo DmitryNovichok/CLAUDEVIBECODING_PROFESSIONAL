@@ -32,10 +32,10 @@
     }
     if (SERVER && student) hubNavOn();        // страницы без боковой панели — и когда входят сразу в раздел, минуя главную
     renderSidebar();
-    const labRequested = location.hash === '#lab';
+    const labRequested = location.hash === '#lab' || location.hash === '#lab-arduino';
     const saved = ui.currentId && byId.get(ui.currentId);
     if (labRequested) {
-      openLab();
+      openLab(location.hash === '#lab-arduino' ? 'arduino' : '');
     } else if (SERVER && student) {                  // ученик начинает с главной: план на сегодня и все разделы
       openHub(true);
     } else if (saved && inScope(saved)) {

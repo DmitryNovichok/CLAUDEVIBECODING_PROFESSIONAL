@@ -90,7 +90,7 @@
 
   let LAB_OK = false, labLoadId = 0;
   function labLock(configured, view) {
-    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатории — по паролю</h2>
+    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>${view === 'arduino' ? 'Лаборатория Arduino — по паролю' : 'Лаборатории — по паролю'}</h2>
       <p>${configured ? 'Пароль выдаёт учитель. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не настроил доступ к лабораториям.'}</p>
       ${LAB.context ? '<button class="link-btn" type="button" data-learning-return>← Вернуться к уроку</button>' : ''}
       ${configured ? '<form id="labPasswordForm" class="login-form crs-lock-form"><input id="labPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лабораторий" aria-label="Пароль лабораторий" required><button class="btn primary">Открыть</button></form><p id="labPasswordError" role="alert"></p>' : ''}</div></div>`;
@@ -124,7 +124,7 @@
   }
   async function openLab(view = '', context) {
     if (!leaveExam()) return;
-    if (!['', 'tasks', 'code', 'bugs'].includes(view)) view = '';
+    if (!['', 'tasks', 'code', 'bugs', 'arduino'].includes(view)) view = '';     // arduino — вход с плитки Arduino: после пароля сразу туда
     labStop();
     if (LAB.owner && LAB.owner !== codeKey('laboratory')) LAB.context = null;
     if (context) LAB.context = context;
@@ -139,7 +139,7 @@
     if (bdOpen()) toggleBoard(false);
     abandonCurrent(); cur = null;
     courseShown = true; pageKind = 'lab'; LAB.view = view;
-    navPush({ v: 'lab', tab: view });
+    navPush({ v: 'lab', tab: view === 'arduino' ? '' : view });
     const ticket = ++labLoadId;
     if (SERVER) {
       trainerEl.innerHTML = '<p class="fm-note">Проверяю доступ к лабораториям…</p>';
@@ -148,6 +148,7 @@
         if (ticket !== labLoadId || pageKind !== 'lab' || !courseShown) return;
         LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !LAB_OK);
         if (!LAB_OK) { labLock(access.pw, view); return; }
+        if (view === 'arduino') { location.href = 'arduino/'; return; }
       } catch (err) { if (ticket === labLoadId && pageKind === 'lab') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Открой лабораторию ещё раз.</p>'; netError(err); } return; }
     }
     if (context) { LAB.code = context.code || ''; LAB.stdin = context.stdin || ''; LAB.result = null; LAB.index = 0; }

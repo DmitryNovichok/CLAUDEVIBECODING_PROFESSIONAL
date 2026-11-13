@@ -2586,7 +2586,7 @@ class Handler(BaseHTTPRequestHandler):
             s = self.student()
             if not s or not lab_access(APP.db, s):
                 return self.send_bytes(302, b"", "text/plain", {
-                    "Location": "/" if not s else "/#lab", "Cache-Control": "no-store"})
+                    "Location": "/" if not s else "/#lab-arduino", "Cache-Control": "no-store"})
             return self.serve_page(rel)
         if rel == "lab-worker.js":
             s = self.student()
