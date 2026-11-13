@@ -5162,6 +5162,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/mcko/save", {"run": run, "q": "inf10-t02-v04", "values": ["1"]}, tok)[0], 404)
         d = self.req("POST", "/api/mcko/finish", {"run": run}, tok)[1]
         self.assertEqual((d["score"], d["max"], d["reason"]), (q1["points"] + 1, 14, "student"))
+        self.assertEqual([(x["n"], x["answered"], x["points"]) for x in d["rows"] if x["answered"]], [(1, True, q1["points"]), (13, True, 1)])
+        self.assertEqual((d["answered"], len(d["rows"])), (2, 13))
         self.assertEqual(self.req("POST", "/api/mcko/save", {"run": run, "q": q1["id"], "values": ["x"]}, tok)[0], 409)
         self.assertEqual(self.req("POST", "/api/mcko/start", {"work": wid, "last_name": "М", "first_name": "М", "klass": "10"}, tok)[0], 409)
         # случайный вариант: по заданию каждого типа; баллы скрыты

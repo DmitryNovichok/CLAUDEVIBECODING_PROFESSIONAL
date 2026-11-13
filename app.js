@@ -10811,9 +10811,11 @@
   window.addEventListener('pagehide', bugStop);
   // ═══════ src/app/12n-mcko.js
   // ------------------------------------------------------------ МЦКО: тренировочные работы, которые учитель выдаёт классу
-  // Главная раздела — список работ класса (пусто, пока учитель ничего не выдал). Работа: ФИО и класс → задания по номерам,
-  // ответ сохраняется кнопкой (и сам при уходе с поля), время считает сервер, по истечении работа сдаётся сама.
-  const MK = { list: null, run: null, i: 0, timer: 0, intro: null, dirty: new Set() };
+  // Главная раздела — список работ класса (пусто, пока учитель ничего не выдал), затем ФИО и класс.
+  // Само тестирование — отдельный экран в классическом формате компьютерного тестирования: ряд номеров
+  // («Описание», задания, «закончить»), оставшееся время, ответ засчитывается только кнопкой «Сохранить ответ»,
+  // подтверждение завершения и протокол. Это оформление Egeshka, а не копия официального сайта.
+  const MK = { list: null, run: null, i: 0, timer: 0, intro: null, page: 'test', ov: null, skew: 0, pre: null };
   async function openMcko() {
     if (!leaveExam()) return;
     if (isNarrow()) setSideOpen(false);
@@ -10830,10 +10832,15 @@
   const mkFmt = t => new Date(t * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   const mkBox = () => trainerEl.querySelector('.mk');
   function mkStop() { clearInterval(MK.timer); MK.timer = 0; }
+  function mkClose() {
+    mkStop();
+    if (MK.ov) { MK.ov.remove(); MK.ov = null; }
+    document.body.classList.remove('mkx-open');
+  }
   async function mkList() {
-    mkStop(); MK.run = null; MK.intro = null;
+    mkClose(); MK.run = null; MK.intro = null; MK.pre = null;
     try { MK.list = await api('mcko'); } catch (e) { if (mkActive()) mkBox().innerHTML = `<p class="fm-note">${esc(e.message || 'Нет связи с сервером')}</p>`; return; }
-    if (!mkActive()) return;
+    if (!mkActive() || !mkBox()) return;
     const d = MK.list;
     const card = w => {
       const last = w.results[w.results.length - 1];
@@ -10843,15 +10850,16 @@
       const can = w.active || (w.open && w.used < w.tries);
       return `<article class="mk-card"><div><h3>${esc(w.title)}</h3>
         <p>${w.tasks} ${plural(w.tasks, 'задание', 'задания', 'заданий')} · ${w.minutes} мин · максимум ${w.max} ${plural(w.max, 'балл', 'балла', 'баллов')}${w.closes ? ` · принимается до ${mkFmt(w.closes)}` : ''}${w.tries > 1 ? ` · попыток: ${w.used} из ${w.tries}` : ''}</p></div>
-        ${st}${can ? `<button type="button" class="btn primary" data-mk-open="${w.id}">${w.active ? 'Продолжить' : 'Приступить'}</button>` : ''}</article>`;
+        ${st}${last && !w.active ? `<button type="button" class="btn" data-mk-proto="${last.run}">Протокол</button>` : ''}${can ? `<button type="button" class="btn primary" data-mk-open="${w.id}">${w.active ? 'Продолжить' : 'Приступить'}</button>` : ''}</article>`;
     };
-    mkBox().innerHTML = `<header class="mk-head"><h1>МЦКО</h1><p>Тренировочные работы по типам диагностики МЦКО от вашего учителя. Это тренировка, а не официальная диагностика.</p></header>
+    mkBox().innerHTML = `<header class="mk-head"><h1>МЦКО</h1><p>Тренировочные работы по типам диагностики МЦКО от вашего учителя — в формате компьютерного тестирования. Это тренировка, а не официальная диагностика.</p></header>
       ${d.works.length ? `<div class="mk-list">${d.works.map(card).join('')}</div>`
         : `<div class="mk-empty"><div class="mk-empty-ic" aria-hidden="true">📋</div><h2>Работ пока нет</h2>
           <p>${d.has_class ? 'Когда учитель выдаст работу вашему классу, она появится здесь.' : 'Вы пока не в классе. Попросите учителя добавить вас в класс — тогда здесь появятся работы.'}</p></div>`}`;
   }
   function mkIntro(w) {
     MK.intro = w;
+    if (w.active) return mkLoadRun(w.active, 'test');           // идущая работа — сразу к заданиям
     const f = w.used ? w.fio : MK.list.me;
     const val = k => esc((w.fio && w.fio[k]) || f[k] || '');
     mkBox().innerHTML = `<button type="button" class="link-btn" data-mk-back>← Все работы</button>
@@ -10862,121 +10870,181 @@
           <label>Имя<input class="inp" id="mkFirst" maxlength="60" required autocomplete="given-name" value="${val('first_name')}"></label>
           <label>Отчество <small>если есть</small><input class="inp" id="mkMiddle" maxlength="60" autocomplete="additional-name" value="${val('middle_name')}"></label>
           <label>Класс<input class="inp" id="mkKlass" maxlength="20" required placeholder="например, 10А" value="${val('klass')}"></label>
-          <p class="fm-note">ФИО, класс и результаты работы увидит ваш учитель.</p>
-          <div class="mk-rules"><h3>Перед началом</h3><ul>
-            <li>На работу даётся <b>${w.minutes} минут</b>. Время идёт с нажатия «Начать» и не останавливается, даже если закрыть страницу.</li>
-            <li>Задания можно решать в любом порядке: номера — вверху. Ответ записывайте в поле и нажимайте <b>«Сохранить ответ»</b>.</li>
-            <li>Числа пишите цифрами, дробную часть — через запятую. Если полей несколько, заполните каждое.</li>
-            <li>Когда закончите, нажмите <b>«Завершить работу»</b>. Когда время выйдет, работа сдастся сама с сохранёнными ответами.</li></ul></div>
-          <button type="submit" class="btn primary btn-block">${w.active ? 'Продолжить работу' : 'Начать тестирование'}</button>
+          <p class="fm-note">ФИО, класс и результаты работы увидит ваш учитель. Дальше откроется экран тестирования с описанием работы — время пойдёт только после «Начать тестирование».</p>
+          <button type="submit" class="btn primary btn-block">Далее — к описанию работы</button>
           <p class="login-err" id="mkErr" role="alert"></p></form></div>`;
-    if (w.active) $$('#mkStart input').forEach(i => { i.readOnly = true; });
   }
-  async function mkLoadRun(id) {
-    try { MK.run = await api('mcko/run?run=' + id); } catch (e) { toast(e.message || 'Нет связи с сервером'); return mkList(); }
+  // ---------- экран тестирования
+  async function mkLoadRun(id, page) {
+    let r;
+    try { r = await api('mcko/run?run=' + id); } catch (e) { toast(e.message || 'Нет связи с сервером'); return mkList(); }
     if (!mkActive()) return;
-    MK.skew = MK.run.now * 1000 - Date.now();               // часы сервера: таймер не зависит от часов компьютера
-    MK.i = Math.min(MK.i, MK.run.tasks.length - 1);
-    MK.dirty.clear();
-    if (MK.run.finished) return mkDone();
-    mkRender();
-    mkStop(); MK.timer = setInterval(mkTick, 1000); mkTick();
+    MK.run = r; MK.pre = null;
+    MK.skew = r.now * 1000 - Date.now();               // часы сервера: таймер не зависит от часов компьютера
+    MK.i = Math.max(0, Math.min(MK.i, r.tasks.length - 1));
+    mkOpenOverlay();
+    mkShow(r.finished ? 'result' : page || 'test');
+  }
+  function mkOpenOverlay() {
+    if (MK.ov) return;
+    MK.ov = document.createElement('div');
+    MK.ov.className = 'mkx'; MK.ov.setAttribute('role', 'dialog'); MK.ov.setAttribute('aria-modal', 'true'); MK.ov.setAttribute('aria-label', 'Тренировочное тестирование');
+    document.body.appendChild(MK.ov);
+    document.body.classList.add('mkx-open');
+    MK.ov.addEventListener('click', mkOvClick);
+    MK.ov.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.closest('.mkx-q input')) { e.preventDefault(); mkSave(false); } });
+    MK.ov.addEventListener('input', e => { if (e.target.closest('.mkx-q')) { const s = MK.ov.querySelector('#mkxSaved'); if (s) { s.textContent = 'Ответ не сохранён — нажмите «Сохранить ответ»'; s.className = 'mkx-status warn'; } } });
   }
   const mkHas = q => (MK.run.answers[q.id] || []).some(x => String(x).trim());
-  function mkRender() {
-    const r = MK.run, q = r.tasks[MK.i];
-    const done = r.tasks.filter(mkHas).length;
-    mkBox().innerHTML = `<div class="mk-run">
-      <header class="mk-bar"><div><b>${esc(r.title)}</b><small>${esc(r.fio)} · ${esc(r.klass)}</small></div>
-        <span class="mk-time" id="mkTime" aria-live="off"></span>
-        <button type="button" class="btn" data-mk-finish>Завершить работу</button></header>
-      <nav class="mk-nums" aria-label="Задания">${r.tasks.map((t, k) => `<button type="button" class="${k === MK.i ? 'on' : ''} ${mkHas(t) ? 'has' : ''}" data-mk-go="${k}" aria-label="Задание ${t.n}${mkHas(t) ? ', ответ сохранён' : ''}">${t.n}</button>`).join('')}
-        <span class="mk-count">сохранено ${done} из ${r.tasks.length}</span></nav>
-      <section class="mk-task"><h2>Задание ${q.n} <small>${q.points} ${plural(q.points, 'балл', 'балла', 'баллов')}</small></h2>
-        <div class="mk-q" id="mkQ">${q.html}</div>
-        ${q.file ? `<p class="mk-file">Файл к заданию: <a href="api/mcko/file?run=${r.run}&amp;q=${encodeURIComponent(q.id)}" download="${esc(q.file)}">${esc(q.file)}</a></p>` : ''}
-        <div class="mk-act"><button type="button" class="btn" data-mk-step="-1" ${MK.i ? '' : 'disabled'}>← Назад</button>
-          <button type="button" class="btn primary" data-mk-save>Сохранить ответ</button><span class="mk-saved" id="mkSaved" role="status"></span>
-          <button type="button" class="btn" data-mk-step="1" ${MK.i < r.tasks.length - 1 ? '' : 'disabled'}>Далее →</button></div></section></div>`;
-    // поля ответа — из условия (a0, a1…): подставляем сохранённое; ссылка на файл в тексте — на сервер с проверкой доступа
-    const vals = r.answers[q.id] || [];
-    $$('#mkQ input').forEach((inp, j) => { inp.value = vals[j] || ''; inp.dataset.mkField = j; inp.setAttribute('inputmode', 'text'); inp.spellcheck = false; });
-    $$('#mkQ a[href*="api/mcko/file"]').forEach(a => a.setAttribute('download', q.file || ''));
-    $('#mkQ input')?.focus({ preventScroll: true });
+  function mkLeft() { return Math.max(0, Math.round((MK.run.deadline * 1000 - (Date.now() + MK.skew)) / 1000)); }
+  function mkShow(page) {
+    MK.page = page;
+    const r = MK.run, done = !!r.finished, pre = !!r.pre;
+    const nums = r.tasks.map((t, k) => `<button type="button" class="mkx-n${page === 'test' && k === MK.i ? ' cur' : ''}${!done && mkHas(t) ? ' has' : ''}" data-mkx-go="${k}" ${done || pre ? 'disabled' : ''} aria-label="Задание ${t.n}${mkHas(t) ? ', ответ сохранён' : ''}">${t.n}</button>`).join('');
+    const bar = `<header class="mkx-top"><b>Тренировочное тестирование</b><span>${esc(r.title)}</span><span class="mkx-who">${esc(r.fio)}${r.klass ? ', ' + esc(r.klass) : ''}</span>
+        <button type="button" class="mkx-exit" data-mkx-exit>${done || pre ? 'Закрыть' : 'Выйти (время идёт)'}</button></header>
+      <nav class="mkx-pal" aria-label="Задания"><span class="mkx-lbl">Задания:</span>
+        <button type="button" class="mkx-n wide${page === 'desc' ? ' cur' : ''}" data-mkx-page="desc" ${done ? 'disabled' : ''}>Описание</button>${nums}
+        <button type="button" class="mkx-n wide${page === 'confirm' ? ' cur' : ''}" data-mkx-page="confirm" ${done || pre ? 'disabled' : ''}>закончить</button>
+        <span class="mkx-time" id="mkxTime">${done ? 'Тестирование завершено' : pre ? `Время на работу — ${r.minutes} мин` : ''}</span></nav>`;
+    let body = '';
+    if (page === 'desc') {
+      body = `<section class="mkx-box mkx-desc"><h2>Описание работы</h2>
+        <p><b>${esc(r.title)}</b>: ${r.tasks.length} ${plural(r.tasks.length, 'задание', 'задания', 'заданий')}, на выполнение — ${r.minutes} мин, максимум ${r.max} ${plural(r.max, 'балл', 'балла', 'баллов')}.</p>
+        <ol><li>Переходите между заданиями по номерам в строке «Задания». Порядок выполнения — любой.</li>
+          <li>Ответ записывайте в поле под условием и <b>обязательно нажимайте «Сохранить ответ»</b>. Номер с сохранённым ответом подсвечивается жёлтым. Несохранённый ответ не засчитывается.</li>
+          <li>Числа пишите цифрами, дробную часть — через запятую. Если полей несколько, заполните каждое.</li>
+          <li>Оставшееся время показано в строке заданий. Время идёт на сервере и не останавливается, если выйти или закрыть страницу. Когда время выйдет, работа завершится сама с сохранёнными ответами.</li>
+          <li>Чтобы сдать работу, нажмите «закончить». После завершения вернуться к заданиям нельзя.</li>
+          <li>Делайте перерыв для глаз после 30–35 минут непрерывной работы за компьютером.</li></ol>
+        ${pre ? '<button type="button" class="mkx-btn mkx-primary" data-mkx-start>Начать тестирование</button>' : `<button type="button" class="mkx-btn mkx-primary" data-mkx-go="${MK.i}">Продолжить тестирование</button>`}</section>`;
+    } else if (page === 'test') {
+      const q = r.tasks[MK.i];
+      body = `<section class="mkx-box"><h2 class="mkx-h">Задание ${q.n} <small>(${q.points} ${plural(q.points, 'балл', 'балла', 'баллов')})</small></h2>
+        <div class="mkx-q" id="mkxQ">${q.html}</div>
+        ${q.file ? `<p class="mkx-file">Файл к заданию: <a href="api/mcko/file?run=${r.run}&amp;q=${encodeURIComponent(q.id)}" download="${esc(q.file)}">${esc(q.file)}</a></p>` : ''}
+        <div class="mkx-act"><button type="button" class="mkx-btn mkx-primary" data-mkx-save>Сохранить ответ</button>
+          <span class="mkx-status" id="mkxSaved" role="status">${mkHas(q) ? 'Ответ сохранён' : ''}</span>
+          <span class="mkx-sp"></span>
+          <button type="button" class="mkx-btn" data-mkx-step="-1" ${MK.i ? '' : 'disabled'}>← предыдущее</button>
+          <button type="button" class="mkx-btn" data-mkx-step="1" ${MK.i < r.tasks.length - 1 ? '' : 'disabled'}>следующее →</button></div></section>`;
+    } else if (page === 'confirm') {
+      const missed = r.tasks.filter(t => !mkHas(t));
+      body = `<section class="mkx-box mkx-confirm"><h2>${missed.length ? 'Вы ответили не на все задания!' : 'Вы ответили на все задания.'}</h2>
+        ${missed.length ? `<p>Без сохранённого ответа: ${missed.map(t => `<button type="button" class="mkx-link" data-mkx-go="${t.n - 1}">№${t.n}</button>`).join(', ')}.</p>` : ''}
+        <p><button type="button" class="mkx-btn" data-mkx-go="${MK.i}">продолжить отвечать</button> или <button type="button" class="mkx-btn mkx-primary" data-mkx-finish>закончить тестирование *</button></p>
+        <p class="mkx-note">* после завершения тестирования вернуться к заданиям будет нельзя</p></section>`;
+    } else {
+      const d = new Date((r.finished || Date.now() / 1000) * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).replace(' г.', '');
+      const rows = r.rows || [];
+      body = `<section class="mkx-box mkx-proto"><h2>Протокол тренировочной работы</h2><h3>${esc(r.title)}</h3>
+        <table class="mkx-who-t"><tr><td>тестируемый:</td><td>${esc(r.fio)}${r.klass ? ', ' + esc(r.klass) : ''}</td></tr><tr><td>дата:</td><td>${d}</td></tr>
+          ${r.reason === 'time' ? '<tr><td>завершено:</td><td>по окончании времени</td></tr>' : ''}</table>
+        ${r.score != null ? `<div class="mkx-proto-grid"><table class="mkx-res"><thead><tr><th>№ задания</th><th>ответ</th><th>балл за задание</th></tr></thead><tbody>
+          ${rows.map(x => `<tr class="${!x.answered ? 'skip' : x.points >= x.max ? 'ok' : x.points ? 'part' : 'bad'}"><td>${x.n}</td><td>${!x.answered ? 'нет ответа' : x.points >= x.max ? 'верно' : x.points ? 'частично' : 'ошибка'}</td><td>${x.points}${x.max > 1 ? ' из ' + x.max : ''}</td></tr>`).join('')}</tbody></table>
+          <table class="mkx-total"><tr class="ok"><th>Набрано баллов:</th><td>${r.score}</td></tr><tr><th>Максимум баллов:</th><td>${r.max}</td></tr><tr class="skip"><th>Пропущено ответов:</th><td>${rows.filter(x => !x.answered).length}</td></tr>
+          <tr><td colspan="2" class="mkx-note">Оценка не ставится: это тренировочная работа.</td></tr></table></div>`
+          : `<p>Работа сдана. Сохранено ответов: <b>${r.answered}</b> из ${r.tasks.length}. Результат сообщит учитель.</p>`}
+        <p class="mkx-act"><button type="button" class="mkx-btn" data-mkx-print>Печать протокола</button><button type="button" class="mkx-btn mkx-primary" data-mkx-exit>К списку работ</button></p></section>`;
+    }
+    MK.ov.innerHTML = `<div class="mkx-in">${bar}${body}<footer class="mkx-foot">Тренировочное тестирование Egeshka по типам диагностики МЦКО · не официальный сервис МЦКО</footer></div>`;
+    if (page === 'test') {
+      const q = r.tasks[MK.i], vals = r.answers[q.id] || [];
+      MK.ov.querySelectorAll('#mkxQ input').forEach((inp, j) => { inp.value = vals[j] || ''; inp.spellcheck = false; inp.autocomplete = 'off'; });
+      MK.ov.querySelectorAll('#mkxQ a[href*="api/mcko/file"]').forEach(a => a.setAttribute('download', q.file || ''));
+      MK.ov.querySelector('#mkxQ input')?.focus({ preventScroll: true });
+    }
+    MK.ov.scrollTop = 0;
+    mkStop();
+    if (!done && !pre) { MK.timer = setInterval(mkTick, 1000); mkTick(); }
   }
   function mkTick() {
-    if (!mkActive() || !MK.run) return mkStop();
-    const left = Math.max(0, Math.round((MK.run.deadline * 1000 - (Date.now() + MK.skew)) / 1000));
-    const el = $('#mkTime');
-    if (el) { el.textContent = `осталось ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; el.classList.toggle('low', left < 300); }
+    if (!MK.ov || !MK.run || MK.run.finished) return mkStop();
+    const left = mkLeft(), el = MK.ov.querySelector('#mkxTime');
+    if (el) { el.textContent = `Оставшееся время — ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; el.classList.toggle('low', left < 300); }
     if (left <= 0) { mkStop(); mkSave(true).finally(() => mkFinish(true)); }
   }
   async function mkSave(quiet) {
-    const r = MK.run; if (!r || r.finished) return;
-    const q = r.tasks[MK.i], inputs = $$('#mkQ input');
+    const r = MK.run; if (!r || r.finished || MK.page !== 'test' || !MK.ov) return;
+    const q = r.tasks[MK.i], inputs = [...MK.ov.querySelectorAll('#mkxQ input')];
     if (!q || !inputs.length) return;
     const values = inputs.map(i => i.value.trim());
-    const old = r.answers[q.id] || [];
-    if (quiet && values.join('\u0001') === old.join('\u0001')) return;
+    if (quiet && values.join('\u0001') === (r.answers[q.id] || []).join('\u0001')) return;
+    if (quiet && !values.some(Boolean)) return;
     try {
       await api('mcko/save', { run: r.run, q: q.id, values });
       r.answers[q.id] = values;
-      MK.dirty.delete(q.id);
-      if (!quiet) { const s = $('#mkSaved'); if (s) { s.textContent = '✓ Ответ сохранён'; setTimeout(() => { if (s.isConnected) s.textContent = ''; }, 2500); } }
-      const btn = $(`[data-mk-go="${MK.i}"]`); if (btn) btn.classList.toggle('has', mkHas(q));
-      const c = trainerEl.querySelector('.mk-count'); if (c) c.textContent = `сохранено ${r.tasks.filter(mkHas).length} из ${r.tasks.length}`;
+      if (!MK.ov) return;
+      const s = MK.ov.querySelector('#mkxSaved');
+      if (s) { s.textContent = values.some(Boolean) ? 'Ответ сохранён' : 'Ответ удалён'; s.className = 'mkx-status ok'; }
+      MK.ov.querySelector(`.mkx-n[data-mkx-go="${MK.i}"]`)?.classList.toggle('has', mkHas(q));
     } catch (e) {
-      if (e.status === 409) return mkLoadRun(r.run);            // работа уже сдана (время вышло) — показываем итог
+      if (e.status === 409) return mkLoadRun(r.run, 'result');      // время вышло — работа уже сдана
       toast(e.message || 'Ответ не сохранён — нет связи с сервером');
     }
   }
   async function mkFinish(auto) {
     const r = MK.run; if (!r) return;
-    try { MK.run = await api('mcko/finish', { run: r.run }); } catch (e) { toast(e.message || 'Нет связи с сервером'); return; }
-    mkStop();
-    if (auto) toast('Время вышло — работа сдана с сохранёнными ответами');
-    mkDone();
+    let v;
+    try { v = await api('mcko/finish', { run: r.run }); } catch (e) { toast(e.message || 'Нет связи с сервером'); return; }
+    MK.run = v; mkStop();
+    if (auto) toast('Время вышло — работа завершена с сохранёнными ответами');
+    if (MK.ov) mkShow('result');
   }
-  function mkDone() {
-    mkStop();
-    const r = MK.run;
-    mkBox().innerHTML = `<div class="mk-done"><div class="mk-empty-ic" aria-hidden="true">✅</div><h1>Работа сдана</h1>
-      <p>${esc(r.title)} · ${esc(r.fio)}${r.reason === 'time' ? ' · сдана автоматически по окончании времени' : ''}</p>
-      ${r.score != null ? `<p class="mk-score"><b>${r.score}</b> из ${r.max} ${plural(r.max, 'балла', 'баллов', 'баллов')}</p>` : '<p>Результат сообщит учитель.</p>'}
-      <button type="button" class="btn primary" data-mk-back>К списку работ</button></div>`;
+  // Несохранённый ответ при переходе не записываем — как в настоящем тестировании; предупреждаем один раз
+  function mkUnsaved() {
+    if (MK.page !== 'test' || !MK.ov) return false;
+    const q = MK.run.tasks[MK.i], vals = [...MK.ov.querySelectorAll('#mkxQ input')].map(i => i.value.trim());
+    return vals.join('\u0001') !== (MK.run.answers[q.id] || []).map(String).join('\u0001') && (vals.some(Boolean) || mkHas(q));
+  }
+  function mkLeave(fn) {
+    if (mkUnsaved() && !confirm('Ответ на это задание не сохранён. Перейти без сохранения?')) return;
+    fn();
+  }
+  async function mkOvClick(e) {
+    const t = e.target;
+    if (t.closest('[data-mkx-exit]')) return mkLeave(() => mkList());
+    if (t.closest('[data-mkx-print]')) return window.print();
+    const sb = t.closest('[data-mkx-start]');
+    if (sb) return mkStart(sb);
+    const go = t.closest('[data-mkx-go]');
+    if (go) return mkLeave(() => { MK.i = +go.dataset.mkxGo; mkShow('test'); });
+    const pg = t.closest('[data-mkx-page]');
+    if (pg) return mkLeave(() => mkShow(pg.dataset.mkxPage));
+    const st = t.closest('[data-mkx-step]');
+    if (st) return mkLeave(() => { MK.i = Math.max(0, Math.min(MK.run.tasks.length - 1, MK.i + +st.dataset.mkxStep)); mkShow('test'); });
+    if (t.closest('[data-mkx-save]')) return mkSave(false);
+    if (t.closest('[data-mkx-finish]')) { t.closest('[data-mkx-finish]').disabled = true; return mkFinish(false); }
   }
   trainerEl.addEventListener('click', async e => {
     if (!mkActive()) return;
     const t = e.target;
-    if (t.closest('[data-mk-back]')) { await mkSave(true); return mkList(); }
+    if (t.closest('[data-mk-back]')) return mkList();
     const op = t.closest('[data-mk-open]');
     if (op) { const w = MK.list.works.find(x => x.id === +op.dataset.mkOpen); if (w) mkIntro(w); return; }
-    const go = t.closest('[data-mk-go]');
-    if (go) { await mkSave(true); MK.i = +go.dataset.mkGo; mkRender(); return; }
-    const st = t.closest('[data-mk-step]');
-    if (st) { await mkSave(true); MK.i = Math.max(0, Math.min(MK.run.tasks.length - 1, MK.i + +st.dataset.mkStep)); mkRender(); return; }
-    if (t.closest('[data-mk-save]')) { await mkSave(false); return; }
-    if (t.closest('[data-mk-finish]')) {
-      await mkSave(true);
-      const r = MK.run, empty = r.tasks.filter(q => !mkHas(q)).length;
-      if (!confirm(`Завершить работу?${empty ? `\nБез ответа: ${empty} ${plural(empty, 'задание', 'задания', 'заданий')}.` : ''}\nПосле этого изменить ответы будет нельзя.`)) return;
-      mkFinish(false);
-    }
+    const pr = t.closest('[data-mk-proto]');
+    if (pr) return mkLoadRun(+pr.dataset.mkProto, 'result');
   });
-  trainerEl.addEventListener('submit', async e => {
+  trainerEl.addEventListener('submit', e => {
     if (!mkActive() || e.target.id !== 'mkStart') return;
     e.preventDefault();
-    const w = MK.intro, btn = e.target.querySelector('button[type=submit]');
-    btn.disabled = true; $('#mkErr').textContent = '';
-    try {
-      const r = await api('mcko/start', { work: w.id, last_name: $('#mkLast').value, first_name: $('#mkFirst').value, middle_name: $('#mkMiddle').value, klass: $('#mkKlass').value });
-      MK.i = 0; await mkLoadRun(r.run);
-    } catch (err) { $('#mkErr').textContent = err.message || 'Нет связи с сервером'; btn.disabled = false; }
+    const w = MK.intro, fio = { last_name: $('#mkLast').value.trim(), first_name: $('#mkFirst').value.trim(), middle_name: $('#mkMiddle').value.trim(), klass: $('#mkKlass').value.trim() };
+    if (!fio.last_name || !fio.first_name || !fio.klass) { $('#mkErr').textContent = 'Заполните фамилию, имя и класс'; return; }
+    // время ещё не идёт: экран «Описание», старт — кнопкой «Начать тестирование»
+    MK.pre = { w, fio };
+    MK.run = { pre: true, title: w.title, minutes: w.minutes, max: w.max, answers: {}, finished: null,
+      fio: [fio.last_name, fio.first_name, fio.middle_name].filter(Boolean).join(' '), klass: fio.klass,
+      tasks: Array.from({ length: w.tasks }, (_, k) => ({ n: k + 1, id: 'p' + k, points: 1 })) };
+    MK.i = 0; mkOpenOverlay(); mkShow('desc');
   });
-  // уход с поля ответа — сохраняем сами; Enter в поле — тоже
-  trainerEl.addEventListener('change', e => { if (mkActive() && e.target.closest('#mkQ')) mkSave(true); });
-  trainerEl.addEventListener('keydown', e => { if (mkActive() && e.key === 'Enter' && e.target.closest('#mkQ input')) { e.preventDefault(); mkSave(false); } });
-  new MutationObserver(() => { if (!mkActive()) mkStop(); }).observe(trainerEl, { childList: true });
+  async function mkStart(btn) {
+    const { w, fio } = MK.pre; btn.disabled = true;
+    try { const r = await api('mcko/start', Object.assign({ work: w.id }, fio)); MK.pre = null; MK.i = 0; await mkLoadRun(r.run, 'test'); }
+    catch (err) { toast(err.message || 'Нет связи с сервером'); btn.disabled = false; }
+  }
+  // ушли со страницы раздела (назад, другое меню) — экран тестирования закрывается, время на сервере идёт дальше
+  new MutationObserver(() => { if (!mkActive()) mkClose(); }).observe(trainerEl, { childList: true });
+  window.addEventListener('popstate', () => { if (MK.ov) mkClose(); });
   // ═══════ src/app/13-live.js
   // ------------------------------------------------------------ живые обновления (SSE)
   /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя, support — ответ техподдержки,
