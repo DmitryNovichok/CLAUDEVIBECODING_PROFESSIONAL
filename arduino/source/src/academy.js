@@ -33,7 +33,20 @@ export function initAcademy(api){
  const allLessons=[...juniorLessons,...seniorLessons];
  const store=progressStore(localStorage,allLessons.map(l=>l.id));
  let progress=store.read();
- const exchange=createExchange({api,lessons:allLessons,store,onProgress(){progress=store.read();sidebar();topbar();}});
+ // На сайте Egeshka сводка прогресса уходит на сервер — учитель видит её во вкладке «Arduino». Локальная версия ничего не отправляет.
+ let syncTimer=0,syncSent='';
+ function syncProgress(){
+  if(!window.EGE_ARDUINO_REQUIRE_AUTH)return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(()=>{
+   const pack=ls=>ls.map(l=>{const p=progress[l.id]||{};return [l.id,l.title,p.theory?1:0,p.circuit?1:0,p.run?1:0]});
+   const body=JSON.stringify({tracks:{junior:pack(juniorLessons),senior:pack(seniorLessons)}});
+   if(body===syncSent)return;
+   fetch('/api/arduino/progress',{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body})
+    .then(r=>{if(r.ok)syncSent=body}).catch(()=>{});
+  },1500);
+ }
+ const exchange=createExchange({api,lessons:allLessons,store,onProgress(){progress=store.read();sidebar();topbar();syncProgress();}});
  const available=(index)=>unlocked(index,progress,lessons)||exchange.assigned(lessons[index]?.id);
  let selectedPart='wokwi-arduino-uno',catalogTab='boards',search='',category='Все',onlyWorking=false,activeLesson=api.getProject().lessonId||null,route='',lastCheck=null;
  let grade=localStorage.getItem('microlab.grade')==='senior'?'senior':'junior';
@@ -47,7 +60,7 @@ export function initAcademy(api){
  chooseGrade(grade);
  const gradeName=()=>grade==='senior'?'10–11 классы':'7 класс';
  const snapshot=()=>stats(progress,lessons);
- function persistProgress(){progress=store.read();sidebar();topbar();}
+ function persistProgress(){progress=store.read();sidebar();topbar();syncProgress();}
  const done=l=>['theory','circuit','run'].every(s=>progress[l.id]?.[s]);
  const nextLesson=()=>lessons.find(l=>!done(l))||lessons.at(-1);
  function mark(l,step){progress=store.read();if(progress[l.id]?.[step])return false;try{progress=store.patch(l.id,{[step]:true});persistProgress();return true}catch{api.toast('Прогресс не сохранён: скачайте резервную копию.','error');return null}}
@@ -156,5 +169,5 @@ export function initAcademy(api){
  document.addEventListener('microlab-rendered',()=>{if(route==='lab'){if(activeLesson!==(api.getProject().lessonId||null)){chooseGrade(api.getProject().lessonId?.startsWith('hs-')?'senior':'junior');labDock();sidebar();topbar();}api.fit()}});
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('menu-open'))$('#sidebar .rail-close')?.click()});
  window.addEventListener('storage',e=>{const key=accountStorageEventKey(e.key);if(key===null||key?.startsWith('microlab.progress.')||key==='microlab.academy.v1'){persistProgress();if(route==='lab')labDock();if(route.startsWith('course'))course();}});
- window.addEventListener('hashchange',renderRoute);window.addEventListener('beforeunload',e=>{if(!api.persist()){e.preventDefault();e.returnValue=''}});renderRoute();
+ syncProgress();window.addEventListener('hashchange',renderRoute);window.addEventListener('beforeunload',e=>{if(!api.persist()){e.preventDefault();e.returnValue=''}});renderRoute();
 }

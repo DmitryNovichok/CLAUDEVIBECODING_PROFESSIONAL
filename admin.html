@@ -87,6 +87,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <button type="button" data-tab="mcko"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/><path d="m15 15 1.5 1.5L19 14"/></svg></i>МЦКО</button>
       <button type="button" data-tab="archive"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/></svg></i>Мои работы</button>
       <button type="button" data-tab="course" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5M22 9v6"/></svg></i>Курс</button>
+      <button type="button" data-tab="ard"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2.5"/><rect x="9" y="6.5" width="6" height="5" rx="1"/><path d="M3 7h3M3 12h3M3 17h3M18 7h3M18 12h3M18 17h3"/></svg></i>Arduino</button>
       <button type="button" data-tab="pyc"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></i>Программирование</button>
       <button type="button" class="nav-grp" id="navMotiv" aria-expanded="false" aria-controls="navMotivList"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></i>Мотивация учеников<svg class="nav-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <div class="nav-sub" id="navMotivList" hidden>
@@ -235,6 +236,15 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div id="cpBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
+    <section class="adm-view" id="view-ard" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Лаборатория Arduino</h2>
+        <input class="inp" id="ardFind" placeholder="Поиск по ФИО" style="max-width:240px">
+        <button type="button" class="btn ghost" id="ardReload">Обновить</button></div>
+      <p class="adm-hint" style="margin:0 0 12px">Ученики с доступом к лабораториям и их прогресс в двух курсах Arduino: 7 класс и 10–11 классы (по 36 уроков).
+        Урок пройден, когда выполнены все три шага: <b>теория</b>, <b>схема</b> и <b>запуск</b>. Прогресс приходит, когда ученик занимается в лаборатории Arduino на сайте.
+        Нажмите на ученика — увидите каждый урок: <span class="cp-sq ok"></span> пройден, <span class="cp-sq part"></span> начат, <span class="cp-sq"></span> не начат.</p>
+      <div id="ardBody"><p class="adm-hint">Загружаю…</p></div>
+    </section>
     <section class="adm-view" id="view-pyc" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Курс «Программирование для ЕГЭ»</h2>
         <input class="inp" id="pycFind" placeholder="Поиск по ФИО" style="max-width:240px">
