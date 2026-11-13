@@ -121,7 +121,7 @@
     T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
     if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'модели заданий ЕГЭ, Python по шагам, исправление ошибок', btn: 'Открыть', go: () => $('#labCard').click() });
     if (vis('labCard')) T.push({ k: 'arduino', name: 'Лаборатория Arduino', sub: 'схемы, код и симулятор · 2 курса по 36 уроков', btn: LAB_OK ? 'Открыть' : 'Открыть по паролю',
-      go: () => { if (LAB_OK) location.href = 'arduino/'; else $('#labCard').click(); } });
+      go: () => { if (LAB_OK) location.href = 'arduino/'; else openLab('arduino'); } });
     if (vis('pycCard')) T.push({ k: 'python', name: 'Курс Python', sub: 'программирование с нуля', btn: 'Открыть', go: () => $('#pycCard').click() });
     T.push({ k: 'history', name: 'История', sub: `${allDone} ${plural(allDone, 'ответ', 'ответа', 'ответов')}`, extra: hubWeekBars(), badge: bad ? `${bad} ${plural(bad, 'ошибка', 'ошибки', 'ошибок')}` : '',
       btn: bad ? 'Разобрать ошибки' : 'Открыть', go: () => { histFilter = bad ? 'bad' : 'all'; histLimit = 100; openHistory(); } });

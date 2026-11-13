@@ -5109,7 +5109,7 @@ class ServerTest(unittest.TestCase):
     # ------------------------------------------------------------ МЦКО
     def test_mcko_bank_and_scoring(self):
         import mcko
-        self.assertEqual((len(mcko.QUESTIONS), mcko.TYPES, len(mcko.VARIANTS), mcko.MAX_SCORE), (390, list(range(1, 14)), 30, 14))
+        self.assertEqual((len(mcko.QUESTIONS), mcko.TYPES, len(mcko.VARIANTS), mcko.MAX_SCORE), (520, list(range(1, 14)), 40, 14))
         q = mcko.BY_ID["inf10-t01-v01"]
         self.assertEqual(mcko.score(q, q["key"]), q["points"])
         self.assertEqual(mcko.score(q, ["неверно"] * len(q["key"])), 0)
@@ -5200,10 +5200,10 @@ class ServerTest(unittest.TestCase):
         st, d = self.admin("POST", "/api/admin/mcko/task", {"num": 1, "text": "Сколько будет 2+2?", "key": "4\nчетыре|4", "points": 1})
         self.assertEqual(st, 200, d)
         cq = d["id"]
-        for v in range(1, 31):
+        for v in range(1, 41):
             self.admin("POST", "/api/admin/mcko/off", {"q": f"inf10-t01-v{v:02d}", "off": True})
         bank = self.admin("GET", "/api/admin/mcko/bank")[1]
-        self.assertEqual((len(bank["bank"]), len(bank["own"]), bank["own"][0]["db_id"]), (390, 1, cq))
+        self.assertEqual((len(bank["bank"]), len(bank["own"]), bank["own"][0]["db_id"]), (520, 1, cq))
         self.assertTrue(all(q["off"] for q in bank["bank"] if q["type"] == 1))
         wid = self.admin("POST", "/api/admin/mcko/work", {"class_id": cid, "mode": "random", "minutes": 5})[1]["id"]
         run = self.req("POST", "/api/mcko/start", {"work": wid, "last_name": "Временов", "first_name": "Тимур", "klass": "10Т"}, tok)[1]["run"]
@@ -5228,6 +5228,47 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("DELETE FROM mcko_off")
         self.admin("POST", "/api/admin/mcko/work/delete", {"id": wid})
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
+    # ------------------------------------------------------------ прогресс лаборатории Arduino
+    def test_arduino_progress_for_teacher(self):
+        tok = self.login("Ардуинов Артём")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        junior = [["first-light", "Первый свет", 1, 1, 1], ["blink", "Мигание", 1, 0, 0]] + [[f"l{i}", f"Урок {i}", 0, 0, 0] for i in range(3, 37)]
+        body = {"tracks": {"junior": junior, "senior": []}}
+        # без доступа к лабораториям прогресс не принимается
+        self.assertTrue(self.req("POST", "/api/arduino/progress", body, tok)[1].get("skipped"))
+        server.APP.db.x("UPDATE students SET lab=1 WHERE id=?", (sid,))
+        pw = server.APP.db.setting("lab_pw")
+        if not pw:
+            server.APP.db.x("INSERT OR REPLACE INTO settings(key, value) VALUES('lab_pw', 'x')")
+        try:
+            self.assertEqual(self.req("POST", "/api/arduino/progress", {"tracks": {"junior": [["Bad id!", "", 1, 1, 1]]}}, tok)[0], 400)
+            self.assertEqual(self.req("POST", "/api/arduino/progress", {"tracks": "x"}, tok)[0], 400)
+            self.assertEqual(self.req("POST", "/api/arduino/progress", body, tok), (200, {"ok": True}))
+            st, d = self.admin("GET", "/api/admin/arduino")
+            self.assertEqual(st, 200, d)
+            me = next(x for x in d["students"] if x["id"] == sid)
+            self.assertEqual((me["junior"]["done"], me["junior"]["started"], me["senior"]["done"], me["junior"]["steps"][:3]), (1, 1, 0, [3, 1, 0]))
+            self.assertEqual([t["total"] for t in d["tracks"]], [36, 36])
+            self.assertIsNotNone(me["last"])
+            st, d = self.admin("GET", f"/api/admin/arduino/student?id={sid}")
+            self.assertEqual(d["tracks"]["junior"][1], {"id": "blink", "title": "Мигание", "theory": True, "circuit": False, "run": False})
+            # тот же прогресс ещё раз — время активности не двигается
+            last = me["last"]
+            time.sleep(0.01)
+            self.req("POST", "/api/arduino/progress", body, tok)
+            self.assertEqual(server.APP.db.q("SELECT updated FROM arduino_progress WHERE student_id=?", (sid,), one=True)["updated"], last)
+            # чужой учитель ученика не видит
+            st, t = self.admin("POST", "/api/admin/teacher/save", {"name": "Учитель Ардуино", "login": "ardt", "password": "secret77", "invite": "ARDT11"})
+            server.APP.db.x("INSERT INTO admin_sessions(token, expires, teacher_id) VALUES('ardtok', ?, ?)", (time.time() + 3600, t["id"]))
+            self.assertNotIn(sid, [x["id"] for x in self.teacher_req("egeadm=ardtok", "GET", "/api/admin/arduino")[1]["students"]])
+            self.assertEqual(self.teacher_req("egeadm=ardtok", "GET", f"/api/admin/arduino/student?id={sid}")[0], 404)
+            self.admin("POST", "/api/admin/teacher/delete", {"id": t["id"]})
+        finally:
+            server.APP.db.x("DELETE FROM arduino_progress WHERE student_id=?", (sid,))
+            self.admin("POST", "/api/admin/student/delete", {"id": sid})      # лишний ученик не должен менять рейтинги других тестов
+            if not pw:
+                server.APP.db.x("DELETE FROM settings WHERE key='lab_pw'")
+
 
 class NumberFixTest(unittest.TestCase):
     def test_turtle_moves_to_6(self):

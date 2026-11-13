@@ -1890,6 +1890,64 @@
     } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
   });
 
+  // ------------------------------------------------------------ лаборатория Arduino: прогресс уроков по ученикам
+  const ARD = { d: null, open: null, detail: {} };
+  async function loadArd() {
+    try { ARD.d = await api('arduino'); } catch (err) { if (err.status !== 401) $('#ardBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    ARD.detail = {};
+    renderArd();
+  }
+  function renderArd() {
+    const d = ARD.d, q = ($('#ardFind').value || '').trim().toLowerCase();
+    const S = d.students.filter(s => !q || s.name.toLowerCase().includes(q));
+    const week = Date.now() / 1000 - 7 * 86400, active = d.students.filter(s => s.last);
+    const card = (k, v, sub) => `<div class="adm-card"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+    const cols = 3 + d.tracks.length;
+    const cell = (s, t) => {
+      const v = s[t.id] || { done: 0, started: 0 };
+      return `<td class="num"><b style="color:${pctColor(t.total ? v.done / t.total * 100 : 0)}">${v.done}</b><small>/${t.total}</small> ${cpBar(v.done, t.total)}${v.started ? `<div class="ard-started" title="начато, но не закончено">+${v.started} начато</div>` : ''}</td>`;
+    };
+    const rows = S.map(s => `<tr class="cp-row${ARD.open === s.id ? ' on' : ''}" data-ard="${s.id}"><td class="name">${esc(s.name)}<small>${esc(s.class || 'без класса')}</small></td>
+        ${d.tracks.map(t => cell(s, t)).join('')}
+        <td class="muted">${s.last ? fmtWhen(s.last) : s.lab ? 'ещё не занимался' : '—'}</td></tr>
+        ${ARD.open === s.id ? `<tr class="cp-detail"><td colspan="${cols}">${ardDetailHtml(s.id)}</td></tr>` : ''}`).join('');
+    $('#ardBody').innerHTML = `<div class="adm-cards">
+        ${card('С доступом', d.students.length, 'учеников открыли лаборатории')}
+        ${card('Занимались', active.length, 'есть пройденные шаги уроков')}
+        ${card('Пройдено уроков', d.students.reduce((a, s) => a + d.tracks.reduce((b, t) => b + ((s[t.id] || {}).done || 0), 0), 0), 'всеми учениками вместе')}
+        ${card('За неделю', d.students.filter(s => (s.last || 0) >= week).length, 'занимались в Arduino')}
+      </div>
+      ${d.pw_set ? '' : '<p class="adm-hint main-only">Пароль лабораторий ещё не задан — во вкладке <a href="#" data-goto-tab="access">«Пароли и доступы»</a>.</p>'}
+      <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th>${d.tracks.map(t => `<th class="num">${esc(t.title)}</th>`).join('')}<th>Последнее занятие</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="${cols}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Пока никто не открыл лаборатории — сообщите ученикам пароль лабораторий.'}</td></tr>`}</tbody></table></div>`;
+  }
+  function ardDetailHtml(sid) {
+    const x = ARD.detail[sid];
+    if (!x) return '<p class="adm-hint">Загружаю…</p>';
+    const step = (on, name) => `${on ? '✓' : '·'} ${name}`;
+    return `<div class="ard-det">${ARD.d.tracks.map(t => {
+      const ls = x.tracks[t.id] || [];
+      if (!ls.length) return `<div class="cp-lesson"><b>${esc(t.title)}</b><p class="adm-hint">В этом курсе ещё не занимался.</p></div>`;
+      return `<div class="cp-lesson"><b>${esc(t.title)}</b><div class="ard-grid">${ls.map((l, i) => {
+        const n = l.theory + l.circuit + l.run, cls = n === 3 ? 'ok' : n ? 'part' : '';
+        return `<span class="cp-sq ${cls}" title="${esc(`Урок ${i + 1}. ${l.title}\n${step(l.theory, 'теория')} · ${step(l.circuit, 'схема')} · ${step(l.run, 'запуск')}`)}">${i + 1}</span>`;
+      }).join('')}</div></div>`;
+    }).join('')}</div>`;
+  }
+  $('#ardBody').addEventListener('click', async e => {
+    const row = e.target.closest('[data-ard]');
+    if (!row) return;
+    const id = +row.dataset.ard;
+    if (ARD.open === id) { ARD.open = null; renderArd(); return; }
+    ARD.open = id; renderArd();
+    if (!ARD.detail[id]) {
+      try { ARD.detail[id] = await api('arduino/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      if (ARD.open === id) renderArd();
+    }
+  });
+  $('#ardFind').addEventListener('input', () => { if (ARD.d) renderArd(); });
+  $('#ardReload').addEventListener('click', loadArd);
+
   // ------------------------------------------------------------ курс «Программирование для ЕГЭ»: доступ и прогресс
   const PYA = { d: null, open: null, detail: {} };
   async function loadPyc() {
@@ -2284,7 +2342,7 @@
     if (!types.includes(mkType)) mkType = types[0] || 1;
     const list = [...d.bank.filter(q => q.type === mkType), ...d.own.filter(q => q.type === mkType)];
     const on = list.filter(q => !q.off).length;
-    $('#mkBody').innerHTML = `<p class="adm-hint">${esc(d.description || '')} Отключённые задания не попадают в случайные варианты. Свои задания добавляются к номеру и выпадают наравне с заданиями банка.</p>
+    $('#mkBody').innerHTML = `<h3 class="adm-h3">${esc(d.title || 'Информатика · банк заданий')}</h3><p class="adm-hint">${esc(d.description || '')} Отключённые задания не попадают в случайные варианты. Свои задания добавляются к номеру и выпадают наравне с заданиями банка.</p>
       <div class="mk-types">${types.map(t => `<button type="button" class="mk-chip${t === mkType ? ' on' : ''}" data-mk-type="${t}">№${t}</button>`).join('')}</div>
       <div class="mk-bank-head"><h3 class="adm-h3">№${mkType}. ${esc(d.topics[mkType] || 'Свои задания')} <span class="adm-hint">в работе: ${on} из ${list.length}</span></h3>
         <button type="button" class="btn" data-mk="new-task">+ Своё задание</button></div>
@@ -2362,13 +2420,14 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     document.body.classList.toggle('builder-open', t === 'build');
     if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
     if (t === 'course') loadCourseProgress();
     if (t === 'pyc') loadPyc();
+    if (t === 'ard') loadArd();
     if (t === 'gifts') loadGifts();
     if (t === 'econ') loadEcon();
     if (t === 'supply') loadSupply();

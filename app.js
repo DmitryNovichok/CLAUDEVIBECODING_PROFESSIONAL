@@ -10047,7 +10047,7 @@
 
   let LAB_OK = false, labLoadId = 0;
   function labLock(configured, view) {
-    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатории — по паролю</h2>
+    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>${view === 'arduino' ? 'Лаборатория Arduino — по паролю' : 'Лаборатории — по паролю'}</h2>
       <p>${configured ? 'Пароль выдаёт учитель. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не настроил доступ к лабораториям.'}</p>
       ${LAB.context ? '<button class="link-btn" type="button" data-learning-return>← Вернуться к уроку</button>' : ''}
       ${configured ? '<form id="labPasswordForm" class="login-form crs-lock-form"><input id="labPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лабораторий" aria-label="Пароль лабораторий" required><button class="btn primary">Открыть</button></form><p id="labPasswordError" role="alert"></p>' : ''}</div></div>`;
@@ -10081,7 +10081,7 @@
   }
   async function openLab(view = '', context) {
     if (!leaveExam()) return;
-    if (!['', 'tasks', 'code', 'bugs'].includes(view)) view = '';
+    if (!['', 'tasks', 'code', 'bugs', 'arduino'].includes(view)) view = '';     // arduino — вход с плитки Arduino: после пароля сразу туда
     labStop();
     if (LAB.owner && LAB.owner !== codeKey('laboratory')) LAB.context = null;
     if (context) LAB.context = context;
@@ -10096,7 +10096,7 @@
     if (bdOpen()) toggleBoard(false);
     abandonCurrent(); cur = null;
     courseShown = true; pageKind = 'lab'; LAB.view = view;
-    navPush({ v: 'lab', tab: view });
+    navPush({ v: 'lab', tab: view === 'arduino' ? '' : view });
     const ticket = ++labLoadId;
     if (SERVER) {
       trainerEl.innerHTML = '<p class="fm-note">Проверяю доступ к лабораториям…</p>';
@@ -10105,6 +10105,7 @@
         if (ticket !== labLoadId || pageKind !== 'lab' || !courseShown) return;
         LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !LAB_OK);
         if (!LAB_OK) { labLock(access.pw, view); return; }
+        if (view === 'arduino') { location.href = 'arduino/'; return; }
       } catch (err) { if (ticket === labLoadId && pageKind === 'lab') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Открой лабораторию ещё раз.</p>'; netError(err); } return; }
     }
     if (context) { LAB.code = context.code || ''; LAB.stdin = context.stdin || ''; LAB.result = null; LAB.index = 0; }
@@ -11382,7 +11383,7 @@
     T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
     if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'модели заданий ЕГЭ, Python по шагам, исправление ошибок', btn: 'Открыть', go: () => $('#labCard').click() });
     if (vis('labCard')) T.push({ k: 'arduino', name: 'Лаборатория Arduino', sub: 'схемы, код и симулятор · 2 курса по 36 уроков', btn: LAB_OK ? 'Открыть' : 'Открыть по паролю',
-      go: () => { if (LAB_OK) location.href = 'arduino/'; else $('#labCard').click(); } });
+      go: () => { if (LAB_OK) location.href = 'arduino/'; else openLab('arduino'); } });
     if (vis('pycCard')) T.push({ k: 'python', name: 'Курс Python', sub: 'программирование с нуля', btn: 'Открыть', go: () => $('#pycCard').click() });
     T.push({ k: 'history', name: 'История', sub: `${allDone} ${plural(allDone, 'ответ', 'ответа', 'ответов')}`, extra: hubWeekBars(), badge: bad ? `${bad} ${plural(bad, 'ошибка', 'ошибки', 'ошибок')}` : '',
       btn: bad ? 'Разобрать ошибки' : 'Открыть', go: () => { histFilter = bad ? 'bad' : 'all'; histLimit = 100; openHistory(); } });
@@ -11785,10 +11786,10 @@
     }
     if (SERVER && student) hubNavOn();        // страницы без боковой панели — и когда входят сразу в раздел, минуя главную
     renderSidebar();
-    const labRequested = location.hash === '#lab';
+    const labRequested = location.hash === '#lab' || location.hash === '#lab-arduino';
     const saved = ui.currentId && byId.get(ui.currentId);
     if (labRequested) {
-      openLab();
+      openLab(location.hash === '#lab-arduino' ? 'arduino' : '');
     } else if (SERVER && student) {                  // ученик начинает с главной: план на сегодня и все разделы
       openHub(true);
     } else if (saved && inScope(saved)) {

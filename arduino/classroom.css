@@ -573,3 +573,18 @@ body, #appShell { background: var(--bp-ground); }
  #splitter{display:none!important}.console-pane{max-height:180px}#lessonFeedback{max-height:100px;overflow:auto}
  #labView[data-mobile-panel="task"] .dock-task p{max-width:100%;overflow-wrap:anywhere}#labHeader #versions{display:inline-flex}
 }
+
+/* номера уроков сворачиваются в синюю иконку «Обзор» (4 квадрата) в левой полосе */
+.side-collapse { display: none; }
+@media (min-width: 1101px) {
+ .sidebar-panel { position: relative; }
+ .side-collapse { display: grid; place-items: center; position: absolute; top: 14px; right: 10px; width: 30px; height: 30px; border-radius: 9px; border: 1.5px solid var(--bp-line-2); background: #fff; color: var(--bp-ink-3); cursor: pointer; z-index: 2; }
+ .side-collapse:hover { color: #17aceb; border-color: #83d9ff; }
+ .side-collapse .ui-icon { width: 16px; height: 16px; }
+ body.side-collapsed { --sidebar: 60px; }
+ body.side-collapsed .sidebar-panel { display: none; }
+ body.side-collapsed .side-nav .rail-home { background: #e4f6ff; border-color: #83d9ff; box-shadow: 0 0 0 3px #e4f6ff; }
+}
+/* текст задания над лабораторией скрывается стрелкой */
+.dock-toggle .ui-icon { transition: transform .15s; transform: rotate(90deg); }
+.dock-toggle[aria-expanded="true"] .ui-icon { transform: rotate(-90deg); }

@@ -1606,6 +1606,10 @@ class DB(Transactional):
                 started REAL, deadline REAL, finished REAL, reason TEXT, score INTEGER, max INTEGER,
                 UNIQUE(work_id, student_id, try_no));
             CREATE INDEX IF NOT EXISTS mcko_runs_work ON mcko_runs(work_id);
+            -- прогресс уроков лаборатории Arduino (приходит со страницы /arduino/): по курсам, шаги каждого урока
+            CREATE TABLE IF NOT EXISTS arduino_progress(
+                student_id INTEGER PRIMARY KEY, data TEXT NOT NULL, junior INTEGER DEFAULT 0, senior INTEGER DEFAULT 0,
+                steps INTEGER DEFAULT 0, updated REAL, first REAL);
             CREATE TABLE IF NOT EXISTS visits(
                 day TEXT NOT NULL, vid TEXT NOT NULL, ts REAL, PRIMARY KEY(day, vid));
             -- воронка главной для учителей: шаги обезличенного посетителя за день (тот же хеш, что в visits)
@@ -2034,7 +2038,8 @@ def delete_student(db, sid):
         if sid in members:
             db.x("UPDATE together SET students=? WHERE id=?", (json.dumps([x for x in members if x != sid]), row["id"]))
     for table in ("student_sessions", "attempts", "reveal_log", "exams", "activity", "solutions", "solution_history", "daily_starts", "daily_results",
-                  "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue"):
+                  "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue",
+                  "arduino_progress", "mcko_runs"):
         db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
     db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
     support_img_cleanup(db)
@@ -2586,7 +2591,7 @@ class Handler(BaseHTTPRequestHandler):
             s = self.student()
             if not s or not lab_access(APP.db, s):
                 return self.send_bytes(302, b"", "text/plain", {
-                    "Location": "/" if not s else "/#lab", "Cache-Control": "no-store"})
+                    "Location": "/" if not s else "/#lab-arduino", "Cache-Control": "no-store"})
             return self.serve_page(rel)
         if rel == "lab-worker.js":
             s = self.student()
@@ -4207,6 +4212,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path.startswith("/api/mcko"):
             return self.mcko_api(method, path, qs, data)
 
+        if path == "/api/arduino/progress" and method == "POST":
+            # страница Arduino присылает сводку прогресса уроков; учитель видит её во вкладке «Arduino»
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if s["is_teacher"] or not lab_access(APP.db, s):
+                return self.send_json({"ok": True, "skipped": True})
+            clean = arduino_clean(data.get("tracks"))
+            if clean is None:
+                return self.err(400, "Неверные данные прогресса")
+            arduino_save(APP.db, s["id"], clean)
+            return self.send_json({"ok": True})
+
         if path == "/api/history":
             # Прогресс ученика страница восстанавливает из журнала попыток — один источник правды
             # для всех устройств, и подправить его в браузере нельзя.
@@ -5481,6 +5499,37 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path.startswith("/api/admin/mcko"):
             return self.admin_mcko(method, path, qs, data)
+
+        if path == "/api/admin/arduino" and method == "GET":
+            # прогресс лаборатории Arduino по ученикам этого учителя: курсы 7 класс и 10–11 классы
+            where, args = self.student_scope()
+            rows = db.q(f"""SELECT s.id, s.name, COALESCE(s.lab, 0) AS lab, c.name AS cls, a.data, a.updated, a.first
+                            FROM students s LEFT JOIN classes c ON c.id = s.class_id LEFT JOIN arduino_progress a ON a.student_id = s.id
+                            WHERE (a.student_id IS NOT NULL OR s.lab = 1) AND {where} ORDER BY s.name""", args)
+            totals = dict(ARDUINO_TOTALS)
+            out = []
+            for r in rows:
+                d = json.loads(r["data"]) if r["data"] else {}
+                tr = {}
+                for k in ARDUINO_TRACKS:
+                    ls = d.get(k) or []
+                    if ls:
+                        totals[k] = max(totals[k], len(ls))
+                    tr[k] = {"done": sum(1 for x in ls if x[2] and x[3] and x[4]), "started": sum(1 for x in ls if (x[2] or x[3] or x[4]) and not (x[2] and x[3] and x[4])),
+                             "steps": [x[2] + x[3] + x[4] for x in ls]}
+                out.append({"id": r["id"], "name": r["name"], "class": r["cls"], "lab": bool(r["lab"]), "last": r["updated"], "first": r["first"], **tr})
+            return self.send_json({"tracks": [{"id": k, "title": t, "total": totals[k]} for k, t in ARDUINO_TRACKS.items()], "students": out,
+                                   "pw_set": bool(db.setting("lab_pw"))})
+        if path == "/api/admin/arduino/student" and method == "GET":
+            sid = to_int(qs.get("id"))
+            where, args = self.student_scope()
+            r = db.q(f"SELECT s.id, a.data FROM students s LEFT JOIN arduino_progress a ON a.student_id = s.id WHERE s.id = ? AND {where}",
+                     (sid, *args), one=True)
+            if not r:
+                return self.err(404, "Нет такого ученика")
+            d = json.loads(r["data"]) if r["data"] else {}
+            return self.send_json({"tracks": {k: [{"id": x[0], "title": x[1], "theory": bool(x[2]), "circuit": bool(x[3]), "run": bool(x[4])}
+                                                  for x in (d.get(k) or [])] for k in ARDUINO_TRACKS}})
 
         if path == "/api/admin/logout" and method == "POST":
             c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
@@ -12052,6 +12101,46 @@ def mcko_run_view(db, r, w):
             rows.append({"n": t["n"], "answered": any(str(x).strip() for x in got), "points": mcko.score(q, got), "max": t["points"]})
         view["rows"] = rows
     return view
+
+
+# ---------- лаборатория Arduino: сводка прогресса уроков
+ARDUINO_TRACKS = {"junior": "7 класс", "senior": "10–11 классы"}
+ARDUINO_TOTALS = {"junior": 36, "senior": 36}
+_ARD_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,59}$")
+
+
+def arduino_clean(tracks):
+    """Проверяет сводку со страницы Arduino: {junior|senior: [[id, title, theory, circuit, run], ...]} в порядке уроков."""
+    if not isinstance(tracks, dict):
+        return None
+    out = {}
+    for k in ARDUINO_TRACKS:
+        ls = tracks.get(k) or []
+        if not isinstance(ls, list) or len(ls) > 80:
+            return None
+        rows = []
+        for x in ls:
+            if not isinstance(x, list) or len(x) != 5 or not isinstance(x[0], str) or not _ARD_ID.match(x[0]):
+                return None
+            rows.append([x[0], re.sub(r"\s+", " ", str(x[1] or ""))[:120], int(bool(x[2])), int(bool(x[3])), int(bool(x[4]))])
+        out[k] = rows
+    return out
+
+
+def arduino_save(db, sid, clean):
+    """Сохраняет сводку; время «последней активности» двигается, только когда прогресс изменился."""
+    data = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+    done = {k: sum(1 for x in clean[k] if x[2] and x[3] and x[4]) for k in ARDUINO_TRACKS}
+    steps = sum(x[2] + x[3] + x[4] for k in ARDUINO_TRACKS for x in clean[k])
+    old = db.q("SELECT data FROM arduino_progress WHERE student_id=?", (sid,), one=True)
+    if old and old["data"] == data:
+        return False
+    now = time.time()
+    db.x("""INSERT INTO arduino_progress(student_id, data, junior, senior, steps, updated, first) VALUES(?,?,?,?,?,?,?)
+            ON CONFLICT(student_id) DO UPDATE SET data=excluded.data, junior=excluded.junior, senior=excluded.senior,
+              steps=excluded.steps, updated=excluded.updated""",
+         (sid, data, done["junior"], done["senior"], steps, now if steps else None, now))
+    return True
 
 
 # ---------- воронка главной для учителей (вкладка «Статистика сайта»)

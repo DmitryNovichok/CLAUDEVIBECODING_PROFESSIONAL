@@ -933,3 +933,11 @@ td .mk-chip { font-size: 12px; padding: 1px 8px; }
 .mk-html pre { white-space: pre-wrap; }
 .mk-key { margin: 8px 0 0; font-size: 14px; }
 .mk-form-box { margin: 10px 0; }
+
+/* ---------- лаборатория Arduino: прогресс уроков */
+.ard-started { display: block; color: var(--muted); font-size: 11px; }
+.ard-det { display: grid; gap: 12px; }
+.ard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); gap: 4px; margin-top: 6px; max-width: 720px; }
+.ard-grid .cp-sq { width: auto; height: 26px; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--muted); }
+.ard-grid .cp-sq.ok { color: #fff; }
+.cp-sq.part { background: color-mix(in srgb, var(--review, #f0a020) 55%, transparent); border-color: transparent; }

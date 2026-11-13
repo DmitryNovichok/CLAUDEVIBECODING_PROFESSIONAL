@@ -32,7 +32,7 @@
       if (!r.ok) throw Error('network');
       var me = await r.json();
       if (!Number.isSafeInteger(me.sid) || me.sid <= 0) throw Error('identity');
-      if (!me.lab) { location.replace('/#lab'); return; }
+      if (!me.lab) { location.replace('/#lab-arduino'); return; }
       if (started && me.sid !== window.EGE_ARDUINO_SID) { location.reload(); return; }
       if (started) {
         document.getElementById('egeGate').hidden = true;
