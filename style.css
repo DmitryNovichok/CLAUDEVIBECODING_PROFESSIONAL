@@ -642,7 +642,7 @@ body.app-loading .sidebar, body.app-loading .topbar { display: none !important; 
   .sidebar.open .side-body { display: flex; }
   .sidebar:not(.open) .who { display: none; }
   .kbd-help { display: none; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(min(52px, 100%), 1fr)); gap: 6px; }
   .num-card { height: 50px; }
   .side-actions { flex-direction: row; flex-wrap: wrap; gap: 4px 14px; }
   .topbar { padding: 12px 16px; position: static; gap: 10px; }
@@ -755,7 +755,7 @@ body.app-loading .sidebar, body.app-loading .topbar { display: none !important; 
 .gm-head { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
 .gm-level { display: grid; place-items: center; width: 64px; height: 64px; font-size: 18px; background: var(--mid); color: #fff; border-radius: 50%; font-size: 24px; text-shadow: 0 2px 0 #e5a000; }
 .gm-head .xp-bar { margin: 6px 0 4px; }
-.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 10px 0 18px; }
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 12px; margin: 10px 0 18px; }
 .ach { display: flex; gap: 10px; align-items: center; padding: 8px; background: var(--card); border: 2px solid var(--border); }
 .ach.locked { opacity: .55; }
 .ach-icon { flex: 0 0 auto; display: grid; place-items: center; width: 42px; height: 42px; font-size: 10px;
@@ -797,10 +797,11 @@ h3.fm-sub { font-size: 15px; color: var(--text); font-weight: 700; margin: 16px 
 .py-dock { flex: 0 0 min(46vw, 760px); position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 8px;
   padding: 12px 14px; background: var(--panel); border-left: 3px solid var(--ink); min-width: 0; }
 .py-dock[hidden] { display: none; }
-.py-bar { display: flex; align-items: center; gap: 10px; }
+.py-bar { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
 .py-title { font: 900 17px var(--font); color: var(--good); }
 .py-task { color: var(--muted); font-size: 13px; }
-.py-tools { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.py-tools { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.py-tools .btn, .py-tools .icon-btn { white-space: nowrap; }
 .py-tools .btn { padding: 6px 14px; }
 .py-files { font-size: 12.5px; color: var(--muted); }
 .py-files:empty { display: none; }
@@ -900,7 +901,7 @@ body.tt-big .py-dock { z-index: 80; }
 /* ---------- знакомство с сайтом */
 .tour-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .tour-title .brand-title { font-size: 30px; }
-.tour-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin: 14px 0 18px; }
+.tour-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 12px; margin: 14px 0 18px; }
 .tour-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; background: var(--card); border: 2px solid var(--border); }
 .tour-ico { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; margin: 3px; font: 900 16px var(--font);
   background: var(--good); color: #fff; border-radius: 50%; }
@@ -1289,7 +1290,7 @@ body.side-min .rail-logo { cursor: pointer; }
   .side-panel { display: none; padding: 4px 14px 12px; max-height: calc(100vh - 56px); }
   .sidebar.open .side-panel { display: flex; }
   .side-panel .brand { display: none; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(min(56px, 100%), 1fr)); }
   .num-card:not(.wide) { height: 60px; }
   .topbar .forecast { order: -2; }
   .me-box { order: -1; margin-left: auto; }
@@ -1344,7 +1345,7 @@ body.side-min .rail-logo { cursor: pointer; }
 @media (min-width: 861px) and (max-width: 1250px) { .lvl-pill .lvl-info { display: none; } .goal-txt .goal-of ~ * { display: none; } }
 
 /* достижения: длинный текст переносится внутри карточки, а не вылезает за неё */
-.ach-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.ach-grid { grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); }
 .ach { align-items: flex-start; }
 .ach > span:last-child { min-width: 0; flex: 1; }
 .ach b, .ach small { overflow-wrap: anywhere; hyphens: auto; }
@@ -1386,7 +1387,7 @@ body.side-min .rail-logo { cursor: pointer; }
 @media (min-width: 861px) and (max-width: 1099px) { .topbar { padding-top: 8px; padding-bottom: 8px; } }
 
 /* выбор темы: карточки с мини-превью */
-.th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 18px; }
+.th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 10px; margin: 8px 0 18px; }
 .th-card { display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 2px solid var(--border); border-bottom-width: 4px; border-radius: 14px;
   background: var(--card); color: var(--text); cursor: pointer; text-align: left; font: inherit; }
 .th-card:hover { border-color: var(--border-strong); }
@@ -1482,7 +1483,7 @@ label.vw-row { cursor: pointer; }
 .crs-mod-h small { color: var(--muted); font-size: 13px; }
 .crs-mod-ic { font-size: 26px; width: 44px; height: 44px; display: grid; place-items: center; background: var(--bg); border-radius: 12px; flex: none; }
 .crs-mod-n { margin-left: auto; font: 900 14px var(--font); color: var(--muted); }
-.crs-path { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+.crs-path { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 8px; }
 .crs-lesson { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 2px solid var(--border); border-bottom-width: 4px; border-radius: 14px;
   background: var(--bg); color: var(--text); cursor: pointer; text-align: left; font: inherit; }
 .crs-lesson:hover { border-color: var(--border-strong); }
@@ -1994,7 +1995,7 @@ button.pf-item:hover { border-color: var(--accent); }
 
 /* страница «Задания от учителя» */
 .asg-page .ap-h { margin: 22px 0 10px; font: 900 18px var(--font); }
-.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 14px; }
 .ap-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--border); border-radius: 16px; background: var(--card); }
 .ap-card.going { border-color: var(--accent); }
 .ap-card.done { background: color-mix(in srgb, var(--card) 70%, var(--bg)); }
@@ -2038,7 +2039,7 @@ body.asg-wide .course.asg-page { max-width: none; }
 }
 
 /* ---------- турниры: наборы, сетка на выбывание, пьедестал */
-.tour-page .tl-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.tour-page .tl-grid { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
 .tour-page .tl-card { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
 .tour-page .tl-card .ap-btns { flex-direction: row; min-width: 0; margin-top: auto; }
 .tl-seats { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2094,7 +2095,7 @@ body.asg-wide .course.asg-page { max-width: none; }
 .tm-res.w { color: var(--good-strong); }
 .tm-res.l { color: var(--weak); }
 .tm-res.d { color: var(--muted); }
-.tg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.tg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 14px; }
 .tg { padding: 14px 16px; border: 2px solid var(--border); border-radius: 16px; background: var(--card); }
 .tg-h { margin-bottom: 8px; font-weight: 900; font-size: 16px; }
 .tg-t { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -2259,7 +2260,7 @@ body.dock-drag, body.dock-drag * { cursor: ew-resize !important; user-select: no
 .tour-nums { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; }
 .tour-ranks { margin: 0 0 12px; }
 .dm-h { margin: 18px 0 8px; }
-.dm-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.dm-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); gap: 8px; }
 .dm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border: 2px solid var(--border);
   border-radius: 14px; }
 .dm-tab { max-width: 520px; }
@@ -2273,11 +2274,11 @@ body.dock-drag, body.dock-drag * { cursor: ew-resize !important; user-select: no
 .dm-pick select { min-width: 0; flex: 0 1 320px; padding: 9px 12px; border: 2px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); font: inherit; }
 details.td-row { display: block; }
 details.td-row summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; cursor: pointer; }
-.td-places { margin: 10px 0 2px; padding-left: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 14px; font-size: 14px; }
+.td-places { margin: 10px 0 2px; padding-left: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 4px 14px; font-size: 14px; }
 .td-places li.me { font-weight: 800; color: var(--accent); }
 .tour-noshow { margin: 6px 0 10px; }
 /* турниры: рейтинг Эло и сезон сверху, «О турнире» */
-.tour-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 12px; }
+.tour-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; margin-bottom: 12px; }
 .tt-box { padding: 14px 16px; border: 2px solid var(--border); border-radius: 16px; background: var(--panel); }
 .tt-h { font-weight: 800; font-size: 16px; margin-bottom: 8px; }
 .tt-tab { width: 100%; }
@@ -2338,7 +2339,7 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
 .course.pyc { display: flex; flex-direction: column; gap: 14px; }
 .pyc-hero { background: linear-gradient(135deg, rgba(61, 123, 214, .14), rgba(255, 212, 59, .12)); }
 .pyc-gsub { margin-top: -8px; }
-.pyc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.pyc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr)); gap: 12px; }
 .pyc-mod { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 2px solid var(--border); border-bottom-width: 4px;
   border-radius: 18px; background: var(--card); }
 .pyc-mod.done { border-color: rgba(88, 204, 2, .5); }
@@ -2425,7 +2426,7 @@ body:is(.py-open, .bd-open) .promo-pill { padding: 3px 8px; font-size: 12.5px; }
 .promo-hero h2 { margin: 4px 0 4px; font-size: 26px; line-height: 1.15; }
 .promo-hero p { margin: 0; font-weight: 800; opacity: .95; }
 .promo-bolt { display: block; font-size: 44px; line-height: 1; animation: promoGlow 1.6s ease-in-out infinite; }
-.promo-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.promo-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 10px; }
 .promo-tile { display: grid; justify-items: center; gap: 2px; padding: 14px 10px; border: 2px solid var(--border); border-radius: 16px;
   background: var(--card); box-shadow: 0 3px 0 var(--border); }
 .promo-tile span { font-size: 30px; } .promo-tile b { font-size: 34px; line-height: 1.1; color: #ff9600; }
@@ -2448,7 +2449,7 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
 .gf-to { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .gf-to label { display: flex; align-items: center; gap: 8px; font-weight: 800; }
 .gf-to select { min-width: 180px; }
-.gf-grid, .gf-mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.gf-grid, .gf-mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(104px, 100%), 1fr)); gap: 8px; }
 .gf-item, .gf-own {
   display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 6px; cursor: pointer; font: inherit; color: var(--text);
   border: 2px solid var(--border); border-bottom-width: 4px; border-radius: 14px; background: var(--card); text-align: center;
@@ -2558,7 +2559,7 @@ body:is(.py-open, .bd-open) .coin-pill { padding: 3px 9px; font-size: 13px; }
   .ugp-spin { animation: none; transform: rotate(25deg); }
   .ug.reveal { animation: none; }
 }
-.pf-gifts { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 10px 6px; margin-bottom: 6px; }
+.pf-gifts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(78px, 100%), 1fr)); gap: 10px 6px; margin-bottom: 6px; }
 .pf-gift { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
 .pf-gift .ug { width: 64px; height: 64px; border-radius: 16px; }
 .pf-gift .ug-ic { font-size: 34px; }
@@ -2721,7 +2722,7 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .bx-t.s76 .ug-n { font-size: 11px; }
 .gf-boxt { background: linear-gradient(#fff6e8, var(--card)) !important; box-shadow: 0 0 0 2px #f7931a; }
 /* магазин */
-.bx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 8px; }
+.bx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(74px, 100%), 1fr)); gap: 8px; }
 .bx-it { display: grid; justify-items: center; gap: 2px; padding: 8px 4px 7px; border: 2px solid var(--border); border-radius: 16px; background: var(--card);
   color: inherit; font: inherit; cursor: pointer; box-shadow: 0 3px 0 var(--border); transition: transform .1s; }
 .bx-it:hover { transform: translateY(-2px); }
@@ -2751,7 +2752,7 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .bx-auc .bx-price { margin-left: 0; }
 .bx-rt { flex: 1; min-width: 0; } .bx-rt b { font-size: 14.5px; } .bx-rt small { display: block; color: var(--muted); font-size: 12px; font-weight: 700; }
 .bx-worth { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 2px 0 10px; } .bx-worth small { color: var(--muted); font-weight: 800; } .bx-worth b { font-size: 20px; }
-.bx-mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.bx-mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(96px, 100%), 1fr)); gap: 8px; }
 .bx-card { display: grid; justify-items: center; gap: 3px; padding: 10px 4px 8px; border: 2px solid var(--border); border-radius: 16px; background: var(--card);
   color: inherit; font: inherit; cursor: pointer; box-shadow: 0 3px 0 var(--border); }
 .bx-card b { font-size: 12.5px; line-height: 1.2; text-align: center; } .bx-card small { color: var(--muted); font-size: 11.5px; font-weight: 800; }
@@ -3608,7 +3609,7 @@ body.lab-open .trainer { max-width: 1260px; }
 .lab-expr { margin: 8px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); font: 700 16px/1.5 var(--mono); overflow-wrap: anywhere; }
 .lab-good { color: var(--good); } .lab-bad { color: var(--weak); }
 .lab-small { font: 600 14px/1.5 var(--font) !important; }
-.lab-xgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 4px; margin: 16px 0; }
+.lab-xgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(34px, 100%), 1fr)); gap: 4px; margin: 16px 0; }
 .lab-xgrid i { display: grid; place-items: center; height: 30px; border-radius: 6px; font: 700 12px var(--mono); font-style: normal; cursor: default; }
 .lab-xgrid .ok { background: color-mix(in srgb, var(--good) 18%, var(--card)); color: var(--good); }
 .lab-xgrid .no { background: var(--weak); color: #fff; }
@@ -3903,7 +3904,7 @@ body.hubnav.hub-on .me-box { order: 3; }
 .bug-track b { display: block; height: 100%; border-radius: 99px; background: var(--good); transition: width .8s cubic-bezier(.22, 1, .36, 1); }
 .bug-filter button { padding: 8px 14px; border-radius: 12px; border: 2px solid var(--border); background: var(--card); color: var(--muted); font: 800 14px var(--font); cursor: pointer; transition: border-color .18s, color .18s; }
 .bug-filter button.on { border-color: var(--accent); color: var(--text); }
-.bug-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.bug-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 12px; }
 .bug-card { display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 16px; border-radius: 18px; border: 2px solid var(--border); background: var(--card); color: var(--text); cursor: pointer;
   transition: border-color .2s, transform .25s cubic-bezier(.22, 1, .36, 1), box-shadow .25s; }
 .bug-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 10px 22px -16px var(--accent); }
