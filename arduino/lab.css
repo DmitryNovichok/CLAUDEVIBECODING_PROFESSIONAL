@@ -383,3 +383,23 @@ dialog::backdrop { background: rgb(25 45 37 / .45); backdrop-filter: blur(3px); 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ── размеры окон и полный экран ─────────────────── */
+.splitter { touch-action: none; }
+.splitter:focus-visible, .hsplit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hsplit { height: 7px; flex-shrink: 0; cursor: row-resize; touch-action: none; position: relative; background: transparent; border-top: 1px solid var(--line); margin-bottom: -1px; z-index: 1; }
+.hsplit::after { content: ''; position: absolute; left: 50%; top: 2px; width: 36px; height: 3px; margin-left: -18px; border-radius: 2px; background: #c3cad3; }
+.hsplit:hover, body.resizing .hsplit:hover { background: var(--accent); }
+body.resizing { user-select: none; }
+body.resizing iframe, body.resizing #canvas { pointer-events: none; }
+.tabs .pane-max { position: sticky; right: 0; flex-shrink: 0; padding: 0 12px; border-left: 1px solid rgba(0, 0, 0, .06); background: inherit; color: inherit; z-index: 1; }
+.tabs .pane-max:hover, .tabs .pane-max[aria-pressed="true"] { color: var(--accent); }
+.pane-max .ui-icon, #simMax .ui-icon { width: 17px; height: 17px; }
+#simMax[aria-pressed="true"], #labFull[aria-pressed="true"] { color: var(--accent); }
+#labMain[data-focus="sim"] .editor-pane, #labMain[data-focus="sim"] .splitter,
+#labMain[data-focus="code"] .simulation-pane, #labMain[data-focus="code"] .splitter { display: none; }
+#labMain[data-focus="code"] .editor-pane { width: 100% !important; flex: 1; }
+#labMain[data-focus="sim"] .simulation-pane { border-left: 1px solid var(--line); }
+body.lab-full #sidebar, body.lab-full #topbar, body.lab-full #egeBack, body.lab-full #mobileMenu { display: none !important; }
+body.lab-full #appContent::after { display: none; }
+@media (max-width: 760px) { #codeMax, #simMax { display: none; } }

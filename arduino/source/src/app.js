@@ -1076,18 +1076,75 @@ $('#canvas').onpointerdown = e => {
   const up = () => { $('#canvas').classList.remove('panning'); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
 };
-$('#splitter').onpointerdown = e => {
+/* ───────────── layout: window sizes, focus on code or circuit, fullscreen ───────────── */
+const LAYOUT_KEY = 'microlab.layout';
+let layout = {};
+try { layout = JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}') || {}; } catch { layout = {}; }
+const saveLayout = () => { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch {} };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const isColumn = () => getComputedStyle($('#labMain')).flexDirection === 'column';
+function applyLayout() {
+  $('.editor-pane').style.width = !isColumn() && layout.w ? layout.w + '%' : '';
+  $('.console').style.height = layout.ch ? layout.ch + 'px' : '';
+}
+function drag(e, move) {
+  if (e.button > 0) return;
   e.preventDefault();
-  const vertical = getComputedStyle($('#labMain')).flexDirection === 'column';
   document.body.classList.add('resizing');
-  const move = ev => {
-    const r = $('#labMain').getBoundingClientRect();
-    if (vertical) $('.editor-pane').style.height = Math.max(25, Math.min(75, (ev.clientY - r.top) / r.height * 100)) + '%';
-    else $('.editor-pane').style.width = Math.max(25, Math.min(70, (ev.clientX - r.left) / r.width * 100)) + '%';
-  };
-  const up = () => { document.body.classList.remove('resizing'); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  const up = () => { document.body.classList.remove('resizing'); saveLayout(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+}
+function setWidth(pct) { layout.w = Math.round(clamp(pct, 15, 85) * 10) / 10; $('.editor-pane').style.width = layout.w + '%'; }
+$('#splitter').onpointerdown = e => drag(e, ev => {
+  const r = $('#labMain').getBoundingClientRect();
+  if (isColumn()) $('.editor-pane').style.height = clamp((ev.clientY - r.top) / r.height * 100, 20, 80) + '%';
+  else setWidth((ev.clientX - r.left) / r.width * 100);
+});
+$('#splitter').ondblclick = () => { delete layout.w; $('.editor-pane').style.width = $('.editor-pane').style.height = ''; saveLayout(); };
+$('#splitter').onkeydown = e => {
+  const d = {ArrowLeft: -5, ArrowRight: 5, ArrowUp: -5, ArrowDown: 5}[e.key];
+  if (!d || isColumn()) return;
+  e.preventDefault();
+  setWidth((layout.w || $('.editor-pane').getBoundingClientRect().width / $('#labMain').getBoundingClientRect().width * 100) + d); saveLayout();
 };
+function setConsole(h) {
+  const pane = $('.editor-pane').getBoundingClientRect();
+  layout.ch = Math.round(clamp(h, 70, Math.max(70, pane.height - 200)));
+  $('.console').style.height = layout.ch + 'px';
+}
+$('#consoleSplitter').onpointerdown = e => drag(e, ev => setConsole($('.editor-pane').getBoundingClientRect().bottom - ev.clientY));
+$('#consoleSplitter').ondblclick = () => { delete layout.ch; $('.console').style.height = ''; saveLayout(); };
+$('#consoleSplitter').onkeydown = e => {
+  const d = {ArrowUp: 30, ArrowDown: -30}[e.key];
+  if (!d) return;
+  e.preventDefault(); setConsole($('.console').getBoundingClientRect().height + d); saveLayout();
+};
+// «Развернуть код» / «Развернуть схему»: второе окно прячется, повторное нажатие возвращает оба
+function setFocus(mode) {
+  $('#labMain').dataset.focus = mode;
+  for (const [id, m, on, off] of [['#codeMax', 'code', 'Вернуть схему рядом с кодом', 'Развернуть код на всю ширину'], ['#simMax', 'sim', 'Вернуть код рядом со схемой', 'Развернуть схему на всю ширину']]) {
+    const b = $(id), active = mode === m;
+    b.innerHTML = icon(active ? 'shrink' : 'expand'); b.title = active ? on : off; b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', active);
+  }
+}
+$('#codeMax').onclick = () => setFocus($('#labMain').dataset.focus === 'code' ? '' : 'code');
+$('#simMax').onclick = () => setFocus($('#labMain').dataset.focus === 'sim' ? '' : 'sim');
+// «На весь экран»: прячем меню сайта и курса, окно браузера — на весь экран (если браузер разрешает)
+const isFull = () => document.body.classList.contains('lab-full');
+function setFull(on) {
+  document.body.classList.toggle('lab-full', on);
+  const b = $('#labFull');
+  b.innerHTML = icon(on ? 'shrink' : 'expand') + `<span>${on ? 'Свернуть' : 'На весь экран'}</span>`;
+  b.title = on ? 'Выйти из полноэкранного режима (Esc)' : 'Лаборатория на весь экран'; b.setAttribute('aria-pressed', on);
+  const el = document.documentElement;
+  if (on && !document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+}
+$('#labFull').onclick = () => setFull(!isFull());
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && isFull()) setFull(false); });
+window.addEventListener('hashchange', () => setTimeout(() => { if (isFull() && $('#labView').hidden) setFull(false); }));
+window.addEventListener('resize', applyLayout);
+applyLayout();
 window.addEventListener('keydown', e => {
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable;
   const inLab = !$('#labView').hidden;
@@ -1096,6 +1153,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing && inLab) { e.preventDefault(); undo(e.shiftKey); }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing && inLab) { e.preventDefault(); undo(true); }
   if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && !$('#modal').open && inLab) { e.preventDefault(); removeSelected(); }
+  if (e.key === 'Escape' && isFull() && !$('#modal').open && !pending && $('#inspector').hidden && selected === null && selectedWire === null) setFull(false);
   if (e.key === 'Escape' && !$('#modal').open) {
     if (pending) cancelWire();
     else { $('#inspector').hidden = true; select(null); if (selectedWire !== null) { selectedWire = null; drawWires(); } }
