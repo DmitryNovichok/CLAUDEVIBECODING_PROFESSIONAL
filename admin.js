@@ -461,7 +461,24 @@
     b.hidden = !n;
     b.textContent = n > 99 ? '99+' : n;
   }
+  async function loadBankAudit() {
+    const box = $('#bankAuditBody');
+    if (!box || !ME?.is_main) return;
+    try {
+      const d = await api('bank-audit');
+      const reasons = {new_conditions: 'Большой объём новых заданий', request_rate: 'Частые запросы',
+        batch_size: 'Большая порция заданий', invalid_page: 'Некорректный запрос'};
+      box.innerHTML = d.events.length ? d.events.map(e => `<div class="adm-box">
+        <b>${esc(e.name || 'Удалённый аккаунт')}</b> · ${esc(reasons[e.reason] || 'Ограниченный запрос')}
+        <div class="muted">${esc(new Date(e.last_ts * 1000).toLocaleString('ru-RU'))} · запросов: ${esc(String(e.n))}
+          · запрошено условий: ${esc(String(e.requested))}${e.teacher_name ? ' · учитель: ' + esc(e.teacher_name) : ''}</div>
+      </div>`).join('') : '<p class="adm-empty">Ограниченных запросов нет.</p>';
+    } catch (err) {
+      if (err.status !== 401) box.innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`;
+    }
+  }
   async function loadErrors(seen) {
+    loadBankAudit();
     let d;
     try { d = await api('jserr', seen ? { seen: true } : null); } catch (err) { if (err.status !== 401) $('#errBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     errBadge(0);
