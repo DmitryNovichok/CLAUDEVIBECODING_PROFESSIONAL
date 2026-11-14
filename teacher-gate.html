@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex"><base href="/">
+  <title>Проверка аккаунта учителя · Egeshka</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="teacher-gate.css">
+  <script src="teacher-gate.js" defer></script>
+</head>
+<body>
+  <header><span class="brand">egeshka<span class="dot">.</span></span><button id="logout" class="quiet" type="button">Выйти</button></header>
+  <main id="teacherGateRoot">
+    <div class="eyebrow">КАБИНЕТ УЧИТЕЛЯ</div>
+    <h1>Осталось пройти<br>две проверки</h1>
+    <p class="intro">Аккаунт создан. Все функции откроются после подтверждения почты и одобрения главным учителем.</p>
+    <p id="account" class="account">Проверяем статус…</p>
+    <section class="checks" aria-label="Условия доступа">
+      <article id="emailCard" class="card">
+        <div class="card-head"><span class="number" aria-hidden="true">01</span><span id="emailBadge" class="badge">Проверяем</span></div>
+        <h2>Подтвердите почту</h2>
+        <p id="emailDetail">Откройте ссылку из письма от Egeshka.</p>
+        <div id="emailActions" hidden>
+          <button id="resend" class="primary" type="button">Отправить письмо ещё раз</button>
+          <button id="editEmail" class="quiet" type="button">Изменить адрес</button>
+          <form id="emailForm" hidden>
+            <label for="emailInput">Адрес почты (станет логином)</label>
+            <input id="emailInput" type="email" autocomplete="email" maxlength="120" required>
+            <button class="primary" type="submit">Сохранить и отправить письмо</button>
+          </form>
+          <p id="mailUnavailable" class="notice" hidden>Отправка писем временно недоступна. Администратору сайта нужно настроить почту. Ваш аккаунт сохранён; проверку можно продолжить позже.</p>
+        </div>
+      </article>
+      <article id="moderationCard" class="card">
+        <div class="card-head"><span class="number" aria-hidden="true">02</span><span id="moderationBadge" class="badge">Проверяем</span></div>
+        <h2>Пройдите модерацию</h2>
+        <p id="moderationDetail">Заявка уже направлена главному учителю. Повторно регистрироваться не нужно.</p>
+        <p id="reviewNote" class="review-note" hidden></p>
+      </article>
+    </section>
+    <p id="legacyGuest" class="notice" hidden>Для доступа необходимо <a href="/welcome">зарегистрироваться как учитель</a>.</p>
+    <div class="footer-row"><button id="refresh" class="secondary" type="button">Проверить статус</button><span>Статус обновляется автоматически</span></div>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+    <p class="footnote">Пробный период нового аккаунта начнётся после обеих проверок.</p>
+  </main>
+  <footer>Egeshka · Пространство для обучения</footer>
+</body>
+</html>

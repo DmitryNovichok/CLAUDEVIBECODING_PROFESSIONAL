@@ -30,28 +30,6 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
 </head>
 <body class="admin">
 
-<!-- учитель зарегистрировался, но ещё не подтвердил почту: панель закрыта до перехода по ссылке из письма -->
-<section class="adm-login" id="mailGate" hidden>
-  <div class="modal-panel adm-login-panel mail-gate" role="dialog" aria-labelledby="mailGateTitle">
-    <div class="mail-gate-ic" aria-hidden="true">✉️</div>
-    <h1 class="fm-title" id="mailGateTitle">Подтвердите почту</h1>
-    <p class="fm-note">Мы отправили письмо на <b id="mailGateAddr"></b>. Откройте ссылку в нём — и панель учителя откроется сама.</p>
-    <p class="fm-note">Письма нет? Проверьте папку «Спам» или отправьте его ещё раз.</p>
-    <div class="login-form login-stack">
-      <button type="button" class="btn primary btn-block" id="mailGateResend">Отправить письмо ещё раз</button>
-      <button type="button" class="btn btn-block" id="mailGateCheck">Я подтвердил — открыть панель</button>
-    </div>
-    <div class="login-err" id="mailGateMsg" role="alert"></div>
-    <details class="mail-gate-change"><summary>Ошиблись в адресе?</summary>
-      <form class="login-form login-stack" id="mailGateForm">
-        <input class="inp" type="email" id="mailGateNew" placeholder="Правильный адрес почты" maxlength="120" autocapitalize="off" spellcheck="false" required>
-        <button type="submit" class="btn btn-block">Изменить адрес и отправить письмо</button>
-      </form>
-      <p class="fm-note">Новый адрес станет и логином для входа.</p></details>
-    <p class="fm-note" style="margin:10px 0 0"><button type="button" class="link-btn" id="mailGateOut">Выйти</button></p>
-  </div>
-</section>
-
 <section class="adm-login" id="loginView" hidden>
   <form class="modal-panel adm-login-panel" id="admLoginForm">
     <h1 class="fm-title">Панель учителя</h1>

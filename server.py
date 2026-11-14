@@ -76,6 +76,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
+              "teacher-gate.js", "teacher-gate.css",
               "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js", "onboard.js", "visit.js",
               "terms.html", "privacy.html", "consent.html", "legal.css", "help.html", "help.css", "confirm.html",
               # значок сайта: вкладка браузера, поиск Google/Яндекса, ярлык на телефоне
@@ -84,23 +85,23 @@ SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "ad
 LEGAL_VERSION = "2026-11-07"
 SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
-PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|together|py-worker|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|legal|welcome|academy|lab|classroom|help)\.css)"')
+PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|teacher-gate|together|py-worker|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|teacher-gate|legal|welcome|academy|lab|classroom|help)\.css)"')
 PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
+               "teacher-gate.js", "teacher-gate.css",
                "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css", "help.css",
                "egeshka.js", "elements.js", "onboard.js", "visit.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
 _PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
 # Сжатые копии скриптов и стилей (min/, собирает tools/minify.py): посетителю уходит код без комментариев и с короткими
-# именами вместо читаемых исходников. Нет копии (разработка) — отдаётся исходный файл.
+# именами вместо читаемых исходников. Отсутствие сборки не должно раскрывать исходник.
 MIN_FILES = ("app.js", "admin.js", "together.js", "welcome.js", "onboard.js", "visit.js",
+             "teacher-gate.js", "teacher-gate.css",
              "style.css", "admin.css", "admin-theme.css", "welcome.css", "help.css", "legal.css")
 
 
 def site_asset(name):
-    """Файл, который сервер отдаёт под этим именем: сжатая копия из min/, если она есть."""
+    """Для собираемых ресурсов отдаём только min/: ошибку сборки нельзя скрывать выдачей исходника."""
     if name in MIN_FILES:
-        m = HERE / "min" / name
-        if m.is_file():
-            return m
+        return HERE / "min" / name
     return HERE / name
 # расширения файлов к заданиям, которые можно отдавать из банков (json/html — никогда: там ответы)
 BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".wmf", ".img",
@@ -404,11 +405,18 @@ def student_by_token(db, tok, ip):
             if not r["ended"]:
                 db.x("UPDATE student_sessions SET ended=? WHERE id=?", (now, r["id"]))
             return None, None
-        return db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True), r
+        s = db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True)
+        return (s, r) if student_teacher_ready(db, s) else (None, None)
     s = db.q("SELECT * FROM students WHERE token=?", (tok,), one=True)
     if s and now < (to_float(db.setting("sessions_since")) or now) + LEGACY_DAYS * 86400 and not shared_ip(db, ip):
-        return s, None
+        return (s, None) if student_teacher_ready(db, s) else (None, None)
     return None, None
+
+
+def student_teacher_ready(db, s):
+    """Режим «как ученик» не обходит блокировку учителя; обычные ученики продолжают учиться."""
+    return bool(s and (not s['is_teacher'] or teacher_ready(
+        db.q('SELECT * FROM teachers WHERE id=?', (s['teacher_id'],), one=True))))
 
 
 def sessions_end(db, sid, keep=None):
@@ -1835,6 +1843,11 @@ class DB(Transactional):
                     ("students", "email_ok", "INTEGER DEFAULT 0"),   # почта подтверждена по ссылке из письма
                     ("teachers", "email_ok", "INTEGER DEFAULT 0"),   # то же у учителя: без подтверждения панель закрыта
                     ("teachers", "self_signup", "INTEGER DEFAULT 0"), # зарегистрировался сам на главной (для воронки)
+                    ("teachers", "moderation", "TEXT NOT NULL DEFAULT 'pending'"),
+                    ("teachers", "moderation_note", "TEXT"),
+                    ("teachers", "moderated_by", "INTEGER"),
+                    ("teachers", "moderated_at", "REAL"),
+                    ("teachers", "trial_started", "REAL"),
                     ("students", "self_reg", "INTEGER DEFAULT 0"),   # 1 — зарегистрировался без кода учителя
                     ("pw_resets", "account_state", "TEXT"),          # привязка ссылки к аккаунту, паролю и почте
                     ("students", "parent_token", "TEXT"),            # секретная ссылка для родителей (только просмотр)
@@ -1899,9 +1912,18 @@ class DB(Transactional):
                 c.execute("UPDATE teachers SET self_signup=1 WHERE COALESCE(is_main,0)=0 AND COALESCE(guest,0)=0 AND email IS NOT NULL AND lower(login)=lower(email)")
                 c.execute("INSERT INTO settings(key,value) VALUES('self_signup_seeded','1')")
             if not c.execute("SELECT 1 FROM settings WHERE key='email_ok_seeded'").fetchone():
-                # учителя, зарегистрированные до появления подтверждения почты, панель не теряют
-                c.execute("UPDATE teachers SET email_ok=1")
                 c.execute("INSERT INTO settings(key,value) VALUES('email_ok_seeded','1')")
+            if not c.execute("SELECT 1 FROM settings WHERE key='teacher_gate_v1'").fetchone():
+                # Раньше email_ok ставили автоматически без SMTP или при создании учителем.
+                # Сохраняем только подтверждения по использованной ссылке для текущего адреса.
+                for t in c.execute("SELECT * FROM teachers WHERE COALESCE(is_main,0)=0").fetchall():
+                    confirmed = bool(t['email'] and c.execute(
+                        "SELECT 1 FROM pw_resets WHERE kind='et' AND uid=? AND used=1 AND account_state=?",
+                        (t['id'], confirm_state(t))).fetchone())
+                    c.execute("""UPDATE teachers SET email_ok=?, moderation='pending',
+                        trial_started=CASE WHEN self_signup=1 AND until IS NOT NULL THEN created ELSE NULL END
+                        WHERE id=?""", (int(confirmed), t['id']))
+                c.execute("INSERT INTO settings(key,value) VALUES('teacher_gate_v1','1')")
             if not c.execute("SELECT 1 FROM settings WHERE key='solution_history_seeded'").fetchone():
                 c.execute("INSERT INTO solution_history(student_id,task_id,code,ts) SELECT student_id,task_id,code,ts FROM solutions WHERE ts IS NOT NULL")
                 c.execute("INSERT INTO settings(key,value) VALUES('solution_history_seeded','1')")
@@ -2377,7 +2399,7 @@ def tog_access(session, who):
     elif who[1] not in json.loads(r["students"] or "[]"):
         return None
     t = APP.db.q("SELECT * FROM teachers WHERE id=?", (r["teacher_id"],), one=True)
-    return None if not t else not teacher_access(t)["expired"]
+    return None if not t or (who[0] == 't' and not teacher_ready(t)) else not teacher_access(t)["expired"]
 
 
 TOG = together.Hub(tog_load, tog_save, tog_task, tog_check, tog_name, tog_credit, access=tog_access)
@@ -2588,6 +2610,11 @@ class Handler(BaseHTTPRequestHandler):
         segs = rel.split("/")
         if "\\" in rel or "\0" in rel or any(x in ("..", ".") for x in segs) or (rel and "" in segs[:-1]):
             return self.err(404, "нет такого файла")
+        # Папки с картинками и учебными файлами не должны раскрывать случайно оставленные служебные данные.
+        if (any(x.startswith(".") or x in ("private_config.json", "node_modules", "__pycache__") for x in segs) or
+                set(Path(rel.lower()).suffixes) & {".map", ".db", ".sqlite", ".sqlite3", ".bak", ".pem", ".key"} or
+                any(ext in rel.lower() for ext in (".db-", ".sqlite-", ".sqlite3-"))):
+            return self.err(404, "нет такого файла")
         if rel == "data/bank.js":
             return self.serve_bank()
         if rel.startswith("files/"):
@@ -2599,6 +2626,8 @@ class Handler(BaseHTTPRequestHandler):
         # файлы сайта
         if rel in ("index.html", "welcome.html"):
             self.count_visit("welcome" if rel == "welcome.html" else None)
+        if rel == "admin.html" and self.is_admin() and not teacher_ready(self.T):
+            return self.serve_page("teacher-gate.html")
         if rel in ("index.html", "admin.html", "together.html", "welcome.html", "parent.html", "reset.html"):
             return self.serve_page(rel)
         if rel == "arduino/index.html":
@@ -2617,6 +2646,9 @@ class Handler(BaseHTTPRequestHandler):
             # код панели — только вошедшему учителю; остальным — маленький скрипт формы входа (тот же адрес, без кэша)
             if not self.is_admin():
                 return self.serve_file(HERE, "admin-login.js", private=True)
+            if not teacher_ready(self.T):
+                f = site_asset("teacher-gate.js")
+                return self.serve_file(f.parent, f.name, private=True)
             f = site_asset(rel)
             return self.serve_file(f.parent, f.name, private=True)
         if rel.startswith("arduino/") and rel != "arduino/index.html":
@@ -2626,10 +2658,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.err(403, "Лаборатория Arduino открывается по паролю от учителя")
         if rel in SITE_FILES:
             f = site_asset(rel)
-            return self.serve_file(f.parent, f.name, html=rel.endswith(".html"))
+            return self.serve_file(f.parent, f.name, html=rel.endswith(".html"), private=rel == "lab-worker.js")
         for d in SITE_DIRS:
             if rel.startswith(d):
-                return self.serve_file(HERE / d.rstrip("/"), rel[len(d):])
+                return self.serve_file(HERE / d.rstrip("/"), rel[len(d):], private=d == "arduino/")
         # картинки и файлы заданий из банков (../ege_bank/… превращается в /ege_bank/…;
         # если банк собирали из другой папки, перед именем банка бывают ещё папки: /Documents/Biblio/ege_bank/…)
         parts = rel.split("/")
@@ -2705,10 +2737,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             hit = (stamp, body, '"%s"' % hashlib.md5(body).hexdigest()[:16], gzip.compress(body, 6))
             _PAGE_CACHE[str(p)] = hit
         _, body, etag, gz = hit
-        if self.headers.get("If-None-Match") == etag:
-            return self.send_bytes(304, b"", "text/plain", {"ETag": etag})
-        extra = {"ETag": etag, "Cache-Control": "private, no-cache" if rel.startswith("arduino/") else "no-cache",
-                 "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin", "Vary": "Accept-Encoding, Cookie"}
+        private = rel.startswith("arduino/") or rel in ("admin.html", "teacher-gate.html")
+        extra = {"ETag": etag, "Cache-Control": "private, no-store" if private else "no-cache",
+                 "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin", "Vary": "Accept-Encoding, Cookie, X-Token"}
+        if not private and self.headers.get("If-None-Match") == etag:
+            return self.send_bytes(304, b"", "text/plain", extra)
         if "gzip" in (self.headers.get("Accept-Encoding") or ""):
             body, extra["Content-Encoding"] = gz, "gzip"
         return self.send_bytes(200, body, "text/html; charset=utf-8", extra)
@@ -2762,22 +2795,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.not_found(p)
         st = p.stat()
         etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
-        if self.headers.get("If-None-Match") == etag:
-            return self.send_bytes(304, b"", "text/plain", {"ETag": etag})
         ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
-        extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
-        if private:                                  # содержимое зависит от входа: не кэшировать надолго и не делить между людьми
-            extra["Cache-Control"] = "private, no-cache"
-            extra["Vary"] = "Cookie"
+        extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff",
+                 "Vary": "Accept-Encoding"}
+        if private:                                  # закрытый код не остаётся в общем кэше после выхода/смены ученика
+            extra["Cache-Control"] = "private, no-store"
+            extra["Vary"] = "Accept-Encoding, Cookie, X-Token"
         elif "?v=" in self.path and p.suffix.lower() in (".js", ".css", ".woff2", ".svg", ".png", ".ico"):
             extra["Cache-Control"] = "public, max-age=31536000, immutable"   # адрес с ?v= меняется при каждом обновлении файла
+        if not private and self.headers.get("If-None-Match") == etag:
+            return self.send_bytes(304, b"", "text/plain", extra)
         gz = None
         if GZIP_TYPES.match(ctype) and st.st_size > 2048 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
             gz = static_gz(p, st)
             extra["Content-Encoding"] = "gzip"
-            extra["Vary"] = "Accept-Encoding, Cookie" if private else "Accept-Encoding"
         if html:
             extra["X-Frame-Options"] = "DENY"
             extra["Referrer-Policy"] = "same-origin"
@@ -2868,6 +2901,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
     def live_admin(self):
         if not self.is_admin():
             return self.err(401, "нужно войти")
+        if not teacher_ready(self.T):
+            return self.err(403, "Подтвердите почту и дождитесь одобрения главным учителем")
         return self.live_stream(("t", self.T["id"]), None)
 
     def live_stream(self, key, tid):
@@ -2889,6 +2924,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             LIVE.poke()                          # запомнить подпись дуэлей и турниров к первому событию
             end = time.time() + LIVE_LIFE_SEC
             while time.time() < end:
+                if isinstance(key, tuple) and key[0] == 't' and not (
+                        self.is_admin() and teacher_ready(self.T) and self.T['id'] == key[1]):
+                    return
                 try:
                     topics = {q.get(timeout=LIVE_PING_SEC)}
                 except queue.Empty:
@@ -2902,6 +2940,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     except queue.Empty:
                         break
                 if None in topics:               # это соединение вытеснило более новое того же ученика
+                    return
+                if isinstance(key, tuple) and key[0] == 't' and not (
+                        self.is_admin() and teacher_ready(self.T) and self.T['id'] == key[1]):
                     return
                 self.wfile.write("".join(f"event: {t}\ndata: {{}}\n\n" for t in sorted(topics)).encode())
                 self.wfile.flush()
@@ -2917,7 +2958,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if not r:
             return None
         if as_teacher:
-            return ("t", r["teacher_id"]) if self.is_admin() and self.T["id"] == r["teacher_id"] else None
+            return ("t", r["teacher_id"]) if self.is_admin() and teacher_ready(self.T) and self.T["id"] == r["teacher_id"] else None
         s = self.student()
         if s and not s["is_teacher"] and s["id"] in json.loads(r["students"] or "[]"):
             return ("s", s["id"])
@@ -2953,7 +2994,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         ip = self.client_ip()
         def authorized():
             if who[0] == "t":
-                return self.is_admin() and self.T["id"] == who[1]
+                return self.is_admin() and teacher_ready(self.T) and self.T["id"] == who[1]
             student, login = student_by_token(APP.db, self.tok, ip)
             if not student or student["id"] != who[1]:
                 return False
@@ -3630,11 +3671,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     return self.err(404, "Такого ученика нет. Если вы здесь впервые — откройте вкладку «Регистрация».")
                 teacher = None
                 if code:
-                    teacher = next((t for t in db.q("SELECT id, invite, guest FROM teachers")
+                    teacher = next((t for t in db.q("SELECT * FROM teachers")
                                     if hmac.compare_digest(code.encode(), t["invite"].encode())), None)
                     if teacher and teacher["guest"]:
                         # гостевой час учителя — демо: настоящие ученики по его коду не регистрируются
                         return self.err(403, "Это код демо-доступа учителя. Попросите у учителя код после его регистрации")
+                    if teacher and not teacher_ready(teacher):
+                        return self.err(403, "Учитель ещё не прошёл проверку. Попробуйте после открытия его доступа")
                     if not teacher:
                         THROTTLE.fail("invite", ip)
                         self._account_delay = 1.0
@@ -3766,6 +3809,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "Ссылка устарела или адрес почты уже изменён — запросите письмо ещё раз")
             db.x(f"UPDATE {table} SET email_ok=1 WHERE id=?", (r["uid"],))
             db.x("UPDATE pw_resets SET used=1 WHERE kind=? AND uid=?", (r["kind"], r["uid"]))
+            if r['kind'] == 'et':
+                activate_teacher_trial(db, r['uid'])
             return self.send_json({"ok": True, "kind": "t" if r["kind"] == "et" else "s", "email": account["email"]})
 
         if path == "/api/pw/forgot" and method == "POST":
@@ -4896,39 +4941,28 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(409, "Учитель с такой почтой уже зарегистрирован — войдите в панель")
             THROTTLE.fail("signup", ip)              # счёт регистраций с адреса, а не ошибок
             now = time.time()
-            until = now + TRIAL_DAYS * 86400
+            until = None                  # ожидание проверок не расходует пробные дни
             if guest:                                # гость регистрируется — его классы и подборки остаются, демо-класс уходит
                 drop_demo(db, guest["id"])
                 tid = guest["id"]
                 db.x("""UPDATE teachers SET name=?, login=?, email=?, pw=?, guest=0, paid=0, until=?, email_ok=?, self_signup=1,
+                        moderation='pending', moderation_note=NULL, moderated_by=NULL, moderated_at=NULL, trial_started=NULL,
                         consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?""",
-                     (name, email, email, hash_pw(pw), until, 0 if mail_ready() else 1, LEGAL_VERSION, now, ip, tid))
+                     (name, email, email, hash_pw(pw), until, 0, LEGAL_VERSION, now, ip, tid))
                 db.x("UPDATE students SET name=? WHERE is_teacher=1 AND teacher_id=?", (name, tid))
                 db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
             else:
                 tid = db.x("""INSERT INTO teachers(name, login, email, pw, invite, is_main, created, until, consent_ver, consent_ts, consent_ip, email_ok, self_signup)
                               VALUES(?,?,?,?,?,0,?,?,?,?,?,?,1)""", (name, email, email, hash_pw(pw), new_invite(db), now, until,
-                                                                 LEGAL_VERSION, now, ip, 0 if mail_ready() else 1))
-            # строго: панель откроется после перехода по ссылке из письма (без настроенной почты подтверждение не требуется)
-            send_confirm(db, "t", db.q("SELECT * FROM teachers WHERE id=?", (tid,), one=True))
-            return self.send_json({"ok": True, "until": until, "email_need": mail_ready()}, extra={"Set-Cookie": self.admin_login(tid, ADMIN_SESSION_DAYS * 86400)})
+                                                                 LEGAL_VERSION, now, ip, 0))
+            t = db.q("SELECT * FROM teachers WHERE id=?", (tid,), one=True)
+            sent = send_confirm(db, "t", t)
+            return self.send_json({"ok": True, "until": until, "email_need": True,
+                                   "email_sent": sent is True, "onboarding": teacher_onboarding(t)},
+                                  extra={"Set-Cookie": self.admin_login(tid, ADMIN_SESSION_DAYS * 86400)})
 
         if path == "/api/teacher/guest" and method == "POST":
-            ip = self.client_ip()
-            wait = THROTTLE.blocked("guest", ip)
-            if wait:
-                return self.err(429, self.wait_msg(wait))
-            if not APP.bank.ensure():
-                return self.err(503, "банк заданий не собран")
-            THROTTLE.fail("guest", ip)
-            now = time.time()
-            tid = db.x("""INSERT INTO teachers(name, login, pw, invite, is_main, created, guest, until, report, consent_ver, consent_ts, consent_ip)
-                          VALUES('Гость', ?, ?, ?, 0, ?, 1, ?, 0, ?, ?, ?)""",
-                       ("guest-" + secrets.token_hex(6), hash_pw(secrets.token_urlsafe(18)), new_invite(db), now, now + GUEST_SECONDS,
-                        LEGAL_VERSION, now, ip))
-            seed_demo(db, tid)
-            return self.send_json({"ok": True, "until": now + GUEST_SECONDS},
-                                  extra={"Set-Cookie": self.admin_login(tid, GUEST_SECONDS + GUEST_KEEP_SECONDS - 600)})
+            return self.err(403, "Для доступа зарегистрируйтесь, подтвердите почту и пройдите модерацию главного учителя")
 
         # ----- учитель
         if path == "/api/admin/login" and method == "POST":
@@ -4949,10 +4983,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path.startswith("/api/admin/"):
             if not self.is_admin():
                 return self.err(401, "нужен вход учителя")
-            if path not in EMAIL_GATE_OK and teacher_email_pending(self.T):
-                # учитель зарегистрировался, но ещё не перешёл по ссылке из письма — панель закрыта
-                return self.send_json({"error": "Подтвердите почту: откройте ссылку из письма", "need_email": True}, 403)
-            if method == "POST" and path not in ACCESS_RO_OK and teacher_access(self.T)["expired"]:
+            if not teacher_ready(self.T) and (method, path) not in TEACHER_GATE_ROUTES:
+                return self.send_json({"error": "Для доступа нужны подтверждение почты и одобрение главным учителем",
+                                       "need_onboarding": True, "need_email": teacher_email_pending(self.T),
+                                       "onboarding": teacher_onboarding(self.T)}, 403)
+            if (method == "POST" and path not in ACCESS_RO_OK and (method, path) not in TEACHER_GATE_ROUTES
+                    and teacher_access(self.T)["expired"]):
                 # пробный период (или гостевой час) закончился: всё видно, но менять ничего нельзя
                 return self.send_json({"error": "Гостевой час закончился — зарегистрируйтесь, чтобы продолжить" if self.T["guest"]
                                        else "Доступ закончился — панель открыта только для чтения. Продлите доступ",
@@ -6740,7 +6776,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             LIVE.send([m["id"] for m in teacher_students(db, self.T["id"])], "sound")
             return self.send_json({"ok": True, "on": bool(on)})
 
+        if path == "/api/admin/status" and method == 'GET':
+            return self.send_json(teacher_gate_profile(self.T))
+
         if path == "/api/admin/me":
+            if not teacher_ready(self.T):
+                return self.send_json(teacher_gate_profile(self.T))
             out = {k: self.T[k] for k in ("id", "name", "login", "is_main", "invite", "created")}
             out["sounds"] = bool(self.T["sounds"])
             out["hints"] = bool(self.T["hints"])
@@ -6751,12 +6792,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             out["consent_needed"] = not row or row["consent_ver"] != LEGAL_VERSION
             self.site_origin()
             out.update(access=teacher_access(self.T), guest=bool(self.T["guest"]), email=self.T["email"] or "",
-                       email_need=teacher_email_pending(self.T),
+                       email_need=teacher_email_pending(self.T), onboarding=teacher_onboarding(self.T),
                        report=bool(self.T["report"]), mail_on=bool(smtp_conf()), steps=teacher_steps(db, self.T["id"]),
                        steps_off=bool(self.T["steps_off"]), renew_ts=self.T["renew_ts"], offer=offer_get(db), trial_days=TRIAL_DAYS)
             return self.send_json(out)
 
         if path == "/api/admin/email/resend" and method == "POST":
+            if self.T['guest']:
+                return self.err(403, "Сначала зарегистрируйтесь")
+            if not self.T['email']:
+                return self.err(400, "Сначала укажите почту")
             if not teacher_email_pending(self.T):
                 return self.send_json({"ok": True, "confirmed": True})
             r = send_confirm(db, "t", self.T)
@@ -6767,6 +6812,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True, "email": self.T["email"]})
 
         if path == "/api/admin/email/change" and method == "POST":
+            if self.T['guest']:
+                return self.err(403, "Сначала зарегистрируйтесь")
             # ошибся в адресе при регистрации: пока почта не подтверждена, её можно исправить (она же — логин)
             if not teacher_email_pending(self.T):
                 return self.err(409, "Почта уже подтверждена — изменить её можно в «Настройках»")
@@ -6775,10 +6822,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(400, "Проверьте адрес почты")
             if db.q("SELECT 1 FROM teachers WHERE (lower(email)=? OR lower(login)=?) AND id<>?", (email, email, self.T["id"]), one=True):
                 return self.err(409, "Учитель с такой почтой уже зарегистрирован")
-            db.x("UPDATE teachers SET email=?, login=? WHERE id=?", (email, email, self.T["id"]))
+            db.x("UPDATE teachers SET email=?, login=?, email_ok=0 WHERE id=?", (email, email, self.T["id"]))
             _CONFIRM_SENT.pop(("t", self.T["id"]), None)          # новый адрес — письмо уходит сразу
-            send_confirm(db, "t", db.q("SELECT * FROM teachers WHERE id=?", (self.T["id"],), one=True))
-            return self.send_json({"ok": True, "email": email})
+            sent = send_confirm(db, "t", db.q("SELECT * FROM teachers WHERE id=?", (self.T["id"],), one=True))
+            return self.send_json({"ok": True, "email": email, "email_sent": sent is True})
 
         if path == "/api/admin/steps-off" and method == "POST":
             db.x("UPDATE teachers SET steps_off=? WHERE id=?", (0 if data.get("show") else 1, self.T["id"]))
@@ -6809,8 +6856,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(400, "Проверьте адрес почты")
             if email and db.q("SELECT 1 FROM teachers WHERE (lower(email)=? OR lower(login)=?) AND id<>?", (email, email, self.T["id"]), one=True):
                 return self.err(409, "Эта почта уже у другого учителя")
-            db.x("UPDATE teachers SET email=?, report=? WHERE id=?", (email or None, 1 if data.get("on") else 0, self.T["id"]))
-            return self.send_json({"ok": True})
+            if not email and not self.T['is_main']:
+                return self.err(400, "Учителю нужна подтверждённая почта")
+            changed = email != (self.T['email'] or '')
+            db.x("UPDATE teachers SET email=?, report=?, email_ok=? WHERE id=?",
+                 (email or None, 1 if data.get("on") else 0, 0 if changed else self.T['email_ok'], self.T["id"]))
+            t = db.q('SELECT * FROM teachers WHERE id=?', (self.T['id'],), one=True)
+            if changed:
+                _CONFIRM_SENT.pop(('t', t['id']), None)
+                send_confirm(db, 't', t)
+            return self.send_json({"ok": True, "onboarding": teacher_onboarding(t)})
 
         if path == "/api/admin/report/preview":
             r = weekly_report(db, self.T, self.site_origin())
@@ -6954,18 +7009,38 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/admin/teachers":
             if not self.T["is_main"]:
                 return self.err(403, "только для главного учителя")
-            rows = db.q("""SELECT t.id, t.name, t.login, t.invite, t.is_main, t.created, t.email, t.until, t.paid, t.renew_ts, t.renew_note,
+            rows = db.q("""SELECT t.id, t.name, t.login, t.invite, t.is_main, t.created, t.email, t.email_ok,
+                                  t.moderation, t.moderation_note, t.moderated_at, t.moderated_by,
+                                  t.until, t.paid, t.renew_ts, t.renew_note,
                                   (SELECT COUNT(*) FROM students s WHERE COALESCE(s.teacher_id, ?) = t.id AND COALESCE(s.is_teacher, 0) = 0) AS students,
                                   (SELECT COUNT(*) FROM classes c WHERE COALESCE(c.teacher_id, ?) = t.id) AS classes,
                                   (SELECT MAX(expires) FROM admin_sessions a WHERE a.teacher_id = t.id) AS seen
                            FROM teachers t WHERE COALESCE(t.guest, 0) = 0
-                           ORDER BY t.is_main DESC, (t.renew_ts IS NOT NULL) DESC, t.created DESC""", (main_teacher()["id"],) * 2)
-            out = [dict(r, access=teacher_access(r)) for r in
+                           ORDER BY t.is_main DESC, (t.moderation='pending') DESC, (t.renew_ts IS NOT NULL) DESC, t.created DESC""", (main_teacher()["id"],) * 2)
+            out = [dict(r, access=teacher_access(r), onboarding=teacher_onboarding(r)) for r in
                    db.q("SELECT * FROM teachers WHERE COALESCE(guest, 0) = 0 ORDER BY id")]
             acc = {r["id"]: r["access"] for r in out}
+            gates = {r['id']: r['onboarding'] for r in out}
             guests = db.q("SELECT COUNT(*) c FROM teachers WHERE guest=1 AND until > ?", (time.time(),), one=True)["c"]
-            return self.send_json({"teachers": [dict(r, access=acc.get(r["id"])) for r in rows], "guests_now": guests,
-                                   "offer": offer_get(db), "mail_on": bool(smtp_conf())})
+            return self.send_json({"teachers": [dict(r, access=acc.get(r["id"]), onboarding=gates[r['id']]) for r in rows], "guests_now": guests,
+                                   "pending": sum(1 for r in out if not r['is_main'] and r['moderation'] == 'pending'),
+                                   "offer": offer_get(db), "mail_on": mail_ready()})
+
+        if path == '/api/admin/teacher/moderate' and method == 'POST':
+            if not self.T['is_main']:
+                return self.err(403, 'Модерация доступна только главному учителю')
+            t = db.q('SELECT * FROM teachers WHERE id=?', (to_int(data.get('id')),), one=True)
+            if not t or t['is_main'] or t['guest']:
+                return self.err(400, 'Выберите зарегистрированного учителя, кроме главного')
+            decision = data.get('decision')
+            if decision not in ('approved', 'rejected', 'pending'):
+                return self.err(400, 'Неизвестное решение модерации')
+            note = re.sub(r'\s+', ' ', str(data.get('note') or '')).strip()[:500]
+            db.x('UPDATE teachers SET moderation=?, moderation_note=?, moderated_by=?, moderated_at=? WHERE id=?',
+                 (decision, note, self.T['id'], now, t['id']))
+            activate_teacher_trial(db, t['id'])
+            updated = db.q('SELECT * FROM teachers WHERE id=?', (t['id'],), one=True)
+            return self.send_json({'ok': True, 'onboarding': teacher_onboarding(updated)})
 
         if path == "/api/admin/teacher/extend" and method == "POST":
             # главный продлевает доступ: +дни от конца срока (или от сегодня, если срок прошёл); 0 — без срока
@@ -7023,8 +7098,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             else:
                 if len(pw) < 6:
                     return self.err(400, "Пароль — не короче 6 символов")
-                tid = db.x("INSERT INTO teachers(name, login, pw, invite, is_main, created, email_ok) VALUES(?,?,?,?,0,?,1)",
-                           (name, login, hash_pw(pw), invite, now))
+                # Создание главным — одобрение, но не подтверждение чужой почты.
+                tid = db.x("""INSERT INTO teachers(name, login, pw, invite, is_main, created, email_ok, moderation, moderated_by, moderated_at)
+                              VALUES(?,?,?,?,0,?,0,'approved',?,?)""", (name, login, hash_pw(pw), invite, now, self.T['id'], now))
             return self.send_json({"ok": True, "id": tid, "invite": invite})
 
         if path == "/api/admin/teacher/delete" and method == "POST":
@@ -12214,8 +12290,9 @@ def funnel_stats(db, days):
 
 
 # ---------- подтверждение почты: ученику — напоминание на главной, учителю — панель после перехода по ссылке
-EMAIL_GATE_OK = {"/api/admin/me", "/api/admin/info", "/api/admin/logout", "/api/admin/consent", "/api/admin/ui",
-                 "/api/admin/email/resend", "/api/admin/email/change"}
+TEACHER_GATE_ROUTES = {('GET', '/api/admin/me'), ('GET', '/api/admin/status'),
+                       ('POST', '/api/admin/logout'), ('POST', '/api/admin/email/resend'),
+                       ('POST', '/api/admin/email/change')}
 _CONFIRM_SENT = {}                       # (вид, id) -> когда отправили письмо
 
 
@@ -12230,8 +12307,38 @@ def confirm_state(account):
 
 
 def teacher_email_pending(t):
-    """Учитель сам зарегистрировался и ещё не подтвердил почту (главного, добавленных вручную и гостей не касается)."""
-    return bool(not t["is_main"] and not t["guest"] and t["email"] and not t["email_ok"] and mail_ready())
+    """Отсутствие SMTP или адреса не освобождает учителя от подтверждения почты."""
+    return bool(t and not t['is_main'] and not (t['email'] and t['email_ok']))
+
+
+def teacher_ready(t):
+    return bool(t and (t['is_main'] or (not t['guest'] and t['moderation'] == 'approved'
+                                      and t['email'] and t['email_ok'])))
+
+
+def teacher_onboarding(t):
+    main = bool(t['is_main'])
+    return {'ready': teacher_ready(t), 'email_confirmed': not teacher_email_pending(t),
+            'moderation': 'approved' if main else t['moderation'],
+            'note': t['moderation_note'] or '', 'reviewed_at': t['moderated_at'],
+            'registration_required': bool(t['guest'])}
+
+
+def teacher_gate_profile(t):
+    """Пока доступ закрыт, не отдаём код приглашения, классы, настройки и статистику."""
+    return {'id': t['id'], 'name': t['name'], 'login': t['login'], 'email': t['email'] or '',
+            'is_main': bool(t['is_main']), 'guest': bool(t['guest']),
+            'email_need': teacher_email_pending(t), 'onboarding': teacher_onboarding(t),
+            'mail_on': mail_ready()}
+
+
+def activate_teacher_trial(db, tid):
+    """Пробные дни начинаются после обеих проверок, один раз; оплаченный срок не меняем."""
+    t = db.q('SELECT * FROM teachers WHERE id=?', (tid,), one=True)
+    if teacher_ready(t) and t['self_signup'] and not t['paid'] and t['trial_started'] is None:
+        now = time.time()
+        db.x('UPDATE teachers SET trial_started=?, until=? WHERE id=? AND trial_started IS NULL',
+             (now, now + TRIAL_DAYS * 86400, tid))
 
 
 def send_confirm(db, kind, account):
@@ -12251,7 +12358,7 @@ def send_confirm(db, kind, account):
          (hashlib.sha256(tok.encode()).hexdigest(), "e" + kind, account["id"], now + EMAIL_CONFIRM_SEC, confirm_state(account)))
     link = f"{origin}/confirm?t={tok}"
     name, to = account["name"], account["email"]
-    what = "панель учителя откроется после подтверждения" if kind == "t" else "так вы сможете восстановить пароль, если забудете его"
+    what = "панель учителя откроется после подтверждения почты и одобрения главным учителем" if kind == "t" else "так вы сможете восстановить пароль, если забудете его"
 
     def mail():
         try:
@@ -12545,7 +12652,7 @@ def _report_tick(db, site=""):
     sent = 0
     for t in db.q("""SELECT * FROM teachers WHERE COALESCE(guest, 0)=0 AND COALESCE(report, 1)=1 AND email IS NOT NULL
                      AND email<>'' AND (report_ts IS NULL OR report_ts < ?)""", (since,)):
-        if teacher_access(t)["expired"]:
+        if not teacher_ready(t) or teacher_access(t)["expired"]:
             continue
         try:
             r = weekly_report(db, t, site)
@@ -12686,7 +12793,7 @@ def _parent_tick(db, site):
     for s in db.q("""SELECT * FROM students WHERE parent_email IS NOT NULL AND parent_email<>''
                      AND (parent_report_ts IS NULL OR parent_report_ts < ?) AND COALESCE(is_teacher, 0)=0""", (since,)):
         t = teacher_of(s)
-        if not t or teacher_access(t)["expired"] or t["guest"]:
+        if not teacher_ready(t) or teacher_access(t)["expired"] or t["guest"]:
             continue
         try:
             link = f"{site}/parent?t={parent_token(db, s['id'])}"

@@ -45,9 +45,8 @@
           <a class="w-btn green lg" href="/?login=1">Я ученик</a>
           <button type="button" class="w-btn white lg" data-signup>Я учитель</button>
         </div>
-        <p class="w-guest w-in" style="--d:4"><button type="button" class="w-link" id="guestBtn">Посмотреть панель учителя без регистрации</button>
-          <small>Нажимая, вы принимаете <a href="terms.html" target="_blank" rel="noopener">соглашение</a> и <a href="privacy.html" target="_blank" rel="noopener">политику</a>.</small></p>
-        <p class="w-err" id="guestErr" role="alert"></p>
+        <p class="w-guest w-in" style="--d:4"><a class="w-link" href="/admin">Войти в кабинет учителя</a>
+          <small>Доступ после подтверждения почты и модерации главным учителем.</small></p>
       </div>
       <div class="w-stage" id="wStage">
         <div class="w-blob"></div>
@@ -200,7 +199,7 @@
       <div class="w-tchips" data-stagger>
         <span>🖥️ Контрольные на весь экран — уходы со вкладки видны</span><span>📬 Итоги недели на почту</span><span>👪 Ссылка для родителей</span><span>🔗 Приглашение ссылкой или QR-кодом</span>
       </div>
-      <div class="w-cta" data-reveal><button type="button" class="w-btn blue lg" data-signup>Зарегистрироваться как учитель</button><button type="button" class="w-btn white lg" data-guest>Посмотреть без регистрации</button></div>
+      <div class="w-cta" data-reveal><button type="button" class="w-btn blue lg" data-signup>Зарегистрироваться как учитель</button><a class="w-btn white lg" href="/admin">Войти в кабинет</a></div>
     </div>
   </section>
 
@@ -247,6 +246,7 @@
   <form class="w-dialog" id="signupForm" role="dialog" aria-modal="true" aria-labelledby="signupTitle" autocomplete="on">
     <button type="button" class="w-x" data-close aria-label="Закрыть">×</button>
     <h2 id="signupTitle">Регистрация учителя</h2>
+    <p class="w-note">После регистрации подтвердите почту и дождитесь одобрения главным учителем. До обеих проверок все функции закрыты.</p>
     <label>Фамилия, имя и отчество<input id="suName" name="name" autocomplete="name" maxlength="80" required placeholder="Иванова Мария Сергеевна"></label>
     <label>Почта <small>— для входа и отчётов</small><input id="suEmail" name="email" type="email" autocomplete="email" maxlength="120" required placeholder="you@school.ru"></label>
     <label>Пароль <small>— не короче 8 символов</small><input id="suPass" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="200" required></label>

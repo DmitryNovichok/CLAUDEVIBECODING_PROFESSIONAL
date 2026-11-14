@@ -21,19 +21,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from tools.check_release import asset_names, write_manifest
 OUT = ROOT / "min"
 BANNER = ("/* © Egeshka (egeshka.online). Все права защищены. Копирование, переработка и использование кода "
           "без письменного разрешения правообладателя запрещены. */")
 
 
 def files():
-    import ast
-    src = (ROOT / "server.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    for node in tree.body:                      # список — из server.py, чтобы сервер и сборка не разошлись
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "MIN_FILES" for t in node.targets):
-            return list(ast.literal_eval(node.value))
-    raise SystemExit("в server.py нет MIN_FILES")
+    return asset_names(ROOT)
 
 
 def esbuild():
@@ -60,13 +55,14 @@ def build(dest):
     for extra in dest.iterdir():                # лишнее (файл убрали из MIN_FILES) — удаляем, чтобы сервер его не отдавал
         if extra.name not in files():
             extra.unlink()
+    write_manifest(ROOT, dest)
 
 
 def main():
     if "--check" in sys.argv:
         with tempfile.TemporaryDirectory() as tmp:
             build(Path(tmp))
-            bad = [n for n in files() if not (OUT / n).is_file() or (OUT / n).read_bytes() != (Path(tmp) / n).read_bytes()]
+            bad = [n for n in files() + ['manifest.json'] if not (OUT / n).is_file() or (OUT / n).read_bytes() != (Path(tmp) / n).read_bytes()]
         if bad:
             raise SystemExit("min/ устарел: " + ", ".join(bad) + " — запустите python3 tools/minify.py")
         print("min/ собран из текущих файлов")

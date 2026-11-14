@@ -35,7 +35,6 @@
   };
   document.addEventListener('click', e => {
     if (e.target.closest('[data-signup]')) funnel('teacher');
-    else if (e.target.closest('#guestBtn, [data-guest]')) funnel('guest');
     else if (e.target.closest('a[href^="/?login"]')) funnel('student');
   }, true);
 
@@ -61,16 +60,6 @@
       location.href = '/admin';
     } catch (err) { $('#suErr').textContent = err.message; btn.disabled = false; }
   });
-
-  // ---- гостевой вход: панель с демо-классом
-  async function guest(b) {
-    b.disabled = true;
-    $('#guestErr').textContent = '';
-    try { await post('api/teacher/guest'); location.href = '/admin'; }
-    catch (err) { $('#guestErr').textContent = err.message; b.disabled = false; $('#guestErr').scrollIntoView({ block: 'center' }); }
-  }
-  $('#guestBtn').addEventListener('click', e => guest(e.currentTarget));
-  $$('[data-guest]').forEach(b => b.addEventListener('click', () => guest(b)));
 
   // ---- появление при прокрутке; у групп — по очереди
   $$('[data-stagger]').forEach(g => [...g.children].forEach((c, i) => c.style.setProperty('--i', i)));
