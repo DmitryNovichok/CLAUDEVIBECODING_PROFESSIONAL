@@ -130,15 +130,16 @@ class ServerTest(unittest.TestCase):
         return (r.status, data, r.getheader("Set-Cookie") or "") if hdrs else (r.status, data)
 
     def public_bank(self, tok):
-        """Всё, что видит ученик: bank.js (без условий) и условия всех номеров из /api/html."""
+        """Метаданные и условия маленького тестового банка, загруженные порциями."""
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         c.request("GET", "/data/bank.js", headers={"Cookie": "egest=" + tok})
         body = c.getresponse().read().decode()
         c.close()
         bank = json.loads(body[body.index("{"):body.rindex("}") + 1])
         self.assertNotIn('"html"', json.dumps(bank["tasks"], ensure_ascii=False))   # условия — только отдельно
-        for n in sorted({t["n"] for t in bank["tasks"]}):
-            st, d = self.req("GET", f"/api/html?n={n}", token=tok)
+        ids = [t['id'] for t in bank['tasks']]
+        for offset in range(0, len(ids), 20):
+            st, d = self.req("GET", '/api/html?ids=' + ','.join(ids[offset:offset + 20]), token=tok)
             self.assertEqual(st, 200)
             body += "\n/*html*/" + json.dumps(d, ensure_ascii=False)
         return body
@@ -2486,10 +2487,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["html"], {pid: "<p>Пять</p>"})
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         c.request("GET", "/api/html?n=5", headers={"X-Token": tok})
-        etag = c.getresponse().getheader("ETag"); c.close()
+        r = c.getresponse(); r.read(); c.close()
+        self.assertIsNone(r.getheader("ETag"))
+        self.assertEqual(r.getheader("Cache-Control"), "private, no-store")
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        c.request("GET", "/api/html?n=5", headers={"X-Token": tok, "If-None-Match": etag})
-        self.assertEqual(c.getresponse().status, 304)                      # номер уже скачан — браузер берёт из кэша
+        c.request("GET", "/api/html?n=5", headers={"X-Token": tok, "If-None-Match": '"old-bank"'})
+        r = c.getresponse(); r.read()
+        self.assertEqual(r.status, 200)                 # старый ETag не обходит проверку доступа и квоты
         c.close()
 
     def test_bank_has_no_answers(self):

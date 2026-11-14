@@ -3,6 +3,94 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+function conditionLoader(fetcher, count = 60) {
+  const tasks = Array.from({length:count}, (_,i) => ({id:'t'+i, n:5}));
+  const timers = [];
+  const c = vm.createContext({BANK:{lazyHtml:true}, byId:new Map(tasks.map(t=>[t.id,t])),
+    fetch:fetcher, setTimeout:(fn,ms)=>{timers.push(ms); fn();}, Date});
+  const source = fs.readFileSync('src/app/01-core.js','utf8');
+  vm.runInContext(source.slice(source.indexOf('  const HTML_LAZY ='), source.indexOf('  /** Пока условие грузится')), c);
+  return {tasks, timers, load:list=>c.loadHtml(list)};
+}
+function conditionsResponse(url) {
+  const ids = new URL('https://example.invalid/'+url).searchParams.get('ids').split(',');
+  return {ok:true, status:200, json:async()=>({html:Object.fromEntries(ids.map(id=>[id,'<p>'+id+'</p>']))})};
+}
+test('exam conditions load in bounded sequential batches with no whole-number prefetch', async()=>{
+  const calls = []; let active=0, peak=0;
+  const loader = conditionLoader(async url=>{
+    calls.push(url); peak=Math.max(peak,++active);
+    await Promise.resolve(); active--;
+    return conditionsResponse(url);
+  });
+  await loader.load(loader.tasks.slice(0,27));
+  assert.equal(calls.length,2);
+  assert.equal(peak,1);
+  assert.ok(calls.every(url=>new URL('https://e/'+url).searchParams.get('ids').split(',').length<=20));
+  assert.ok(calls.every(url=>!url.includes('?n=')));
+  assert.equal(loader.timers.length,0);
+  assert.ok(loader.tasks.slice(0,27).every(t=>t.html));
+  assert.ok(loader.tasks.slice(27).every(t=>t.html==null));
+  await loader.load(loader.tasks.slice(0,27));
+  assert.equal(calls.length,2);
+});
+test('overlapping condition requests and duplicate IDs are fetched once', async()=>{
+  const calls=[];
+  const loader=conditionLoader(async url=>{calls.push(url); return conditionsResponse(url);});
+  await Promise.all([loader.load([loader.tasks[0],loader.tasks[0],loader.tasks[1]]),
+    loader.load([loader.tasks[1],loader.tasks[2]])]);
+  const ids=calls.flatMap(url=>new URL('https://e/'+url).searchParams.get('ids').split(','));
+  assert.deepEqual(ids,['t0','t1','t2']);
+});
+test('429 stops retries and queued batches, while cached conditions remain usable', async()=>{
+  let calls=0;
+  const loader=conditionLoader(async()=>{calls++; return {ok:false,status:429,headers:{get:()=> '3600'}};});
+  loader.tasks[0].html='<p>cached</p>';
+  await assert.rejects(loader.load(loader.tasks), /приостановлена/);
+  await assert.rejects(loader.load([loader.tasks[1]]), /60 мин/);
+  await loader.load([loader.tasks[0]]);
+  assert.equal(calls,1);
+  assert.equal(loader.timers.length,0);
+});
+test('missing condition gives an actionable error instead of an infinite render loop', async()=>{
+  const loader=conditionLoader(async()=>({ok:true,status:200,json:async()=>({html:{}})}));
+  await assert.rejects(loader.load([loader.tasks[0]]), /Обновите страницу/);
+  assert.equal(loader.tasks[0].html,undefined);
+});
+test('transient network failure retries, successful retry populates the condition', async()=>{
+  let calls=0;
+  const loader=conditionLoader(async url=>{if(++calls===1)throw Error('offline');return conditionsResponse(url);});
+  await loader.load([loader.tasks[0]]);
+  assert.equal(calls,2);
+  assert.deepEqual(loader.timers,[700]);
+  assert.equal(loader.tasks[0].html,'<p>t0</p>');
+});
+test('2.61 release notes contain no delivery policy details', ()=>{
+  const c=vm.createContext({window:{}});
+  vm.runInContext(fs.readFileSync('changelog.js','utf8'),c);
+  for(const role of ['student','teacher']){
+    const row=c.window.EGE_CHANGELOG[role].find(r=>r[0]==='2.61.0');
+    assert.ok(row);
+    assert.equal(JSON.stringify([row[2],row[3]]), '[[],["Техническое обновление"]]');
+  }
+});
+test('principal audit escapes account names and is never fetched for an ordinary teacher', async()=>{
+  const box={innerHTML:''}; let calls=0;
+  const c=vm.createContext({ME:{is_main:false}, $:()=>box, Date,
+    esc:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),
+    api:async()=>{calls++;return {events:[{name:'<img onerror=evil>',teacher_name:'<script>evil</script>',
+      reason:'batch_size',last_ts:1000000,n:2,requested:80}]};}});
+  vm.runInContext(sourceBetween('admin.js','  async function loadBankAudit()', '  async function loadErrors('),c);
+  await c.loadBankAudit();
+  assert.equal(calls,0);
+  c.ME.is_main=true;
+  await c.loadBankAudit();
+  assert.equal(calls,1);
+  assert.ok(box.innerHTML.includes('&lt;img'));
+  assert.ok(!box.innerHTML.includes('<img'));
+  assert.ok(!box.innerHTML.includes('<script>'));
+});
+
 function labModels() {
   const code = fs.readFileSync('src/app/12j-labs.js', 'utf8');
   const c = vm.createContext({});
