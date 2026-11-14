@@ -91,6 +91,7 @@ PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.j
                "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css", "help.css",
                "egeshka.js", "elements.js", "onboard.js", "visit.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
 _PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
+HTML_COMMENT_RE = re.compile(r"<!--(?!\[if).*?-->", re.S)
 # Сжатые копии скриптов и стилей (min/, собирает tools/minify.py): посетителю уходит код без комментариев и с короткими
 # именами вместо читаемых исходников. Отсутствие сборки не должно раскрывать исходник.
 MIN_FILES = ("app.js", "admin.js", "together.js", "welcome.js", "onboard.js", "visit.js",
@@ -2733,6 +2734,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     return f'{m.group(1)}="{m.group(2)}?v={int(st.st_mtime):x}{st.st_size:x}"'
                 except OSError:
                     return m.group(0)
+            html = HTML_COMMENT_RE.sub("", html)             # заметки разработчика в разметке посетителю не нужны
             body = PAGE_ASSET_RE.sub(ver, html).encode("utf-8")
             hit = (stamp, body, '"%s"' % hashlib.md5(body).hexdigest()[:16], gzip.compress(body, 6))
             _PAGE_CACHE[str(p)] = hit

@@ -9,7 +9,9 @@
     python3 tools/minify.py          # пересобрать min/
     python3 tools/minify.py --check  # проверить, что min/ собран из текущих файлов (CI)
 
-Нужен esbuild: берётся из arduino/source/node_modules (npm ci --ignore-scripts в arduino/source) или из PATH.
+Нужны esbuild (arduino/source/node_modules или PATH) и обфускатор скриптов (tools/obfuscate: npm ci --ignore-scripts).
+Скрипты после сжатия обфусцируются: строки в зашифрованном массиве, имена — шестнадцатеричные, код привязан
+к домену egeshka.online (а также localhost для разработки).
 Код в браузере нельзя скрыть полностью — браузер должен его выполнить. Сжатие лишь делает копирование
 и разбор заметно труднее; ответы, ключи и проверка остаются только на сервере.
 """
@@ -41,17 +43,29 @@ def esbuild():
     raise SystemExit("нет esbuild: выполните  cd arduino/source && npm ci --ignore-scripts")
 
 
+OBF = ROOT / "tools" / "obfuscate"
+
+
+def obfuscator():
+    if not (OBF / "node_modules" / "javascript-obfuscator").is_dir():
+        raise SystemExit("нет обфускатора: выполните  cd tools/obfuscate && npm ci --ignore-scripts")
+    return ["node", str(OBF / "run.cjs")]
+
+
 def build(dest):
-    exe = esbuild()
+    exe, obf = esbuild(), obfuscator()
     dest.mkdir(parents=True, exist_ok=True)
     for name in files():
         src = ROOT / name
         if not src.is_file():
             raise SystemExit(f"нет файла {name}")
         out = dest / name
+        js = name.endswith(".js")
         subprocess.run([exe, str(src), "--minify", "--legal-comments=none", "--charset=utf8", "--log-level=warning",
-                        "--target=es2020" if name.endswith(".js") else "--target=chrome90,firefox88,safari14",
-                        f"--banner:{'js' if name.endswith('.js') else 'css'}={BANNER}", f"--outfile={out}"], check=True)
+                        "--target=es2020" if js else "--target=chrome90,firefox88,safari14", f"--outfile={out}"], check=True)
+        if js:                                  # скрипты — ещё и обфускация: зашифрованные строки, привязка к домену
+            subprocess.run(obf + [str(out), str(out)], check=True)
+        out.write_text(BANNER + "\n" + out.read_text(encoding="utf-8"), encoding="utf-8")
     for extra in dest.iterdir():                # лишнее (файл убрали из MIN_FILES) — удаляем, чтобы сервер его не отдавал
         if extra.name not in files():
             extra.unlink()
