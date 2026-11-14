@@ -55,6 +55,7 @@ from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answ
 from learning_access import lab_access, ard_access
 import buglab
 import mcko
+import bank_delivery
 from learning_content import course_guide
 from private_config import read_private, private_rewards, require_private
 import hints as hints_mod
@@ -1129,7 +1130,7 @@ class Bank:
         self.authored = 0          # сколько заданий с автором
         self.pubs = {}             # настоящий id -> задание без ответа (как в bank.js) — для совместного сеанса
         self.html_pub = {}         # публичный id -> текст условия (в bank.js условий нет — они по /api/html)
-        self.html_n = {}           # номер -> (gzip, json, etag) условий всех его заданий
+        self.html_n = {}           # номер -> публичные id; условия выдаются ограниченными страницами
         self.mtime = None
         self.extra_mtime = None
         self.lock = threading.Lock()
@@ -1416,12 +1417,9 @@ class Bank:
                 pub_tasks.append({k: v for k, v in p.items() if k != "html"})   # тексты условий — отдельно, по номерам
                 html_by_n.setdefault(p.get("n"), {})[p["id"]] = p.get("html") or ""
                 self.pubs[t["id"]] = p
-            # условия по номерам: ученик качает только тот номер, который открыл (а не все 25 МБ при входе)
+            # Индекс номеров не содержит готового ответа со всеми условиями.
             self.html_pub = {pid: h for chunk in html_by_n.values() for pid, h in chunk.items()}
-            self.html_n = {}
-            for n, chunk in html_by_n.items():
-                body = json.dumps({"html": chunk}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-                self.html_n[str(n)] = (gzip.compress(body, 6), body, '"%s"' % hashlib.md5(body).hexdigest()[:16])
+            self.html_n = {str(n): tuple(chunk) for n, chunk in html_by_n.items()}
             pub = dict(data, tasks=pub_tasks, srv=True, lazyHtml=True, clusters=clusters.catalog())
             raw = ("window.EGE_BANK = " + json.dumps(pub, ensure_ascii=False, separators=(",", ":")) + ";\n").encode("utf-8")
             self.public_raw = raw
@@ -2105,6 +2103,7 @@ def teacher_of(s):
 class App:
     def __init__(self):
         self.db = DB(DB_PATH)
+        self.delivery = bank_delivery.BankDelivery(self.db)
         secret = self.db.setting("id_secret")
         if not secret:
             secret = secrets.token_hex(16)
@@ -2477,7 +2476,7 @@ class Handler(BaseHTTPRequestHandler):
         if len(body) > 16384 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
             body = gzip.compress(body, 6)
             extra["Content-Encoding"] = "gzip"
-            extra["Vary"] = "Accept-Encoding"
+            extra["Vary"] = (extra["Vary"] + ", Accept-Encoding") if extra.get("Vary") else "Accept-Encoding"
         self.send_bytes(code, body, "application/json; charset=utf-8", extra)
 
     def err(self, code, msg):
@@ -2837,28 +2836,50 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 self.wfile.write(chunk)
 
     def serve_task_html(self, qs):
-        """Тексты условий: ?n=8 — все задания номера (кэшируется браузером), ?ids=a,b — выбранные (вариант, подборка)."""
+        """Ограниченные страницы условий; общая квота всех сессий аккаунта."""
         tok = self.headers.get("X-Token") or self.cookie("egest")
-        if not student_by_token(APP.db, tok, self.client_ip())[0]:
+        student = student_by_token(APP.db, tok, self.client_ip())[0]
+        if not student:
             return self.err(401, "нужно войти")
+        extra = {"Cache-Control": "private, no-store", "Vary": "Cookie, X-Token, Accept-Encoding"}
+        if self.command != 'GET':
+            return self.send_json({"error": "используйте GET"}, 405, dict(extra, Allow='GET'))
         if not APP.bank.ensure():
             return self.err(503, "банк заданий не собран")
         b = APP.bank
-        n = str(qs.get("n") or "")
-        if n:
-            got = b.html_n.get(n)
-            if not got:
-                return self.send_json({"html": {}})
-            gz, raw, etag = got
-            if self.headers.get("If-None-Match") == etag:
-                return self.send_bytes(304, b"", "text/plain", {"ETag": etag})
-            extra = {"ETag": etag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding, Cookie"}
-            if "gzip" in (self.headers.get("Accept-Encoding") or ""):
-                extra["Content-Encoding"] = "gzip"
-                return self.send_bytes(200, gz, "application/json; charset=utf-8", extra)
-            return self.send_bytes(200, raw, "application/json; charset=utf-8", extra)
-        ids = [x for x in str(qs.get("ids") or "").split(",") if x][:300]
-        return self.send_json({"html": {i: b.html_pub[i] for i in ids if i in b.html_pub}})
+        # A reload replaces both dictionaries. Keep one consistent bank generation
+        # while accounting/delivery runs, without holding the bank lock during I/O.
+        with b.lock:
+            html_pub, html_n = b.html_pub, b.html_n
+        ids, issue, requested, next_offset = [], None, 0, None
+        if 'n' in qs and 'ids' not in qs:
+            n, offset = str(qs['n']), str(qs.get('offset', '0'))
+            if not re.fullmatch(r'(?:[1-9]|1[0-9]|2[0-7])', n) or not re.fullmatch(r'[0-9]{1,6}', offset):
+                issue = 'invalid_page'
+            else:
+                offset = int(offset)
+                candidates = html_n.get(n, ())
+                ids = candidates[offset:offset + bank_delivery.PAGE_SIZE]
+                if offset + len(ids) < len(candidates):
+                    next_offset = offset + len(ids)
+                requested = len(ids)
+        elif 'ids' in qs and 'n' not in qs and 'offset' not in qs:
+            raw = str(qs['ids'])
+            requested = raw.count(',') + 1
+            if requested > bank_delivery.MAX_BATCH or len(raw) > 4096:
+                issue = 'batch_size'
+            else:
+                ids = [i for i in dict.fromkeys(raw.split(',')) if i in html_pub]
+        else:
+            issue = 'invalid_page'
+        decision = APP.delivery.check(student, ids, issue=issue, requested=requested)
+        if decision.status == 429:
+            extra['Retry-After'] = str(decision.retry_after)
+            return self.send_json({"error": "Загрузка временно приостановлена. Попробуйте позже.",
+                                   "retry_after": decision.retry_after}, 429, extra)
+        if decision.status != 200:
+            return self.send_json({"error": "Не удалось загрузить задания. Обновите страницу."}, decision.status, extra)
+        return self.send_json({"html": {i: html_pub[i] for i in ids}, "next_offset": next_offset}, extra=extra)
 
     def serve_bank(self):
         if not student_by_token(APP.db, self.cookie("egest"), self.client_ip())[0]:
@@ -6775,6 +6796,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE teachers SET sounds=? WHERE id=?", (on, self.T["id"]))
             LIVE.send([m["id"] for m in teacher_students(db, self.T["id"])], "sound")
             return self.send_json({"ok": True, "on": bool(on)})
+
+        if path == "/api/admin/bank-audit" and method == 'GET':
+            if not self.T["is_main"]:
+                return self.err(403, "только главный учитель")
+            return self.send_json({"events": APP.delivery.audit()})
 
         if path == "/api/admin/status" and method == 'GET':
             return self.send_json(teacher_gate_profile(self.T))
