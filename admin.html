@@ -30,28 +30,6 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
 </head>
 <body class="admin">
 
-<!-- учитель зарегистрировался, но ещё не подтвердил почту: панель закрыта до перехода по ссылке из письма -->
-<section class="adm-login" id="mailGate" hidden>
-  <div class="modal-panel adm-login-panel mail-gate" role="dialog" aria-labelledby="mailGateTitle">
-    <div class="mail-gate-ic" aria-hidden="true">✉️</div>
-    <h1 class="fm-title" id="mailGateTitle">Подтвердите почту</h1>
-    <p class="fm-note">Мы отправили письмо на <b id="mailGateAddr"></b>. Откройте ссылку в нём — и панель учителя откроется сама.</p>
-    <p class="fm-note">Письма нет? Проверьте папку «Спам» или отправьте его ещё раз.</p>
-    <div class="login-form login-stack">
-      <button type="button" class="btn primary btn-block" id="mailGateResend">Отправить письмо ещё раз</button>
-      <button type="button" class="btn btn-block" id="mailGateCheck">Я подтвердил — открыть панель</button>
-    </div>
-    <div class="login-err" id="mailGateMsg" role="alert"></div>
-    <details class="mail-gate-change"><summary>Ошиблись в адресе?</summary>
-      <form class="login-form login-stack" id="mailGateForm">
-        <input class="inp" type="email" id="mailGateNew" placeholder="Правильный адрес почты" maxlength="120" autocapitalize="off" spellcheck="false" required>
-        <button type="submit" class="btn btn-block">Изменить адрес и отправить письмо</button>
-      </form>
-      <p class="fm-note">Новый адрес станет и логином для входа.</p></details>
-    <p class="fm-note" style="margin:10px 0 0"><button type="button" class="link-btn" id="mailGateOut">Выйти</button></p>
-  </div>
-</section>
-
 <section class="adm-login" id="loginView" hidden>
   <form class="modal-panel adm-login-panel" id="admLoginForm">
     <h1 class="fm-title">Панель учителя</h1>
@@ -240,7 +218,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div class="adm-toolbar"><h2 class="adm-h">Лаборатория Arduino</h2>
         <input class="inp" id="ardFind" placeholder="Поиск по ФИО" style="max-width:240px">
         <button type="button" class="btn ghost" id="ardReload">Обновить</button></div>
-      <p class="adm-hint" style="margin:0 0 12px">Ученики с доступом к лабораториям и их прогресс в двух курсах Arduino: 7 класс и 10–11 классы (по 36 уроков).
+      <p class="adm-hint" style="margin:0 0 12px">Ученики, открывшие лабораторию Arduino её паролем, и их прогресс в двух курсах Arduino: 7 класс и 10–11 классы (по 36 уроков).
         Урок пройден, когда выполнены все три шага: <b>теория</b>, <b>схема</b> и <b>запуск</b>. Прогресс приходит, когда ученик занимается в лаборатории Arduino на сайте.
         Нажмите на ученика — увидите каждый урок: <span class="cp-sq ok"></span> пройден, <span class="cp-sq part"></span> начат, <span class="cp-sq"></span> не начат.</p>
       <div id="ardBody"><p class="adm-hint">Загружаю…</p></div>
@@ -512,7 +490,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div class="acc-grid" id="accGrid"></div>
       <form class="adm-box acc-all" id="accAllForm">
         <h3 class="adm-h3">Один пароль на всё</h3>
-        <p class="fm-note">Задать одинаковый пароль сразу курсу по заданиям, курсу программирования и лабораториям. Уже открытые доступы у учеников не закрываются.</p>
+        <p class="fm-note">Задать одинаковый пароль сразу курсу по заданиям, курсу программирования и лабораториям. Лаборатории Arduino это не касается — у неё всегда свой пароль. Уже открытые доступы у учеников не закрываются.</p>
         <div class="login-form">
           <input class="inp" id="accAll" type="text" autocomplete="off" maxlength="200" placeholder="общий пароль">
           <button class="btn primary" type="submit">Задать всем трём</button>

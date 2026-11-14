@@ -104,7 +104,7 @@
       openRenew();
       throw Object.assign(new Error(data.error || 'Доступ закончился'), { status: 402 });
     }
-    if (r.status === 403 && data.need_email) { showMailGate(); throw Object.assign(new Error(data.error), { status: 401 }); }
+    if (r.status === 403 && (data.need_onboarding || data.need_email)) { showMailGate(); throw Object.assign(new Error(data.error), { status: 401 }); }
     if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status });
     return data;
   }
@@ -156,62 +156,8 @@
     $('#loginView').hidden = false;
     setTimeout(() => $('#admPassword').focus(), 30);
   }
-  // ------------------------------------------------------------ подтверждение почты после регистрации
-  let mailGateTimer = 0;
-  function showMailGate() {
-    $('#appView').hidden = true;
-    $('#loginView').hidden = true;
-    $('#mailGate').hidden = false;
-    if (ME && ME.email) $('#mailGateAddr').textContent = ME.email;
-    clearInterval(mailGateTimer);
-    mailGateTimer = setInterval(() => { if (!document.hidden) mailGateCheck(true); }, 5000);     // подтвердил в другой вкладке — откроемся сами
-  }
-  async function mailGateRaw(path, body) {
-    const r = await fetch('api/admin/' + path, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {},
-      body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
-    const d = await r.json().catch(() => ({}));
-    if (r.status === 401) { clearInterval(mailGateTimer); $('#mailGate').hidden = true; showLogin(); throw new Error('Войдите заново'); }
-    if (!r.ok) throw new Error(d.error || 'Нет связи с сервером');
-    return d;
-  }
-  async function mailGateCheck(quiet) {
-    const msg = $('#mailGateMsg');
-    try {
-      const me = await mailGateRaw('me');
-      if (!me.email_need) { clearInterval(mailGateTimer); location.reload(); return; }
-      $('#mailGateAddr').textContent = me.email;
-      if (!quiet) { msg.className = 'login-err'; msg.textContent = 'Почта ещё не подтверждена — откройте ссылку из письма'; }
-    } catch (e) { if (!quiet) { msg.className = 'login-err'; msg.textContent = e.message; } }
-  }
-  $('#mailGateCheck').addEventListener('click', () => mailGateCheck(false));
-  $('#mailGateResend').addEventListener('click', async e => {
-    const msg = $('#mailGateMsg');
-    e.target.disabled = true;
-    try {
-      const r = await mailGateRaw('email/resend', {});
-      if (r.confirmed) { location.reload(); return; }
-      msg.className = 'login-err ok'; msg.textContent = `Письмо отправлено на ${r.email}`;
-    } catch (err) { msg.className = 'login-err'; msg.textContent = err.message; }
-    finally { e.target.disabled = false; }
-  });
-  $('#mailGateForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const msg = $('#mailGateMsg'), btn = e.target.querySelector('button');
-    btn.disabled = true;
-    try {
-      const r = await mailGateRaw('email/change', { email: $('#mailGateNew').value.trim() });
-      $('#mailGateAddr').textContent = r.email;
-      $('#mailGateNew').value = '';
-      e.target.closest('details').open = false;
-      msg.className = 'login-err ok'; msg.textContent = `Адрес изменён. Письмо отправлено на ${r.email}`;
-    } catch (err) { msg.className = 'login-err'; msg.textContent = err.message; }
-    finally { btn.disabled = false; }
-  });
-  $('#mailGateOut').addEventListener('click', async () => {
-    clearInterval(mailGateTimer);
-    try { await fetch('api/admin/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin' }); } catch (e) { /* выйдем всё равно */ }
-    location.href = '/welcome';
-  });
+  // Закрытый аккаунт видит отдельную страницу двух проверок.
+  function showMailGate() { location.replace('/admin'); }
 
   // кто вошёл: главный учитель видит всех учеников и управляет учителями
   let ME = { is_main: 1 };
@@ -219,7 +165,7 @@
   async function loadMe() {
     const previous = bldKey();
     ME = await api('me');
-    if (ME.email_need) { showMailGate(); throw Object.assign(new Error('Подтвердите почту'), { status: 401 }); }   // панель — после подтверждения
+    if (ME.onboarding && !ME.onboarding.ready) { showMailGate(); throw Object.assign(new Error('Дождитесь обеих проверок'), { status: 401 }); }
     if (previous !== bldKey()) bldLoad();
     document.body.classList.toggle('is-main', !!ME.is_main);
     $('#admWho').textContent = ME.name + (ME.is_main ? ' · главный' : '');
@@ -1912,14 +1858,14 @@
         <td class="muted">${s.last ? fmtWhen(s.last) : s.lab ? 'ещё не занимался' : '—'}</td></tr>
         ${ARD.open === s.id ? `<tr class="cp-detail"><td colspan="${cols}">${ardDetailHtml(s.id)}</td></tr>` : ''}`).join('');
     $('#ardBody').innerHTML = `<div class="adm-cards">
-        ${card('С доступом', d.students.length, 'учеников открыли лаборатории')}
+        ${card('С доступом', d.students.length, 'учеников открыли Arduino')}
         ${card('Занимались', active.length, 'есть пройденные шаги уроков')}
         ${card('Пройдено уроков', d.students.reduce((a, s) => a + d.tracks.reduce((b, t) => b + ((s[t.id] || {}).done || 0), 0), 0), 'всеми учениками вместе')}
         ${card('За неделю', d.students.filter(s => (s.last || 0) >= week).length, 'занимались в Arduino')}
       </div>
-      ${d.pw_set ? '' : '<p class="adm-hint main-only">Пароль лабораторий ещё не задан — во вкладке <a href="#" data-goto-tab="access">«Пароли и доступы»</a>.</p>'}
+      ${d.pw_set ? '' : '<p class="adm-hint main-only">Пароль лаборатории Arduino ещё не задан — во вкладке <a href="#" data-goto-tab="access">«Пароли и доступы»</a>.</p>'}
       <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th>${d.tracks.map(t => `<th class="num">${esc(t.title)}</th>`).join('')}<th>Последнее занятие</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="${cols}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Пока никто не открыл лаборатории — сообщите ученикам пароль лабораторий.'}</td></tr>`}</tbody></table></div>`;
+        <tbody>${rows || `<tr><td colspan="${cols}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Пока никто не открыл лабораторию Arduino — сообщите ученикам её пароль.'}</td></tr>`}</tbody></table></div>`;
   }
   function ardDetailHtml(sid) {
     const x = ARD.detail[sid];
@@ -2709,9 +2655,23 @@
 
   // ------------------------------------------------------------ учителя (главный)
   let editTeacher = null;
+  function moderationCell(t) {
+    if (t.is_main) return '';
+    const g = t.onboarding || {};
+    const labels = {pending: 'На модерации', approved: 'Одобрен', rejected: 'Отклонён'};
+    return `<div class="t-moderation"><span class="chip ${g.moderation === 'approved' ? 'good' : 'weak'}">${labels[g.moderation] || labels.pending}</span>
+      <span class="chip ${g.email_confirmed ? 'good' : 'weak'}">${g.email_confirmed ? 'Почта подтверждена' : 'Почта не подтверждена'}</span>
+      ${g.note ? `<p class="t-review-note">${esc(g.note)}</p>` : ''}
+      <div class="t-moderation-actions">
+        ${g.moderation !== 'approved' ? `<button type="button" class="btn sm" data-tmoderate="${t.id}" data-decision="approved">Одобрить</button>` : ''}
+        ${g.moderation !== 'rejected' ? `<button type="button" class="btn sm ghost" data-tmoderate="${t.id}" data-decision="rejected">Отклонить</button>` : ''}
+        ${g.moderation !== 'pending' ? `<button type="button" class="link-btn" data-tmoderate="${t.id}" data-decision="pending">На пересмотр</button>` : ''}
+      </div></div>`;
+  }
   function accessCell(t) {
     const a = t.access || { state: 'full' };
     if (t.is_main) return '<span class="muted">—</span>';
+    if (t.onboarding && !t.onboarding.ready) return moderationCell(t) + '<div class="muted t-sub">Все функции закрыты до обеих проверок</div>';
     const ext = `<span class="t-ext"><button type="button" class="btn sm" data-text="${t.id}" data-days="30">+30 дн</button>
       <button type="button" class="btn sm" data-text="${t.id}" data-days="365">+год</button>
       <button type="button" class="btn sm ghost" data-text="${t.id}" data-days="0" title="Без срока">∞</button>
@@ -2721,7 +2681,7 @@
     else if (a.expired) st = `<span class="chip weak">${a.state === 'paid' ? 'оплата' : 'пробный'} кончился ${fmtDate(a.until)}</span>`;
     else st = `<span class="chip ${a.state === 'paid' ? 'good' : ''}">${a.state === 'paid' ? 'оплачен' : 'пробный'} до ${fmtDate(a.until)}</span>`;
     const req = t.renew_ts ? `<div class="t-req">🔔 просит продлить ${fmtWhen(t.renew_ts)}${t.renew_note ? `: «${esc(t.renew_note)}»` : ''}</div>` : '';
-    return st + req + ext;
+    return moderationCell(t) + st + req + ext;
   }
   let offer = null;
   async function loadTeachers() {
@@ -2729,7 +2689,8 @@
     try { d = await api('teachers'); teachers = d.teachers; } catch (e) { if (e.status !== 401) toast(e.message); return; }
     const req = teachers.filter(t => t.renew_ts).length;
     $('#teachersSum').innerHTML = `Учителей: <b>${teachers.length}</b>${d.guests_now ? ` · сейчас в гостевом доступе: <b>${d.guests_now}</b>` : ''}${req ? ` · <b style="color:var(--review)">просят продлить: ${req}</b>` : ''}${d.mail_on ? '' : ' · <span class="muted">письма с сервера не отправляются (SMTP не настроен)</span>'}`;
-    $('#teachersTable tbody').innerHTML = teachers.map(t => `<tr${t.renew_ts ? ' class="t-renew"' : ''}>
+    if (d.pending) $('#teachersSum').insertAdjacentHTML('beforeend', ` · <b>Ожидают модерации: ${d.pending}</b>`);
+    $('#teachersTable tbody').innerHTML = teachers.map(t => `<tr${t.renew_ts || t.onboarding?.moderation === 'pending' ? ' class="t-renew"' : ''}>
       <td class="name">${esc(t.name)}${t.is_main ? ' <span class="chip">главный</span>' : ''}<div class="muted t-sub">код: <code>${esc(t.invite)}</code>${t.created ? ` · с ${fmtDate(t.created)}` : ''}</div></td>
       <td>${t.email ? `<a href="mailto:${esc(t.email)}">${esc(t.email)}</a>` : `<code>${esc(t.login)}</code>`}</td>
       <td class="t-acc">${accessCell(t)}</td>
@@ -2781,6 +2742,24 @@
     $('#tMsg').textContent = '';
   }
   $('#teachersTable tbody').addEventListener('click', async e => {
+    const review = e.target.closest('[data-tmoderate]');
+    if (review) {
+      const t = teachers.find(item => item.id === +review.dataset.tmoderate);
+      if (!t) return;
+      const decision = review.dataset.decision;
+      let note = '';
+      if (decision === 'approved') {
+        if (!confirm(`Одобрить аккаунт «${t.name}»? Доступ откроется только при подтверждённой почте.`)) return;
+      } else {
+        note = prompt(`${decision === 'rejected' ? 'Отклонить заявку' : 'Вернуть на модерацию'} «${t.name}». Доступ будет закрыт. Комментарий учителю (необязательно):`, t.onboarding?.note || '');
+        if (note === null) return;
+      }
+      review.disabled = true;
+      try { await api('teacher/moderate', {id: t.id, decision, note}); toast('Решение сохранено'); await loadTeachers(); }
+      catch (err) { if (err.status !== 401) toast(err.message); }
+      finally { review.disabled = false; }
+      return;
+    }
     const x = e.target.closest('[data-text]');
     if (x) {
       const t = teachers.find(y => y.id === +x.dataset.text), days = +x.dataset.days;
@@ -2808,7 +2787,7 @@
       const login = $('#tLogin').value.trim().toLowerCase(), pw = $('#tPass').value;
       fillTeacherForm(null);
       msg.className = 'login-err ok';
-      msg.textContent = `Сохранено. Логин: ${login}${pw ? ', пароль: ' + pw : ''}, код для учеников: ${r.invite}`;
+      msg.textContent = `Сохранено. Логин: ${login}${pw ? ', пароль: ' + pw : ''}. Для доступа учителю обязательно нужно подтвердить почту при входе.`;
       loadTeachers();
     } catch (err) { if (err.status !== 401) msg.textContent = err.message; }
   });
@@ -4508,7 +4487,8 @@
   const ACC = [
     { kind: 'course', title: 'Курс по заданиям', icon: '🎓', what: 'Раздел «Курс ЕГЭ»: уроки по номерам 1–27 и подборки к ним.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
     { kind: 'pyc', title: 'Курс программирования', icon: '🐍', what: 'Курс «Программирование для ЕГЭ»: Python с нуля и темы по номерам.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
-    { kind: 'lab', title: 'Лаборатории', icon: '🧪', what: 'Лабораторные работы, пошаговая лаборатория программирования, «Исправление ошибок» и Arduino.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
+    { kind: 'lab', title: 'Лаборатории', icon: '🧪', what: 'Лабораторные работы, пошаговая лаборатория программирования и «Исправление ошибок».', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
+    { kind: 'ard', title: 'Лаборатория Arduino', icon: '🔌', what: 'Отдельное приложение: схемы, код и симулятор Arduino, 2 курса по 36 уроков. Свой пароль — пароль лабораторий его не открывает.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
   ];
   function renderPasswords(d) {
     $('#accGrid').innerHTML = ACC.map(a => {
@@ -4589,7 +4569,8 @@
     const msg = $('#reportMsg');
     msg.className = 'login-err';
     try {
-      await api('report', { email: $('#reportEmail').value, on: $('#reportOn').checked });
+      const result = await api('report', { email: $('#reportEmail').value, on: $('#reportOn').checked });
+      if (result.onboarding && !result.onboarding.ready) { showMailGate(); return; }
       ME.email = $('#reportEmail').value.trim().toLowerCase(); ME.report = $('#reportOn').checked;
       msg.className = 'login-err ok';
       msg.textContent = ME.report && ME.email ? 'Сохранено: отчёт придёт в понедельник утром' : 'Сохранено';

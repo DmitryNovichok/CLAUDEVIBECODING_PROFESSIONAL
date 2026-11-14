@@ -47,6 +47,7 @@ class TogetherSoloTest(unittest.TestCase):
         tid = self.db.x('INSERT INTO teachers(name,login,pw,invite,created,consent_ver) VALUES(?,?,?,?,?,?)',
                         ('Учитель Макетов', key, server.hash_pw('synthetic-pass'),
                          key, time.time(), server.LEGAL_VERSION))
+        self.c.approve_fixture_teacher(tid)
         self.db.x('INSERT INTO admin_sessions(token,expires,teacher_id) VALUES(?,?,?)',
                   (key, time.time() + 3600, tid))
         return tid, 'egeadm=' + key

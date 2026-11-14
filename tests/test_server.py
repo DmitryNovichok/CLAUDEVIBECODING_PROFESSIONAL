@@ -1151,6 +1151,21 @@ class ServerTest(unittest.TestCase):
         dump = json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")])
         for pw in ("synthetic-course-1", "synthetic-course-2", "synthetic-all-3"):
             self.assertNotIn(pw, dump)
+        # лаборатория Arduino: «один пароль на всё» её не задаёт; пароль лабораторий её не открывает — у неё свой
+        self.assertFalse(d["ard"]["set"])
+        self.assertEqual(self.req("POST", "/api/arduino/unlock", {"password": "synthetic-all-3"}, tok)[0], 403)
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertEqual((me["lab"], me["ard"], me["ard_pw"]), (True, False, False))
+        d = self.admin("POST", "/api/admin/access", {"kind": "ard", "password": "synthetic-ard-4"})[1]
+        self.assertTrue(d["ard"]["set"])
+        self.assertEqual(self.req("POST", "/api/arduino/unlock", {"password": "synthetic-all-3"}, tok)[0], 403)
+        self.assertTrue(self.req("POST", "/api/arduino/unlock", {"password": "synthetic-ard-4"}, tok)[1]["access"])
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["ard"])
+        self.assertEqual(self.admin("GET", "/api/admin/access")[1]["ard"]["students"], 1)
+        self.assertNotIn("synthetic-ard-4", json.dumps([dict(x) for x in server.APP.db.q("SELECT * FROM settings")]))
+        d = self.admin("POST", "/api/admin/access", {"kind": "ard", "off": True})[1]
+        self.assertEqual((d["ard"]["set"], d["ard"]["students"], d["lab"]["set"]), (False, 0, True))
+        self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["ard"])
         # выключить один раздел — остальные не трогаются
         d = self.admin("POST", "/api/admin/access", {"kind": "pyc", "off": True})[1]
         self.assertEqual((d["course"]["set"], d["pyc"]["set"], d["lab"]["set"], d["pyc"]["students"]), (True, False, True, 0))
@@ -2197,6 +2212,7 @@ class ServerTest(unittest.TestCase):
                                                                 "password": "secret77", "invite": "MARIA1"})
         self.assertEqual(st, 200, d)
         tid = d["id"]
+        self.approve_fixture_teacher(tid)
         self.assertEqual(self.admin("POST", "/api/admin/teacher/save", {"name": "X", "login": "maria2",
                                                                         "password": "secret77", "invite": "MARIA1"})[0], 409)
         # учитель входит своим логином
@@ -2374,7 +2390,8 @@ class ServerTest(unittest.TestCase):
             c.request("GET", "/", headers={"Accept-Encoding": "gzip"} if gz else {})
             r = c.getresponse(); body = r.read(); enc = r.getheader("Content-Encoding"); c.close()
             return gzip.decompress(body).decode() if enc == "gzip" else body.decode()
-        index, app = server.HERE / "index.html", server.HERE / "app.js"
+        index, app = server.HERE / "index.html", server.HERE / "min" / "app.js"
+        app.parent.mkdir(exist_ok=True)
         saved = {f: f.read_bytes() if f.exists() else None for f in (index, app)}
         index.write_text('<!doctype html><script src="app.js"></script>' + "x" * 3000, encoding="utf-8")
         app.write_text("// app", encoding="utf-8")
@@ -2425,25 +2442,31 @@ class ServerTest(unittest.TestCase):
         tok = self.login("Макетов Электрон")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
         db = server.APP.db
-        old_pw = db.setting("lab_pw")
-        self.addCleanup(db.setting, "lab_pw", old_pw or "")
+        old_pw = db.setting("ard_pw")
+        self.addCleanup(db.setting, "ard_pw", old_pw or "")
         self.addCleanup(db.x, "DELETE FROM students WHERE id=?", (sid,))
-        db.setting("lab_pw", server.hash_pw("synthetic-arduino-lab"))
+        db.setting("ard_pw", server.hash_pw("synthetic-arduino-lab"))
         for path in ("/arduino/", "/arduino/index.html"):
             self.assertEqual(self.req("GET", path)[0], 302)
             self.assertEqual(self.req("GET", path, token=tok)[0], 302)
-        server.APP.db.x("UPDATE students SET lab=1 WHERE id=?", (sid,))
+        server.APP.db.x("UPDATE students SET ard=1 WHERE id=?", (sid,))
         st, body = self.req("GET", "/arduino/", token=tok)
         self.assertEqual(st, 200)
         self.assertIn(b'egeshka.js?v=', body)
         self.assertIn(b'data-src="app.js?v=', body)
-        server.APP.db.x("UPDATE students SET lab=0 WHERE id=?", (sid,))
+        server.APP.db.x("UPDATE students SET ard=0 WHERE id=?", (sid,))
         self.assertEqual(self.req("GET", "/arduino/", token=tok)[0], 302)
         self.assertIn(b"egeshka.js", body)
         self.assertIn(b"app.js", body)
-        for f in ("app.js", "elements.js", "egeshka.js", "lab.css", "blink-uno.hex", "licenses.txt", "LICENSE",
-                  "fonts/ibm-plex-sans-cyrillic-400-normal.woff2"):
-            self.assertEqual(self.req("GET", "/arduino/" + f)[0], 200, f)
+        files = ("app.js", "elements.js", "egeshka.js", "lab.css", "blink-uno.hex", "licenses.txt", "LICENSE",
+                 "fonts/ibm-plex-sans-cyrillic-400-normal.woff2")
+        for f in files:                                   # код приложения — только с доступом к лабораториям
+            self.assertEqual(self.req("GET", "/arduino/" + f)[0], 403, f)
+            self.assertEqual(self.req("GET", "/arduino/" + f, token=tok)[0], 403, f)
+        server.APP.db.x("UPDATE students SET ard=1 WHERE id=?", (sid,))
+        for f in files:
+            self.assertEqual(self.req("GET", "/arduino/" + f, token=tok)[0], 200, f)
+        server.APP.db.x("UPDATE students SET ard=0 WHERE id=?", (sid,))
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         c.request("GET", "/arduino")
         r = c.getresponse(); r.read(); c.close()
@@ -2707,7 +2730,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/consent", {"accept": True}, tok)[0], 200)
         self.assertFalse(self.req("GET", "/api/me", token=tok)[1]["consent_needed"])
         for page in ("terms.html", "privacy.html", "consent.html", "legal.css"):
-            shutil.copy(Path(__file__).resolve().parent.parent / page, server.HERE / page)
+            repo = Path(__file__).resolve().parent.parent
+            target = server.site_asset(page)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(repo / ("min/" + page if page in server.MIN_FILES else page), target)
             c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
             c.request("GET", "/" + page)
             r = c.getresponse()
@@ -3441,6 +3467,24 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/forbes")[0], 401)
 
     # ------------------------------------------------------------ учитель сам: регистрация, пробный период, гость
+    def approve_fixture_teacher(self, tid):
+        """Synthetic active teacher for tests unrelated to onboarding; never called by request helpers."""
+        db = server.APP.db
+        db.x("UPDATE teachers SET email=COALESCE(email, ?), email_ok=1, moderation='approved' WHERE id=?",
+             (f'fixture{tid}@example.invalid', tid))
+        server.activate_teacher_trial(db, tid)
+
+    def legacy_guest(self):
+        """A pre-migration guest account, to exercise conversion and cleanup without reopening signup."""
+        db = server.APP.db
+        key = server.secrets.token_hex(10)
+        now = time.time()
+        tid = db.x("INSERT INTO teachers(name,login,pw,invite,created,guest,until) VALUES('Гость',?,?,?,?,1,?)",
+                   (key, server.hash_pw('synthetic-pass'), key, now, now+server.GUEST_SECONDS))
+        db.x('INSERT INTO admin_sessions(token,expires,teacher_id) VALUES(?,?,?)', (key, now+86400, tid))
+        server.seed_demo(db, tid)
+        return dict(db.q('SELECT * FROM teachers WHERE id=?', (tid,), one=True)), 'egeadm=' + key
+
     def creq(self, method, path, body=None, cookie=None, ip="203.0.113.9"):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
         h = {"Content-Type": "application/json", "X-Forwarded-For": ip}
@@ -3468,6 +3512,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200, d)
         self.assertTrue(ck.startswith("egeadm="))
         st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
+        self.assertFalse(me['onboarding']['ready'])
+        self.assertEqual(self.creq('GET', '/api/admin/classes', cookie=ck)[0], 403)
+        self.approve_fixture_teacher(me['id'])
+        st, me, _ = self.creq('GET', '/api/admin/me', cookie=ck)
         self.assertEqual(me["access"]["state"], "trial")
         self.assertAlmostEqual(me["access"]["left"], server.TRIAL_DAYS * 86400, delta=60)
         self.assertEqual(me["steps"], {"class": False, "students": 0, "asg": False})
@@ -3521,53 +3569,40 @@ class ServerTest(unittest.TestCase):
 
     def test_guest_teacher_demo_and_signup_keeps_account(self):
         db = server.APP.db
-        st, d, ck = self.creq("POST", "/api/teacher/guest", {})
-        self.assertEqual(st, 200, d)
-        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
-        self.assertTrue(me["guest"])
-        self.assertEqual(me["access"]["state"], "guest")
-        self.assertAlmostEqual(me["access"]["left"], server.GUEST_SECONDS, delta=60)
-        tid = me["id"]
-        st, d, _ = self.creq("GET", "/api/admin/classes", cookie=ck)
-        demo = next(c for c in d["classes"] if c["name"] == server.DEMO_CLASS)
-        self.assertEqual(demo["students"], len(server.DEMO_NAMES))
-        st, dg, _ = self.creq("GET", f"/api/admin/class/digest?class_id={demo['id']}", cookie=ck)
-        self.assertEqual(st, 200, dg)
-        self.assertIsNotNone(dg["forecast_avg"])
-        self.assertEqual(len(dg["inactive"]), 2)                     # двое демо-учеников давно не заходили
-        self.assertFalse(me["steps"]["class"])                       # демо-класс не считается шагом
-        # настоящий ученик по коду гостя не регистрируется
-        st, d = self.req("POST", "/api/login", {"mode": "register", "consent": True, "code": me["invite"], "name": "Гостевой Ученик",
-                                                "new_password": "secret1"})
-        self.assertEqual(st, 403)
-        # демо-ответы не попадают в статистику сайта и в «решают %» конструктора
-        server._RATES["ts"] = 0
-        demo_ids = {r["task_id"] for r in db.q("SELECT task_id FROM attempts a JOIN students s ON s.id=a.student_id WHERE s.name_key LIKE ?",
-                                               (f"demo:{tid}:%",))}
-        real_ids = {r["task_id"] for r in db.q("SELECT task_id FROM attempts a JOIN students s ON s.id=a.student_id WHERE s.name_key NOT LIKE 'demo:%'")}
-        self.assertFalse((demo_ids - real_ids) & set(server.task_rates(db)))
-        st, ss = self.admin("GET", "/api/admin/site-stats")
-        self.assertEqual(st, 200, ss)
-        self.assertFalse(any(t["name"] == "Гость" for t in ss["by_teacher"]))
-        self.assertEqual(ss["users"], db.q("SELECT COUNT(*) c FROM students WHERE COALESCE(is_teacher,0)=0 AND name_key NOT LIKE 'demo:%'", one=True)["c"])
-        st, d, _ = self.creq("GET", "/api/admin/students?class_id=all", cookie=ck)
-        self.assertTrue(all(s["no_rank"] for s in d["students"]))   # демо-ученики вне рейтингов
-        # гость регистрируется — аккаунт тот же, демо-класс уходит
-        st, d, ck2 = self.creq("POST", "/api/teacher/signup", {"name": "Гостев Глеб", "email": "gleb@example.ru",
-                                                               "password": "longpass1", "accept": True}, cookie=ck)
-        self.assertEqual(st, 200, d)
-        st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck2)
-        self.assertEqual((me["id"], me["guest"], me["access"]["state"]), (tid, False, "trial"))
-        self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{tid}:%",)))
-        self.assertFalse(db.q("SELECT 1 FROM classes WHERE teacher_id=?", (tid,)))
-        # закончившийся гость стирается через сутки
-        st, d, ck3 = self.creq("POST", "/api/teacher/guest", {}, ip="203.0.113.77")
-        st, me3, _ = self.creq("GET", "/api/admin/me", cookie=ck3)
-        db.x("UPDATE teachers SET until=? WHERE id=?", (time.time() - server.GUEST_KEEP_SECONDS - 10, me3["id"]))
+        self.assertEqual(self.creq('POST', '/api/teacher/guest', {})[0], 403)
+        legacy, ck = self.legacy_guest()
+        tid = legacy['id']
+        self.assertTrue(self.creq('GET', '/api/admin/me', cookie=ck)[1]['onboarding']['registration_required'])
+        self.assertEqual(self.creq('GET', '/api/admin/classes', cookie=ck)[0], 403)
+        demo = db.q('SELECT * FROM classes WHERE teacher_id=? AND is_demo=1', (tid,), one=True)
+        self.assertTrue(demo)
+        pupils = db.q('SELECT * FROM students WHERE teacher_id=?', (tid,))
+        self.assertEqual(len(pupils), len(server.DEMO_NAMES))
+        self.assertTrue(all(s['no_rank'] for s in pupils))
+        self.assertFalse(server.teacher_steps(db, tid)['class'])
+        status, _ = self.req('POST', '/api/login', {'mode':'register', 'consent':True,
+            'code':legacy['invite'], 'name':'Гостевой Ученик', 'new_password':'secret1'})
+        self.assertEqual(status, 403)
+        server._RATES['ts'] = 0
+        demo_ids = {r['task_id'] for r in db.q('SELECT task_id FROM attempts a JOIN students s ON s.id=a.student_id WHERE s.teacher_id=?', (tid,))}
+        real_ids = {r['task_id'] for r in db.q("SELECT task_id FROM attempts a JOIN students s ON s.id=a.student_id WHERE s.name_key NOT LIKE 'demo:%'")}
+        self.assertFalse((demo_ids-real_ids) & set(server.task_rates(db)))
+        status, stats = self.admin('GET', '/api/admin/site-stats')
+        self.assertFalse(any(t['name'] == 'Гость' for t in stats['by_teacher']))
+        status, data, ck2 = self.creq('POST', '/api/teacher/signup', {'name':'Гостев Глеб',
+            'email':'gleb@example.ru', 'password':'longpass1', 'accept':True}, cookie=ck)
+        self.assertEqual(status, 200, data)
+        me = self.creq('GET', '/api/admin/me', cookie=ck2)[1]
+        self.assertEqual((me['id'], me['guest'], me['onboarding']['moderation']), (tid, False, 'pending'))
+        self.assertFalse(me['onboarding']['ready'])
+        self.assertFalse(db.q('SELECT 1 FROM students WHERE teacher_id=?', (tid,)))
+        self.assertFalse(db.q('SELECT 1 FROM classes WHERE teacher_id=?', (tid,)))
+        old, _ = self.legacy_guest()
+        db.x('UPDATE teachers SET until=? WHERE id=?', (time.time()-server.GUEST_KEEP_SECONDS-10, old['id']))
         server.purge_guests(db)
-        self.assertFalse(db.q("SELECT 1 FROM teachers WHERE id=?", (me3["id"],)))
-        self.assertFalse(db.q("SELECT 1 FROM students WHERE name_key LIKE ?", (f"demo:{me3['id']}:%",)))
-        db.x("DELETE FROM teachers WHERE id=?", (tid,))
+        self.assertFalse(db.q('SELECT 1 FROM teachers WHERE id=?', (old['id'],)))
+        self.assertFalse(db.q('SELECT 1 FROM students WHERE teacher_id=?', (old['id'],)))
+        db.x('DELETE FROM teachers WHERE id=?', (tid,))
 
     def test_weekly_report_mail(self):
         db = server.APP.db
@@ -3741,7 +3776,7 @@ class ServerTest(unittest.TestCase):
 
     def test_guest_end_and_switch_to_main(self):
         db = server.APP.db
-        st, d, ck = self.creq("POST", "/api/teacher/guest", {}, ip="203.0.113.91")
+        legacy, ck = self.legacy_guest()
         st, me, _ = self.creq("GET", "/api/admin/me", cookie=ck)
         gid = me["id"]
         st, d, ck2 = self.creq("POST", "/api/admin/login", {"login": "", "password": "wrong"}, cookie=ck, ip="203.0.113.91")
@@ -3811,16 +3846,18 @@ class ServerTest(unittest.TestCase):
             st, d = self.req("POST", "/api/email/confirm", {"t": link_of(sent[-1][1])})
             self.assertEqual((st, d["kind"]), (200, "t"))
             self.assertFalse(self.creq("GET", "/api/admin/me", cookie=ck)[1]["email_need"])
-            self.assertEqual(self.creq("GET", "/api/admin/classes", cookie=ck)[0], 200)           # панель открылась
+            self.assertEqual(self.creq("GET", "/api/admin/classes", cookie=ck)[0], 403)
+            self.assertEqual(self.admin('POST', '/api/admin/teacher/moderate', {'id': me['id'], 'decision': 'approved'})[0], 200)
+            self.assertEqual(self.creq("GET", "/api/admin/classes", cookie=ck)[0], 200)           # обе проверки пройдены
             self.assertEqual(self.creq("POST", "/api/admin/email/change", {"email": "x@example.ru"}, cookie=ck)[0], 409)
-            # главный учитель и учителя, добавленные им вручную, подтверждать ничего не должны
+            # главный учитель сохраняет доступ для модерации
             self.assertFalse(self.admin("GET", "/api/admin/me")[1]["email_need"])
-        # почта на сервере не настроена — подтверждение не требуется вовсе
+        # отсутствие SMTP не снимает обязательное подтверждение
         server.THROTTLE.fails.clear()
         st, d, ck2 = self.creq("POST", "/api/teacher/signup", {"name": "Безпочтова Анна", "email": "nomail@example.ru",
                                                                "password": "secret123", "accept": True}, ip="203.0.113.78")
-        self.assertEqual((st, d["email_need"]), (200, False), d)
-        self.assertEqual(self.creq("GET", "/api/admin/classes", cookie=ck2)[0], 200)
+        self.assertEqual((st, d["email_need"]), (200, True), d)
+        self.assertEqual(self.creq("GET", "/api/admin/classes", cookie=ck2)[0], 403)
         server.delete_student(db, db.q("SELECT id FROM students WHERE login='pochtin'", one=True)["id"])
         db.x("DELETE FROM teachers WHERE email IN ('pismova.i@example.ru', 'nomail@example.ru')")
         server._CONFIRM_SENT.clear()
@@ -3845,7 +3882,7 @@ class ServerTest(unittest.TestCase):
         f = self.admin("GET", "/api/admin/site-stats")[1]["funnel"]["7"]
         self.assertEqual((f["welcome"], f["teacher"], f["student"]), (3, 2, 1))
         self.assertEqual(f["signup"], before["signup"] + 1)
-        self.assertEqual(f["confirmed"], before["confirmed"] + 1)       # почта на тестовом сервере не настроена — подтверждена сразу
+        self.assertEqual(f["confirmed"], before["confirmed"])       # регистрация не подтверждает почту
         db.x("DELETE FROM teachers WHERE email='funnel@example.ru'")
         db.x("DELETE FROM funnel")
 
@@ -3853,6 +3890,7 @@ class ServerTest(unittest.TestCase):
         st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Экономова Ольга", "login": "econ2",
                                                                 "password": "secret77", "invite": "ECON22"})
         self.assertEqual(st, 200, d)
+        self.approve_fixture_teacher(d["id"])
         server.THROTTLE.fails.clear()
         st, d, ck = self.teacher_req("", "POST", "/api/admin/login", {"login": "econ2", "password": "secret77"})
         self.assertEqual(st, 200, d)
@@ -3875,7 +3913,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.creq("POST", "/api/visit", {"vid": "b" * 16, "role": "guest", "stage": "panel"})[0], 403)  # не гость
         self.assertEqual(self.creq("POST", "/api/visit", {"vid": "s" * 16, "role": "student", "stage": "reg"})[0], 200)
         self.assertEqual(self.creq("POST", "/api/visit", {"vid": "t" * 16, "role": "teacher", "stage": "signup"})[0], 200)
-        st, d, ck = self.creq("POST", "/api/teacher/guest", {}, ip="203.0.113.92")
+        legacy, ck = self.legacy_guest()
         self.assertEqual(self.creq("POST", "/api/visit", {"vid": "g" * 16, "role": "guest", "stage": "panel"}, cookie=ck)[0], 200)
         st, v = self.admin("GET", "/api/admin/visitors")
         self.assertEqual(st, 200)
@@ -4899,7 +4937,8 @@ class ServerTest(unittest.TestCase):
     def test_page_assets_versioned_and_snippet_tex(self):
         # страница отдаёт скрипты с версией в адресе — новая версия сайта не застрянет в кэше браузера
         (server.HERE / "index.html").write_text('<script src="app.js"></script><link rel="stylesheet" href="style.css">', encoding="utf-8")
-        (server.HERE / "app.js").write_text("1", encoding="utf-8")
+        (server.HERE / "min").mkdir(exist_ok=True)
+        (server.HERE / "min" / "app.js").write_text("1", encoding="utf-8")
         c = __import__("http.client").client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         c.request("GET", "/")
         r = c.getresponse()
@@ -5219,6 +5258,7 @@ class ServerTest(unittest.TestCase):
         # учитель-ученик в разделе не участвует; чужая работа учителю не видна
         st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Другая Учительница", "login": "mkother", "password": "secret77", "invite": "MKOTH1"})
         self.assertEqual(st, 200, d)
+        self.approve_fixture_teacher(d["id"])
         server.APP.db.x("INSERT INTO admin_sessions(token, expires, teacher_id) VALUES('mkoth', ?, ?)", (time.time() + 3600, d["id"]))
         self.assertEqual(self.teacher_req("egeadm=mkoth", "GET", f"/api/admin/mcko/results?id={wid}")[0], 404)
         self.assertEqual(self.teacher_req("egeadm=mkoth", "POST", "/api/admin/mcko/work", {"class_id": cid})[0], 404)
@@ -5228,18 +5268,66 @@ class ServerTest(unittest.TestCase):
         server.APP.db.x("DELETE FROM mcko_off")
         self.admin("POST", "/api/admin/mcko/work/delete", {"id": wid})
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
+    # ------------------------------------------------------------ код сайта для посетителей
+    def raw(self, path, cookie=None):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", path, headers={"Cookie": cookie} if cookie else {})
+        r = c.getresponse()
+        body = r.read().decode("utf-8", "replace")
+        c.close()
+        return r.status, body, r.getheader("Cache-Control") or ""
+
+    def test_site_code_for_visitors(self):
+        import shutil
+        repo = Path(__file__).resolve().parent.parent
+        for name in ("admin.html", "admin.js", "admin-login.js", "app.js"):
+            shutil.copy(repo / name, self.tmp / name)
+        (self.tmp / "min").mkdir(exist_ok=True)
+        (self.tmp / "min" / "app.js").write_text("/* © Egeshka */(function(){})();", encoding="utf-8")
+        shutil.copy(repo / "min" / "admin.js", self.tmp / "min" / "admin.js")
+        try:
+            self._site_code_checks()
+        finally:
+            shutil.rmtree(self.tmp / "min")
+            for name in ("admin.html", "admin.js", "admin-login.js", "app.js"):
+                (self.tmp / name).unlink()
+
+    def _site_code_checks(self):
+        # панель учителя: без входа — только форма входа, с входом — код панели; ни то ни другое не кэшируется надолго
+        st, body, cc = self.raw("/admin.js?v=1")
+        self.assertEqual(st, 200)
+        self.assertIn("api/admin/login", body)
+        self.assertNotIn("mkBank", body)
+        self.assertIn("private", cc)
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        st, body, cc = self.raw("/admin.js?v=1", "egeadm=admtest")
+        self.assertEqual(st, 200)
+        self.assertGreater(len(body), 100000)
+        self.assertIn("private", cc)
+        # посетителю уходит сжатая копия (если min/ собран), а исходные модули и сервер не отдаются
+        st, body, _ = self.raw("/app.js")
+        self.assertEqual(st, 200)
+        self.assertTrue(body.startswith("/* © Egeshka"))
+        for path in ("/src/app/01-core.js", "/server.py", "/data/mcko_bank.json", "/tools/minify.py", "/min/app.js"):
+            self.assertEqual(self.raw(path)[0], 404, path)
+        page = self.raw("/admin")[1]
+        self.assertRegex(page, r'admin\.js\?v=[0-9a-f]+')
+        # приложение Arduino и его исходники — только с доступом к лабораториям
+        self.assertEqual(self.raw("/arduino/app.js")[0], 403)
+        self.assertEqual(self.raw("/arduino/source/src/app.js")[0], 403)
+
     # ------------------------------------------------------------ прогресс лаборатории Arduino
     def test_arduino_progress_for_teacher(self):
         tok = self.login("Ардуинов Артём")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
         junior = [["first-light", "Первый свет", 1, 1, 1], ["blink", "Мигание", 1, 0, 0]] + [[f"l{i}", f"Урок {i}", 0, 0, 0] for i in range(3, 37)]
         body = {"tracks": {"junior": junior, "senior": []}}
-        # без доступа к лабораториям прогресс не принимается
+        # без пароля лаборатории Arduino прогресс не принимается
         self.assertTrue(self.req("POST", "/api/arduino/progress", body, tok)[1].get("skipped"))
-        server.APP.db.x("UPDATE students SET lab=1 WHERE id=?", (sid,))
-        pw = server.APP.db.setting("lab_pw")
+        server.APP.db.x("UPDATE students SET ard=1 WHERE id=?", (sid,))
+        pw = server.APP.db.setting("ard_pw")
         if not pw:
-            server.APP.db.x("INSERT OR REPLACE INTO settings(key, value) VALUES('lab_pw', 'x')")
+            server.APP.db.x("INSERT OR REPLACE INTO settings(key, value) VALUES('ard_pw', 'x')")
         try:
             self.assertEqual(self.req("POST", "/api/arduino/progress", {"tracks": {"junior": [["Bad id!", "", 1, 1, 1]]}}, tok)[0], 400)
             self.assertEqual(self.req("POST", "/api/arduino/progress", {"tracks": "x"}, tok)[0], 400)
@@ -5259,6 +5347,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(server.APP.db.q("SELECT updated FROM arduino_progress WHERE student_id=?", (sid,), one=True)["updated"], last)
             # чужой учитель ученика не видит
             st, t = self.admin("POST", "/api/admin/teacher/save", {"name": "Учитель Ардуино", "login": "ardt", "password": "secret77", "invite": "ARDT11"})
+            self.approve_fixture_teacher(t["id"])
             server.APP.db.x("INSERT INTO admin_sessions(token, expires, teacher_id) VALUES('ardtok', ?, ?)", (time.time() + 3600, t["id"]))
             self.assertNotIn(sid, [x["id"] for x in self.teacher_req("egeadm=ardtok", "GET", "/api/admin/arduino")[1]["students"]])
             self.assertEqual(self.teacher_req("egeadm=ardtok", "GET", f"/api/admin/arduino/student?id={sid}")[0], 404)
@@ -5267,7 +5356,7 @@ class ServerTest(unittest.TestCase):
             server.APP.db.x("DELETE FROM arduino_progress WHERE student_id=?", (sid,))
             self.admin("POST", "/api/admin/student/delete", {"id": sid})      # лишний ученик не должен менять рейтинги других тестов
             if not pw:
-                server.APP.db.x("DELETE FROM settings WHERE key='lab_pw'")
+                server.APP.db.x("DELETE FROM settings WHERE key='ard_pw'")
 
 
 class NumberFixTest(unittest.TestCase):

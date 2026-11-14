@@ -2509,6 +2509,7 @@
       else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'mcko') openMcko();
+      else if (st.v === 'ardgate') openArdGate();
       else if (st.v === 'tourpage') tourOpen();
       else if (st.v === 'exams') openExamsPage();
       else if (st.v === 'history') openHistory();
@@ -4353,6 +4354,7 @@
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     pycSetAccess(me.pyc, me.pyc_pw);
     LAB_OK = !!me.lab;
+    ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw;
     $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
@@ -8295,7 +8297,7 @@
       const me = await api('me');
       pycSetAccess(me.pyc, me.pyc_pw);
       COURSE_OK = !!me.course; $('#courseCard')?.classList.toggle('locked', !COURSE_OK);   // пароли курса и лабораторий меняются там же
-      LAB_OK = !!me.lab; $('#labCard')?.classList.toggle('locked', !LAB_OK);
+      LAB_OK = !!me.lab; ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw; $('#labCard')?.classList.toggle('locked', !LAB_OK);
     } catch (e) { return; }
     if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
   }
@@ -10045,9 +10047,32 @@
     return { answer: kind === 'count' ? s1.v * s2.v : s1.v + s2.v, path: [...s1.path, ...s2.path.slice(1)], table: s2.r, parts: [s1.v, s2.v] };
   }
 
-  let LAB_OK = false, labLoadId = 0;
+  let LAB_OK = false, ARD_OK = false, ARD_PW = false, labLoadId = 0;
+  // Лаборатория Arduino — отдельное приложение (/arduino/) со своим паролем: пароль лабораторий его не открывает
+  async function openArdGate() {
+    if (!leaveExam()) return;
+    if (isNarrow()) setSideOpen(false);
+    abandonCurrent(); cur = null;
+    courseShown = true; pageKind = 'ardgate';
+    navPush({ v: 'ardgate' });
+    renderSidebar();
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Лаборатория Arduino</span>';
+    trainerEl.innerHTML = '<p class="fm-note">Проверяю доступ к лаборатории Arduino…</p>';
+    try { const me = await api('me'); ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw; }
+    catch (err) { if (pageKind === 'ardgate') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Попробуй ещё раз.</p>'; netError(err); } return; }
+    if (pageKind !== 'ardgate' || !courseShown) return;
+    if (ARD_OK) { location.href = 'arduino/'; return; }
+    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатория Arduino — по паролю</h2>
+      <p>${ARD_PW ? 'Это отдельный раздел: пароль выдаёт учитель, он не совпадает с паролем лабораторий. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не открыл лабораторию Arduino.'}</p>
+      ${ARD_PW ? '<form id="ardPasswordForm" class="login-form crs-lock-form"><input id="ardPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лаборатории Arduino" aria-label="Пароль лаборатории Arduino" required><button class="btn primary">Открыть</button></form><p id="ardPasswordError" role="alert"></p>' : ''}</div></div>`;
+    $('#ardPasswordForm')?.addEventListener('submit', async e => {
+      e.preventDefault(); const btn = e.currentTarget.querySelector('button'), msg = $('#ardPasswordError'); btn.disabled = true;
+      try { await api('arduino/unlock', { password: $('#ardPassword').value }); ARD_OK = true; location.href = 'arduino/'; }
+      catch (err) { msg.textContent = err.message; btn.disabled = false; }
+    });
+  }
   function labLock(configured, view) {
-    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>${view === 'arduino' ? 'Лаборатория Arduino — по паролю' : 'Лаборатории — по паролю'}</h2>
+    trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатории — по паролю</h2>
       <p>${configured ? 'Пароль выдаёт учитель. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не настроил доступ к лабораториям.'}</p>
       ${LAB.context ? '<button class="link-btn" type="button" data-learning-return>← Вернуться к уроку</button>' : ''}
       ${configured ? '<form id="labPasswordForm" class="login-form crs-lock-form"><input id="labPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лабораторий" aria-label="Пароль лабораторий" required><button class="btn primary">Открыть</button></form><p id="labPasswordError" role="alert"></p>' : ''}</div></div>`;
@@ -10081,7 +10106,8 @@
   }
   async function openLab(view = '', context) {
     if (!leaveExam()) return;
-    if (!['', 'tasks', 'code', 'bugs', 'arduino'].includes(view)) view = '';     // arduino — вход с плитки Arduino: после пароля сразу туда
+    if (view === 'arduino') return openArdGate();       // у лаборатории Arduino — свой пароль
+    if (!['', 'tasks', 'code', 'bugs'].includes(view)) view = '';
     labStop();
     if (LAB.owner && LAB.owner !== codeKey('laboratory')) LAB.context = null;
     if (context) LAB.context = context;
@@ -10096,7 +10122,7 @@
     if (bdOpen()) toggleBoard(false);
     abandonCurrent(); cur = null;
     courseShown = true; pageKind = 'lab'; LAB.view = view;
-    navPush({ v: 'lab', tab: view === 'arduino' ? '' : view });
+    navPush({ v: 'lab', tab: view });
     const ticket = ++labLoadId;
     if (SERVER) {
       trainerEl.innerHTML = '<p class="fm-note">Проверяю доступ к лабораториям…</p>';
@@ -10105,7 +10131,6 @@
         if (ticket !== labLoadId || pageKind !== 'lab' || !courseShown) return;
         LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !LAB_OK);
         if (!LAB_OK) { labLock(access.pw, view); return; }
-        if (view === 'arduino') { location.href = 'arduino/'; return; }
       } catch (err) { if (ticket === labLoadId && pageKind === 'lab') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Открой лабораторию ещё раз.</p>'; netError(err); } return; }
     }
     if (context) { LAB.code = context.code || ''; LAB.stdin = context.stdin || ''; LAB.result = null; LAB.index = 0; }
@@ -11382,8 +11407,8 @@
     if (SERVER && student && !TEACHER) T.push({ k: 'mcko', name: 'МЦКО', sub: 'тренировочные работы от учителя', btn: 'Открыть', go: () => openMcko() });
     T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
     if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'модели заданий ЕГЭ, Python по шагам, исправление ошибок', btn: 'Открыть', go: () => $('#labCard').click() });
-    if (vis('labCard')) T.push({ k: 'arduino', name: 'Лаборатория Arduino', sub: 'схемы, код и симулятор · 2 курса по 36 уроков', btn: LAB_OK ? 'Открыть' : 'Открыть по паролю',
-      go: () => { if (LAB_OK) location.href = 'arduino/'; else openLab('arduino'); } });
+    if (SERVER && student) T.push({ k: 'arduino', name: 'Лаборатория Arduino', sub: 'схемы, код и симулятор · 2 курса по 36 уроков', btn: ARD_OK ? 'Открыть' : 'Открыть по паролю',
+      go: () => { if (ARD_OK) location.href = 'arduino/'; else openArdGate(); } });
     if (vis('pycCard')) T.push({ k: 'python', name: 'Курс Python', sub: 'программирование с нуля', btn: 'Открыть', go: () => $('#pycCard').click() });
     T.push({ k: 'history', name: 'История', sub: `${allDone} ${plural(allDone, 'ответ', 'ответа', 'ответов')}`, extra: hubWeekBars(), badge: bad ? `${bad} ${plural(bad, 'ошибка', 'ошибки', 'ошибок')}` : '',
       btn: bad ? 'Разобрать ошибки' : 'Открыть', go: () => { histFilter = bad ? 'bad' : 'all'; histLimit = 100; openHistory(); } });
@@ -11786,7 +11811,7 @@
     }
     if (SERVER && student) hubNavOn();        // страницы без боковой панели — и когда входят сразу в раздел, минуя главную
     renderSidebar();
-    const labRequested = location.hash === '#lab' || location.hash === '#lab-arduino';
+    const labRequested = location.hash === '#lab' || location.hash === '#lab-arduino';     // #lab-arduino — со страницы /arduino/ без доступа
     const saved = ui.currentId && byId.get(ui.currentId);
     if (labRequested) {
       openLab(location.hash === '#lab-arduino' ? 'arduino' : '');

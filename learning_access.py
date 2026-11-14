@@ -17,3 +17,9 @@ def set_learning_passwords(conn, password):
 def lab_access(db, student):
     return bool(student and (student['is_teacher'] or
                 (student['lab'] and db.setting('lab_pw'))))
+
+
+def ard_access(db, student):
+    """Лаборатория Arduino — отдельный раздел со своим паролем (не пароль лабораторий)."""
+    return bool(student and (student['is_teacher'] or
+                (student['ard'] and db.setting('ard_pw'))))

@@ -182,36 +182,35 @@ class AuditRegressionTest(unittest.TestCase):
         self.assertFalse(self.db.q('SELECT 1 FROM duel_queue WHERE student_id=?', (self.sid,)))
 
     def guest(self):
-        status, _, cookie = self.c.creq('POST', '/api/teacher/guest', {}, ip='203.0.113.85')
-        self.assertEqual(status, 200)
-        status, me, _ = self.c.creq('GET', '/api/admin/me', cookie=cookie)
-        self.assertEqual(status, 200)
-        return me, cookie
+        return self.c.legacy_guest()
+
+    def legacy_lesson(self, tid):
+        # Reconstruct an old guest lesson; new guest access is intentionally closed.
+        pupils = [r['id'] for r in self.db.q('SELECT id FROM students WHERE teacher_id=? LIMIT 1', (tid,))]
+        state = {'mode':'both', 'cur':'p1', 'follow':True, 'pages':{'p1':{'task':None}}}
+        now = time.time()
+        return self.db.x('INSERT INTO together(teacher_id,students,created,updated,state) VALUES(?,?,?,?,?)',
+                         (tid, json.dumps(pupils), now, now, json.dumps(state)))
 
     def test_demo_rename_and_conversion_keep_real_work(self):
         me, cookie = self.guest()
         tid = me['id']
         demo = self.db.q('SELECT id FROM classes WHERE teacher_id=? AND is_demo=1', (tid,), one=True)['id']
-        self.c.creq('POST', '/api/admin/class/save', {'id': demo, 'name': 'Переименованный пример'}, cookie=cookie)
-        status, cls, _ = self.c.creq('POST', '/api/admin/class/save', {'name': server.DEMO_CLASS}, cookie=cookie)
-        self.assertEqual(status, 200)
-        cid = cls['id']
-        status, asg, _ = self.c.creq('POST', '/api/admin/assignment/save',
-                                  {'class_id': cid, 'kind': 'practice', 'title': 'Моя работа', 'tasks': ['b:5']}, cookie=cookie)
-        self.assertEqual(status, 200, asg)
+        self.db.x('UPDATE classes SET name=? WHERE id=?', ('Переименованный пример', demo))
+        cid = self.db.x('INSERT INTO classes(name,created,teacher_id) VALUES(?,?,?)', (server.DEMO_CLASS, time.time(), tid))
+        aid = self.db.x('INSERT INTO assignments(class_id,title,kind,tasks,created) VALUES(?,?,?,?,?)',
+                        (cid, 'Моя работа', 'practice', '["b:5"]', time.time()))
         self.assertTrue(server.teacher_steps(self.db, tid)['class'])
         status, result, _ = self.c.creq('POST', '/api/teacher/signup',
             {'name': 'Макетов Учитель', 'email': f'mock{tid}@example.test', 'password': 'synthetic-pass', 'accept': True}, cookie=cookie)
         self.assertEqual(status, 200, result)
         self.assertIsNone(self.db.q('SELECT 1 FROM classes WHERE id=?', (demo,), one=True))
         self.assertIsNotNone(self.db.q('SELECT 1 FROM classes WHERE id=?', (cid,), one=True))
-        self.assertIsNotNone(self.db.q('SELECT 1 FROM assignments WHERE id=?', (asg['id'],), one=True))
+        self.assertIsNotNone(self.db.q('SELECT 1 FROM assignments WHERE id=?', (aid,), one=True))
 
     def test_guest_purge_removes_lesson_and_cached_connections(self):
         me, cookie = self.guest()
-        status, lesson, _ = self.c.creq('POST', '/api/admin/together/new', {'students': [self.db.q('SELECT id FROM students WHERE teacher_id=? LIMIT 1', (me['id'],), one=True)['id']]}, cookie=cookie)
-        self.assertEqual(status, 200, lesson)
-        sid = lesson['id']
+        sid = self.legacy_lesson(me['id'])
         session = server.TOG.get(sid)
         session.pages['p1'].code = 'print("private-demo-code")'
         session.dirty = True
@@ -220,14 +219,12 @@ class AuditRegressionTest(unittest.TestCase):
         self.assertIsNone(self.db.q('SELECT 1 FROM together WHERE id=?', (sid,), one=True))
         self.assertIsNone(server.TOG.get(sid))
         new, cookie2 = self.guest()
-        status, result, _ = self.c.creq('GET', '/api/admin/together/list', cookie=cookie2)
-        self.assertEqual(status, 200)
-        self.assertNotIn('private-demo-code', json.dumps(result))
+        self.assertEqual(self.c.creq('GET', '/api/admin/together/list', cookie=cookie2)[0], 403)
         self.assertIsNone(server.tog_access(session, ('t', new['id'])))
         # A stale saver cannot write into a newly reused lesson ID.
-        self.c.creq('POST', '/api/admin/together/new', {'students': [self.db.q('SELECT id FROM students WHERE teacher_id=? LIMIT 1', (new['id'],), one=True)['id']]}, cookie=cookie2)
+        new_sid = self.legacy_lesson(new['id'])
         server.tog_save(sid, session.dump())
-        row = self.db.q('SELECT state FROM together WHERE id=?', (sid,), one=True)
+        row = self.db.q('SELECT state FROM together WHERE id=?', (new_sid,), one=True)
         self.assertNotIn('private-demo-code', row['state'] or '')
 
     def test_demo_does_not_change_economy_population(self):
@@ -273,6 +270,8 @@ class AuditRegressionTest(unittest.TestCase):
 
     def test_expired_teacher_cannot_edit_existing_connection(self):
         me, cookie = self.guest()
+        self.db.x('UPDATE teachers SET guest=0 WHERE id=?', (me['id'],))
+        self.c.approve_fixture_teacher(me['id'])
         status, lesson, _ = self.c.creq('POST', '/api/admin/together/new', {'students': [self.db.q('SELECT id FROM students WHERE teacher_id=? LIMIT 1', (me['id'],), one=True)['id']]}, cookie=cookie)
         self.assertEqual(status, 200)
         session = server.TOG.get(lesson['id'])

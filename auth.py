@@ -12,6 +12,9 @@ ACCOUNT_WRITE_PATHS = frozenset({
     '/api/login', '/api/account', '/api/password', '/api/pw/reset',
     '/api/admin/password', '/api/admin/class/import',
     '/api/admin/student/newpw', '/api/admin/student/password-reset',
+    '/api/teacher/signup', '/api/email/confirm', '/api/admin/email/change',
+    '/api/admin/email/resend', '/api/admin/report', '/api/admin/teacher/moderate',
+    '/api/admin/teacher/save', '/api/admin/teacher/extend',
 })
 
 

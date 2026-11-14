@@ -32,7 +32,7 @@
     }
     if (SERVER && student) hubNavOn();        // страницы без боковой панели — и когда входят сразу в раздел, минуя главную
     renderSidebar();
-    const labRequested = location.hash === '#lab' || location.hash === '#lab-arduino';
+    const labRequested = location.hash === '#lab' || location.hash === '#lab-arduino';     // #lab-arduino — со страницы /arduino/ без доступа
     const saved = ui.currentId && byId.get(ui.currentId);
     if (labRequested) {
       openLab(location.hash === '#lab-arduino' ? 'arduino' : '');

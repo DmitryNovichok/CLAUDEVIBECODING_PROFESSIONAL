@@ -72,6 +72,7 @@
     $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
     pycSetAccess(me.pyc, me.pyc_pw);
     LAB_OK = !!me.lab;
+    ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw;
     $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
