@@ -12590,8 +12590,14 @@ def send_mail(to, subject, html_body, text_body):
     import smtplib
     import ssl
     from email.message import EmailMessage
+    from email.utils import formatdate, make_msgid, parseaddr
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, c["SMTP_FROM"], to
+    # без даты и Message-ID почтовые сервисы (Яндекс, Mail.ru, Gmail) чаще считают письмо спамом
+    domain = (parseaddr(c["SMTP_FROM"])[1].rpartition("@")[2] or "egeshka.online").strip().lower()
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=domain)
+    msg["Auto-Submitted"] = "auto-generated"          # служебное письмо: автоответчики на него не отвечают
     msg.set_content(text_body)
     msg.add_alternative(html_body, subtype="html")
     port = int(c["SMTP_PORT"] or 465)

@@ -5363,6 +5363,29 @@ class ServerTest(unittest.TestCase):
                 server.APP.db.x("DELETE FROM settings WHERE key='ard_pw'")
 
 
+class MailHeadersTest(unittest.TestCase):
+    def test_mail_has_date_message_id_and_both_parts(self):
+        """Письма сайта: дата, Message-ID на домене отправителя, текст и HTML — без них почта чаще уходит в спам."""
+        sent = []
+
+        class FakeSMTP:
+            def __init__(self, *a, **kw): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def login(self, *a): pass
+            def send_message(self, msg): sent.append(msg)
+
+        conf = {"SMTP_HOST": "smtp.test", "SMTP_PORT": "465", "SMTP_USER": "", "SMTP_PASS": "",
+                "SMTP_FROM": "Egeshka <noreply@egeshka.online>"}
+        with mock.patch.object(server, "smtp_conf", return_value=conf), mock.patch("smtplib.SMTP_SSL", FakeSMTP):
+            self.assertTrue(server.send_mail("pupil@example.com", "Тема", "<p>Привет</p>", "Привет"))
+        msg = sent[0]
+        self.assertTrue(msg["Date"])
+        self.assertRegex(msg["Message-ID"], r"^<[^@>]+@egeshka\.online>$")
+        self.assertEqual(msg["Auto-Submitted"], "auto-generated")
+        self.assertEqual([p.get_content_type() for p in msg.iter_parts()], ["text/plain", "text/html"])
+
+
 class NumberFixTest(unittest.TestCase):
     def test_turtle_moves_to_6(self):
         import clusters
