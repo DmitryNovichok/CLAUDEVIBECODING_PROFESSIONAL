@@ -5289,10 +5289,13 @@ class ServerTest(unittest.TestCase):
         (self.tmp / "min").mkdir(exist_ok=True)
         (self.tmp / "min" / "app.js").write_text("/* © Egeshka */(function(){})();", encoding="utf-8")
         shutil.copy(repo / "min" / "admin.js", self.tmp / "min" / "admin.js")
+        (self.tmp / "maps").mkdir(exist_ok=True)                 # таблицы мест для «Ошибок» — только на сервере
+        (self.tmp / "maps" / "app.js.json").write_text('{"version":1,"lines":[]}', encoding="utf-8")
         try:
             self._site_code_checks()
         finally:
             shutil.rmtree(self.tmp / "min")
+            shutil.rmtree(self.tmp / "maps")
             for name in ("admin.html", "admin.js", "admin-login.js", "app.js"):
                 (self.tmp / name).unlink()
 
@@ -5312,7 +5315,7 @@ class ServerTest(unittest.TestCase):
         st, body, _ = self.raw("/app.js")
         self.assertEqual(st, 200)
         self.assertTrue(body.startswith("/* © Egeshka"))
-        for path in ("/src/app/01-core.js", "/server.py", "/data/mcko_bank.json", "/tools/minify.py", "/min/app.js"):
+        for path in ("/src/app/01-core.js", "/server.py", "/data/mcko_bank.json", "/tools/minify.py", "/min/app.js", "/maps/app.js.json"):
             self.assertEqual(self.raw(path)[0], 404, path)
         page = self.raw("/admin")[1]
         self.assertRegex(page, r'admin\.js\?v=[0-9a-f]+')

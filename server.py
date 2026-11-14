@@ -436,28 +436,86 @@ _JSERR_LOCK = threading.Lock()
 _APPJS = {"mtime": None, "marks": []}
 
 
-def jserr_where(src):
-    """Где ошибка: без адреса сайта и ?v=…; строка собранного app.js — модулем src/app (по меткам сборки)."""
+_JSMAPS = {}                         # имя скрипта → (время файла, таблица мест из maps/)
+_CL_TOPS = {"mtime": None, "tops": set()}
+
+
+def _jsmap(name):
+    """Таблица мест сжатого скрипта (tools/minify.py → maps/<имя>.json); None — таблицы нет."""
+    p = HERE / "maps" / (name + ".json")
+    try:
+        mt = p.stat().st_mtime
+        hit = _JSMAPS.get(name)
+        if not hit or hit[0] != mt:
+            hit = (mt, json.loads(p.read_text(encoding="utf-8")))
+            _JSMAPS[name] = hit
+        return hit[1]
+    except (OSError, ValueError):
+        return None
+
+
+def _jsmap_line(table, line, col):
+    """Строка исходника (с единицы) для позиции в отданном файле (с единицы), как tools/sourcemap.lookup."""
+    rows = table.get("lines") or []
+    if not 0 < line <= len(rows) or not rows[line - 1]:
+        return None
+    flat = rows[line - 1]
+    k = bisect.bisect_right(flat[0::2], col - 1) - 1
+    return flat[2 * max(k, 0) + 1] + 1
+
+
+def jserr_fresh(ver):
+    """Ошибка пришла от текущей версии сайта — таблица мест к ней подходит (у старой версии в кэше браузера — нет)."""
+    if not ver:
+        return True
+    try:
+        p = HERE / "changelog.js"
+        mt = p.stat().st_mtime
+        if _CL_TOPS["mtime"] != mt:
+            text = p.read_text(encoding="utf-8")
+            _CL_TOPS.update(mtime=mt, tops=set(re.findall(r'(?:student|teacher): \[\s*\["([\d.]+)"', text)))
+    except OSError:
+        return True
+    return ver in _CL_TOPS["tops"]
+
+
+def jserr_where(src, fresh=True):
+    """Где ошибка: без адреса сайта и ?v=…. Позиция в сжатом скрипте (min/) — строкой исходника по таблице мест (≈:
+    обфускатор отмечает границы функций, поэтому строка — внутри нужной функции). Строка app.js — модулем src/app."""
     s = re.sub(r"^[a-z-]+://[^/]+/", "", str(src or "")).strip()
     s = re.sub(r"\?[^:]*", "", s)[:200]
-    m = re.match(r"^(?:.*/)?app\.js:(\d+)(?::\d+)?$", s)
+    m = re.match(r"^(?:.*/)?([\w.-]+\.js):(\d+)(?::(\d+))?$", s)
     if not m:
         return s
+    name, line, approx = m.group(1), int(m.group(2)), ""
+    if name in MIN_FILES and (HERE / "min" / name).is_file():
+        table = _jsmap(name) if fresh else None
+        src_line = _jsmap_line(table, line, int(m.group(3) or 1)) if table else None
+        if src_line is None:
+            return s if fresh else s + " (старая версия в кэше)"
+        line, approx = src_line, "≈"
+    if name != "app.js":
+        return f"{name}:{approx}{line}" if approx else s
     try:
         p = HERE / "app.js"
         mt = p.stat().st_mtime
         if _APPJS["mtime"] != mt:
             marks = [(1, "src/app/01-core.js")]                    # первый модуль — сразу после заголовка (строка 1)
-            for k, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
-                mm = re.match(r"^  // ═══════ (src/app/[\w.-]+\.js)$", line)
+            for k, text in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                mm = re.match(r"^  // ═══════ (src/app/[\w.-]+\.js)$", text)
                 if mm:
                     marks.append((k, mm.group(1)))
             _APPJS.update(mtime=mt, marks=marks)
     except OSError:
         return s
-    line = int(m.group(1))
-    start, name = max((x for x in _APPJS["marks"] if x[0] < line), default=(0, "app.js"))
-    return f"{name}:{line - start}"
+    start, mod = max((x for x in _APPJS["marks"] if x[0] < line), default=(0, "app.js"))
+    return f"{mod}:{approx}{line - start}"
+
+
+def jserr_stack(stack, fresh=True):
+    """Стек ошибки: каждое место в нашем скрипте — строкой исходника (как jserr_where)."""
+    return re.sub(r"(?:https?://[^/\s()]+/)?[\w./-]+\.js(?:\?[^:\s)]*)?:\d+:\d+",
+                  lambda m: jserr_where(m.group(0), fresh), str(stack or ""))[:2000]
 
 
 def jserr_add(db, d, ip, sid=None, tid=None, ua=""):
@@ -478,16 +536,17 @@ def jserr_add(db, d, ip, sid=None, tid=None, ua=""):
     if not src:                                                   # ошибка в обещании — место берём из первой строки стека
         m = re.search(r"([\w./:-]+\.js(?:\?[^:\s)]*)?:\d+:\d+)", str(d.get("stack") or ""))
         src = m.group(1) if m else ""
-    src = jserr_where(src)
-    key = hashlib.sha1(f"{app}|{msg}|{src}".encode()).hexdigest()
     ver, page = str(d.get("ver") or "")[:20], str(d.get("page") or "")[:120]
+    fresh = jserr_fresh(ver)
+    src = jserr_where(src, fresh)
+    key = hashlib.sha1(f"{app}|{msg}|{src}".encode()).hexdigest()
     row = db.q("SELECT id FROM js_errors WHERE key=?", (key,), one=True)
     if row:
         eid = row["id"]
         db.x("UPDATE js_errors SET n = n + 1, last_ts=?, ver=? WHERE id=?", (now, ver, eid))
     else:
         eid = db.x("""INSERT INTO js_errors(key, app, msg, src, stack, first_ts, last_ts, n, ver) VALUES(?,?,?,?,?,?,?,1,?)""",
-                   (key, app, msg, src, str(d.get("stack") or "")[:2000], now, now, ver))
+                   (key, app, msg, src, jserr_stack(d.get("stack"), fresh), now, now, ver))
     db.x("INSERT INTO js_error_hits(error_id, ts, student_id, teacher_id, device, ver, page) VALUES(?,?,?,?,?,?,?)",
          (eid, now, sid, tid, ua_label(ua), ver, page))
     db.x("""DELETE FROM js_error_hits WHERE error_id=? AND id NOT IN
