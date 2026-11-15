@@ -102,6 +102,45 @@ class VersionTest(unittest.TestCase):
         newest = max(tuple(map(int, v)) for v in re.findall(r'\["(\d+)\.(\d+)\.(\d+)"', text))
         self.assertEqual(server.APP_VERSION, ".".join(map(str, newest)))
 
+    def test_task10_bank_is_merged_and_keeps_kim2027_number(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / 'data').mkdir()
+            path = root / 'data' / 'bank.js'
+            path.write_text('window.EGE_BANK = {"banks":[{"id":"k","title":"K"}],"tasks":[{"id":"k:1","n":10,"ans":"255",'
+                            '"html":"<p>IP-адрес и маска</p>"}]};', encoding='utf-8')
+            t10 = {'bank': {'id': 'task10_bank', 'title': 'T10'},
+                   'tasks': [{'id': 'task10_bank:kompege_1', 'n': 10, 'kim': 2027, 'ans': '42', 'bank': 'task10_bank',
+                              'html': '<p>Сколько раз встречается слово «чай»?</p>',
+                              'att': [{'name': '10.docx', 'href': '../task10_bank/files/kompege/1/10.docx'}]}]}
+            (root / 'data' / 'task10_bank.json').write_text(json.dumps(t10, ensure_ascii=False), encoding='utf-8')
+            with mock.patch.object(server, 'EXTRA_BANK', root / 'data' / 'egeshka_bank.json'):
+                bank = server.Bank(path)
+                self.assertTrue(bank.ensure())
+                self.assertEqual(bank.tasks['k:1']['n'], 13)                       # IP-адреса 2026 → №13
+                self.assertEqual(bank.tasks['task10_bank:kompege_1']['n'], 10)     # уже в нумерации 2027
+                self.assertEqual(bank.titles.get('task10_bank'), 'T10')
+                # файл задания пропал при обновлении — банк остаётся прежним
+                before = bank.extra_mtime
+                (root / 'data' / 'task10_bank.json').unlink()
+                self.assertTrue(bank.ensure())
+                self.assertEqual(bank.extra_mtime, before)
+                self.assertIn('task10_bank:kompege_1', bank.tasks)
+
+    def test_task10_bank_data_file(self):
+        p = Path(server.HERE) / 'data' / 'task10_bank.json'
+        data = json.loads(p.read_text(encoding='utf-8'))
+        server.Bank.validate_data(data, extra=True)
+        self.assertEqual(data['bank']['id'], 'task10_bank')
+        self.assertGreaterEqual(len(data['tasks']), 200)
+        for t in data['tasks']:
+            self.assertEqual((t['n'], t['kim'], t['bank']), (10, 2027, 'task10_bank'), t['id'])
+            self.assertRegex(t['ans'], r'^[0-9A-Za-zА-ЯЁа-яё]+$', t['id'])     # число, у пары заданий — слово
+            self.assertTrue(t.get('att'), t['id'])
+            for a in t['att']:
+                self.assertTrue(a['href'].startswith('../task10_bank/files/'), a)
+            self.assertNotIn('ege.fipi.ru', t['html'])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,16 +5,16 @@
       "source": "49b30276270fd193c3f6663cb252654254966bef1966b347c93bb627d2090b10"
     },
     "admin.css": {
-      "min": "db15b8623fdd2785d9251094bec73899ccc9f6183cc61f93c91ee51c41eecdd1",
-      "source": "1558ded0f53e71a1178fde5b37528926a88347d69fe269dfe35a690b4653a6cf"
+      "min": "c4c3b07859a0c7f21249dd602a19f408cd84138fbb2421cb7ef43e1ee09a66c2",
+      "source": "52238498e218601050d9f71ca82c409c504b1416b99eea16906a6046bc6e48be"
     },
     "admin.js": {
-      "min": "0cce5121d7c4af2926823ce2e2b50326afe18e601f990d8d1908cc97a88e3423",
-      "source": "38255d4e4282a2358b4b640d21544a8f32ba6deed8f54384cb9afab18803e2c6"
+      "min": "abe0402839bbfbb783b8a1e08e4cfb79768a3d73323d3cc96ab924f7cc2bacd9",
+      "source": "ba5b3806639eb2ca6bee60b8aa535fe374c08f5f4eda272e162dc16e97fb29b1"
     },
     "app.js": {
-      "min": "46e0f2c46b9166a679899d61b5183da691b69626927764bb8dc02af36b63f081",
-      "source": "9d3898d98262e61c14f91a6ddacf0fb18bf57bdecacf5fc1728eed83dbea3adf"
+      "min": "fea54abc06f1aad9ba54ceda9a1de2acbd0a1879294b5a343589779ba978c7ee",
+      "source": "046c41fa76f628ea20029b9cde125d07d012a10ef3f751dc813e6fbc2cf0744e"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -29,8 +29,8 @@
       "source": "b36e1d9e82c8ec5a9287bba2472f6b15d1b6dcaafc231ae9dc141807a9b91b83"
     },
     "style.css": {
-      "min": "93bd8a76a7e7734e0d067852e07a1435eac1e028ff3a7164e6b9ac97eaba8a9f",
-      "source": "e7c3ad5d0fb2e1fe1c5b4c8ff3fdfa6b505d43137cd14850fa5dee8792326d45"
+      "min": "ac17ec57f09f31483e2b94afb6d1f59c40f89554d98e231c1f16673ccf6292fb",
+      "source": "ef52bb42298ad8512144cfa55210695343c323dfe2b4c3efb0a0d0cbaf187c0f"
     },
     "teacher-gate.css": {
       "min": "c8f0179539d87566094032c3eb75c4527d16654942427b30a59390dcf6b2f24f",
@@ -41,8 +41,8 @@
       "source": "99563a8c25bd3457cafc24add900ea7f2526cbd19a22eb5d447685beaecd55aa"
     },
     "together.js": {
-      "min": "66d80f8c5c723f229282e3f61c0eb4e5cadacc90dd99b28cb423f87909fa4fda",
-      "source": "0f5fca407b84a2239c49ab3e01b537e47e4e7b4960e8c69ef42527422bcebc63"
+      "min": "f7ea94bfc40f49cfd87507352252b52ddf252358824c396281b5d711fe5bcb6d",
+      "source": "43722e056a8060aaa80d60f616dd36dda191a18aeb51619932f10a2f140a16c5"
     },
     "visit.js": {
       "min": "9d99466daf57071370063347cae758df3d8aea5ec418751fd69298a3e8952ae9",

@@ -319,6 +319,7 @@ class Page:
         self.res = d.get("res") or []
         self.out = d.get("out") or ""
         self.checks = int(d.get("checks") or 0)
+        self.files = [f for f in d.get("files") or [] if isinstance(f, dict) and f.get("id") and f.get("name")]   # файлы учителя к странице
         self.got = dict(d.get("got") or {})
         if not d.get("credit_version"):
             # Old releases marked a half-answer as fully credited.
@@ -328,7 +329,7 @@ class Page:
     def dump(self):
         return {"task": self.task, "name": self.name, "code": self.code, "rev": self.rev, "strokes": list(self.strokes.values()),
                 "ans": self.ans, "res": self.res[-50:], "out": self.out, "checks": self.checks,
-                "got": self.got, "credit_version": 2}
+                "got": self.got, "credit_version": 2, "files": self.files}
 
 
 class Session:
@@ -500,9 +501,31 @@ class Hub:
     def _page_msg(self, s, p, key, teacher):
         t = self.task_fn(p.task, teacher) if p.task else None
         return {"t": "page", "page": key, "name": p.name, "task": t, "code": p.code, "rev": p.rev, "strokes": list(p.strokes.values()),
-                "ans": p.ans, "res": p.res[-10:], "out": p.out,
+                "ans": p.ans, "res": p.res[-10:], "out": p.out, "files": p.files,
                 "pages": [{"key": k, "name": x.name, "task": (self.task_fn(x.task, teacher) or {}).get("label") if x.task else None}
                           for k, x in s.pages.items()]}
+
+    def files(self, sid, key, fn):
+        """Файлы учителя к странице key (None — текущей): fn(список) меняет список на месте и возвращает результат.
+        Всем в сеансе уходит новый список — у учеников файл появляется сразу."""
+        s = self.get(sid)
+        if not s:
+            return None
+        with s.lock:
+            key = key if key in s.pages else s.cur
+            p = s.pages[key]
+            res = fn(p.files)
+            s.dirty = True
+            self._bcast(s, {"t": "files", "page": key, "files": p.files})
+        return res
+
+    def file_names(self, sid):
+        """{id файла: имя} по всем страницам сеанса — для скачивания."""
+        s = self.get(sid)
+        if not s:
+            return {}
+        with s.lock:
+            return {f["id"]: f["name"] for p in s.pages.values() for f in p.files}
 
     def _snap(self, s, c):
         teacher = c.who[0] == "t"

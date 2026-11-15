@@ -187,6 +187,7 @@
       case 'people': S.people = m.people || []; return renderPeople();
       case 'gone': S.carets.delete(m.cid); dropPtr(m.cid); return renderCarets();
       case 'page': return setPage(m, !!m.peek);
+      case 'files': if (m.page === S.page) { S.files = m.files || []; renderFiles(); } return;
       case 'expired': S.expired = true; if (m.page) setPage(m.page, true); renderBars(); toast('Доступ учителя закончился. Запись занятия доступна для просмотра'); return;
       case 'resync': if (m.page) setPage(m.page, true); if (m.why === 'ro') toast('Учитель включил режим просмотра'); if (m.why === 'long') toast('Код слишком длинный'); return;
       case 'ack': return onAck(m);
@@ -459,6 +460,7 @@
     const changed = pg.page !== S.page;
     S.page = pg.page;
     S.task = pg.task;
+    S.files = pg.files || [];                          // файлы, которые учитель прикрепил к этой странице
     S.pname = pg.name || '';
     S.pages = pg.pages || S.pages;
     // код
@@ -507,7 +509,6 @@
     $('#tgPages').innerHTML = (S.ended || S.expired) && S.pages.length > 1 ? S.pages.map((p, i) => `<button type="button" data-peek="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"
       title="${esc(p.name || p.task || 'чистая страница')}">${i + 1}${p.name ? ' · ' + esc(p.name) : p.task ? ' · ' + esc(p.task.split(' · ')[0]) : ''}</button>`).join('') : '';
     renderFiles();
-    $('#tgAtt').innerHTML = t && t.att && t.att.length ? ICON.clip + ' ' + t.att.map(a => `<a href="${esc(a.href)}" download>${esc(a.name)}</a>`).join(' · ') : '';
     $('#tgAns').hidden = !t || t.parts;
     $('#tgKey').hidden = !(S.teacher && t);
     $('#tgKeyV').hidden = true;
@@ -515,17 +516,55 @@
     $('#tgKeyV').textContent = t && t.ans ? t.ans : '';
   }
   // ---------- файлы задания: лежат рядом с кодом (open('9.txt') работает при запуске) — нажал, и строка вставилась в код
+  // файлы учителя к странице: скачиваются по входу ученика или учителя этого занятия
+  const ownHref = f => `api/together/file?s=${SID}&f=${encodeURIComponent(f.id)}${S.teacher ? '&as=t' : ''}`;
   function taskFiles() {
     return ((S.task && S.task.att) || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
+      .concat((S.files || []).map(f => ({ name: f.name, url: new URL(ownHref(f), location.href).href, own: f.id })))
       .filter(f => f.url.startsWith(location.origin));
   }
+  const kb = n => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ');
+  const canAttach = () => S.teacher && !S.ended && !S.expired;
   function renderFiles() {
     const fs = taskFiles();
-    $('#tgFiles').innerHTML = fs.length ? '· файлы: ' + fs.map(f => `<button type="button" data-file="${esc(f.name)}" title="Вставить в код open('${esc(f.name)}')">${esc(f.name)}</button>`).join('') : '';
+    $('#tgFiles').innerHTML = (fs.length ? '· файлы: ' + fs.map(f => `<button type="button" data-file="${esc(f.name)}" title="Вставить в код open('${esc(f.name)}')">${esc(f.name)}</button>`).join('') : '')
+      + (canAttach() ? `<button type="button" class="tg-attach" data-attach title="Прикрепить файл к этой странице — ученики увидят его сразу и смогут открыть в Python">📎 Прикрепить файл</button>` : '');
+    const t = S.task, own = S.files || [];
+    $('#tgAtt').innerHTML = (t && t.att && t.att.length) || own.length
+      ? ICON.clip + ' ' + [...((t && t.att) || []).map(a => `<a href="${esc(a.href)}" download>${esc(a.name)}</a>`),
+        ...own.map(f => `<span class="tg-own"><a href="${esc(ownHref(f))}" download="${esc(f.name)}" title="Прикрепил учитель · ${kb(f.size || 0)}">${esc(f.name)}</a>${canAttach() ? `<button type="button" class="tg-own-x" data-unattach="${esc(f.id)}" title="Открепить файл">×</button>` : ''}</span>`)].join(' · ')
+      : '';
   }
+  // учитель прикрепляет файл: выбор файла → загрузка на сервер → у всех в занятии появляется сразу
+  const attachIn = Object.assign(document.createElement('input'), { type: 'file', multiple: true, hidden: true });
+  document.body.appendChild(attachIn);
+  attachIn.addEventListener('change', async () => {
+    const list = [...attachIn.files];
+    attachIn.value = '';
+    for (const f of list) {
+      if (f.size > 20 * 1048576) { toast(`«${f.name}» больше 20 МБ`); continue; }
+      toast(`Загружаю «${f.name}»…`, 60000);
+      try {
+        const r = await fetch(`api/together/upload?s=${SID}&page=${encodeURIComponent(S.page || '')}`, {
+          method: 'POST', credentials: 'same-origin', headers: { 'X-File-Name': encodeURIComponent(f.name), 'Content-Type': 'application/octet-stream' }, body: f });
+        const d = await r.json().catch(() => ({}));
+        toast(r.ok ? `Файл «${f.name}» прикреплён — ученики видят его` : (d.error || 'Не получилось прикрепить файл'));
+      } catch (e) { toast('Нет связи с сервером — файл не прикреплён'); }
+    }
+  });
+  document.addEventListener('click', async e => {
+    if (e.target.closest('[data-attach]')) { attachIn.click(); return; }
+    const x = e.target.closest('[data-unattach]');
+    if (!x || !confirm('Открепить файл? Ученики больше не смогут его скачать.')) return;
+    try {
+      const r = await fetch('api/together/file/delete', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ s: SID, f: x.dataset.unattach, page: S.page }) });
+      if (!r.ok) toast((await r.json().catch(() => ({}))).error || 'Не получилось открепить');
+    } catch (err) { toast('Нет связи с сервером'); }
+  });
   $('#tgFiles').addEventListener('click', e => {
     const b = e.target.closest('[data-file]');
-    if (!b || !canWrite()) return;
+    if (!b || !canWrite()) return;      // «📎 Прикрепить файл» обрабатывается выше (data-attach)
     const ta = $('#tgTa'), text = `open('${b.dataset.file}')`;
     ta.focus();
     ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end');
@@ -1381,8 +1420,7 @@
     PY.full = '';
     outSys('▶ Запуск…\n');
     send({ t: 'run', page: S.page });
-    const files = ((S.task && S.task.att) || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
-      .filter(f => f.url.startsWith(location.origin));
+    const files = taskFiles().map(({ name, url }) => ({ name, url }));     // файлы задания и учителя — рядом с кодом
     PY.worker.postMessage({ type: 'run', code: S.text, files, stdin: '' });
   };
   $('#tgStop').onclick = () => {

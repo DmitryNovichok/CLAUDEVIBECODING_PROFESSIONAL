@@ -294,7 +294,7 @@
       const me = await api('me');
       pycSetAccess(me.pyc, me.pyc_pw);
       COURSE_OK = !!me.course; $('#courseCard')?.classList.toggle('locked', !COURSE_OK);   // пароли курса и лабораторий меняются там же
-      LAB_OK = !!me.lab; ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw; $('#labCard')?.classList.toggle('locked', !LAB_OK);
+      LAB_OK = !!me.lab; ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw; IM_OK = !!me.im; IM_PW = !!me.im_pw; $('#labCard')?.classList.toggle('locked', !LAB_OK);
     } catch (e) { return; }
     if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
   }

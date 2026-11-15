@@ -1939,6 +1939,44 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(kinds, {"home0"})
         self.assertEqual(self.admin("POST", "/api/admin/batch/kind", {"class_id": cid, "batch": b["batch"], "kind": "zzz"})[0], 400)
 
+    def test_personal_batch_due_can_be_moved(self):
+        # срок личной подборки переносится у всех учеников пачки или у одного; закрытая по сроку — снова открыта
+        t1, t2 = self.login("Срокова Соня"), self.login("Сроков Савва")
+        ids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in (t1, t2)]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "10С"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": ids})
+        db, now = server.APP.db, time.time()
+        self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Лично в срок", "kind": "practice",
+                                                         "tasks": ["b:5"], "students": ids, "due": now + 3600})
+        rows = db.q("SELECT id, student_id FROM assignments WHERE class_id=? ORDER BY student_id", (cid,))
+        aid = {r["student_id"]: r["id"] for r in rows}
+        # срок прошёл — работа закрылась сама
+        db.x("UPDATE assignments SET due=? WHERE class_id=?", (now - 60, cid))
+        b = self.admin("GET", f"/api/admin/assignments?class_id={cid}")[1]["batches"][0]
+        self.assertEqual(b["closed"], 2)
+        # перенос в прошлое нельзя, в чужом классе — не найдена
+        self.assertEqual(self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "batch": b["batch"], "due": now - 10})[0], 400)
+        self.assertEqual(self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "batch": "own:nope", "due": now + 99})[0], 404)
+        # всем сразу: срок новый, обе снова открыты
+        st, d = self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "batch": b["batch"], "due": now + 86400})
+        self.assertEqual((st, d["changed"], d["reopened"]), (200, 2, 2))
+        got = db.q("SELECT due, closed FROM assignments WHERE class_id=?", (cid,))
+        self.assertEqual({(round(r["due"]), r["closed"]) for r in got}, {(round(now + 86400), None)})
+        mine = self.req("GET", "/api/assignments", token=t1)[1]["assignments"]
+        self.assertFalse(next(x for x in mine if x["title"] == "Лично в срок").get("closed"))
+        # одному ученику — ещё неделя, у второго срок прежний; в «Результатах» видно у каждого свой
+        st, d = self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "asg_id": aid[ids[0]], "due": now + 7 * 86400})
+        self.assertEqual((st, d["changed"]), (200, 1))
+        self.assertEqual(round(self.admin("GET", f"/api/admin/asg/live?id={aid[ids[0]]}")[1]["due"]), round(now + 7 * 86400))
+        self.assertEqual(round(self.admin("GET", f"/api/admin/asg/live?id={aid[ids[1]]}")[1]["due"]), round(now + 86400))
+        # без срока
+        self.assertEqual(self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "batch": b["batch"], "due": None})[1]["changed"], 2)
+        self.assertEqual({r["due"] for r in db.q("SELECT due FROM assignments WHERE class_id=?", (cid,))}, {None})
+        # закрытую учителем вручную перенос срока не открывает
+        db.x("UPDATE assignments SET closed=? WHERE id=?", (now - 5, aid[ids[1]]))
+        self.assertEqual(self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "asg_id": aid[ids[1]], "due": now + 600})[1]["reopened"], 0)
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
     def test_change_kind_of_started_work(self):
         # самостоятельную уже пишут — тип всё равно можно сменить: начатые сдаются по уже данным ответам
         tok = self.login("Типов Тимур")
@@ -4995,6 +5033,58 @@ class ServerTest(unittest.TestCase):
                 return m
         self.fail(f"нет сообщения {want}")
 
+    def rawreq(self, method, path, body=b"", headers=None):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+        c.request(method, path, body=body, headers=headers or {})
+        r = c.getresponse()
+        data = r.read()
+        c.close()
+        return r.status, data, r
+
+    def test_together_teacher_attaches_file(self):
+        a, stranger = self.login("Прикрепов Пров"), self.login("Неприкрепов Нил")
+        db = server.APP.db
+        ida = db.q("SELECT id FROM students WHERE name LIKE 'Прикрепов П%'", one=True)["id"]
+        sid = self.admin("POST", "/api/admin/together/new", {"students": [ida], "task": "b:5", "mode": "both"})[1]["id"]
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        adm = {"Cookie": "egeadm=admtest"}
+        up = lambda body, name, h=adm: self.rawreq("POST", f"/api/together/upload?s={sid}",
+                                               body, dict(h, **{"X-File-Name": quote(name), "Content-Type": "application/octet-stream"}))
+        # ученик и посторонний прикрепить не могут
+        self.assertEqual(up(b"1 2 3", "9.txt", {"X-Token": a})[0], 403)
+        st, d, _ = up("10 20\n30 40\n".encode(), "../27 B.txt")
+        self.assertEqual(st, 200, d)
+        f = json.loads(d)["file"]
+        self.assertEqual((f["name"], f["size"]), ("_27 B.txt", 12))
+        # в странице занятия у всех — файл учителя
+        page = server.TOG.get(sid).pages[server.TOG.get(sid).cur]
+        self.assertEqual([x["name"] for x in page.files], ["_27 B.txt"])
+        # скачивает приглашённый ученик; чужой — нет
+        st, body, r = self.rawreq("GET", f"/api/together/file?s={sid}&f={f['id']}", headers={"X-Token": a})
+        self.assertEqual((st, body), (200, b"10 20\n30 40\n"))
+        self.assertIn("attachment", r.getheader("Content-Disposition"))
+        self.assertEqual(self.rawreq("GET", f"/api/together/file?s={sid}&f={f['id']}", headers={"X-Token": stranger})[0], 403)
+        self.assertEqual(self.rawreq("GET", f"/api/together/file?s={sid}&f={f['id']}&as=t", headers=adm)[1], b"10 20\n30 40\n")
+        # то же имя — новая версия, старый файл удалён с диска
+        st, d, _ = up(b"new", "../27 B.txt")
+        f2 = json.loads(d)["file"]
+        self.assertEqual([x["id"] for x in page.files], [f2["id"]])
+        self.assertEqual(sorted(p.name for p in server.tog_files_dir(sid).iterdir()), [f2["id"]])
+        # слишком большой — нет
+        with mock.patch.object(server, "TOG_FILE_MAX", 4):
+            self.assertEqual(up(b"12345", "big.txt")[0], 413)
+        # открепить может только учитель
+        self.assertEqual(self.req("POST", "/api/together/file/delete", {"s": sid, "f": f2["id"]}, a)[0], 403)
+        st, _, _ = self.rawreq("POST", "/api/together/file/delete", json.dumps({"s": sid, "f": f2["id"]}).encode(),
+                            dict(adm, **{"Content-Type": "application/json"}))
+        self.assertEqual(st, 200)
+        self.assertEqual(page.files, [])
+        self.assertFalse((server.tog_files_dir(sid) / f2["id"]).exists())
+        # удалить занятие — и его папка с файлами уходит
+        up(b"x", "1.txt")
+        self.admin("POST", "/api/admin/together/delete", {"id": sid})
+        self.assertFalse(server.tog_files_dir(sid).exists())
+
     def test_together_session(self):
         a, b = self.login("Совместов Сава"), self.login("Совместова Света")
         stranger = self.login("Чужаков Чип")
@@ -5013,6 +5103,12 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["sessions"][0]["task"], "№ 5")
         st, d = self.req("GET", "/api/together/mine", token=stranger)
         self.assertEqual(d["sessions"], [])
+        # учитель закрыл вкладку, не нажав «Завершить», и сеанс давно не менялся — приглашение больше не всплывает
+        row = db.q("SELECT created, updated FROM together WHERE id=?", (sid,), one=True)
+        old = time.time() - server.TOG_INVITE_IDLE_SEC - 60
+        db.x("UPDATE together SET created=?, updated=? WHERE id=?", (old, old, sid))
+        self.assertEqual(self.req("GET", "/api/together/mine", token=a)[1]["sessions"], [])
+        db.x("UPDATE together SET created=?, updated=? WHERE id=?", (row["created"], row["updated"], sid))
         # чужой ученик и чужой сайт не подключатся
         self.assertIn(" 403", self.ws(sid, stranger)[2])
         self.assertIn(" 403", self.ws(sid, a, origin="https://evil.example")[2])
@@ -5023,6 +5119,10 @@ class ServerTest(unittest.TestCase):
         snap = self.recv(trf, "snap")
         self.assertTrue(snap["me"]["teacher"])
         self.assertEqual(snap["page"]["task"]["ans"], "12")              # учителю — ответ
+        # учитель в сеансе — зовём, даже если давно ничего не менялось
+        db.x("UPDATE together SET created=?, updated=? WHERE id=?", (old, old, sid))
+        self.assertEqual([x["id"] for x in self.req("GET", "/api/together/mine", token=a)[1]["sessions"]], [sid])
+        db.x("UPDATE together SET created=?, updated=? WHERE id=?", (row["created"], row["updated"], sid))
         ss, srf, status = self.ws(sid, a)
         self.assertIn(" 101", status)
         snap = self.recv(srf, "snap")
@@ -5463,6 +5563,82 @@ class ServerTest(unittest.TestCase):
         finally:
             db.x("UPDATE teachers SET pw=?, email=? WHERE is_main=1", (old["pw"], old["email"]))
             server.THROTTLE.fails.clear()
+
+
+    def test_intellectual_megapolis_section(self):
+        import im
+        tok = self.login("Мегаполисов Марк")
+        db = server.APP.db
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        # раздел закрыт, пока главный учитель не задал пароль
+        self.assertEqual(self.req("GET", "/api/im", token=tok)[1], {"access": False, "pw_set": False})
+        self.assertEqual(self.req("POST", "/api/im/unlock", {"password": "x"}, tok)[0], 403)
+        self.assertEqual(self.req("GET", "/api/im/task?slot=1", token=tok)[0], 403)
+        st, d = self.admin("POST", "/api/admin/access", {"kind": "im", "password": "mega-2027"})
+        self.assertEqual(st, 200, d)
+        self.assertTrue(d["im"]["set"])
+        # общий пароль разделов «Мегаполис» не открывает
+        self.admin("POST", "/api/admin/access", {"all": "common-pw-1"})
+        self.assertEqual(self.req("POST", "/api/im/unlock", {"password": "common-pw-1"}, tok)[0], 403)
+        for kind in ("course", "pyc", "lab"):                          # общий пароль другим тестам не нужен
+            self.admin("POST", "/api/admin/access", {"kind": kind, "off": True})
+        self.assertEqual(self.req("POST", "/api/im/unlock", {"password": "mega-2027"}, tok)[1], {"access": True})
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["im"])
+        st, d = self.req("GET", "/api/im", token=tok)
+        self.assertEqual((len(d["slots"]), sum(s["points"] for s in d["slots"]), d["minutes"], d["max"]), (10, 60, 120, 60))
+        self.assertEqual([s["demo"]["ans"] for s in d["slots"]], ["2", "4", "8", "500", "5, 2", "3", "85", "7", "0,34", "1236; 2400"])
+        # тренировка: задание без ответа; ответ проверяет сервер и показывает решение
+        t = self.req("GET", "/api/im/task?slot=7", token=tok)[1]["task"]
+        self.assertEqual(set(t), {"id", "slot", "kind", "html"})
+        real = im.task(t["id"])
+        st, r = self.req("POST", "/api/im/check", {"id": t["id"], "answer": "-1"}, tok)
+        self.assertEqual((r["ok"], r["ans"]), (False, real["ans"]))
+        self.assertIn("<p>", r["sol"])
+        st, r = self.req("POST", "/api/im/check", {"id": t["id"], "answer": real["ans"]}, tok)
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["stats"]["7"], {"tries": 2, "ok": 1, "last": [0, 1]})
+        # пробный вариант: по одному заданию каждого номера, ответов нет; сдача — баллы по номерам
+        st, tr = self.req("POST", "/api/im/trial/start", {}, tok)
+        self.assertEqual(sorted(x["slot"] for x in tr["items"]), list(range(1, 11)))
+        self.assertNotIn("ans", json.dumps(tr["items"]))
+        self.assertEqual(self.req("POST", "/api/im/trial/start", {}, tok)[1]["id"], tr["id"])     # идущий вариант не плодится
+        right = {x["id"]: im.task(x["id"])["ans"] for x in tr["items"] if x["slot"] in (1, 7, 10)}
+        self.assertEqual(self.req("POST", "/api/im/trial/save", {"id": tr["id"], "answers": right}, tok)[0], 200)
+        st, res = self.req("POST", "/api/im/trial/finish", {"id": tr["id"]}, tok)
+        self.assertEqual((res["score"], res["max"]), (3 + 8 + 9, 60))
+        self.assertEqual(sum(r["got"] for r in res["rows"]), 20)
+        self.assertEqual(self.req("POST", "/api/im/trial/save", {"id": tr["id"], "answers": {}}, tok)[0], 409)
+        self.assertEqual(self.req("GET", "/api/im", token=tok)[1]["trials"][0]["score"], 20)
+        # время вышло — вариант сдаётся сам по сохранённым ответам
+        st, tr2 = self.req("POST", "/api/im/trial/start", {}, tok)
+        self.assertNotEqual(tr2["id"], tr["id"])
+        db.x("UPDATE im_trials SET deadline=? WHERE id=?", (time.time() - 3600, tr2["id"]))
+        self.assertIsNone(self.req("GET", "/api/im", token=tok)[1]["active"])
+        self.assertIsNotNone(db.q("SELECT finished FROM im_trials WHERE id=?", (tr2["id"],), one=True)["finished"])
+        # учитель видит ученика по номерам и пробным вариантам; банк — с ответами
+        st, a = self.admin("GET", "/api/admin/im")
+        me = next(x for x in a["students"] if x["id"] == sid)
+        self.assertEqual((me["unlocked"], me["best"], me["trials"]), (True, 20, 2))
+        b = self.admin("GET", "/api/admin/im/bank?slot=3")[1]["tasks"]
+        self.assertEqual(len(b), 12)
+        self.assertTrue(all(x["ans"] and x["sol"] for x in b))
+        # закрыть доступ всем
+        self.admin("POST", "/api/admin/access", {"kind": "im", "revoke": True})
+        self.assertFalse(self.req("GET", "/api/im", token=tok)[1]["access"])
+        self.admin("POST", "/api/admin/access", {"kind": "im", "off": True})
+
+    def test_megapolis_answer_check(self):
+        import im
+        c = lambda kind, ans, a, val=None: im.check(dict(kind=kind, ans=ans, **({"val": val} if val else {})), a)
+        self.assertTrue(c("choice", "2", "2") and c("choice", "2", "Б") and c("choice", "2", "8", "8") and c("choice", "2", " 2. "))
+        self.assertFalse(c("choice", "2", "3") or c("choice", "2", ""))
+        self.assertTrue(c("num", "0,34", "0.34") and c("num", "0,40", "0,4") and c("num", "85", " 85 "))
+        self.assertFalse(c("num", "85", "84"))
+        self.assertTrue(c("pair", "5, 2", "5,2") and c("pair", "1236; 2400", "1236;2400") and c("pair", "1236; 2400", "1236 2400"))
+        self.assertFalse(c("pair", "5, 2", "2, 5") or c("pair", "5, 2", "5"))
+        # каждое задание банка принимает свой эталонный ответ
+        for t in im.bank()["tasks"]:
+            self.assertTrue(im.check(t, t["ans"]), t["id"])
 
 
 class MailHeadersTest(unittest.TestCase):

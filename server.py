@@ -35,6 +35,7 @@ import queue
 import random
 import re
 import secrets
+import shutil
 import socket
 import sqlite3
 import struct
@@ -52,7 +53,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import hash_pw, check_pw, revoke_access, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
-from learning_access import lab_access, ard_access
+from learning_access import lab_access, ard_access, im_access
+import im                                         # noqa: E402  «Интеллектуальный мегаполис»: тренировка и пробный вариант
 import buglab
 import mcko
 import bank_delivery
@@ -75,6 +77,9 @@ DATA_DIR = HERE / "server_data"
 DB_PATH = DATA_DIR / "trainer.db"
 BANK_JS = HERE / "data" / "bank.js"
 EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк Egeshka (tools/gen_egeshka.py) — подмешивается к bank.js
+# Ещё банки рядом с ним, тоже подмешиваются: task10_bank — №10 «поиск в тексте» с КомпЕГЭ и ФИПИ (файлы к заданиям
+# лежат на сервере в папке task10_bank рядом с остальными банками, в репозиторий не входят)
+MORE_BANKS = ("task10_bank.json",)
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
@@ -1517,17 +1522,22 @@ class Bank:
             mt = self.path.stat().st_mtime
         except OSError:
             return bool(self.tasks)
-        try:
-            xmt = EXTRA_BANK.stat().st_mtime
-        except OSError:
-            xmt = None
+        extra_files = [EXTRA_BANK] + [EXTRA_BANK.with_name(n) for n in MORE_BANKS]
+        xmt = []
+        for f in extra_files:
+            try:
+                xmt.append(f.stat().st_mtime)
+            except OSError:
+                xmt.append(None)
+        xmt = tuple(xmt)
         if mt == self.mtime and xmt == self.extra_mtime:
             return True
         with self.lock:
             if mt == self.mtime and xmt == self.extra_mtime:
                 return True
-            if xmt is None and self.extra_mtime is not None:
-                return bool(self.tasks)              # авторский банк временно отсутствует при обновлении
+            was = self.extra_mtime or (None,) * len(xmt)
+            if any(now is None and before is not None for now, before in zip(xmt, was)):
+                return bool(self.tasks)              # дополнительный банк временно отсутствует при обновлении
             try:
                 text = self.path.read_text(encoding="utf-8")
                 start = text.index("{")
@@ -1538,14 +1548,16 @@ class Bank:
                 # файл банка переписывают прямо сейчас (обновление сайта) — отдаём прежний, ученики не видят ошибку
                 print(f"! Банк заданий не прочитан, остаётся прежний: {e}", flush=True)
                 return bool(self.tasks)
-            if xmt is not None:
+            for f, fmt in zip(extra_files, xmt):
+                if fmt is None:
+                    continue
                 try:
-                    extra = json.loads(EXTRA_BANK.read_text(encoding="utf-8"))
+                    extra = json.loads(f.read_text(encoding="utf-8"))
                     self.validate_data(extra, extra=True)
                     data["tasks"] = data.get("tasks", []) + extra.get("tasks", [])
                     data["banks"] = [b for b in data.get("banks", []) if b.get("id") != extra["bank"]["id"]] + [extra["bank"]]
                 except (ValueError, KeyError, OSError) as e:
-                    print(f"! Банк Egeshka не прочитан ({EXTRA_BANK.name}): {e}", flush=True)
+                    print(f"! Дополнительный банк не прочитан ({f.name}): {e}", flush=True)
                     return bool(self.tasks)
             self.tasks = {}
             self._snips = {}
@@ -1804,6 +1816,15 @@ class DB(Transactional):
                 UNIQUE(work_id, student_id, try_no));
             CREATE INDEX IF NOT EXISTS mcko_runs_work ON mcko_runs(work_id);
             -- прогресс уроков лаборатории Arduino (приходит со страницы /arduino/): по курсам, шаги каждого урока
+            -- «Интеллектуальный мегаполис» (im.py): ответы тренировки и вариантов, пробные варианты на 120 минут
+            CREATE TABLE IF NOT EXISTS im_attempts(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, task_id TEXT NOT NULL, slot INTEGER NOT NULL,
+                ok INTEGER NOT NULL, answer TEXT, ts REAL NOT NULL, trial_id INTEGER);
+            CREATE INDEX IF NOT EXISTS im_attempts_s ON im_attempts(student_id, slot);
+            CREATE TABLE IF NOT EXISTS im_trials(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, started REAL NOT NULL, deadline REAL NOT NULL,
+                finished REAL, items TEXT NOT NULL, answers TEXT, score INTEGER);
+            CREATE INDEX IF NOT EXISTS im_trials_s ON im_trials(student_id);
             CREATE TABLE IF NOT EXISTS arduino_progress(
                 student_id INTEGER PRIMARY KEY, data TEXT NOT NULL, junior INTEGER DEFAULT 0, senior INTEGER DEFAULT 0,
                 steps INTEGER DEFAULT 0, updated REAL, first REAL);
@@ -2003,6 +2024,7 @@ class DB(Transactional):
                     ("students", "pyc_ts", "REAL"),                   # когда ввёл
                     ("students", "lab", "INTEGER DEFAULT 0"),
                     ("students", "ard", "INTEGER DEFAULT 0"),         # ученик ввёл пароль лаборатории Arduino
+                    ("students", "im", "INTEGER DEFAULT 0"),          # ученик ввёл пароль «Интеллектуального мегаполиса»
                     ("pyc_progress", "hint_used", "INTEGER DEFAULT 0"),
                     ("pyc_progress", "solution_seen", "INTEGER DEFAULT 0"),
                     ("pyc_progress", "independent", "INTEGER DEFAULT 0"),
@@ -2268,7 +2290,7 @@ def delete_student(db, sid):
             db.x("UPDATE together SET students=? WHERE id=?", (json.dumps([x for x in members if x != sid]), row["id"]))
     for table in ("student_sessions", "attempts", "reveal_log", "exams", "activity", "solutions", "solution_history", "daily_starts", "daily_results",
                   "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue",
-                  "arduino_progress", "mcko_runs"):
+                  "arduino_progress", "mcko_runs", "im_attempts", "im_trials"):
         db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
     db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
     support_img_cleanup(db)
@@ -2513,7 +2535,23 @@ def live_class(db, cid, sids=None):
 
 
 # ---------- совместный сеанс (together.py): хранение, задание, проверка ответа
+TOG_FILE_MAX = 20 * 1024 * 1024     # файл учителя к странице «Вместе» — до 20 МБ (файлы №9, 17, 24–27 и т. п.)
+TOG_FILES_PER_PAGE = 10
+TOG_FILES_TOTAL = 200 * 1024 * 1024  # на один сеанс
+
+
+def tog_files_dir(sid):
+    return DB_PATH.parent / "together_files" / str(int(sid))
+
+
+def tog_file_name(v):
+    """Имя файла для ученика и для open() в Python: без папок и опасных символов."""
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", str(v or "").strip()).strip(" .")[:100]
+    return name or "file.txt"
+
+
 TOG_ACTIVE_SEC = 12 * 3600          # приглашение «висит» у ученика столько, пока учитель не завершил сеанс
+TOG_INVITE_IDLE_SEC = 15 * 60       # …но только пока учитель в сеансе или сеанс менялся за последние 15 минут
 TOG_LIST = 30
 
 
@@ -2718,6 +2756,8 @@ class Handler(BaseHTTPRequestHandler):
             u = urlparse(self.path)
             path = unquote(u.path)
             qs = {k: v[0] for k, v in parse_qs(u.query).items()}
+            if path == "/api/together/upload":
+                return self.do_POST_upload(path, qs)
             try:
                 data = self.body_json()
             except (ValueError, json.JSONDecodeError):
@@ -2725,6 +2765,67 @@ class Handler(BaseHTTPRequestHandler):
             if not path.startswith("/api/"):
                 return self.err(404, "нет такой страницы")
             return self.api("POST", path, qs, data if isinstance(data, dict) else {})
+        except Exception as e:
+            self.log_error_safe(e)
+            self.err(500, "ошибка сервера")
+
+    def together_upload(self, qs):
+        """Учитель прикрепляет файл к странице занятия «Вместе»: тело запроса — сам файл, имя — в X-File-Name."""
+        sid = to_int(qs.get("s"))
+        who = self.together_who(sid, True) if sid else None
+        if not who:
+            return self.err(403, "Прикреплять файлы может учитель этого занятия")
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n <= 0 or n > TOG_FILE_MAX:
+            self.close_connection = True
+            return self.err(413, f"Файл пустой или больше {TOG_FILE_MAX // 1024 // 1024} МБ")
+        r = APP.db.q("SELECT ended FROM together WHERE id=?", (sid,), one=True)
+        if not r or r["ended"]:
+            self.close_connection = True
+            return self.err(409, "Занятие уже завершено")
+        d = tog_files_dir(sid)
+        used = sum(f.stat().st_size for f in d.iterdir()) if d.is_dir() else 0
+        if used + n > TOG_FILES_TOTAL:
+            self.close_connection = True
+            return self.err(413, "В этом занятии уже слишком много файлов — удалите ненужные")
+        name = tog_file_name(unquote(self.headers.get("X-File-Name") or ""))
+        fid = secrets.token_hex(8)
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = d / (fid + ".part")
+        left = n
+        with open(tmp, "wb") as out:
+            while left > 0:
+                chunk = self.rfile.read(min(left, 1 << 16))
+                if not chunk:
+                    break
+                out.write(chunk)
+                left -= len(chunk)
+        if left:
+            tmp.unlink(missing_ok=True)
+            return self.err(400, "Файл пришёл не полностью — попробуйте ещё раз")
+        entry = {"id": fid, "name": name, "size": n, "ts": time.time()}
+
+        def add(files):
+            if len(files) >= TOG_FILES_PER_PAGE:
+                return False
+            files[:] = [f for f in files if f["name"] != name] + [entry]      # то же имя — новая версия файла
+            return True
+        if not TOG.files(sid, qs.get("page") or None, add):
+            tmp.unlink(missing_ok=True)
+            return self.err(409, f"К странице можно прикрепить до {TOG_FILES_PER_PAGE} файлов")
+        os.replace(tmp, d / fid)
+        alive = set(TOG.file_names(sid))
+        for f in d.iterdir():                                  # заменённые версии файла больше не нужны
+            if f.name not in alive and not f.name.endswith(".part"):
+                f.unlink(missing_ok=True)
+        return self.send_json({"ok": True, "file": entry})
+
+    def do_POST_upload(self, path, qs):
+        try:
+            return self.together_upload(qs)
         except Exception as e:
             self.log_error_safe(e)
             self.err(500, "ошибка сервера")
@@ -3366,6 +3467,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s), "lab": lab_access(APP.db, s), "lab_pw": bool(APP.db.setting("lab_pw")),
                 "ard": ard_access(APP.db, s), "ard_pw": bool(APP.db.setting("ard_pw")),
+                "im": im_access(APP.db, s), "im_pw": bool(APP.db.setting("im_pw")),
                 "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
                 "coin_news": [dict(r) for r in APP.db.q("""SELECT id, delta, reason, note FROM coins
                                                             WHERE student_id=? AND seen=0 ORDER BY ts LIMIT 10""", (s["id"],))],
@@ -4596,6 +4698,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET ard=1 WHERE id=?", (s["id"],))
             return self.send_json({"access": True})
 
+        if path == "/api/im" or path.startswith("/api/im/"):
+            return self.api_im(method, path, qs, data)
+
         if path == "/api/arduino/progress" and method == "POST":
             # страница Arduino присылает сводку прогресса уроков; учитель видит её во вкладке «Arduino»
             s = self.student(data)
@@ -4787,6 +4892,33 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid), one=True)
             return self.send_json({"code": r["code"] if r else "", "ts": r["ts"] if r else None})
 
+        if path == "/api/together/file":
+            # файл учителя к странице занятия — только учителю этого занятия и приглашённым ученикам
+            sid, fid = to_int(qs.get("s")), str(qs.get("f") or "")
+            who = self.together_who(sid, qs.get("as") == "t") if sid else None
+            if not who:
+                return self.err(403, "Этот файл вам недоступен")
+            name = TOG.file_names(sid).get(fid) if re.fullmatch(r"[0-9a-f]{16}", fid) else None
+            f = tog_files_dir(sid) / fid if name else None
+            if not f or not f.is_file():
+                return self.err(404, "Файл удалён")
+            return self.send_bytes(200, f.read_bytes(), mimetypes.guess_type(name)[0] or "application/octet-stream",
+                                   {"Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name),
+                                    "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+        if path == "/api/together/file/delete" and method == "POST":
+            sid, fid = to_int(data.get("s")), str(data.get("f") or "")
+            if not (sid and self.together_who(sid, True)):
+                return self.err(403, "Удалять файлы может учитель этого занятия")
+            def drop(files):
+                files[:] = [x for x in files if x["id"] != fid]
+                return True
+            if TOG.files(sid, data.get("page") or None, drop) is None:
+                return self.err(404, "Занятие не найдено")
+            if re.fullmatch(r"[0-9a-f]{16}", fid) and fid not in TOG.file_names(sid):
+                (tog_files_dir(sid) / fid).unlink(missing_ok=True)
+            return self.send_json({"ok": True})
+
         if path == "/api/together/mine":
             # совместные сеансы, куда позвал учитель (не завершённые)
             s = self.student(data)
@@ -4794,7 +4926,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(401, "нужно войти")
             rows = db.q("SELECT * FROM together WHERE ended IS NULL AND COALESCE(updated, created) > ? ORDER BY updated DESC, created DESC",
                         (time.time() - TOG_ACTIVE_SEC,))
-            mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")]
+            # зовём, только пока учитель в сеансе или сеанс менялся недавно: учитель закрыл вкладку, не нажав «Завершить», —
+            # приглашение не всплывает у ученика при каждой перезагрузке ещё 12 часов
+            fresh = time.time() - TOG_INVITE_IDLE_SEC
+            mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")
+                    and ((r["updated"] or r["created"]) > fresh or any(w[0] == "t" for w in TOG.online(r["id"])))]
             return self.send_json({"sessions": mine})
 
         if path == "/api/together/history":
@@ -5298,6 +5434,68 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.err(404, "нет такого метода")
 
     # ---------- задание: открыть, проверить, показать ответ
+    def api_im(self, method, path, qs, data):
+        """«Интеллектуальный мегаполис»: свой пароль; тренировка по 10 номерам и пробный вариант на 120 минут."""
+        db = APP.db
+        s = self.student(data)
+        if not s:
+            return self.err(401, "нужно войти")
+        if path == "/api/im/unlock" and method == "POST":
+            if im_access(db, s):
+                return self.send_json({"access": True})
+            stored = db.setting("im_pw")
+            if not stored:
+                return self.err(403, "Раздел «Интеллектуальный мегаполис» ещё не открыл учитель")
+            now = time.time()
+            with _COURSE_LOCK:
+                tries = [t for t in _LAB_PW_TRIES.get(("im", s["id"]), []) if now - t < COURSE_WINDOW]
+                if len(tries) >= COURSE_TRIES:
+                    return self.err(429, "Слишком много попыток — попробуйте позже")
+                tries.append(now)
+                _LAB_PW_TRIES[("im", s["id"])] = tries
+            if not check_pw(str(data.get("password") or "")[:200], stored):
+                return self.err(403, "Неверный пароль раздела «Интеллектуальный мегаполис»")
+            db.x("UPDATE students SET im=1 WHERE id=?", (s["id"],))
+            return self.send_json({"access": True})
+        if not im_access(db, s):
+            if path == "/api/im":
+                return self.send_json({"access": False, "pw_set": bool(db.setting("im_pw"))})
+            return self.err(403, "Раздел открывается по паролю учителя")
+        if not im.bank():
+            return self.err(503, "Банк заданий конкурса не найден")
+        sid = s["id"]
+        if path == "/api/im":
+            act = im.trial_active(db, sid)
+            return self.send_json(dict(im.overview(), access=True, stats=im.stats(db, sid), trials=im.trials(db, sid),
+                                       active=act["id"] if act else None, active_deadline=act["deadline"] if act else None))
+        if path == "/api/im/task":
+            t = im.pick(db, sid, to_int(qs.get("slot")))
+            return self.send_json({"task": im.public(t)}) if t else self.err(404, "Нет такого номера")
+        if path == "/api/im/check" and method == "POST":
+            r = im.answer(db, sid, str(data.get("id") or ""), str(data.get("answer") or "")[:120])
+            if r is None:
+                return self.err(404, "Задание не найдено")
+            return self.send_json(dict(r, stats=im.stats(db, sid)))
+        if path == "/api/im/trial/start" and method == "POST":
+            return self.send_json(im.trial_public(im.trial_start(db, sid)))
+        if path in ("/api/im/trial", "/api/im/trial/save", "/api/im/trial/finish"):
+            r = im.trial_row(db, sid, to_int(qs.get("id") or data.get("id")))
+            if not r:
+                return self.err(404, "Вариант не найден")
+            if path == "/api/im/trial/save" and method == "POST":
+                if r["finished"] or time.time() > r["deadline"] + im.TRIAL_GRACE:
+                    return self.err(409, "Время варианта вышло")
+                im.trial_save(db, sid, r, data.get("answers"))
+                return self.send_json({"ok": True})
+            if path == "/api/im/trial/finish" and method == "POST":
+                return self.send_json(im.trial_finish(db, sid, r, data.get("answers")))
+            if not r["finished"]:
+                if time.time() > r["deadline"] + im.TRIAL_GRACE:
+                    return self.send_json(im.trial_finish(db, sid, r))
+                return self.send_json(im.trial_public(r))
+            return self.send_json(im.trial_result(r))
+        return self.err(404, "нет такого метода")
+
     def api_tour(self, s, path, method, data, qs):
         """Турниры: наборы на 4 и 8 игроков; набрались — турнир начинается сам; сетка на выбывание,
         матч — одинаковые задания обоим, раунд — сутки; призы опытом и наградой «Победитель турнира»."""
@@ -5884,6 +6082,30 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path.startswith("/api/admin/mcko"):
             return self.admin_mcko(method, path, qs, data)
+
+        if path == "/api/admin/im" and method == "GET":
+            # «Интеллектуальный мегаполис»: ученики этого учителя — по номерам (верно/попыток) и пробные варианты
+            if not im.bank():
+                return self.err(503, "Банк заданий конкурса не найден")
+            where, args = self.student_scope()
+            rows = db.q(f"""SELECT s.id, s.name, COALESCE(s.im, 0) AS im, c.name AS cls FROM students s
+                            LEFT JOIN classes c ON c.id = s.class_id
+                            WHERE (s.im = 1 OR s.id IN (SELECT student_id FROM im_attempts)) AND {where} ORDER BY s.name""", args)
+            out = []
+            for r in rows:
+                tr = db.q("SELECT score, finished FROM im_trials WHERE student_id=? AND finished IS NOT NULL ORDER BY finished", (r["id"],))
+                out.append({"id": r["id"], "name": r["name"], "class": r["cls"], "unlocked": bool(r["im"]),
+                            "slots": im.stats(db, r["id"]), "trials": len(tr), "best": max((x["score"] for x in tr), default=None),
+                            "last": tr[-1]["score"] if tr else None, "last_ts": tr[-1]["finished"] if tr else None})
+            return self.send_json(dict(im.overview(), students=out, pw_set=bool(db.setting("im_pw")), is_main=bool(self.T["is_main"])))
+
+        if path == "/api/admin/im/bank" and method == "GET":
+            # все тренировочные задания номера — с ответами и решениями (учителю для занятия)
+            if not im.bank():
+                return self.err(503, "Банк заданий конкурса не найден")
+            n = to_int(qs.get("slot"))
+            return self.send_json({"tasks": [dict(im.public(t), ans=im.shown_answer(t), sol=t["sol"])
+                                             for t in im.bank()["tasks"] if t["slot"] == n]})
 
         if path == "/api/admin/arduino" and method == "GET":
             # прогресс лаборатории Arduino по ученикам этого учителя: курсы 7 класс и 10–11 классы
@@ -6572,7 +6794,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             # GET — состояние; POST {kind, password | revoke | off} или {all: пароль} — один пароль на все три раздела
             if not self.T["is_main"]:
                 return self.err(403, "Пароли разделов задаёт главный учитель")
-            kinds = {"course": ("course_pw", "course"), "pyc": ("pyc_pw", "pyc"), "lab": ("lab_pw", "lab"), "ard": ("ard_pw", "ard")}
+            kinds = {"course": ("course_pw", "course"), "pyc": ("pyc_pw", "pyc"), "lab": ("lab_pw", "lab"), "ard": ("ard_pw", "ard"),
+                     "im": ("im_pw", "im")}
             if method == "POST":
                 every = str(data.get("all") or "").strip()
                 kind = data.get("kind")
@@ -6580,7 +6803,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if len(every) < 4:
                         return self.err(400, "Пароль — не короче 4 символов")
                     for kind_, (key, _col) in kinds.items():
-                        if kind_ != "ard":                          # у Arduino — всегда свой пароль
+                        if kind_ not in ("ard", "im"):              # у Arduino и «Мегаполиса» — всегда свой пароль
                             db.setting(key, hash_pw(every[:200]))   # у каждого раздела своя соль
                 elif kind in kinds:
                     key, col = kinds[kind]
@@ -7585,8 +7808,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 real = json.loads(a["tasks"] or "[]")
                 b = batches.setdefault(a["batch"] or f"one:{a['id']}", {"batch": a["batch"] or f"one:{a['id']}", "title": batch_title(a),
                                                                        "kind": a["kind"], "created": a["created"], "due": a["due"],
-                                                                       "students": 0, "done": 0, "tasks": 0, "ids": []})
+                                                                       "students": 0, "done": 0, "tasks": 0, "ids": [], "closed": 0})
                 b["ids"].append(a["id"])
+                b["closed"] += bool(a["closed"])
+                if a["due"] and (not b["due"] or a["due"] > b["due"]):
+                    b["due"] = a["due"]                 # у кого-то продлён — показываем самый поздний срок
                 b["students"] += 1
                 b["tasks"] += len(real)
                 b["done"] += len(assignment_done(db, a["student_id"], real, a["created"], asg_cutoff(a))) >= len(real) > 0
@@ -7695,6 +7921,33 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE assignments SET kind=?, strict=? WHERE id=?", (kind, 1 if kind == "self" else 0, a["id"]))
             live_class(db, cid, [a["student_id"] for a in rows])
             return self.send_json({"ok": True, "changed": len(rows), "ended": ended})
+
+        if path == "/api/admin/batch/due" and method == "POST":
+            # перенести срок личной подборки: у всех учеников пачки или у одного (asg_id); закрытые по сроку снова открываются
+            cid = to_int(data.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            due = to_float(data.get("due")) or None
+            if due and due < now:
+                return self.err(400, "Этот срок уже прошёл — выберите сегодняшнюю или более позднюю дату")
+            batch, one = str(data.get("batch") or ""), to_int(data.get("asg_id"))
+            if one:
+                rows = db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (one, cid))
+            elif batch.startswith("one:"):
+                rows = db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (to_int(batch[4:]), cid))
+            else:
+                rows = db.q("SELECT * FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid))
+            if not rows:
+                return self.err(404, "подборка не найдена")
+            reopened = 0
+            for a in rows:
+                db.x("UPDATE assignments SET due=? WHERE id=?", (due, a["id"]))
+                # закрытую по сроку (closed = прежний срок) открываем снова; закрытую учителем вручную — не трогаем
+                if a["closed"] and a["due"] and a["closed"] == a["due"]:
+                    db.x("UPDATE assignments SET closed=NULL WHERE id=?", (a["id"],))
+                    reopened += 1
+            live_class(db, cid, [a["student_id"] for a in rows])
+            return self.send_json({"ok": True, "changed": len(rows), "reopened": reopened})
 
         if path == "/api/admin/batch/delete" and method == "POST":
             cid = to_int(data.get("class_id"))
@@ -7861,7 +8114,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                  "attempts": sc["attempts"], "online": bool(m["last_seen"] and now - m["last_seen"] < 60),
                                  "sol": sols.get(m["id"], 0), "tasks": len(real),
                                  "cells": [sc["items"].get(APP.bank.pid(k)) for k in items]})   # 1 / 0.5 / 0 / None — не решал
-                return self.send_json({"id": aid, "title": a["title"], "strict": False, "kind": a["kind"], "closed": a["closed"],
+                return self.send_json({"id": aid, "title": a["title"], "strict": False, "kind": a["kind"], "closed": a["closed"], "due": a["due"],
                                        "grading": asg_grading(a), "total": len(items), "items": item_info, "rows": rows})
             runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (aid,))}
             rows = []
@@ -7882,7 +8135,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                grade=r["grade"], online=bool(m["last_seen"] and now - m["last_seen"] < 60),
                                cells=[(res.get(k) or 0) if k in answers else None for k in items])
                 rows.append(row)
-            return self.send_json({"id": aid, "title": a["title"], "strict": bool(a["strict"]), "closed": a["closed"],
+            return self.send_json({"id": aid, "title": a["title"], "strict": bool(a["strict"]), "closed": a["closed"], "due": a["due"],
                                    "grading": asg_grading(a), "total": len(items), "items": item_info, "rows": rows})
 
         if path == "/api/admin/together/students":
@@ -7944,6 +8197,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 TOG.forget(tid)
                 TOG.flush()
                 db.x("DELETE FROM together WHERE id=?", (tid,))
+                shutil.rmtree(tog_files_dir(tid), ignore_errors=True)
             else:
                 db.x("UPDATE together SET ended=? WHERE id=? AND ended IS NULL", (now, tid))
                 TOG.forget(tid)

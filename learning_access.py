@@ -23,3 +23,9 @@ def ard_access(db, student):
     """Лаборатория Arduino — отдельный раздел со своим паролем (не пароль лабораторий)."""
     return bool(student and (student['is_teacher'] or
                 (student['ard'] and db.setting('ard_pw'))))
+
+
+def im_access(db, student):
+    """«Интеллектуальный мегаполис» — отдельный раздел со своим паролем."""
+    return bool(student and (student['is_teacher'] or
+                (student['im'] and db.setting('im_pw'))))

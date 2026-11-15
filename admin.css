@@ -964,3 +964,29 @@ td .mk-chip { font-size: 12px; padding: 1px 8px; }
 .sec-code { margin: 0 0 14px; }
 .sec-code.off { border-color: var(--weak); }
 .adm-login-panel .adm-code::placeholder { letter-spacing: normal; font-size: 15px; }
+/* перенос срока личной подборки: у всей пачки и у одного ученика */
+.batch-due { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.batch-due .inp { width: auto; padding: 4px 8px; font-size: 13px; }
+td.batch-due { display: table-cell; }
+
+/* «Интеллектуальный мегаполис»: результаты по номерам и материалы */
+.im-inf { --sc: #2563eb; } .im-mat { --sc: #7c3aed; } .im-phy { --sc: #ea580c; }
+.im-t-table .im-c-h { color: var(--sc); }
+.im-t-table td.im-c { text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.im-t-table td.im-c.good { background: color-mix(in srgb, #16a34a 18%, transparent); }
+.im-t-table td.im-c.mid { background: color-mix(in srgb, #eab308 18%, transparent); }
+.im-t-table td.im-c.weak { background: color-mix(in srgb, #dc2626 16%, transparent); }
+.im-t-table td.im-c.none { color: var(--muted, #999); }
+.im-t-plan { display: grid; gap: 10px; }
+.im-t-slot summary { cursor: pointer; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.im-t-n { display: inline-grid; place-items: center; min-width: 26px; height: 26px; border-radius: 7px; color: #fff; background: var(--sc); }
+.im-t-subj { font-size: 12px; font-weight: 700; color: var(--sc); }
+.im-t-task { margin: 10px 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border, #ddd); overflow-x: auto; }
+.im-t-task summary { cursor: pointer; }
+.im-t-task table { border-collapse: collapse; } .im-t-task td, .im-t-task th { border: 1px solid var(--border, #ccc); padding: 3px 10px; text-align: center; }
+.im-t-task .ov { text-decoration: overline; }
+.im-t-task ol.im-opts { padding-left: 4px; list-style: none; }
+.im-t-task pre { white-space: pre-wrap; }
+.im-t-task svg { color: inherit; fill: currentColor; } .im-t-task svg text { fill: currentColor; }
+.im-t-sol { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, #16a34a 8%, transparent); }
+.im-t-warn { border-color: #eab308; margin-bottom: 12px; }
