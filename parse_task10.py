@@ -365,7 +365,7 @@ class Bank:
     def report(self, started):
         by_num = Counter(p.parent.name for p in (self.out / "tasks").rglob("*.json"))
         lines = [f"Задания №10: {datetime.now().isoformat(timespec='seconds')}",
-                 f"В папке: " + (", ".join(f"№{int(k)} — {v}" for k, v in sorted(by_num.items())) or "пусто"),
+                 "В папке: " + (", ".join(f"№{int(k)} — {v}" for k, v in sorted(by_num.items())) or "пусто"),
                  "", "Статистика:"] + [f"  {k}: {v}" for k, v in sorted(self.stats.items())]
         lines.append(f"  запросов: {self.net.requests}, время: {(time.time() - started) / 60:.1f} мин")
         if self.skipped:
