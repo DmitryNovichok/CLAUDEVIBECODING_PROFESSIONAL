@@ -135,7 +135,7 @@ class VersionTest(unittest.TestCase):
         self.assertGreaterEqual(len(data['tasks']), 200)
         for t in data['tasks']:
             self.assertEqual((t['n'], t['kim'], t['bank']), (10, 2027, 'task10_bank'), t['id'])
-            self.assertRegex(t['ans'], r'^\d+$', t['id'])
+            self.assertRegex(t['ans'], r'^[0-9A-Za-zА-ЯЁа-яё]+$', t['id'])     # число, у пары заданий — слово
             self.assertTrue(t.get('att'), t['id'])
             for a in t['att']:
                 self.assertTrue(a['href'].startswith('../task10_bank/files/'), a)
