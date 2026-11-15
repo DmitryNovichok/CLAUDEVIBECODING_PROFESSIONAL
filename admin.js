@@ -402,6 +402,23 @@
     $('#loginView').hidden = true;
     $('#appView').hidden = false;
   }
+
+  // вход главного учителя в два шага: пароль верный → код из письма на его почту
+  let codeTicket = null;
+  function codeStep(d) {
+    codeTicket = d ? d.ticket : null;
+    $('#admLogin').hidden = !!d; $('#admPassword').hidden = !!d; $('#admPassword').required = !d;
+    $('#admCode').hidden = !d; $('#admCode').required = !!d; $('#admCodeBack').hidden = !d;
+    $('#admCodeNote').hidden = !d;
+    if (d) {
+      $('#admCodeNote').textContent = `Пароль верный. Код для входа отправлен на ${d.to || 'вашу почту'} — действует ${d.minutes || 10} минут (если письма нет, проверьте «Спам»).`;
+      $('#admCode').value = '';
+      setTimeout(() => $('#admCode').focus(), 30);
+    } else { $('#admPassword').value = ''; setTimeout(() => $('#admPassword').focus(), 30); }
+  }
+  $('#admCodeBack').addEventListener('click', () => { codeStep(null); $('#admLoginErr').textContent = ''; });
+  const loginBody = () => (codeTicket ? { ticket: codeTicket, code: $('#admCode').value }
+    : { login: $('#admLogin').value, password: $('#admPassword').value });
   $('#admLoginForm').addEventListener('submit', async e => {
     e.preventDefault();
     const btn = e.target.querySelector('button');
@@ -410,10 +427,13 @@
     try {
       const r = await fetch('api/admin/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login: $('#admLogin').value, password: $('#admPassword').value }), credentials: 'same-origin',
+        body: JSON.stringify(loginBody()), credentials: 'same-origin',
       });
       const d = await r.json().catch(() => ({}));
+      if (r.status === 410) codeStep(null);
       if (!r.ok) throw new Error(d.error || 'Ошибка входа');
+      if (d.need_code) { codeStep(d); return; }
+      codeStep(null);
       $('#admPassword').value = '';
       await loadMe();
       showApp();
@@ -552,7 +572,11 @@
       ${cls.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Создан</th><th>Учитель</th><th>Класс</th><th>Учеников</th></tr></thead>
       <tbody>${cls.map(r => `<tr><td>${when(r.created)}</td><td>${esc(r.teacher)}</td><td>${esc(r.name)}</td><td>${r.students}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="adm-empty">Нет.</p>'}`;
-    $('#secBody').innerHTML = sum + sessHtml + logHtml + clsHtml;
+    const C = D.code_login || {};
+    const codeHtml = `<div class="adm-box sec-code${C.on ? '' : ' off'}">${C.on
+      ? `🔐 <b>Вход главного учителя — по паролю и коду из письма</b> на ${esc(C.to)}. Знать пароль недостаточно.`
+      : `⚠️ <b>Вход главного учителя — только по паролю.</b> ${!C.email ? 'Укажите почту главного учителя в «Настройках».' : 'На сервере не настроена отправка писем (SMTP) — код не может прийти.'} Тогда вход потребует код из письма.`}</div>`;
+    $('#secBody').innerHTML = codeHtml + sum + sessHtml + logHtml + clsHtml;
   }
   $('#secReload')?.addEventListener('click', loadSecurity);
   $('#secTeacher')?.addEventListener('change', loadSecurity);

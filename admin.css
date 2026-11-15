@@ -958,3 +958,9 @@ td .mk-chip { font-size: 12px; padding: 1px 8px; }
   background: var(--weak-soft); color: var(--weak); white-space: nowrap; }
 .sec-ip code { font-size: 12.5px; }
 #view-security .adm-toolbar { flex-wrap: wrap; gap: 8px; }
+.adm-login-panel [hidden] { display: none !important; }
+.adm-login-panel .adm-code { font-size: 22px; letter-spacing: 8px; text-align: center; font-variant-numeric: tabular-nums; }
+.adm-login-panel .adm-code-note { margin: 0; }
+.sec-code { margin: 0 0 14px; }
+.sec-code.off { border-color: var(--weak); }
+.adm-login-panel .adm-code::placeholder { letter-spacing: normal; font-size: 15px; }

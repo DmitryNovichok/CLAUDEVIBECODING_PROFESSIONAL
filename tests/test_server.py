@@ -5410,6 +5410,61 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["log"][0]["event"], "end")
 
 
+    def test_main_teacher_logs_in_with_code_from_email(self):
+        db = server.APP.db
+        old = db.q("SELECT pw, email FROM teachers WHERE is_main=1", one=True)
+        db.x("UPDATE teachers SET pw=?, email=? WHERE is_main=1", (server.hash_pw("Main-Pass-91"), "owner@example.ru"))
+        db.x("DELETE FROM admin_codes")
+        sent = []
+        try:
+            with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+                 mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, subj, t)) or True):
+                server.THROTTLE.fails.clear()
+                # верный пароль — сессии нет, на почту ушёл код
+                st, d, ck = self.creq("POST", "/api/admin/login", {"login": "owner@example.ru", "password": "Main-Pass-91"}, ip="198.51.100.20")
+                self.assertEqual(st, 200, d)
+                self.assertEqual((d.get("need_code"), d["to"], ck), (True, "o•••@example.ru", ""))
+                for _ in range(30):
+                    if sent:
+                        break
+                    time.sleep(0.05)
+                to, subj, text = sent[0]
+                code = re.search(r"\b(\d{6})\b", subj).group(1)
+                self.assertEqual(to, "owner@example.ru")
+                self.assertIn("198.51.100.20", text)
+                self.assertNotIn(code, json.dumps(d))                        # код только в письме, не в ответе
+                # неверный код — нет входа; верный — вход; второй раз тот же код не работает
+                st, d2, ck = self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": "000000" if code != "000000" else "111111"})
+                self.assertEqual((st, ck), (403, ""))
+                self.assertIn("осталось попыток: 4", d2["error"])
+                server.THROTTLE.fails.clear()
+                st, _, ck = self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": code})
+                self.assertEqual(st, 200)
+                self.assertTrue(ck.startswith("egeadm="))
+                self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[1]["is_main"], 1)
+                self.assertEqual(self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": code})[0], 410)
+                # подобрать код нельзя: после 5 ошибок билет сгорает
+                st, d, _ = self.creq("POST", "/api/admin/login", {"login": "owner@example.ru", "password": "Main-Pass-91"})
+                for _ in range(5):
+                    self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": "12345x"})
+                    server.THROTTLE.fails.clear()
+                self.assertEqual(self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": "123456"})[0], 410)
+                # журнал: код отправлен, неудачный код, вход
+                st, sec = self.admin("GET", "/api/admin/security")
+                self.assertTrue(sec["code_login"]["on"])
+                events = [(r["event"], r["ok"], r["detail"]) for r in sec["log"]]
+                self.assertIn(("code", True, "пароль верный, код отправлен на почту"), events)
+                self.assertIn(("login", False, "неверный код из письма"), events)
+            # почта не настроена — главный входит по паролю (иначе остался бы без панели), в журнале пометка
+            with mock.patch.object(server, "smtp_conf", lambda: None):
+                st, d, ck = self.creq("POST", "/api/admin/login", {"login": "owner@example.ru", "password": "Main-Pass-91"})
+                self.assertEqual(st, 200)
+                self.assertTrue(ck.startswith("egeadm="))
+        finally:
+            db.x("UPDATE teachers SET pw=?, email=? WHERE is_main=1", (old["pw"], old["email"]))
+            server.THROTTLE.fails.clear()
+
+
 class MailHeadersTest(unittest.TestCase):
     def test_mail_has_date_message_id_and_both_parts(self):
         """Письма сайта: дата, Message-ID на домене отправителя, текст и HTML — без них почта чаще уходит в спам."""

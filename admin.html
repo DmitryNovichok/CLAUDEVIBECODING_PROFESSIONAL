@@ -37,7 +37,10 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <div class="login-form login-stack">
       <input class="inp" id="admLogin" name="username" placeholder="Почта или логин" autocomplete="username" autocapitalize="off" spellcheck="false">
       <input class="inp" type="password" id="admPassword" name="password" placeholder="Пароль" autocomplete="current-password" required>
+      <p class="fm-note adm-code-note" id="admCodeNote" hidden></p>
+      <input class="inp adm-code" id="admCode" name="code" placeholder="Код из письма" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" hidden>
       <button class="btn primary" type="submit">Войти</button>
+      <button type="button" class="link-btn" id="admCodeBack" hidden>← Ввести пароль заново</button>
     </div>
     <div class="login-err" id="admLoginErr" role="alert"></div>
     <p class="fm-note adm-already" id="admAlready" hidden></p>

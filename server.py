@@ -619,9 +619,29 @@ TLOG_NAMES = {
     "teacher/moderate": "проверка учителя", "email/change": "сменил почту", "as-student": "открыл тренажёр как ученик",
     "gifts/give": "выдал подарок", "gifts/remove": "забрал подарок", "logout-here": "завершил другие входы",
 }
-TLOG_EVENTS = {"login": "вход", "signup": "регистрация и вход", "logout": "выход", "password": "смена пароля",
+TLOG_EVENTS = {"code": "код входа отправлен на почту", "login": "вход", "signup": "регистрация и вход", "logout": "выход", "password": "смена пароля",
                "reset": "пароль по ссылке из письма", "reset_request": "запрос «Забыли пароль?»", "action": "действие", "end": "входы завершены главным учителем"}
 _TLOG_KEYS = ("name", "title", "class_name", "class_id", "student_id", "teacher_id", "id", "ids", "login", "email", "kind", "status")
+
+
+LOGIN_CODE_SEC = 10 * 60           # код входа главного учителя из письма действует 10 минут
+LOGIN_CODE_TRIES = 5               # попыток ввести код
+LOGIN_CODE_PER_15MIN = 5           # писем с кодом за 15 минут
+
+
+def login_code_ready(t):
+    """Вход главного учителя по коду из письма: включён (по умолчанию да), есть почта и настроена отправка писем."""
+    return APP.db.setting("main_login_code") != "0" and bool(t["email"]) and bool(smtp_conf())
+
+
+def login_code_hash(ticket, code):
+    return hashlib.sha256(f"{ticket}:{code}".encode()).hexdigest()
+
+
+def mask_email(e):
+    """d•••@mail.ru — куда ушёл код, не раскрывая адрес целиком."""
+    name, _, dom = str(e or "").partition("@")
+    return (name[:1] + "•••" + ("@" + dom if dom else "")) if name else ""
 
 
 def sess_mark(tok):
@@ -693,7 +713,9 @@ def teacher_security(db, tid=None, limit=400, cur=None):
                                  FROM classes c WHERE COALESCE(c.is_demo, 0) = 0 AND c.created > ? {w3}
                                  ORDER BY c.created DESC LIMIT 100""", (main_id, now - 90 * 86400, *a3))]
     teachers = [{"id": r["id"], "name": r["name"]} for r in db.q("SELECT id, name FROM teachers WHERE COALESCE(guest, 0) = 0 ORDER BY is_main DESC, name")]
-    return {"sessions": sessions, "log": log, "summary": summary, "unknown_fails": unknown_fails, "classes": classes,
+    m = main_teacher()
+    code_login = {"on": login_code_ready(m), "to": mask_email(m["email"]), "email": bool(m["email"]), "smtp": bool(smtp_conf())}
+    return {"code_login": code_login, "sessions": sessions, "log": log, "summary": summary, "unknown_fails": unknown_fails, "classes": classes,
             "teachers": teachers, "days": TLOG_DAYS, "now": now}
 
 
@@ -1896,6 +1918,10 @@ class DB(Transactional):
                 ip TEXT, ua TEXT, login TEXT, path TEXT, detail TEXT, sess TEXT);
             CREATE INDEX IF NOT EXISTS teacher_log_t ON teacher_log(teacher_id, ts);
             CREATE INDEX IF NOT EXISTS teacher_log_ts ON teacher_log(ts);
+            -- вход главного учителя в два шага: пароль верный → код на почту; ticket и код хранятся только хешами
+            CREATE TABLE IF NOT EXISTS admin_codes(
+                ticket TEXT PRIMARY KEY, teacher_id INTEGER NOT NULL, code TEXT NOT NULL, expires REAL NOT NULL,
+                tries INTEGER DEFAULT 0, ip TEXT, created REAL);
             CREATE TABLE IF NOT EXISTS attempts_void(
                 id INTEGER PRIMARY KEY, batch TEXT NOT NULL, student_id INTEGER NOT NULL, ts REAL, row TEXT NOT NULL,
                 void_ts REAL NOT NULL, teacher_id INTEGER, t_from REAL, t_to REAL);
@@ -3359,6 +3385,58 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         APP.db.x("DELETE FROM admin_sessions WHERE expires<?", (now,))
         self.tlog(event, tid, sess=sess_mark(tok))
         return f"egeadm={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age={int(seconds)}{self.cookie_attrs()}"
+
+    def admin_login_send_code(self, t, ip):
+        """Пароль главного учителя верный — второй шаг: код на его почту. Сессии ещё нет."""
+        db, now = APP.db, time.time()
+        db.x("DELETE FROM admin_codes WHERE expires<?", (now,))
+        if db.q("SELECT COUNT(*) c FROM admin_codes WHERE teacher_id=? AND created>?", (t["id"], now - 900), one=True)["c"] >= LOGIN_CODE_PER_15MIN:
+            return self.err(429, "Слишком много кодов подряд — подождите 15 минут и войдите снова")
+        ticket, code = secrets.token_urlsafe(24), f"{secrets.randbelow(10 ** 6):06d}"
+        db.x("INSERT INTO admin_codes(ticket, teacher_id, code, expires, ip, created) VALUES(?,?,?,?,?,?)",
+             (hashlib.sha256(ticket.encode()).hexdigest(), t["id"], login_code_hash(ticket, code), now + LOGIN_CODE_SEC, ip, now))
+        device = ua_label(self.headers.get("User-Agent") or "")
+        when = time.strftime("%d.%m.%Y %H:%M", time.localtime(now))
+        safe = html_mod.escape
+
+        def mail(to=t["email"], name=t["name"]):
+            try:
+                send_mail(to, f"Egeshka: код входа {code}",
+                          f"<p>{safe(name)}, код для входа в панель главного учителя:</p>"
+                          f"<p style='font-size:28px;font-weight:700;letter-spacing:6px'>{code}</p>"
+                          f"<p>Действует {LOGIN_CODE_SEC // 60} минут. Вход: {safe(when)}, адрес {safe(ip)}, {safe(device)}.</p>"
+                          "<p style='color:#c53030'>Если это были не вы — кто-то знает ваш пароль: смените его в панели (Настройки) "
+                          "и никому не сообщайте этот код.</p>",
+                          f"{name}, код для входа в панель главного учителя: {code}\n"
+                          f"Действует {LOGIN_CODE_SEC // 60} минут. Вход: {when}, адрес {ip}, {device}.\n"
+                          "Если это были не вы — кто-то знает ваш пароль: смените его и никому не сообщайте этот код.")
+            except Exception as e:
+                print(f"[код входа] {e!r}", flush=True)
+        threading.Thread(target=mail, daemon=True).start()
+        self.tlog("code", t["id"], detail="пароль верный, код отправлен на почту")
+        return self.send_json({"need_code": True, "ticket": ticket, "to": mask_email(t["email"]), "minutes": LOGIN_CODE_SEC // 60})
+
+    def admin_login_code(self, data, ip):
+        """Второй шаг входа главного учителя: код из письма → сессия."""
+        db, now = APP.db, time.time()
+        ticket = str(data.get("ticket") or "")
+        key = hashlib.sha256(ticket.encode()).hexdigest()
+        r = db.q("SELECT * FROM admin_codes WHERE ticket=?", (key,), one=True)
+        if not r or r["expires"] < now or r["tries"] >= LOGIN_CODE_TRIES:
+            if r:
+                db.x("DELETE FROM admin_codes WHERE ticket=?", (key,))
+            return self.err(410, "Код устарел — войдите заново, придёт новый")
+        code = re.sub(r"\D", "", str(data.get("code") or ""))
+        if not hmac.compare_digest(login_code_hash(ticket, code), r["code"]):
+            db.x("UPDATE admin_codes SET tries=tries+1 WHERE ticket=?", (key,))
+            THROTTLE.fail("admin", ip)
+            self.tlog("login", r["teacher_id"], ok=False, detail="неверный код из письма")
+            time.sleep(1.0)
+            left = LOGIN_CODE_TRIES - r["tries"] - 1
+            return self.err(403, f"Неверный код — осталось попыток: {left}" if left > 0 else "Неверный код — войдите заново, придёт новый")
+        db.x("DELETE FROM admin_codes WHERE ticket=?", (key,))
+        THROTTLE.ok("admin", ip)
+        return self.send_json({"ok": True}, extra={"Set-Cookie": self.admin_login(r["teacher_id"], ADMIN_SESSION_DAYS * 86400)})
 
     def tlog(self, event, tid=None, *, ok=True, login=None, path=None, detail=None, sess=None):
         """Строка журнала безопасности учителей: что, кто, когда, с какого адреса и устройства."""
@@ -5179,11 +5257,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             wait = THROTTLE.blocked("admin", ip)
             if wait:
                 return self.err(429, self.wait_msg(wait))
+            if data.get("ticket"):
+                return self.admin_login_code(data, ip)
             login = str(data.get("login") or "").strip().lower()
             t = (db.q("SELECT * FROM teachers WHERE (lower(login)=? OR lower(email)=?) AND COALESCE(guest, 0)=0", (login, login), one=True)
                  if login else db.q("SELECT * FROM teachers WHERE is_main=1", one=True))
             if t and check_pw(str(data.get("password") or ""), t["pw"]):
                 THROTTLE.ok("admin", ip)
+                if t["is_main"] and login_code_ready(t):
+                    return self.admin_login_send_code(t, ip)
+                if t["is_main"]:
+                    self.tlog("login", t["id"], detail="без кода из письма: почта для входа не настроена")
                 return self.send_json({"ok": True}, extra={"Set-Cookie": self.admin_login(t["id"], ADMIN_SESSION_DAYS * 86400)})
             THROTTLE.fail("admin", ip)
             self.tlog("login", t["id"] if t else None, ok=False, login=login or "(главный)",
