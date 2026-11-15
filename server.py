@@ -2514,6 +2514,7 @@ def live_class(db, cid, sids=None):
 
 # ---------- совместный сеанс (together.py): хранение, задание, проверка ответа
 TOG_ACTIVE_SEC = 12 * 3600          # приглашение «висит» у ученика столько, пока учитель не завершил сеанс
+TOG_INVITE_IDLE_SEC = 15 * 60       # …но только пока учитель в сеансе или сеанс менялся за последние 15 минут
 TOG_LIST = 30
 
 
@@ -4794,7 +4795,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(401, "нужно войти")
             rows = db.q("SELECT * FROM together WHERE ended IS NULL AND COALESCE(updated, created) > ? ORDER BY updated DESC, created DESC",
                         (time.time() - TOG_ACTIVE_SEC,))
-            mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")]
+            # зовём, только пока учитель в сеансе или сеанс менялся недавно: учитель закрыл вкладку, не нажав «Завершить», —
+            # приглашение не всплывает у ученика при каждой перезагрузке ещё 12 часов
+            fresh = time.time() - TOG_INVITE_IDLE_SEC
+            mine = [tog_public(db, r, s["id"]) for r in rows if s["id"] in json.loads(r["students"] or "[]")
+                    and ((r["updated"] or r["created"]) > fresh or any(w[0] == "t" for w in TOG.online(r["id"])))]
             return self.send_json({"sessions": mine})
 
         if path == "/api/together/history":

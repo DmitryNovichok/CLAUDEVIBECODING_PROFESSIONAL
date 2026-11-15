@@ -152,9 +152,11 @@
     if (!EX) return;
     if (!examShown) {
       abandonCurrent();
+      leaveCourse();                       // с главной, курса или «Моих вариантов» — сам вариант, а не страница под ним
       cur = null;
       examShown = true;
     }
+    closeForecast();
     if (SERVER) exStrictEnter();
     if (isNarrow()) setSideOpen(false);
     startExamTimer();

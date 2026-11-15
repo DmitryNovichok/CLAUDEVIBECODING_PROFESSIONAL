@@ -2,7 +2,11 @@
   /* Учитель позвал в общий сеанс (код и доска, together.html) — карточка «Учитель зовёт в общий сеанс» всплывает сразу
      (живое обновление together) и при входе на сайт, пока учитель не завершил сеанс. «Позже» — карточка сворачивается
      в кнопку 👥 внизу экрана. */
-  const TOGI = { list: [], later: new Set(), rung: new Set() };
+  // «Позже», «Присоединиться» и звонок помнятся и после перезагрузки: приглашение не всплывает заново со звуком
+  const TOGI_KEY = 'egeTrainer.togSeen';
+  const togSeenRead = () => { try { return JSON.parse(localStorage.getItem(TOGI_KEY) || '{}'); } catch (e) { return {}; } };
+  const togSeenSave = () => { try { localStorage.setItem(TOGI_KEY, JSON.stringify({ later: [...TOGI.later].slice(-50), rung: [...TOGI.rung].slice(-50) })); } catch (e) { /* без памяти */ } };
+  const TOGI = { list: [], later: new Set(togSeenRead().later || []), rung: new Set(togSeenRead().rung || []) };
   async function togCheck(fresh) {
     if (!SERVER || !student || TEACHER) return;
     let d;
@@ -49,19 +53,20 @@
          <div class="tog-inv-t">${esc(what)}${s.task ? ' · задание ' + esc(s.task) : ''}. Можно вместе писать код и рисовать — всё видно сразу у обоих.</div>
          <div class="tog-inv-a"><button type="button" class="btn" data-tog-later="${s.id}">Позже</button>
            <button type="button" class="btn primary" data-tog-join="${s.id}">Присоединиться</button></div>`;
-    if (fresh && !mini && !TOGI.rung.has(s.id)) { TOGI.rung.add(s.id); togRing(); }
+    if (fresh && !mini && !TOGI.rung.has(s.id)) { TOGI.rung.add(s.id); togSeenSave(); togRing(); }
   }
   document.addEventListener('click', e => {
     const j = e.target.closest && e.target.closest('[data-tog-join]');
     if (j) {
       const url = 'together.html?id=' + j.dataset.togJoin;
       TOGI.later.add(+j.dataset.togJoin);
+      togSeenSave();
       togRender(false);
       if (!window.open(url, '_blank')) location.href = url;
       return;
     }
     const l = e.target.closest && e.target.closest('[data-tog-later]');
-    if (l) { TOGI.later.add(+l.dataset.togLater); togRender(false); }
+    if (l) { TOGI.later.add(+l.dataset.togLater); togSeenSave(); togRender(false); }
   });
 
   // ---------- записи занятий «Вместе»: слева кнопка 👥 — список уроков с учителем; у каждого задания сохранены код, доска и вывод

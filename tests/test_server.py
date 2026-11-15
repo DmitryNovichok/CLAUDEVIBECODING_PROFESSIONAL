@@ -5013,6 +5013,12 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(d["sessions"][0]["task"], "№ 5")
         st, d = self.req("GET", "/api/together/mine", token=stranger)
         self.assertEqual(d["sessions"], [])
+        # учитель закрыл вкладку, не нажав «Завершить», и сеанс давно не менялся — приглашение больше не всплывает
+        row = db.q("SELECT created, updated FROM together WHERE id=?", (sid,), one=True)
+        old = time.time() - server.TOG_INVITE_IDLE_SEC - 60
+        db.x("UPDATE together SET created=?, updated=? WHERE id=?", (old, old, sid))
+        self.assertEqual(self.req("GET", "/api/together/mine", token=a)[1]["sessions"], [])
+        db.x("UPDATE together SET created=?, updated=? WHERE id=?", (row["created"], row["updated"], sid))
         # чужой ученик и чужой сайт не подключатся
         self.assertIn(" 403", self.ws(sid, stranger)[2])
         self.assertIn(" 403", self.ws(sid, a, origin="https://evil.example")[2])
@@ -5023,6 +5029,10 @@ class ServerTest(unittest.TestCase):
         snap = self.recv(trf, "snap")
         self.assertTrue(snap["me"]["teacher"])
         self.assertEqual(snap["page"]["task"]["ans"], "12")              # учителю — ответ
+        # учитель в сеансе — зовём, даже если давно ничего не менялось
+        db.x("UPDATE together SET created=?, updated=? WHERE id=?", (old, old, sid))
+        self.assertEqual([x["id"] for x in self.req("GET", "/api/together/mine", token=a)[1]["sessions"]], [sid])
+        db.x("UPDATE together SET created=?, updated=? WHERE id=?", (row["created"], row["updated"], sid))
         ss, srf, status = self.ws(sid, a)
         self.assertIn(" 101", status)
         snap = self.recv(srf, "snap")
