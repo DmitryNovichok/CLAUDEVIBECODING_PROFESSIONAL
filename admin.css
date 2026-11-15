@@ -946,3 +946,15 @@ td .mk-chip { font-size: 12px; padding: 1px 8px; }
 .t-moderation .chip{justify-self:start;white-space:normal}
 .t-moderation-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .t-review-note{margin:2px 0;font-size:12px;max-width:360px;overflow-wrap:anywhere}
+
+/* Входы учителей (главный учитель): сводка, действующие входы, журнал с адресами */
+.sec-sum { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 6px; }
+.sec-card { margin: 0; }
+.sec-card.warn { border-color: var(--weak); }
+.sec-bad { color: var(--weak); font-weight: 600; font-size: 13px; margin-top: 4px; }
+.sec-log tr.sec-fail td { background: var(--weak-soft); }
+.sec-log tr.sec-ev td:nth-child(3) { font-weight: 600; }
+.sec-new { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  background: var(--weak-soft); color: var(--weak); white-space: nowrap; }
+.sec-ip code { font-size: 12.5px; }
+#view-security .adm-toolbar { flex-wrap: wrap; gap: 8px; }

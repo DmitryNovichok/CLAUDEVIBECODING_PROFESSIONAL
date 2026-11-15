@@ -504,6 +504,72 @@
         ${e.stack ? `<pre class="err-stack">${esc(e.stack)}</pre>` : ''}</details></div>`).join('');
   }
   $('#errReload')?.addEventListener('click', () => loadErrors(true));
+
+  /** Входы учителей (только главный): действующие входы, журнал с IP-адресами и действиями, классы за 90 дней. */
+  let SEC = null;
+  async function loadSecurity() {
+    const tid = $('#secTeacher').value;
+    try { SEC = await api('security' + (tid ? '?teacher_id=' + encodeURIComponent(tid) : '')); }
+    catch (err) { if (err.status !== 401) $('#secBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    const sel = $('#secTeacher');
+    if (sel.options.length <= 1) sel.insertAdjacentHTML('beforeend', SEC.teachers.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join(''));
+    renderSecurity();
+  }
+  function renderSecurity() {
+    if (!SEC) return;
+    const D = SEC, q = ($('#secQ').value || '').trim().toLowerCase();
+    const when = ts => ts ? new Date(ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+    const tid = $('#secTeacher').value;
+    const hit = (...xs) => !q || xs.some(x => String(x || '').toLowerCase().includes(q));
+    const ip = x => x ? `<button type="button" class="link-btn sec-ip" data-sec-ip="${esc(x)}" title="Показать всё с этого адреса"><code>${esc(x)}</code></button>` : '<span class="muted">не записан</span>';
+    const sum = D.summary.length ? `<div class="sec-sum">${D.summary.map(r => `<div class="adm-box sec-card${r.fails ? ' warn' : ''}">
+        <b>${esc(r.teacher || 'удалённый учитель')}</b>
+        <div class="muted">за 30 дней: входов ${r.logins || 0} · адресов ${r.ips || 0} · действий ${r.actions || 0}</div>
+        ${r.fails ? `<div class="sec-bad">неудачных попыток входа: ${r.fails}</div>` : ''}</div>`).join('')}
+        ${D.unknown_fails ? `<div class="adm-box sec-card warn"><b>Попытки с несуществующим логином</b><div class="sec-bad">${D.unknown_fails} за 30 дней</div></div>` : ''}</div>` : '';
+    const sess = D.sessions.filter(r => hit(r.teacher, r.ip, r.last_ip, r.device));
+    const sessHtml = `<h3 class="adm-h3">Сейчас вошли (${sess.length})</h3>
+      ${tid && sess.length ? `<p><button type="button" class="btn" data-sec-end-all="${esc(tid)}">Завершить все входы этого учителя</button></p>` : ''}
+      ${sess.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Учитель</th><th>Вошёл</th><th>IP входа</th><th>Устройство</th><th>Последняя активность</th><th>Отметка</th><th></th></tr></thead>
+      <tbody>${sess.map(r => `<tr><td>${esc(r.teacher)}</td><td>${r.exact ? when(r.created) : `≈ ${when(r.created)} <span class="muted">(до журнала)</span>`}</td>
+        <td>${ip(r.ip)}</td><td>${esc(r.device || '—')}</td>
+        <td>${r.last_seen ? `${when(r.last_seen)}${r.last_ip && r.last_ip !== r.ip ? ` · ${ip(r.last_ip)}` : ''}` : '—'}</td>
+        <td><code class="muted">${esc(r.sess)}</code></td>
+        <td>${r.current ? '<span class="muted">это вы</span>' : `<button type="button" class="btn ghost" data-sec-end="${esc(r.sess)}">Завершить</button>`}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="adm-empty">Действующих входов нет.</p>'}`;
+    const log = D.log.filter(r => hit(r.teacher, r.ip, r.what, r.detail, r.login, r.device, r.sess));
+    const logHtml = `<h3 class="adm-h3">Журнал (${log.length}${D.log.length >= 400 ? ' последних' : ''})</h3>
+      ${log.length ? `<div class="adm-table-wrap"><table class="adm-table sec-log"><thead><tr><th>Когда</th><th>Учитель</th><th>Что</th><th>IP</th><th>Устройство</th><th>Подробности</th><th>Вход</th></tr></thead>
+      <tbody>${log.map(r => `<tr class="${r.ok ? '' : 'sec-fail'}${r.event === 'action' ? '' : ' sec-ev'}"><td class="muted">${when(r.ts)}</td>
+        <td>${esc(r.teacher || (r.login ? `логин «${r.login}»` : '—'))}</td>
+        <td>${r.ok ? '' : '⛔ '}${esc(r.what)}${r.ok ? '' : ' — не удалось'}${r.new_ip ? ' <span class="sec-new">новый адрес</span>' : ''}</td>
+        <td>${ip(r.ip)}</td><td>${esc(r.device || '')}</td><td class="muted">${esc(r.detail)}</td>
+        <td>${r.sess ? `<button type="button" class="link-btn" data-sec-q="${esc(r.sess)}" title="Все действия после этого входа"><code class="muted">${esc(r.sess)}</code></button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+      : `<p class="adm-empty">${q ? 'Ничего не найдено.' : 'Записей пока нет — журнал ведётся с этого обновления.'}</p>`}`;
+    const cls = D.classes.filter(r => hit(r.teacher, r.name));
+    const clsHtml = `<h3 class="adm-h3">Классы, созданные за 90 дней</h3>
+      <p class="adm-hint">До этого обновления входы не записывались. Время создания класса поможет сопоставить его с подозрительным входом.</p>
+      ${cls.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Создан</th><th>Учитель</th><th>Класс</th><th>Учеников</th></tr></thead>
+      <tbody>${cls.map(r => `<tr><td>${when(r.created)}</td><td>${esc(r.teacher)}</td><td>${esc(r.name)}</td><td>${r.students}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="adm-empty">Нет.</p>'}`;
+    $('#secBody').innerHTML = sum + sessHtml + logHtml + clsHtml;
+  }
+  $('#secReload')?.addEventListener('click', loadSecurity);
+  $('#secTeacher')?.addEventListener('change', loadSecurity);
+  $('#secQ')?.addEventListener('input', renderSecurity);
+  $('#secBody')?.addEventListener('click', async e => {
+    const f = e.target.closest('[data-sec-ip], [data-sec-q]');
+    if (f) { $('#secQ').value = f.dataset.secIp || f.dataset.secQ; renderSecurity(); return; }
+    const b = e.target.closest('[data-sec-end], [data-sec-end-all]');
+    if (!b) return;
+    const all = b.dataset.secEndAll;
+    if (!confirm(all ? 'Завершить все входы этого учителя? Ему нужно будет войти заново.' : 'Завершить этот вход? На том устройстве панель закроется.')) return;
+    try {
+      const r = await api('security/end', all ? { teacher_id: +all } : { sess: b.dataset.secEnd });
+      toast(r.ended ? `Завершено входов: ${r.ended}` : 'Этот вход уже закрыт (свой текущий вход здесь не завершается)');
+    } catch (err) { toast(err.message); return; }
+    loadSecurity();
+  });
   $('#errBody')?.addEventListener('click', async e => {
     const b = e.target.closest('[data-err-fix]');
     if (!b) return;
@@ -2376,7 +2442,7 @@
   // ------------------------------------------------------------ вкладки
   let tab = 'overview';
   let backTab = 'overview';            // куда вернуться из карточки ученика
-  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'course'];
+  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'course', 'security'];
   function go(t) {
     if (MAIN_ONLY_TABS.includes(t) && !ME.is_main) t = 'overview';   // экономика, подарки и сервис сайта — только главный учитель
     ++studentLoadVersion;                 // ответ старой карточки не должен возвращать из другого раздела
@@ -2386,11 +2452,12 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard', 'security'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     document.body.classList.toggle('builder-open', t === 'build');
     if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
+    if (t === 'security') loadSecurity();
     if (t === 'course') loadCourseProgress();
     if (t === 'pyc') loadPyc();
     if (t === 'ard') loadArd();

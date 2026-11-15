@@ -77,6 +77,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <button type="button" id="adminLabBtn"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></svg></i>Лаборатория</button>
       <div class="nav-h">Сервис</div>
       <button type="button" data-tab="teachers" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.3 4-6.5 8-6.5s7 2.2 8 6.5"/></svg></i>Учителя</button>
+      <button type="button" data-tab="security" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg></i>Входы учителей</button>
       <button type="button" data-tab="site" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></i>Статистика сайта</button>
       <button type="button" data-tab="errors" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="13" rx="5"/><path d="M12 7V4M9 4.5 10 7M15 4.5 14 7M3 12h4M17 12h4M4 18l3-2M20 18l-3-2M4 7l3 2M20 7l-3 2"/></svg></i>Ошибки <b class="tab-n" id="errN" hidden></b></button>
       <button type="button" data-tab="access" class="main-only"><i aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg></i>Пароли и доступы</button>
@@ -335,6 +336,17 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <p class="adm-hint" style="margin:0 0 12px">Цифры по всему тренажёру, у всех учителей. Имён чужих учеников здесь нет — только количество.
         Посетители считаются обезличенно: адреса не хранятся. Учительские аккаунты в цифры учеников не входят.</p>
       <div id="siteBody"><p class="adm-hint">Загружаю…</p></div>
+    </section>
+
+    <section class="adm-view" id="view-security" hidden>
+      <div class="adm-toolbar"><h2 class="adm-h">Входы учителей</h2>
+        <select class="adm-select" id="secTeacher" aria-label="Учитель"><option value="">Все учителя</option></select>
+        <input class="inp adm-search" id="secQ" type="search" placeholder="Поиск: IP, учитель, действие" aria-label="Поиск по журналу" maxlength="80">
+        <button type="button" class="btn ghost" id="secReload">Обновить</button></div>
+      <p class="adm-hint" style="margin:0 0 12px">Каждый вход в панель учителя — с IP-адресом и устройством, неудачные попытки входа,
+        смена и сброс пароля и все изменения в панели (классы, ученики, работы). У каждого действия — отметка входа, после которого оно сделано.
+        Чужой вход — нажмите «Завершить», затем смените учителю пароль во вкладке «Учителя». Журнал хранится год.</p>
+      <div id="secBody"><p class="adm-hint">Загружаю…</p></div>
     </section>
 
     <section class="adm-view" id="view-errors" hidden>

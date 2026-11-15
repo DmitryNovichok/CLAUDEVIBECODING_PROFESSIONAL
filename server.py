@@ -603,6 +603,100 @@ def ua_label(ua):
     return f"{br} · {os_}" if os_ else br
 
 
+# ---------- журнал безопасности учителей (вкладка «Входы учителей» у главного)
+TLOG_DAYS = 365                    # сколько хранится журнал
+TLOG_SKIP = {"/api/admin/jserr", "/api/admin/ui", "/api/admin/steps-off", "/api/admin/logout", "/api/admin/password",
+             "/api/admin/security/end"}    # служебное (тема, «просмотрено») и то, что пишется отдельной строкой
+# что сделал учитель — по-человечески (остальное показывается адресом метода)
+TLOG_NAMES = {
+    "class/save": "создал или переименовал класс", "class/delete": "удалил класс", "class/members": "перевёл учеников между классами",
+    "class/import": "загрузил список класса", "class/goal": "цель класса", "class/weak": "работа над ошибками класса",
+    "invite": "новый код приглашения", "student/rename": "переименовал ученика", "student/delete": "удалил ученика",
+    "student/password-reset": "сбросил пароль ученика", "student/newpw": "новый пароль ученику", "student/logout": "завершил входы ученика",
+    "student/teacher": "передал ученика другому учителю", "student/role": "плашка ученика", "student/parent": "отчёт родителям",
+    "student/void": "отменил ответы ученика", "assignment/save": "выдал или изменил работу", "assignment/delete": "удалил работу",
+    "teacher/save": "создал или изменил учителя", "teacher/delete": "удалил учителя", "teacher/extend": "продлил доступ учителю",
+    "teacher/moderate": "проверка учителя", "email/change": "сменил почту", "as-student": "открыл тренажёр как ученик",
+    "gifts/give": "выдал подарок", "gifts/remove": "забрал подарок", "logout-here": "завершил другие входы",
+}
+TLOG_EVENTS = {"login": "вход", "signup": "регистрация и вход", "logout": "выход", "password": "смена пароля",
+               "reset": "пароль по ссылке из письма", "reset_request": "запрос «Забыли пароль?»", "action": "действие", "end": "входы завершены главным учителем"}
+_TLOG_KEYS = ("name", "title", "class_name", "class_id", "student_id", "teacher_id", "id", "ids", "login", "email", "kind", "status")
+
+
+def sess_mark(tok):
+    """Короткий отпечаток сессии: по нему действия связываются со входом, а сам ключ входа нигде не показывается."""
+    return hashlib.sha256(str(tok).encode()).hexdigest()[:10]
+
+
+def tlog_detail(data):
+    """Подробности действия: имена, названия и номера — без паролей и текстов."""
+    if not isinstance(data, dict):
+        return ""
+    out = []
+    for k in _TLOG_KEYS:
+        v = data.get(k)
+        if v in (None, "", [], {}):
+            continue
+        if isinstance(v, list):
+            v = ", ".join(str(x) for x in v[:8]) + (" …" if len(v) > 8 else "")
+        out.append(f"{k}: {str(v)[:80]}")
+    return "; ".join(out)
+
+
+def teacher_security(db, tid=None, limit=400, cur=None):
+    """Для главного учителя: действующие входы учителей и журнал — кто, когда, откуда, что сделал."""
+    now = time.time()
+    db.x("DELETE FROM teacher_log WHERE ts<?", (now - TLOG_DAYS * 86400,))
+    names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM teachers")}
+    main_id = main_teacher()["id"]
+    where, args = ("WHERE COALESCE(teacher_id, ?) = ?", (main_id, tid)) if tid else ("", ())
+    sessions = []
+    for r in db.q(f"SELECT * FROM admin_sessions {where} ORDER BY COALESCE(last_seen, created, expires) DESC", args):
+        if r["expires"] <= now:
+            continue
+        t_id = r["teacher_id"] or main_id
+        sessions.append({"sess": sess_mark(r["token"]), "teacher_id": t_id, "teacher": names.get(t_id, "удалённый учитель"),
+                         "created": r["created"] or (r["expires"] - ADMIN_SESSION_DAYS * 86400), "exact": bool(r["created"]),
+                         "ip": r["ip"] or "", "device": ua_label(r["ua"]) if r["ua"] else "", "last_seen": r["last_seen"],
+                         "last_ip": r["last_ip"] or "", "current": sess_mark(r["token"]) == cur})
+    w2, a2 = ("WHERE l.teacher_id = ?", (tid,)) if tid else ("", ())
+    rows = db.q(f"SELECT l.* FROM teacher_log l {w2} ORDER BY l.ts DESC, l.id DESC LIMIT ?", (*a2, limit))
+    # «новый адрес»: удачный вход с адреса, с которого этот учитель раньше не входил
+    known = {}
+    for r in db.q("SELECT teacher_id, ip, MIN(ts) AS first FROM teacher_log WHERE event IN ('login','signup') AND ok=1 GROUP BY teacher_id, ip"):
+        known[(r["teacher_id"], r["ip"])] = r["first"]
+    log = []
+    for r in rows:
+        ev = r["event"]
+        what = TLOG_EVENTS.get(ev, ev) if ev != "action" else TLOG_NAMES.get(r["path"] or "", r["path"] or "действие")
+        log.append({"id": r["id"], "ts": r["ts"], "teacher_id": r["teacher_id"], "teacher": names.get(r["teacher_id"], "") if r["teacher_id"] else "",
+                    "event": ev, "ok": bool(r["ok"]), "what": what, "ip": r["ip"] or "", "device": ua_label(r["ua"]) if r["ua"] else "",
+                    "login": r["login"] or "", "detail": r["detail"] or "", "sess": r["sess"] or "",
+                    "new_ip": ev in ("login", "signup") and bool(r["ok"]) and known.get((r["teacher_id"], r["ip"])) == r["ts"]})
+    # сводка за 30 дней: сколько разных адресов и неудачных попыток у каждого учителя
+    since = now - 30 * 86400
+    summary = [dict(r, teacher=names.get(r["teacher_id"], "")) for r in db.q(
+        """SELECT teacher_id, COUNT(DISTINCT CASE WHEN ok=1 AND event IN ('login','signup') THEN ip END) AS ips,
+                  SUM(CASE WHEN event='login' AND ok=1 THEN 1 ELSE 0 END) AS logins,
+                  SUM(CASE WHEN event='login' AND ok=0 THEN 1 ELSE 0 END) AS fails,
+                  SUM(CASE WHEN event='action' THEN 1 ELSE 0 END) AS actions, MAX(ts) AS last
+           FROM teacher_log WHERE ts>? AND teacher_id IS NOT NULL GROUP BY teacher_id ORDER BY last DESC""", (since,))]
+    unknown_fails = db.q("SELECT COUNT(*) c FROM teacher_log WHERE ts>? AND event='login' AND ok=0 AND teacher_id IS NULL",
+                         (since,), one=True)["c"]
+    # до журнала (прежние версии ничего не записывали): когда создавались классы — чтобы сопоставить с подозрительным входом
+    w3, a3 = ("AND COALESCE(c.teacher_id, ?) = ?", (main_id, tid)) if tid else ("", ())
+    classes = [{"id": r["id"], "name": r["name"], "created": r["created"], "teacher_id": r["tid"], "teacher": names.get(r["tid"], ""),
+                "students": r["n"]}
+               for r in db.q(f"""SELECT c.id, c.name, c.created, COALESCE(c.teacher_id, ?) AS tid,
+                                        (SELECT COUNT(*) FROM students s WHERE s.class_id = c.id) AS n
+                                 FROM classes c WHERE COALESCE(c.is_demo, 0) = 0 AND c.created > ? {w3}
+                                 ORDER BY c.created DESC LIMIT 100""", (main_id, now - 90 * 86400, *a3))]
+    teachers = [{"id": r["id"], "name": r["name"]} for r in db.q("SELECT id, name FROM teachers WHERE COALESCE(guest, 0) = 0 ORDER BY is_main DESC, name")]
+    return {"sessions": sessions, "log": log, "summary": summary, "unknown_fails": unknown_fails, "classes": classes,
+            "teachers": teachers, "days": TLOG_DAYS, "now": now}
+
+
 def sessions_list(db, sid, cur=None):
     """Входы ученика (действующие), новые сверху: устройство, адрес, когда вошёл и был, школьный ли, этот ли."""
     now = time.time()
@@ -1795,6 +1889,13 @@ class DB(Transactional):
             CREATE INDEX IF NOT EXISTS js_error_hits_e ON js_error_hits(error_id, ts);
             -- отменённые учителем ответы (кто-то зашёл в чужой аккаунт): строка попытки целиком (JSON) — чтобы вернуть;
             -- batch — одна отмена (промежуток), teacher_id — кто отменил
+            -- журнал безопасности учителей: входы (и неудачные попытки), выходы, смена пароля и все изменения в панели —
+            -- с адресом и устройством; sess — короткий отпечаток сессии (какие действия сделаны после какого входа)
+            CREATE TABLE IF NOT EXISTS teacher_log(
+                id INTEGER PRIMARY KEY, ts REAL NOT NULL, teacher_id INTEGER, event TEXT NOT NULL, ok INTEGER DEFAULT 1,
+                ip TEXT, ua TEXT, login TEXT, path TEXT, detail TEXT, sess TEXT);
+            CREATE INDEX IF NOT EXISTS teacher_log_t ON teacher_log(teacher_id, ts);
+            CREATE INDEX IF NOT EXISTS teacher_log_ts ON teacher_log(ts);
             CREATE TABLE IF NOT EXISTS attempts_void(
                 id INTEGER PRIMARY KEY, batch TEXT NOT NULL, student_id INTEGER NOT NULL, ts REAL, row TEXT NOT NULL,
                 void_ts REAL NOT NULL, teacher_id INTEGER, t_from REAL, t_to REAL);
@@ -1845,6 +1946,11 @@ class DB(Transactional):
                     ("exams", "saved_rev", "INTEGER DEFAULT 0"),
                     ("exams", "save_protocol", "INTEGER DEFAULT 0"),
                     ("admin_sessions", "teacher_id", "INTEGER"),
+                    ("admin_sessions", "created", "REAL"),            # вход учителя: когда, с какого адреса и устройства
+                    ("admin_sessions", "ip", "TEXT"),
+                    ("admin_sessions", "ua", "TEXT"),
+                    ("admin_sessions", "last_seen", "REAL"),          # последний запрос этой сессии и его адрес
+                    ("admin_sessions", "last_ip", "TEXT"),
                     ("classes", "goal_tasks", "INTEGER"),  # цель класса на неделю (заданий) — битва классов
                     ("classes", "goal_reward", "TEXT"),    # награда за цель, её задаёт учитель
                     ("classes", "battle", "INTEGER DEFAULT 0"),    # участвует ли класс в битве классов (решает учитель)
@@ -3244,21 +3350,36 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "teacher_name": "" if s["self_reg"] else (teacher_of(s)["name"] or ""),
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
-    def admin_login(self, tid, seconds):
-        """Новая сессия учителя: строка Set-Cookie."""
+    def admin_login(self, tid, seconds, event="login"):
+        """Новая сессия учителя: строка Set-Cookie. Вход попадает в журнал безопасности с адресом и устройством."""
         tok = secrets.token_urlsafe(32)
-        APP.db.x("INSERT INTO admin_sessions(token,expires,teacher_id) VALUES(?,?,?)", (tok, time.time() + seconds, tid))
-        APP.db.x("DELETE FROM admin_sessions WHERE expires<?", (time.time(),))
+        now, ip, ua = time.time(), self.client_ip(), (self.headers.get("User-Agent") or "")[:300]
+        APP.db.x("INSERT INTO admin_sessions(token,expires,teacher_id,created,ip,ua,last_seen,last_ip) VALUES(?,?,?,?,?,?,?,?)",
+                 (tok, now + seconds, tid, now, ip, ua, now, ip))
+        APP.db.x("DELETE FROM admin_sessions WHERE expires<?", (now,))
+        self.tlog(event, tid, sess=sess_mark(tok))
         return f"egeadm={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age={int(seconds)}{self.cookie_attrs()}"
+
+    def tlog(self, event, tid=None, *, ok=True, login=None, path=None, detail=None, sess=None):
+        """Строка журнала безопасности учителей: что, кто, когда, с какого адреса и устройства."""
+        if sess is None:
+            sess = sess_mark(self.cookie("egeadm") or "") if self.cookie("egeadm") else None
+        APP.db.x("""INSERT INTO teacher_log(ts, teacher_id, event, ok, ip, ua, login, path, detail, sess)
+                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                 (time.time(), tid, event, int(bool(ok)), self.client_ip(), (self.headers.get("User-Agent") or "")[:300],
+                  (login or "")[:120] or None, path, (detail or "")[:300] or None, sess))
 
     def is_admin(self):
         """Вошёл ли учитель; запоминает его в self.T (сессии без учителя — от прежних версий — главного)."""
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
         if "egeadm" not in c:
             return False
-        r = APP.db.q("SELECT expires, teacher_id FROM admin_sessions WHERE token=?", (c["egeadm"].value,), one=True)
+        r = APP.db.q("SELECT expires, teacher_id, last_seen, last_ip FROM admin_sessions WHERE token=?", (c["egeadm"].value,), one=True)
         if not (r and r["expires"] > time.time()):
             return False
+        ip = self.client_ip() if getattr(self, "client_address", None) else None
+        if ip and (ip != r["last_ip"] or time.time() - (r["last_seen"] or 0) > 120):   # последняя активность сессии и её адрес
+            APP.db.x("UPDATE admin_sessions SET last_seen=?, last_ip=? WHERE token=?", (time.time(), ip, c["egeadm"].value))
         t = APP.db.q("SELECT * FROM teachers WHERE id=?", (r["teacher_id"],), one=True) if r["teacher_id"] else main_teacher()
         if not t:
             return False
@@ -3920,6 +4041,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 for r in rows[:5]:
                     if not r["email"]:
                         continue
+                    if kind == "t":
+                        self.tlog("reset_request", r["id"], login=who, detail="запросили ссылку для нового пароля")
                     tok = secrets.token_urlsafe(24)
                     db.x("INSERT INTO pw_resets(token, kind, uid, expires, account_state) VALUES(?,?,?,?,?)",
                          (hashlib.sha256(tok.encode()).hexdigest(), kind, r["id"], time.time() + PW_RESET_SEC, reset_fingerprint(r)))
@@ -3956,6 +4079,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if r["kind"] == "t":
                 encoded = hash_pw(pw)
                 db.x("UPDATE teachers SET pw=?, email_ok=1 WHERE id=?", (encoded, r["uid"]))    # ссылка пришла на почту — адрес подтверждён
+                self.tlog("reset", r["uid"], detail="новый пароль по ссылке из письма")
                 if account["is_main"]:
                     db.setting("admin_password", encoded)
                 db.x("DELETE FROM admin_sessions WHERE COALESCE(teacher_id, ?)=?", (main_teacher()["id"], r["uid"]))
@@ -5044,7 +5168,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             sent = send_confirm(db, "t", t)
             return self.send_json({"ok": True, "until": until, "email_need": True,
                                    "email_sent": sent is True, "onboarding": teacher_onboarding(t)},
-                                  extra={"Set-Cookie": self.admin_login(tid, ADMIN_SESSION_DAYS * 86400)})
+                                  extra={"Set-Cookie": self.admin_login(tid, ADMIN_SESSION_DAYS * 86400, "signup")})
 
         if path == "/api/teacher/guest" and method == "POST":
             return self.err(403, "Для доступа зарегистрируйтесь, подтвердите почту и пройдите модерацию главного учителя")
@@ -5062,6 +5186,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 THROTTLE.ok("admin", ip)
                 return self.send_json({"ok": True}, extra={"Set-Cookie": self.admin_login(t["id"], ADMIN_SESSION_DAYS * 86400)})
             THROTTLE.fail("admin", ip)
+            self.tlog("login", t["id"] if t else None, ok=False, login=login or "(главный)",
+                      detail="неверный пароль" if t else "нет такого учителя")
             time.sleep(1.0)
             return self.err(403, "Неверный логин или пароль")
 
@@ -5081,6 +5207,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if method == "POST":
                 with _GS_LOCK:
                     _LB_PEOPLE.clear()          # учитель поменял классы, учеников, цели — рейтинг соберём заново
+                if path not in TLOG_SKIP:
+                    self.tlog("action", self.T["id"], path=path[len("/api/admin/"):], detail=tlog_detail(data))
             return self.admin_api(method, path, qs, data)
 
         return self.err(404, "нет такого метода")
@@ -5705,6 +5833,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                                   for x in (d.get(k) or [])] for k in ARDUINO_TRACKS}})
 
         if path == "/api/admin/logout" and method == "POST":
+            self.tlog("logout", self.T["id"])
             c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
             if "egeadm" in c:
                 db.x("DELETE FROM admin_sessions WHERE token=?", (c["egeadm"].value,))
@@ -6053,11 +6182,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not check_pw(str(data.get("old") or ""), self.T["pw"]):
                 THROTTLE.fail("admin", ip)
                 self._account_delay = 1.0
+                self.tlog("password", self.T["id"], ok=False, detail="неверный текущий пароль при смене")
                 return self.err(403, "Текущий пароль неверный")
             new = str(data.get("new") or "")
             if len(new) < 6:
                 return self.err(400, "Новый пароль — не короче 6 символов")
             db.x("UPDATE teachers SET pw=? WHERE id=?", (hash_pw(new), self.T["id"]))
+            self.tlog("password", self.T["id"], detail="сменил пароль, остальные входы завершены")
             if self.T["is_main"]:
                 db.setting("admin_password", hash_pw(new))
             # остальные сессии этого учителя (например, на забытом компьютере) больше не действуют
@@ -6827,6 +6958,25 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     levels.append({"title": lv["title"], "need": lv["need"], "tasks": tasks})
                 mods.append({"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"], "levels": levels})
             return self.send_json({"name": st["name"], "modules": mods})
+
+        if path in ("/api/admin/security", "/api/admin/security/end"):
+            # входы учителей и журнал их действий с адресами — только главному учителю
+            if not self.T["is_main"]:
+                return self.err(403, "Входы учителей видит главный учитель")
+            if path == "/api/admin/security/end" and method == "POST":
+                tid, mark = to_int(data.get("teacher_id")), str(data.get("sess") or "")
+                cur = sess_mark(self.cookie("egeadm") or "")
+                ended = 0
+                for r in db.q("SELECT token, teacher_id FROM admin_sessions"):
+                    rt = r["teacher_id"] or main_teacher()["id"]
+                    m = sess_mark(r["token"])
+                    if m == cur or not ((mark and m == mark) or (not mark and tid and rt == tid)):
+                        continue
+                    db.x("DELETE FROM admin_sessions WHERE token=?", (r["token"],))
+                    self.tlog("end", rt, detail=f"завершил: {self.T['name']}", sess=m)
+                    ended += 1
+                return self.send_json({"ok": True, "ended": ended})
+            return self.send_json(teacher_security(db, to_int(qs.get("teacher_id")), cur=sess_mark(self.cookie("egeadm") or "")))
 
         if path == "/api/admin/jserr":
             # ошибки JavaScript у учеников и учителей — только главному учителю

@@ -5367,6 +5367,49 @@ class ServerTest(unittest.TestCase):
                 server.APP.db.x("DELETE FROM settings WHERE key='ard_pw'")
 
 
+    def test_teacher_logins_and_actions_are_logged_with_ip(self):
+        # учитель: неудачная попытка и вход с адреса, создание класса — всё в журнале у главного с IP и устройством
+        st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Журналова Жанна", "login": "zhanna",
+                                                                "password": "secret77", "invite": "ZHAN1"})
+        self.assertEqual(st, 200, d)
+        tid = d["id"]
+        self.approve_fixture_teacher(tid)
+        server.THROTTLE.fails.clear()
+        self.assertEqual(self.creq("POST", "/api/admin/login", {"login": "zhanna", "password": "Zq7-wrong-pass"}, ip="198.51.100.7")[0], 403)
+        self.assertEqual(self.creq("POST", "/api/admin/login", {"login": "nobody", "password": "Zq7-wrong-pass"}, ip="198.51.100.8")[0], 403)
+        server.THROTTLE.fails.clear()
+        st, _, ck = self.creq("POST", "/api/admin/login", {"login": "zhanna", "password": "secret77"}, ip="198.51.100.7")
+        self.assertEqual(st, 200)
+        st, d, _ = self.creq("POST", "/api/admin/class/save", {"name": "Чужой 11Б"}, cookie=ck, ip="198.51.100.9")
+        self.assertEqual(st, 200, d)
+        # обычный учитель журнал не видит
+        self.assertEqual(self.creq("GET", "/api/admin/security", cookie=ck, ip="198.51.100.9")[0], 403)
+        st, d = self.admin("GET", f"/api/admin/security?teacher_id={tid}")
+        self.assertEqual(st, 200, d)
+        log = d["log"]
+        ok_login = next(r for r in log if r["event"] == "login" and r["ok"])
+        self.assertEqual((ok_login["ip"], ok_login["teacher"], ok_login["new_ip"]), ("198.51.100.7", "Журналова Жанна", True))
+        self.assertTrue(any(r["event"] == "login" and not r["ok"] and r["ip"] == "198.51.100.7" for r in log))
+        act = next(r for r in log if r["event"] == "action")
+        self.assertEqual((act["what"], act["ip"], act["sess"]), ("создал или переименовал класс", "198.51.100.9", ok_login["sess"]))
+        self.assertIn("Чужой 11Б", act["detail"])
+        self.assertTrue(any(c["name"] == "Чужой 11Б" for c in d["classes"]))
+        sess = [r for r in d["sessions"] if r["sess"] == ok_login["sess"]]
+        self.assertEqual((len(sess), sess[0]["ip"], sess[0]["last_ip"]), (1, "198.51.100.7", "198.51.100.9"))
+        # пароли в журнал не попадают; попытка с несуществующим логином — в общей сводке
+        st, d = self.admin("GET", "/api/admin/security")
+        self.assertNotIn("secret77", json.dumps(d, ensure_ascii=False))
+        self.assertNotIn("Zq7-wrong-pass", json.dumps(d, ensure_ascii=False))
+        self.assertGreaterEqual(d["unknown_fails"], 1)
+        # главный завершает чужой вход — панель на том устройстве закрывается
+        st, r = self.admin("POST", "/api/admin/security/end", {"sess": sess[0]["sess"]})
+        self.assertEqual((st, r["ended"]), (200, 1))
+        self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[0], 401)
+        st, d = self.admin("GET", f"/api/admin/security?teacher_id={tid}")
+        self.assertFalse(any(r["sess"] == ok_login["sess"] for r in d["sessions"]))
+        self.assertEqual(d["log"][0]["event"], "end")
+
+
 class MailHeadersTest(unittest.TestCase):
     def test_mail_has_date_message_id_and_both_parts(self):
         """Письма сайта: дата, Message-ID на домене отправителя, текст и HTML — без них почта чаще уходит в спам."""
