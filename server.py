@@ -77,6 +77,9 @@ DATA_DIR = HERE / "server_data"
 DB_PATH = DATA_DIR / "trainer.db"
 BANK_JS = HERE / "data" / "bank.js"
 EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк Egeshka (tools/gen_egeshka.py) — подмешивается к bank.js
+# Ещё банки рядом с ним, тоже подмешиваются: task10_bank — №10 «поиск в тексте» с КомпЕГЭ и ФИПИ (файлы к заданиям
+# лежат на сервере в папке task10_bank рядом с остальными банками, в репозиторий не входят)
+MORE_BANKS = ("task10_bank.json",)
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
@@ -1519,17 +1522,22 @@ class Bank:
             mt = self.path.stat().st_mtime
         except OSError:
             return bool(self.tasks)
-        try:
-            xmt = EXTRA_BANK.stat().st_mtime
-        except OSError:
-            xmt = None
+        extra_files = [EXTRA_BANK] + [EXTRA_BANK.with_name(n) for n in MORE_BANKS]
+        xmt = []
+        for f in extra_files:
+            try:
+                xmt.append(f.stat().st_mtime)
+            except OSError:
+                xmt.append(None)
+        xmt = tuple(xmt)
         if mt == self.mtime and xmt == self.extra_mtime:
             return True
         with self.lock:
             if mt == self.mtime and xmt == self.extra_mtime:
                 return True
-            if xmt is None and self.extra_mtime is not None:
-                return bool(self.tasks)              # авторский банк временно отсутствует при обновлении
+            was = self.extra_mtime or (None,) * len(xmt)
+            if any(now is None and before is not None for now, before in zip(xmt, was)):
+                return bool(self.tasks)              # дополнительный банк временно отсутствует при обновлении
             try:
                 text = self.path.read_text(encoding="utf-8")
                 start = text.index("{")
@@ -1540,14 +1548,16 @@ class Bank:
                 # файл банка переписывают прямо сейчас (обновление сайта) — отдаём прежний, ученики не видят ошибку
                 print(f"! Банк заданий не прочитан, остаётся прежний: {e}", flush=True)
                 return bool(self.tasks)
-            if xmt is not None:
+            for f, fmt in zip(extra_files, xmt):
+                if fmt is None:
+                    continue
                 try:
-                    extra = json.loads(EXTRA_BANK.read_text(encoding="utf-8"))
+                    extra = json.loads(f.read_text(encoding="utf-8"))
                     self.validate_data(extra, extra=True)
                     data["tasks"] = data.get("tasks", []) + extra.get("tasks", [])
                     data["banks"] = [b for b in data.get("banks", []) if b.get("id") != extra["bank"]["id"]] + [extra["bank"]]
                 except (ValueError, KeyError, OSError) as e:
-                    print(f"! Банк Egeshka не прочитан ({EXTRA_BANK.name}): {e}", flush=True)
+                    print(f"! Дополнительный банк не прочитан ({f.name}): {e}", flush=True)
                     return bool(self.tasks)
             self.tasks = {}
             self._snips = {}
