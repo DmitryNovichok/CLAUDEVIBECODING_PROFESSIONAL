@@ -5033,6 +5033,58 @@ class ServerTest(unittest.TestCase):
                 return m
         self.fail(f"нет сообщения {want}")
 
+    def rawreq(self, method, path, body=b"", headers=None):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+        c.request(method, path, body=body, headers=headers or {})
+        r = c.getresponse()
+        data = r.read()
+        c.close()
+        return r.status, data, r
+
+    def test_together_teacher_attaches_file(self):
+        a, stranger = self.login("Прикрепов Пров"), self.login("Неприкрепов Нил")
+        db = server.APP.db
+        ida = db.q("SELECT id FROM students WHERE name LIKE 'Прикрепов П%'", one=True)["id"]
+        sid = self.admin("POST", "/api/admin/together/new", {"students": [ida], "task": "b:5", "mode": "both"})[1]["id"]
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        adm = {"Cookie": "egeadm=admtest"}
+        up = lambda body, name, h=adm: self.rawreq("POST", f"/api/together/upload?s={sid}",
+                                               body, dict(h, **{"X-File-Name": quote(name), "Content-Type": "application/octet-stream"}))
+        # ученик и посторонний прикрепить не могут
+        self.assertEqual(up(b"1 2 3", "9.txt", {"X-Token": a})[0], 403)
+        st, d, _ = up("10 20\n30 40\n".encode(), "../27 B.txt")
+        self.assertEqual(st, 200, d)
+        f = json.loads(d)["file"]
+        self.assertEqual((f["name"], f["size"]), ("_27 B.txt", 12))
+        # в странице занятия у всех — файл учителя
+        page = server.TOG.get(sid).pages[server.TOG.get(sid).cur]
+        self.assertEqual([x["name"] for x in page.files], ["_27 B.txt"])
+        # скачивает приглашённый ученик; чужой — нет
+        st, body, r = self.rawreq("GET", f"/api/together/file?s={sid}&f={f['id']}", headers={"X-Token": a})
+        self.assertEqual((st, body), (200, b"10 20\n30 40\n"))
+        self.assertIn("attachment", r.getheader("Content-Disposition"))
+        self.assertEqual(self.rawreq("GET", f"/api/together/file?s={sid}&f={f['id']}", headers={"X-Token": stranger})[0], 403)
+        self.assertEqual(self.rawreq("GET", f"/api/together/file?s={sid}&f={f['id']}&as=t", headers=adm)[1], b"10 20\n30 40\n")
+        # то же имя — новая версия, старый файл удалён с диска
+        st, d, _ = up(b"new", "../27 B.txt")
+        f2 = json.loads(d)["file"]
+        self.assertEqual([x["id"] for x in page.files], [f2["id"]])
+        self.assertEqual(sorted(p.name for p in server.tog_files_dir(sid).iterdir()), [f2["id"]])
+        # слишком большой — нет
+        with mock.patch.object(server, "TOG_FILE_MAX", 4):
+            self.assertEqual(up(b"12345", "big.txt")[0], 413)
+        # открепить может только учитель
+        self.assertEqual(self.req("POST", "/api/together/file/delete", {"s": sid, "f": f2["id"]}, a)[0], 403)
+        st, _, _ = self.rawreq("POST", "/api/together/file/delete", json.dumps({"s": sid, "f": f2["id"]}).encode(),
+                            dict(adm, **{"Content-Type": "application/json"}))
+        self.assertEqual(st, 200)
+        self.assertEqual(page.files, [])
+        self.assertFalse((server.tog_files_dir(sid) / f2["id"]).exists())
+        # удалить занятие — и его папка с файлами уходит
+        up(b"x", "1.txt")
+        self.admin("POST", "/api/admin/together/delete", {"id": sid})
+        self.assertFalse(server.tog_files_dir(sid).exists())
+
     def test_together_session(self):
         a, b = self.login("Совместов Сава"), self.login("Совместова Света")
         stranger = self.login("Чужаков Чип")

@@ -35,6 +35,7 @@ import queue
 import random
 import re
 import secrets
+import shutil
 import socket
 import sqlite3
 import struct
@@ -2513,6 +2514,21 @@ def live_class(db, cid, sids=None):
 
 
 # ---------- совместный сеанс (together.py): хранение, задание, проверка ответа
+TOG_FILE_MAX = 20 * 1024 * 1024     # файл учителя к странице «Вместе» — до 20 МБ (файлы №9, 17, 24–27 и т. п.)
+TOG_FILES_PER_PAGE = 10
+TOG_FILES_TOTAL = 200 * 1024 * 1024  # на один сеанс
+
+
+def tog_files_dir(sid):
+    return DB_PATH.parent / "together_files" / str(int(sid))
+
+
+def tog_file_name(v):
+    """Имя файла для ученика и для open() в Python: без папок и опасных символов."""
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", str(v or "").strip()).strip(" .")[:100]
+    return name or "file.txt"
+
+
 TOG_ACTIVE_SEC = 12 * 3600          # приглашение «висит» у ученика столько, пока учитель не завершил сеанс
 TOG_INVITE_IDLE_SEC = 15 * 60       # …но только пока учитель в сеансе или сеанс менялся за последние 15 минут
 TOG_LIST = 30
@@ -2719,6 +2735,8 @@ class Handler(BaseHTTPRequestHandler):
             u = urlparse(self.path)
             path = unquote(u.path)
             qs = {k: v[0] for k, v in parse_qs(u.query).items()}
+            if path == "/api/together/upload":
+                return self.do_POST_upload(path, qs)
             try:
                 data = self.body_json()
             except (ValueError, json.JSONDecodeError):
@@ -2726,6 +2744,67 @@ class Handler(BaseHTTPRequestHandler):
             if not path.startswith("/api/"):
                 return self.err(404, "нет такой страницы")
             return self.api("POST", path, qs, data if isinstance(data, dict) else {})
+        except Exception as e:
+            self.log_error_safe(e)
+            self.err(500, "ошибка сервера")
+
+    def together_upload(self, qs):
+        """Учитель прикрепляет файл к странице занятия «Вместе»: тело запроса — сам файл, имя — в X-File-Name."""
+        sid = to_int(qs.get("s"))
+        who = self.together_who(sid, True) if sid else None
+        if not who:
+            return self.err(403, "Прикреплять файлы может учитель этого занятия")
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n <= 0 or n > TOG_FILE_MAX:
+            self.close_connection = True
+            return self.err(413, f"Файл пустой или больше {TOG_FILE_MAX // 1024 // 1024} МБ")
+        r = APP.db.q("SELECT ended FROM together WHERE id=?", (sid,), one=True)
+        if not r or r["ended"]:
+            self.close_connection = True
+            return self.err(409, "Занятие уже завершено")
+        d = tog_files_dir(sid)
+        used = sum(f.stat().st_size for f in d.iterdir()) if d.is_dir() else 0
+        if used + n > TOG_FILES_TOTAL:
+            self.close_connection = True
+            return self.err(413, "В этом занятии уже слишком много файлов — удалите ненужные")
+        name = tog_file_name(unquote(self.headers.get("X-File-Name") or ""))
+        fid = secrets.token_hex(8)
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = d / (fid + ".part")
+        left = n
+        with open(tmp, "wb") as out:
+            while left > 0:
+                chunk = self.rfile.read(min(left, 1 << 16))
+                if not chunk:
+                    break
+                out.write(chunk)
+                left -= len(chunk)
+        if left:
+            tmp.unlink(missing_ok=True)
+            return self.err(400, "Файл пришёл не полностью — попробуйте ещё раз")
+        entry = {"id": fid, "name": name, "size": n, "ts": time.time()}
+
+        def add(files):
+            if len(files) >= TOG_FILES_PER_PAGE:
+                return False
+            files[:] = [f for f in files if f["name"] != name] + [entry]      # то же имя — новая версия файла
+            return True
+        if not TOG.files(sid, qs.get("page") or None, add):
+            tmp.unlink(missing_ok=True)
+            return self.err(409, f"К странице можно прикрепить до {TOG_FILES_PER_PAGE} файлов")
+        os.replace(tmp, d / fid)
+        alive = set(TOG.file_names(sid))
+        for f in d.iterdir():                                  # заменённые версии файла больше не нужны
+            if f.name not in alive and not f.name.endswith(".part"):
+                f.unlink(missing_ok=True)
+        return self.send_json({"ok": True, "file": entry})
+
+    def do_POST_upload(self, path, qs):
+        try:
+            return self.together_upload(qs)
         except Exception as e:
             self.log_error_safe(e)
             self.err(500, "ошибка сервера")
@@ -4787,6 +4866,33 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json({"ok": True})
             r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid), one=True)
             return self.send_json({"code": r["code"] if r else "", "ts": r["ts"] if r else None})
+
+        if path == "/api/together/file":
+            # файл учителя к странице занятия — только учителю этого занятия и приглашённым ученикам
+            sid, fid = to_int(qs.get("s")), str(qs.get("f") or "")
+            who = self.together_who(sid, qs.get("as") == "t") if sid else None
+            if not who:
+                return self.err(403, "Этот файл вам недоступен")
+            name = TOG.file_names(sid).get(fid) if re.fullmatch(r"[0-9a-f]{16}", fid) else None
+            f = tog_files_dir(sid) / fid if name else None
+            if not f or not f.is_file():
+                return self.err(404, "Файл удалён")
+            return self.send_bytes(200, f.read_bytes(), mimetypes.guess_type(name)[0] or "application/octet-stream",
+                                   {"Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name),
+                                    "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+        if path == "/api/together/file/delete" and method == "POST":
+            sid, fid = to_int(data.get("s")), str(data.get("f") or "")
+            if not (sid and self.together_who(sid, True)):
+                return self.err(403, "Удалять файлы может учитель этого занятия")
+            def drop(files):
+                files[:] = [x for x in files if x["id"] != fid]
+                return True
+            if TOG.files(sid, data.get("page") or None, drop) is None:
+                return self.err(404, "Занятие не найдено")
+            if re.fullmatch(r"[0-9a-f]{16}", fid) and fid not in TOG.file_names(sid):
+                (tog_files_dir(sid) / fid).unlink(missing_ok=True)
+            return self.send_json({"ok": True})
 
         if path == "/api/together/mine":
             # совместные сеансы, куда позвал учитель (не завершённые)
@@ -7979,6 +8085,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 TOG.forget(tid)
                 TOG.flush()
                 db.x("DELETE FROM together WHERE id=?", (tid,))
+                shutil.rmtree(tog_files_dir(tid), ignore_errors=True)
             else:
                 db.x("UPDATE together SET ended=? WHERE id=? AND ended IS NULL", (now, tid))
                 TOG.forget(tid)
