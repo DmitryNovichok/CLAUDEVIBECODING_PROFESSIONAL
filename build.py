@@ -34,9 +34,11 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_BANKS = ["ege_bank", "kompege_bank", "openfipi_bank"]
-BANK_TITLES = {"ege_bank": "Банк ЕГЭ", "kompege_bank": "КомпЕГЭ", "openfipi_bank": "ФИПИ"}
-OPTIONAL_BANKS = {"openfipi_bank"}      # если папки нет — пропускаем молча
+DEFAULT_BANKS = ["ege_bank", "kompege_bank", "openfipi_bank", "task10_bank"]
+BANK_TITLES = {"ege_bank": "Банк ЕГЭ", "kompege_bank": "КомпЕГЭ", "openfipi_bank": "ФИПИ",
+               "task10_bank": "Задания №10"}
+OPTIONAL_BANKS = {"openfipi_bank", "task10_bank"}      # если папки нет — пропускаем молча
+# task10_bank собирает parse_task10.py: задания уже в нумерации КИМ-2027 ("kim": 2027 — сервер их не переносит)
 KOMPEGE_SITE = "https://kompege.ru"
 
 FILE_EXT = {".txt", ".csv", ".tsv", ".xlsx", ".xls", ".xlsm", ".ods", ".docx", ".doc",
@@ -887,6 +889,8 @@ class Builder:
         if att: t["att"] = att
         if d.get("url"): t["link"] = d["url"]
         if d.get("group"): t["grp"] = f"{bank}:{d['group']}"      # OpenFIPI: 19–21 одной игры
+        if d.get("kim"): t["kim"] = d["kim"]                         # уже в нумерации КИМ-2027 (parse_task10.py)
+        if isinstance(d.get("video"), dict) and d["video"].get("yt"): t["video"] = d["video"]
         plain = (topic or "") + " " + strip_tags(h)
         label_year = year_from_label(src) or year_from_label(
             " ".join(re.findall(r"(?:ЕГЭ|КЕГЭ|[Дд]емоверси\w*|[Аа]пробаци\w*)[^0-9\n]{0,15}20[12]\d", text or "")))
