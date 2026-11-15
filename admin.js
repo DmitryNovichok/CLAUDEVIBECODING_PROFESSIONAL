@@ -1951,6 +1951,59 @@
 
   // ------------------------------------------------------------ лаборатория Arduino: прогресс уроков по ученикам
   const ARD = { d: null, open: null, detail: {} };
+  // ------------------------------------------------------------ «Интеллектуальный мегаполис»: результаты учеников и материалы
+  const IMT = { d: null, pane: 'st', open: null, bank: {} };
+  const IM_SUBJ_T = { inf: 'Информатика', mat: 'Математика', phy: 'Физика' };
+  async function loadIm() {
+    try { IMT.d = await api('im'); } catch (err) { if (err.status !== 401) $('#imBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    renderIm();
+  }
+  function imCell(s) {
+    if (!s || !s.tries) return '<td class="im-c none" title="не решал">·</td>';
+    const p = s.ok / s.tries, lv = p >= 0.75 ? 'good' : p >= 0.4 ? 'mid' : 'weak';
+    return `<td class="im-c ${lv}" title="верно ${s.ok} из ${s.tries}">${s.ok}/${s.tries}</td>`;
+  }
+  function renderIm() {
+    const d = IMT.d;
+    if (!d) return;
+    $$('#imTabs [data-im-pane]').forEach(b => b.classList.toggle('on', b.dataset.imPane === IMT.pane));
+    $('#imFind').hidden = IMT.pane !== 'st';
+    const pw = d.pw_set ? '' : `<div class="adm-box im-t-warn">Раздел у учеников пока закрыт: ${d.is_main ? 'задайте пароль во вкладке «Пароли и доступы» → «Интеллектуальный мегаполис»' : 'пароль задаёт главный учитель'}.</div>`;
+    if (IMT.pane === 'mat') {
+      $('#imBody').innerHTML = pw + `<div class="im-t-plan">${d.slots.map(s => `<details class="adm-box im-t-slot" data-im-open="${s.n}"${IMT.open === s.n ? ' open' : ''}>
+        <summary><b class="im-t-n im-${s.subj}">${s.n}</b> <span class="im-t-subj im-${s.subj}">${IM_SUBJ_T[s.subj]}</span> <b>${esc(s.title)}</b>
+          <span class="adm-hint">${esc(s.level)} · ${s.points} б. · заданий: ${d.count[s.n] || 0}</span></summary>
+        <p class="adm-hint">${esc(s.topic)}</p>
+        <p><b>Идея.</b> ${esc(s.idea)}</p>
+        <p><b>План решения:</b></p><ol>${s.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+        <p><b>Типичные ошибки:</b></p><ul>${s.mistakes.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+        <div class="im-t-task"><p class="adm-hint">Задание из демоварианта · ответ: <b>${esc(s.demo.ans)}</b></p>${s.demo.html}<div class="im-t-sol">${s.demo.sol}</div></div>
+        <div data-im-bank="${s.n}">${IMT.bank[s.n] ? imBankHtml(IMT.bank[s.n]) : `<button type="button" class="btn" data-im-load="${s.n}">Тренировочные задания с ответами (${d.count[s.n] || 0})</button>`}</div>
+      </details>`).join('')}</div><p class="adm-hint">${esc(d.source)}</p>`;
+      return;
+    }
+    const q = ($('#imFind').value || '').trim().toLowerCase();
+    const list = d.students.filter(x => !q || x.name.toLowerCase().includes(q));
+    $('#imBody').innerHTML = pw + (list.length ? `<div class="adm-table-wrap"><table class="adm-table im-t-table"><thead><tr><th>Ученик</th><th>Класс</th>
+        ${d.slots.map(s => `<th class="im-c-h im-${s.subj}" title="${esc(s.title)} · ${s.points} б.">${s.n}</th>`).join('')}<th>Варианты</th><th>Лучший</th><th>Последний</th></tr></thead>
+      <tbody>${list.map(x => `<tr><td class="name">${esc(x.name)}${x.unlocked ? '' : ' <span class="adm-hint">(без пароля)</span>'}</td><td>${esc(x.class || '—')}</td>
+        ${d.slots.map(s => imCell(x.slots[s.n])).join('')}<td class="num">${x.trials}</td>
+        <td class="num">${x.best == null ? '—' : `<b>${x.best}</b>/${d.max}`}</td><td class="num">${x.last == null ? '—' : `${x.last}/${d.max} <span class="adm-hint">${fmtDate(x.last_ts)}</span>`}</td></tr>`).join('')}</tbody></table></div>
+      <p class="adm-hint">В клетке — верно / всего ответов по номеру (тренировка и пробные варианты). Номера: синий — информатика, фиолетовый — математика, оранжевый — физика.</p>`
+      : '<p class="adm-empty">Пока никто из ваших учеников не открыл раздел.</p>');
+  }
+  const imBankHtml = list => list.map((t, i) => `<details class="im-t-task"><summary>Задание ${i + 1} · ответ: <b>${esc(t.ans)}</b></summary>${t.html}<div class="im-t-sol">${t.sol}</div></details>`).join('');
+  $('#imTabs')?.addEventListener('click', e => { const b = e.target.closest('[data-im-pane]'); if (b) { IMT.pane = b.dataset.imPane; renderIm(); } });
+  $('#imFind')?.addEventListener('input', renderIm);
+  $('#imReload')?.addEventListener('click', loadIm);
+  $('#imBody')?.addEventListener('toggle', e => { const d = e.target.closest && e.target.closest('[data-im-open]'); if (d && d.open) IMT.open = +d.dataset.imOpen; }, true);
+  $('#imBody')?.addEventListener('click', async e => {
+    const b = e.target.closest('[data-im-load]');
+    if (!b) return;
+    b.disabled = true;
+    try { IMT.bank[b.dataset.imLoad] = (await api('im/bank?slot=' + b.dataset.imLoad)).tasks; } catch (err) { toast(err.message); b.disabled = false; return; }
+    b.closest('[data-im-bank]').innerHTML = imBankHtml(IMT.bank[b.dataset.imLoad]);
+  });
   async function loadArd() {
     try { ARD.d = await api('arduino'); } catch (err) { if (err.status !== 401) $('#ardBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     ARD.detail = {};
@@ -2479,7 +2532,7 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard', 'security'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard', 'security', 'im'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     document.body.classList.toggle('builder-open', t === 'build');
     if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
@@ -2501,6 +2554,7 @@
     if (t === 'feed') { $('#feedDot').hidden = true; renderFeed(); }
     if (t === 'settings') loadSettings();
     if (t === 'access') loadAccess();
+    if (t === 'im') loadIm();
     if (t === 'comp') loadComp();
     refreshSteps();
     window.scrollTo({ top: 0 });
@@ -4617,6 +4671,7 @@
     { kind: 'course', title: 'Курс по заданиям', icon: '🎓', what: 'Раздел «Курс ЕГЭ»: уроки по номерам 1–27 и подборки к ним.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
     { kind: 'pyc', title: 'Курс программирования', icon: '🐍', what: 'Курс «Программирование для ЕГЭ»: Python с нуля и темы по номерам.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
     { kind: 'lab', title: 'Лаборатории', icon: '🧪', what: 'Лабораторные работы, пошаговая лаборатория программирования и «Исправление ошибок».', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
+    { kind: 'im', title: 'Интеллектуальный мегаполис', icon: '🏙️', what: 'Подготовка к конкурсу «Интеллектуальный мегаполис. Потенциал» (ИТ-класс, теория): разборы 10 номеров, тренировка и пробный вариант на 120 минут. Свой пароль — общий пароль разделов его не открывает.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
     { kind: 'ard', title: 'Лаборатория Arduino', icon: '🔌', what: 'Отдельное приложение: схемы, код и симулятор Arduino, 2 курса по 36 уроков. Свой пароль — пароль лабораторий его не открывает.', who: ['ученик открыл', 'ученика открыли', 'учеников открыли'] },
   ];
   function renderPasswords(d) {

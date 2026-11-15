@@ -5565,6 +5565,82 @@ class ServerTest(unittest.TestCase):
             server.THROTTLE.fails.clear()
 
 
+    def test_intellectual_megapolis_section(self):
+        import im
+        tok = self.login("Мегаполисов Марк")
+        db = server.APP.db
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        # раздел закрыт, пока главный учитель не задал пароль
+        self.assertEqual(self.req("GET", "/api/im", token=tok)[1], {"access": False, "pw_set": False})
+        self.assertEqual(self.req("POST", "/api/im/unlock", {"password": "x"}, tok)[0], 403)
+        self.assertEqual(self.req("GET", "/api/im/task?slot=1", token=tok)[0], 403)
+        st, d = self.admin("POST", "/api/admin/access", {"kind": "im", "password": "mega-2027"})
+        self.assertEqual(st, 200, d)
+        self.assertTrue(d["im"]["set"])
+        # общий пароль разделов «Мегаполис» не открывает
+        self.admin("POST", "/api/admin/access", {"all": "common-pw-1"})
+        self.assertEqual(self.req("POST", "/api/im/unlock", {"password": "common-pw-1"}, tok)[0], 403)
+        for kind in ("course", "pyc", "lab"):                          # общий пароль другим тестам не нужен
+            self.admin("POST", "/api/admin/access", {"kind": kind, "off": True})
+        self.assertEqual(self.req("POST", "/api/im/unlock", {"password": "mega-2027"}, tok)[1], {"access": True})
+        self.assertTrue(self.req("GET", "/api/me", token=tok)[1]["im"])
+        st, d = self.req("GET", "/api/im", token=tok)
+        self.assertEqual((len(d["slots"]), sum(s["points"] for s in d["slots"]), d["minutes"], d["max"]), (10, 60, 120, 60))
+        self.assertEqual([s["demo"]["ans"] for s in d["slots"]], ["2", "4", "8", "500", "5, 2", "3", "85", "7", "0,34", "1236; 2400"])
+        # тренировка: задание без ответа; ответ проверяет сервер и показывает решение
+        t = self.req("GET", "/api/im/task?slot=7", token=tok)[1]["task"]
+        self.assertEqual(set(t), {"id", "slot", "kind", "html"})
+        real = im.task(t["id"])
+        st, r = self.req("POST", "/api/im/check", {"id": t["id"], "answer": "-1"}, tok)
+        self.assertEqual((r["ok"], r["ans"]), (False, real["ans"]))
+        self.assertIn("<p>", r["sol"])
+        st, r = self.req("POST", "/api/im/check", {"id": t["id"], "answer": real["ans"]}, tok)
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["stats"]["7"], {"tries": 2, "ok": 1, "last": [0, 1]})
+        # пробный вариант: по одному заданию каждого номера, ответов нет; сдача — баллы по номерам
+        st, tr = self.req("POST", "/api/im/trial/start", {}, tok)
+        self.assertEqual(sorted(x["slot"] for x in tr["items"]), list(range(1, 11)))
+        self.assertNotIn("ans", json.dumps(tr["items"]))
+        self.assertEqual(self.req("POST", "/api/im/trial/start", {}, tok)[1]["id"], tr["id"])     # идущий вариант не плодится
+        right = {x["id"]: im.task(x["id"])["ans"] for x in tr["items"] if x["slot"] in (1, 7, 10)}
+        self.assertEqual(self.req("POST", "/api/im/trial/save", {"id": tr["id"], "answers": right}, tok)[0], 200)
+        st, res = self.req("POST", "/api/im/trial/finish", {"id": tr["id"]}, tok)
+        self.assertEqual((res["score"], res["max"]), (3 + 8 + 9, 60))
+        self.assertEqual(sum(r["got"] for r in res["rows"]), 20)
+        self.assertEqual(self.req("POST", "/api/im/trial/save", {"id": tr["id"], "answers": {}}, tok)[0], 409)
+        self.assertEqual(self.req("GET", "/api/im", token=tok)[1]["trials"][0]["score"], 20)
+        # время вышло — вариант сдаётся сам по сохранённым ответам
+        st, tr2 = self.req("POST", "/api/im/trial/start", {}, tok)
+        self.assertNotEqual(tr2["id"], tr["id"])
+        db.x("UPDATE im_trials SET deadline=? WHERE id=?", (time.time() - 3600, tr2["id"]))
+        self.assertIsNone(self.req("GET", "/api/im", token=tok)[1]["active"])
+        self.assertIsNotNone(db.q("SELECT finished FROM im_trials WHERE id=?", (tr2["id"],), one=True)["finished"])
+        # учитель видит ученика по номерам и пробным вариантам; банк — с ответами
+        st, a = self.admin("GET", "/api/admin/im")
+        me = next(x for x in a["students"] if x["id"] == sid)
+        self.assertEqual((me["unlocked"], me["best"], me["trials"]), (True, 20, 2))
+        b = self.admin("GET", "/api/admin/im/bank?slot=3")[1]["tasks"]
+        self.assertEqual(len(b), 12)
+        self.assertTrue(all(x["ans"] and x["sol"] for x in b))
+        # закрыть доступ всем
+        self.admin("POST", "/api/admin/access", {"kind": "im", "revoke": True})
+        self.assertFalse(self.req("GET", "/api/im", token=tok)[1]["access"])
+        self.admin("POST", "/api/admin/access", {"kind": "im", "off": True})
+
+    def test_megapolis_answer_check(self):
+        import im
+        c = lambda kind, ans, a, val=None: im.check(dict(kind=kind, ans=ans, **({"val": val} if val else {})), a)
+        self.assertTrue(c("choice", "2", "2") and c("choice", "2", "Б") and c("choice", "2", "8", "8") and c("choice", "2", " 2. "))
+        self.assertFalse(c("choice", "2", "3") or c("choice", "2", ""))
+        self.assertTrue(c("num", "0,34", "0.34") and c("num", "0,40", "0,4") and c("num", "85", " 85 "))
+        self.assertFalse(c("num", "85", "84"))
+        self.assertTrue(c("pair", "5, 2", "5,2") and c("pair", "1236; 2400", "1236;2400") and c("pair", "1236; 2400", "1236 2400"))
+        self.assertFalse(c("pair", "5, 2", "2, 5") or c("pair", "5, 2", "5"))
+        # каждое задание банка принимает свой эталонный ответ
+        for t in im.bank()["tasks"]:
+            self.assertTrue(im.check(t, t["ans"]), t["id"])
+
+
 class MailHeadersTest(unittest.TestCase):
     def test_mail_has_date_message_id_and_both_parts(self):
         """Письма сайта: дата, Message-ID на домене отправителя, текст и HTML — без них почта чаще уходит в спам."""

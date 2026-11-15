@@ -73,6 +73,7 @@
     pycSetAccess(me.pyc, me.pyc_pw);
     LAB_OK = !!me.lab;
     ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw;
+    IM_OK = !!me.im; IM_PW = !!me.im_pw;
     $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);

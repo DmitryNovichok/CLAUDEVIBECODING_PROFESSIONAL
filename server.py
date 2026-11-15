@@ -53,7 +53,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import hash_pw, check_pw, revoke_access, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
-from learning_access import lab_access, ard_access
+from learning_access import lab_access, ard_access, im_access
+import im                                         # noqa: E402  «Интеллектуальный мегаполис»: тренировка и пробный вариант
 import buglab
 import mcko
 import bank_delivery
@@ -1805,6 +1806,15 @@ class DB(Transactional):
                 UNIQUE(work_id, student_id, try_no));
             CREATE INDEX IF NOT EXISTS mcko_runs_work ON mcko_runs(work_id);
             -- прогресс уроков лаборатории Arduino (приходит со страницы /arduino/): по курсам, шаги каждого урока
+            -- «Интеллектуальный мегаполис» (im.py): ответы тренировки и вариантов, пробные варианты на 120 минут
+            CREATE TABLE IF NOT EXISTS im_attempts(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, task_id TEXT NOT NULL, slot INTEGER NOT NULL,
+                ok INTEGER NOT NULL, answer TEXT, ts REAL NOT NULL, trial_id INTEGER);
+            CREATE INDEX IF NOT EXISTS im_attempts_s ON im_attempts(student_id, slot);
+            CREATE TABLE IF NOT EXISTS im_trials(
+                id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, started REAL NOT NULL, deadline REAL NOT NULL,
+                finished REAL, items TEXT NOT NULL, answers TEXT, score INTEGER);
+            CREATE INDEX IF NOT EXISTS im_trials_s ON im_trials(student_id);
             CREATE TABLE IF NOT EXISTS arduino_progress(
                 student_id INTEGER PRIMARY KEY, data TEXT NOT NULL, junior INTEGER DEFAULT 0, senior INTEGER DEFAULT 0,
                 steps INTEGER DEFAULT 0, updated REAL, first REAL);
@@ -2004,6 +2014,7 @@ class DB(Transactional):
                     ("students", "pyc_ts", "REAL"),                   # когда ввёл
                     ("students", "lab", "INTEGER DEFAULT 0"),
                     ("students", "ard", "INTEGER DEFAULT 0"),         # ученик ввёл пароль лаборатории Arduino
+                    ("students", "im", "INTEGER DEFAULT 0"),          # ученик ввёл пароль «Интеллектуального мегаполиса»
                     ("pyc_progress", "hint_used", "INTEGER DEFAULT 0"),
                     ("pyc_progress", "solution_seen", "INTEGER DEFAULT 0"),
                     ("pyc_progress", "independent", "INTEGER DEFAULT 0"),
@@ -2269,7 +2280,7 @@ def delete_student(db, sid):
             db.x("UPDATE together SET students=? WHERE id=?", (json.dumps([x for x in members if x != sid]), row["id"]))
     for table in ("student_sessions", "attempts", "reveal_log", "exams", "activity", "solutions", "solution_history", "daily_starts", "daily_results",
                   "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue",
-                  "arduino_progress", "mcko_runs"):
+                  "arduino_progress", "mcko_runs", "im_attempts", "im_trials"):
         db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
     db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
     support_img_cleanup(db)
@@ -3446,6 +3457,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
                 "game": game_summary(APP.db, s["id"]), "class_id": s["class_id"], "course": course_open(s), "pyc": pyc_access(s), "lab": lab_access(APP.db, s), "lab_pw": bool(APP.db.setting("lab_pw")),
                 "ard": ard_access(APP.db, s), "ard_pw": bool(APP.db.setting("ard_pw")),
+                "im": im_access(APP.db, s), "im_pw": bool(APP.db.setting("im_pw")),
                 "pyc_pw": bool(APP.db.setting("pyc_pw")), "gifts_new": gift_rows(APP.db, s["id"], "AND g.seen = 0", 10),
                 "coin_news": [dict(r) for r in APP.db.q("""SELECT id, delta, reason, note FROM coins
                                                             WHERE student_id=? AND seen=0 ORDER BY ts LIMIT 10""", (s["id"],))],
@@ -4676,6 +4688,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET ard=1 WHERE id=?", (s["id"],))
             return self.send_json({"access": True})
 
+        if path == "/api/im" or path.startswith("/api/im/"):
+            return self.api_im(method, path, qs, data)
+
         if path == "/api/arduino/progress" and method == "POST":
             # страница Arduino присылает сводку прогресса уроков; учитель видит её во вкладке «Arduino»
             s = self.student(data)
@@ -5409,6 +5424,68 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.err(404, "нет такого метода")
 
     # ---------- задание: открыть, проверить, показать ответ
+    def api_im(self, method, path, qs, data):
+        """«Интеллектуальный мегаполис»: свой пароль; тренировка по 10 номерам и пробный вариант на 120 минут."""
+        db = APP.db
+        s = self.student(data)
+        if not s:
+            return self.err(401, "нужно войти")
+        if path == "/api/im/unlock" and method == "POST":
+            if im_access(db, s):
+                return self.send_json({"access": True})
+            stored = db.setting("im_pw")
+            if not stored:
+                return self.err(403, "Раздел «Интеллектуальный мегаполис» ещё не открыл учитель")
+            now = time.time()
+            with _COURSE_LOCK:
+                tries = [t for t in _LAB_PW_TRIES.get(("im", s["id"]), []) if now - t < COURSE_WINDOW]
+                if len(tries) >= COURSE_TRIES:
+                    return self.err(429, "Слишком много попыток — попробуйте позже")
+                tries.append(now)
+                _LAB_PW_TRIES[("im", s["id"])] = tries
+            if not check_pw(str(data.get("password") or "")[:200], stored):
+                return self.err(403, "Неверный пароль раздела «Интеллектуальный мегаполис»")
+            db.x("UPDATE students SET im=1 WHERE id=?", (s["id"],))
+            return self.send_json({"access": True})
+        if not im_access(db, s):
+            if path == "/api/im":
+                return self.send_json({"access": False, "pw_set": bool(db.setting("im_pw"))})
+            return self.err(403, "Раздел открывается по паролю учителя")
+        if not im.bank():
+            return self.err(503, "Банк заданий конкурса не найден")
+        sid = s["id"]
+        if path == "/api/im":
+            act = im.trial_active(db, sid)
+            return self.send_json(dict(im.overview(), access=True, stats=im.stats(db, sid), trials=im.trials(db, sid),
+                                       active=act["id"] if act else None, active_deadline=act["deadline"] if act else None))
+        if path == "/api/im/task":
+            t = im.pick(db, sid, to_int(qs.get("slot")))
+            return self.send_json({"task": im.public(t)}) if t else self.err(404, "Нет такого номера")
+        if path == "/api/im/check" and method == "POST":
+            r = im.answer(db, sid, str(data.get("id") or ""), str(data.get("answer") or "")[:120])
+            if r is None:
+                return self.err(404, "Задание не найдено")
+            return self.send_json(dict(r, stats=im.stats(db, sid)))
+        if path == "/api/im/trial/start" and method == "POST":
+            return self.send_json(im.trial_public(im.trial_start(db, sid)))
+        if path in ("/api/im/trial", "/api/im/trial/save", "/api/im/trial/finish"):
+            r = im.trial_row(db, sid, to_int(qs.get("id") or data.get("id")))
+            if not r:
+                return self.err(404, "Вариант не найден")
+            if path == "/api/im/trial/save" and method == "POST":
+                if r["finished"] or time.time() > r["deadline"] + im.TRIAL_GRACE:
+                    return self.err(409, "Время варианта вышло")
+                im.trial_save(db, sid, r, data.get("answers"))
+                return self.send_json({"ok": True})
+            if path == "/api/im/trial/finish" and method == "POST":
+                return self.send_json(im.trial_finish(db, sid, r, data.get("answers")))
+            if not r["finished"]:
+                if time.time() > r["deadline"] + im.TRIAL_GRACE:
+                    return self.send_json(im.trial_finish(db, sid, r))
+                return self.send_json(im.trial_public(r))
+            return self.send_json(im.trial_result(r))
+        return self.err(404, "нет такого метода")
+
     def api_tour(self, s, path, method, data, qs):
         """Турниры: наборы на 4 и 8 игроков; набрались — турнир начинается сам; сетка на выбывание,
         матч — одинаковые задания обоим, раунд — сутки; призы опытом и наградой «Победитель турнира»."""
@@ -5995,6 +6072,30 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         if path.startswith("/api/admin/mcko"):
             return self.admin_mcko(method, path, qs, data)
+
+        if path == "/api/admin/im" and method == "GET":
+            # «Интеллектуальный мегаполис»: ученики этого учителя — по номерам (верно/попыток) и пробные варианты
+            if not im.bank():
+                return self.err(503, "Банк заданий конкурса не найден")
+            where, args = self.student_scope()
+            rows = db.q(f"""SELECT s.id, s.name, COALESCE(s.im, 0) AS im, c.name AS cls FROM students s
+                            LEFT JOIN classes c ON c.id = s.class_id
+                            WHERE (s.im = 1 OR s.id IN (SELECT student_id FROM im_attempts)) AND {where} ORDER BY s.name""", args)
+            out = []
+            for r in rows:
+                tr = db.q("SELECT score, finished FROM im_trials WHERE student_id=? AND finished IS NOT NULL ORDER BY finished", (r["id"],))
+                out.append({"id": r["id"], "name": r["name"], "class": r["cls"], "unlocked": bool(r["im"]),
+                            "slots": im.stats(db, r["id"]), "trials": len(tr), "best": max((x["score"] for x in tr), default=None),
+                            "last": tr[-1]["score"] if tr else None, "last_ts": tr[-1]["finished"] if tr else None})
+            return self.send_json(dict(im.overview(), students=out, pw_set=bool(db.setting("im_pw")), is_main=bool(self.T["is_main"])))
+
+        if path == "/api/admin/im/bank" and method == "GET":
+            # все тренировочные задания номера — с ответами и решениями (учителю для занятия)
+            if not im.bank():
+                return self.err(503, "Банк заданий конкурса не найден")
+            n = to_int(qs.get("slot"))
+            return self.send_json({"tasks": [dict(im.public(t), ans=im.shown_answer(t), sol=t["sol"])
+                                             for t in im.bank()["tasks"] if t["slot"] == n]})
 
         if path == "/api/admin/arduino" and method == "GET":
             # прогресс лаборатории Arduino по ученикам этого учителя: курсы 7 класс и 10–11 классы
@@ -6683,7 +6784,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             # GET — состояние; POST {kind, password | revoke | off} или {all: пароль} — один пароль на все три раздела
             if not self.T["is_main"]:
                 return self.err(403, "Пароли разделов задаёт главный учитель")
-            kinds = {"course": ("course_pw", "course"), "pyc": ("pyc_pw", "pyc"), "lab": ("lab_pw", "lab"), "ard": ("ard_pw", "ard")}
+            kinds = {"course": ("course_pw", "course"), "pyc": ("pyc_pw", "pyc"), "lab": ("lab_pw", "lab"), "ard": ("ard_pw", "ard"),
+                     "im": ("im_pw", "im")}
             if method == "POST":
                 every = str(data.get("all") or "").strip()
                 kind = data.get("kind")
@@ -6691,7 +6793,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if len(every) < 4:
                         return self.err(400, "Пароль — не короче 4 символов")
                     for kind_, (key, _col) in kinds.items():
-                        if kind_ != "ard":                          # у Arduino — всегда свой пароль
+                        if kind_ not in ("ard", "im"):              # у Arduino и «Мегаполиса» — всегда свой пароль
                             db.setting(key, hash_pw(every[:200]))   # у каждого раздела своя соль
                 elif kind in kinds:
                     key, col = kinds[kind]
