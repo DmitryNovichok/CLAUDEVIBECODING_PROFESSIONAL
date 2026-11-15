@@ -44,6 +44,7 @@ import threading
 import time
 import zipfile
 from datetime import datetime, timedelta
+from collections import Counter
 from fractions import Fraction
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1555,7 +1556,12 @@ class Bank:
                     extra = json.loads(f.read_text(encoding="utf-8"))
                     self.validate_data(extra, extra=True)
                     data["tasks"] = data.get("tasks", []) + extra.get("tasks", [])
-                    data["banks"] = [b for b in data.get("banks", []) if b.get("id") != extra["bank"]["id"]] + [extra["bank"]]
+                    if extra["bank"].get("merge"):
+                        # задания дописываются в уже существующие банки (task10_bank: КомпЕГЭ и ФИПИ) — отдельной графы нет
+                        add = Counter(t.get("bank") for t in extra.get("tasks", []))
+                        data["banks"] = [dict(b, count=(b.get("count") or 0) + add.get(b.get("id"), 0)) for b in data.get("banks", [])]
+                    else:
+                        data["banks"] = [b for b in data.get("banks", []) if b.get("id") != extra["bank"]["id"]] + [extra["bank"]]
                 except (ValueError, KeyError, OSError) as e:
                     print(f"! Дополнительный банк не прочитан ({f.name}): {e}", flush=True)
                     return bool(self.tasks)

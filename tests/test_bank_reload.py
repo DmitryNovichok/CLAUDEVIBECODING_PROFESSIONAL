@@ -120,6 +120,14 @@ class VersionTest(unittest.TestCase):
                 self.assertEqual(bank.tasks['k:1']['n'], 13)                       # IP-адреса 2026 → №13
                 self.assertEqual(bank.tasks['task10_bank:kompege_1']['n'], 10)     # уже в нумерации 2027
                 self.assertEqual(bank.titles.get('task10_bank'), 'T10')
+                # merge: задания дописываются в существующий банк, отдельной графы нет
+                t10['bank']['merge'] = True
+                t10['tasks'][0]['bank'] = 'k'
+                (root / 'data' / 'task10_bank.json').write_text(json.dumps(t10, ensure_ascii=False), encoding='utf-8')
+                os.utime(root / 'data' / 'task10_bank.json', (time.time() + 5, time.time() + 5))
+                self.assertTrue(bank.ensure())
+                self.assertNotIn('task10_bank', bank.titles)
+                self.assertEqual(bank.tasks['task10_bank:kompege_1']['bank'], 'k')
                 # файл задания пропал при обновлении — банк остаётся прежним
                 before = bank.extra_mtime
                 (root / 'data' / 'task10_bank.json').unlink()
@@ -134,7 +142,8 @@ class VersionTest(unittest.TestCase):
         self.assertEqual(data['bank']['id'], 'task10_bank')
         self.assertGreaterEqual(len(data['tasks']), 200)
         for t in data['tasks']:
-            self.assertEqual((t['n'], t['kim'], t['bank']), (10, 2027, 'task10_bank'), t['id'])
+            self.assertEqual((t['n'], t['kim']), (10, 2027), t['id'])
+            self.assertIn(t['bank'], ('kompege_bank', 'openfipi_bank'), t['id'])     # без отдельной графы банка
             self.assertRegex(t['ans'], r'^[0-9A-Za-zА-ЯЁа-яё]+$', t['id'])     # число, у пары заданий — слово
             self.assertTrue(t.get('att'), t['id'])
             for a in t['att']:
