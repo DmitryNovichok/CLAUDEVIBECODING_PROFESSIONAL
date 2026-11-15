@@ -1939,6 +1939,44 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(kinds, {"home0"})
         self.assertEqual(self.admin("POST", "/api/admin/batch/kind", {"class_id": cid, "batch": b["batch"], "kind": "zzz"})[0], 400)
 
+    def test_personal_batch_due_can_be_moved(self):
+        # срок личной подборки переносится у всех учеников пачки или у одного; закрытая по сроку — снова открыта
+        t1, t2 = self.login("Срокова Соня"), self.login("Сроков Савва")
+        ids = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in (t1, t2)]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": "10С"})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": ids})
+        db, now = server.APP.db, time.time()
+        self.admin("POST", "/api/admin/assignment/save", {"class_id": cid, "title": "Лично в срок", "kind": "practice",
+                                                         "tasks": ["b:5"], "students": ids, "due": now + 3600})
+        rows = db.q("SELECT id, student_id FROM assignments WHERE class_id=? ORDER BY student_id", (cid,))
+        aid = {r["student_id"]: r["id"] for r in rows}
+        # срок прошёл — работа закрылась сама
+        db.x("UPDATE assignments SET due=? WHERE class_id=?", (now - 60, cid))
+        b = self.admin("GET", f"/api/admin/assignments?class_id={cid}")[1]["batches"][0]
+        self.assertEqual(b["closed"], 2)
+        # перенос в прошлое нельзя, в чужом классе — не найдена
+        self.assertEqual(self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "batch": b["batch"], "due": now - 10})[0], 400)
+        self.assertEqual(self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "batch": "own:nope", "due": now + 99})[0], 404)
+        # всем сразу: срок новый, обе снова открыты
+        st, d = self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "batch": b["batch"], "due": now + 86400})
+        self.assertEqual((st, d["changed"], d["reopened"]), (200, 2, 2))
+        got = db.q("SELECT due, closed FROM assignments WHERE class_id=?", (cid,))
+        self.assertEqual({(round(r["due"]), r["closed"]) for r in got}, {(round(now + 86400), None)})
+        mine = self.req("GET", "/api/assignments", token=t1)[1]["assignments"]
+        self.assertFalse(next(x for x in mine if x["title"] == "Лично в срок").get("closed"))
+        # одному ученику — ещё неделя, у второго срок прежний; в «Результатах» видно у каждого свой
+        st, d = self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "asg_id": aid[ids[0]], "due": now + 7 * 86400})
+        self.assertEqual((st, d["changed"]), (200, 1))
+        self.assertEqual(round(self.admin("GET", f"/api/admin/asg/live?id={aid[ids[0]]}")[1]["due"]), round(now + 7 * 86400))
+        self.assertEqual(round(self.admin("GET", f"/api/admin/asg/live?id={aid[ids[1]]}")[1]["due"]), round(now + 86400))
+        # без срока
+        self.assertEqual(self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "batch": b["batch"], "due": None})[1]["changed"], 2)
+        self.assertEqual({r["due"] for r in db.q("SELECT due FROM assignments WHERE class_id=?", (cid,))}, {None})
+        # закрытую учителем вручную перенос срока не открывает
+        db.x("UPDATE assignments SET closed=? WHERE id=?", (now - 5, aid[ids[1]]))
+        self.assertEqual(self.admin("POST", "/api/admin/batch/due", {"class_id": cid, "asg_id": aid[ids[1]], "due": now + 600})[1]["reopened"], 0)
+        self.admin("POST", "/api/admin/class/delete", {"id": cid})
+
     def test_change_kind_of_started_work(self):
         # самостоятельную уже пишут — тип всё равно можно сменить: начатые сдаются по уже данным ответам
         tok = self.login("Типов Тимур")

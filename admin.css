@@ -964,3 +964,7 @@ td .mk-chip { font-size: 12px; padding: 1px 8px; }
 .sec-code { margin: 0 0 14px; }
 .sec-code.off { border-color: var(--weak); }
 .adm-login-panel .adm-code::placeholder { letter-spacing: normal; font-size: 15px; }
+/* перенос срока личной подборки: у всей пачки и у одного ученика */
+.batch-due { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.batch-due .inp { width: auto; padding: 4px 8px; font-size: 13px; }
+td.batch-due { display: table-cell; }

@@ -19,6 +19,9 @@
     return many;
   }
   const pad = n => String(n).padStart(2, '0');
+  // срок работы — конец выбранного дня (23:59 по часам учителя), как в конструкторе
+  const dueIso = ts => { if (!ts) return ''; const d = new Date(ts * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const dueTs = v => (v ? new Date(v + 'T23:59:00').getTime() / 1000 : null);
   const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
   // дата: ДД.ММ, а если год не текущий — ДД.ММ.ГГ (иначе срок «05.04» не отличить от прошлогоднего)
   const fmtDate = ts => { const d = new Date(ts * 1000); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}${d.getFullYear() !== new Date().getFullYear() ? '.' + String(d.getFullYear()).slice(2) : ''}`; };
@@ -3065,9 +3068,10 @@
       ${c.batches.length ? `<h3 class="adm-h3">Личные подборки</h3>
         <p class="adm-hint">У каждого ученика своя: 🔧 работа над ошибками создаётся сама после самостоятельной, 🎯 слабые места — кнопкой в журнале или сводке, ⭐ персональная — в «Создать подборку» → «Кому: персонально». Результаты — кнопка «📊 Результаты»: у каждого ученика видны его задания и какие он решил верно, а какие нет.</p>
         ${c.batches.map(b => `<div class="adm-asg"><div class="adm-asg-head"><b>${b.batch.startsWith('fix') ? '🔧' : b.batch.startsWith('own') ? '⭐' : '🎯'} ${esc(b.title)}</b>
-          <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.due ? ` · срок ${fmtDate(b.due)}` : ''}</span>
+          <span class="adm-hint">учеников: ${b.students} · сделали всё: ${b.done}${b.closed ? ` · <b style="color:var(--weak)">закрыта у ${b.closed}</b>` : ''}</span>
           <span class="adm-actions"><button type="button" class="btn${batchOpen === b.batch ? ' primary' : ''}" data-batch-stats="${esc(b.batch)}" data-ids="${(b.ids || []).join(',')}">Результаты</button>
           <a class="btn ghost" href="/api/admin/asg/archive?ids=${(b.ids || []).join(',')}" target="_blank" rel="noopener" title="Работы всех учеников этой пачки — одна страница для печати или PDF">Архив PDF</a>
+          <label class="adm-hint batch-due" title="Перенести срок — сразу у всех учеников этой подборки. Закрытые по сроку снова откроются. Пусто — без срока">срок <input class="inp" type="date" data-batch-due="${esc(b.batch)}" value="${dueIso(b.due)}" min="${todayIso()}"></label>
           <select class="adm-select" data-batch-kind="${esc(b.batch)}" data-was="${esc(b.kind || 'self')}" title="Тип работы — сразу у всех учеников этой подборки">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(b.kind || 'self') === k ? ' selected' : ''}>${v.ico} ${v.name}</option>`).join('')}</select>
           <button type="button" class="btn ghost danger" data-batch-del="${esc(b.batch)}">Удалить</button></span></div>
           <div class="adm-live" data-batch-box="${esc(b.batch)}"></div></div>`).join('')}` : ''}
@@ -3295,6 +3299,17 @@
       toast(`Тип изменён: ${KINDS[bk.value].name}` + (r.changed > 1 ? ` · у ${r.changed} учеников` : '') + keptNote(r));
     } catch (err) { bk.value = bk.dataset.was; if (err.status !== 401) toast(err.message); }
   });
+  document.addEventListener('change', async e => {
+    const d = e.target.closest('[data-batch-due], [data-asg-due]');
+    if (!d || !curClass) return;
+    const one = d.dataset.asgDue;
+    try {
+      const r = await api('batch/due', one ? { class_id: curClass.id, asg_id: +one, due: dueTs(d.value) } : { class_id: curClass.id, batch: d.dataset.batchDue, due: dueTs(d.value) });
+      toast((d.value ? `Срок перенесён на ${d.value.split('-').reverse().join('.')}` : 'Срок снят') + (r.changed > 1 ? ` · у ${r.changed} учеников` : '')
+        + (r.reopened ? ` · снова открыта у ${r.reopened}` : ''));
+    } catch (err) { if (err.status !== 401) toast(err.message); }
+    if (one) batchLoad(); else openClass(curClass.id);
+  });
   document.addEventListener('change', e => {
     const k = e.target.closest('#dKind, #bdKind');
     if (!k) return;
@@ -3319,22 +3334,25 @@
   async function batchLoad() {
     const box = batchBox();
     if (!box) { batchOpen = null; return; }
+    if (box.contains(document.activeElement) && document.activeElement.matches('[data-asg-due]')) return;   // учитель выбирает дату — не перерисовываем
     let parts;
     try { parts = await Promise.all(batchIds.map(id => api('asg/live?id=' + id))); } catch (e) { if (e.status !== 401) box.innerHTML = `<p class="adm-hint">${esc(e.message)}</p>`; return; }
-    const rows = parts.flatMap(d => d.rows.map(r => ({ ...r, strict: d.strict, title: d.title, items: d.items }))).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    const rows = parts.flatMap(d => d.rows.map(r => ({ ...r, strict: d.strict, title: d.title, items: d.items, aid: d.id, due: d.due, closed: d.closed }))).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
     const st = r => (r.strict ? { none: 'не начинал', work: 'пишет', done: 'сдал' } : { none: 'не начинал', work: 'решает', done: 'сделал все' })[r.status];
     const done = rows.filter(r => r.status === 'done').length, work = rows.filter(r => r.status === 'work').length;
     const grades = rows.filter(r => r.grade).map(r => r.grade), avg = grades.length ? (grades.reduce((a, b) => a + b, 0) / grades.length).toFixed(1) : '—';
     box.innerHTML = `<div class="adm-live-bar"><span class="adm-hint">Сделали все: <b>${done}</b> · решают: <b>${work}</b> · не начинали: <b>${rows.length - done - work}</b> из ${rows.length} · средняя оценка: <b>${avg}</b> · обновляется само</span></div>
-      <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Ученик</th><th>Статус</th><th class="num">Сдано</th><th class="num">Верно</th><th class="num">Неверно</th><th class="num">%</th><th class="num">Оценка</th><th class="num" title="Заданий с прикреплённым решением">Код</th></tr></thead><tbody>
+      <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Ученик</th><th>Статус</th><th class="num">Сдано</th><th class="num">Верно</th><th class="num">Неверно</th><th class="num">%</th><th class="num">Оценка</th><th class="num" title="Заданий с прикреплённым решением">Код</th><th title="Срок этого ученика — можно перенести только ему">Срок</th></tr></thead><tbody>
       ${rows.map(r => `<tr class="${r.status === 'work' ? 'live-work' : ''}"><td class="name"><button type="button" class="task-link" data-open-st="${r.id}">${esc(r.name)}</button></td>
         <td>${r.status === 'work' && r.online ? '<span class="live-dot" title="на сайте"></span>' : ''}${st(r)}${r.forced ? ' <span class="adm-hint">(завершил учитель)</span>' : ''}</td>
         <td class="num">${r.answered}/${r.total}</td><td class="num" style="color:var(--good)">${r.status === 'none' ? '' : r.ok + (r.half ? ` +${r.half}½` : '')}</td>
         <td class="num" style="color:var(--weak)">${r.status === 'none' ? '' : r.bad}</td><td class="num">${r.status === 'none' ? '' : r.pct + '%'}</td>
-        <td class="num cs-grade">${r.grade ? `<b class="g${r.grade}">${r.grade}</b>` : ''}</td><td class="num">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td></tr>
-        <tr class="asg-cells-row"><td colspan="8">${asgCells(r.items, r.cells)}</td></tr>`).join('')}
+        <td class="num cs-grade">${r.grade ? `<b class="g${r.grade}">${r.grade}</b>` : ''}</td><td class="num">${r.status === 'none' && !r.sol ? '' : `${r.sol}/${r.tasks}`}</td>
+        <td class="batch-due">${r.aid ? `<input class="inp" type="date" data-asg-due="${r.aid}" value="${dueIso(r.due)}" min="${todayIso()}" title="Перенести срок только этому ученику">${r.closed ? ' <span class="adm-hint" style="color:var(--weak)">закрыта</span>' : ''}` : ''}</td></tr>
+        <tr class="asg-cells-row"><td colspan="9">${asgCells(r.items, r.cells)}</td></tr>`).join('')}
       </tbody></table></div>
-      <p class="adm-hint">Под каждым учеником — его задания по порядку: ✓ верно, ½ со 2-й попытки, ✗ неверно, — ещё не решал. Щелчок — условие и ответ.</p>`;
+      <p class="adm-hint">Под каждым учеником — его задания по порядку: ✓ верно, ½ со 2-й попытки, ✗ неверно, — ещё не решал. Щелчок — условие и ответ.
+        Срок можно перенести всем сразу (поле «срок» у подборки) или одному ученику (столбец «Срок»); закрытая по сроку работа снова откроется.</p>`;
   }
   document.addEventListener('click', e => {
     const bs = e.target.closest('[data-batch-stats]');

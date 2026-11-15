@@ -7590,8 +7590,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 real = json.loads(a["tasks"] or "[]")
                 b = batches.setdefault(a["batch"] or f"one:{a['id']}", {"batch": a["batch"] or f"one:{a['id']}", "title": batch_title(a),
                                                                        "kind": a["kind"], "created": a["created"], "due": a["due"],
-                                                                       "students": 0, "done": 0, "tasks": 0, "ids": []})
+                                                                       "students": 0, "done": 0, "tasks": 0, "ids": [], "closed": 0})
                 b["ids"].append(a["id"])
+                b["closed"] += bool(a["closed"])
+                if a["due"] and (not b["due"] or a["due"] > b["due"]):
+                    b["due"] = a["due"]                 # у кого-то продлён — показываем самый поздний срок
                 b["students"] += 1
                 b["tasks"] += len(real)
                 b["done"] += len(assignment_done(db, a["student_id"], real, a["created"], asg_cutoff(a))) >= len(real) > 0
@@ -7700,6 +7703,33 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE assignments SET kind=?, strict=? WHERE id=?", (kind, 1 if kind == "self" else 0, a["id"]))
             live_class(db, cid, [a["student_id"] for a in rows])
             return self.send_json({"ok": True, "changed": len(rows), "ended": ended})
+
+        if path == "/api/admin/batch/due" and method == "POST":
+            # перенести срок личной подборки: у всех учеников пачки или у одного (asg_id); закрытые по сроку снова открываются
+            cid = to_int(data.get("class_id"))
+            if not self.sees_class(cid):
+                return self.err(404, "класс не найден")
+            due = to_float(data.get("due")) or None
+            if due and due < now:
+                return self.err(400, "Этот срок уже прошёл — выберите сегодняшнюю или более позднюю дату")
+            batch, one = str(data.get("batch") or ""), to_int(data.get("asg_id"))
+            if one:
+                rows = db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (one, cid))
+            elif batch.startswith("one:"):
+                rows = db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (to_int(batch[4:]), cid))
+            else:
+                rows = db.q("SELECT * FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid))
+            if not rows:
+                return self.err(404, "подборка не найдена")
+            reopened = 0
+            for a in rows:
+                db.x("UPDATE assignments SET due=? WHERE id=?", (due, a["id"]))
+                # закрытую по сроку (closed = прежний срок) открываем снова; закрытую учителем вручную — не трогаем
+                if a["closed"] and a["due"] and a["closed"] == a["due"]:
+                    db.x("UPDATE assignments SET closed=NULL WHERE id=?", (a["id"],))
+                    reopened += 1
+            live_class(db, cid, [a["student_id"] for a in rows])
+            return self.send_json({"ok": True, "changed": len(rows), "reopened": reopened})
 
         if path == "/api/admin/batch/delete" and method == "POST":
             cid = to_int(data.get("class_id"))
@@ -7866,7 +7896,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                  "attempts": sc["attempts"], "online": bool(m["last_seen"] and now - m["last_seen"] < 60),
                                  "sol": sols.get(m["id"], 0), "tasks": len(real),
                                  "cells": [sc["items"].get(APP.bank.pid(k)) for k in items]})   # 1 / 0.5 / 0 / None — не решал
-                return self.send_json({"id": aid, "title": a["title"], "strict": False, "kind": a["kind"], "closed": a["closed"],
+                return self.send_json({"id": aid, "title": a["title"], "strict": False, "kind": a["kind"], "closed": a["closed"], "due": a["due"],
                                        "grading": asg_grading(a), "total": len(items), "items": item_info, "rows": rows})
             runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (aid,))}
             rows = []
@@ -7887,7 +7917,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                grade=r["grade"], online=bool(m["last_seen"] and now - m["last_seen"] < 60),
                                cells=[(res.get(k) or 0) if k in answers else None for k in items])
                 rows.append(row)
-            return self.send_json({"id": aid, "title": a["title"], "strict": bool(a["strict"]), "closed": a["closed"],
+            return self.send_json({"id": aid, "title": a["title"], "strict": bool(a["strict"]), "closed": a["closed"], "due": a["due"],
                                    "grading": asg_grading(a), "total": len(items), "items": item_info, "rows": rows})
 
         if path == "/api/admin/together/students":
