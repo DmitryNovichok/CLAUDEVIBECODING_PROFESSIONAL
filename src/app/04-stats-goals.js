@@ -133,7 +133,7 @@
     if (examShown && EX) {
       h = examBarHtml();
     } else if (ui.scope === 'all') {
-      const total = counts.reduce((a, b) => a + b, 0);
+      const total = kimTotal(counts);
       let solved = 0, a = 0, ok = 0, mastered = 0, present = 0;
       for (const id in P.tasks) { const t = byId.get(id); if (t && visible(t) && P.tasks[id].c > 0) solved++; }
       for (let n = 1; n <= 27; n++) {
@@ -164,7 +164,7 @@
       const n = ui.scope;
       const st = numStats(n);
       const rv = reviewsOf(n).length;
-      h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + n}</span>
+      h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + numLabel(n)}</span>${ARCHIVE[n] ? '<span class="scope-stats">архив · нет в КИМ ЕГЭ-2027</span>' : ''}
         <span class="scope-stats">${counts[n]} в банке · решено ${st.solved}${st.acc != null ? ` · точность ${pct(st.acc)}%` : ''}</span>
         <span class="chip ${st.lvl === 'none' ? '' : st.lvl}">${LEVEL_TEXT[st.lvl]}${st.s && st.s.a ? ` · ${pct(st.s.m)}%` : ''}</span>
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
@@ -198,7 +198,7 @@
   function renderSidebar() {
     renderMobileNav();
     const counts = countByNum();
-    const total = counts.reduce((a, b) => a + b, 0);
+    const total = kimTotal(counts);
     $('#allCount').textContent = total;
 
     // средний уровень по всем номерам
@@ -215,7 +215,7 @@
     all.className = 'rail-btn' + (inTrainer && ui.scope !== 'fav' && ui.scope !== 'asg' ? ' on' : '');
     if ($('#allNums')) {                       // index.html прошлой версии мог остаться в кэше — тогда кнопки нет
       $('#allNums').classList.toggle('on', ui.scope === 'all');
-      $('#allNumsCount').textContent = countByNum().reduce((x, y) => x + y, 0);
+      $('#allNumsCount').textContent = kimTotal(countByNum());
     }
     $('#allBar').style.width = tried ? pct(avg) + '%' : '0';
     $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
@@ -226,10 +226,11 @@
     $('#examSub').textContent = EX ? `идёт · ${fmtClock((EX.deadline - Date.now()) / 1000)}` : '3 ч 55 мин';
 
     const now = Date.now();
-    $('#grid').innerHTML = Array.from({ length: 27 }, (_, i) => {
-      const n = i + 1;
+    // 1–27 — номера КИМ-2027, ниже — «Архив» (задания, которых в КИМ больше нет: 23_old)
+    const arch = Object.keys(ARCHIVE).map(Number).filter(n => counts[n]);
+    $('#grid').innerHTML = [...Array.from({ length: 27 }, (_, i) => i + 1), ...arch].map(n => {
       if (HAS_GROUPS && (n === 20 || n === 21)) return '';
-      const wide = HAS_GROUPS && n === 19;
+      const wide = (HAS_GROUPS && n === 19) || !!ARCHIVE[n];     // 19–21 и архивное 23_old — подпись не влезает в кольцо
       const st = numStats(n);
       const rv = reviewsOf(n);
       const dueNow = rv.some(r => isDue(r, now));
@@ -247,7 +248,8 @@
       // кольцо освоения вокруг номера; у широкой плитки 19–21 — полоска
       const body = wide ? `<span class="n">${numLabel(n)}</span><span class="c">${counts[n]}</span><i class="bar"><b style="width:${p}%"></b></i>`
         : `<span class="ring" style="--p:${p}"><span class="n">${numLabel(n)}</span></span><span class="c">${counts[n]}</span>`;
-      return `<button class="${cls.join(' ')}" data-n="${n}" type="button" title="${esc(tip)}" ${counts[n] ? '' : 'disabled'}>
+      if (ARCHIVE[n]) cls.push('arch');
+      return `${ARCHIVE[n] && n === arch[0] ? '<div class="grid-arch" title="Этих заданий нет в КИМ ЕГЭ-2027 — остались для тренировки">Архив</div>' : ''}<button class="${cls.join(' ')}" data-n="${n}" type="button" title="${esc(tip)}" ${counts[n] ? '' : 'disabled'}>
         ${body}<i class="dot"></i></button>`;
     }).join('');
 
@@ -455,7 +457,7 @@
     }
     const mark = c => (c === 1 ? '<span class="chip good">верно</span>' : c === 0.5 ? '<span class="chip">половина</span>' : c === 0 ? '<span class="chip weak">неверно</span>' : '<span class="chip">нет ответа</span>');
     const rows = d.items.map((x, i) => `<div class="rv-item">
-      <div class="rv-head"><span class="num-badge sm">${numLabel(x.n)}</span><b>Задание ${i + 1}</b> ${mark(x.credit)}
+      <div class="rv-head"><span class="num-badge sm${badgeCls(x.n)}">${numLabel(x.n)}</span><b>Задание ${i + 1}</b> ${mark(x.credit)}
         ${byId.get(x.top) ? `<button type="button" class="link-btn" data-open="${esc(x.top)}">открыть задание</button>` : ''}</div>
       <div class="rv-ans"><span>Твой ответ: <b>${x.mine ? esc(x.mine) : '—'}</b></span><span>Правильный: ${answerView(x.answer)}</span></div>
       ${x.sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(x.sol)}</div></details>` : ''}
@@ -514,7 +516,7 @@
       lastDay = dn;
       return `${head}<div class="hist-row">
         <span class="hist-when">${hm(e.t)}</span>
-        <span class="num-badge sm">${e.n}</span>
+        <span class="num-badge sm${badgeCls(e.n)}">${numLabel(e.n)}</span>
         <span class="hist-snip">${t ? esc(plainText(t)) : '<span class="fm-muted">задание удалено из банка</span>'}</span>
         <span class="chip ${cls}">${txt}</span>
         ${t ? `<button type="button" class="btn hist-open" data-open="${esc(e.id)}">Открыть</button>` : '<span></span>'}

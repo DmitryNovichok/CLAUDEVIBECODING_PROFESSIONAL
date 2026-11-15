@@ -8,6 +8,9 @@
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pct = x => Math.round(x * 100);
   const DAY = 864e5;
+  // номера КИМ ЕГЭ-2027 (20, 21 — части игры 19–21) и в конце архив: 28 — «23_old» (пути в графе из файла, как в kim.py)
+  const numName = n => (+n === 19 ? '19–21' : +n === 28 ? '23_old' : String(n));
+  const PICK_NUMS = [...Array.from({ length: 27 }, (_, i) => i + 1).filter(n => n !== 20 && n !== 21), 28];
   function plural(n, one, few, many) {
     const a = Math.abs(n) % 100, b = a % 10;
     if (a > 10 && a < 20) return many;
@@ -555,8 +558,8 @@
         <span>${dd}.${m}</span></div>`;
     }).join('');
     const maxN = Math.max(1, ...d.nums.map(x => x.answers));
-    const nums = d.nums.map(x => `<div class="st-num" title="№${x.n}: ответов ${x.answers}, верных ${x.solved}">
-        <b>${x.n}</b><i><s style="width:${x.answers / maxN * 100}%"></s><u style="width:${x.solved / maxN * 100}%"></u></i>
+    const nums = d.nums.map(x => `<div class="st-num" title="№${numName(x.n)}: ответов ${x.answers}, верных ${x.solved}">
+        <b>${numName(x.n)}</b><i><s style="width:${x.answers / maxN * 100}%"></s><u style="width:${x.solved / maxN * 100}%"></u></i>
         <small>${n(x.answers)} · ${x.answers ? Math.round(x.solved / x.answers * 100) : 0}%</small></div>`).join('');
     $('#siteBody').innerHTML = `
       <div class="adm-cards">
@@ -780,7 +783,7 @@
   function renderTpl() {
     const C = BLD.cat, nSel = $('#tplN'), cSel = $('#tplClass');
     if (!nSel.options.length) {
-      for (let n = 1; n <= 27; n++) if (n !== 20 && n !== 21) nSel.insertAdjacentHTML('beforeend', `<option value="${n}">${n === 19 ? '19–21' : n}</option>`);
+      for (const n of PICK_NUMS) nSel.insertAdjacentHTML('beforeend', `<option value="${n}">${n === 28 ? 'Архив · ' : ''}${numName(n)}</option>`);
     }
     const cur = cSel.value || BLD.d.class_id;
     cSel.innerHTML = C.classes.length ? C.classes.map(c => `<option value="${c.id}"${String(c.id) === String(cur) ? ' selected' : ''}>${esc(c.name)}</option>`).join('')
@@ -831,8 +834,8 @@
     const C = BLD.cat, f = BLD.f, fc = (BLD.res && BLD.res.facets) || { c: {}, r: {} };
     const focused = document.activeElement?.id === 'bldQ' ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
     const nums = [];
-    for (let n = 1; n <= 27; n++) if (n !== 20 && n !== 21) nums.push(chip('n', n, n === 19 ? '19–21' : n, f.n.includes(String(n))));
-    const types = f.n.length ? f.n.map(n => `<div class="bld-types"><b>№${n === '19' ? '19–21' : n}</b>${(C.clusters[n] || []).map(([k, lbl]) => {
+    for (const n of PICK_NUMS) nums.push(chip('n', n, numName(n), f.n.includes(String(n))));
+    const types = f.n.length ? f.n.map(n => `<div class="bld-types"><b>№${numName(n)}</b>${(C.clusters[n] || []).map(([k, lbl]) => {
       const key = `${n}:${k}`;
       return chip('c', key, esc(lbl), f.c.includes(key), fc.c[key] || 0);
     }).join('')}</div>`).join('') : '<span class="adm-hint">Выберите номер — появятся типы заданий внутри него.</span>';
@@ -986,7 +989,7 @@
 <label class="adm-hint">Тип работы <select class="adm-select" id="bdKind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(D.kind || 'self') === k ? ' selected' : ''}>${v.name}</option>`).join('')}</select></label>
       <details class="bld-rules"><summary>Как проверяется работа</summary><p class="adm-hint" id="bdKindHint">${KINDS[D.kind || 'self'].hint}</p></details>
       <div class="bld-sum"><b>Выбрано ${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
-        ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${n}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
+        ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${numName(n)}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
       ${total ? `<div class="bld-rbar" title="Распределение по сложности">${byR.map((c, r) => r && c ? `<i class="rk${r}" style="flex:${c}" title="${RANK_SHORT[r]}: ${c}"></i>` : '').join('')}</div>` : ''}
       <button type="button" class="btn primary bld-send" id="bdSend"${!bldSending && total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${bldSending ? 'Отправляю…' : D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : BLD.members?.length ? `Выдать ${BLD.members.length} ученикам` : 'Выдать классу'}</button>
       ${D.class_id ? '' : '<p class="adm-hint">Выберите класс, которому отправить подборку.</p>'}
@@ -3156,8 +3159,8 @@
     if (!box || !gradebook) return;
     const S = gradebook.students;
     if (!S.length) { box.innerHTML = '<p class="adm-empty">В классе нет учеников.</p>'; return; }
-    const NUMS = Array.from({ length: 27 }, (_, i) => i + 1).filter(n => n !== 20 && n !== 21);
-    const label = n => n === 19 ? '19–21' : String(n);
+    const NUMS = PICK_NUMS;
+    const label = numName;
     const cell = v => {
       if (!v || !v[0]) return '<td class="hm-c none" title="не решал">·</td>';
       const p = v[1] / v[0];
@@ -3172,7 +3175,7 @@
     const weak = cls.filter(x => x.a >= 3 && x.ok / x.a < 0.4).map(x => label(x.n));
     box.innerHTML = `<p class="adm-hint">Доля верных с первой попытки по каждому номеру ЕГЭ — тренажёр и подборки, без вариантов. Серым — меньше 3 ответов.
         Нажмите на номер, чтобы собрать по нему подборку.</p>
-      ${weak.length ? `<p class="hm-weak">Слабые места класса: ${weak.map(n => `<b>№${n}</b>`).join(', ')}</p>` : ''}
+      ${weak.length ? `<p class="hm-weak">Слабые места класса: ${weak.map(n => `<b>№${numName(n)}</b>`).join(', ')}</p>` : ''}
       <div class="adm-table-wrap hm-wrap"><table class="adm-table hm-table"><thead><tr><th>Ученик</th>
         ${NUMS.map(n => `<th class="hm-h"><button type="button" class="jr-asg" data-hm-n="${n}" title="Собрать подборку по №${label(n)}">${label(n)}</button></th>`).join('')}</tr></thead>
         <tbody>${S.map(st => `<tr><td class="name"><button type="button" class="task-link" data-open-st="${st.id}">${esc(st.name)}</button></td>${NUMS.map(n => cell(st.nums[n])).join('')}</tr>`).join('')}</tbody>
@@ -3517,7 +3520,7 @@
       <p class="adm-hint" id="dKindHint">${KINDS[draft.kind || 'self'].hint}</p>
       <div class="adm-draft-row">
         <span class="adm-hint">Добавить случайные:</span>
-        <select class="adm-select" id="dNum">${Array.from({ length: 27 }, (_, i) => `<option value="${i + 1}">№${i + 1}</option>`).join('')}</select>
+        <select class="adm-select" id="dNum">${[...Array.from({ length: 27 }, (_, i) => i + 1), 28].map(n => `<option value="${n}">№${numName(n)}${n === 28 ? ' (архив)' : ''}</option>`).join('')}</select>
         <select class="adm-select" id="dCount">${[1, 2, 3, 5, 10].map(k => `<option>${k}</option>`).join('')}</select>
         <button type="button" class="btn" id="dPick">Добавить</button>
         <span class="adm-hint">или по номеру КомпЕГЭ / коду ФИПИ:</span>
@@ -3742,12 +3745,12 @@
       if (a.score === 1) x.ok++;
       if (a.score === 0) x.bad++;
     }
-    $('#stNums').innerHTML = Array.from({ length: 27 }, (_, i) => {
-      const n = i + 1, x = per[n];
+    $('#stNums').innerHTML = [...Array.from({ length: 27 }, (_, i) => i + 1), ...(per[28] ? [28] : [])].map(n => {
+      const x = per[n];
       const acc = x ? x.ok / x.t : null;
       const lv = !x ? 'none' : acc >= 0.8 ? 'good' : acc >= 0.5 ? 'mid' : 'weak';
       return `<button type="button" class="adm-num lv-${lv}${lv === 'none' ? ' none' : ''}${jNum === n ? ' on' : ''}" data-n="${n}" ${x ? '' : 'disabled'}>
-        <span class="nn">№${n}</span>
+        <span class="nn">№${numName(n)}</span>
         <span class="nc">${x ? `${x.t} · ${pct(acc)}% верно` : 'не решал'}</span>
         ${x && x.bad ? `<span class="nb">ошибок: ${x.bad}</span>` : ''}
       </button>`;
@@ -3777,7 +3780,7 @@
             <span class="muted" style="font-size:12px">Номера: ${nums.map(n => '№' + n).join(', ')}</span>
           </div>
           ${bads.length ? `<div class="chips">${Object.entries(badByN).sort((a, b) => a[0] - b[0]).map(([n, c]) =>
-            `<span class="chip weak" data-n="${n}">ошибка в №${n}${c > 1 ? ' ×' + c : ''}</span>`).join('')}</div>` : ''}
+            `<span class="chip weak" data-n="${n}">ошибка в №${numName(n)}${c > 1 ? ' ×' + c : ''}</span>`).join('')}</div>` : ''}
         </div>
       </div>`;
     }).join('') : '<p class="adm-empty">За выбранный период ученик не решал.</p>';
@@ -4220,7 +4223,7 @@
       evPolled = true;
       // подозрительные ответы (ушёл со страницы и сразу верно, вставка ответа) — тоже в уведомления
       ntfAdd(d.attempts.filter(a => /sus|paste|ai/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
-        text: `${/\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
+        text: `${/\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${numName(a.n)}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
       if (d.attempts.length) {
         const first = feedSince === 0;
         d.attempts.forEach(a => { if (!first) freshIds.add(a.id); });

@@ -65,6 +65,7 @@ from economy import atomic, financial_path, atomic_response
 import signal
 
 import clusters                                   # noqa: E402  тип задания и сложность (clusters.py рядом с сервером)
+import kim                                        # noqa: E402  нумерация КИМ-2027: 10→13, 13→23, 23 → архив 23_old
 import together                                   # noqa: E402  совместный сеанс: код и доска (together.py рядом с сервером)
 
 HERE = Path(__file__).resolve().parent            # папка trainer
@@ -764,7 +765,7 @@ TEXT_AUTHOR_RE = re.compile(r"^[(\[]([^()\[\]]{2,60})[)\]]")
 # Одно правило «задание банка» для всего сайта: тренажёр (app.js: isOutdated), задание дня, турниры, подбор и поиск
 # учителя, подборки курса. Менять — вместе с CFG.firstKegeYear и CFG.formatSince в app.js.
 FIRST_KEGE_YEAR = 2021                                  # первый компьютерный ЕГЭ — более ранние задания другого формата
-FORMAT_SINCE = {6: 2023, 22: 2023, 13: 2024, 27: 2025}  # с какого года номер на ЕГЭ в нынешнем виде
+FORMAT_SINCE = {6: 2023, 22: 2023, 23: 2024, 27: 2025}  # с какого года номер на ЕГЭ в нынешнем виде (нумерация КИМ-2027)
 
 
 def task_outdated(t):
@@ -1439,6 +1440,7 @@ class Bank:
             self.pubs = {}
             pub_tasks = []
             html_by_n = {}
+            kim.renumber(data.get("tasks", []))       # банк собран в нумерации 2026 → на сайте нумерация КИМ-2027
             for tid, was, now_n in clusters.fix_numbers(data.get("tasks", [])):
                 print(f"Банк: задание {tid} перенесено из №{was} в №{now_n}", flush=True)
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
@@ -1982,6 +1984,7 @@ class DB(Transactional):
                         trial_started=CASE WHEN self_signup=1 AND until IS NOT NULL THEN created ELSE NULL END
                         WHERE id=?""", (int(confirmed), t['id']))
                 c.execute("INSERT INTO settings(key,value) VALUES('teacher_gate_v1','1')")
+            kim.migrate_db(c)                     # один раз: номера в журнале и прогрессе — в нумерации КИМ-2027
             if not c.execute("SELECT 1 FROM settings WHERE key='solution_history_seeded'").fetchone():
                 c.execute("INSERT INTO solution_history(student_id,task_id,code,ts) SELECT student_id,task_id,code,ts FROM solutions WHERE ts IS NOT NULL")
                 c.execute("INSERT INTO settings(key,value) VALUES('solution_history_seeded','1')")
@@ -4285,7 +4288,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(403, "курс закрыт")
             n = to_int(qs.get("n"))
             f = HERE / "course" / f"{n}.json"
-            if not (n and 1 <= n <= 27 and f.is_file()):
+            if not (n in kim.ALL_NUMS and f.is_file()):
                 return self.send_json(course_guide(n))
             try:
                 return self.send_json(json.loads(f.read_text(encoding="utf-8")))
@@ -4311,7 +4314,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             n, sl, tot = to_int(data.get("n")), to_int(data.get("slide")), to_int(data.get("total"))
-            if not (n and 1 <= n <= 27 and sl and 0 < sl <= (tot or 0) <= 200):
+            if not (n in kim.ALL_NUMS and sl and 0 < sl <= (tot or 0) <= 200):
                 return self.err(400, "неверные данные")
             db.x("""INSERT INTO course_seen(student_id, n, slide, total, ts) VALUES(?,?,?,?,?)
                     ON CONFLICT(student_id, n) DO UPDATE SET slide=MAX(slide, excluded.slide), total=excluded.total, ts=excluded.ts""",
@@ -6298,7 +6301,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(503, "банк заданий не собран")
             sets = course_sets_all(True)
             lessons = []
-            for n in range(1, 28):
+            for n in kim.ALL_NUMS:
                 f = HERE / "course" / f"{n}.json"
                 if f.is_file():
                     try:
@@ -7738,7 +7741,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                                 for x in teacher_asg_archive(db, self.T["id"], q, None, 80)]})
             if q:
                 n = to_int(q)
-                if n and 1 <= n <= 27 and q.isdigit():
+                if n in kim.ALL_NUMS and q.isdigit():
                     pool = bank_pool({n}, authored_ok=bool(self.T["authored"]))
                     pick = secrets.SystemRandom().sample(pool, min(8, len(pool)))
                     return self.send_json({"tasks": [item(i, "случайное") for i in pick]})
@@ -7816,7 +7819,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     bad[key] = bad.get(key, 0) + 1
             solved = {r["t"] for r in db.q(f"SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts WHERE score > 0 AND student_id IN ({ph})", ids)}
             rnd = secrets.SystemRandom()
-            names = {n: dict(clusters.labels(n)) for n in range(1, 28)}
+            names = {n: dict(clusters.labels(n)) for n in kim.ALL_NUMS}
             out, why = [], []
             for (n, c), cnt in sorted(bad.items(), key=lambda x: -x[1]):
                 if len(out) >= k:
@@ -7901,7 +7904,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             else:
                 secrets.SystemRandom().shuffle(out)
             page, per = max(0, to_int(qs.get("page")) or 0), 40
-            names = {n: dict(v) for n, v in ((n, clusters.labels(n)) for n in range(1, 28))}
+            names = {n: dict(v) for n, v in ((n, clusters.labels(n)) for n in kim.ALL_NUMS)}
             row = lambda t, tries, share: {
                 "id": t["id"], "n": t.get("n"), "c": t.get("c"), "cname": names.get(t.get("n"), {}).get(t.get("c"), ""),
                 "r": t.get("r"), "bank": APP.bank.titles.get(t.get("bank"), t.get("bank")), "y": t.get("y"),
@@ -10312,13 +10315,14 @@ def _game_summary(db, sid, brief=False, windows=None):
         # уже решённое или с подсмотренным ответом — ни опыта, ни огонька, ни серий, ни достижений (см. reward_skips)
         if skip:
             if (r["score"] or 0) > 0 and not brief:
-                xplog.append((r["ts"], 0, f"№{r['n']} — уже решено или ответ был показан"))
+                xplog.append((r["ts"], 0, f"№{kim.label(r['n'])} — уже решено или ответ был показан"))
             continue
         fd = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
         fire_days[fd] = fire_days.get(fd, 0) + 1
         if r["exam"]:
             continue
         ts, tid = r["ts"], r["task_id"]
+        kn = kim.score_num(r["n"], ts)       # номер для опыта, ₿ и достижений: до перехода на КИМ-2027 — прежний
         lt = time.localtime(ts)
         day = time.strftime("%Y-%m-%d", lt)
         fun = ACH_CLOCK(ts)                    # час, день недели и дата — для «забавных» достижений
@@ -10328,7 +10332,7 @@ def _game_summary(db, sid, brief=False, windows=None):
         days.add(day)
         if r["gave_up"]:
             cnt["peek"] += 1
-        if r["n"] == 27 and not seen27:
+        if kn == 27 and not seen27:
             seen27 = True
             if r["score"] == 1:
                 cnt["lucky"] = 1
@@ -10345,13 +10349,13 @@ def _game_summary(db, sid, brief=False, windows=None):
                 cnt["dejavu"] = 1
             if 12 <= fun.tm_hour < 14:
                 lunch_of[day] = lunch_of.get(day, 0) + 1
-            nums_of.setdefault(day, set()).add(r["n"])
+            nums_of.setdefault(day, set()).add(kn)
             if r["spent_ms"] and r["spent_ms"] >= 30 * 60000:
                 cnt["snail"] = 1
-            cnt["binge"] = cnt["binge"] + 1 if r["n"] == binge_n else 1
-            binge_n = r["n"]
+            cnt["binge"] = cnt["binge"] + 1 if kn == binge_n else 1
+            binge_n = kn
             cnt["best_binge"] = max(cnt["best_binge"], cnt["binge"])
-            if r["n"] == 6:
+            if kn == 6:
                 cnt["turtle"] += 1
             if r["score"] == 1 and r["spent_ms"] is not None and 0 < r["spent_ms"] < 20000:
                 cnt["flash"] = 1
@@ -10368,11 +10372,11 @@ def _game_summary(db, sid, brief=False, windows=None):
                 cnt["newyear"] = 1
             # решено слишком быстро (быстрее минуты, №24–27 — быстрее HARD_MIN_MS) — похоже на подсмотренный ответ:
             # вместо опыта −1 XP, задание не считается решённым; быстрее 30 секунд, а у №24–27 — всегда, ещё и −1 ₿
-            lim = answer_min_ms(r["n"], ts)
+            lim = answer_min_ms(kn, ts)
             fast = r["spent_ms"] is not None and r["spent_ms"] < lim and ts >= fast_since
             first_time = tid not in solved and not fast
             if fast:
-                gain(FAST_XP_PENALTY, ts, f"№{r['n']} — решено быстрее {min_text(lim)}")
+                gain(FAST_XP_PENALTY, ts, f"№{kim.label(r['n'])} — решено быстрее {min_text(lim)}")
                 if (r["spent_ms"] < BTC_FAST_MS or lim > FAST_XP_MS) and ts >= btc_since:
                     cnt["btc_fast"] += 1           # быстрее 30 секунд — ещё и −1 ₿
                     if ts >= day_cut:
@@ -10382,11 +10386,11 @@ def _game_summary(db, sid, brief=False, windows=None):
                             rank_btc[k] -= BTC_FAST_FINE
             else:
                 if tid not in solved:              # опыт — только за первое решение задания, откуда бы ни пришёл ответ
-                    gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
-                         f"№{r['n']} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"), "task")
+                    gain(round(task_xp(kn, (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
+                         f"№{kim.label(r['n'])} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"), "task")
                     # и бонус ₿ по номеру; самостоятельная считается целиком, как вариант (ниже)
                     if ts >= task_since and r["reason"] != WORK_REASON and not (cheat and cheat[0] <= ts < cheat[1]):
-                        bonus = (TASK_BTC.get(r["n"] or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2)) * earn_at(db, ts)
+                        bonus = (TASK_BTC.get(kn or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2)) * earn_at(db, ts)
                                  * promo_mult(db, ts, "task") * Fraction(100 + fire_pct(ts), 100))
                         task_btc += bonus
                         earn(bonus, ts)
@@ -10395,10 +10399,10 @@ def _game_summary(db, sid, brief=False, windows=None):
                 solved.add(tid)
                 if tid in failed:
                     cnt["fix"] += 1
-                if (r["n"] or 0) >= 24:
+                if (kn or 0) >= 24:
                     cnt["hard"] += 1
-            if r["n"]:
-                nums.add(r["n"])
+            if kn:
+                nums.add(kn)
             per_day[day] = per_day.get(day, 0) + (0 if fast else 1)
             if per_day[day] == 5 and not fast:
                 gain(15, ts, "5 заданий за день", "task")  # бонус за день: 5 решённых
@@ -11584,7 +11588,7 @@ def course_sets_all(authored_ok):
         tasks = [t for t in APP.bank.tasks.values() if bank_ok(t, authored_ok=authored_ok)]
         for k in [k for k in _CSETS if k[0] != APP.bank.etag]:
             del _CSETS[k]                # банк пересобрали — старые подборки не нужны
-        _CSETS[key] = {n: clusters.course_sets(tasks, n) for n in range(1, 28) if n not in (20, 21)}
+        _CSETS[key] = {n: clusters.course_sets(tasks, n) for n in kim.ALL_NUMS if n not in (20, 21)}
     return _CSETS[key]
 
 
@@ -11743,14 +11747,14 @@ def asg_archive_html(db, teacher, asg_ids):
     kind = ASG_KINDS.get(asgs[0]["kind"] or "self", "Работа")
     label = lambda t: dict(clusters.labels(t.get("n"))).get(t.get("c"), "")
     # КИМ: задания всех подборок по порядку (у личных подборок — объединение), игры 19–21 — один раз
-    kim, seen = [], set()
+    order, seen = [], set()
     for a in asgs:
         for i in json.loads(a["tasks"] or "[]"):
             t = tasks.get(i)
             if t and i not in seen:
                 seen.add(i)
-                kim.append(t)
-    num_of = {t["id"]: k + 1 for k, t in enumerate(kim)}
+                order.append(t)
+    num_of = {t["id"]: k + 1 for k, t in enumerate(order)}
     people, rows_html = [], []
     for a in asgs:
         real = [i for i in json.loads(a["tasks"] or "[]") if i in tasks]
@@ -11827,7 +11831,7 @@ def asg_archive_html(db, teacher, asg_ids):
             rows_html.append("".join(out))
     # КИМ
     kim_html = []
-    for k, t in enumerate(kim, 1):
+    for k, t in enumerate(order, 1):
         pub = APP.bank.pubs.get(t["id"]) or {}
         ans = (" | ".join(f"{p.get('n')}: {p.get('ans', '')}" for p in t["parts"]) if t.get("parts") else t.get("ans", ""))
         att = "".join(f'<a href="{E(x["href"])}">{E(x["name"])}</a> ' for x in pub.get("att") or [])

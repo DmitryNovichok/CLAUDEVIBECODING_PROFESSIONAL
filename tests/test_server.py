@@ -446,7 +446,7 @@ class ServerTest(unittest.TestCase):
     def test_bank_hides_everything_that_leads_to_answer(self):
         tok = self.login("Скрытов Семён")
         body = self.public_bank(tok)
-        for leak in ("kompege.ru/task", "devinf.ru/task", '"video"', '"link"', "b:5", "b:g19", "7831"):
+        for leak in ("kompege.ru/task", "devinf.ru/task", '"video"', '"link"', "b:5", "b:g19", "_7831_"):   # номер задачи из имени файла (просто «7831» случайно бывает в hex-id)
             self.assertNotIn(leak, body, leak)
         self.assertIn("vk.com/a", body)                    # ссылки на авторов остаются
         self.assertIn("5.xlsx", body)                      # имя файла без номера задания
@@ -1963,8 +1963,9 @@ class ServerTest(unittest.TestCase):
         ok = lambda **t: server.bank_ok(dict({"n": 5, "ans": "1"}, **t))
         self.assertTrue(ok(y=2022))
         self.assertFalse(ok(y=2019))                         # до первого компьютерного ЕГЭ
-        self.assertFalse(ok(n=13, y=2023))                   # №13 в нынешнем виде — с 2024 года
-        self.assertTrue(ok(n=13, y=2023, fmt="cur"))         # помечено при сборке как актуальное
+        self.assertFalse(ok(n=23, y=2023))                   # №23 (исполнитель, КИМ-2027) в нынешнем виде — с 2024 года
+        self.assertTrue(ok(n=23, y=2023, fmt="cur"))         # помечено при сборке как актуальное
+        self.assertTrue(ok(n=13, y=2023))                    # №13 теперь IP-адреса: формат не менялся
         self.assertFalse(ok(fmt="old"))
         self.assertFalse(ok(ans=""))                         # без ответа — не в банке
         self.assertFalse(ok(group="g1"))                     # вопрос 19–21 — только всей игрой

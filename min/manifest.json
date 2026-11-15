@@ -9,12 +9,12 @@
       "source": "6336f161e591b56ed0771429e9bda159014be6c9d0c746c3971a13ce2cb99d69"
     },
     "admin.js": {
-      "min": "11ffae5a081e6c734e27ec9e7199524e0f06f77bf51c9bcf97facd47c4fcab23",
-      "source": "7501019f1169a73a07e7664cd3626d7e69fcac93974e47f9d777b2c5748bf9c5"
+      "min": "d6077cf8d0a5b7c9fc235f8fb14592153b68f54130def41d813ee929185cfb5d",
+      "source": "320788d9263402a7a8e65322a8a60345abdb85ca879e0296116eac9a8b473a10"
     },
     "app.js": {
-      "min": "f1de8098051621d408aa6fabd4acc9b330d82c38dc4a22bbd1cbe46bb9e2b6cc",
-      "source": "fed3f4dfe9afc932d011a95f3d2ac0426526a1287e300d6816ede62a44b3de50"
+      "min": "46e0f2c46b9166a679899d61b5183da691b69626927764bb8dc02af36b63f081",
+      "source": "9d3898d98262e61c14f91a6ddacf0fb18bf57bdecacf5fc1728eed83dbea3adf"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -29,8 +29,8 @@
       "source": "b36e1d9e82c8ec5a9287bba2472f6b15d1b6dcaafc231ae9dc141807a9b91b83"
     },
     "style.css": {
-      "min": "c49cb1ec0bbf25486fbba699aff5a28b2d1a3a77a5e9f2eecf8b67d24cd41b12",
-      "source": "f376dabd30564a2674ace6bf329028b93099b404c35841964c0ec7f192d8f8c3"
+      "min": "93bd8a76a7e7734e0d067852e07a1435eac1e028ff3a7164e6b9ac97eaba8a9f",
+      "source": "e7c3ad5d0fb2e1fe1c5b4c8ff3fdfa6b505d43137cd14850fa5dee8792326d45"
     },
     "teacher-gate.css": {
       "min": "c8f0179539d87566094032c3eb75c4527d16654942427b30a59390dcf6b2f24f",

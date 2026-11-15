@@ -1,4 +1,4 @@
-"""Уроки раздела «Курс» (№15, 23–27): собранные course/*.json согласованы с программами и файлами данных."""
+"""Уроки раздела «Курс» (№15, 24–27 и архивное 23_old — файл 28.json): собранные course/*.json согласованы с программами и файлами данных."""
 import contextlib
 import io
 import json
@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LESSONS = (15, 23, 24, 25, 26, 27)
+LESSONS = (15, 24, 25, 26, 27, 28)                # 28 — архивное 23_old (kim.py)
 
 
 def run(code, files):

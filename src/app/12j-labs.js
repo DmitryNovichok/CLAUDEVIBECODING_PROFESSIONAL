@@ -200,7 +200,7 @@
     window.scrollTo(0, 0);
   }
   function labTasksHtml() {
-    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['image', '№ 7 · Изображения'], ['net', '№ 10 · IP-сети'], ['logic', '№ 15 · Логика'], ['game', '№ 19–21 · Игры'], ['graph', '№ 23 · Графы']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по проекту ФИПИ ЕГЭ-2027. IP-сети в ЕГЭ-2026 — №13. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
+    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['image', '№ 7 · Изображения'], ['net', '№ 13 · IP-сети'], ['logic', '№ 15 · Логика'], ['game', '№ 19–21 · Игры'], ['graph', '23_old · Графы']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по КИМ ЕГЭ-2027 (демоверсия ФИПИ). Графы из файла (23_old) в КИМ-2027 нет — модель оставлена в архиве. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
   }
   function labPrediction(question) {
     return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
