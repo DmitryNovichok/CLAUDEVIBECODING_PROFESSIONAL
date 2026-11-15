@@ -446,7 +446,7 @@ class ServerTest(unittest.TestCase):
     def test_bank_hides_everything_that_leads_to_answer(self):
         tok = self.login("Скрытов Семён")
         body = self.public_bank(tok)
-        for leak in ("kompege.ru/task", "devinf.ru/task", '"video"', '"link"', "b:5", "b:g19", "7831"):
+        for leak in ("kompege.ru/task", "devinf.ru/task", '"video"', '"link"', "b:5", "b:g19", "_7831_"):   # номер задачи из имени файла (просто «7831» случайно бывает в hex-id)
             self.assertNotIn(leak, body, leak)
         self.assertIn("vk.com/a", body)                    # ссылки на авторов остаются
         self.assertIn("5.xlsx", body)                      # имя файла без номера задания
@@ -1963,8 +1963,9 @@ class ServerTest(unittest.TestCase):
         ok = lambda **t: server.bank_ok(dict({"n": 5, "ans": "1"}, **t))
         self.assertTrue(ok(y=2022))
         self.assertFalse(ok(y=2019))                         # до первого компьютерного ЕГЭ
-        self.assertFalse(ok(n=13, y=2023))                   # №13 в нынешнем виде — с 2024 года
-        self.assertTrue(ok(n=13, y=2023, fmt="cur"))         # помечено при сборке как актуальное
+        self.assertFalse(ok(n=23, y=2023))                   # №23 (исполнитель, КИМ-2027) в нынешнем виде — с 2024 года
+        self.assertTrue(ok(n=23, y=2023, fmt="cur"))         # помечено при сборке как актуальное
+        self.assertTrue(ok(n=13, y=2023))                    # №13 теперь IP-адреса: формат не менялся
         self.assertFalse(ok(fmt="old"))
         self.assertFalse(ok(ans=""))                         # без ответа — не в банке
         self.assertFalse(ok(group="g1"))                     # вопрос 19–21 — только всей игрой
@@ -5289,10 +5290,13 @@ class ServerTest(unittest.TestCase):
         (self.tmp / "min").mkdir(exist_ok=True)
         (self.tmp / "min" / "app.js").write_text("/* © Egeshka */(function(){})();", encoding="utf-8")
         shutil.copy(repo / "min" / "admin.js", self.tmp / "min" / "admin.js")
+        (self.tmp / "maps").mkdir(exist_ok=True)                 # таблицы мест для «Ошибок» — только на сервере
+        (self.tmp / "maps" / "app.js.json").write_text('{"version":1,"lines":[]}', encoding="utf-8")
         try:
             self._site_code_checks()
         finally:
             shutil.rmtree(self.tmp / "min")
+            shutil.rmtree(self.tmp / "maps")
             for name in ("admin.html", "admin.js", "admin-login.js", "app.js"):
                 (self.tmp / name).unlink()
 
@@ -5312,7 +5316,7 @@ class ServerTest(unittest.TestCase):
         st, body, _ = self.raw("/app.js")
         self.assertEqual(st, 200)
         self.assertTrue(body.startswith("/* © Egeshka"))
-        for path in ("/src/app/01-core.js", "/server.py", "/data/mcko_bank.json", "/tools/minify.py", "/min/app.js"):
+        for path in ("/src/app/01-core.js", "/server.py", "/data/mcko_bank.json", "/tools/minify.py", "/min/app.js", "/maps/app.js.json"):
             self.assertEqual(self.raw(path)[0], 404, path)
         page = self.raw("/admin")[1]
         self.assertRegex(page, r'admin\.js\?v=[0-9a-f]+')
@@ -5361,6 +5365,127 @@ class ServerTest(unittest.TestCase):
             self.admin("POST", "/api/admin/student/delete", {"id": sid})      # лишний ученик не должен менять рейтинги других тестов
             if not pw:
                 server.APP.db.x("DELETE FROM settings WHERE key='ard_pw'")
+
+
+    def test_teacher_logins_and_actions_are_logged_with_ip(self):
+        # учитель: неудачная попытка и вход с адреса, создание класса — всё в журнале у главного с IP и устройством
+        st, d = self.admin("POST", "/api/admin/teacher/save", {"name": "Журналова Жанна", "login": "zhanna",
+                                                                "password": "secret77", "invite": "ZHAN1"})
+        self.assertEqual(st, 200, d)
+        tid = d["id"]
+        self.approve_fixture_teacher(tid)
+        server.THROTTLE.fails.clear()
+        self.assertEqual(self.creq("POST", "/api/admin/login", {"login": "zhanna", "password": "Zq7-wrong-pass"}, ip="198.51.100.7")[0], 403)
+        self.assertEqual(self.creq("POST", "/api/admin/login", {"login": "nobody", "password": "Zq7-wrong-pass"}, ip="198.51.100.8")[0], 403)
+        server.THROTTLE.fails.clear()
+        st, _, ck = self.creq("POST", "/api/admin/login", {"login": "zhanna", "password": "secret77"}, ip="198.51.100.7")
+        self.assertEqual(st, 200)
+        st, d, _ = self.creq("POST", "/api/admin/class/save", {"name": "Чужой 11Б"}, cookie=ck, ip="198.51.100.9")
+        self.assertEqual(st, 200, d)
+        # обычный учитель журнал не видит
+        self.assertEqual(self.creq("GET", "/api/admin/security", cookie=ck, ip="198.51.100.9")[0], 403)
+        st, d = self.admin("GET", f"/api/admin/security?teacher_id={tid}")
+        self.assertEqual(st, 200, d)
+        log = d["log"]
+        ok_login = next(r for r in log if r["event"] == "login" and r["ok"])
+        self.assertEqual((ok_login["ip"], ok_login["teacher"], ok_login["new_ip"]), ("198.51.100.7", "Журналова Жанна", True))
+        self.assertTrue(any(r["event"] == "login" and not r["ok"] and r["ip"] == "198.51.100.7" for r in log))
+        act = next(r for r in log if r["event"] == "action")
+        self.assertEqual((act["what"], act["ip"], act["sess"]), ("создал или переименовал класс", "198.51.100.9", ok_login["sess"]))
+        self.assertIn("Чужой 11Б", act["detail"])
+        self.assertTrue(any(c["name"] == "Чужой 11Б" for c in d["classes"]))
+        sess = [r for r in d["sessions"] if r["sess"] == ok_login["sess"]]
+        self.assertEqual((len(sess), sess[0]["ip"], sess[0]["last_ip"]), (1, "198.51.100.7", "198.51.100.9"))
+        # пароли в журнал не попадают; попытка с несуществующим логином — в общей сводке
+        st, d = self.admin("GET", "/api/admin/security")
+        self.assertNotIn("secret77", json.dumps(d, ensure_ascii=False))
+        self.assertNotIn("Zq7-wrong-pass", json.dumps(d, ensure_ascii=False))
+        self.assertGreaterEqual(d["unknown_fails"], 1)
+        # главный завершает чужой вход — панель на том устройстве закрывается
+        st, r = self.admin("POST", "/api/admin/security/end", {"sess": sess[0]["sess"]})
+        self.assertEqual((st, r["ended"]), (200, 1))
+        self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[0], 401)
+        st, d = self.admin("GET", f"/api/admin/security?teacher_id={tid}")
+        self.assertFalse(any(r["sess"] == ok_login["sess"] for r in d["sessions"]))
+        self.assertEqual(d["log"][0]["event"], "end")
+
+
+    def test_main_teacher_logs_in_with_code_from_email(self):
+        db = server.APP.db
+        old = db.q("SELECT pw, email FROM teachers WHERE is_main=1", one=True)
+        db.x("UPDATE teachers SET pw=?, email=? WHERE is_main=1", (server.hash_pw("Main-Pass-91"), "owner@example.ru"))
+        db.x("DELETE FROM admin_codes")
+        sent = []
+        try:
+            with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+                 mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, subj, t)) or True):
+                server.THROTTLE.fails.clear()
+                # верный пароль — сессии нет, на почту ушёл код
+                st, d, ck = self.creq("POST", "/api/admin/login", {"login": "owner@example.ru", "password": "Main-Pass-91"}, ip="198.51.100.20")
+                self.assertEqual(st, 200, d)
+                self.assertEqual((d.get("need_code"), d["to"], ck), (True, "o•••@example.ru", ""))
+                for _ in range(30):
+                    if sent:
+                        break
+                    time.sleep(0.05)
+                to, subj, text = sent[0]
+                code = re.search(r"\b(\d{6})\b", subj).group(1)
+                self.assertEqual(to, "owner@example.ru")
+                self.assertIn("198.51.100.20", text)
+                self.assertNotIn(code, json.dumps(d))                        # код только в письме, не в ответе
+                # неверный код — нет входа; верный — вход; второй раз тот же код не работает
+                st, d2, ck = self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": "000000" if code != "000000" else "111111"})
+                self.assertEqual((st, ck), (403, ""))
+                self.assertIn("осталось попыток: 4", d2["error"])
+                server.THROTTLE.fails.clear()
+                st, _, ck = self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": code})
+                self.assertEqual(st, 200)
+                self.assertTrue(ck.startswith("egeadm="))
+                self.assertEqual(self.creq("GET", "/api/admin/me", cookie=ck)[1]["is_main"], 1)
+                self.assertEqual(self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": code})[0], 410)
+                # подобрать код нельзя: после 5 ошибок билет сгорает
+                st, d, _ = self.creq("POST", "/api/admin/login", {"login": "owner@example.ru", "password": "Main-Pass-91"})
+                for _ in range(5):
+                    self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": "12345x"})
+                    server.THROTTLE.fails.clear()
+                self.assertEqual(self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": "123456"})[0], 410)
+                # журнал: код отправлен, неудачный код, вход
+                st, sec = self.admin("GET", "/api/admin/security")
+                self.assertTrue(sec["code_login"]["on"])
+                events = [(r["event"], r["ok"], r["detail"]) for r in sec["log"]]
+                self.assertIn(("code", True, "пароль верный, код отправлен на почту"), events)
+                self.assertIn(("login", False, "неверный код из письма"), events)
+            # почта не настроена — главный входит по паролю (иначе остался бы без панели), в журнале пометка
+            with mock.patch.object(server, "smtp_conf", lambda: None):
+                st, d, ck = self.creq("POST", "/api/admin/login", {"login": "owner@example.ru", "password": "Main-Pass-91"})
+                self.assertEqual(st, 200)
+                self.assertTrue(ck.startswith("egeadm="))
+        finally:
+            db.x("UPDATE teachers SET pw=?, email=? WHERE is_main=1", (old["pw"], old["email"]))
+            server.THROTTLE.fails.clear()
+
+
+class MailHeadersTest(unittest.TestCase):
+    def test_mail_has_date_message_id_and_both_parts(self):
+        """Письма сайта: дата, Message-ID на домене отправителя, текст и HTML — без них почта чаще уходит в спам."""
+        sent = []
+
+        class FakeSMTP:
+            def __init__(self, *a, **kw): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def login(self, *a): pass
+            def send_message(self, msg): sent.append(msg)
+
+        conf = {"SMTP_HOST": "smtp.test", "SMTP_PORT": "465", "SMTP_USER": "", "SMTP_PASS": "",
+                "SMTP_FROM": "Egeshka <noreply@egeshka.online>"}
+        with mock.patch.object(server, "smtp_conf", return_value=conf), mock.patch("smtplib.SMTP_SSL", FakeSMTP):
+            self.assertTrue(server.send_mail("pupil@example.com", "Тема", "<p>Привет</p>", "Привет"))
+        msg = sent[0]
+        self.assertTrue(msg["Date"])
+        self.assertRegex(msg["Message-ID"], r"^<[^@>]+@egeshka\.online>$")
+        self.assertEqual(msg["Auto-Submitted"], "auto-generated")
+        self.assertEqual([p.get_content_type() for p in msg.iter_parts()], ["text/plain", "text/html"])
 
 
 class NumberFixTest(unittest.TestCase):

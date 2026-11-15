@@ -1,11 +1,11 @@
 {
- "n": 23,
- "title": "Задание 23. Пути в графе из файла",
+ "n": 28,
+ "title": "Архив 23_old. Пути в графе из файла",
  "slides": [
   {
    "t": "title",
-   "k": "ЕГЭ · Информатика · проект 2027",
-   "h": "Задание 23",
+   "k": "ЕГЭ · Информатика · архив",
+   "h": "Задание 23_old",
    "sub": "Граф из файла: сколько путей, кратчайший и самый длинный путь, обязательные и запрещённые участки, пути с условием",
    "aside": "<span class=\"mute\">310 → 151</span><span class=\"b\">151 → 816</span><span class=\"mute\">816 → 559</span><span><span class=\"o\">@lru_cache</span></span><span class=\"w\">ways · short · long</span>"
   },
@@ -13,7 +13,7 @@
    "t": "text",
    "k": "Введение",
    "h": "Что это за задание",
-   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>ответ — одно число</span></div><div><b>Файл</b><span>до 200 рёбер</span></div><div><b>Python</b><span>рекурсия с памятью</span></div><div><b>6–8 мин</b><span>ориентир по времени</span></div></div><div class=\"sl-cols\"><div><h4>Что изменилось</h4><p>В проекте ЕГЭ-2027 на месте №23 — граф, заданный списком рёбер в текстовом файле. Прежняя задача про количество программ исполнителя переехала в №13.</p></div><div><h4>Что нужно уметь</h4><p>Прочитать рёбра из файла, построить список соседей и написать одну рекурсивную функцию. Все варианты вопроса — это три-четыре изменения в этой функции.</p></div></div><p class=\"sl-note\">Формат и номер задания — по проекту демоверсии ЕГЭ-2027 (ФИПИ). В итоговой версии формулировки могут уточниться: читайте условие целиком.</p>"
+   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>ответ — одно число</span></div><div><b>Файл</b><span>до 200 рёбер</span></div><div><b>Python</b><span>рекурсия с памятью</span></div><div><b>6–8 мин</b><span>ориентир по времени</span></div></div><div class=\"sl-cols\"><div><h4>Что изменилось</h4><p>Граф, заданный списком рёбер в текстовом файле, был №23 в проекте ЕГЭ-2027. В демоверсии-2027 его убрали: №23 снова про количество программ исполнителя. Урок оставлен в архиве.</p></div><div><h4>Что нужно уметь</h4><p>Прочитать рёбра из файла, построить список соседей и написать одну рекурсивную функцию. Все варианты вопроса — это три-четыре изменения в этой функции.</p></div></div><p class=\"sl-note\">Архивное задание: в КИМ ЕГЭ-2027 его нет. Навык — пути в графе из файла — пригодится в №1 и в задачах на программирование.</p>"
   },
   {
    "t": "text",
@@ -73,7 +73,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -100,7 +100,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -119,7 +119,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -138,7 +138,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -165,7 +165,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -184,7 +184,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -203,7 +203,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -222,7 +222,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -249,7 +249,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -276,7 +276,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -295,7 +295,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -315,7 +315,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -335,7 +335,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -355,7 +355,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -374,7 +374,7 @@
    "files": [
     {
      "name": "23.txt",
-     "url": "course-data/23/23.txt?v=9b1389e7"
+     "url": "course-data/28/23.txt?v=9b1389e7"
     }
    ]
   },
@@ -387,7 +387,7 @@
   {
    "t": "text",
    "k": "Шпаргалка",
-   "h": "Весь №23 на одном слайде",
+   "h": "Весь 23_old на одном слайде",
    "html": "<div class=\"sl-cheat\"><div><b>Чтение</b><code>a, b, w = line.split()<br>g.setdefault(int(a), []).append((int(b), float(w)))</code></div><div><b>Количество путей</b><code>if v == end: return 1<br>return sum(ways(u, end) for u, w in g.get(v, []))</code></div><div><b>Кратчайший</b><code>if v == end: return 0<br>return min([w + f(u, end) ...], default=float('inf'))</code></div><div><b>Самый длинный</b><code>return max([w + f(u, end) ...], default=float('-inf'))</code></div><div><b>Через вершину C</b><code>f(A, C) * f(C, B)</code> — для количества<br><code>f(A, C) + f(C, B)</code> — для длины</div><div><b>Запрет вершины X</b><code>if v == X: return 0</code> — количество<br><code>if v == X: return float('inf')</code> — кратчайший</div><div><b>Предел веса ребра</b><code>... for u, w in g.get(v, []) if w &lt;= K</code></div><div><b>Чётное число рёбер</b><code>def f(v, end, odd):<br>if v == end: return inf if odd else 0</code></div><div><b>Рёбра кратчайшего пути</b><code>best = min(best, (w + d, k + 1))</code> — пара (длина, рёбра)</div><div><b>Ребро a→b на пути</b><code>ways(A, a) &gt; 0 and ways(b, B) &gt; 0</code></div></div>"
   },
   {
@@ -415,7 +415,7 @@
      "files": [
       {
        "name": "23.txt",
-       "url": "course-data/23/23.txt?v=9b1389e7"
+       "url": "course-data/28/23.txt?v=9b1389e7"
       }
      ]
     },
@@ -426,7 +426,7 @@
      "files": [
       {
        "name": "23.txt",
-       "url": "course-data/23/23.txt?v=9b1389e7"
+       "url": "course-data/28/23.txt?v=9b1389e7"
       }
      ]
     },
@@ -437,7 +437,7 @@
      "files": [
       {
        "name": "23.txt",
-       "url": "course-data/23/23.txt?v=9b1389e7"
+       "url": "course-data/28/23.txt?v=9b1389e7"
       }
      ]
     }
@@ -455,7 +455,7 @@
      "files": [
       {
        "name": "23.txt",
-       "url": "course-data/23/23.txt?v=9b1389e7"
+       "url": "course-data/28/23.txt?v=9b1389e7"
       }
      ]
     },
@@ -466,7 +466,7 @@
      "files": [
       {
        "name": "23.txt",
-       "url": "course-data/23/23.txt?v=9b1389e7"
+       "url": "course-data/28/23.txt?v=9b1389e7"
       }
      ]
     }

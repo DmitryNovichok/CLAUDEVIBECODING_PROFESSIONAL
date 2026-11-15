@@ -5,16 +5,16 @@
       "source": "49b30276270fd193c3f6663cb252654254966bef1966b347c93bb627d2090b10"
     },
     "admin.css": {
-      "min": "a6c18bf632ba177a4be41eec4a581468367cec4ff5a84ea86b556a44ea98dbd6",
-      "source": "6336f161e591b56ed0771429e9bda159014be6c9d0c746c3971a13ce2cb99d69"
+      "min": "db15b8623fdd2785d9251094bec73899ccc9f6183cc61f93c91ee51c41eecdd1",
+      "source": "1558ded0f53e71a1178fde5b37528926a88347d69fe269dfe35a690b4653a6cf"
     },
     "admin.js": {
-      "min": "2bac9db15f17befbd9e96717e641df4c0d9593d40c2c264a5be158c139aeeb4d",
-      "source": "7501019f1169a73a07e7664cd3626d7e69fcac93974e47f9d777b2c5748bf9c5"
+      "min": "0cce5121d7c4af2926823ce2e2b50326afe18e601f990d8d1908cc97a88e3423",
+      "source": "38255d4e4282a2358b4b640d21544a8f32ba6deed8f54384cb9afab18803e2c6"
     },
     "app.js": {
-      "min": "bd02ee48bd867c785a5eb3d9a54bdf56d609db3a24a9862b1f1711495740feb2",
-      "source": "06963bf701920f2a37963e90223412dfb313d1a8a12eb8ade95d0511ebe61fca"
+      "min": "46e0f2c46b9166a679899d61b5183da691b69626927764bb8dc02af36b63f081",
+      "source": "9d3898d98262e61c14f91a6ddacf0fb18bf57bdecacf5fc1728eed83dbea3adf"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -25,27 +25,27 @@
       "source": "a5e1cc143a5f5477cfa84a75197d29e420687ef6ecdf15f5e25e5e8a609d537f"
     },
     "onboard.js": {
-      "min": "874403a55aff97046869fabb487d046ca9985bf07daa8893b6fd28455525c259",
+      "min": "bad81f5245c5976d2f9806a06ff43ca52d150e5f7fb060594a6198acf852f01c",
       "source": "b36e1d9e82c8ec5a9287bba2472f6b15d1b6dcaafc231ae9dc141807a9b91b83"
     },
     "style.css": {
-      "min": "c49cb1ec0bbf25486fbba699aff5a28b2d1a3a77a5e9f2eecf8b67d24cd41b12",
-      "source": "f376dabd30564a2674ace6bf329028b93099b404c35841964c0ec7f192d8f8c3"
+      "min": "93bd8a76a7e7734e0d067852e07a1435eac1e028ff3a7164e6b9ac97eaba8a9f",
+      "source": "e7c3ad5d0fb2e1fe1c5b4c8ff3fdfa6b505d43137cd14850fa5dee8792326d45"
     },
     "teacher-gate.css": {
       "min": "c8f0179539d87566094032c3eb75c4527d16654942427b30a59390dcf6b2f24f",
       "source": "70be115a66ed94b5dc9ec36ce3ee70a04b6c15faec4c9ca80ae995d1730683c0"
     },
     "teacher-gate.js": {
-      "min": "8b8c91bed9bdd71dfef677a47b9b8845a579a9e688dfde057787e593c29b8ae1",
+      "min": "f1e450f28b2397fc7045565ca60532fb47bc54279bbf06b484ee2dcc343ea3c7",
       "source": "99563a8c25bd3457cafc24add900ea7f2526cbd19a22eb5d447685beaecd55aa"
     },
     "together.js": {
-      "min": "7a9a7fb2c600340c16247d0d85b8618bac3956784cf6924dd039d88e586f2fa8",
+      "min": "66d80f8c5c723f229282e3f61c0eb4e5cadacc90dd99b28cb423f87909fa4fda",
       "source": "0f5fca407b84a2239c49ab3e01b537e47e4e7b4960e8c69ef42527422bcebc63"
     },
     "visit.js": {
-      "min": "68866dd9d984e9fdef9715ff70f5fe86fbd85c69583a471db13530cc62bba9f8",
+      "min": "9d99466daf57071370063347cae758df3d8aea5ec418751fd69298a3e8952ae9",
       "source": "c15a80b2e7894c2f63ef12eab080746b313be3c6aef8f2af2ee91cb062cfdaa9"
     },
     "welcome.css": {
@@ -53,7 +53,7 @@
       "source": "2c6f82d8d08cd4d45f7384aacab6be477dc188622caa04c7110d70145c9aa248"
     },
     "welcome.js": {
-      "min": "10d4a8ca1136ce366911e6dd0a19105da930a83b908060e930dbd2c51fa8a01e",
+      "min": "bc523bf916e7771e838c5f3bc4f684c14a93e54336eec2157b254822f4a46a9b",
       "source": "f8d0531950ad5e7a4d594ba0e81bb9a9fdc408d1fe90efccae608ea307b7ba51"
     }
   },

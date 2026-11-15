@@ -20,7 +20,7 @@
     recentWindow: 6,            // не показывать последние N заданий снова
     // актуальность: с какого года действует нынешний тип задания (документы ФИПИ об изменениях КИМ)
     firstKegeYear: 2021,        // первый компьютерный ЕГЭ — более ранние задания другого формата
-    formatSince: { 6: 2023, 22: 2023, 13: 2024, 27: 2025 },
+    formatSince: { 6: 2023, 22: 2023, 23: 2024, 27: 2025 },   // нумерация КИМ-2027
     outdatedWeight: 0.3,        // вес ответов на устаревшие задания в прогнозе
     forecast: {                 // прогноз балла ЕГЭ
       lastN: 20,                // сколько последних ответов по номеру учитывать
@@ -671,7 +671,10 @@
   const partToGroup = new Map();
   TASKS.forEach(t => (t.parts || []).forEach(p => partToGroup.set(p.id, t.id)));
   const scopeOf = n => (HAS_GROUPS && (n === 20 || n === 21) ? 19 : n);
-  const numLabel = n => (HAS_GROUPS && n === 19 ? '19–21' : String(n));
+  // КИМ-2027: №23 «пути в графе из файла» убрали — на сайте это архивное задание 23_old (внутренний номер 28, как в kim.py)
+  const ARCHIVE = { 28: '23_old' };
+  const numLabel = n => (HAS_GROUPS && n === 19 ? '19–21' : ARCHIVE[n] || String(n));
+  const badgeCls = n => (ARCHIVE[n] ? ' long' : '');      // «23_old» не влезает в круглый значок
   /** Статистика номера; для 19–21 — средняя по трём номерам. */
   function statsFor(n) {
     if (!(HAS_GROUPS && n === 19)) return P.nums[n];
@@ -706,7 +709,7 @@
   const ui = Object.assign({ scope: 'all', bank: 'all', period: 'actual', currentId: null }, readJSON(UI_STORE) || {});
   if (ui.bank !== 'all' && !BANKS.some(b => b.id === ui.bank)) ui.bank = 'all';
   const SPECIAL = ['all', 'fav', 'asg'];
-  if (!SPECIAL.includes(ui.scope) && !(ui.scope >= 1 && ui.scope <= 27)) ui.scope = 'all';
+  if (!SPECIAL.includes(ui.scope) && !(ui.scope >= 1 && ui.scope <= 27) && !ARCHIVE[ui.scope]) ui.scope = 'all';
   if (!SPECIAL.includes(ui.scope)) ui.scope = scopeOf(ui.scope);
   const save = () => { writeJSON(storeKey(), P); writeJSON(UI_STORE, ui); scheduleSync(); };
 
@@ -727,11 +730,11 @@
   function pool() {
     if (ui.scope === 'fav') { const f = favSet(); return TASKS.filter(t => f.has(t.id)); }
     if (ui.scope === 'asg') { const a = asgOf(ui.asg); return a ? a.tasks.map(id => byId.get(id)).filter(Boolean) : []; }
-    return TASKS.filter(t => visible(t) && (ui.scope === 'all' || t.n === ui.scope));
+    return TASKS.filter(t => visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope));
   }
   const inScope = t => (ui.scope === 'fav' ? favSet().has(t.id)
     : ui.scope === 'asg' ? !!asgOf(ui.asg) && asgOf(ui.asg).tasks.includes(t.id)
-    : visible(t) && (ui.scope === 'all' || t.n === ui.scope));
+    : visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope));
   // «Тема» для подбора и повторения — тип задания внутри номера (кластер c считает сервер по тексту условия),
   // у банков без кластеров — тема из банка
   const topicKey = t => t.n + '|' + (t.c || t.topic || '');
@@ -750,11 +753,13 @@
   function countByNum() {
     const key = `${ui.bank}|${ui.period}|${RULES.authored !== false}`;
     if (countMemo && countMemo[0] === key) return countMemo[1].slice();
-    const c = new Array(28).fill(0);
+    const c = new Array(29).fill(0);              // 1–27 и архив 28 (23_old)
     for (const t of TASKS) if (visible(t)) c[t.n]++;
     countMemo = [key, c];
     return c.slice();
   }
+  /** Сколько заданий в номерах КИМ (1–27, без архива). */
+  const kimTotal = counts => counts.reduce((a, b, n) => a + (ARCHIVE[n] ? 0 : b), 0);
   function level(s) {
     if (!s || !s.a) return 'none';
     if (s.m >= CFG.mastered && s.a >= CFG.minAttemptsMastered) return 'good';
@@ -1181,7 +1186,8 @@
   }
 
   /** Опыт за первое верное решение — как считает сервер: №1–10 по 10, №11–27 по номеру, +5 за ступень сложности. */
-  const xpFor = t => (t.n <= 10 ? 10 : t.n) + 5 * (Math.max(1, Math.min(5, t.r || 1)) - 1);
+  const xpNum = n => (ARCHIVE[n] ? 23 : n);                 // архив 23_old — как №23
+  const xpFor = t => (t.n <= 10 ? 10 : xpNum(t.n)) + 5 * (Math.max(1, Math.min(5, t.r || 1)) - 1);
   function renderTask() {
     const t = cur.task;
     const meta = [];
@@ -1192,7 +1198,7 @@
     if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
     else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
     const fb = (GAME && GAME.fire_bonus) || 0;      // огонёк: +1 % за день к опыту (сервер считает так же)
-    if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${t.n} XP за №${t.n}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}${fb ? ` и +${fb}% за огонёк` : ''}">+${fb ? Math.floor(xpFor(t) * (100 + fb) / 100 + 0.5) : xpFor(t)} XP${fb ? ' 🔥' : ''}</span>`);
+    if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${xpNum(t.n)} XP за №${numLabel(t.n)}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}${fb ? ` и +${fb}% за огонёк` : ''}">+${fb ? Math.floor(xpFor(t) * (100 + fb) / 100 + 0.5) : xpFor(t)} XP${fb ? ' 🔥' : ''}</span>`);
     if (t.y && !(t.src || '').includes(String(t.y))) {
       meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
     }
@@ -1201,7 +1207,7 @@
       const since = formatSince(t.n);
       chip = '<span class="chip weak">Старый формат</span>' + chip;
       const why = t.fmt === 'old' ? 'Это задание старого типа' : `Задание рассчитано на экзамен ${t.y} года`;
-      line = `${why}: с ${since} года задание №${t.n} на ЕГЭ ${since === CFG.firstKegeYear ? 'выглядит иначе' : 'другого типа'}. В прогноз балла оно идёт с малым весом.` + (line ? '<br>' + line : '');
+      line = `${why}: с ${since} года задание №${numLabel(t.n)} на ЕГЭ ${since === CFG.firstKegeYear ? 'выглядит иначе' : 'другого типа'}. В прогноз балла оно идёт с малым весом.` + (line ? '<br>' + line : '');
     }
     const files = filesHtml(t);
     const fav = favSet().has(t.id);
@@ -1211,7 +1217,7 @@
       <div class="task-head">
         ${inCourseSet() ? '<button type="button" class="btn ghost crs-up" id="crsUpBtn" title="Вернуться к списку заданий подборки">← К подборке</button>' : ''}
         ${backStack.length && !wkLive() ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
-        <span class="num-badge">${numLabel(t.n)}</span>
+        <span class="num-badge${badgeCls(t.n)}">${numLabel(t.n)}</span>
         <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
         <span class="head-chips">${chip}</span>
         <span class="task-tools">
@@ -2008,7 +2014,7 @@
     const streak = currentStreak();
     const noCount = res.nocount ? '<div class="fb-note fb-fast">Это задание уже решено или его ответ тебе уже показывали — решение засчитано для тренировки, но <b>без опыта, огонька, серии и достижений</b>.</div>' : '';
     const fastNote = noCount || !res.fast ? noCount : res.fast_min > 1
-      ? `<div class="fb-note fb-fast">⏱ Задание №${t.n} засчитывается, только если над ним работать не меньше <b>${res.fast_min} минут</b> — так быстро его не решают.
+      ? `<div class="fb-note fb-fast">⏱ Задание №${numLabel(t.n)} засчитывается, только если над ним работать не меньше <b>${res.fast_min} минут</b> — так быстро его не решают.
           Поэтому <b>−1 XP и −1 ₿</b> вместо награды. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>`
       : '<div class="fb-note fb-fast">⏱ Решено быстрее чем за минуту — это похоже на подсмотренный ответ, поэтому <b>−1 XP</b> вместо опыта. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>';
     if (score === 1) {
@@ -2396,13 +2402,14 @@
   // ------------------------------------------------------------ курс по плану (пока структура, наполнение — по ходу)
   // Порядок не 1→27, а по темам: сначала без программирования, потом логика, системы счисления, программирование, сложные.
   const COURSE = [
-    { title: 'Старт без программирования', icon: '🧭', sub: 'Графы, кодирование, объёмы, базы данных, таблицы, IP-адреса',
-      lessons: [1, 4, 7, 11, 3, 9, 10] },
+    { title: 'Старт без программирования', icon: '🧭', sub: 'Графы, кодирование, объёмы, базы данных, таблицы, поиск в тексте, IP-адреса',
+      lessons: [1, 4, 7, 11, 3, 9, 10, 13] },
     { title: 'Логика', icon: '🧩', sub: 'Таблицы истинности и логические выражения', lessons: [2, 15] },
     { title: 'Системы счисления и исполнители', icon: '🔢', sub: 'Анализ алгоритмов, Черепаха, машина Тьюринга, траектории, комбинаторика',
-      lessons: [5, 14, 6, 12, 13, 8] },
+      lessons: [5, 14, 6, 12, 23, 8] },
     { title: 'Программирование', icon: '🐍', sub: 'Рекурсия, последовательности, строки, делители и маски', lessons: [16, 17, 24, 25] },
-    { title: 'Финишная прямая', icon: '🏁', sub: 'Теория игр, процессы, динамика, графы, задачи 26–27', lessons: [19, 22, 18, 23, 26, 27] },
+    { title: 'Финишная прямая', icon: '🏁', sub: 'Теория игр, процессы, динамика, задачи 26–27', lessons: [19, 22, 18, 26, 27] },
+    { title: 'Архив', icon: '🗄️', sub: 'Задания, которых нет в КИМ ЕГЭ-2027: 23_old — пути в графе из файла', lessons: [28], archive: true },
   ];
   // подборки урока: одинаковые для всех номеров; d — сложность в банке (1 — простая, 2 — средняя, 3 — сложная)
   // описания подборок №5 — по системам счисления
@@ -2602,9 +2609,9 @@
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
-    const all = COURSE.flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
+    const all = COURSE.filter(m => !m.archive).flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
     const savedN = learningMemory().course;
-    const nextN = all.includes(savedN) ? savedN : all.find(n => lessonState(n) !== 'done');
+    const nextN = all.includes(savedN) || ARCHIVE[savedN] ? savedN : all.find(n => lessonState(n) !== 'done');
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">Все задания ЕГЭ</span>';
     trainerEl.innerHTML = `<div class="course">
       <div class="crs-hero">
@@ -2615,7 +2622,7 @@
       ${learningFormat}
       ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
-        <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>Модуль ${i + 1}. ${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
+        <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>${m.archive ? '' : `Модуль ${i + 1}. `}${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
           <span class="crs-mod-n">${m.lessons.filter(n => lessonState(n) === 'done').length}/${m.lessons.length}</span></div>
         <div class="crs-path">${m.lessons.map(n => {
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
@@ -2779,7 +2786,7 @@
       </div>` : '<p class="fm-note">Не удалось загрузить теорию. Открой тему ещё раз; практика ниже доступна.</p>';
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
-      <div class="crs-l-head"><span class="num-badge">${numLabel(n)}</span><div><div class="crs-kicker">Модуль ${mod + 1} · ${esc(COURSE[mod].title)}</div>
+      <div class="crs-l-head"><span class="num-badge${badgeCls(n)}">${numLabel(n)}</span><div><div class="crs-kicker">${COURSE[mod].archive ? 'Архив · нет в КИМ ЕГЭ-2027' : `Модуль ${mod + 1} · ${esc(COURSE[mod].title)}`}</div>
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
       ${learningFormat}
       ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
@@ -2903,10 +2910,11 @@
   });
 
   const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',
-    'Черепаха', 'Изображения и звук', 'Комбинаторика', 'Электронные таблицы', 'IP-адреса и маски', 'Объём информации',
-    'Машина Тьюринга', 'Исполнитель: траектории программ', 'Системы счисления', 'Логические выражения', 'Рекурсия',
+    'Черепаха', 'Изображения и звук', 'Комбинаторика', 'Электронные таблицы', 'Поиск слова в тексте', 'Объём информации',
+    'Машина Тьюринга', 'IP-адреса и маски', 'Системы счисления', 'Логические выражения', 'Рекурсия',
     'Обработка последовательностей', 'Динамика: Робот', 'Теория игр', 'Теория игр', 'Теория игр', 'Параллельные процессы',
-    'Граф: поиск пути', 'Обработка строк', 'Делители и маски', 'Сортировка, жадные алгоритмы', 'Анализ данных'];
+    'Исполнитель: траектории программ', 'Обработка строк', 'Делители и маски', 'Сортировка, жадные алгоритмы', 'Анализ данных',
+    'Архив: пути в графе из файла'];   // [28] — архивное 23_old
 
   /** «Что потренировать»: номера, которые дадут больше всего тестовых баллов, если довести их до 85%. */
   function trainPlan(f) {
@@ -3099,7 +3107,7 @@
     if (examShown && EX) {
       h = examBarHtml();
     } else if (ui.scope === 'all') {
-      const total = counts.reduce((a, b) => a + b, 0);
+      const total = kimTotal(counts);
       let solved = 0, a = 0, ok = 0, mastered = 0, present = 0;
       for (const id in P.tasks) { const t = byId.get(id); if (t && visible(t) && P.tasks[id].c > 0) solved++; }
       for (let n = 1; n <= 27; n++) {
@@ -3130,7 +3138,7 @@
       const n = ui.scope;
       const st = numStats(n);
       const rv = reviewsOf(n).length;
-      h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + n}</span>
+      h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + numLabel(n)}</span>${ARCHIVE[n] ? '<span class="scope-stats">архив · нет в КИМ ЕГЭ-2027</span>' : ''}
         <span class="scope-stats">${counts[n]} в банке · решено ${st.solved}${st.acc != null ? ` · точность ${pct(st.acc)}%` : ''}</span>
         <span class="chip ${st.lvl === 'none' ? '' : st.lvl}">${LEVEL_TEXT[st.lvl]}${st.s && st.s.a ? ` · ${pct(st.s.m)}%` : ''}</span>
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
@@ -3164,7 +3172,7 @@
   function renderSidebar() {
     renderMobileNav();
     const counts = countByNum();
-    const total = counts.reduce((a, b) => a + b, 0);
+    const total = kimTotal(counts);
     $('#allCount').textContent = total;
 
     // средний уровень по всем номерам
@@ -3181,7 +3189,7 @@
     all.className = 'rail-btn' + (inTrainer && ui.scope !== 'fav' && ui.scope !== 'asg' ? ' on' : '');
     if ($('#allNums')) {                       // index.html прошлой версии мог остаться в кэше — тогда кнопки нет
       $('#allNums').classList.toggle('on', ui.scope === 'all');
-      $('#allNumsCount').textContent = countByNum().reduce((x, y) => x + y, 0);
+      $('#allNumsCount').textContent = kimTotal(countByNum());
     }
     $('#allBar').style.width = tried ? pct(avg) + '%' : '0';
     $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
@@ -3192,10 +3200,11 @@
     $('#examSub').textContent = EX ? `идёт · ${fmtClock((EX.deadline - Date.now()) / 1000)}` : '3 ч 55 мин';
 
     const now = Date.now();
-    $('#grid').innerHTML = Array.from({ length: 27 }, (_, i) => {
-      const n = i + 1;
+    // 1–27 — номера КИМ-2027, ниже — «Архив» (задания, которых в КИМ больше нет: 23_old)
+    const arch = Object.keys(ARCHIVE).map(Number).filter(n => counts[n]);
+    $('#grid').innerHTML = [...Array.from({ length: 27 }, (_, i) => i + 1), ...arch].map(n => {
       if (HAS_GROUPS && (n === 20 || n === 21)) return '';
-      const wide = HAS_GROUPS && n === 19;
+      const wide = (HAS_GROUPS && n === 19) || !!ARCHIVE[n];     // 19–21 и архивное 23_old — подпись не влезает в кольцо
       const st = numStats(n);
       const rv = reviewsOf(n);
       const dueNow = rv.some(r => isDue(r, now));
@@ -3213,7 +3222,8 @@
       // кольцо освоения вокруг номера; у широкой плитки 19–21 — полоска
       const body = wide ? `<span class="n">${numLabel(n)}</span><span class="c">${counts[n]}</span><i class="bar"><b style="width:${p}%"></b></i>`
         : `<span class="ring" style="--p:${p}"><span class="n">${numLabel(n)}</span></span><span class="c">${counts[n]}</span>`;
-      return `<button class="${cls.join(' ')}" data-n="${n}" type="button" title="${esc(tip)}" ${counts[n] ? '' : 'disabled'}>
+      if (ARCHIVE[n]) cls.push('arch');
+      return `${ARCHIVE[n] && n === arch[0] ? '<div class="grid-arch" title="Этих заданий нет в КИМ ЕГЭ-2027 — остались для тренировки">Архив</div>' : ''}<button class="${cls.join(' ')}" data-n="${n}" type="button" title="${esc(tip)}" ${counts[n] ? '' : 'disabled'}>
         ${body}<i class="dot"></i></button>`;
     }).join('');
 
@@ -3421,7 +3431,7 @@
     }
     const mark = c => (c === 1 ? '<span class="chip good">верно</span>' : c === 0.5 ? '<span class="chip">половина</span>' : c === 0 ? '<span class="chip weak">неверно</span>' : '<span class="chip">нет ответа</span>');
     const rows = d.items.map((x, i) => `<div class="rv-item">
-      <div class="rv-head"><span class="num-badge sm">${numLabel(x.n)}</span><b>Задание ${i + 1}</b> ${mark(x.credit)}
+      <div class="rv-head"><span class="num-badge sm${badgeCls(x.n)}">${numLabel(x.n)}</span><b>Задание ${i + 1}</b> ${mark(x.credit)}
         ${byId.get(x.top) ? `<button type="button" class="link-btn" data-open="${esc(x.top)}">открыть задание</button>` : ''}</div>
       <div class="rv-ans"><span>Твой ответ: <b>${x.mine ? esc(x.mine) : '—'}</b></span><span>Правильный: ${answerView(x.answer)}</span></div>
       ${x.sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(x.sol)}</div></details>` : ''}
@@ -3480,7 +3490,7 @@
       lastDay = dn;
       return `${head}<div class="hist-row">
         <span class="hist-when">${hm(e.t)}</span>
-        <span class="num-badge sm">${e.n}</span>
+        <span class="num-badge sm${badgeCls(e.n)}">${numLabel(e.n)}</span>
         <span class="hist-snip">${t ? esc(plainText(t)) : '<span class="fm-muted">задание удалено из банка</span>'}</span>
         <span class="chip ${cls}">${txt}</span>
         ${t ? `<button type="button" class="btn hist-open" data-open="${esc(e.id)}">Открыть</button>` : '<span></span>'}
@@ -3814,7 +3824,7 @@
       ${SERVER ? strictHtml() : ''}
       <nav class="ex-nav" aria-label="Задания варианта">${nav}</nav>
       <div class="task-head">
-        <span class="num-badge">${numLabel(t.n)}</span>
+        <span class="num-badge${badgeCls(t.n)}">${numLabel(t.n)}</span>
         <div class="task-meta">Вариант ЕГЭ · ${EX.cur + 1} из ${EX.items.length}</div>
         <span class="task-tools">${PY_BTN}${BD_BTN}${CALC_BTN}${MARK_BTN}</span>
       </div>
@@ -9112,9 +9122,9 @@
           <div class="db-row cur"><u>➜</u><code>&nbsp;&nbsp;s += i * i</code><em>s: 5</em></div>
           <div class="db-row"><u>4</u><code>print(s)</code></div>
           <div class="db-keys"><kbd>F7</kbd><kbd>F8</kbd><kbd>F9</kbd></div></div>` },
-      { cls: 'n3', ico: '🎓', head: 'Курс ЕГЭ', title: 'Полные уроки: №15 и 23–27',
-        text: 'Вместо кратких разборов — уроки по 18–25 слайдов: типы заданий, программы, ловушки, шпаргалка и задачи с ответами. №23 и №27 — в формате ЕГЭ-2027. Файлы к задачам сразу открываются в Python.',
-        art: `<div class="sto-les"><div class="ls-nums">${[15, 23, 24, 25, 26, 27].map((n, i) => `<b style="--i:${i}">№${n}</b>`).join('')}</div>
+      { cls: 'n3', ico: '🎓', head: 'Курс ЕГЭ', title: 'Полные уроки: №15 и 24–27',
+        text: 'Вместо кратких разборов — уроки по 18–25 слайдов: типы заданий, программы, ловушки, шпаргалка и задачи с ответами. №27 — в формате ЕГЭ-2027, урок про графы из файла — в архиве (23_old). Файлы к задачам сразу открываются в Python.',
+        art: `<div class="sto-les"><div class="ls-nums">${[15, 24, 25, 26, 27].map((n, i) => `<b style="--i:${i}">№${n}</b>`).join('')}</div>
           <div class="ls-tag">18–25 слайдов в каждом уроке</div></div>` },
       { cls: 's3', ico: '🧭', head: 'Помощь', title: 'Инструкция и подсказки',
         text: 'Внизу главной — «Инструкция»: как устроен сайт, по шагам. А «Как работает Egeshka» подсветит разделы прямо на странице и объяснит каждый.',
@@ -10179,7 +10189,7 @@
     window.scrollTo(0, 0);
   }
   function labTasksHtml() {
-    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['image', '№ 7 · Изображения'], ['net', '№ 10 · IP-сети'], ['logic', '№ 15 · Логика'], ['game', '№ 19–21 · Игры'], ['graph', '№ 23 · Графы']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по проекту ФИПИ ЕГЭ-2027. IP-сети в ЕГЭ-2026 — №13. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
+    return `<nav class="lab-tabs" aria-label="Эксперименты">${[['image', '№ 7 · Изображения'], ['net', '№ 13 · IP-сети'], ['logic', '№ 15 · Логика'], ['game', '№ 19–21 · Игры'], ['graph', '23_old · Графы']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по КИМ ЕГЭ-2027 (демоверсия ФИПИ). Графы из файла (23_old) в КИМ-2027 нет — модель оставлена в архиве. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
   }
   function labPrediction(question) {
     return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
@@ -12132,11 +12142,11 @@
       }
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); abandonCurrent(true); flushSync(true); });
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSync(true); });
-      $('#logoutBtn').addEventListener('click', () => {
+      $('#logoutBtn')?.addEventListener('click', () => {
         if (confirm('Выйти? Прогресс сохранён на сервере, войти можно снова по ФИО и паролю.')) logout();
       });
-      $('#pwBtn').addEventListener('click', () => openPasswordDialog(false));
-      $('#acctBtn').addEventListener('click', openAccount);
+      $('#pwBtn')?.addEventListener('click', () => openPasswordDialog(false));
+      $('#acctBtn')?.addEventListener('click', openAccount);
       if (mustSetPw) setTimeout(() => openPasswordDialog(true), 400);
     } else {
       window.addEventListener('pagehide', () => { if (examShown) saveExamInputs(); });

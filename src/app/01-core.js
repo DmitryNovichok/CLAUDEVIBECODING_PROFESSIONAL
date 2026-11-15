@@ -19,7 +19,7 @@
     recentWindow: 6,            // не показывать последние N заданий снова
     // актуальность: с какого года действует нынешний тип задания (документы ФИПИ об изменениях КИМ)
     firstKegeYear: 2021,        // первый компьютерный ЕГЭ — более ранние задания другого формата
-    formatSince: { 6: 2023, 22: 2023, 13: 2024, 27: 2025 },
+    formatSince: { 6: 2023, 22: 2023, 23: 2024, 27: 2025 },   // нумерация КИМ-2027
     outdatedWeight: 0.3,        // вес ответов на устаревшие задания в прогнозе
     forecast: {                 // прогноз балла ЕГЭ
       lastN: 20,                // сколько последних ответов по номеру учитывать
@@ -670,7 +670,10 @@
   const partToGroup = new Map();
   TASKS.forEach(t => (t.parts || []).forEach(p => partToGroup.set(p.id, t.id)));
   const scopeOf = n => (HAS_GROUPS && (n === 20 || n === 21) ? 19 : n);
-  const numLabel = n => (HAS_GROUPS && n === 19 ? '19–21' : String(n));
+  // КИМ-2027: №23 «пути в графе из файла» убрали — на сайте это архивное задание 23_old (внутренний номер 28, как в kim.py)
+  const ARCHIVE = { 28: '23_old' };
+  const numLabel = n => (HAS_GROUPS && n === 19 ? '19–21' : ARCHIVE[n] || String(n));
+  const badgeCls = n => (ARCHIVE[n] ? ' long' : '');      // «23_old» не влезает в круглый значок
   /** Статистика номера; для 19–21 — средняя по трём номерам. */
   function statsFor(n) {
     if (!(HAS_GROUPS && n === 19)) return P.nums[n];
@@ -705,7 +708,7 @@
   const ui = Object.assign({ scope: 'all', bank: 'all', period: 'actual', currentId: null }, readJSON(UI_STORE) || {});
   if (ui.bank !== 'all' && !BANKS.some(b => b.id === ui.bank)) ui.bank = 'all';
   const SPECIAL = ['all', 'fav', 'asg'];
-  if (!SPECIAL.includes(ui.scope) && !(ui.scope >= 1 && ui.scope <= 27)) ui.scope = 'all';
+  if (!SPECIAL.includes(ui.scope) && !(ui.scope >= 1 && ui.scope <= 27) && !ARCHIVE[ui.scope]) ui.scope = 'all';
   if (!SPECIAL.includes(ui.scope)) ui.scope = scopeOf(ui.scope);
   const save = () => { writeJSON(storeKey(), P); writeJSON(UI_STORE, ui); scheduleSync(); };
 
@@ -726,11 +729,11 @@
   function pool() {
     if (ui.scope === 'fav') { const f = favSet(); return TASKS.filter(t => f.has(t.id)); }
     if (ui.scope === 'asg') { const a = asgOf(ui.asg); return a ? a.tasks.map(id => byId.get(id)).filter(Boolean) : []; }
-    return TASKS.filter(t => visible(t) && (ui.scope === 'all' || t.n === ui.scope));
+    return TASKS.filter(t => visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope));
   }
   const inScope = t => (ui.scope === 'fav' ? favSet().has(t.id)
     : ui.scope === 'asg' ? !!asgOf(ui.asg) && asgOf(ui.asg).tasks.includes(t.id)
-    : visible(t) && (ui.scope === 'all' || t.n === ui.scope));
+    : visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope));
   // «Тема» для подбора и повторения — тип задания внутри номера (кластер c считает сервер по тексту условия),
   // у банков без кластеров — тема из банка
   const topicKey = t => t.n + '|' + (t.c || t.topic || '');
@@ -749,11 +752,13 @@
   function countByNum() {
     const key = `${ui.bank}|${ui.period}|${RULES.authored !== false}`;
     if (countMemo && countMemo[0] === key) return countMemo[1].slice();
-    const c = new Array(28).fill(0);
+    const c = new Array(29).fill(0);              // 1–27 и архив 28 (23_old)
     for (const t of TASKS) if (visible(t)) c[t.n]++;
     countMemo = [key, c];
     return c.slice();
   }
+  /** Сколько заданий в номерах КИМ (1–27, без архива). */
+  const kimTotal = counts => counts.reduce((a, b, n) => a + (ARCHIVE[n] ? 0 : b), 0);
   function level(s) {
     if (!s || !s.a) return 'none';
     if (s.m >= CFG.mastered && s.a >= CFG.minAttemptsMastered) return 'good';

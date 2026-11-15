@@ -1,0 +1,9 @@
+{
+  "name": "egeshka-obfuscate",
+  "private": true,
+  "description": "Обфускация скриптов сайта для посетителей (tools/minify.py). Версия зафиксирована: сборка воспроизводима и проверяется в CI.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "javascript-obfuscator": "5.9.0"
+  }
+}

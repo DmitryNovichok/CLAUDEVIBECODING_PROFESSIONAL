@@ -309,13 +309,14 @@
   // ------------------------------------------------------------ курс по плану (пока структура, наполнение — по ходу)
   // Порядок не 1→27, а по темам: сначала без программирования, потом логика, системы счисления, программирование, сложные.
   const COURSE = [
-    { title: 'Старт без программирования', icon: '🧭', sub: 'Графы, кодирование, объёмы, базы данных, таблицы, IP-адреса',
-      lessons: [1, 4, 7, 11, 3, 9, 10] },
+    { title: 'Старт без программирования', icon: '🧭', sub: 'Графы, кодирование, объёмы, базы данных, таблицы, поиск в тексте, IP-адреса',
+      lessons: [1, 4, 7, 11, 3, 9, 10, 13] },
     { title: 'Логика', icon: '🧩', sub: 'Таблицы истинности и логические выражения', lessons: [2, 15] },
     { title: 'Системы счисления и исполнители', icon: '🔢', sub: 'Анализ алгоритмов, Черепаха, машина Тьюринга, траектории, комбинаторика',
-      lessons: [5, 14, 6, 12, 13, 8] },
+      lessons: [5, 14, 6, 12, 23, 8] },
     { title: 'Программирование', icon: '🐍', sub: 'Рекурсия, последовательности, строки, делители и маски', lessons: [16, 17, 24, 25] },
-    { title: 'Финишная прямая', icon: '🏁', sub: 'Теория игр, процессы, динамика, графы, задачи 26–27', lessons: [19, 22, 18, 23, 26, 27] },
+    { title: 'Финишная прямая', icon: '🏁', sub: 'Теория игр, процессы, динамика, задачи 26–27', lessons: [19, 22, 18, 26, 27] },
+    { title: 'Архив', icon: '🗄️', sub: 'Задания, которых нет в КИМ ЕГЭ-2027: 23_old — пути в графе из файла', lessons: [28], archive: true },
   ];
   // подборки урока: одинаковые для всех номеров; d — сложность в банке (1 — простая, 2 — средняя, 3 — сложная)
   // описания подборок №5 — по системам счисления
@@ -515,9 +516,9 @@
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
-    const all = COURSE.flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
+    const all = COURSE.filter(m => !m.archive).flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
     const savedN = learningMemory().course;
-    const nextN = all.includes(savedN) ? savedN : all.find(n => lessonState(n) !== 'done');
+    const nextN = all.includes(savedN) || ARCHIVE[savedN] ? savedN : all.find(n => lessonState(n) !== 'done');
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">Все задания ЕГЭ</span>';
     trainerEl.innerHTML = `<div class="course">
       <div class="crs-hero">
@@ -528,7 +529,7 @@
       ${learningFormat}
       ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
-        <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>Модуль ${i + 1}. ${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
+        <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>${m.archive ? '' : `Модуль ${i + 1}. `}${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
           <span class="crs-mod-n">${m.lessons.filter(n => lessonState(n) === 'done').length}/${m.lessons.length}</span></div>
         <div class="crs-path">${m.lessons.map(n => {
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
@@ -692,7 +693,7 @@
       </div>` : '<p class="fm-note">Не удалось загрузить теорию. Открой тему ещё раз; практика ниже доступна.</p>';
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
-      <div class="crs-l-head"><span class="num-badge">${numLabel(n)}</span><div><div class="crs-kicker">Модуль ${mod + 1} · ${esc(COURSE[mod].title)}</div>
+      <div class="crs-l-head"><span class="num-badge${badgeCls(n)}">${numLabel(n)}</span><div><div class="crs-kicker">${COURSE[mod].archive ? 'Архив · нет в КИМ ЕГЭ-2027' : `Модуль ${mod + 1} · ${esc(COURSE[mod].title)}`}</div>
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
       ${learningFormat}
       ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
@@ -816,10 +817,11 @@
   });
 
   const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',
-    'Черепаха', 'Изображения и звук', 'Комбинаторика', 'Электронные таблицы', 'IP-адреса и маски', 'Объём информации',
-    'Машина Тьюринга', 'Исполнитель: траектории программ', 'Системы счисления', 'Логические выражения', 'Рекурсия',
+    'Черепаха', 'Изображения и звук', 'Комбинаторика', 'Электронные таблицы', 'Поиск слова в тексте', 'Объём информации',
+    'Машина Тьюринга', 'IP-адреса и маски', 'Системы счисления', 'Логические выражения', 'Рекурсия',
     'Обработка последовательностей', 'Динамика: Робот', 'Теория игр', 'Теория игр', 'Теория игр', 'Параллельные процессы',
-    'Граф: поиск пути', 'Обработка строк', 'Делители и маски', 'Сортировка, жадные алгоритмы', 'Анализ данных'];
+    'Исполнитель: траектории программ', 'Обработка строк', 'Делители и маски', 'Сортировка, жадные алгоритмы', 'Анализ данных',
+    'Архив: пути в графе из файла'];   // [28] — архивное 23_old
 
   /** «Что потренировать»: номера, которые дадут больше всего тестовых баллов, если довести их до 85%. */
   function trainPlan(f) {

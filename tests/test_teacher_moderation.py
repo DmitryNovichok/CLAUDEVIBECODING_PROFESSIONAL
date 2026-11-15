@@ -186,16 +186,19 @@ class TeacherModerationTest(unittest.TestCase):
             self.assertNotIn(b'id="appView"', body)
             self.assertIn('no-store', headers['Cache-Control'])
             self.assertEqual(self.http(path, headers={'If-None-Match': headers['ETag']})[0], 200)
+        # скрипты обфусцированы (строки зашифрованы) — сравниваем отданный файл целиком: экран модерации или панель
+        gate = server.site_asset('teacher-gate.js').read_bytes()
+        panel = server.site_asset('admin.js').read_bytes()
+        self.assertNotEqual(gate, panel)
         status, headers, code = self.http('/admin.js')
         self.assertEqual(status, 200)
-        self.assertIn(b'teacherGateRoot', code)
-        self.assertNotIn(b'teacher/extend', code)
+        self.assertEqual(code, gate)
         self.assertIn('no-store', headers['Cache-Control'])
         self.confirm(); self.moderate()
         self.assertIn(b'id="appView"', self.http('/admin')[2])
-        self.assertIn(b'teacher/extend', self.http('/admin.js')[2])
+        self.assertEqual(self.http('/admin.js')[2], panel)
         self.moderate('pending')
-        self.assertIn(b'teacherGateRoot', self.http('/admin.js')[2])
+        self.assertEqual(self.http('/admin.js')[2], gate)
 
     def test_preview_and_live_and_together_access_revoked(self):
         self.confirm(); self.moderate()

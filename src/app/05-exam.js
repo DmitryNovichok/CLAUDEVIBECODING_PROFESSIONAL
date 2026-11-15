@@ -300,7 +300,7 @@
       ${SERVER ? strictHtml() : ''}
       <nav class="ex-nav" aria-label="Задания варианта">${nav}</nav>
       <div class="task-head">
-        <span class="num-badge">${numLabel(t.n)}</span>
+        <span class="num-badge${badgeCls(t.n)}">${numLabel(t.n)}</span>
         <div class="task-meta">Вариант ЕГЭ · ${EX.cur + 1} из ${EX.items.length}</div>
         <span class="task-tools">${PY_BTN}${BD_BTN}${CALC_BTN}${MARK_BTN}</span>
       </div>

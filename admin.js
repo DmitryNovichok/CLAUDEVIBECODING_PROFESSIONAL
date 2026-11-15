@@ -8,6 +8,9 @@
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pct = x => Math.round(x * 100);
   const DAY = 864e5;
+  // номера КИМ ЕГЭ-2027 (20, 21 — части игры 19–21) и в конце архив: 28 — «23_old» (пути в графе из файла, как в kim.py)
+  const numName = n => (+n === 19 ? '19–21' : +n === 28 ? '23_old' : String(n));
+  const PICK_NUMS = [...Array.from({ length: 27 }, (_, i) => i + 1).filter(n => n !== 20 && n !== 21), 28];
   function plural(n, one, few, many) {
     const a = Math.abs(n) % 100, b = a % 10;
     if (a > 10 && a < 20) return many;
@@ -399,6 +402,23 @@
     $('#loginView').hidden = true;
     $('#appView').hidden = false;
   }
+
+  // вход главного учителя в два шага: пароль верный → код из письма на его почту
+  let codeTicket = null;
+  function codeStep(d) {
+    codeTicket = d ? d.ticket : null;
+    $('#admLogin').hidden = !!d; $('#admPassword').hidden = !!d; $('#admPassword').required = !d;
+    $('#admCode').hidden = !d; $('#admCode').required = !!d; $('#admCodeBack').hidden = !d;
+    $('#admCodeNote').hidden = !d;
+    if (d) {
+      $('#admCodeNote').textContent = `Пароль верный. Код для входа отправлен на ${d.to || 'вашу почту'} — действует ${d.minutes || 10} минут (если письма нет, проверьте «Спам»).`;
+      $('#admCode').value = '';
+      setTimeout(() => $('#admCode').focus(), 30);
+    } else { $('#admPassword').value = ''; setTimeout(() => $('#admPassword').focus(), 30); }
+  }
+  $('#admCodeBack').addEventListener('click', () => { codeStep(null); $('#admLoginErr').textContent = ''; });
+  const loginBody = () => (codeTicket ? { ticket: codeTicket, code: $('#admCode').value }
+    : { login: $('#admLogin').value, password: $('#admPassword').value });
   $('#admLoginForm').addEventListener('submit', async e => {
     e.preventDefault();
     const btn = e.target.querySelector('button');
@@ -407,10 +427,13 @@
     try {
       const r = await fetch('api/admin/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login: $('#admLogin').value, password: $('#admPassword').value }), credentials: 'same-origin',
+        body: JSON.stringify(loginBody()), credentials: 'same-origin',
       });
       const d = await r.json().catch(() => ({}));
+      if (r.status === 410) codeStep(null);
       if (!r.ok) throw new Error(d.error || 'Ошибка входа');
+      if (d.need_code) { codeStep(d); return; }
+      codeStep(null);
       $('#admPassword').value = '';
       await loadMe();
       showApp();
@@ -501,6 +524,76 @@
         ${e.stack ? `<pre class="err-stack">${esc(e.stack)}</pre>` : ''}</details></div>`).join('');
   }
   $('#errReload')?.addEventListener('click', () => loadErrors(true));
+
+  /** Входы учителей (только главный): действующие входы, журнал с IP-адресами и действиями, классы за 90 дней. */
+  let SEC = null;
+  async function loadSecurity() {
+    const tid = $('#secTeacher').value;
+    try { SEC = await api('security' + (tid ? '?teacher_id=' + encodeURIComponent(tid) : '')); }
+    catch (err) { if (err.status !== 401) $('#secBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    const sel = $('#secTeacher');
+    if (sel.options.length <= 1) sel.insertAdjacentHTML('beforeend', SEC.teachers.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join(''));
+    renderSecurity();
+  }
+  function renderSecurity() {
+    if (!SEC) return;
+    const D = SEC, q = ($('#secQ').value || '').trim().toLowerCase();
+    const when = ts => ts ? new Date(ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+    const tid = $('#secTeacher').value;
+    const hit = (...xs) => !q || xs.some(x => String(x || '').toLowerCase().includes(q));
+    const ip = x => x ? `<button type="button" class="link-btn sec-ip" data-sec-ip="${esc(x)}" title="Показать всё с этого адреса"><code>${esc(x)}</code></button>` : '<span class="muted">не записан</span>';
+    const sum = D.summary.length ? `<div class="sec-sum">${D.summary.map(r => `<div class="adm-box sec-card${r.fails ? ' warn' : ''}">
+        <b>${esc(r.teacher || 'удалённый учитель')}</b>
+        <div class="muted">за 30 дней: входов ${r.logins || 0} · адресов ${r.ips || 0} · действий ${r.actions || 0}</div>
+        ${r.fails ? `<div class="sec-bad">неудачных попыток входа: ${r.fails}</div>` : ''}</div>`).join('')}
+        ${D.unknown_fails ? `<div class="adm-box sec-card warn"><b>Попытки с несуществующим логином</b><div class="sec-bad">${D.unknown_fails} за 30 дней</div></div>` : ''}</div>` : '';
+    const sess = D.sessions.filter(r => hit(r.teacher, r.ip, r.last_ip, r.device));
+    const sessHtml = `<h3 class="adm-h3">Сейчас вошли (${sess.length})</h3>
+      ${tid && sess.length ? `<p><button type="button" class="btn" data-sec-end-all="${esc(tid)}">Завершить все входы этого учителя</button></p>` : ''}
+      ${sess.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Учитель</th><th>Вошёл</th><th>IP входа</th><th>Устройство</th><th>Последняя активность</th><th>Отметка</th><th></th></tr></thead>
+      <tbody>${sess.map(r => `<tr><td>${esc(r.teacher)}</td><td>${r.exact ? when(r.created) : `≈ ${when(r.created)} <span class="muted">(до журнала)</span>`}</td>
+        <td>${ip(r.ip)}</td><td>${esc(r.device || '—')}</td>
+        <td>${r.last_seen ? `${when(r.last_seen)}${r.last_ip && r.last_ip !== r.ip ? ` · ${ip(r.last_ip)}` : ''}` : '—'}</td>
+        <td><code class="muted">${esc(r.sess)}</code></td>
+        <td>${r.current ? '<span class="muted">это вы</span>' : `<button type="button" class="btn ghost" data-sec-end="${esc(r.sess)}">Завершить</button>`}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="adm-empty">Действующих входов нет.</p>'}`;
+    const log = D.log.filter(r => hit(r.teacher, r.ip, r.what, r.detail, r.login, r.device, r.sess));
+    const logHtml = `<h3 class="adm-h3">Журнал (${log.length}${D.log.length >= 400 ? ' последних' : ''})</h3>
+      ${log.length ? `<div class="adm-table-wrap"><table class="adm-table sec-log"><thead><tr><th>Когда</th><th>Учитель</th><th>Что</th><th>IP</th><th>Устройство</th><th>Подробности</th><th>Вход</th></tr></thead>
+      <tbody>${log.map(r => `<tr class="${r.ok ? '' : 'sec-fail'}${r.event === 'action' ? '' : ' sec-ev'}"><td class="muted">${when(r.ts)}</td>
+        <td>${esc(r.teacher || (r.login ? `логин «${r.login}»` : '—'))}</td>
+        <td>${r.ok ? '' : '⛔ '}${esc(r.what)}${r.ok ? '' : ' — не удалось'}${r.new_ip ? ' <span class="sec-new">новый адрес</span>' : ''}</td>
+        <td>${ip(r.ip)}</td><td>${esc(r.device || '')}</td><td class="muted">${esc(r.detail)}</td>
+        <td>${r.sess ? `<button type="button" class="link-btn" data-sec-q="${esc(r.sess)}" title="Все действия после этого входа"><code class="muted">${esc(r.sess)}</code></button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+      : `<p class="adm-empty">${q ? 'Ничего не найдено.' : 'Записей пока нет — журнал ведётся с этого обновления.'}</p>`}`;
+    const cls = D.classes.filter(r => hit(r.teacher, r.name));
+    const clsHtml = `<h3 class="adm-h3">Классы, созданные за 90 дней</h3>
+      <p class="adm-hint">До этого обновления входы не записывались. Время создания класса поможет сопоставить его с подозрительным входом.</p>
+      ${cls.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Создан</th><th>Учитель</th><th>Класс</th><th>Учеников</th></tr></thead>
+      <tbody>${cls.map(r => `<tr><td>${when(r.created)}</td><td>${esc(r.teacher)}</td><td>${esc(r.name)}</td><td>${r.students}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="adm-empty">Нет.</p>'}`;
+    const C = D.code_login || {};
+    const codeHtml = `<div class="adm-box sec-code${C.on ? '' : ' off'}">${C.on
+      ? `🔐 <b>Вход главного учителя — по паролю и коду из письма</b> на ${esc(C.to)}. Знать пароль недостаточно.`
+      : `⚠️ <b>Вход главного учителя — только по паролю.</b> ${!C.email ? 'Укажите почту главного учителя в «Настройках».' : 'На сервере не настроена отправка писем (SMTP) — код не может прийти.'} Тогда вход потребует код из письма.`}</div>`;
+    $('#secBody').innerHTML = codeHtml + sum + sessHtml + logHtml + clsHtml;
+  }
+  $('#secReload')?.addEventListener('click', loadSecurity);
+  $('#secTeacher')?.addEventListener('change', loadSecurity);
+  $('#secQ')?.addEventListener('input', renderSecurity);
+  $('#secBody')?.addEventListener('click', async e => {
+    const f = e.target.closest('[data-sec-ip], [data-sec-q]');
+    if (f) { $('#secQ').value = f.dataset.secIp || f.dataset.secQ; renderSecurity(); return; }
+    const b = e.target.closest('[data-sec-end], [data-sec-end-all]');
+    if (!b) return;
+    const all = b.dataset.secEndAll;
+    if (!confirm(all ? 'Завершить все входы этого учителя? Ему нужно будет войти заново.' : 'Завершить этот вход? На том устройстве панель закроется.')) return;
+    try {
+      const r = await api('security/end', all ? { teacher_id: +all } : { sess: b.dataset.secEnd });
+      toast(r.ended ? `Завершено входов: ${r.ended}` : 'Этот вход уже закрыт (свой текущий вход здесь не завершается)');
+    } catch (err) { toast(err.message); return; }
+    loadSecurity();
+  });
   $('#errBody')?.addEventListener('click', async e => {
     const b = e.target.closest('[data-err-fix]');
     if (!b) return;
@@ -555,8 +648,8 @@
         <span>${dd}.${m}</span></div>`;
     }).join('');
     const maxN = Math.max(1, ...d.nums.map(x => x.answers));
-    const nums = d.nums.map(x => `<div class="st-num" title="№${x.n}: ответов ${x.answers}, верных ${x.solved}">
-        <b>${x.n}</b><i><s style="width:${x.answers / maxN * 100}%"></s><u style="width:${x.solved / maxN * 100}%"></u></i>
+    const nums = d.nums.map(x => `<div class="st-num" title="№${numName(x.n)}: ответов ${x.answers}, верных ${x.solved}">
+        <b>${numName(x.n)}</b><i><s style="width:${x.answers / maxN * 100}%"></s><u style="width:${x.solved / maxN * 100}%"></u></i>
         <small>${n(x.answers)} · ${x.answers ? Math.round(x.solved / x.answers * 100) : 0}%</small></div>`).join('');
     $('#siteBody').innerHTML = `
       <div class="adm-cards">
@@ -780,7 +873,7 @@
   function renderTpl() {
     const C = BLD.cat, nSel = $('#tplN'), cSel = $('#tplClass');
     if (!nSel.options.length) {
-      for (let n = 1; n <= 27; n++) if (n !== 20 && n !== 21) nSel.insertAdjacentHTML('beforeend', `<option value="${n}">${n === 19 ? '19–21' : n}</option>`);
+      for (const n of PICK_NUMS) nSel.insertAdjacentHTML('beforeend', `<option value="${n}">${n === 28 ? 'Архив · ' : ''}${numName(n)}</option>`);
     }
     const cur = cSel.value || BLD.d.class_id;
     cSel.innerHTML = C.classes.length ? C.classes.map(c => `<option value="${c.id}"${String(c.id) === String(cur) ? ' selected' : ''}>${esc(c.name)}</option>`).join('')
@@ -831,8 +924,8 @@
     const C = BLD.cat, f = BLD.f, fc = (BLD.res && BLD.res.facets) || { c: {}, r: {} };
     const focused = document.activeElement?.id === 'bldQ' ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
     const nums = [];
-    for (let n = 1; n <= 27; n++) if (n !== 20 && n !== 21) nums.push(chip('n', n, n === 19 ? '19–21' : n, f.n.includes(String(n))));
-    const types = f.n.length ? f.n.map(n => `<div class="bld-types"><b>№${n === '19' ? '19–21' : n}</b>${(C.clusters[n] || []).map(([k, lbl]) => {
+    for (const n of PICK_NUMS) nums.push(chip('n', n, numName(n), f.n.includes(String(n))));
+    const types = f.n.length ? f.n.map(n => `<div class="bld-types"><b>№${numName(n)}</b>${(C.clusters[n] || []).map(([k, lbl]) => {
       const key = `${n}:${k}`;
       return chip('c', key, esc(lbl), f.c.includes(key), fc.c[key] || 0);
     }).join('')}</div>`).join('') : '<span class="adm-hint">Выберите номер — появятся типы заданий внутри него.</span>';
@@ -986,7 +1079,7 @@
 <label class="adm-hint">Тип работы <select class="adm-select" id="bdKind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${(D.kind || 'self') === k ? ' selected' : ''}>${v.name}</option>`).join('')}</select></label>
       <details class="bld-rules"><summary>Как проверяется работа</summary><p class="adm-hint" id="bdKindHint">${KINDS[D.kind || 'self'].hint}</p></details>
       <div class="bld-sum"><b>Выбрано ${total} ${plural(total, 'задание', 'задания', 'заданий')}</b>
-        ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${n}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
+        ${Object.keys(byN).sort((a, b) => a - b).map(n => `<span class="chip">№${numName(n)}${byN[n] > 1 ? ' ×' + byN[n] : ''}</span>`).join('')}</div>
       ${total ? `<div class="bld-rbar" title="Распределение по сложности">${byR.map((c, r) => r && c ? `<i class="rk${r}" style="flex:${c}" title="${RANK_SHORT[r]}: ${c}"></i>` : '').join('')}</div>` : ''}
       <button type="button" class="btn primary bld-send" id="bdSend"${!bldSending && total && D.class_id && (D.to !== 'some' || D.id || (D.students || []).length) ? '' : ' disabled'}>${bldSending ? 'Отправляю…' : D.id ? 'Сохранить изменения' : D.to === 'some' ? `Отправить персонально (${(D.students || []).length})` : BLD.members?.length ? `Выдать ${BLD.members.length} ученикам` : 'Выдать классу'}</button>
       ${D.class_id ? '' : '<p class="adm-hint">Выберите класс, которому отправить подборку.</p>'}
@@ -2373,7 +2466,7 @@
   // ------------------------------------------------------------ вкладки
   let tab = 'overview';
   let backTab = 'overview';            // куда вернуться из карточки ученика
-  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'course'];
+  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'course', 'security'];
   function go(t) {
     if (MAIN_ONLY_TABS.includes(t) && !ME.is_main) t = 'overview';   // экономика, подарки и сервис сайта — только главный учитель
     ++studentLoadVersion;                 // ответ старой карточки не должен возвращать из другого раздела
@@ -2383,11 +2476,12 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard', 'security'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     document.body.classList.toggle('builder-open', t === 'build');
     if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
+    if (t === 'security') loadSecurity();
     if (t === 'course') loadCourseProgress();
     if (t === 'pyc') loadPyc();
     if (t === 'ard') loadArd();
@@ -3156,8 +3250,8 @@
     if (!box || !gradebook) return;
     const S = gradebook.students;
     if (!S.length) { box.innerHTML = '<p class="adm-empty">В классе нет учеников.</p>'; return; }
-    const NUMS = Array.from({ length: 27 }, (_, i) => i + 1).filter(n => n !== 20 && n !== 21);
-    const label = n => n === 19 ? '19–21' : String(n);
+    const NUMS = PICK_NUMS;
+    const label = numName;
     const cell = v => {
       if (!v || !v[0]) return '<td class="hm-c none" title="не решал">·</td>';
       const p = v[1] / v[0];
@@ -3172,7 +3266,7 @@
     const weak = cls.filter(x => x.a >= 3 && x.ok / x.a < 0.4).map(x => label(x.n));
     box.innerHTML = `<p class="adm-hint">Доля верных с первой попытки по каждому номеру ЕГЭ — тренажёр и подборки, без вариантов. Серым — меньше 3 ответов.
         Нажмите на номер, чтобы собрать по нему подборку.</p>
-      ${weak.length ? `<p class="hm-weak">Слабые места класса: ${weak.map(n => `<b>№${n}</b>`).join(', ')}</p>` : ''}
+      ${weak.length ? `<p class="hm-weak">Слабые места класса: ${weak.map(n => `<b>№${numName(n)}</b>`).join(', ')}</p>` : ''}
       <div class="adm-table-wrap hm-wrap"><table class="adm-table hm-table"><thead><tr><th>Ученик</th>
         ${NUMS.map(n => `<th class="hm-h"><button type="button" class="jr-asg" data-hm-n="${n}" title="Собрать подборку по №${label(n)}">${label(n)}</button></th>`).join('')}</tr></thead>
         <tbody>${S.map(st => `<tr><td class="name"><button type="button" class="task-link" data-open-st="${st.id}">${esc(st.name)}</button></td>${NUMS.map(n => cell(st.nums[n])).join('')}</tr>`).join('')}</tbody>
@@ -3517,7 +3611,7 @@
       <p class="adm-hint" id="dKindHint">${KINDS[draft.kind || 'self'].hint}</p>
       <div class="adm-draft-row">
         <span class="adm-hint">Добавить случайные:</span>
-        <select class="adm-select" id="dNum">${Array.from({ length: 27 }, (_, i) => `<option value="${i + 1}">№${i + 1}</option>`).join('')}</select>
+        <select class="adm-select" id="dNum">${[...Array.from({ length: 27 }, (_, i) => i + 1), 28].map(n => `<option value="${n}">№${numName(n)}${n === 28 ? ' (архив)' : ''}</option>`).join('')}</select>
         <select class="adm-select" id="dCount">${[1, 2, 3, 5, 10].map(k => `<option>${k}</option>`).join('')}</select>
         <button type="button" class="btn" id="dPick">Добавить</button>
         <span class="adm-hint">или по номеру КомпЕГЭ / коду ФИПИ:</span>
@@ -3742,12 +3836,12 @@
       if (a.score === 1) x.ok++;
       if (a.score === 0) x.bad++;
     }
-    $('#stNums').innerHTML = Array.from({ length: 27 }, (_, i) => {
-      const n = i + 1, x = per[n];
+    $('#stNums').innerHTML = [...Array.from({ length: 27 }, (_, i) => i + 1), ...(per[28] ? [28] : [])].map(n => {
+      const x = per[n];
       const acc = x ? x.ok / x.t : null;
       const lv = !x ? 'none' : acc >= 0.8 ? 'good' : acc >= 0.5 ? 'mid' : 'weak';
       return `<button type="button" class="adm-num lv-${lv}${lv === 'none' ? ' none' : ''}${jNum === n ? ' on' : ''}" data-n="${n}" ${x ? '' : 'disabled'}>
-        <span class="nn">№${n}</span>
+        <span class="nn">№${numName(n)}</span>
         <span class="nc">${x ? `${x.t} · ${pct(acc)}% верно` : 'не решал'}</span>
         ${x && x.bad ? `<span class="nb">ошибок: ${x.bad}</span>` : ''}
       </button>`;
@@ -3777,7 +3871,7 @@
             <span class="muted" style="font-size:12px">Номера: ${nums.map(n => '№' + n).join(', ')}</span>
           </div>
           ${bads.length ? `<div class="chips">${Object.entries(badByN).sort((a, b) => a[0] - b[0]).map(([n, c]) =>
-            `<span class="chip weak" data-n="${n}">ошибка в №${n}${c > 1 ? ' ×' + c : ''}</span>`).join('')}</div>` : ''}
+            `<span class="chip weak" data-n="${n}">ошибка в №${numName(n)}${c > 1 ? ' ×' + c : ''}</span>`).join('')}</div>` : ''}
         </div>
       </div>`;
     }).join('') : '<p class="adm-empty">За выбранный период ученик не решал.</p>';
@@ -4220,7 +4314,7 @@
       evPolled = true;
       // подозрительные ответы (ушёл со страницы и сразу верно, вставка ответа) — тоже в уведомления
       ntfAdd(d.attempts.filter(a => /sus|paste|ai/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
-        text: `${/\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${a.n}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
+        text: `${/\bai\b/.test(a.flags) ? '🤖 ответил(а) как нейросеть (сработала ловушка)' : /paste/.test(a.flags) ? 'вставил(а) ответ из буфера' : 'ушёл(ла) со страницы и сразу ответил(а) верно'} — №${numName(a.n)}${a.exam ? ', вариант ЕГЭ' : /asg/.test(a.reason || '') ? ', работа от учителя' : ''}` })));
       if (d.attempts.length) {
         const first = feedSince === 0;
         d.attempts.forEach(a => { if (!first) freshIds.add(a.id); });

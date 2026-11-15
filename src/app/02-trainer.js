@@ -409,7 +409,8 @@
   }
 
   /** Опыт за первое верное решение — как считает сервер: №1–10 по 10, №11–27 по номеру, +5 за ступень сложности. */
-  const xpFor = t => (t.n <= 10 ? 10 : t.n) + 5 * (Math.max(1, Math.min(5, t.r || 1)) - 1);
+  const xpNum = n => (ARCHIVE[n] ? 23 : n);                 // архив 23_old — как №23
+  const xpFor = t => (t.n <= 10 ? 10 : xpNum(t.n)) + 5 * (Math.max(1, Math.min(5, t.r || 1)) - 1);
   function renderTask() {
     const t = cur.task;
     const meta = [];
@@ -420,7 +421,7 @@
     if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
     else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
     const fb = (GAME && GAME.fire_bonus) || 0;      // огонёк: +1 % за день к опыту (сервер считает так же)
-    if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${t.n} XP за №${t.n}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}${fb ? ` и +${fb}% за огонёк` : ''}">+${fb ? Math.floor(xpFor(t) * (100 + fb) / 100 + 0.5) : xpFor(t)} XP${fb ? ' 🔥' : ''}</span>`);
+    if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${xpNum(t.n)} XP за №${numLabel(t.n)}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}${fb ? ` и +${fb}% за огонёк` : ''}">+${fb ? Math.floor(xpFor(t) * (100 + fb) / 100 + 0.5) : xpFor(t)} XP${fb ? ' 🔥' : ''}</span>`);
     if (t.y && !(t.src || '').includes(String(t.y))) {
       meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
     }
@@ -429,7 +430,7 @@
       const since = formatSince(t.n);
       chip = '<span class="chip weak">Старый формат</span>' + chip;
       const why = t.fmt === 'old' ? 'Это задание старого типа' : `Задание рассчитано на экзамен ${t.y} года`;
-      line = `${why}: с ${since} года задание №${t.n} на ЕГЭ ${since === CFG.firstKegeYear ? 'выглядит иначе' : 'другого типа'}. В прогноз балла оно идёт с малым весом.` + (line ? '<br>' + line : '');
+      line = `${why}: с ${since} года задание №${numLabel(t.n)} на ЕГЭ ${since === CFG.firstKegeYear ? 'выглядит иначе' : 'другого типа'}. В прогноз балла оно идёт с малым весом.` + (line ? '<br>' + line : '');
     }
     const files = filesHtml(t);
     const fav = favSet().has(t.id);
@@ -439,7 +440,7 @@
       <div class="task-head">
         ${inCourseSet() ? '<button type="button" class="btn ghost crs-up" id="crsUpBtn" title="Вернуться к списку заданий подборки">← К подборке</button>' : ''}
         ${backStack.length && !wkLive() ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
-        <span class="num-badge">${numLabel(t.n)}</span>
+        <span class="num-badge${badgeCls(t.n)}">${numLabel(t.n)}</span>
         <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
         <span class="head-chips">${chip}</span>
         <span class="task-tools">
@@ -1236,7 +1237,7 @@
     const streak = currentStreak();
     const noCount = res.nocount ? '<div class="fb-note fb-fast">Это задание уже решено или его ответ тебе уже показывали — решение засчитано для тренировки, но <b>без опыта, огонька, серии и достижений</b>.</div>' : '';
     const fastNote = noCount || !res.fast ? noCount : res.fast_min > 1
-      ? `<div class="fb-note fb-fast">⏱ Задание №${t.n} засчитывается, только если над ним работать не меньше <b>${res.fast_min} минут</b> — так быстро его не решают.
+      ? `<div class="fb-note fb-fast">⏱ Задание №${numLabel(t.n)} засчитывается, только если над ним работать не меньше <b>${res.fast_min} минут</b> — так быстро его не решают.
           Поэтому <b>−1 XP и −1 ₿</b> вместо награды. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>`
       : '<div class="fb-note fb-fast">⏱ Решено быстрее чем за минуту — это похоже на подсмотренный ответ, поэтому <b>−1 XP</b> вместо опыта. Задание не засчитано решённым: реши его ещё раз позже, вдумчиво.</div>';
     if (score === 1) {

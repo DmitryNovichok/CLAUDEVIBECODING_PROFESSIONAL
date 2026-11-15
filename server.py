@@ -65,6 +65,7 @@ from economy import atomic, financial_path, atomic_response
 import signal
 
 import clusters                                   # noqa: E402  тип задания и сложность (clusters.py рядом с сервером)
+import kim                                        # noqa: E402  нумерация КИМ-2027: 10→13, 13→23, 23 → архив 23_old
 import together                                   # noqa: E402  совместный сеанс: код и доска (together.py рядом с сервером)
 
 HERE = Path(__file__).resolve().parent            # папка trainer
@@ -92,6 +93,7 @@ PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.j
                "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css", "help.css",
                "egeshka.js", "elements.js", "onboard.js", "visit.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
 _PAGE_CACHE = {}                    # страница → (отпечаток файлов, текст, ETag, сжатая копия)
+HTML_COMMENT_RE = re.compile(r"<!--(?!\[if).*?-->", re.S)
 # Сжатые копии скриптов и стилей (min/, собирает tools/minify.py): посетителю уходит код без комментариев и с короткими
 # именами вместо читаемых исходников. Отсутствие сборки не должно раскрывать исходник.
 MIN_FILES = ("app.js", "admin.js", "together.js", "welcome.js", "onboard.js", "visit.js",
@@ -435,28 +437,86 @@ _JSERR_LOCK = threading.Lock()
 _APPJS = {"mtime": None, "marks": []}
 
 
-def jserr_where(src):
-    """Где ошибка: без адреса сайта и ?v=…; строка собранного app.js — модулем src/app (по меткам сборки)."""
+_JSMAPS = {}                         # имя скрипта → (время файла, таблица мест из maps/)
+_CL_TOPS = {"mtime": None, "tops": set()}
+
+
+def _jsmap(name):
+    """Таблица мест сжатого скрипта (tools/minify.py → maps/<имя>.json); None — таблицы нет."""
+    p = HERE / "maps" / (name + ".json")
+    try:
+        mt = p.stat().st_mtime
+        hit = _JSMAPS.get(name)
+        if not hit or hit[0] != mt:
+            hit = (mt, json.loads(p.read_text(encoding="utf-8")))
+            _JSMAPS[name] = hit
+        return hit[1]
+    except (OSError, ValueError):
+        return None
+
+
+def _jsmap_line(table, line, col):
+    """Строка исходника (с единицы) для позиции в отданном файле (с единицы), как tools/sourcemap.lookup."""
+    rows = table.get("lines") or []
+    if not 0 < line <= len(rows) or not rows[line - 1]:
+        return None
+    flat = rows[line - 1]
+    k = bisect.bisect_right(flat[0::2], col - 1) - 1
+    return flat[2 * max(k, 0) + 1] + 1
+
+
+def jserr_fresh(ver):
+    """Ошибка пришла от текущей версии сайта — таблица мест к ней подходит (у старой версии в кэше браузера — нет)."""
+    if not ver:
+        return True
+    try:
+        p = HERE / "changelog.js"
+        mt = p.stat().st_mtime
+        if _CL_TOPS["mtime"] != mt:
+            text = p.read_text(encoding="utf-8")
+            _CL_TOPS.update(mtime=mt, tops=set(re.findall(r'(?:student|teacher): \[\s*\["([\d.]+)"', text)))
+    except OSError:
+        return True
+    return ver in _CL_TOPS["tops"]
+
+
+def jserr_where(src, fresh=True):
+    """Где ошибка: без адреса сайта и ?v=…. Позиция в сжатом скрипте (min/) — строкой исходника по таблице мест (≈:
+    обфускатор отмечает границы функций, поэтому строка — внутри нужной функции). Строка app.js — модулем src/app."""
     s = re.sub(r"^[a-z-]+://[^/]+/", "", str(src or "")).strip()
     s = re.sub(r"\?[^:]*", "", s)[:200]
-    m = re.match(r"^(?:.*/)?app\.js:(\d+)(?::\d+)?$", s)
+    m = re.match(r"^(?:.*/)?([\w.-]+\.js):(\d+)(?::(\d+))?$", s)
     if not m:
         return s
+    name, line, approx = m.group(1), int(m.group(2)), ""
+    if name in MIN_FILES and (HERE / "min" / name).is_file():
+        table = _jsmap(name) if fresh else None
+        src_line = _jsmap_line(table, line, int(m.group(3) or 1)) if table else None
+        if src_line is None:
+            return s if fresh else s + " (старая версия в кэше)"
+        line, approx = src_line, "≈"
+    if name != "app.js":
+        return f"{name}:{approx}{line}" if approx else s
     try:
         p = HERE / "app.js"
         mt = p.stat().st_mtime
         if _APPJS["mtime"] != mt:
             marks = [(1, "src/app/01-core.js")]                    # первый модуль — сразу после заголовка (строка 1)
-            for k, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
-                mm = re.match(r"^  // ═══════ (src/app/[\w.-]+\.js)$", line)
+            for k, text in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                mm = re.match(r"^  // ═══════ (src/app/[\w.-]+\.js)$", text)
                 if mm:
                     marks.append((k, mm.group(1)))
             _APPJS.update(mtime=mt, marks=marks)
     except OSError:
         return s
-    line = int(m.group(1))
-    start, name = max((x for x in _APPJS["marks"] if x[0] < line), default=(0, "app.js"))
-    return f"{name}:{line - start}"
+    start, mod = max((x for x in _APPJS["marks"] if x[0] < line), default=(0, "app.js"))
+    return f"{mod}:{approx}{line - start}"
+
+
+def jserr_stack(stack, fresh=True):
+    """Стек ошибки: каждое место в нашем скрипте — строкой исходника (как jserr_where)."""
+    return re.sub(r"(?:https?://[^/\s()]+/)?[\w./-]+\.js(?:\?[^:\s)]*)?:\d+:\d+",
+                  lambda m: jserr_where(m.group(0), fresh), str(stack or ""))[:2000]
 
 
 def jserr_add(db, d, ip, sid=None, tid=None, ua=""):
@@ -477,16 +537,17 @@ def jserr_add(db, d, ip, sid=None, tid=None, ua=""):
     if not src:                                                   # ошибка в обещании — место берём из первой строки стека
         m = re.search(r"([\w./:-]+\.js(?:\?[^:\s)]*)?:\d+:\d+)", str(d.get("stack") or ""))
         src = m.group(1) if m else ""
-    src = jserr_where(src)
-    key = hashlib.sha1(f"{app}|{msg}|{src}".encode()).hexdigest()
     ver, page = str(d.get("ver") or "")[:20], str(d.get("page") or "")[:120]
+    fresh = jserr_fresh(ver)
+    src = jserr_where(src, fresh)
+    key = hashlib.sha1(f"{app}|{msg}|{src}".encode()).hexdigest()
     row = db.q("SELECT id FROM js_errors WHERE key=?", (key,), one=True)
     if row:
         eid = row["id"]
         db.x("UPDATE js_errors SET n = n + 1, last_ts=?, ver=? WHERE id=?", (now, ver, eid))
     else:
         eid = db.x("""INSERT INTO js_errors(key, app, msg, src, stack, first_ts, last_ts, n, ver) VALUES(?,?,?,?,?,?,?,1,?)""",
-                   (key, app, msg, src, str(d.get("stack") or "")[:2000], now, now, ver))
+                   (key, app, msg, src, jserr_stack(d.get("stack"), fresh), now, now, ver))
     db.x("INSERT INTO js_error_hits(error_id, ts, student_id, teacher_id, device, ver, page) VALUES(?,?,?,?,?,?,?)",
          (eid, now, sid, tid, ua_label(ua), ver, page))
     db.x("""DELETE FROM js_error_hits WHERE error_id=? AND id NOT IN
@@ -540,6 +601,122 @@ def ua_label(ua):
     os_ = next((t for k, t in (("Android", "Android"), ("iPhone", "iPhone"), ("iPad", "iPad"), ("Windows", "Windows"),
                                ("Mac OS", "Mac"), ("CrOS", "Chromebook"), ("Linux", "Linux")) if k in ua), "")
     return f"{br} · {os_}" if os_ else br
+
+
+# ---------- журнал безопасности учителей (вкладка «Входы учителей» у главного)
+TLOG_DAYS = 365                    # сколько хранится журнал
+TLOG_SKIP = {"/api/admin/jserr", "/api/admin/ui", "/api/admin/steps-off", "/api/admin/logout", "/api/admin/password",
+             "/api/admin/security/end"}    # служебное (тема, «просмотрено») и то, что пишется отдельной строкой
+# что сделал учитель — по-человечески (остальное показывается адресом метода)
+TLOG_NAMES = {
+    "class/save": "создал или переименовал класс", "class/delete": "удалил класс", "class/members": "перевёл учеников между классами",
+    "class/import": "загрузил список класса", "class/goal": "цель класса", "class/weak": "работа над ошибками класса",
+    "invite": "новый код приглашения", "student/rename": "переименовал ученика", "student/delete": "удалил ученика",
+    "student/password-reset": "сбросил пароль ученика", "student/newpw": "новый пароль ученику", "student/logout": "завершил входы ученика",
+    "student/teacher": "передал ученика другому учителю", "student/role": "плашка ученика", "student/parent": "отчёт родителям",
+    "student/void": "отменил ответы ученика", "assignment/save": "выдал или изменил работу", "assignment/delete": "удалил работу",
+    "teacher/save": "создал или изменил учителя", "teacher/delete": "удалил учителя", "teacher/extend": "продлил доступ учителю",
+    "teacher/moderate": "проверка учителя", "email/change": "сменил почту", "as-student": "открыл тренажёр как ученик",
+    "gifts/give": "выдал подарок", "gifts/remove": "забрал подарок", "logout-here": "завершил другие входы",
+}
+TLOG_EVENTS = {"code": "код входа отправлен на почту", "login": "вход", "signup": "регистрация и вход", "logout": "выход", "password": "смена пароля",
+               "reset": "пароль по ссылке из письма", "reset_request": "запрос «Забыли пароль?»", "action": "действие", "end": "входы завершены главным учителем"}
+_TLOG_KEYS = ("name", "title", "class_name", "class_id", "student_id", "teacher_id", "id", "ids", "login", "email", "kind", "status")
+
+
+LOGIN_CODE_SEC = 10 * 60           # код входа главного учителя из письма действует 10 минут
+LOGIN_CODE_TRIES = 5               # попыток ввести код
+LOGIN_CODE_PER_15MIN = 5           # писем с кодом за 15 минут
+
+
+def login_code_ready(t):
+    """Вход главного учителя по коду из письма: включён (по умолчанию да), есть почта и настроена отправка писем."""
+    return APP.db.setting("main_login_code") != "0" and bool(t["email"]) and bool(smtp_conf())
+
+
+def login_code_hash(ticket, code):
+    return hashlib.sha256(f"{ticket}:{code}".encode()).hexdigest()
+
+
+def mask_email(e):
+    """d•••@mail.ru — куда ушёл код, не раскрывая адрес целиком."""
+    name, _, dom = str(e or "").partition("@")
+    return (name[:1] + "•••" + ("@" + dom if dom else "")) if name else ""
+
+
+def sess_mark(tok):
+    """Короткий отпечаток сессии: по нему действия связываются со входом, а сам ключ входа нигде не показывается."""
+    return hashlib.sha256(str(tok).encode()).hexdigest()[:10]
+
+
+def tlog_detail(data):
+    """Подробности действия: имена, названия и номера — без паролей и текстов."""
+    if not isinstance(data, dict):
+        return ""
+    out = []
+    for k in _TLOG_KEYS:
+        v = data.get(k)
+        if v in (None, "", [], {}):
+            continue
+        if isinstance(v, list):
+            v = ", ".join(str(x) for x in v[:8]) + (" …" if len(v) > 8 else "")
+        out.append(f"{k}: {str(v)[:80]}")
+    return "; ".join(out)
+
+
+def teacher_security(db, tid=None, limit=400, cur=None):
+    """Для главного учителя: действующие входы учителей и журнал — кто, когда, откуда, что сделал."""
+    now = time.time()
+    db.x("DELETE FROM teacher_log WHERE ts<?", (now - TLOG_DAYS * 86400,))
+    names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM teachers")}
+    main_id = main_teacher()["id"]
+    where, args = ("WHERE COALESCE(teacher_id, ?) = ?", (main_id, tid)) if tid else ("", ())
+    sessions = []
+    for r in db.q(f"SELECT * FROM admin_sessions {where} ORDER BY COALESCE(last_seen, created, expires) DESC", args):
+        if r["expires"] <= now:
+            continue
+        t_id = r["teacher_id"] or main_id
+        sessions.append({"sess": sess_mark(r["token"]), "teacher_id": t_id, "teacher": names.get(t_id, "удалённый учитель"),
+                         "created": r["created"] or (r["expires"] - ADMIN_SESSION_DAYS * 86400), "exact": bool(r["created"]),
+                         "ip": r["ip"] or "", "device": ua_label(r["ua"]) if r["ua"] else "", "last_seen": r["last_seen"],
+                         "last_ip": r["last_ip"] or "", "current": sess_mark(r["token"]) == cur})
+    w2, a2 = ("WHERE l.teacher_id = ?", (tid,)) if tid else ("", ())
+    rows = db.q(f"SELECT l.* FROM teacher_log l {w2} ORDER BY l.ts DESC, l.id DESC LIMIT ?", (*a2, limit))
+    # «новый адрес»: удачный вход с адреса, с которого этот учитель раньше не входил
+    known = {}
+    for r in db.q("SELECT teacher_id, ip, MIN(ts) AS first FROM teacher_log WHERE event IN ('login','signup') AND ok=1 GROUP BY teacher_id, ip"):
+        known[(r["teacher_id"], r["ip"])] = r["first"]
+    log = []
+    for r in rows:
+        ev = r["event"]
+        what = TLOG_EVENTS.get(ev, ev) if ev != "action" else TLOG_NAMES.get(r["path"] or "", r["path"] or "действие")
+        log.append({"id": r["id"], "ts": r["ts"], "teacher_id": r["teacher_id"], "teacher": names.get(r["teacher_id"], "") if r["teacher_id"] else "",
+                    "event": ev, "ok": bool(r["ok"]), "what": what, "ip": r["ip"] or "", "device": ua_label(r["ua"]) if r["ua"] else "",
+                    "login": r["login"] or "", "detail": r["detail"] or "", "sess": r["sess"] or "",
+                    "new_ip": ev in ("login", "signup") and bool(r["ok"]) and known.get((r["teacher_id"], r["ip"])) == r["ts"]})
+    # сводка за 30 дней: сколько разных адресов и неудачных попыток у каждого учителя
+    since = now - 30 * 86400
+    summary = [dict(r, teacher=names.get(r["teacher_id"], "")) for r in db.q(
+        """SELECT teacher_id, COUNT(DISTINCT CASE WHEN ok=1 AND event IN ('login','signup') THEN ip END) AS ips,
+                  SUM(CASE WHEN event='login' AND ok=1 THEN 1 ELSE 0 END) AS logins,
+                  SUM(CASE WHEN event='login' AND ok=0 THEN 1 ELSE 0 END) AS fails,
+                  SUM(CASE WHEN event='action' THEN 1 ELSE 0 END) AS actions, MAX(ts) AS last
+           FROM teacher_log WHERE ts>? AND teacher_id IS NOT NULL GROUP BY teacher_id ORDER BY last DESC""", (since,))]
+    unknown_fails = db.q("SELECT COUNT(*) c FROM teacher_log WHERE ts>? AND event='login' AND ok=0 AND teacher_id IS NULL",
+                         (since,), one=True)["c"]
+    # до журнала (прежние версии ничего не записывали): когда создавались классы — чтобы сопоставить с подозрительным входом
+    w3, a3 = ("AND COALESCE(c.teacher_id, ?) = ?", (main_id, tid)) if tid else ("", ())
+    classes = [{"id": r["id"], "name": r["name"], "created": r["created"], "teacher_id": r["tid"], "teacher": names.get(r["tid"], ""),
+                "students": r["n"]}
+               for r in db.q(f"""SELECT c.id, c.name, c.created, COALESCE(c.teacher_id, ?) AS tid,
+                                        (SELECT COUNT(*) FROM students s WHERE s.class_id = c.id) AS n
+                                 FROM classes c WHERE COALESCE(c.is_demo, 0) = 0 AND c.created > ? {w3}
+                                 ORDER BY c.created DESC LIMIT 100""", (main_id, now - 90 * 86400, *a3))]
+    teachers = [{"id": r["id"], "name": r["name"]} for r in db.q("SELECT id, name FROM teachers WHERE COALESCE(guest, 0) = 0 ORDER BY is_main DESC, name")]
+    m = main_teacher()
+    code_login = {"on": login_code_ready(m), "to": mask_email(m["email"]), "email": bool(m["email"]), "smtp": bool(smtp_conf())}
+    return {"code_login": code_login, "sessions": sessions, "log": log, "summary": summary, "unknown_fails": unknown_fails, "classes": classes,
+            "teachers": teachers, "days": TLOG_DAYS, "now": now}
 
 
 def sessions_list(db, sid, cur=None):
@@ -704,7 +881,7 @@ TEXT_AUTHOR_RE = re.compile(r"^[(\[]([^()\[\]]{2,60})[)\]]")
 # Одно правило «задание банка» для всего сайта: тренажёр (app.js: isOutdated), задание дня, турниры, подбор и поиск
 # учителя, подборки курса. Менять — вместе с CFG.firstKegeYear и CFG.formatSince в app.js.
 FIRST_KEGE_YEAR = 2021                                  # первый компьютерный ЕГЭ — более ранние задания другого формата
-FORMAT_SINCE = {6: 2023, 22: 2023, 13: 2024, 27: 2025}  # с какого года номер на ЕГЭ в нынешнем виде
+FORMAT_SINCE = {6: 2023, 22: 2023, 23: 2024, 27: 2025}  # с какого года номер на ЕГЭ в нынешнем виде (нумерация КИМ-2027)
 
 
 def task_outdated(t):
@@ -1379,6 +1556,7 @@ class Bank:
             self.pubs = {}
             pub_tasks = []
             html_by_n = {}
+            kim.renumber(data.get("tasks", []))       # банк собран в нумерации 2026 → на сайте нумерация КИМ-2027
             for tid, was, now_n in clusters.fix_numbers(data.get("tasks", [])):
                 print(f"Банк: задание {tid} перенесено из №{was} в №{now_n}", flush=True)
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
@@ -1733,6 +1911,17 @@ class DB(Transactional):
             CREATE INDEX IF NOT EXISTS js_error_hits_e ON js_error_hits(error_id, ts);
             -- отменённые учителем ответы (кто-то зашёл в чужой аккаунт): строка попытки целиком (JSON) — чтобы вернуть;
             -- batch — одна отмена (промежуток), teacher_id — кто отменил
+            -- журнал безопасности учителей: входы (и неудачные попытки), выходы, смена пароля и все изменения в панели —
+            -- с адресом и устройством; sess — короткий отпечаток сессии (какие действия сделаны после какого входа)
+            CREATE TABLE IF NOT EXISTS teacher_log(
+                id INTEGER PRIMARY KEY, ts REAL NOT NULL, teacher_id INTEGER, event TEXT NOT NULL, ok INTEGER DEFAULT 1,
+                ip TEXT, ua TEXT, login TEXT, path TEXT, detail TEXT, sess TEXT);
+            CREATE INDEX IF NOT EXISTS teacher_log_t ON teacher_log(teacher_id, ts);
+            CREATE INDEX IF NOT EXISTS teacher_log_ts ON teacher_log(ts);
+            -- вход главного учителя в два шага: пароль верный → код на почту; ticket и код хранятся только хешами
+            CREATE TABLE IF NOT EXISTS admin_codes(
+                ticket TEXT PRIMARY KEY, teacher_id INTEGER NOT NULL, code TEXT NOT NULL, expires REAL NOT NULL,
+                tries INTEGER DEFAULT 0, ip TEXT, created REAL);
             CREATE TABLE IF NOT EXISTS attempts_void(
                 id INTEGER PRIMARY KEY, batch TEXT NOT NULL, student_id INTEGER NOT NULL, ts REAL, row TEXT NOT NULL,
                 void_ts REAL NOT NULL, teacher_id INTEGER, t_from REAL, t_to REAL);
@@ -1783,6 +1972,11 @@ class DB(Transactional):
                     ("exams", "saved_rev", "INTEGER DEFAULT 0"),
                     ("exams", "save_protocol", "INTEGER DEFAULT 0"),
                     ("admin_sessions", "teacher_id", "INTEGER"),
+                    ("admin_sessions", "created", "REAL"),            # вход учителя: когда, с какого адреса и устройства
+                    ("admin_sessions", "ip", "TEXT"),
+                    ("admin_sessions", "ua", "TEXT"),
+                    ("admin_sessions", "last_seen", "REAL"),          # последний запрос этой сессии и его адрес
+                    ("admin_sessions", "last_ip", "TEXT"),
                     ("classes", "goal_tasks", "INTEGER"),  # цель класса на неделю (заданий) — битва классов
                     ("classes", "goal_reward", "TEXT"),    # награда за цель, её задаёт учитель
                     ("classes", "battle", "INTEGER DEFAULT 0"),    # участвует ли класс в битве классов (решает учитель)
@@ -1922,6 +2116,7 @@ class DB(Transactional):
                         trial_started=CASE WHEN self_signup=1 AND until IS NOT NULL THEN created ELSE NULL END
                         WHERE id=?""", (int(confirmed), t['id']))
                 c.execute("INSERT INTO settings(key,value) VALUES('teacher_gate_v1','1')")
+            kim.migrate_db(c)                     # один раз: номера в журнале и прогрессе — в нумерации КИМ-2027
             if not c.execute("SELECT 1 FROM settings WHERE key='solution_history_seeded'").fetchone():
                 c.execute("INSERT INTO solution_history(student_id,task_id,code,ts) SELECT student_id,task_id,code,ts FROM solutions WHERE ts IS NOT NULL")
                 c.execute("INSERT INTO settings(key,value) VALUES('solution_history_seeded','1')")
@@ -2732,6 +2927,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     return f'{m.group(1)}="{m.group(2)}?v={int(st.st_mtime):x}{st.st_size:x}"'
                 except OSError:
                     return m.group(0)
+            html = HTML_COMMENT_RE.sub("", html)             # заметки разработчика в разметке посетителю не нужны
             body = PAGE_ASSET_RE.sub(ver, html).encode("utf-8")
             hit = (stamp, body, '"%s"' % hashlib.md5(body).hexdigest()[:16], gzip.compress(body, 6))
             _PAGE_CACHE[str(p)] = hit
@@ -3180,21 +3376,88 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "teacher_name": "" if s["self_reg"] else (teacher_of(s)["name"] or ""),
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
-    def admin_login(self, tid, seconds):
-        """Новая сессия учителя: строка Set-Cookie."""
+    def admin_login(self, tid, seconds, event="login"):
+        """Новая сессия учителя: строка Set-Cookie. Вход попадает в журнал безопасности с адресом и устройством."""
         tok = secrets.token_urlsafe(32)
-        APP.db.x("INSERT INTO admin_sessions(token,expires,teacher_id) VALUES(?,?,?)", (tok, time.time() + seconds, tid))
-        APP.db.x("DELETE FROM admin_sessions WHERE expires<?", (time.time(),))
+        now, ip, ua = time.time(), self.client_ip(), (self.headers.get("User-Agent") or "")[:300]
+        APP.db.x("INSERT INTO admin_sessions(token,expires,teacher_id,created,ip,ua,last_seen,last_ip) VALUES(?,?,?,?,?,?,?,?)",
+                 (tok, now + seconds, tid, now, ip, ua, now, ip))
+        APP.db.x("DELETE FROM admin_sessions WHERE expires<?", (now,))
+        self.tlog(event, tid, sess=sess_mark(tok))
         return f"egeadm={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age={int(seconds)}{self.cookie_attrs()}"
+
+    def admin_login_send_code(self, t, ip):
+        """Пароль главного учителя верный — второй шаг: код на его почту. Сессии ещё нет."""
+        db, now = APP.db, time.time()
+        db.x("DELETE FROM admin_codes WHERE expires<?", (now,))
+        if db.q("SELECT COUNT(*) c FROM admin_codes WHERE teacher_id=? AND created>?", (t["id"], now - 900), one=True)["c"] >= LOGIN_CODE_PER_15MIN:
+            return self.err(429, "Слишком много кодов подряд — подождите 15 минут и войдите снова")
+        ticket, code = secrets.token_urlsafe(24), f"{secrets.randbelow(10 ** 6):06d}"
+        db.x("INSERT INTO admin_codes(ticket, teacher_id, code, expires, ip, created) VALUES(?,?,?,?,?,?)",
+             (hashlib.sha256(ticket.encode()).hexdigest(), t["id"], login_code_hash(ticket, code), now + LOGIN_CODE_SEC, ip, now))
+        device = ua_label(self.headers.get("User-Agent") or "")
+        when = time.strftime("%d.%m.%Y %H:%M", time.localtime(now))
+        safe = html_mod.escape
+
+        def mail(to=t["email"], name=t["name"]):
+            try:
+                send_mail(to, f"Egeshka: код входа {code}",
+                          f"<p>{safe(name)}, код для входа в панель главного учителя:</p>"
+                          f"<p style='font-size:28px;font-weight:700;letter-spacing:6px'>{code}</p>"
+                          f"<p>Действует {LOGIN_CODE_SEC // 60} минут. Вход: {safe(when)}, адрес {safe(ip)}, {safe(device)}.</p>"
+                          "<p style='color:#c53030'>Если это были не вы — кто-то знает ваш пароль: смените его в панели (Настройки) "
+                          "и никому не сообщайте этот код.</p>",
+                          f"{name}, код для входа в панель главного учителя: {code}\n"
+                          f"Действует {LOGIN_CODE_SEC // 60} минут. Вход: {when}, адрес {ip}, {device}.\n"
+                          "Если это были не вы — кто-то знает ваш пароль: смените его и никому не сообщайте этот код.")
+            except Exception as e:
+                print(f"[код входа] {e!r}", flush=True)
+        threading.Thread(target=mail, daemon=True).start()
+        self.tlog("code", t["id"], detail="пароль верный, код отправлен на почту")
+        return self.send_json({"need_code": True, "ticket": ticket, "to": mask_email(t["email"]), "minutes": LOGIN_CODE_SEC // 60})
+
+    def admin_login_code(self, data, ip):
+        """Второй шаг входа главного учителя: код из письма → сессия."""
+        db, now = APP.db, time.time()
+        ticket = str(data.get("ticket") or "")
+        key = hashlib.sha256(ticket.encode()).hexdigest()
+        r = db.q("SELECT * FROM admin_codes WHERE ticket=?", (key,), one=True)
+        if not r or r["expires"] < now or r["tries"] >= LOGIN_CODE_TRIES:
+            if r:
+                db.x("DELETE FROM admin_codes WHERE ticket=?", (key,))
+            return self.err(410, "Код устарел — войдите заново, придёт новый")
+        code = re.sub(r"\D", "", str(data.get("code") or ""))
+        if not hmac.compare_digest(login_code_hash(ticket, code), r["code"]):
+            db.x("UPDATE admin_codes SET tries=tries+1 WHERE ticket=?", (key,))
+            THROTTLE.fail("admin", ip)
+            self.tlog("login", r["teacher_id"], ok=False, detail="неверный код из письма")
+            time.sleep(1.0)
+            left = LOGIN_CODE_TRIES - r["tries"] - 1
+            return self.err(403, f"Неверный код — осталось попыток: {left}" if left > 0 else "Неверный код — войдите заново, придёт новый")
+        db.x("DELETE FROM admin_codes WHERE ticket=?", (key,))
+        THROTTLE.ok("admin", ip)
+        return self.send_json({"ok": True}, extra={"Set-Cookie": self.admin_login(r["teacher_id"], ADMIN_SESSION_DAYS * 86400)})
+
+    def tlog(self, event, tid=None, *, ok=True, login=None, path=None, detail=None, sess=None):
+        """Строка журнала безопасности учителей: что, кто, когда, с какого адреса и устройства."""
+        if sess is None:
+            sess = sess_mark(self.cookie("egeadm") or "") if self.cookie("egeadm") else None
+        APP.db.x("""INSERT INTO teacher_log(ts, teacher_id, event, ok, ip, ua, login, path, detail, sess)
+                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                 (time.time(), tid, event, int(bool(ok)), self.client_ip(), (self.headers.get("User-Agent") or "")[:300],
+                  (login or "")[:120] or None, path, (detail or "")[:300] or None, sess))
 
     def is_admin(self):
         """Вошёл ли учитель; запоминает его в self.T (сессии без учителя — от прежних версий — главного)."""
         c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
         if "egeadm" not in c:
             return False
-        r = APP.db.q("SELECT expires, teacher_id FROM admin_sessions WHERE token=?", (c["egeadm"].value,), one=True)
+        r = APP.db.q("SELECT expires, teacher_id, last_seen, last_ip FROM admin_sessions WHERE token=?", (c["egeadm"].value,), one=True)
         if not (r and r["expires"] > time.time()):
             return False
+        ip = self.client_ip() if getattr(self, "client_address", None) else None
+        if ip and (ip != r["last_ip"] or time.time() - (r["last_seen"] or 0) > 120):   # последняя активность сессии и её адрес
+            APP.db.x("UPDATE admin_sessions SET last_seen=?, last_ip=? WHERE token=?", (time.time(), ip, c["egeadm"].value))
         t = APP.db.q("SELECT * FROM teachers WHERE id=?", (r["teacher_id"],), one=True) if r["teacher_id"] else main_teacher()
         if not t:
             return False
@@ -3856,6 +4119,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 for r in rows[:5]:
                     if not r["email"]:
                         continue
+                    if kind == "t":
+                        self.tlog("reset_request", r["id"], login=who, detail="запросили ссылку для нового пароля")
                     tok = secrets.token_urlsafe(24)
                     db.x("INSERT INTO pw_resets(token, kind, uid, expires, account_state) VALUES(?,?,?,?,?)",
                          (hashlib.sha256(tok.encode()).hexdigest(), kind, r["id"], time.time() + PW_RESET_SEC, reset_fingerprint(r)))
@@ -3892,6 +4157,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if r["kind"] == "t":
                 encoded = hash_pw(pw)
                 db.x("UPDATE teachers SET pw=?, email_ok=1 WHERE id=?", (encoded, r["uid"]))    # ссылка пришла на почту — адрес подтверждён
+                self.tlog("reset", r["uid"], detail="новый пароль по ссылке из письма")
                 if account["is_main"]:
                     db.setting("admin_password", encoded)
                 db.x("DELETE FROM admin_sessions WHERE COALESCE(teacher_id, ?)=?", (main_teacher()["id"], r["uid"]))
@@ -4224,7 +4490,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(403, "курс закрыт")
             n = to_int(qs.get("n"))
             f = HERE / "course" / f"{n}.json"
-            if not (n and 1 <= n <= 27 and f.is_file()):
+            if not (n in kim.ALL_NUMS and f.is_file()):
                 return self.send_json(course_guide(n))
             try:
                 return self.send_json(json.loads(f.read_text(encoding="utf-8")))
@@ -4250,7 +4516,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             n, sl, tot = to_int(data.get("n")), to_int(data.get("slide")), to_int(data.get("total"))
-            if not (n and 1 <= n <= 27 and sl and 0 < sl <= (tot or 0) <= 200):
+            if not (n in kim.ALL_NUMS and sl and 0 < sl <= (tot or 0) <= 200):
                 return self.err(400, "неверные данные")
             db.x("""INSERT INTO course_seen(student_id, n, slide, total, ts) VALUES(?,?,?,?,?)
                     ON CONFLICT(student_id, n) DO UPDATE SET slide=MAX(slide, excluded.slide), total=excluded.total, ts=excluded.ts""",
@@ -4980,7 +5246,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             sent = send_confirm(db, "t", t)
             return self.send_json({"ok": True, "until": until, "email_need": True,
                                    "email_sent": sent is True, "onboarding": teacher_onboarding(t)},
-                                  extra={"Set-Cookie": self.admin_login(tid, ADMIN_SESSION_DAYS * 86400)})
+                                  extra={"Set-Cookie": self.admin_login(tid, ADMIN_SESSION_DAYS * 86400, "signup")})
 
         if path == "/api/teacher/guest" and method == "POST":
             return self.err(403, "Для доступа зарегистрируйтесь, подтвердите почту и пройдите модерацию главного учителя")
@@ -4991,13 +5257,21 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             wait = THROTTLE.blocked("admin", ip)
             if wait:
                 return self.err(429, self.wait_msg(wait))
+            if data.get("ticket"):
+                return self.admin_login_code(data, ip)
             login = str(data.get("login") or "").strip().lower()
             t = (db.q("SELECT * FROM teachers WHERE (lower(login)=? OR lower(email)=?) AND COALESCE(guest, 0)=0", (login, login), one=True)
                  if login else db.q("SELECT * FROM teachers WHERE is_main=1", one=True))
             if t and check_pw(str(data.get("password") or ""), t["pw"]):
                 THROTTLE.ok("admin", ip)
+                if t["is_main"] and login_code_ready(t):
+                    return self.admin_login_send_code(t, ip)
+                if t["is_main"]:
+                    self.tlog("login", t["id"], detail="без кода из письма: почта для входа не настроена")
                 return self.send_json({"ok": True}, extra={"Set-Cookie": self.admin_login(t["id"], ADMIN_SESSION_DAYS * 86400)})
             THROTTLE.fail("admin", ip)
+            self.tlog("login", t["id"] if t else None, ok=False, login=login or "(главный)",
+                      detail="неверный пароль" if t else "нет такого учителя")
             time.sleep(1.0)
             return self.err(403, "Неверный логин или пароль")
 
@@ -5017,6 +5291,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if method == "POST":
                 with _GS_LOCK:
                     _LB_PEOPLE.clear()          # учитель поменял классы, учеников, цели — рейтинг соберём заново
+                if path not in TLOG_SKIP:
+                    self.tlog("action", self.T["id"], path=path[len("/api/admin/"):], detail=tlog_detail(data))
             return self.admin_api(method, path, qs, data)
 
         return self.err(404, "нет такого метода")
@@ -5641,6 +5917,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                                   for x in (d.get(k) or [])] for k in ARDUINO_TRACKS}})
 
         if path == "/api/admin/logout" and method == "POST":
+            self.tlog("logout", self.T["id"])
             c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
             if "egeadm" in c:
                 db.x("DELETE FROM admin_sessions WHERE token=?", (c["egeadm"].value,))
@@ -5989,11 +6266,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not check_pw(str(data.get("old") or ""), self.T["pw"]):
                 THROTTLE.fail("admin", ip)
                 self._account_delay = 1.0
+                self.tlog("password", self.T["id"], ok=False, detail="неверный текущий пароль при смене")
                 return self.err(403, "Текущий пароль неверный")
             new = str(data.get("new") or "")
             if len(new) < 6:
                 return self.err(400, "Новый пароль — не короче 6 символов")
             db.x("UPDATE teachers SET pw=? WHERE id=?", (hash_pw(new), self.T["id"]))
+            self.tlog("password", self.T["id"], detail="сменил пароль, остальные входы завершены")
             if self.T["is_main"]:
                 db.setting("admin_password", hash_pw(new))
             # остальные сессии этого учителя (например, на забытом компьютере) больше не действуют
@@ -6237,7 +6516,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(503, "банк заданий не собран")
             sets = course_sets_all(True)
             lessons = []
-            for n in range(1, 28):
+            for n in kim.ALL_NUMS:
                 f = HERE / "course" / f"{n}.json"
                 if f.is_file():
                     try:
@@ -6763,6 +7042,25 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     levels.append({"title": lv["title"], "need": lv["need"], "tasks": tasks})
                 mods.append({"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"], "levels": levels})
             return self.send_json({"name": st["name"], "modules": mods})
+
+        if path in ("/api/admin/security", "/api/admin/security/end"):
+            # входы учителей и журнал их действий с адресами — только главному учителю
+            if not self.T["is_main"]:
+                return self.err(403, "Входы учителей видит главный учитель")
+            if path == "/api/admin/security/end" and method == "POST":
+                tid, mark = to_int(data.get("teacher_id")), str(data.get("sess") or "")
+                cur = sess_mark(self.cookie("egeadm") or "")
+                ended = 0
+                for r in db.q("SELECT token, teacher_id FROM admin_sessions"):
+                    rt = r["teacher_id"] or main_teacher()["id"]
+                    m = sess_mark(r["token"])
+                    if m == cur or not ((mark and m == mark) or (not mark and tid and rt == tid)):
+                        continue
+                    db.x("DELETE FROM admin_sessions WHERE token=?", (r["token"],))
+                    self.tlog("end", rt, detail=f"завершил: {self.T['name']}", sess=m)
+                    ended += 1
+                return self.send_json({"ok": True, "ended": ended})
+            return self.send_json(teacher_security(db, to_int(qs.get("teacher_id")), cur=sess_mark(self.cookie("egeadm") or "")))
 
         if path == "/api/admin/jserr":
             # ошибки JavaScript у учеников и учителей — только главному учителю
@@ -7677,7 +7975,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                                 for x in teacher_asg_archive(db, self.T["id"], q, None, 80)]})
             if q:
                 n = to_int(q)
-                if n and 1 <= n <= 27 and q.isdigit():
+                if n in kim.ALL_NUMS and q.isdigit():
                     pool = bank_pool({n}, authored_ok=bool(self.T["authored"]))
                     pick = secrets.SystemRandom().sample(pool, min(8, len(pool)))
                     return self.send_json({"tasks": [item(i, "случайное") for i in pick]})
@@ -7755,7 +8053,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     bad[key] = bad.get(key, 0) + 1
             solved = {r["t"] for r in db.q(f"SELECT DISTINCT COALESCE(grp, task_id) AS t FROM attempts WHERE score > 0 AND student_id IN ({ph})", ids)}
             rnd = secrets.SystemRandom()
-            names = {n: dict(clusters.labels(n)) for n in range(1, 28)}
+            names = {n: dict(clusters.labels(n)) for n in kim.ALL_NUMS}
             out, why = [], []
             for (n, c), cnt in sorted(bad.items(), key=lambda x: -x[1]):
                 if len(out) >= k:
@@ -7840,7 +8138,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             else:
                 secrets.SystemRandom().shuffle(out)
             page, per = max(0, to_int(qs.get("page")) or 0), 40
-            names = {n: dict(v) for n, v in ((n, clusters.labels(n)) for n in range(1, 28))}
+            names = {n: dict(v) for n, v in ((n, clusters.labels(n)) for n in kim.ALL_NUMS)}
             row = lambda t, tries, share: {
                 "id": t["id"], "n": t.get("n"), "c": t.get("c"), "cname": names.get(t.get("n"), {}).get(t.get("c"), ""),
                 "r": t.get("r"), "bank": APP.bank.titles.get(t.get("bank"), t.get("bank")), "y": t.get("y"),
@@ -10251,13 +10549,14 @@ def _game_summary(db, sid, brief=False, windows=None):
         # уже решённое или с подсмотренным ответом — ни опыта, ни огонька, ни серий, ни достижений (см. reward_skips)
         if skip:
             if (r["score"] or 0) > 0 and not brief:
-                xplog.append((r["ts"], 0, f"№{r['n']} — уже решено или ответ был показан"))
+                xplog.append((r["ts"], 0, f"№{kim.label(r['n'])} — уже решено или ответ был показан"))
             continue
         fd = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
         fire_days[fd] = fire_days.get(fd, 0) + 1
         if r["exam"]:
             continue
         ts, tid = r["ts"], r["task_id"]
+        kn = kim.score_num(r["n"], ts)       # номер для опыта, ₿ и достижений: до перехода на КИМ-2027 — прежний
         lt = time.localtime(ts)
         day = time.strftime("%Y-%m-%d", lt)
         fun = ACH_CLOCK(ts)                    # час, день недели и дата — для «забавных» достижений
@@ -10267,7 +10566,7 @@ def _game_summary(db, sid, brief=False, windows=None):
         days.add(day)
         if r["gave_up"]:
             cnt["peek"] += 1
-        if r["n"] == 27 and not seen27:
+        if kn == 27 and not seen27:
             seen27 = True
             if r["score"] == 1:
                 cnt["lucky"] = 1
@@ -10284,13 +10583,13 @@ def _game_summary(db, sid, brief=False, windows=None):
                 cnt["dejavu"] = 1
             if 12 <= fun.tm_hour < 14:
                 lunch_of[day] = lunch_of.get(day, 0) + 1
-            nums_of.setdefault(day, set()).add(r["n"])
+            nums_of.setdefault(day, set()).add(kn)
             if r["spent_ms"] and r["spent_ms"] >= 30 * 60000:
                 cnt["snail"] = 1
-            cnt["binge"] = cnt["binge"] + 1 if r["n"] == binge_n else 1
-            binge_n = r["n"]
+            cnt["binge"] = cnt["binge"] + 1 if kn == binge_n else 1
+            binge_n = kn
             cnt["best_binge"] = max(cnt["best_binge"], cnt["binge"])
-            if r["n"] == 6:
+            if kn == 6:
                 cnt["turtle"] += 1
             if r["score"] == 1 and r["spent_ms"] is not None and 0 < r["spent_ms"] < 20000:
                 cnt["flash"] = 1
@@ -10307,11 +10606,11 @@ def _game_summary(db, sid, brief=False, windows=None):
                 cnt["newyear"] = 1
             # решено слишком быстро (быстрее минуты, №24–27 — быстрее HARD_MIN_MS) — похоже на подсмотренный ответ:
             # вместо опыта −1 XP, задание не считается решённым; быстрее 30 секунд, а у №24–27 — всегда, ещё и −1 ₿
-            lim = answer_min_ms(r["n"], ts)
+            lim = answer_min_ms(kn, ts)
             fast = r["spent_ms"] is not None and r["spent_ms"] < lim and ts >= fast_since
             first_time = tid not in solved and not fast
             if fast:
-                gain(FAST_XP_PENALTY, ts, f"№{r['n']} — решено быстрее {min_text(lim)}")
+                gain(FAST_XP_PENALTY, ts, f"№{kim.label(r['n'])} — решено быстрее {min_text(lim)}")
                 if (r["spent_ms"] < BTC_FAST_MS or lim > FAST_XP_MS) and ts >= btc_since:
                     cnt["btc_fast"] += 1           # быстрее 30 секунд — ещё и −1 ₿
                     if ts >= day_cut:
@@ -10321,11 +10620,11 @@ def _game_summary(db, sid, brief=False, windows=None):
                             rank_btc[k] -= BTC_FAST_FINE
             else:
                 if tid not in solved:              # опыт — только за первое решение задания, откуда бы ни пришёл ответ
-                    gain(round(task_xp(r["n"], (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
-                         f"№{r['n']} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"), "task")
+                    gain(round(task_xp(kn, (APP.bank.tasks.get(tid) or {}).get("r")) * (1 if r["score"] == 1 else 0.5)), ts,
+                         f"№{kim.label(r['n'])} — решено" + ("" if r["score"] == 1 else " со 2-й попытки"), "task")
                     # и бонус ₿ по номеру; самостоятельная считается целиком, как вариант (ниже)
                     if ts >= task_since and r["reason"] != WORK_REASON and not (cheat and cheat[0] <= ts < cheat[1]):
-                        bonus = (TASK_BTC.get(r["n"] or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2)) * earn_at(db, ts)
+                        bonus = (TASK_BTC.get(kn or 0, 0) * (1 if r["score"] == 1 else Fraction(1, 2)) * earn_at(db, ts)
                                  * promo_mult(db, ts, "task") * Fraction(100 + fire_pct(ts), 100))
                         task_btc += bonus
                         earn(bonus, ts)
@@ -10334,10 +10633,10 @@ def _game_summary(db, sid, brief=False, windows=None):
                 solved.add(tid)
                 if tid in failed:
                     cnt["fix"] += 1
-                if (r["n"] or 0) >= 24:
+                if (kn or 0) >= 24:
                     cnt["hard"] += 1
-            if r["n"]:
-                nums.add(r["n"])
+            if kn:
+                nums.add(kn)
             per_day[day] = per_day.get(day, 0) + (0 if fast else 1)
             if per_day[day] == 5 and not fast:
                 gain(15, ts, "5 заданий за день", "task")  # бонус за день: 5 решённых
@@ -11523,7 +11822,7 @@ def course_sets_all(authored_ok):
         tasks = [t for t in APP.bank.tasks.values() if bank_ok(t, authored_ok=authored_ok)]
         for k in [k for k in _CSETS if k[0] != APP.bank.etag]:
             del _CSETS[k]                # банк пересобрали — старые подборки не нужны
-        _CSETS[key] = {n: clusters.course_sets(tasks, n) for n in range(1, 28) if n not in (20, 21)}
+        _CSETS[key] = {n: clusters.course_sets(tasks, n) for n in kim.ALL_NUMS if n not in (20, 21)}
     return _CSETS[key]
 
 
@@ -11682,14 +11981,14 @@ def asg_archive_html(db, teacher, asg_ids):
     kind = ASG_KINDS.get(asgs[0]["kind"] or "self", "Работа")
     label = lambda t: dict(clusters.labels(t.get("n"))).get(t.get("c"), "")
     # КИМ: задания всех подборок по порядку (у личных подборок — объединение), игры 19–21 — один раз
-    kim, seen = [], set()
+    order, seen = [], set()
     for a in asgs:
         for i in json.loads(a["tasks"] or "[]"):
             t = tasks.get(i)
             if t and i not in seen:
                 seen.add(i)
-                kim.append(t)
-    num_of = {t["id"]: k + 1 for k, t in enumerate(kim)}
+                order.append(t)
+    num_of = {t["id"]: k + 1 for k, t in enumerate(order)}
     people, rows_html = [], []
     for a in asgs:
         real = [i for i in json.loads(a["tasks"] or "[]") if i in tasks]
@@ -11766,7 +12065,7 @@ def asg_archive_html(db, teacher, asg_ids):
             rows_html.append("".join(out))
     # КИМ
     kim_html = []
-    for k, t in enumerate(kim, 1):
+    for k, t in enumerate(order, 1):
         pub = APP.bank.pubs.get(t["id"]) or {}
         ans = (" | ".join(f"{p.get('n')}: {p.get('ans', '')}" for p in t["parts"]) if t.get("parts") else t.get("ans", ""))
         att = "".join(f'<a href="{E(x["href"])}">{E(x["name"])}</a> ' for x in pub.get("att") or [])
@@ -12588,8 +12887,14 @@ def send_mail(to, subject, html_body, text_body):
     import smtplib
     import ssl
     from email.message import EmailMessage
+    from email.utils import formatdate, make_msgid, parseaddr
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, c["SMTP_FROM"], to
+    # без даты и Message-ID почтовые сервисы (Яндекс, Mail.ru, Gmail) чаще считают письмо спамом
+    domain = (parseaddr(c["SMTP_FROM"])[1].rpartition("@")[2] or "egeshka.online").strip().lower()
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=domain)
+    msg["Auto-Submitted"] = "auto-generated"          # служебное письмо: автоответчики на него не отвечают
     msg.set_content(text_body)
     msg.add_alternative(html_body, subtype="html")
     port = int(c["SMTP_PORT"] or 465)

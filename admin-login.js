@@ -10,6 +10,23 @@
   if (location.protocol === 'file:') err.textContent = 'Панель работает только через сервер: запустите python server.py и откройте http://localhost:8000/admin';
   if (new URLSearchParams(location.search).has('switch')) history.replaceState(null, '', location.pathname);
 
+
+  // вход главного учителя в два шага: пароль верный → код из письма на его почту
+  let codeTicket = null;
+  function codeStep(d) {
+    codeTicket = d ? d.ticket : null;
+    $('#admLogin').hidden = !!d; $('#admPassword').hidden = !!d; $('#admPassword').required = !d;
+    $('#admCode').hidden = !d; $('#admCode').required = !!d; $('#admCodeBack').hidden = !d;
+    $('#admCodeNote').hidden = !d;
+    if (d) {
+      $('#admCodeNote').textContent = `Пароль верный. Код для входа отправлен на ${d.to || 'вашу почту'} — действует ${d.minutes || 10} минут (если письма нет, проверьте «Спам»).`;
+      $('#admCode').value = '';
+      setTimeout(() => $('#admCode').focus(), 30);
+    } else { $('#admPassword').value = ''; setTimeout(() => $('#admPassword').focus(), 30); }
+  }
+  $('#admCodeBack').addEventListener('click', () => { codeStep(null); $('#admLoginErr').textContent = ''; });
+  const loginBody = () => (codeTicket ? { ticket: codeTicket, code: $('#admCode').value }
+    : { login: $('#admLogin').value, password: $('#admPassword').value });
   $('#admLoginForm').addEventListener('submit', async e => {
     e.preventDefault();
     const btn = e.target.querySelector('button');
@@ -19,10 +36,12 @@
     try {
       const r = await fetch('api/admin/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-        body: JSON.stringify({ login: $('#admLogin').value, password: $('#admPassword').value })
+        body: JSON.stringify(loginBody())
       });
       const d = await r.json().catch(() => ({}));
+      if (r.status === 410) codeStep(null);
       if (!r.ok) throw new Error(d.error || 'Ошибка входа');
+      if (d.need_code) { codeStep(d); btn.disabled = false; return; }
       $('#admPassword').value = '';
       location.reload();
     } catch (x) {
