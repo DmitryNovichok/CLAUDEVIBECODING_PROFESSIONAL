@@ -25,10 +25,10 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from deploy.snapshot import digest, release_info, verify
+from deploy.migration_evidence import (PROTECTED_TABLES, changed_values,
+                                       relationship_violations, stored_values)
 
 FORMAT = 1
-PROTECTED_TABLES = ('students', 'teachers', 'classes', 'assignments', 'attempts',
-                    'solutions', 'pyc_progress', 'support', 'together')
 
 
 def record(name, status, evidence, detail=None):
@@ -164,8 +164,13 @@ def https_checks(url, expected_version):
                                      'verified_tls_get_welcome'))
             else:
                 data = json.loads(body)
-                ok = data.get('ok') is True and bool(expected_version) and data.get('version') == expected_version
-                checks.append(record('public_running_release', 'pass' if ok else 'fail', 'verified_tls_get_health'))
+                if not isinstance(data, dict):
+                    raise ValueError('invalid health response')
+                safe_version = lambda value: value if isinstance(value, str) and re.fullmatch(r'\d+\.\d+\.\d+', value) else None
+                expected, reported = safe_version(expected_version), safe_version(data.get('version'))
+                ok = data.get('ok') is True and expected is not None and reported == expected
+                checks.append(record('public_running_release', 'pass' if ok else 'fail', 'verified_tls_get_health',
+                                     {'expected_version': expected, 'reported_version': reported}))
         except (OSError, ValueError, TypeError, http.client.HTTPException):
             checks.append(record('public_https_headers' if route == '/welcome' else 'public_running_release',
                                  'fail', 'tls_or_http_check_failed'))
@@ -188,9 +193,15 @@ def schema_digest(connection):
 def migration_worker(database, output, app):
     # Runs in a separate process with an empty private policy and no inherited
     # EGE_* routing. Importing server does not start the HTTP server or mail loop.
+    # Only reviewed application code belongs here. Python audit hooks prevent
+    # accidental network/process use, not hostile native-code execution; this
+    # subprocess is not an operating-system sandbox for untrusted releases.
     def block_network(event, args):
-        if event in ('socket.connect', 'socket.connect_ex', 'socket.bind', 'socket.getaddrinfo'):
-            raise RuntimeError('network disabled during migration rehearsal')
+        if event in ('socket.__new__', 'socket.connect', 'socket.connect_ex',
+                     'socket.bind', 'socket.getaddrinfo', 'socket.sendto', 'socket.sendmsg',
+                     'subprocess.Popen', 'os.system', 'os.exec', 'os.posix_spawn',
+                     'os.spawn', 'os.fork', 'os.forkpty'):
+            raise RuntimeError('network and child processes disabled during migration rehearsal')
     sys.addaudithook(block_network)
     sys.path.insert(0, str(app))
     import server
@@ -198,35 +209,50 @@ def migration_worker(database, output, app):
         raise RuntimeError('migration release not found')
     with closing(sqlite3.connect(database)) as before:
         original = database_inventory(before)
+        original_values = stored_values(before)
+        original_links = relationship_violations(before)
     first = server.DB(Path(database))
     try:
         migrated = database_inventory(first.conn)
+        value_changes = changed_values(original_values, stored_values(first.conn,
+            {table: item['columns'] for table, item in original_values.items()}))
+        first_values = stored_values(first.conn)
+        links = relationship_violations(first.conn)
         schema = schema_digest(first.conn)
         integrity = first.conn.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
     finally:
         first.conn.close()
     second = server.DB(Path(database))
     try:
-        stable = migrated == database_inventory(second.conn) and schema == schema_digest(second.conn)
+        second_changes = changed_values(first_values, stored_values(second.conn))
+        stable = (migrated == database_inventory(second.conn) and schema == schema_digest(second.conn)
+                  and not second_changes and links == relationship_violations(second.conn))
         integrity = integrity and second.conn.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
     finally:
         second.conn.close()
     changes = {name: {'before': count, 'after': migrated.get(name)}
                for name, count in original.items() if migrated.get(name) != count}
     Path(output).write_text(json.dumps({'integrity': integrity, 'second_start_stable': stable,
-                                      'record_count_changes': changes, 'protected_tables': len(original)}))
+                                      'record_count_changes': changes, 'record_value_changes': value_changes,
+                                      'second_start_value_changes': second_changes,
+                                      'relationship_violations': links,
+                                      'introduced_relationship_violations': {
+                                          key: count for key, count in links.items()
+                                          if count > original_links.get(key, 0)},
+                                      'protected_tables': len(original),
+                                      'protected_table_names': list(original)}))
 
 
-def migration_check(database, app, anonymized=False, timeout=120):
+def migration_check(database, app, anonymized=False, timeout=120, private_local_copy=False):
     source = Path(database)
-    if not anonymized:
+    if not anonymized and not private_local_copy:
         return record('old_database_migration', 'pending', 'anonymized_input_confirmation_required')
-    if source.is_symlink() or not source.is_file() or any(Path(str(source) + suffix).exists() for suffix in ('-wal', '-journal')):
+    if source.is_symlink() or not source.is_file() or any(Path(str(source) + suffix).exists() for suffix in ('-wal', '-shm', '-journal')):
         return record('old_database_migration', 'fail', 'requires_closed_regular_sqlite_copy')
     if not (Path(app) / 'server.py').is_file():
         return record('old_database_migration', 'fail', 'migration_release_not_found')
-    before = digest(source)
     try:
+        before = digest(source)
         with tempfile.TemporaryDirectory(prefix='ege-migration-acceptance-') as temp:
             temp = Path(temp)
             copy = temp / 'trainer.db'
@@ -245,13 +271,17 @@ def migration_check(database, app, anonymized=False, timeout=120):
                 return record('old_database_migration', 'fail', 'isolated_migration_failed')
             data = json.loads(output.read_text())
             unchanged = digest(source) == before
-            ok = data['integrity'] and data['second_start_stable'] and unchanged
+            ok = (data['integrity'] and data['second_start_stable'] and unchanged
+                  and not data['introduced_relationship_violations'])
             # Migrations can intentionally retire invalid attempts. A successful
             # SQL upgrade is not approval of changed educational records.
-            status = 'fail' if not ok else ('pending' if data['record_count_changes'] else 'pass')
-            return record('old_database_migration', status, 'isolated_anonymized_copy',
+            changes_need_review = (data['record_count_changes'] or data['record_value_changes']
+                                   or data['relationship_violations'])
+            status = 'fail' if not ok else ('pending' if changes_need_review else 'pass')
+            return record('old_database_migration', status,
+                          'isolated_anonymized_copy' if anonymized else 'isolated_private_local_copy',
                           {**data, 'source_unchanged': unchanged, 'source_sha256': before,
-                           'scope': 'schema, integrity and protected record counts; not complete semantic validation'})
+                           'scope': 'schema, integrity, protected stored values and ownership links; not educational or UI validation'})
     except (OSError, ValueError, sqlite3.Error, subprocess.SubprocessError) as exc:
         return record('old_database_migration', 'fail', 'isolated_migration_failed', {'error_type': type(exc).__name__})
 
@@ -299,14 +329,14 @@ def container_report_check(path, revision=None):
 
 
 def inspect(app, archive=None, url=None, migration_db=None, anonymized=False, probe_runner=False,
-            runner_report=None, revision=None):
+            runner_report=None, revision=None, private_local_copy=False, expected_version=None):
     app = Path(app).resolve()
     release = release_info(app)
     checks = local_checks(app)
     checks.append(snapshot_check(archive, app) if archive else record('full_snapshot', 'pending', 'archive_not_supplied'))
-    checks += https_checks(url, release['version']) if url else [record('public_https_headers', 'pending', 'https_origin_not_supplied'),
+    checks += https_checks(url, expected_version if expected_version is not None else release['version']) if url else [record('public_https_headers', 'pending', 'https_origin_not_supplied'),
                                                                record('public_running_release', 'pending', 'https_origin_not_supplied')]
-    checks.append(migration_check(migration_db, app, anonymized) if migration_db else
+    checks.append(migration_check(migration_db, app, anonymized, private_local_copy=private_local_copy) if migration_db else
                   record('old_database_migration', 'pending', 'anonymized_old_database_not_supplied'))
     checks.append(runner_check() if probe_runner else record('installed_runner_smoke', 'pending', 'runner_probe_not_requested'))
     checks.append(container_report_check(runner_report, revision) if runner_report else
@@ -336,8 +366,11 @@ def main():
     parser.add_argument('--app', type=Path, default=Path('/opt/trainer'))
     parser.add_argument('--archive', type=Path, help='retrieved full snapshot; verify only, no production restore')
     parser.add_argument('--url', help='HTTPS origin; sends unauthenticated GETs only')
+    parser.add_argument('--expected-version', help='target release for the public health check, for example 2.74.0')
     parser.add_argument('--migration-db', type=Path, help='closed anonymized copy of an old SQLite database')
     parser.add_argument('--anonymized', action='store_true', help='confirm the supplied DB was anonymized outside this tool')
+    parser.add_argument('--private-local-copy', action='store_true',
+                        help='rehearse a closed private DB snapshot locally; no anonymization or upload is performed')
     parser.add_argument('--probe-runner', action='store_true', help='run fixed harmless program through installed isolated service')
     parser.add_argument('--runner-report', type=Path, help='fresh JSON report of all four mandatory container tests')
     parser.add_argument('--revision', help='expected 40-character Git commit SHA for container report evidence')
@@ -345,7 +378,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     result = inspect(args.app, args.archive, args.url, args.migration_db, args.anonymized,
-                     args.probe_runner, args.runner_report, args.revision)
+                     args.probe_runner, args.runner_report, args.revision, args.private_local_copy, args.expected_version)
     text = json.dumps(result, ensure_ascii=False, indent=2) + '\n'
     if args.output:
         # Do not overwrite a report or accidentally follow a production symlink.

@@ -25,8 +25,8 @@
       "source": "9c16fec2138d703509dcb3967809822c14d00cfb8a082dc752bc6f78954f4863"
     },
     "changelog-loader.js": {
-      "min": "0c53ae0ff8db4af900582735ac2464a0461f3ba86b396999227c7efcbe00f03b",
-      "source": "34941287af25b33439a735d0ae74ce7272d0903b3e515ccb4d28102df6cf694f"
+      "min": "dc09a63600d263d1a34af91a28b2b0f3ff96b4cef6073f7ae900bf2a2375dfad",
+      "source": "5aa73cf2d020221bc7f0d13c79c3f846b693dcdf924ce6b1fe201e41dcbdc268"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -57,8 +57,8 @@
       "source": "7245b4f9f02a6271123ce9713ff25717a5d1b57b21a10713ee5627f06b169e6e"
     },
     "skill-coverage.js": {
-      "min": "93465c82dfe733d91711131406b6fd2b63e9788ef910a397456d6da054e66497",
-      "source": "1c9a0cb78564718c0483b6ff13e0aca44732b5b30cc8237a8580040ed1822dc5"
+      "min": "9661dee9ed38ef0c4446758d2c79c43ece960d4dd65301088c786082a1e87220",
+      "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
       "min": "deea138ef646ac86b0bfd1264732a847f3a5aa2bdff73fb3c8374bdd57214744",

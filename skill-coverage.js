@@ -8,9 +8,9 @@
   const results = document.getElementById('skillRows'), retry = document.getElementById('skillRetry');
   const esc = text => String(text ?? '').replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
   let report = null, loading = false;
-  const label = row => row.archive ? 'Архив 23_old' : '№' + row.exam_nums.join('–');
+  const label = row => row.archive ? 'Архив ' + (row.archive_label || '23_old') : '№' + row.exam_nums.join('–');
   function evidence(item) {
-    if (item.kind === 'lesson') return `Урок №${item.n} · слайд ${item.slide}: ${esc(item.title)}`;
+    if (item.kind === 'lesson') return `${esc(item.label || 'Урок №' + item.n)} · слайд ${item.slide}: ${esc(item.title)}`;
     if (item.kind === 'lab') return `Лаборатория «${esc(item.title)}»: отдельная учебная модель`;
     const count = item.tasks_scope === 'selected_examples' ? `подобрано примеров: ${item.linked_tasks}` : `задач в связанном уровне: ${item.linked_tasks}; это не счётчик навыка`;
     return `Python · уровень ${item.level} «${esc(item.title)}» (${count})${item.slides?.length ? '<br>' + item.slides.map(s => `Слайд ${s.slide}: ${esc(s.title)}`).join('; ') : ''}`;

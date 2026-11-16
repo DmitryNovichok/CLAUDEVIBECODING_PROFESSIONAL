@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import socket
 import sqlite3
 import tempfile
 import unittest
@@ -151,6 +152,239 @@ class OperationsAcceptanceTest(unittest.TestCase):
         self.assertEqual(acceptance.migration_check(link, ROOT, anonymized=True)['status'], 'fail')
         Path(str(self.database) + '-wal').touch()
         self.assertEqual(acceptance.migration_check(self.database, ROOT, anonymized=True)['status'], 'fail')
+
+    def test_unreadable_snapshot_is_a_sanitized_failure(self):
+        with mock.patch.object(acceptance, 'digest', side_effect=PermissionError('private-path-not-for-report')):
+            result = acceptance.migration_check(self.database, ROOT, anonymized=True)
+        self.assertEqual(result['status'], 'fail')
+        self.assertEqual(result['detail']['error_type'], 'PermissionError')
+        self.assertNotIn('private-path-not-for-report', json.dumps(result))
+
+    def test_same_count_value_change_requires_review_and_does_not_leak_data(self):
+        old = self.root / 'private-old.db'
+        with sqlite3.connect(old) as db:
+            db.executescript('CREATE TABLE students(id INTEGER PRIMARY KEY, name TEXT);'
+                             'CREATE TABLE attempts(id INTEGER PRIMARY KEY, student_id INTEGER, score REAL, answers TEXT);'
+                             "INSERT INTO students VALUES(1,'private-name-do-not-report');"
+                             "INSERT INTO attempts VALUES(1,1,0,'private-answer-do-not-report');")
+        before = old.read_bytes()
+        (self.app / 'server.py').write_text('''import sqlite3
+class DB:
+    def __init__(self, path):
+        self.conn=sqlite3.connect(path)
+        self.conn.execute('UPDATE attempts SET score=1 WHERE id=1')
+        self.conn.commit()
+''')
+        result = acceptance.migration_check(old, self.app, private_local_copy=True)
+        self.assertEqual(result['status'], 'pending', result)
+        self.assertEqual(result['detail']['record_count_changes'], {})
+        self.assertEqual(set(result['detail']['record_value_changes']), {'attempts'})
+        self.assertTrue(result['detail']['second_start_stable'])
+        self.assertEqual(result['evidence'], 'isolated_private_local_copy')
+        self.assertEqual(old.read_bytes(), before)
+        for value in ('private-name-do-not-report', 'private-answer-do-not-report', 'fingerprint'):
+            self.assertNotIn(value, json.dumps(result))
+
+    def test_second_start_cannot_change_rewards_even_when_counts_and_schema_match(self):
+        old = self.root / 'rewards.db'
+        with sqlite3.connect(old) as db:
+            db.executescript('CREATE TABLE students(id INTEGER PRIMARY KEY);'
+                             'CREATE TABLE coins(id INTEGER PRIMARY KEY,student_id INTEGER,delta INTEGER);'
+                             'INSERT INTO students VALUES(1); INSERT INTO coins VALUES(1,1,100);')
+        (self.app / 'server.py').write_text('''import sqlite3
+class DB:
+    def __init__(self, path):
+        self.conn=sqlite3.connect(path)
+        self.conn.execute('UPDATE coins SET delta=delta+10')
+        self.conn.commit()
+''')
+        result = acceptance.migration_check(old, self.app, private_local_copy=True)
+        self.assertEqual(result['status'], 'fail', result)
+        self.assertEqual(result['detail']['record_count_changes'], {})
+        self.assertFalse(result['detail']['second_start_stable'])
+        self.assertEqual(set(result['detail']['second_start_value_changes']), {'coins'})
+
+    def test_mcko_score_change_is_reviewed_and_reports_exact_protected_tables(self):
+        old = self.root / 'mcko-score.db'
+        with sqlite3.connect(old) as db:
+            db.executescript('CREATE TABLE students(id INTEGER PRIMARY KEY);'
+                             'CREATE TABLE mcko_runs(id INTEGER PRIMARY KEY,student_id INTEGER,score INTEGER);'
+                             'CREATE TABLE private_unrelated_table(id INTEGER PRIMARY KEY);'
+                             'INSERT INTO students VALUES(1); INSERT INTO mcko_runs VALUES(1,1,2);')
+        (self.app / 'server.py').write_text('''import sqlite3
+class DB:
+    def __init__(self, path):
+        self.conn=sqlite3.connect(path)
+        self.conn.execute('UPDATE mcko_runs SET score=99')
+        self.conn.commit()
+''')
+        result = acceptance.migration_check(old, self.app, private_local_copy=True)
+        self.assertEqual(result['status'], 'pending', result)
+        detail = result['detail']
+        self.assertEqual(detail['record_count_changes'], {})
+        self.assertTrue(detail['second_start_stable'])
+        self.assertEqual(set(detail['record_value_changes']), {'mcko_runs'})
+        self.assertEqual(set(detail['protected_table_names']), {'students', 'mcko_runs'})
+        self.assertEqual(detail['protected_tables'], len(detail['protected_table_names']))
+        self.assertNotIn('private_unrelated_table', json.dumps(result))
+
+    def test_new_mcko_orphan_fails_instead_of_only_requesting_value_review(self):
+        old = self.root / 'mcko-owner.db'
+        with sqlite3.connect(old) as db:
+            db.executescript('CREATE TABLE students(id INTEGER PRIMARY KEY);'
+                             'CREATE TABLE mcko_works(id INTEGER PRIMARY KEY);'
+                             'CREATE TABLE mcko_runs(id INTEGER PRIMARY KEY,work_id INTEGER,student_id INTEGER);'
+                             'INSERT INTO students VALUES(1); INSERT INTO mcko_works VALUES(1);'
+                             'INSERT INTO mcko_runs VALUES(1,1,1);')
+        (self.app / 'server.py').write_text('''import sqlite3
+class DB:
+    def __init__(self, path):
+        self.conn=sqlite3.connect(path)
+        self.conn.execute('UPDATE mcko_runs SET work_id=999')
+        self.conn.commit()
+''')
+        result = acceptance.migration_check(old, self.app, private_local_copy=True)
+        self.assertEqual(result['status'], 'fail', result)
+        self.assertEqual(result['detail']['introduced_relationship_violations'], {'mcko_runs.work_id': 1})
+
+    def test_new_teacher_class_mismatch_fails_even_when_foreign_keys_exist(self):
+        old = self.root / 'owners.db'
+        with sqlite3.connect(old) as db:
+            db.executescript('CREATE TABLE teachers(id INTEGER PRIMARY KEY,is_main INTEGER);'
+                             'CREATE TABLE classes(id INTEGER PRIMARY KEY,teacher_id INTEGER);'
+                             'CREATE TABLE students(id INTEGER PRIMARY KEY,class_id INTEGER,teacher_id INTEGER);'
+                             'INSERT INTO teachers VALUES(1,1),(2,0); INSERT INTO classes VALUES(1,1);'
+                             'INSERT INTO students VALUES(1,1,1);')
+        (self.app / 'server.py').write_text('''import sqlite3
+class DB:
+    def __init__(self, path):
+        self.conn=sqlite3.connect(path)
+        self.conn.execute('UPDATE students SET teacher_id=2')
+        self.conn.commit()
+''')
+        result = acceptance.migration_check(old, self.app, private_local_copy=True)
+        self.assertEqual(result['status'], 'fail', result)
+        self.assertEqual(result['detail']['introduced_relationship_violations'],
+                         {'students.class_teacher_mismatch': 1})
+
+    def test_private_rehearsal_reads_live_wal_snapshot_without_changing_source(self):
+        from deploy.rehearse_upgrade import rehearse
+        installed = self.root / 'installed'
+        (installed / 'server_data').mkdir(parents=True)
+        (installed / 'server.py').write_text('# previous release')
+        (installed / 'changelog.js').write_text('[["1.0.0", "test"]]')
+        source = installed / 'server_data/trainer.db'
+        db = sqlite3.connect(source)
+        self.addCleanup(db.close)
+        db.execute('PRAGMA journal_mode=WAL')
+        db.executescript('CREATE TABLE students(id INTEGER PRIMARY KEY,name TEXT);'
+                         "INSERT INTO students VALUES(1,'private-live-name');")
+        before = {p.name: p.read_bytes() for p in source.parent.iterdir()}
+        (self.app / 'server.py').write_text('''import sqlite3
+class DB:
+    def __init__(self, path):
+        self.conn=sqlite3.connect(path)
+''')
+        result = rehearse(installed, self.app, private_local_copy=True)
+        self.assertEqual(result['status'], 'pass', result)
+        self.assertTrue(result['migration']['detail']['source_unchanged'])
+        self.assertEqual(db.execute('SELECT * FROM students').fetchall(), [(1, 'private-live-name')])
+        # SQLite may update shared-memory read marks; source DB and WAL bytes
+        # themselves must stay unchanged. No candidate schema reaches the source.
+        for name, data in before.items():
+            if not name.endswith('-shm'):
+                self.assertEqual((source.parent / name).read_bytes(), data)
+        self.assertNotIn('private-live-name', json.dumps(result))
+        self.assertNotIn('source_sha256', json.dumps(result))
+
+    def test_migration_child_blocks_network_and_suppresses_private_errors(self):
+        old = self.root / 'network.db'
+        with sqlite3.connect(old) as db:
+            db.execute('CREATE TABLE students(id INTEGER PRIMARY KEY)')
+        (self.app / 'server.py').write_text('''import sqlite3,socket
+class DB:
+    def __init__(self, path):
+        socket.getaddrinfo('private-host-do-not-report', 443)
+        self.conn=sqlite3.connect(path)
+''')
+        result = acceptance.migration_check(old, self.app, private_local_copy=True)
+        self.assertEqual(result['status'], 'fail')
+        self.assertEqual(result['evidence'], 'isolated_migration_failed')
+        self.assertNotIn('private-host-do-not-report', json.dumps(result))
+
+    def test_migration_child_cannot_send_udp_without_connecting(self):
+        old = self.root / 'udp.db'
+        with sqlite3.connect(old) as db:
+            db.execute('CREATE TABLE students(id INTEGER PRIMARY KEY)')
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+            receiver.bind(('127.0.0.1', 0))
+            receiver.settimeout(0.1)
+            port = receiver.getsockname()[1]
+            (self.app / 'server.py').write_text(f'''import sqlite3,socket
+class DB:
+    def __init__(self, path):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.sendto(b'synthetic-private-udp-probe', ('127.0.0.1', {port}))
+        self.conn=sqlite3.connect(path)
+''')
+            result = acceptance.migration_check(old, self.app, private_local_copy=True)
+            self.assertEqual(result['status'], 'fail', result)
+            with self.assertRaises(socket.timeout):
+                receiver.recvfrom(128)
+        self.assertNotIn('synthetic-private-udp-probe', json.dumps(result))
+
+    def test_migration_child_cannot_start_an_unrestricted_process(self):
+        old = self.root / 'process.db'
+        marker = self.root / 'unexpected-child-process'
+        with sqlite3.connect(old) as db:
+            db.execute('CREATE TABLE students(id INTEGER PRIMARY KEY)')
+        program = 'from pathlib import Path; Path(' + repr(str(marker)) + ').write_text("started")'
+        (self.app / 'server.py').write_text(f'''import sqlite3,subprocess,sys
+class DB:
+    def __init__(self, path):
+        subprocess.run([sys.executable, '-c', {program!r}], check=True)
+        self.conn=sqlite3.connect(path)
+''')
+        result = acceptance.migration_check(old, self.app, private_local_copy=True)
+        self.assertEqual(result['status'], 'fail', result)
+        self.assertFalse(marker.exists())
+        self.assertNotIn(str(marker), json.dumps(result))
+
+    def test_private_snapshot_has_restricted_permissions_and_is_removed(self):
+        from deploy import rehearse_upgrade
+        seen = []
+        candidate = self.root / 'candidate'
+        candidate.mkdir()
+        (candidate / 'server.py').write_text('# unused mocked candidate')
+        def check(snapshot, _candidate, **kwargs):
+            self.assertTrue(kwargs['private_local_copy'])
+            self.assertFalse(kwargs.get('anonymized', False))
+            self.assertEqual(snapshot.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(snapshot.parent.stat().st_mode & 0o777, 0o700)
+            seen.append(snapshot)
+            return {'status': 'pending', 'detail': {}}
+        with mock.patch.object(rehearse_upgrade, 'migration_check', side_effect=check):
+            result = rehearse_upgrade.rehearse(self.app, candidate, private_local_copy=True)
+        self.assertEqual(result['status'], 'pending', result)
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(seen[0].exists())
+        self.assertFalse(seen[0].parent.exists())
+
+    def test_private_rehearsal_cli_refuses_existing_output_before_database_read(self):
+        from deploy import rehearse_upgrade
+        import sys
+        output = self.root / 'existing.json'
+        output.write_text('keep existing report')
+        argv = ['rehearse_upgrade.py', '--candidate', str(ROOT), '--private-local-copy', '--output', str(output)]
+        with mock.patch.object(sys, 'argv', argv), mock.patch.object(rehearse_upgrade, 'rehearse') as run:
+            previous = os.umask(0o077)
+            try:
+                with self.assertRaises(FileExistsError):
+                    rehearse_upgrade.main()
+            finally:
+                os.umask(previous)
+            run.assert_not_called()
+        self.assertEqual(output.read_text(), 'keep existing report')
 
     def test_missing_runner_never_uses_host_execution(self):
         from buglab_verifier import VerifierUnavailable
