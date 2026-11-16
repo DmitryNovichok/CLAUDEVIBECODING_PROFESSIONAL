@@ -7,13 +7,13 @@
    "k": "ЕГЭ · Информатика · 2027",
    "h": "Задание 14",
    "sub": "Системы счисления на Python: перевод, подсчёт цифр в огромных числах, неизвестная цифра. Все три варианта демо-2027",
-   "aside": "<span class=\"b\">int('27x9', 22)</span><span class=\"o\">while n: d.append(n % b)</span><span class=\"w\">n //= b</span>"
+   "aside": "<span class=\"b\">int('2739', 22)</span><span class=\"o\">while n: d.append(n % b)</span><span class=\"w\">n //= b</span>"
   },
   {
    "t": "text",
    "k": "Введение",
    "h": "Что это за задание",
-   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>первичный</span></div><div><b>3–5 мин</b><span>ориентир по времени</span></div><div><b>∞</b><span>длинная арифметика</span></div><div><b>3</b><span>варианта в демо</span></div></div><div class=\"sl-cols\"><div><h4>Суть</h4><p>Вычислить выражение с огромными степенями и исследовать его запись в системе с основанием b, либо подобрать неизвестную цифру.</p></div><div><h4>Python</h4><p>Целые числа в Python не ограничены: 7¹⁷⁰ считается мгновенно. Нужно лишь уметь переводить в любую систему.</p></div></div>"
+   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>первичный</span></div><div><b>3–5 мин</b><span>ориентир по времени</span></div><div><b>точно</b><span>целая арифметика</span></div><div><b>3</b><span>варианта в демо</span></div></div><div class=\"sl-cols\"><div><h4>Суть</h4><p>Вычислить выражение с огромными степенями и исследовать его запись в системе с основанием b, либо подобрать неизвестную цифру.</p></div><div><h4>Python</h4><p>Python поддерживает длинные целые: выражения этого урока вычисляются точно. Размер чисел и перебора всё же ограничен временем и памятью.</p></div></div>"
   },
   {
    "t": "code",
@@ -21,10 +21,10 @@
    "kc": "t1",
    "h": "Перевод в любую систему и обратно",
    "ch": "Задание",
-   "cond": "<p>В десятичную: <code>int(строка, основание)</code> — для оснований до 36 (цифры 0–9, затем A–Z). Из десятичной — своя функция: остатки от деления на b в обратном порядке.</p>",
+   "cond": "<p>В десятичную: <code>int(строка, основание)</code> — для целых оснований от 2 до 36 (цифры 0–9, затем A–Z). Из десятичной — функция для целого n ≥ 0 и основания b ≥ 2: остатки от деления в обратном порядке; для нуля — список [0].</p>",
    "note": "Список цифр удобнее строки: цифры ≥ 10 остаются числами, <code>count(0)</code> считает нули. <code>bin</code>, <code>oct</code>, <code>hex</code> — только для 2, 8, 16.",
    "nk": "secret",
-   "code": "def digits(n, b):            # список цифр числа n в системе b\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nprint(int('1A', 16), digits(26, 16), digits(7 ** 3, 7))",
+   "code": "def digits(n, b):            # целое n >= 0, целое основание b >= 2\n    if n < 0 or b < 2:\n        raise ValueError('Нужно n >= 0 и b >= 2')\n    if n == 0:\n        return [0]\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nprint(int('1A', 16), digits(26, 16), digits(7 ** 3, 7))",
    "sub": "",
    "ans": "26 [1, 10] [1, 0, 0, 0]"
   },
@@ -32,7 +32,7 @@
    "t": "text",
    "k": "Без компьютера",
    "h": "Как устроена запись степеней",
-   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>bⁿ</b><code>7³ = 1000₇</code><p>В системе b: единица и n нулей.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>bⁿ − 1</b><code>7³ − 1 = 666₇</code><p>n цифр (b − 1).</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>bⁿ − bᵏ (n &gt; k)</b><code>7⁵ − 7² = 66600₇</code><p>(n − k) цифр (b − 1), затем k нулей.</p></div></div><div class=\"sl-callout\"><b>Пример</b><p>2¹⁰⁰ + 2⁵⁰ − 1: единица, 49 нулей, 50 единиц → 51 единица в двоичной записи. Python подтвердит: <code>bin(v).count('1')</code>.</p></div>"
+   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>bⁿ</b><code>7³ = 1000₇</code><p>В системе b: единица и n нулей.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>bⁿ − 1</b><code>7³ − 1 = 666₇</code><p>n цифр (b − 1).</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>bⁿ − bᵏ (n &gt; k)</b><code>7⁵ − 7² = 66600₇</code><p>(n − k) цифр (b − 1), затем k нулей.</p></div></div><div class=\"sl-callout\"><b>Пример</b><p>2¹⁰⁰ + 2⁵⁰ − 1: единица, 50 нулей, 50 единиц → 51 единица в двоичной записи. Python подтвердит: <code>bin(v).count('1')</code>.</p></div>"
   },
   {
    "t": "section",
@@ -51,7 +51,7 @@
    "cond": "<p>Значение 7¹⁷⁰ + 7¹⁰⁰ − x, где x — целое, 0 &lt; x ≤ 2030, записали в 7-ричной системе. Найдите наибольшее x, при котором в записи ровно 71 нуль.</p>",
    "note": "7¹⁷⁰ + 7¹⁰⁰ = 1 0…0 1 0…0. Вычитание x «размазывает» нули в шестёрки в хвосте — число нулей зависит от x.",
    "nk": "secret",
-   "code": "def digits(n, b):            # список цифр числа n в системе b\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nbest = 0\nfor x in range(1, 2031):\n    v = 7 ** 170 + 7 ** 100 - x\n    if digits(v, 7).count(0) == 71:\n        best = x                 # наибольшее — не прерываем цикл, запоминаем последнее\nprint(best)",
+   "code": "def digits(n, b):            # целое n >= 0, целое основание b >= 2\n    if n < 0 or b < 2:\n        raise ValueError('Нужно n >= 0 и b >= 2')\n    if n == 0:\n        return [0]\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nbest = 0\nfor x in range(1, 2031):\n    v = 7 ** 170 + 7 ** 100 - x\n    if digits(v, 7).count(0) == 71:\n        best = x                 # наибольшее — не прерываем цикл, запоминаем последнее\nprint(best)",
    "sub": "",
    "ans": "2029"
   },
@@ -62,11 +62,11 @@
    "h": "Вариант 2: неизвестная цифра",
    "ch": "Задание",
    "cond": "<p>27x98876₂₂ + 26x51₂₂ + 711x5₂₂: x — неизвестная цифра 22-ричной системы. Найдите наименьшее x, при котором значение кратно 21, и запишите частное от деления на 21 в десятичной системе.</p>",
-   "note": "Цифры 22-ричной системы: 0–9 и A–L (A = 10, …, L = 21). <code>int(s, 22)</code> понимает их сам. Ответ — частное.",
+   "note": "Цифры 22-ричной системы: 0–9 и A–L (A = 10, …, L = 21). <code>int(s, 22)</code> понимает их сам. Наименьшая подходящая цифра x = 3; ответ — только частное 276296118.",
    "nk": "secret",
-   "code": "A = '0123456789ABCDEFGHIJKL'     # цифры 22-ричной системы\nfor x in range(22):\n    c = A[x]\n    v = int('27' + c + '98876', 22) + int('26' + c + '51', 22) + int('711' + c + '5', 22)\n    if v % 21 == 0:\n        print(x, v // 21)\n        break",
+   "code": "A = '0123456789ABCDEFGHIJKL'     # цифры 22-ричной системы\nfor x in range(22):\n    c = A[x]\n    v = int('27' + c + '98876', 22) + int('26' + c + '51', 22) + int('711' + c + '5', 22)\n    if v % 21 == 0:\n        print(v // 21)               # x = 3; в ответе требуется только частное\n        break",
    "sub": "",
-   "ans": "3 276296118"
+   "ans": "276296118"
   },
   {
    "t": "code",
@@ -77,7 +77,7 @@
    "cond": "<p>3·3125⁸ + 2·625⁷ − 4·625⁶ + 3·125⁵ − 2·25⁴ − 2025 записали в системе с основанием 25. Сколько значащих нулей содержится в записи?</p>",
    "note": "Значащие нули — все нули записи числа: ведущих нулей у числа не бывает, <code>digits()</code> их и не порождает.",
    "nk": "secret",
-   "code": "def digits(n, b):            # список цифр числа n в системе b\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nv = 3 * 3125 ** 8 + 2 * 625 ** 7 - 4 * 625 ** 6 + 3 * 125 ** 5 - 2 * 25 ** 4 - 2025\nprint(digits(v, 25).count(0))",
+   "code": "def digits(n, b):            # целое n >= 0, целое основание b >= 2\n    if n < 0 or b < 2:\n        raise ValueError('Нужно n >= 0 и b >= 2')\n    if n == 0:\n        return [0]\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nv = 3 * 3125 ** 8 + 2 * 625 ** 7 - 4 * 625 ** 6 + 3 * 125 ** 5 - 2 * 25 ** 4 - 2025\nprint(digits(v, 25).count(0))",
    "sub": "",
    "ans": "10"
   },
@@ -98,7 +98,7 @@
    "cond": "<p>Значение 3·15¹¹⁴⁰ + 2·15¹⁰²⁵ + 15⁹²³ − 3·15⁸⁵ + 2·15⁷⁴ + 3 записали в 15-ричной системе. Найдите длину самой длинной серии одинаковых цифр подряд.</p>",
    "note": "Счётчик со сбросом по списку цифр — как в задании 24.",
    "nk": "secret",
-   "code": "def digits(n, b):            # список цифр числа n в системе b\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\na = 3 * 15**1140 + 2 * 15**1025 + 15**923 - 3 * 15**85 + 2 * 15**74 + 3\ns = digits(a, 15)\nbest = k = 1\nfor i in range(len(s) - 1):\n    k = k + 1 if s[i] == s[i + 1] else 1\n    best = max(best, k)\nprint(best)",
+   "code": "def digits(n, b):            # целое n >= 0, целое основание b >= 2\n    if n < 0 or b < 2:\n        raise ValueError('Нужно n >= 0 и b >= 2')\n    if n == 0:\n        return [0]\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\na = 3 * 15**1140 + 2 * 15**1025 + 15**923 - 3 * 15**85 + 2 * 15**74 + 3\ns = digits(a, 15)\nbest = k = 1\nfor i in range(len(s) - 1):\n    k = k + 1 if s[i] == s[i + 1] else 1\n    best = max(best, k)\nprint(best)",
    "sub": "",
    "ans": "837"
   },
@@ -124,9 +124,9 @@
    "cond": "<p>34256x4₂₂ + 72847y3₂₂ кратно 125. Найдите x + y и частное от деления на 125.</p>",
    "note": "<code>printable[:22]</code> — готовый алфавит цифр «0123456789abcdef…». Все подходящие пары дают одинаковый ответ.",
    "nk": "secret",
-   "code": "from string import printable\n\nres = set()\nfor x in printable[:22]:\n    for y in printable[:22]:\n        a = int(f'34256{x}4', 22) + int(f'72847{y}3', 22)\n        if a % 125 == 0:\n            res.add((int(x, 22) + int(y, 22), a // 125))\nprint(*res)",
+   "code": "from string import printable\n\nres = set()\nfor x in printable[:22]:\n    for y in printable[:22]:\n        a = int(f'34256{x}4', 22) + int(f'72847{y}3', 22)\n        if a % 125 == 0:\n            res.add((int(x, 22) + int(y, 22), a // 125))\nfor total, quotient in sorted(res):\n    print(total, quotient)",
    "sub": "",
-   "ans": "(16, 9337327)"
+   "ans": "16 9337327"
   },
   {
    "t": "code",
@@ -135,9 +135,9 @@
    "h": "Неизвестное основание",
    "ch": "Задание",
    "cond": "<p>При каком основании системы счисления запись 123 обозначает десятичное число 171?</p>",
-   "note": "Перебор основания с проверкой равенства. Основание больше любой цифры записи.",
+   "note": "Раскрываем запись: b² + 2b + 3 = 171. Здесь 4 ≤ b ≤ 13; решение b = 12. Полином работает и при основаниях больше 36, в отличие от int(s, b).",
    "nk": "secret",
-   "code": "for b in range(4, 37):                       # основание больше любой цифры записи: от 4\n    if int('123', b) == 171:\n        print(b)",
+   "code": "for b in range(4, 14):                       # b > 3 и b² <= 171, значит b <= 13\n    if b ** 2 + 2 * b + 3 == 171:\n        print(b)",
    "sub": "",
    "ans": "12"
   },
@@ -158,7 +158,7 @@
    "t": "text",
    "k": "Шпаргалка",
    "h": "Весь №14 на одном слайде",
-   "html": "<div class=\"sl-cheat\"><div><b>В десятичную</b><code>int(s, b)</code>, b ≤ 36</div><div><b>Из десятичной</b><code>digits(n, b)</code> — остатки, развернуть</div><div><b>Сколько нулей</b><code>digits(v, b).count(0)</code></div><div><b>Цифры системы</b><code>printable[:b]</code></div><div><b>Двоичная</b><code>bin(v).count('1')</code></div><div><b>Степени</b>bⁿ = 10…0, bⁿ − 1 = (b−1)…(b−1)</div></div>"
+   "html": "<div class=\"sl-cheat\"><div><b>В десятичную</b><code>int(s, b)</code>, 2 ≤ b ≤ 36</div><div><b>Из десятичной</b><code>digits(n, b)</code> — остатки, развернуть</div><div><b>Сколько нулей</b><code>digits(v, b).count(0)</code></div><div><b>Цифры системы</b><code>printable[:b]</code>, 2 ≤ b ≤ 36</div><div><b>Двоичная</b><code>bin(v).count('1')</code></div><div><b>Степени</b>bⁿ = 10…0, bⁿ − 1 = (b−1)…(b−1)</div></div>"
   },
   {
    "t": "text",
@@ -171,7 +171,7 @@
    "k": "Урок пройден!",
    "h": "Ответы",
    "dark": true,
-   "html": "<div class=\"sl-cards c4 answers\"><div class=\"sl-card t1\"><i>Задача 1</i><b>97</b><p>1 + 96 единиц</p></div><div class=\"sl-card t2\"><i>Задача 2</i><b>28</b><p>проверьте digits</p></div><div class=\"sl-card t3\"><i>Задача 3</i><b>6 205</b><p>x и частное: 2665 / 13</p></div><div class=\"sl-card t1\"><i>Задача 4</i><b>2</b><p>4…4400₅</p></div></div><div class=\"sl-callout dark\"><b>Не сошлось?</b><p>Выведите digits(v, b) для маленьких степеней и сравните с правилами записи степеней.</p></div>"
+   "html": "<div class=\"sl-cards c4 answers\"><div class=\"sl-card t1\"><i>Задача 1</i><b>97</b><p>1 + 96 единиц</p></div><div class=\"sl-card t2\"><i>Задача 2</i><b>28</b><p>3³⁰ − 3² даёт 28 двоек и два нуля</p></div><div class=\"sl-card t3\"><i>Задача 3</i><b>6 205</b><p>x и частное: 2665 / 13</p></div><div class=\"sl-card t1\"><i>Задача 4</i><b>2</b><p>4…4400₅</p></div></div><div class=\"sl-callout dark\"><b>Не сошлось?</b><p>Выведите digits(v, b) для маленьких степеней и сравните с правилами записи степеней.</p></div>"
   },
   {
    "t": "codes",
@@ -185,7 +185,7 @@
     },
     {
      "cond": "<b>Задача 2.</b>",
-     "code": "def digits(n, b):            # список цифр числа n в системе b\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nprint(digits(9 ** 20 + 3 ** 30 - 9, 3).count(2))",
+     "code": "def digits(n, b):            # целое n >= 0, целое основание b >= 2\n    if n < 0 or b < 2:\n        raise ValueError('Нужно n >= 0 и b >= 2')\n    if n == 0:\n        return [0]\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nprint(digits(9 ** 20 + 3 ** 30 - 9, 3).count(2))",
      "ans": "28"
     },
     {
@@ -195,7 +195,7 @@
     },
     {
      "cond": "<b>Задача 4.</b>",
-     "code": "def digits(n, b):            # список цифр числа n в системе b\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nprint(digits(125 ** 5 - 25, 5).count(0))",
+     "code": "def digits(n, b):            # целое n >= 0, целое основание b >= 2\n    if n < 0 or b < 2:\n        raise ValueError('Нужно n >= 0 и b >= 2')\n    if n == 0:\n        return [0]\n    d = []\n    while n > 0:\n        d.append(n % b)\n        n //= b\n    return d[::-1]\n\nprint(digits(125 ** 5 - 25, 5).count(0))",
      "ans": "2"
     }
    ]
