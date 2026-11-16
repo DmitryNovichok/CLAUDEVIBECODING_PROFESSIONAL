@@ -1,0 +1,31 @@
+{
+  "checked_at_utc": "2026-11-16T22:21:10.555996+00:00",
+  "public_origin": "https://egeshka.online",
+  "scope": "Unauthenticated HTTPS GET only; no access to service configuration or production database",
+  "expected_merged_version": "2.73.1",
+  "checks": [
+    {
+      "path": "/welcome",
+      "status": 200,
+      "no_redirect": true,
+      "body_bytes": 22514,
+      "tls_verified": true,
+      "csp_restricted": true,
+      "hsts": "max-age=31536000",
+      "nosniff": true
+    },
+    {
+      "path": "/api/health",
+      "status": 200,
+      "no_redirect": true,
+      "body_bytes": 44,
+      "tls_verified": true,
+      "csp_restricted": true,
+      "hsts": "max-age=31536000",
+      "nosniff": true,
+      "healthy": true,
+      "reported_version": "2.72.0"
+    }
+  ],
+  "internal_checks": "pending: SMTP delivery, second-factor recovery, installed verifier, database migration"
+}

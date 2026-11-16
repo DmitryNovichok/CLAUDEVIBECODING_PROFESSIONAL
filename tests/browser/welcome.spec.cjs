@@ -112,9 +112,16 @@ test('skill references load on demand, expose real gaps and separate shared type
   await expect(page.locator('#skillRows article')).toHaveCount(skillCoverage.rows.length);expect(requests).toHaveLength(1);
   await expect(page.locator('#skillRetry')).toBeHidden();
   await page.locator('#skillTopic').selectOption('13');await page.locator('#skillState').selectOption('missing');
-  await expect(page.locator('#skillRows article')).toHaveCount(2); // IP fragments and unclassified formulations.
-  await expect(page.locator('[data-skill-id="13.frag"]')).toContainText('Явный материал в карте не найден');
-  await page.locator('#skillState').selectOption('');await page.locator('#skillTopic').selectOption('24');
+  await expect(page.locator('#skillRows article')).toHaveCount(1); // Unclassified formulations remain explicitly unmapped.
+  await expect(page.locator('[data-skill-id="13.misc"]')).toContainText('Явный материал в карте не найден');
+  await page.locator('#skillState').selectOption('');
+  await expect(page.locator('[data-skill-id="13.frag"]')).toContainText('Материалы найдены');
+  await page.locator('#skillTopic').selectOption('23');
+  await expect(page.locator('[data-skill-id="23.graph"] h3')).toContainText('Архив 23_old');
+  await page.locator('#skillTopic').selectOption('27');
+  await expect(page.locator('[data-skill-id="27.seq"] h3')).toContainText('Архив прежние форматы №27');
+  await expect(page.locator('[data-skill-id="27.clusters"] h3')).toContainText('№27');
+  await page.locator('#skillTopic').selectOption('24');
   await page.locator('#skillSearch').fill('скользящее');
   const window=page.locator('[data-skill-id="24.window"]');await expect(window).toBeVisible();
   await expect(window).toContainText('Отдельного счётчика навыка нет');

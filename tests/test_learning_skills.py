@@ -24,8 +24,16 @@ class LearningSkillsTest(unittest.TestCase):
         self.assertTrue(all(not r['semantic_verified'] and r['review_status'] == 'not_reviewed' for r in rows.values()))
         self.assertTrue(all(not r['practice']['answers_verified'] for r in rows.values()))
         for key in ('6.area', '6.trace', '12.count', '13.frag', '23.graph', '27.seq'):
-            self.assertEqual(rows[key]['material_status'], 'not_mapped')
+            self.assertEqual(rows[key]['material_status'], 'material_found')
         self.assertTrue(rows['28.count']['archive'])
+        self.assertTrue(rows['23.graph']['archive'])
+        self.assertTrue(rows['27.seq']['archive'])
+        self.assertEqual(rows['23.graph']['archive_label'], '23_old')
+        self.assertEqual(rows['27.seq']['archive_label'], 'прежние форматы №27')
+        self.assertTrue(all(e['n'] == 28 for e in rows['23.graph']['evidence']))
+        self.assertFalse(rows['23.traj']['archive'])
+        self.assertFalse(rows['27.clusters']['archive'])
+        self.assertEqual(rows['27.seq']['evidence'][0]['label'], 'Архив прежние форматы №27')
         for key in ('counter', 'split', 'window', 'positions', 'regex'):
             row = rows['24.' + key]
             self.assertEqual(row['kind'], 'subskill')

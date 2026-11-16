@@ -88,7 +88,9 @@ def _evidence(root, mapping):
                 issues.append({'kind': 'lesson', 'n': lesson['n'], 'slide': i + 1, 'reason': 'reference_changed_or_missing'})
                 continue
             files = _file_checks(root, slide)
-            evidence.append({'kind': 'lesson', 'n': lesson['n'], 'slide': i + 1,
+            archive = bool(mapping.get('archive')) or any(t['n'] == lesson['n'] and t['archive'] for t in TOPICS)
+            label = ('Архив ' + mapping.get('archive_label', '23_old')) if archive else f"Урок №{lesson['n']}"
+            evidence.append({'kind': 'lesson', 'n': lesson['n'], 'slide': i + 1, 'label': label,
                              'title': slide['h'], 'format': slide['t'], 'inputs': files})
             if files['missing'] or files['invalid']:
                 issues.append({'kind': 'lesson', 'n': lesson['n'], 'slide': i + 1, 'reason': 'input_unavailable'})
@@ -165,8 +167,10 @@ def skill_coverage(root, tasks=None, mapping=None):
             state = ('partial' if issues else 'material_found') if evidence else ('missing_reference' if issues else 'not_mapped')
             parent, bank_n = ref.get('bank_type', key), ref.get('bank_n', n)
             count = (sum(v for (num, _), v in counts.items() if num == bank_n) if parent is None else counts[(bank_n, parent)]) if tasks is not None else None
+            archive = bool(topic['archive'] or ref.get('archive'))
             rows.append({'id': f'{n}.{key}', 'n': n, 'exam_nums': [19, 20, 21] if n == 19 else [n],
-                         'topic': topic['title'], 'title': title, 'archive': topic['archive'],
+                         'topic': topic['title'], 'title': title, 'archive': archive,
+                         'archive_label': ref.get('archive_label', '23_old' if topic['archive'] else '') if archive else '',
                          'kind': 'subskill' if ref.get('subskill') else 'unclassified' if key == 'misc' else 'task_type',
                          'material_status': state, 'evidence': evidence, 'reference_issues': issues,
                          'review_status': 'not_reviewed', 'semantic_verified': False,
@@ -181,4 +185,4 @@ def skill_coverage(root, tasks=None, mapping=None):
                         'with_reference_issues': sum(bool(r['reference_issues']) for r in defined),
                         'semantically_verified': 0},
             'method': 'explicit_source_references',
-            'note': 'Наличие слайда, уровня или модели не подтверждает полноту навыка. Содержательная проверка покрытия и независимая проверка ответов банка не выполнены. Типы банка определяются автоматически; их количество приблизительно. Части общего задания №19–21 считаются у своих номеров; общий материал не становится тремя независимыми уроками.'}
+            'note': 'Наличие слайда, уровня или модели не подтверждает полноту навыка. Полная содержательная проверка покрытия и независимая проверка всего банка не выполнены. Типы банка определяются автоматически; их количество приблизительно. Части общего задания №19–21 считаются у своих номеров; общий материал не становится тремя независимыми уроками.'}
