@@ -6,15 +6,15 @@
     return saved;
   }
   function learningRememberSlide() {
-    if (!DECK) return;
+    if (!appState.DECK) return;
     const saved = learningMemory(), slides = saved.slides || {};
-    slides[DECK.n] = deckI; learningMemory({ slides });
+    slides[appState.DECK.n] = appState.deckI; learningMemory({ slides });
   }
   function learningSlide(n) { const i = (learningMemory().slides || {})[n]; return Number.isInteger(i) && i >= 0 ? i : 0; }
   const learningFormat = '<p class="learning-format">Темы по утверждённой демоверсии ФИПИ ЕГЭ-2027. Архивная практика отмечена отдельно. Краткие примеры объясняют метод; полный формат и ограничения читай в условии задания.</p>';
   function learningLabContext() {
-    return pageKind === 'pyc' && PYC_L ? { kind: 'pyc', m: PYC_L.id, l: PYC_L.l, task: PYC_FOCUS,
-      label: PYC_L.title, code: '', stdin: '' } : { kind: 'course', n: DECK?.n, label: DECK?.label || 'Урок ЕГЭ', code: '', stdin: '' };
+    return appState.pageKind === 'pyc' && PYC_L ? { kind: 'pyc', m: PYC_L.id, l: PYC_L.l, task: PYC_FOCUS,
+      label: PYC_L.title, code: '', stdin: '' } : { kind: 'course', n: appState.DECK?.n, label: appState.DECK?.label || 'Урок ЕГЭ', code: '', stdin: '' };
   }
   async function learningReturn() {
     const ctx = LAB.context; if (!ctx) return;
@@ -38,8 +38,8 @@
       return;
     }
     const slide = e.target.closest('[data-learning-slide]');
-    if (slide && DECK) {
-      const [i, k] = slide.dataset.learningSlide.split(':').map(Number), sl = DECK.slides[i];
+    if (slide && appState.DECK) {
+      const [i, k] = slide.dataset.learningSlide.split(':').map(Number), sl = appState.DECK.slides[i];
       const block = sl.t === 'codes' ? sl.blocks[k] : sl;
       const ctx = learningLabContext(); ctx.task = null; ctx.code = block.code; ctx.files = block.files || sl.files || []; ctx.label = sl.h;
       openLab('code', ctx);

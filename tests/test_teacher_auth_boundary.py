@@ -167,8 +167,10 @@ class TeacherAuthBoundaryTest(unittest.TestCase):
                                                    (self.tid,), one=True))
             self.db.x('UPDATE teachers SET moderation=\'approved\',email_ok=1,until=NULL WHERE id=?', (self.tid,))
             for path in routes:
-                self.assertEqual(self.client.creq('POST', path, {}, cookie=self.cookie)[0], 200)
-            self.assertEqual(reached, list(routes))
+                # A ready teacher still cannot call an implementation which
+                # has not explicitly registered its access policy.
+                self.assertEqual(self.client.creq('POST', path, {}, cookie=self.cookie)[0], 404)
+            self.assertEqual(reached, [])
 
 
 if __name__ == '__main__':

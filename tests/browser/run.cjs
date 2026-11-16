@@ -7,7 +7,7 @@ const {summarize}=require('./summarize.cjs');
 const argv=process.argv.slice(2), marker=argv.indexOf('--profile');
 let profile='all';
 if(marker>=0) {profile=argv[marker+1];argv.splice(marker,2);}
-const filters={all:[],ui:['app-flow.spec.cjs','welcome.spec.cjs','labs.spec.cjs','together.spec.cjs'],python:['python-sandbox.spec.cjs','readiness.spec.cjs'],performance:['performance.spec.cjs']};
+const filters={all:[],ui:['app-flow.spec.cjs','assignment-flow.spec.cjs','welcome.spec.cjs','labs.spec.cjs','together.spec.cjs'],python:['python-sandbox.spec.cjs','readiness.spec.cjs'],performance:['performance.spec.cjs']};
 if(!Object.hasOwn(filters,profile)) {console.error('Profile: all | ui | python | performance');process.exit(2);}
 const cli=require.resolve('@playwright/test/cli');
 const listing=argv.includes('--list');

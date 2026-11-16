@@ -89,7 +89,7 @@ GUIDES = {
 }
 
 
-def course_coverage(root, tasks=None):
+def course_coverage(root, tasks=None, include_skills=False):
     """Public metadata only; actual slides and attachments keep their access rules."""
     import json
     from collections import Counter
@@ -110,9 +110,13 @@ def course_coverage(root, tasks=None):
                        'lesson': bool(deck), 'guide': not bool(deck),
                        'practice_count': counts.get(n, 0) if counts is not None else None,
                        'python': py, 'python_tasks': sum(m['tasks'] for m in py)})
-    return {**catalog, 'topics': topics, 'full_count': sum(t['lesson'] and not t['archive'] for t in topics),
+    result = {**catalog, 'topics': topics, 'full_count': sum(t['lesson'] and not t['archive'] for t in topics),
             'unique_lessons': len({t['lesson_n'] for t in topics if t['lesson'] and not t['archive']}),
             'guide_count': sum(t['guide'] and not t['archive'] for t in topics), 'archive_count': 1}
+    if include_skills:
+        from learning_skills import skill_coverage
+        result['skill_coverage'] = skill_coverage(root, tasks)
+    return result
 
 
 def course_guide(n):

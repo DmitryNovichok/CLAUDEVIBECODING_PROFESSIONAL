@@ -14,5 +14,18 @@ class AppChunksTest(unittest.TestCase):
         self.assertIn('window.EgeExamSections = function (bridge)', exams)
 
 
+    def test_learning_ui_is_optional_while_forecast_and_python_stay_in_main(self):
+        initial, learning = build_app.build(), build_app.build_learning()
+        for implementation in ('function slideHtml(', 'function pycTaskHtml(', 'function labRenderModel(', 'function bugRenderCase('):
+            self.assertNotIn(implementation, initial)
+            self.assertIn(implementation, learning)
+        for entry in ('openCourse', 'openLesson', 'openCourseSet', 'openPyc', 'openPycLevel', 'openLab', 'openArdGate'):
+            self.assertIn('function ' + entry + '(', initial)
+        for essential in ('function forecast(', 'function courseSet(', 'function pyDisposeSession(', 'function pySync('):
+            self.assertIn(essential, initial)
+        self.assertIn('window.EgeLearningSections = function (bridge)', learning)
+        self.assertNotIn('eval(', learning)
+        self.assertNotIn('new Function(', learning)
+
 if __name__ == '__main__':
     unittest.main()

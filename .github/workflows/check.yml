@@ -20,8 +20,18 @@ jobs:
       - run: node --check app.js && node --check admin.js && node --check together.js && node --check lab-worker.js
       - run: node --test tests/*.test.cjs
       - run: timeout 900 python3 -m unittest discover -s tests
-      - name: Synthetic classroom workload (temporary DB)
-        run: python3 tools/load_lesson.py --students 30
+      - name: Synthetic classroom workloads (temporary DB)
+        run: |
+          python3 tools/load_lesson.py --students 30 --output "$RUNNER_TEMP/classroom-30.json"
+          python3 tools/load_lesson.py --students 60 --output "$RUNNER_TEMP/classroom-60.json"
+      - name: Classroom latency and durable save evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: classroom-load
+          path: ${{ runner.temp }}/classroom-*.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Arduino dependencies
         run: npm ci --ignore-scripts
         working-directory: arduino/source
@@ -37,6 +47,8 @@ jobs:
       - name: Dependency audit
         run: npm audit --audit-level=high
         working-directory: tools/obfuscate
+      - name: Explicit application and optional chunk scopes
+        run: node tools/check_app_scopes.cjs
       - name: Source map regressions with build dependencies installed
         run: python3 -m unittest discover -s tests -p test_sourcemap.py
       - name: Minified and obfuscated copies for visitors (min/)

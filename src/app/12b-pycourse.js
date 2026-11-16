@@ -3,31 +3,25 @@
   // следующий уровень открывается, когда в текущем решено need задач. Ответы проверяет сервер.
   let PYC_FOCUS = null, PYC_HELP = Promise.resolve(), pycLevelRequest = 0;
   const PYC_PENDING_HELP = new Map();
-  let PYC_OK = false;
-  let PYC_PW = false;                    // учитель задал пароль курса — на экране с замком есть поле для пароля
   let PYC = null;                        // план курса и прогресс с сервера
   let PYC_L = null;                      // открытый уровень
-  let PYC_PY = null;                     // задача (или пример со слайда), с которой открыт редактор Python
   const PYC_STARS = n => '★'.repeat(n) + '☆'.repeat(Math.max(0, 3 - n));
   const pycDone = id => !!((PYC && PYC.progress[id]) || {}).ok;
   const pycModDone = m => m.levels.reduce((a, lv) => a + lv.tasks.filter(pycDone).length, 0);
   const pycModTotal = m => m.levels.reduce((a, lv) => a + lv.tasks.length, 0);
   const pycLabel = m => (m.archive || ARCHIVE[m.n] ? `Архив · ${numLabel(m.n)}` : m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
 
-  function pycSetAccess(on, pw) {
-    PYC_OK = !!on;
-    if (pw !== undefined) PYC_PW = !!pw;
-    $('#pycCard')?.classList.toggle('locked', !PYC_OK);   // кнопка видна всем; без доступа — с замком
-  }
   async function pycLoad() {
-    PYC = await api('pyc');
+    const current = learningSessionGuard(), result = await api('pyc');
+    if (!current()) return false;
+    PYC = result;
     if (!PYC.access) { pycSetAccess(false, PYC.pw); return false; }
     pycSetAccess(true);
     return true;
   }
   function pycLock(msg) {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Программирование</span>';
-    if (msg || !PYC_PW) {
+    if (msg || !appState.PYC_PW) {
       trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><div class="crs-lock-ic">🔒</div>
         <h2>Курс «Программирование для ЕГЭ» — по паролю</h2>
         <p>${esc(msg || 'Учитель ещё не открыл курс. Как только откроет — здесь появится поле для пароля.')}</p></div></div>`;
@@ -46,23 +40,24 @@
     $('#pycPw').focus();
     $('#pycPwForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const m = $('#pycPwMsg');
+      const current = learningSessionGuard(), m = $('#pycPwMsg');
       m.textContent = '';
       try {
         await api('pyc/unlock', { password: $('#pycPw').value });
+        if (!current()) return;
         pycSetAccess(true);
         toast('Курс открыт 🐍', 2500);
         openPyc();
-      } catch (err) { m.textContent = err.message || 'Не получилось — попробуйте ещё раз'; }
+      } catch (err) { if (!current()) return; m.textContent = err.message || 'Не получилось — попробуйте ещё раз'; }
     });
   }
   function pycEnter() {
     if (!leaveExam()) return false;
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
-    courseShown = true;
-    pageKind = 'pyc';
-    cur = null;
+    appState.courseShown = true;
+    appState.pageKind = 'pyc';
+    appState.cur = null;
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
     $('#pycCard')?.classList.add('on');
     document.body.classList.add('asg-wide');
@@ -72,11 +67,11 @@
   /** План курса: модули по группам, у каждого — лестница уровней. */
   async function openPyc() {
     if (!pycEnter()) return;
-    ++pycLevelRequest;
+    const request = ++pycLevelRequest, current = learningSessionGuard();
     navPush({ v: 'pyc' });
     PYC_L = null;
-    try { await pycLoad(); } catch (e) { if (e.status !== 401) netError(e); return; }
-    if (!courseShown || pageKind !== 'pyc') return;
+    try { await pycLoad(); } catch (e) { if (!current() || request !== pycLevelRequest) return; if (e.status !== 401) netError(e); return; }
+    if (!current() || request !== pycLevelRequest || !appState.courseShown || appState.pageKind !== 'pyc') return;
     if (!PYC.access) { pycLock(); return; }
     const mods = PYC.modules;
     const all = mods.reduce((a, m) => a + pycModTotal(m), 0), done = mods.reduce((a, m) => a + pycModDone(m), 0);
@@ -125,24 +120,26 @@
 
   /** Уровень: слайды (как в «Курсе») и задачи с проверкой. */
   async function openPycLevel(mid, li, keepScroll) {
-    if (!(courseShown && pageKind === 'pyc') && !pycEnter()) return;
-    const request = ++pycLevelRequest;
+    if (!pycEnter()) return;
+    const request = ++pycLevelRequest, current = learningSessionGuard();
     navPush({ v: 'pycl', m: mid, l: li });
     let d;
     try {
       if (!PYC) await pycLoad();
+      if (!current() || request !== pycLevelRequest) return;
       d = await api(`pyc/level?m=${encodeURIComponent(mid)}&l=${li}`);
     } catch (e) {
+      if (!current() || request !== pycLevelRequest) return;
       if (e.status === 403) { if (PYC && PYC.access) { toast(e.message, 4000); return openPyc(); } pycLock(); return; }
       netError(e); return;
     }
-    if (!courseShown || pageKind !== 'pyc' || request !== pycLevelRequest) return;
+    if (!current() || !appState.courseShown || appState.pageKind !== 'pyc' || request !== pycLevelRequest) return;
     const y = window.scrollY;
     PYC_L = d;
     const m = PYC.modules.find(x => x.id === mid) || { levels: [], open: 1 };
     const lv = d.level, has = lv.slides.length;
-    DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
-    if (!keepScroll) deckI = learningSlide(`pyc:${mid}:${li}`);
+    appState.DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
+    if (!keepScroll) appState.deckI = learningSlide(`pyc:${mid}:${li}`);
     const saved = learningMemory().pyc;
     if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && saved.l === li && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
     learningMemory({ pyc: { m: mid, l: li, task: PYC_FOCUS } });
@@ -220,7 +217,7 @@
     if (!t) return;
     const alreadyEditing = pyOpen() && PY.task?.id === 'pyc:' + id;
     const k = PYC_L.level.tasks.indexOf(t) + 1;
-    PYC_PY = pycPyTask(t, `${pycLabel(PYC_L)} · ур. ${PYC_L.l + 1} · задача ${k}`);
+    appState.PYC_PY = pycPyTask(t, `${pycLabel(PYC_L)} · ур. ${PYC_L.l + 1} · задача ${k}`);
     if (pyOpen()) pySync(); else togglePy(true);
     if (t.practice && !alreadyEditing) {
       $('#pyIn').value = t.practice.stdin;
@@ -240,8 +237,10 @@
     const code = PY.task && PY.task.id === pid ? $('#pyCode').value : readCode(pid);
     const btn = form.querySelector('button[type=submit]');
     if (btn) btn.disabled = true;
+    const current = learningSessionGuard();
     let r;
-    try { await pycFlushHelp(); r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (btn) btn.disabled = false; netError(e); return; }
+    try { await pycFlushHelp(); if (!current()) return; r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (!current()) return; if (btn) btn.disabled = false; netError(e); return; }
+    if (!current()) return;
     if (btn) btn.disabled = false;
     const t = pycTask(id);
     if (!t) return;
@@ -253,6 +252,7 @@
       t.ans = r.ans;
       toast(r.opened ? '🔓 Верно! Открыт следующий уровень' : '✅ Верно!', r.opened ? 4000 : 2000);
       if (r.opened) { await pycLoad().catch(() => {}); }
+      if (!current() || !PYC_L) return;
       openPycLevel(PYC_L.id, PYC_L.l, true);
       return;
     }
@@ -265,7 +265,7 @@
   }
 
   trainerEl.addEventListener('click', e => {
-    if (!courseShown || pageKind !== 'pyc') return;
+    if (!appState.courseShown || appState.pageKind !== 'pyc') return;
     const focus = e.target.closest('[data-pyc-focus]');
     if (focus && PYC_L) { PYC_FOCUS = focus.dataset.pycFocus; openPycLevel(PYC_L.id, PYC_L.l, true); return; }
     const tests = e.target.closest('[data-pyc-tests]');
@@ -287,16 +287,9 @@
   trainerEl.addEventListener('input', e => {
     if (e.target.matches('.pyc-ans')) { const m = e.target.closest('.pyc-task').querySelector('.pyc-msg'); m.textContent = ''; m.className = 'pyc-msg'; }
   });
-  $('#pycCard')?.addEventListener('click', () => openPyc());
   /** Учитель задал пароль, закрыл курс всем или выключил его — замок и экран курса обновляются сразу. */
-  async function pycLive() {
-    try {
-      const me = await api('me');
-      pycSetAccess(me.pyc, me.pyc_pw);
-      COURSE_OK = !!me.course; $('#courseCard')?.classList.toggle('locked', !COURSE_OK);   // пароли курса и лабораторий меняются там же
-      LAB_OK = !!me.lab; ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw; IM_OK = !!me.im; IM_PW = !!me.im_pw; $('#labCard')?.classList.toggle('locked', !LAB_OK);
-    } catch (e) { return; }
-    if (courseShown && pageKind === 'pyc') { if (PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
+  function refreshLearningAccess() {
+    if (appState.courseShown && appState.pageKind === 'pyc') { if (appState.PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
   }
 
   trainerEl.addEventListener('toggle', e => {
@@ -305,14 +298,18 @@
     const task = pycTask(el.dataset.task); if (!task) return;
     const field = el.dataset.pycHelp === 'hint' ? 'hint_used' : 'solution_seen';
     if (task[field]) return;
-    PYC_PENDING_HELP.set(task.id + ':' + field, { sid: student?.sid, task, kind: el.dataset.pycHelp, field });
+    PYC_PENDING_HELP.set(task.id + ':' + field, { sid: appState.student?.sid, task, kind: el.dataset.pycHelp, field });
     pycFlushHelp().catch(() => toast('Не удалось сохранить использование подсказки. Проверь подключение.', 4000));
   }, true);
   function pycFlushHelp() {
+    const current = learningSessionGuard();
     PYC_HELP = PYC_HELP.catch(() => {}).then(async () => {
+      if (!current()) return;
       for (const [key, item] of PYC_PENDING_HELP) {
-        if (item.sid !== student?.sid) { PYC_PENDING_HELP.delete(key); continue; }
+        if (item.sid !== appState.student?.sid) { PYC_PENDING_HELP.delete(key); continue; }
         await api('pyc/help', { task: item.task.id, kind: item.kind });
+        if (!current()) return;
+        if (item.sid !== appState.student?.sid || PYC_PENDING_HELP.get(key) !== item) continue;
         item.task[item.field] = true; PYC_PENDING_HELP.delete(key);
       }
     });

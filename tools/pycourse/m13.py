@@ -3,7 +3,7 @@ from _dsl import *  # noqa: F403
 ORDER = 10
 
 L1 = level('База: сеть и её адреса', 'ipaddress: ip_network(…, 0), адрес сети, широковещательный, перебор адресов, двоичная запись', [
-    title('Задание 10', 'IP-адреса и маски: модуль ipaddress делает всю двоичную арифметику за нас',
+    title('Задание 13', 'IP-адреса и маски: модуль ipaddress делает всю двоичную арифметику за нас',
           chips=['ip_network', "f'{ip:b}'", 'net[0], net[-1]', 'маска /n']),
     code('Сеть по адресу и маске', '''
         from ipaddress import ip_network

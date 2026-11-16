@@ -14,12 +14,13 @@ test.afterAll(async () => { await fixture?.stop(); });
 for (const profile of profiles) {
   test(`cold load performance: ${profile.name}`, async ({page, context}, testInfo) => {
     await seedBrowser(context, fixture, 'pupil');
-    const changelogRequests = [], examRequests = [];
+    const changelogRequests = [], examRequests = [], learningRequests = [];
     page.on('request', request => {
       if (new URL(request.url()).pathname === '/changelog.js') {
         changelogRequests.push({method:request.method(), type:request.resourceType()});
       }
       if (new URL(request.url()).pathname === '/app-exams.js') examRequests.push(request.method());
+      if (new URL(request.url()).pathname === '/app-learning.js') learningRequests.push(request.method());
     });
     await page.setViewportSize({width:profile.width, height:profile.height});
     const cdp = await context.newCDPSession(page);
@@ -85,8 +86,9 @@ for (const profile of profiles) {
     const app = metrics.resources.find(e=>e.path==='/app.js');
     expect(app).toBeTruthy();
     expect(app.encodedBytes).toBeGreaterThan(0);
-    expect(app.encodedBytes).toBeLessThanOrEqual(300000);
+    expect(app.encodedBytes).toBeLessThanOrEqual(210000);
     expect(examRequests).toEqual([]);
+    expect(learningRequests).toEqual([]);
     // The update detector checks ETag/Last-Modified with HEAD at startup; this
     // transfers no history body. Any GET/prefetch/script before a click is a regression.
     expect(changelogRequests.every(request => request.method === 'HEAD')).toBe(true);

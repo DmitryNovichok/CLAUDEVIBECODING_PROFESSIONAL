@@ -125,8 +125,7 @@
     if (PY.task && $('#pyCode')) writeCode(PY.task.id, $('#pyCode').value);
     if (PY.worker) PY.worker.terminate();
     Object.assign(PY, { worker: null, ready: false, running: false, task: null });
-    pycStopTests(); labStop(); resetBugLab();
-    Object.assign(LAB, { context: null, owner: null, result: null, code: '', stdin: '', index: 0, seen: null });
+    resetLearningSession();
     for (const id of ['pyCode', 'pyIn', 'labCode', 'labStdin']) if ($('#' + id)) $('#' + id).value = '';
     for (const id of ['pyOut', 'pyFiles', 'pyTask', 'labOutput', 'labVariables', 'labStack', 'labTraceCode', 'bugRoot'])
       if ($('#' + id)) $('#' + id).textContent = '';

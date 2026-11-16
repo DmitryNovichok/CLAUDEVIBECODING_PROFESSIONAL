@@ -12,8 +12,10 @@
 <meta name="theme-color" content="#58cc02">
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="welcome.css">
+<link rel="stylesheet" href="skill-coverage.css">
 <script defer src="visit.js"></script>
 <script defer src="welcome.js"></script>
+<script defer src="skill-coverage.js"></script>
 </head>
 <body>
 <div class="w-progress" aria-hidden="true"><i id="wProgress"></i></div>
@@ -150,6 +152,19 @@
       </table>
     </div>
     <p class="w-note" id="coverageAccess">Подробный урок и краткий разбор — альтернативные форматы одной темы. №19–21 используют общий урок и общий модуль Python. Архивные темы не входят в 27 номеров.</p>
+    <details class="sk-coverage" id="skillCoverage">
+      <summary>Навыки и ключевые типы задач</summary>
+      <p>Выберите номер или приём решения: карта укажет конкретные слайды, уровни Python и учебные модели. Наличие материала не подтверждает полноту навыка. Содержательная проверка покрытия и независимая проверка ответов всего банка ещё не выполнены.</p>
+      <p>Типы банка определяются автоматически. Части №19–21 считаются у своих номеров; общие материалы не становятся отдельными уроками. Счётчики широкого типа не складываются со счётчиками его отдельных приёмов.</p>
+      <div class="sk-filters">
+        <label for="skillTopic">Номер и тема<select id="skillTopic"><option value="">Все номера и архив</option></select></label>
+        <label for="skillSearch">Навык или приём<input id="skillSearch" type="search" placeholder="Например, скользящее окно" autocomplete="off"></label>
+        <label for="skillState">Материалы<select id="skillState"><option value="">Все записи</option><option value="missing">Без явных материалов</option><option value="issues">Требуют проверки ссылок</option></select></label>
+      </div>
+      <p id="skillStatus" role="status" aria-live="polite">Сведения загрузятся после раскрытия блока.</p>
+      <button class="w-btn white" id="skillRetry" type="button" hidden>Повторить загрузку</button>
+      <div class="sk-list" id="skillRows"></div>
+    </details>
   </section>
 
   <!-- ======================================================= python -->

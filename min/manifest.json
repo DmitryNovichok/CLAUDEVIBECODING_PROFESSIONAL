@@ -16,13 +16,17 @@
       "min": "b75d54c2a7c0f0b6ff34b50971e2e636be1bc3bbb6dc08790fb27bacae63ec82",
       "source": "5a64bc435988c0053992b8e0e17face2e998974b7637c353e197c4cf0a4874f5"
     },
+    "app-learning.js": {
+      "min": "981ce5d634bab36c5c83918ec597b3ec7a4448fa0e289eb4a63c87a074b14f82",
+      "source": "eecdf81229b15c0e3333d33897ceb7803e9a9699b603980449ac10d6f622937f"
+    },
     "app.js": {
-      "min": "bafb1a7f4aa6862391335126f347444870f0592c02d9613857f8af3c74c30220",
-      "source": "81fd0b9175b537b723f8d7094ed4ff409545dd6d2e6daead68e297c705ea21c2"
+      "min": "875190f640af90b0393c1c151a0276fbf5e7c726298a90f8bc74e22ae28c7b60",
+      "source": "9c16fec2138d703509dcb3967809822c14d00cfb8a082dc752bc6f78954f4863"
     },
     "changelog-loader.js": {
-      "min": "cbabeb0619faf2d30441abd46e95ff65caac1db8d502146636403a2802f7eb15",
-      "source": "4e71a527fa4706d17d12e6202f85673150e50826464efdc32e90f3859a4b3f5b"
+      "min": "8d8a97b7d8f2f28267ca09313cd452b76dce913de15a6d23f2ae991b2a0ee091",
+      "source": "9c0d1dc9efa02816890e80930ca4e2e2bb520eb011626bc22178f49dac7061db"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -47,6 +51,14 @@
     "python-sandbox.js": {
       "min": "db55af6690ce35c0e4cf1441aff714ecdbe48e97adcab14955b8e1d10d53a9ac",
       "source": "d16004d9797a49a187e20bf59aa2df6fddec05e8fde19a9df8468858b65ccace"
+    },
+    "skill-coverage.css": {
+      "min": "ab56bc6da132b04c838a64d4e9dc88f6f923df202c905c7bcd311687054cf0da",
+      "source": "2e315602532ce91ba6d3bb72a181250dc5ca534e3997d6029faa1984a810dff4"
+    },
+    "skill-coverage.js": {
+      "min": "93465c82dfe733d91711131406b6fd2b63e9788ef910a397456d6da054e66497",
+      "source": "1c9a0cb78564718c0483b6ff13e0aca44732b5b30cc8237a8580040ed1822dc5"
     },
     "style.css": {
       "min": "deea138ef646ac86b0bfd1264732a847f3a5aa2bdff73fb3c8374bdd57214744",

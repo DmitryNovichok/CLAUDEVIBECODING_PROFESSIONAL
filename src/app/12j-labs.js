@@ -88,27 +88,28 @@
     return { answer: kind === 'count' ? s1.v * s2.v : s1.v + s2.v, path: [...s1.path, ...s2.path.slice(1)], table: s2.r, parts: [s1.v, s2.v] };
   }
 
-  let LAB_OK = false, ARD_OK = false, ARD_PW = false, labLoadId = 0;
+  let labLoadId = 0;
   // Лаборатория Arduino — отдельное приложение (/arduino/) со своим паролем: пароль лабораторий его не открывает
   async function openArdGate() {
     if (!leaveExam()) return;
+    const ticket = ++labLoadId, current = learningSessionGuard();
     if (isNarrow()) setSideOpen(false);
-    abandonCurrent(); cur = null;
-    courseShown = true; pageKind = 'ardgate';
+    abandonCurrent(); appState.cur = null;
+    appState.courseShown = true; appState.pageKind = 'ardgate';
     navPush({ v: 'ardgate' });
     renderSidebar();
     $('#scopeInfo').innerHTML = '<span class="scope-title">Лаборатория Arduino</span>';
     trainerEl.innerHTML = '<p class="fm-note">Проверяю доступ к лаборатории Arduino…</p>';
-    try { const me = await api('me'); ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw; }
-    catch (err) { if (pageKind === 'ardgate') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Попробуй ещё раз.</p>'; netError(err); } return; }
-    if (pageKind !== 'ardgate' || !courseShown) return;
-    if (ARD_OK) { location.href = 'arduino/'; return; }
+    try { const me = await api('me'); if (!current() || ticket !== labLoadId) return; appState.ARD_OK = !!me.ard; appState.ARD_PW = !!me.ard_pw; }
+    catch (err) { if (!current() || ticket !== labLoadId) return; if (appState.pageKind === 'ardgate') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Попробуй ещё раз.</p>'; netError(err); } return; }
+    if (!current() || ticket !== labLoadId || appState.pageKind !== 'ardgate' || !appState.courseShown) return;
+    if (appState.ARD_OK) { location.href = 'arduino/'; return; }
     trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатория Arduino — по паролю</h2>
-      <p>${ARD_PW ? 'Это отдельный раздел: пароль выдаёт учитель, он не совпадает с паролем лабораторий. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не открыл лабораторию Arduino.'}</p>
-      ${ARD_PW ? '<form id="ardPasswordForm" class="login-form crs-lock-form"><input id="ardPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лаборатории Arduino" aria-label="Пароль лаборатории Arduino" required><button class="btn primary">Открыть</button></form><p id="ardPasswordError" role="alert"></p>' : ''}</div></div>`;
+      <p>${appState.ARD_PW ? 'Это отдельный раздел: пароль выдаёт учитель, он не совпадает с паролем лабораторий. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не открыл лабораторию Arduino.'}</p>
+      ${appState.ARD_PW ? '<form id="ardPasswordForm" class="login-form crs-lock-form"><input id="ardPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лаборатории Arduino" aria-label="Пароль лаборатории Arduino" required><button class="btn primary">Открыть</button></form><p id="ardPasswordError" role="alert"></p>' : ''}</div></div>`;
     $('#ardPasswordForm')?.addEventListener('submit', async e => {
       e.preventDefault(); const btn = e.currentTarget.querySelector('button'), msg = $('#ardPasswordError'); btn.disabled = true;
-      try { await api('arduino/unlock', { password: $('#ardPassword').value }); ARD_OK = true; location.href = 'arduino/'; }
+      try { await api('arduino/unlock', { password: $('#ardPassword').value }); if (!current()) return; appState.ARD_OK = true; location.href = 'arduino/'; }
       catch (err) { msg.textContent = err.message; btn.disabled = false; }
     });
   }
@@ -118,8 +119,8 @@
       ${LAB.context ? '<button class="link-btn" type="button" data-learning-return>← Вернуться к уроку</button>' : ''}
       ${configured ? '<form id="labPasswordForm" class="login-form crs-lock-form"><input id="labPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лабораторий" aria-label="Пароль лабораторий" required><button class="btn primary">Открыть</button></form><p id="labPasswordError" role="alert"></p>' : ''}</div></div>`;
     $('#labPasswordForm')?.addEventListener('submit', async e => {
-      e.preventDefault(); const form = e.currentTarget, btn = form.querySelector('button'), msg = $('#labPasswordError'); btn.disabled = true;
-      try { await api('lab/unlock', { password: $('#labPassword').value }); await openLab(view); }
+      e.preventDefault(); const current = learningSessionGuard(), form = e.currentTarget, btn = form.querySelector('button'), msg = $('#labPasswordError'); btn.disabled = true;
+      try { await api('lab/unlock', { password: $('#labPassword').value }); if (current()) await openLab(view); }
       catch (err) { msg.textContent = err.message; btn.disabled = false; }
     });
   }
@@ -134,7 +135,7 @@
     context: null, bps: new Set(), seen: null, game: { start: 17, second: 29, heaps: 2, target: 133, add: 4, factor: 2, path: [[17, 29]] },
     logic: { kind: 'div', a: 5, segA: 5, segB: 20 },
     graph: { kind: 'count', start: 'A', end: 'H', via: '', banned: new Set(), shown: 99 } };
-  const labActive = () => courseShown && pageKind === 'lab' && !!$('#labRoot');
+  const labActive = () => appState.courseShown && appState.pageKind === 'lab' && !!$('#labRoot');
   const labFmt = n => n.toLocaleString('ru-RU');
   const labIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></svg>';
   function labSaveDraft() { if (LAB.context) { LAB.context.code = LAB.code; LAB.context.stdin = LAB.stdin; if (LAB.context.task) writeCode('pyc:' + LAB.context.task, LAB.code); } else writeJSON(codeKey('laboratory'), { code: LAB.code, stdin: LAB.stdin }); }
@@ -161,20 +162,20 @@
     if (isNarrow()) setSideOpen(false);
     if (pyOpen()) togglePy(false);
     if (bdOpen()) toggleBoard(false);
-    abandonCurrent(); cur = null;
-    courseShown = true; pageKind = 'lab'; LAB.view = view;
+    abandonCurrent(); appState.cur = null;
+    appState.courseShown = true; appState.pageKind = 'lab'; LAB.view = view;
     navPush({ v: 'lab', tab: view });
-    const ticket = ++labLoadId;
+    const ticket = ++labLoadId, current = learningSessionGuard();
     if (SERVER) {
       trainerEl.innerHTML = '<p class="fm-note">Проверяю доступ к лабораториям…</p>';
       try {
         const access = await api('lab');
-        if (ticket !== labLoadId || pageKind !== 'lab' || !courseShown) return;
-        LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !LAB_OK);
-        if (!LAB_OK) { labLock(access.pw, view); return; }
+        if (!current() || ticket !== labLoadId || appState.pageKind !== 'lab' || !appState.courseShown) return;
+        appState.LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !appState.LAB_OK);
+        if (!appState.LAB_OK) { labLock(access.pw, view); return; }
         await loadCourseCoverage();
-        if (ticket !== labLoadId || pageKind !== 'lab' || !courseShown) return;
-      } catch (err) { if (ticket === labLoadId && pageKind === 'lab') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Открой лабораторию ещё раз.</p>'; netError(err); } return; }
+        if (!current() || ticket !== labLoadId || appState.pageKind !== 'lab' || !appState.courseShown) return;
+      } catch (err) { if (current() && ticket === labLoadId && appState.pageKind === 'lab') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Открой лабораторию ещё раз.</p>'; netError(err); } return; }
     }
     if (context) { LAB.code = context.code || ''; LAB.stdin = context.stdin || ''; LAB.result = null; LAB.index = 0; }
     else if (LAB.context) { LAB.code = LAB.context.code || ''; LAB.stdin = LAB.context.stdin || ''; }
@@ -492,7 +493,6 @@
     if (g) g.style.transform = `translateY(${-ta.scrollTop}px)`;
   }
   function labStep(delta) { if (!LAB.result) return; LAB.index = Math.max(0, Math.min(LAB.result.steps.length - 1, LAB.index + delta)); labRenderStep(); }
-  $('#labCard')?.addEventListener('click', () => openLab());
   trainerEl.addEventListener('click', e => {
     if (!labActive()) return;
     const view = e.target.closest('[data-lab-view]'); if (view) { openLab(view.dataset.labView); return; }
@@ -612,7 +612,7 @@
   new MutationObserver(() => {
     if (!labActive()) {
       labStop();
-      if ((pageKind !== 'lab' || !courseShown) && LAB.context) { labSaveDraft(); LAB.context = null; LAB.owner = null; }
+      if ((appState.pageKind !== 'lab' || !appState.courseShown) && LAB.context) { labSaveDraft(); LAB.context = null; LAB.owner = null; }
       document.body.classList.remove('lab-open'); $('#labCard')?.classList.remove('on');
     }
   }).observe(trainerEl, { childList: true });
