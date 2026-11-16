@@ -109,3 +109,23 @@ class JsErrWhereTest(unittest.TestCase):
     def test_without_min_copy_line_is_exact(self):
         (self.tmp / "min" / "app.js").unlink()
         self.assertEqual(self.server.jserr_where("app.js:6:1"), "src/app/02-x.js:2")
+
+    def test_optional_bundle_error_maps_to_its_own_module(self):
+        # The two chunks deliberately share their mtime and generated position;
+        # neither may reuse the main bundle's or the other chunk's marker cache.
+        import os
+        for name, module in (("app-exams.js", "12n-mcko.js"),
+                             ("app-learning.js", "12j-labs.js")):
+            (self.tmp / name).write_text(
+                "// banner\nwindow.factory = function () {\n"
+                f"  // ═══════ src/app/{module}\n"
+                "  fail();\n};\n", encoding="utf-8")
+            os.utime(self.tmp / name, (1000, 1000))
+            (self.tmp / "min" / name).write_text("/* banner */\nfail();\n")
+            (self.tmp / "maps" / (name + ".json")).write_text(
+                json.dumps({"version": 1, "lines": [[], [0, 3]]}))
+            self.assertEqual(self.server.jserr_where(name + "?v=123:2:1"),
+                             "src/app/" + module + ":≈1")
+            self.assertEqual(self.server.jserr_where(name + ":2:1", False),
+                             name + ":2:1 (старая версия в кэше)")
+        self.assertEqual(self.server.jserr_where("app-exams.js:2:1"), "src/app/12n-mcko.js:≈1")

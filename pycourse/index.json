@@ -107,7 +107,9 @@
     ],
     "slides": 4
    }
-  ]
+  ],
+  "exam_nums": [],
+  "archive": false
  },
  {
   "id": "m00",
@@ -173,7 +175,9 @@
     ],
     "slides": 4
    }
-  ]
+  ],
+  "exam_nums": [],
+  "archive": false
  },
  {
   "id": "m02",
@@ -234,7 +238,11 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   2
+  ],
+  "archive": false
  },
  {
   "id": "m05",
@@ -299,7 +307,11 @@
     ],
     "slides": 3
    }
-  ]
+  ],
+  "exam_nums": [
+   5
+  ],
+  "archive": false
  },
  {
   "id": "m06",
@@ -353,7 +365,11 @@
     ],
     "slides": 1
    }
-  ]
+  ],
+  "exam_nums": [
+   6
+  ],
+  "archive": false
  },
  {
   "id": "m07",
@@ -410,7 +426,12 @@
     ],
     "slides": 1
    }
-  ]
+  ],
+  "exam_nums": [
+   7,
+   11
+  ],
+  "archive": false
  },
  {
   "id": "m08",
@@ -473,7 +494,11 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   8
+  ],
+  "archive": false
  },
  {
   "id": "m09",
@@ -534,11 +559,15 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   9
+  ],
+  "archive": false
  },
  {
   "id": "m13",
-  "n": 10,
+  "n": 13,
   "title": "IP-адреса и маски",
   "icon": "🌐",
   "sub": "ipaddress: сети и узлы, неизвестные маски, условия на двоичную запись",
@@ -594,7 +623,11 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   13
+  ],
+  "archive": false
  },
  {
   "id": "m12",
@@ -647,7 +680,9 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [],
+  "archive": false
  },
  {
   "id": "m30",
@@ -668,11 +703,15 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   12
+  ],
+  "archive": false
  },
  {
   "id": "m23",
-  "n": 13,
+  "n": 23,
   "title": "Исполнитель: количество программ",
   "icon": "🧭",
   "sub": "Рекурсия f(x, y), обязательные и запрещённые точки, нестандартные команды",
@@ -729,7 +768,11 @@
     ],
     "slides": 3
    }
-  ]
+  ],
+  "exam_nums": [
+   23
+  ],
+  "archive": false
  },
  {
   "id": "m14",
@@ -795,7 +838,11 @@
     ],
     "slides": 3
    }
-  ]
+  ],
+  "exam_nums": [
+   14
+  ],
+  "archive": false
  },
  {
   "id": "m15",
@@ -855,7 +902,11 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   15
+  ],
+  "archive": false
  },
  {
   "id": "m16",
@@ -917,7 +968,11 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   16
+  ],
+  "archive": false
  },
  {
   "id": "m17",
@@ -979,7 +1034,11 @@
     ],
     "slides": 3
    }
-  ]
+  ],
+  "exam_nums": [
+   17
+  ],
+  "archive": false
  },
  {
   "id": "m19",
@@ -1035,7 +1094,13 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   19,
+   20,
+   21
+  ],
+  "archive": false
  },
  {
   "id": "m22",
@@ -1076,15 +1141,19 @@
     ],
     "slides": 1
    }
-  ]
+  ],
+  "exam_nums": [
+   22
+  ],
+  "archive": false
  },
  {
   "id": "m31",
-  "n": 23,
+  "n": 28,
   "title": "Графы: пути и расстояния",
   "icon": "↗",
-  "sub": "№23 проекта ЕГЭ-2027. Счёт путей в DAG и поиск оптимального маршрута.",
-  "group": "ege",
+  "sub": "Архивная практика: пути в графах и расстояния. Не отдельный номер КИМ-2027.",
+  "group": "extra",
   "levels": [
    {
     "title": "Динамика по графу",
@@ -1097,7 +1166,11 @@
     ],
     "slides": 3
    }
-  ]
+  ],
+  "exam_nums": [
+   28
+  ],
+  "archive": true
  },
  {
   "id": "m24",
@@ -1154,7 +1227,11 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   24
+  ],
+  "archive": false
  },
  {
   "id": "m25",
@@ -1212,7 +1289,11 @@
     ],
     "slides": 3
    }
-  ]
+  ],
+  "exam_nums": [
+   25
+  ],
+  "archive": false
  },
  {
   "id": "m26",
@@ -1266,7 +1347,11 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   26
+  ],
+  "archive": false
  },
  {
   "id": "m27",
@@ -1318,7 +1403,11 @@
     ],
     "slides": 1
    }
-  ]
+  ],
+  "exam_nums": [
+   27
+  ],
+  "archive": false
  },
  {
   "id": "m32",
@@ -1338,6 +1427,10 @@
     ],
     "slides": 2
    }
-  ]
+  ],
+  "exam_nums": [
+   27
+  ],
+  "archive": false
  }
 ]

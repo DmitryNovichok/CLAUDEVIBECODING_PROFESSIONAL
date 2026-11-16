@@ -46,7 +46,7 @@ def main():
                 target = tmp / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
-        for name in ('vendor', 'min'):
+        for name in ('vendor', 'min', 'course', 'pycourse'):
             shutil.copytree(ROOT / name, tmp / name, dirs_exist_ok=True)
         runtime = Path(__file__).parent / 'node_modules/pyodide'
         if (runtime / 'pyodide.js').is_file():
@@ -69,9 +69,11 @@ def main():
         token = helper.login('Учебный Ученик')
         status, pupil = helper.req('GET', '/api/me', token=token)
         assert status == 200
-        # Real entitlement checks still run; synthetic pupils are granted lab access.
+        # Real entitlement checks still run; this synthetic pupil can open learning UI.
+        db.setting('course_pw', server.hash_pw('fixture-only-course-password'))
+        db.setting('pyc_pw', server.hash_pw('fixture-only-pyc-password'))
         db.setting('lab_pw', server.hash_pw('fixture-only-lab-password'))
-        db.x('UPDATE students SET lab=1 WHERE id=?', (pupil['sid'],))
+        db.x('UPDATE students SET lab=1, course=1, pyc=1 WHERE id=?', (pupil['sid'],))
         participants = []
         ready = teachers[-1]
         for name in ('Совместный Ученик Один', 'Совместный Ученик Два'):

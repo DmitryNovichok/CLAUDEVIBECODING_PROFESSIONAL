@@ -4,6 +4,10 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const ROOT = path.resolve(__dirname, '../..');
+const catalog = JSON.parse(require('node:child_process').execFileSync('python3', ['-c',
+  'import json; from learning_catalog import public_catalog; print(json.dumps(public_catalog()))'], {cwd:ROOT,encoding:'utf8'}));
+const skillCoverage = JSON.parse(require('node:child_process').execFileSync('python3', ['-c',
+  'import json; from pathlib import Path; from learning_skills import skill_coverage; print(json.dumps(skill_coverage(Path("."), {})))'], {cwd:ROOT,encoding:'utf8'}));
 let server, origin, adminRequests = [];
 test.use({ reducedMotion: 'reduce' });
 
@@ -13,8 +17,11 @@ test.beforeAll(async () => {
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname.startsWith('/api/admin/')) adminRequests.push(url.pathname);
       res.setHeader('Content-Type', 'application/json');
-      if (url.pathname === '/api/course/coverage') return res.end(JSON.stringify({topics:
-        Array.from({length:27}, (_, i) => ({n:i+1,kind:[7,13,17].includes(i+1)?'lesson':'guide',archive:false}))}));
+      if (url.pathname === '/api/course/coverage' && url.searchParams.get('skills') === '1')
+        return res.end(JSON.stringify({...catalog,skill_coverage:skillCoverage}));
+      if (url.pathname === '/api/course/coverage') return res.end(JSON.stringify({...catalog,topics:
+        catalog.topics.map(t => ({...t,kind:[7,13,17].includes(t.n)?'lesson':'guide',slides:4,
+          practice_count:t.n===13?2:0,python_tasks:t.n===13?4:0}))}));
       if (url.pathname === '/api/admin/login') return res.end(JSON.stringify({need_code:true,ticket:'synthetic-only',to:'demo@example.invalid'}));
       return res.end('{}');
     }
@@ -44,6 +51,7 @@ test('signup keeps keyboard focus, makes background inert and restores its trigg
   const trigger = page.getByRole('button', {name:'Я учитель', exact:true}).first();
   await trigger.click();
   await expect(page.getByLabel('Фамилия, имя и отчество')).toBeFocused();
+  await expect(page.locator('#signupNote')).toContainText('Пробные 7 дней начнутся после обеих проверок');
   expect(await page.locator('main').evaluate(el => el.inert)).toBe(true);
   for (let i=0;i<14;i++) {
     await page.keyboard.press(i<3 ? 'Shift+Tab' : 'Tab');
@@ -75,6 +83,87 @@ test('coverage uses actual metadata and makes no all-27-full-lesson promise', as
   await expect(page.locator('#wNums .full')).toHaveCount(3);
   await expect(page.locator('#courseCoverageNote')).toContainText('краткие разборы (24)');
   await expect(page.getByText('уроки по всем 27 номерам', {exact:true})).toHaveCount(0);
+  await expect(page.locator('#courseCoverageRows tr')).toHaveCount(28);
+  const net=page.locator('[data-coverage-n="13"]');
+  await expect(net).toContainText('IP-адреса и маски');
+  await expect(net).toContainText('Слайдов: 4');
+  await expect(net).toContainText('IP-сети');
+  await expect(net).toContainText('Заданий в тренажёре: 2');
+  await expect(net).toContainText('Задач Python: 4');
+  const text=page.locator('[data-coverage-n="10"]');
+  await expect(text).toContainText('Поиск слова в тексте');
+  await expect(text).toContainText('Нет отдельной модели');
+  await expect(text).toContainText('Заданий в тренажёре: 0');
+  await expect(page.locator('[data-coverage-n="28"]')).toContainText('Архив · 23_old');
+});
+
+test('unavailable coverage makes no fabricated material counts',async({page})=>{
+  await page.route('**/api/course/coverage',route=>route.fulfill({status:503,contentType:'application/json',body:'{}'}));
+  await page.goto(origin+'/welcome');
+  await expect(page.locator('#courseCoverageRows')).toContainText('количество уроков и заданий сейчас не подтверждено');
+  await expect(page.locator('#courseFullCount')).toHaveText('—');
+});
+
+test('skill references load on demand, expose real gaps and separate shared type counts',async({page})=>{
+  const requests=[];page.on('request',r=>{if(r.url().includes('skills=1'))requests.push(r.url());});
+  await page.goto(origin+'/welcome');
+  await expect(page.locator('#courseCoverageRows tr')).toHaveCount(28);expect(requests).toHaveLength(0);
+  await page.locator('#skillCoverage > summary').click();
+  await expect(page.locator('#skillRows article')).toHaveCount(skillCoverage.rows.length);expect(requests).toHaveLength(1);
+  await expect(page.locator('#skillRetry')).toBeHidden();
+  await page.locator('#skillTopic').selectOption('13');await page.locator('#skillState').selectOption('missing');
+  await expect(page.locator('#skillRows article')).toHaveCount(2); // IP fragments and unclassified formulations.
+  await expect(page.locator('[data-skill-id="13.frag"]')).toContainText('Явный материал в карте не найден');
+  await page.locator('#skillState').selectOption('');await page.locator('#skillTopic').selectOption('24');
+  await page.locator('#skillSearch').fill('скользящее');
+  const window=page.locator('[data-skill-id="24.window"]');await expect(window).toBeVisible();
+  await expect(window).toContainText('Отдельного счётчика навыка нет');
+  await window.locator('summary').click();await expect(window).toContainText('Урок №24 · слайд 14');
+  await expect(page.locator('#skillStatus')).toContainText('Содержательная полнота не подтверждена');
+  await page.locator('#skillCoverage > summary').click();await page.locator('#skillCoverage > summary').click();
+  expect(requests).toHaveLength(1);
+});
+
+test('skill inventory retries a malformed successful response without exposing markup',async({page})=>{
+  let calls=0;
+  const report=JSON.parse(JSON.stringify(skillCoverage));
+  const row=report.rows.find(r=>r.id==='13.count');row.title='<img src=x onerror="window.skillInjected=true">';
+  await page.route('**/api/course/coverage?skills=1',route=>route.fulfill({status:200,contentType:'application/json',
+    body:JSON.stringify(++calls===1?{skill_coverage:report}:{...catalog,skill_coverage:report})}));
+  await page.goto(origin+'/welcome');await page.locator('#skillCoverage > summary').click();
+  await expect(page.locator('#skillRetry')).toBeVisible();await page.locator('#skillRetry').click();
+  await expect(page.locator('#skillRows article')).toHaveCount(report.rows.length);expect(calls).toBe(2);
+  await expect(page.locator('#skillRetry')).toBeHidden();
+  await expect(page.locator('[data-skill-id="13.count"] h3')).toContainText('<img');
+  await expect(page.locator('#skillRows img')).toHaveCount(0);
+  expect(await page.evaluate(()=>window.skillInjected)).toBeUndefined();
+});
+
+for(const width of [320,375,1366]) test(`expanded skill references remain readable at ${width}px`,async({page},info)=>{
+  await page.setViewportSize({width,height:900});await page.goto(origin+'/welcome');
+  await page.locator('#skillCoverage > summary').click();
+  await expect(page.locator('#skillRows article')).toHaveCount(skillCoverage.rows.length);
+  await expect(page.locator('#skillRetry')).toBeHidden();
+  await page.locator('#skillTopic').selectOption('13');
+  await page.locator('[data-skill-id="13.count"] summary').click();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  for(const selector of ['#skillTopic','#skillSearch','#skillState']) {
+    await page.locator(selector).focus();await expect(page.locator(selector)).toBeFocused();
+    const box=await page.locator(selector).boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
+  }
+  const {recordUI}=require('./ui-evidence.cjs');await recordUI(page,info,'skills-'+width);
+});
+
+for(const width of [320,375,1366]) test(`coverage matrix stays within the page at ${width}px`,async({page},testInfo)=>{
+  await page.setViewportSize({width,height:900});await page.goto(origin+'/welcome');
+  await expect(page.locator('#courseCoverageRows tr')).toHaveCount(28);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const scroll=page.getByRole('region',{name:'Карта уроков и практики'});
+  await scroll.focus();await expect(scroll).toBeFocused();
+  const box=await scroll.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
+  await testInfo.attach(`coverage-${width}.png`, {
+    body:await page.locator('.w-coverage').screenshot(),contentType:'image/png',
+  });
 });
 
 test('teacher login has persistent labels, login-first focus and accessible code step', async ({ page }) => {

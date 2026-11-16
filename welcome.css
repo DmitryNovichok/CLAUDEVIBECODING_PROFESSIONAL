@@ -318,3 +318,16 @@ h2 { font-size: 40px; line-height: 1.1; font-weight: 1000; letter-spacing: -.015
 .s-green { background: #337b09; } .s-blue { background: #08689c; } .s-red { background: #c02b39; }
 .w-chip.c4 { background: #337b09; }
 .w-dialog input:focus { border-color: #134da3; outline: 2px solid #134da3; outline-offset: 1px; }
+
+/* Карта наполнения остаётся таблицей; на телефоне прокручивается только её область. */
+.w-coverage { margin-top: 12px; margin-bottom: 64px; min-width: 0; }
+.w-coverage h2 { margin-bottom: 12px; }
+.w-coverage .w-note { line-height: 1.6; margin: 12px 0; }
+.w-coverage-scroll { max-width: 100%; overflow-x: auto; border: 2px solid var(--line); border-radius: 16px; background: #fff; }
+.w-coverage table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 14px; line-height: 1.5; }
+.w-coverage caption { padding: 16px; text-align: left; font-weight: 800; }
+.w-coverage th, .w-coverage td { padding: 12px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.w-coverage thead { background: #ecf8e1; }
+.w-coverage tbody th { min-width: 190px; }
+.w-coverage tbody th span { display: block; font-weight: 600; }
+.w-coverage-archive { background: #f6f4ed; }

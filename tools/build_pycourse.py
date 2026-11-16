@@ -26,7 +26,9 @@ SRC = ROOT / 'tools' / 'pycourse'
 OUT = ROOT / 'pycourse'
 DATA = OUT / 'data'
 sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(ROOT))
 from _dsl import rng_for  # noqa: E402
+from learning_catalog import python_metadata  # noqa: E402
 
 SLOW = 12.0        # дольше — предупреждение: в браузере (Pyodide) программа идёт в 2–5 раз медленнее
 TIMEOUT = 120
@@ -49,7 +51,7 @@ def load_modules(only):
         spec = importlib.util.spec_from_file_location(f.stem, f)
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        mod = m.MODULE
+        mod = python_metadata(m.MODULE)
         if only and mod['id'] not in only:
             continue
         mod['_order'] = getattr(m, 'ORDER', 100)
@@ -206,6 +208,7 @@ def build(only):
         for d in DATA.iterdir():
             if d.is_dir() and d.name not in keep:
                 shutil.rmtree(d)
+    index = [python_metadata(m) for m in index]
     (OUT / 'index.json').write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding='utf-8')
     nt = sum(len(lv['tasks']) for m in index for lv in m['levels'])
     print(f'готово: {len(mods)} модулей, {nt} задач всего в плане, {time.time() - t0:.0f} с')

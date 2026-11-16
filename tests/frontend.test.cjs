@@ -426,6 +426,7 @@ test('checking an active beginner task preserves code that has not been autosave
   const c=vm.createContext({pycTask:()=>task,pyOpen:()=>true,PY:{task:{id:'pyc:m01.example'}},
     PYC_L:{n:0,l:1,level:{tasks:[task]}},pycPyTask:()=>({id:'pyc:m01.example'}),pycLabel:()=>'',
     pySync(){},readCode:()=>null,$:id=>id==='#pyCode'?editor:input,Event:class{}});
+  c.appState = c;
   vm.runInContext(source.slice(source.indexOf('  function pycOpenPy('),source.indexOf('  async function pycCheck(')),c);
   c.pycOpenPy(task.id);
   assert.equal(editor.value,'print(14)');assert.equal(input.value,'custom input');
@@ -436,6 +437,7 @@ test('leaving a lesson lab detaches its draft; loading a protected lab keeps the
   const c=vm.createContext({MutationObserver:class{constructor(fn){callback=fn}observe(){}},trainerEl:{},labActive:()=>false,labStop(){},
     pageKind:'lab',courseShown:true,LAB:{context:{task:'m01.example'},owner:'student'},labSaveDraft(){saved++},
     document:{body:{classList:{remove(){}}}},$:()=>({classList:{remove(){}}})});
+  c.appState = c;
   vm.runInContext(code.slice(code.indexOf('  new MutationObserver'),code.indexOf("  window.addEventListener('pagehide'")),c);
   callback();assert.equal(c.LAB.context.task,'m01.example');assert.equal(saved,0);
   c.pageKind='pyc';callback();assert.equal(saved,1);assert.equal(c.LAB.context,null);assert.equal(c.LAB.owner,null);
@@ -770,6 +772,7 @@ function bugLabContext() {
     setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id},clearTimeout:id=>timers.delete(id),
     api:()=>{apiCalls++;return new Promise((resolve,reject)=>{apiResolve=resolve;apiReject=reject})},
     plural:()=>'',esc:String,safeHtml:String});
+  c.appState = c;
   vm.runInContext(fs.readFileSync('src/app/12k-buglab.js','utf8'),c);
   vm.runInContext(`BUG.cases=[{id:'one',code:'print(1)',tests:[{in:'',open:true}],my:{},hints:[]}];BUG.cur='one';
     bugRenderHints=()=>{};bugRenderResult=()=>{};bugRenderList=()=>{};bugRenderCase=()=>{};`,c);

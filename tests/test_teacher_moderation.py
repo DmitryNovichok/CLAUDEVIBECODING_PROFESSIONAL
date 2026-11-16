@@ -112,12 +112,17 @@ class TeacherModerationTest(unittest.TestCase):
         self.assertEqual(self.call('GET', 'status')[0], 200)
 
     def test_both_orders_and_one_time_trial(self):
+        self.assertIsNotNone(self.row()['activation_registered_at'])
+        self.assertIsNone(self.row()['admitted_at'])
         self.confirm()
         self.assertEqual(self.call('GET', 'classes')[0], 403)
         self.assertIsNone(self.row()['trial_started'])
+        self.assertIsNone(self.row()['admitted_at'])
         self.moderate()
         self.assertEqual(self.call('GET', 'classes')[0], 200)
         started, until = self.row()['trial_started'], self.row()['until']
+        admitted = self.row()['admitted_at']
+        self.assertEqual(admitted, started)
         self.assertAlmostEqual(until - started, server.TRIAL_DAYS * 86400, delta=1)
         self.moderate('rejected', 'Уточните место работы')
         self.assertEqual(self.call('GET', 'classes')[0], 403)
@@ -126,20 +131,49 @@ class TeacherModerationTest(unittest.TestCase):
         self.moderate()
         self.assertEqual(self.row()['until'], until)
         self.assertEqual(self.row()['trial_started'], started)
+        self.assertEqual(self.row()['admitted_at'], admitted)
 
     def test_approval_before_email_and_paid_time_preserved(self):
         self.moderate()
         self.assertEqual(self.call('GET', 'classes')[0], 403)
         self.assertIsNone(self.row()['trial_started'])
+        self.assertIsNone(self.row()['admitted_at'])
         self.confirm()
         self.assertTrue(self.me()['onboarding']['ready'])
         self.assertIsNotNone(self.row()['trial_started'])
+        admitted = self.row()['admitted_at']
+        self.assertIsNotNone(admitted)
         self.moderate('pending')
         future = time.time() + 90 * 86400
         self.db.x('UPDATE teachers SET paid=1,until=?,trial_started=NULL WHERE id=?', (future, self.tid))
         self.moderate()
         self.assertEqual(self.row()['until'], future)
         self.assertIsNone(self.row()['trial_started'])
+        self.assertEqual(self.row()['admitted_at'], admitted)
+
+    def test_paid_first_admission_is_recorded_without_changing_access(self):
+        future = time.time() + 90*86400
+        self.db.x('UPDATE teachers SET paid=1,until=? WHERE id=?', (future, self.tid))
+        self.confirm(); self.moderate()
+        self.assertIsNotNone(self.row()['admitted_at'])
+        self.assertIsNone(self.row()['trial_started'])
+        self.assertEqual(self.row()['until'], future)
+
+    def test_old_account_is_not_given_invented_admission_after_reapproval(self):
+        self.db.x('UPDATE teachers SET activation_registered_at=NULL,trial_started=created WHERE id=?', (self.tid,))
+        self.confirm(); self.moderate()
+        self.assertIsNone(self.row()['admitted_at'])
+
+    def test_password_reset_finishes_second_gate_and_records_admission(self):
+        self.moderate()
+        token = secrets.token_urlsafe(24)
+        self.db.x('INSERT INTO pw_resets(token,kind,uid,expires,account_state) VALUES(?,?,?,?,?)',
+            (hashlib.sha256(token.encode()).hexdigest(), 't', self.tid, time.time()+3600, server.reset_fingerprint(self.row())))
+        status, data = self.c.req('POST', '/api/pw/reset', {'t':token,'password':'new-test-secret-123'})
+        self.assertEqual(status, 200, data)
+        self.assertTrue(server.teacher_ready(self.row()))
+        self.assertIsNotNone(self.row()['admitted_at'])
+        self.assertEqual(self.row()['admitted_at'], self.row()['trial_started'])
 
     def test_principal_alone_moderates_and_cannot_moderate_itself(self):
         self.confirm(); self.moderate()

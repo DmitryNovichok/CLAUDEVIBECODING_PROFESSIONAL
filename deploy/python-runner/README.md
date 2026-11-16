@@ -16,7 +16,7 @@
 |---|---|
 | Активные запросы | 2; остальные получают отказ «занято» |
 | Программа / вход / число тестов | 32 КиБ UTF-8 / 16 КиБ / 12 |
-| Контейнер | Непривилегированный UID 65534, без capabilities, no-new-privileges, seccomp |
+| Контейнер | Rootless `--userns=nomap`: UID/GID broker не отображаются внутрь; программа работает как UID 65534, без capabilities, no-new-privileges, seccomp |
 | Сеть | Отдельное пространство сети, только loopback, без сети хоста |
 | Файлы | Read-only образ и единственный read-only файл программы; временный `/tmp` 16 МиБ |
 | Процессор / память / процессы | 1 CPU, CPU time 2/3 с, память 256 МиБ, swap 0, PIDs 32 |
@@ -34,11 +34,17 @@
 
 ## Установка
 
-Нужен Linux с cgroup v2, работающим rootless Podman, seccomp, `newuidmap`,
+Нужен Linux с cgroup v2, работающим rootless Podman 4.9 или новее, seccomp, `newuidmap`,
 `newgidmap`, systemd user manager и непересекающимися диапазонами subuid/subgid.
 На Debian/Ubuntu обычно нужны пакеты `podman uidmap dbus-user-session`.
 Совместимость конкретной версии Podman и настроек сервера устанавливается
 командой `--probe` и приёмочными тестами ниже; здесь она не предполагается.
+Контроллеры `cpu`, `memory`, `pids` должны быть делегированы user manager
+пользователя `ege-python`, а не только конечной службе. Проверить можно через
+`systemctl show user@UID.service -p Delegate -p DelegateControllers` и `podman info`
+от этого пользователя. При необходимости настройте отдельный drop-in для
+`user@UID.service` с `Delegate=cpu cpuset io memory pids` до запуска user manager.
+Не снимайте ограничения контейнера при ошибке делегирования.
 
 Выберите digest официального образа Python 3.12 slim из Docker Official Images.
 Можно получить digest с помощью `skopeo inspect --format '{{.Digest}}'
@@ -79,15 +85,20 @@ sudo sh deploy/python-runner/install.sh docker.io/library/python@sha256:ПРОВ
 
 Эти команды запускают именно отдельную изолированную среду; при недоступном
 runtime проверка должна завершиться ошибкой, а не перейти к запуску на хосте.
-Из корня установленного репозитория:
+Установщик копирует минимальный набор тестов в root-owned каталог, поэтому
+исполнителю не нужен доступ к репозиторию приложения или его данным:
 
 ```sh
 runner_uid=$(id -u ege-python)
 runner_image=$(cat /etc/ege-python-verifier/image)
 sudo -u ege-python env XDG_RUNTIME_DIR=/run/user/$runner_uid \
+  DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$runner_uid/bus \
   /usr/bin/python3 /opt/ege-python-verifier/python_executor.py --probe
-sudo -u ege-python env XDG_RUNTIME_DIR=/run/user/$runner_uid EGE_RUNNER_IMAGE=$runner_image \
-  python3 -m unittest discover -s tests -p test_python_runner_container.py
+sudo -u ege-python env XDG_RUNTIME_DIR=/run/user/$runner_uid \
+  DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$runner_uid/bus \
+  EGE_RUNNER_IMAGE=$runner_image EGE_RUNNER_SOCKET=/run/ege-python-verifier/runner.sock \
+  /usr/bin/python3 /opt/ege-python-verifier/acceptance/tests/test_python_runner_container.py \
+  --report /var/lib/ege-python/runner-acceptance.json
 sudo systemctl restart ege-trainer
 ```
 
@@ -97,12 +108,37 @@ sudo systemctl restart ege-trainer
 успех выдаёт подтверждённый результат, подставленные `runs` не выдают награду,
 остановленная служба возвращает недоступность без изменения прогресса.
 
-**В рабочем окружении разработки Podman отсутствовал. Контейнерные приёмочные
-тесты здесь не выполнялись.** Проверки протокола, лимитов supervisor и отказов
-выполнены отдельно; пять тестов настоящего Unix-listener требуют CI, поскольку
-окружение запрещает создание таких слушателей. Opt-in container tests без
-`EGE_RUNNER_IMAGE` отмечаются как пропущенные, а при указанном образе неисправная
-изоляция считается провалом теста.
+Прямой запуск этого файла всегда требует ровно четыре выполненных теста,
+ноль ошибок и ноль пропусков. Отсутствующий образ, Podman, делегирование или
+неисправная изоляция дают ненулевой exit code. Только общий `unittest discover`
+без `EGE_RUNNER_IMAGE` может пропустить эти тесты: это не приёмка исполнителя.
+JSON-отчёт содержит версию схемы, время, image ID, результаты всех четырёх тестов
+и фактические лимиты из контейнера. Его можно связать с релизом параметром
+`--source-revision ТОЧНЫЙ_SHA`. Отчёт CI не является доказательством настройки VPS.
+
+## Отдельная контейнерная проверка CI
+
+Job `python-runner` в `.github/workflows/check.yml` использует отдельную Ubuntu
+24.04 VM, штатные Podman и AppArmor, cgroup v2 и пользователей `ege-python` /
+`trainer`. `ci-acceptance.sh` вызывает тот же установщик, проверяет работающую
+user-службу и выполняет все четыре теста, включая настоящий Unix-сокет broker.
+Тесты используют только синтетический код и временные файлы. После выполнения
+не должно оставаться контейнеров с меткой исполнителя.
+
+Базовый образ закреплён в `base-image.txt` по multi-platform index digest
+официального `python:3.12.16-slim-bookworm`, сверенного 16.11.2026 с
+[Docker Official Image](https://hub.docker.com/layers/library/python/3.12-slim-bookworm/).
+CI не разрешает тег заново и не получает registry credentials; обновление этого
+digest выполняется отдельным изменением с повторной приёмкой. Образ не считается
+свободным от всех уязвимостей лишь потому, что закреплён digest.
+
+Артефакт `python-runner-acceptance` сохраняется и при ошибке: журнал установки,
+версии пакетов/ядра, `podman info`, делегирование, статус и журнал службы,
+base digest и построенный image ID, текст тестов и JSON-отчёт. Ни глобальные
+ограничения namespaces, ни seccomp/AppArmor не отключаются. Ошибка окружения
+останавливает job, без privileged-контейнеров или исполнения программы на хосте.
+`runner-report.json` описывает четыре теста; `ci-status.json` отдельно фиксирует
+общий exit code job, включая последующую проверку очистки и работающей службы.
 
 ## Подключение к сайту и восстановление
 

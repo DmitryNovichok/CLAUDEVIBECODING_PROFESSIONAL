@@ -5,11 +5,13 @@
   <meta name="robots" content="noindex"><base href="/">
   <title>Проверка аккаунта учителя · Egeshka</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#58cc02">
+  <link rel="stylesheet" href="vendor/fonts/fonts.css">
   <link rel="stylesheet" href="teacher-gate.css">
   <script src="teacher-gate.js" defer></script>
 </head>
 <body>
-  <header><span class="brand">egeshka<span class="dot">.</span></span><button id="logout" class="quiet" type="button">Выйти</button></header>
+  <header><a class="brand" href="/welcome"><img src="/favicon.svg" alt="" width="36" height="36"><span>Egeshka <small>by Malevin</small></span></a><button id="logout" class="quiet" type="button">Выйти</button></header>
   <main id="teacherGateRoot">
     <div class="eyebrow">КАБИНЕТ УЧИТЕЛЯ</div>
     <h1>Осталось пройти<br>две проверки</h1>
@@ -25,7 +27,7 @@
           <button id="editEmail" class="quiet" type="button">Изменить адрес</button>
           <form id="emailForm" hidden>
             <label for="emailInput">Адрес почты (станет логином)</label>
-            <input id="emailInput" type="email" autocomplete="email" maxlength="120" required>
+            <input id="emailInput" type="email" autocomplete="email" aria-describedby="message" maxlength="120" required>
             <button class="primary" type="submit">Сохранить и отправить письмо</button>
           </form>
           <p id="mailUnavailable" class="notice" hidden>Отправка писем временно недоступна. Администратору сайта нужно настроить почту. Ваш аккаунт сохранён; проверку можно продолжить позже.</p>

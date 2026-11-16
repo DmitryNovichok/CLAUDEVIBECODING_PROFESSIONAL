@@ -9,13 +9,18 @@ import argparse
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
+from datetime import datetime, timezone
+import hashlib
 import http.client
 import io
 import json
 import math
+import os
 from pathlib import Path
+import platform
 import secrets
 import resource
+import sqlite3
 import sys
 import threading
 import time
@@ -25,7 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
 import server
 import test_server as fixtures
-from runtime_http import BoundedHTTPServer
+from runtime_http import BoundedHTTPServer, capacity
+from tools.check_release import runtime_files
 
 
 def percentile(values, ratio):
@@ -141,21 +147,35 @@ def run(students=60, tasks=15000, seconds=0, interval=10):
         with ThreadPoolExecutor(max_workers=students) as pool:
             list(pool.map(pupil, tokens))
         elapsed = time.perf_counter() - started
-        attempts = db.q('SELECT count(*) AS n FROM attempts', one=True)['n']
-        solutions = db.q('SELECT count(*) AS n FROM solutions', one=True)['n']
+        # A separate connection sees only committed data, never the handler's
+        # uncommitted transaction. Check every pupil, not just aggregate counts.
+        with contextlib.closing(sqlite3.connect(server.DB_PATH.resolve().as_uri() + '?mode=ro', uri=True)) as persisted:
+            attempts = dict(persisted.execute('SELECT student_id, count(*) FROM attempts GROUP BY student_id'))
+            solutions = dict(persisted.execute('SELECT student_id, count(*) FROM solutions GROUP BY student_id'))
+        expected = {sid: 1 for sid, _ in tokens}
         latencies = [t for times in metrics.values() for t in times]
-        return {'scope': 'temporary SQLite, synthetic accounts, real HTTP handlers, local loopback',
+        return {'schema': 'egeshka.classroom-load.v2',
+                'recorded_utc': datetime.now(timezone.utc).isoformat(),
+                'scope': 'temporary SQLite, synthetic accounts, real HTTP handlers, local loopback',
+                'environment': {'python': platform.python_version(), 'platform': platform.platform(),
+                                'logical_cpus': os.cpu_count(),
+                                'http_workers': capacity('EGE_HTTP_WORKERS', 128),
+                                'stream_workers': capacity('EGE_STREAM_WORKERS', 256)},
+                'source_sha256': {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
+                                  for name in runtime_files(ROOT) + ['tools/load_lesson.py', 'tests/test_server.py']},
                 'students': students, 'bank_tasks': len(server.APP.bank.tasks),
                 'soak_target_seconds': seconds, 'poll_interval_seconds': interval,
-                'peak_rss_mib': round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 2),
+                'peak_rss_mib': round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss /
+                                      (1024 ** 2 if sys.platform == 'darwin' else 1024), 2),
                 'requests': sum(status_counts.values()), 'seconds': round(elapsed, 3),
                 'requests_per_second': round(sum(status_counts.values()) / elapsed, 2),
                 'status': dict(status_counts), 'p50_ms': percentile(latencies, 0.5),
                 'p95_ms': percentile(latencies, 0.95), 'max_ms': percentile(latencies, 1),
                 'db_lock': {'acquisitions': len(measured.waits), 'p95_wait_ms': percentile(measured.waits, 0.95),
                             'max_wait_ms': percentile(measured.waits, 1)},
-                'durable_attempts': attempts, 'durable_solutions': solutions,
-                'ok': not failures and attempts == students and solutions == students,
+                'durable_attempts': sum(attempts.values()), 'durable_solutions': sum(solutions.values()),
+                'each_pupil_saved_once': attempts == expected and solutions == expected,
+                'ok': not failures and attempts == expected and solutions == expected,
                 'routes': {route: {'count': len(times), 'p95_ms': percentile(times, 0.95)} for route, times in metrics.items()},
                 'failures': failures[:10]}
     finally:

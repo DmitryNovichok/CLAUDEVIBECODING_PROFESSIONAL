@@ -80,6 +80,50 @@ class AccountRegressionTest(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(self.db.q('SELECT email FROM students WHERE id=?', (self.sid,), one=True)['email'], self.me['email'])
 
+    def test_rejected_multi_field_edit_does_not_send_confirmation(self):
+        self.db.x('UPDATE students SET login=NULL WHERE id=?', (self.sid,))
+        with mock.patch.object(server, 'send_confirm', return_value=True) as send:
+            status, _ = self.c.req('POST', '/api/account',
+                {'email':'changed@example.test','login':'!bad'}, self.token)
+            self.assertEqual(status, 400)
+            send.assert_not_called()
+            status, _ = self.c.req('POST', '/api/account',
+                {'email':'changed@example.test','code':'INVALID'}, self.token)
+            self.assertEqual(status, 403)
+            send.assert_not_called()
+            row = self.db.q('SELECT email,login,self_reg FROM students WHERE id=?', (self.sid,), one=True)
+            self.assertEqual(row['email'], self.me['email'])
+            self.assertIsNone(row['login'])
+            self.assertTrue(row['self_reg'])
+            status, _ = self.c.req('POST', '/api/account',
+                {'email':'changed@example.test','login':self.login}, self.token)
+            self.assertEqual(status, 200)
+            send.assert_called_once()
+            self.assertEqual(send.call_args.args[2]['email'], 'changed@example.test')
+
+    def test_join_teacher_requires_email_and_moderation_before_any_changes(self):
+        teacher_id = self.db.x('''INSERT INTO teachers(name,login,pw,invite,created,email,email_ok,moderation)
+            VALUES(?,?,?,?,?,?,?,?)''', ('Учитель Ожидание',self.login+'-teacher','unused',
+            self.login+'-invite',time.time(),self.login+'-teacher@example.test',0,'approved'))
+        with mock.patch.object(server, 'send_confirm', return_value=True) as send:
+            for email_ok, moderation in ((0,'approved'),(1,'pending'),(1,'rejected')):
+                self.db.x('UPDATE teachers SET email_ok=?,moderation=? WHERE id=?', (email_ok,moderation,teacher_id))
+                with self.subTest(email_ok=email_ok, moderation=moderation):
+                    status, _ = self.c.req('POST', '/api/account',
+                        {'email':'changed@example.test','code':self.login+'-invite'}, self.token)
+                    self.assertEqual(status, 403)
+                    row = self.db.q('SELECT email,teacher_id,self_reg FROM students WHERE id=?', (self.sid,), one=True)
+                    self.assertEqual(row['email'], self.me['email'])
+                    self.assertNotEqual(row['teacher_id'], teacher_id)
+                    self.assertTrue(row['self_reg'])
+            send.assert_not_called()
+            self.db.x("UPDATE teachers SET email_ok=1,moderation='approved' WHERE id=?", (teacher_id,))
+            status, _ = self.c.req('POST', '/api/account', {'code':self.login+'-invite'}, self.token)
+            self.assertEqual(status, 200)
+            row = self.db.q('SELECT teacher_id,self_reg FROM students WHERE id=?', (self.sid,), one=True)
+            self.assertEqual(row['teacher_id'], teacher_id)
+            self.assertFalse(row['self_reg'])
+
     def test_independent_student_cannot_remove_only_recovery_method(self):
         self.assertEqual(self.c.req('POST', '/api/account', {'email': ''}, self.token)[0], 400)
         self.assertEqual(self.c.req('POST', '/api/account', {'email': '', 'code': '1234'}, self.token)[0], 200)

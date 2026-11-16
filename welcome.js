@@ -99,7 +99,7 @@
 
   // ---- покрытие курса: только метаданные, без закрытых уроков
   fetch('api/course/coverage', { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject()).then(data => {
-    if (!Array.isArray(data.topics)) return;
+    if (!Array.isArray(data.topics)) throw new Error('Нет карты материалов');
     const topics = data.topics.filter(t => Number.isInteger(t.n) && t.n >= 1 && t.n <= 27 && !t.archive);
     const box = $('#wNums');
     box.replaceChildren(...topics.map(t => {
@@ -115,7 +115,19 @@
     $('#courseFullCount').textContent = full;
     $('#courseCountNote').textContent = `номеров с подробными уроками; ещё ${topics.length - full} — с краткими разборами`;
     $('#courseCoverageNote').textContent = `Зелёным — подробные уроки (${full}), остальные — краткие разборы (${topics.length - full}). Архивные темы не входят в 27 номеров.`;
-  }).catch(() => { /* Остаётся честное описание без неподтверждённых чисел. */ });
+    $('#coverageEdition').textContent = data.edition?.label || 'Карта материалов по данным сервера';
+    const rows = data.topics.filter(t => Number.isInteger(t.n) && t.n >= 1 && t.n <= 28);
+    $('#courseCoverageRows').innerHTML = rows.map(t => {
+      const model = (data.labs || []).find(m => m.id === t.model);
+      const lesson = t.kind === 'lesson' ? `Слайдов: ${Number(t.slides) || 0}${t.lesson_n !== t.n ? ` · общий урок №${Number(t.lesson_n)}` : ''}` : 'Нет';
+      const guide = t.kind === 'guide' ? `Слайдов: ${Number(t.slides) || 0}` : 'Отдельно нет';
+      const bank = Number.isInteger(t.practice_count) ? `Заданий в тренажёре: ${t.practice_count}` : 'Количество заданий пока недоступно';
+      const py = Number.isInteger(t.python_tasks) && t.python_tasks > 0 ? `<br>Задач Python: ${t.python_tasks}${[19,20,21].includes(t.n) ? ' · общий модуль №19–21' : ''}` : '<br>Отдельного модуля Python нет';
+      return `<tr data-coverage-n="${t.n}"${t.archive ? ' class="w-coverage-archive"' : ''}><th scope="row">${t.archive ? 'Архив · ' : '№'}${esc(t.label || t.n)}<span>${esc(t.title || '')}</span></th><td>${lesson}</td><td>${guide}</td><td>${model ? esc(model.title) : 'Нет отдельной модели'}</td><td>${bank}${py}</td></tr>`;
+    }).join('');
+  }).catch(() => {
+    $('#courseCoverageRows').innerHTML = '<tr><td colspan="5">Карта материалов временно недоступна. Обновите страницу позже; количество уроков и заданий сейчас не подтверждено.</td></tr>';
+  });
 
   // ---- автономный пример: только вымышленные данные, ни одного запроса кабинета
   const demoNames = ['Александра Демо', 'Борис Демо', 'Вера Демо', 'Глеб Демо', 'Дарья Демо'];

@@ -5,18 +5,9 @@
   // подтверждение завершения и протокол. Это оформление Egeshka, а не копия официального сайта.
   const MK = { list: null, run: null, i: 0, timer: 0, intro: null, page: 'test', ov: null, skew: 0, pre: null };
   async function openMcko() {
-    if (!leaveExam()) return;
-    if (isNarrow()) setSideOpen(false);
-    abandonCurrent();
-    courseShown = true; pageKind = 'mcko'; cur = null;
-    navPush({ v: 'mcko' });
-    renderSidebar();
-    $('#scopeInfo').innerHTML = '<span class="scope-title">МЦКО</span>';
-    trainerEl.innerHTML = '<div class="mk"><p class="fm-note">Загружаю…</p></div>';
-    window.scrollTo(0, 0);
     await mkList();
   }
-  const mkActive = () => courseShown && pageKind === 'mcko';
+  const mkActive = () => appState.courseShown && appState.pageKind === 'mcko';
   const mkFmt = t => new Date(t * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   const mkBox = () => trainerEl.querySelector('.mk');
   function mkStop() { clearInterval(MK.timer); MK.timer = 0; }

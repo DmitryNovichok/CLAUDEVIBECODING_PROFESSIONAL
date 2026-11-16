@@ -155,10 +155,11 @@ class ExecutorTest(unittest.TestCase):
         executor = broker.PodmanExecutor(IMAGE, '/private/jobs')
         command = executor.command(Path('/private/jobs/fixed.py'), 'ege-verify-' + 'a' * 32)
         for flag in ('--network=none', '--read-only', '--cap-drop=all', '--security-opt=no-new-privileges',
-                     '--user=65534:65534', '--pids-limit=32', '--memory=256m', '--memory-swap=256m',
+                     '--userns=nomap', '--user=65534:65534', '--pids-limit=32', '--memory=256m', '--memory-swap=256m',
                      '--cpus=1', '--pull=never', '--timeout=8', '--unsetenv-all'):
             self.assertIn(flag, command)
         self.assertNotIn('--privileged', command)
+        self.assertNotIn('--userns=host', command)
         self.assertNotIn('--dns=none', command)  # incompatible with --network=none
         self.assertEqual(sum(x.startswith('--volume=') for x in command), 1)
         self.assertTrue(next(x for x in command if x.startswith('--volume=')).endswith(':/sandbox/main.py:ro,Z'))
@@ -168,8 +169,23 @@ class ExecutorTest(unittest.TestCase):
     def test_correct_output_without_isolation_attestation_is_not_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
             executor = broker.PodmanExecutor(IMAGE, directory)
-            with patch.object(broker, 'bounded_process', side_effect=[(0, b'42\n', b'', 'ok'), (0, b'', b'', 'ok')]), self.assertRaises(broker.RuntimeUnavailable):
-                executor.run_one('print(42)', '')
+            output = io.StringIO()
+            with contextlib.redirect_stderr(output), patch.object(broker, 'bounded_process', side_effect=[(0, b'42\n', b'private pupil output', 'ok'), (0, b'', b'', 'ok')]):
+                with self.assertRaises(broker.RuntimeUnavailable):
+                    executor.run_one('print(42)', '')
+            self.assertEqual(output.getvalue(), '')
+
+    def test_fixed_preflight_reports_bounded_runtime_failure_without_weakening_attestation(self):
+        info = json.dumps({'host': {'cgroupVersion': 'v2', 'security': {'rootless': True, 'seccompEnabled': True}}}).encode()
+        with tempfile.TemporaryDirectory() as directory:
+            executor = broker.PodmanExecutor(IMAGE, directory)
+            output = io.StringIO()
+            results = [(0, info, b'', 'ok'), (125, b'', b'Error: unavailable runtime setting', 'ok'), (0, b'', b'', 'ok')]
+            with patch.object(os, 'geteuid', return_value=Path(directory).stat().st_uid), contextlib.redirect_stderr(output), patch.object(broker, 'bounded_process', side_effect=results):
+                with self.assertRaises(broker.RuntimeUnavailable):
+                    executor.preflight()
+            self.assertIn('unavailable runtime setting', output.getvalue())
+            self.assertIn('"exit_code": 125', output.getvalue())
 
     def test_cleanup_failure_stops_further_submissions(self):
         with tempfile.TemporaryDirectory() as directory:

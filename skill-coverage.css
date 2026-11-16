@@ -1,0 +1,18 @@
+.sk-coverage { margin: 24px 0 48px; border: 2px solid var(--line, #d9dfd6); border-radius: 16px; background: #fff; padding: 20px; }
+.sk-coverage > summary { cursor: pointer; font-size: 21px; font-weight: 850; line-height: 1.4; }
+.sk-coverage p { line-height: 1.6; margin: 12px 0; }
+#skillRetry[hidden] { display: none; }
+.sk-filters { display: flex; flex-wrap: wrap; gap: 14px; margin: 22px 0; }
+.sk-filters label { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex: 1 1 210px; font-weight: 750; }
+.sk-filters input, .sk-filters select { width: 100%; min-width: 0; min-height: 44px; font: inherit; color: #1d2433; background: #fff; border: 2px solid #b7c2b0; border-radius: 10px; padding: 10px; }
+.sk-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sk-card { border: 1px solid #d9dfd6; border-radius: 12px; padding: 18px; overflow-wrap: anywhere; }
+.sk-card h3 { font-size: 18px; line-height: 1.4; margin: 0 0 14px; }
+.sk-card p, .sk-card li { font-size: 14px; }
+.sk-material { font-weight: 800; }
+.sk-card summary { cursor: pointer; font-weight: 750; min-height: 36px; padding-top: 6px; }
+.sk-card ul { padding-left: 22px; line-height: 1.6; }
+.sk-card li + li { margin-top: 8px; }
+.sk-coverage :where(summary, button, input, select):focus-visible { outline: 3px solid #134da3; outline-offset: 3px; }
+@media(max-width:800px) { .sk-list { grid-template-columns: 1fr; } }
+@media(max-width:420px) { .sk-coverage { padding: 14px; } .sk-card { padding: 14px; } }

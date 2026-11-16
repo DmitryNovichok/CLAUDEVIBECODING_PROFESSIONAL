@@ -49,7 +49,7 @@ OBF = ROOT / "tools" / "obfuscate"
 # stay minified to keep parsing and startup economical on school computers.
 OBFUSCATED = frozenset(("app.js", "together.js"))
 # Compressed transfer budgets, not a claim about measured device rendering time.
-GZIP_BUDGET = {"app.js": 320_000, "admin.js": 180_000, "together.js": 45_000,
+GZIP_BUDGET = {"app.js": 210_000, "app-exams.js": 30_000, "app-learning.js": 50_000, "skill-coverage.js": 12_000, "admin.js": 180_000, "together.js": 45_000,
                "welcome.js": 20_000, "onboard.js": 15_000, "teacher-gate.js": 12_000}
 
 

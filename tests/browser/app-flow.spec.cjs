@@ -28,6 +28,44 @@ for(const combination of [{email_ok:false,moderation:'pending'},{email_ok:true,m
   });
 }
 
+for (const width of [320, 375, 1366]) {
+  test(`moderation keeps the sign-in brand, readable controls and trial explanation at ${width}px`, async ({page, context}, info) => {
+    const {recordUI}=require('./ui-evidence.cjs');
+    await page.setViewportSize({width,height:900});
+    await page.goto(fixture.origin+'/admin');
+    await expect(page.locator('#admLogin')).toBeVisible();
+    const login = await page.locator('#admLogin').evaluate(el => {
+      const s=getComputedStyle(el); return {font:s.fontFamily,radius:s.borderRadius,color:s.color};
+    });
+    await expect(page.locator('.adm-login-new')).toContainText('Пробные 7 дней начнутся после подтверждения почты и одобрения');
+    const teacher=fixture.teachers.find(t=>!t.email_ok&&t.moderation==='pending');
+    await context.addCookies([{name:'egeadm',value:teacher.cookie,url:fixture.origin,httpOnly:true,sameSite:'Strict'}]);
+    await page.goto(fixture.origin+'/admin');
+    await expect(page.locator('#emailBadge')).toHaveText('Нужно подтвердить');
+    await expect(page.locator('.brand')).toHaveAccessibleName('Egeshka by Malevin');
+    await expect(page.locator('.brand img')).toHaveAttribute('src','/favicon.svg');
+    await expect(page.locator('main')).toContainText('Пробный период нового аккаунта начнётся после обеих проверок');
+    await page.locator('#editEmail').click();
+    const email=page.getByLabel('Адрес почты (станет логином)',{exact:true});
+    await expect(email).toBeFocused();
+    const gate=await email.evaluate(el=>{
+      const s=getComputedStyle(el);return {font:s.fontFamily,radius:s.borderRadius,color:s.color,height:el.getBoundingClientRect().height};
+    });
+    expect(gate.font).toBe(login.font);expect(gate.radius).toBe(login.radius);expect(gate.color).toBe(login.color);
+    expect(gate.height).toBeGreaterThanOrEqual(44);
+    const submit=page.getByRole('button',{name:'Сохранить и отправить письмо',exact:true});
+    const ratio=await submit.evaluate(el=>{
+      const s=getComputedStyle(el),light=rgb=>rgb.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((a,v,i)=>a+v*[.2126,.7152,.0722][i],0);
+      const a=light(s.color),b=light(s.backgroundColor);return(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+    });
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+    await submit.focus();
+    expect(await submit.evaluate(el=>parseFloat(getComputedStyle(el).outlineWidth))).toBeGreaterThanOrEqual(2);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await recordUI(page,info,'teacher-gate-'+width);
+  });
+}
+
 test('approved teacher with verified email opens the actual panel',async({page,context})=>{
   const teacher=fixture.teachers.find(t=>t.email_ok&&t.moderation==='approved');
   await context.addCookies([{name:'egeadm',value:teacher.cookie,url:fixture.origin,httpOnly:true,sameSite:'Strict'}]);

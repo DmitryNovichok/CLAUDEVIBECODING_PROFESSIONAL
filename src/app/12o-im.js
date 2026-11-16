@@ -2,33 +2,23 @@
   /* Раздел по своему паролю учителя (как лаборатория Arduino). Главная раздела — план из 10 номеров конкурса
      (информатика, математика, физика) с прогрессом; у номера — разбор (идея, шаги, типичные ошибки, демо-задание)
      и тренировка без лимита; «Пробный вариант» — 10 заданий на 120 минут, баллы как на конкурсе (из 60). */
-  let IM_OK = false, IM_PW = false;
   const IM = { d: null, view: 'home', slot: 1, task: null, res: null, trial: null, result: null, timer: 0, saveT: 0, pos: 0, auto: false,
     saver: null, finishBusy: false, finishPending: false, finishError: '' };
   const IM_SUBJ = { inf: ['Информатика', 'inf'], mat: ['Математика', 'mat'], phy: ['Физика', 'phy'] };
-  const imActive = () => courseShown && pageKind === 'im';
+  const imActive = () => appState.courseShown && appState.pageKind === 'im';
   const imBox = () => trainerEl.querySelector('.im');
   const imSlot = n => ((IM.d && IM.d.slots) || []).find(s => s.n === n);
   const imHint = k => (k === 'pair' ? 'два ответа через запятую или «;», например: 5, 2' : k === 'choice' ? 'номер варианта (или нажмите на вариант)' : 'число');
 
   async function openIm() {
-    if (!leaveExam()) return;
-    if (isNarrow()) setSideOpen(false);
-    abandonCurrent();
-    courseShown = true; pageKind = 'im'; cur = null;
     IM.view = 'home'; IM.auto = true;                 // идёт вариант — при входе в раздел сразу в него
-    navPush({ v: 'im' });
-    renderSidebar();
-    $('#scopeInfo').innerHTML = '<span class="scope-title">Интеллектуальный мегаполис</span><span class="scope-stats">ИТ-класс · теория</span>';
-    trainerEl.innerHTML = '<div class="im"><p class="fm-note">Загружаю…</p></div>';
-    window.scrollTo(0, 0);
     await imLoad();
   }
   async function imLoad(view) {
     let d;
     try { d = await api('im'); } catch (e) { if (imActive() && imBox()) imBox().innerHTML = `<p class="fm-note">${esc(e.message || 'Нет связи с сервером')}</p>`; return; }
     if (!imActive() || !imBox()) return;
-    IM.d = d; IM_OK = !!d.access; IM_PW = d.access || !!d.pw_set;
+    IM.d = d; appState.imOk = !!d.access; appState.imPw = d.access || !!d.pw_set;
     if (!d.access) return imLock(!!d.pw_set);
     if (view) IM.view = view;
     if (d.active && IM.auto) { IM.auto = false; await imTrialOpen(); return; }
@@ -43,7 +33,7 @@
       ${configured ? '<form id="imPasswordForm" class="login-form crs-lock-form"><input id="imPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль раздела" aria-label="Пароль раздела «Интеллектуальный мегаполис»" required><button class="btn primary">Открыть</button></form><p id="imPasswordError" role="alert"></p>' : ''}</div>`;
     $('#imPasswordForm')?.addEventListener('submit', async e => {
       e.preventDefault(); const btn = e.currentTarget.querySelector('button'), msg = $('#imPasswordError'); btn.disabled = true;
-      try { await api('im/unlock', { password: $('#imPassword').value }); IM_OK = true; IM.view = 'home'; await imLoad(); hubRefresh(); }
+      try { await api('im/unlock', { password: $('#imPassword').value }); appState.imOk = true; IM.view = 'home'; await imLoad(); hubRefresh(); }
       catch (err) { msg.textContent = err.message; btn.disabled = false; }
     });
   }
@@ -259,12 +249,12 @@
     if (!imActive()) return;
     r.answers = Object.fromEntries(r.items.map(it => [it.id, r.answers[it.id] || '']));
     IM.trial = r; IM.view = 'trial'; IM.pos = IM.pos < r.items.length ? IM.pos : 0;
-    const sid = student?.sid;
+    const sid = appState.student?.sid;
     IM.finishBusy = false; IM.finishPending = false; IM.finishError = '';
     let draftStorage;
     try { draftStorage = sessionStorage; } catch (_) { /* storage disabled: report memory-only draft */ }
     IM.saver = createImTrialSaver({ id: r.id, sid, answers: r.answers, storage: draftStorage, changed: imSaveStatus,
-      send: data => student?.sid === sid ? api('im/trial/save', data) : Promise.reject(new Error('Войди в свой аккаунт, чтобы сохранить ответы')) });
+      send: data => appState.student?.sid === sid ? api('im/trial/save', data) : Promise.reject(new Error('Войди в свой аккаунт, чтобы сохранить ответы')) });
     imTrialRender();
     if (IM.saver.status().pending) IM.saver.flush();
   }
@@ -329,7 +319,7 @@
     try { IM.d = await api('im'); } catch (e) { /* итог уже есть */ }
     if (imActive()) imRender();
   }
-  window.addEventListener('online', () => { if (IM.saver?.sid === student?.sid) IM.saver.online(); });
+  window.addEventListener('online', () => { if (IM.saver?.sid === appState.student?.sid) IM.saver.online(); });
   window.addEventListener('pagehide', () => { IM.saver?.touch(); });
   function imResultView(box) {
     const R = IM.result;

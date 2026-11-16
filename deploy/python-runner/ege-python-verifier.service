@@ -5,6 +5,12 @@ ConditionUser=ege-python
 [Service]
 Type=simple
 WorkingDirectory=/opt/ege-python-verifier
+Environment=HOME=/var/lib/ege-python
+Environment=XDG_CONFIG_HOME=/var/lib/ege-python/.config
+Environment=XDG_DATA_HOME=/var/lib/ege-python/.local/share
+Environment=XDG_CACHE_HOME=/var/lib/ege-python/.cache
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
 ExecStart=/usr/bin/python3 /opt/ege-python-verifier/python_executor.py
 Restart=on-failure
 RestartSec=5

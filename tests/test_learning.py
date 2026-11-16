@@ -58,10 +58,11 @@ class ContentTest(unittest.TestCase):
 
     def test_exam_numbering_and_beginner_checks(self):
         modules = {m['id']:m for m in json.loads((ROOT/'pycourse/index.json').read_text())}
-        self.assertEqual(modules['m13']['n'], 10)
-        self.assertEqual(modules['m23']['n'], 13)
+        self.assertEqual(modules['m13']['n'], 13)
+        self.assertEqual(modules['m23']['n'], 23)
         self.assertEqual(modules['m30']['n'], 12)
-        self.assertEqual(modules['m31']['n'], 23)
+        self.assertEqual(modules['m31']['n'], 28)
+        self.assertEqual(modules['m31']['group'], 'extra')
         self.assertEqual(modules['m12']['group'], 'extra')
         m = json.loads((ROOT/'pycourse/m01.json').read_text())
         self.assertEqual(len(m['levels']), 10)

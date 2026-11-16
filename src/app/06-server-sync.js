@@ -64,7 +64,6 @@
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
     if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); pyDisposeSession(); }
-    if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
       try { localStorage.removeItem(STUDENT_STORE); sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }

@@ -15,8 +15,12 @@ for(const width of [320,375,1366]) {
   test(`real EGE models map correctly and accept keyboard experiments at ${width}px`,async({page,context},info)=>{
     await page.setViewportSize({width,height:900});
     await openLab(page,context);
-    const map={image:'№ 7',net:'№ 13',logic:'№ 15',game:'№ 19–21',graph:'23_old'};
-    for(const [model,label] of Object.entries(map)) await expect(page.locator('[data-lab-model="'+model+'"]').filter({hasText:label})).toHaveCount(1);
+    const metadata=await (await context.request.get(fixture.origin+'/api/course/coverage')).json();
+    for(const model of metadata.labs) {
+      const label=(model.archive?'Архив · ':'№ ')+model.label+' · '+model.title;
+      await expect(page.locator('[data-lab-model="'+model.id+'"]')).toHaveText(label);
+      expect(metadata.topics.filter(t=>t.model===model.id).map(t=>t.n)).toEqual(model.nums);
+    }
     await page.locator('[data-lab-model=image]').click();
     await page.getByLabel('Ширина, пиксели').fill('8');
     await page.getByLabel('Высота, пиксели').fill('8');

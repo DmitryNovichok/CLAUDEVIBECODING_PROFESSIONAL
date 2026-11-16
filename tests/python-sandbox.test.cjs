@@ -118,6 +118,14 @@ test('account switch destroys all Python contexts and clears previous pupil outp
     document: { body: { classList: { remove() {} } } },
     Event: class { constructor(type) { this.type = type; } }, window: { dispatchEvent: e => events.push(e.type) },
   });
+  context.appState = context;
+  Object.assign(context, {learningOpenGeneration:0, learningSessionEpoch:0, courseLessonRequest:0,
+    pycLevelRequest:0, labLoadId:0, seenT:0, PYC_PENDING_HELP:new Map()});
+  const optional = fs.readFileSync('src/app/03b-course-ui.js', 'utf8');
+  vm.runInContext(optional.slice(optional.indexOf('  function resetLearningState('), optional.indexOf('  let courseCoverage')), context);
+  context.learningSections = {resetLearningState:context.resetLearningState};
+  const loader = fs.readFileSync('src/app/12l-learning-loader.js', 'utf8');
+  vm.runInContext(loader.slice(loader.indexOf('  function resetLearningSession('), loader.indexOf('  function loadLearningSections(')), context);
   const source = fs.readFileSync('src/app/09-python.js', 'utf8');
   vm.runInContext(source.slice(source.indexOf('  function pyDisposeSession()'), source.indexOf('  function pyFilesOf(')), context);
   context.pyDisposeSession();

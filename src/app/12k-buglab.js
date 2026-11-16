@@ -44,19 +44,19 @@
     Object.assign(BUG, { cases: null, levels: {}, kinds: {}, cur: null, filter: 0,
       results: {}, hints: {}, explain: {}, owner: null });
   }
-  const bugCurrent = (c, run, sid) => bugActive() && bugCase() === c && BUG.runId === run && student?.sid === sid;
+  const bugCurrent = (c, run, sid) => bugActive() && bugCase() === c && BUG.runId === run && appState.student?.sid === sid;
   function bugLabHtml() { return '<div id="bugRoot"><p class="fm-note">Загружаю задачи…</p></div>'; }
   async function bugLabInit() {
-    const sid = student?.sid;
+    const sid = appState.student?.sid;
     if (BUG.owner !== sid) { resetBugLab(); BUG.owner = sid; }
     const load = ++BUG.loadId;
     if (!BUG.cases) {
       try {
         const d = await api('lab/bugs');
-        if (load !== BUG.loadId || student?.sid !== sid) return;
+        if (load !== BUG.loadId || appState.student?.sid !== sid) return;
         BUG.cases = d.cases || []; BUG.levels = d.levels || {}; BUG.kinds = d.kinds || {};
       } catch (e) {
-        if (load === BUG.loadId && student?.sid === sid && bugActive()) $('#bugRoot').innerHTML = '<p class="fm-note">Не удалось загрузить задачи. Открой лабораторию ещё раз.</p>';
+        if (load === BUG.loadId && appState.student?.sid === sid && bugActive()) $('#bugRoot').innerHTML = '<p class="fm-note">Не удалось загрузить задачи. Открой лабораторию ещё раз.</p>';
         return;
       }
     }
@@ -199,7 +199,7 @@
     const code = $('#bugCode').value;
     if (!code.trim()) { $('#bugStatus').textContent = 'Код пустой — нажми «Сбросить код», чтобы вернуть исходное решение.'; return; }
     bugStop();
-    const run = BUG.runId, sid = student?.sid;
+    const run = BUG.runId, sid = appState.student?.sid;
     bugSetBusy(true, 'Загружаю Python… При первом запуске это может занять около минуты.');
     let runs;
     try { runs = await bugRunAll(code, c.tests.map(t => t.in)); }
@@ -224,7 +224,7 @@
     const code = $('#bugCode').value;
     if (!code.trim()) { $('#bugStatus').textContent = 'Сначала введи код решения.'; return; }
     bugStop();
-    const run = BUG.runId, sid = student?.sid;
+    const run = BUG.runId, sid = appState.student?.sid;
     bugSetBusy(true, 'Проверяю код на сервере… Это может занять до двух минут.');
     // Closing the exercise only detaches its view; it does not pretend to cancel the server job.
     $('#bugStop').hidden = true;
@@ -248,7 +248,7 @@
     const c = bugCase(), out = $('#bugOwnOut');
     if (!c || BUG.busy) return;
     bugStop();
-    const run = BUG.runId, sid = student?.sid;
+    const run = BUG.runId, sid = appState.student?.sid;
     bugSetBusy(true, 'Загружаю Python…');
     out.hidden = false; out.textContent = 'Выполняю…';
     try {
@@ -279,7 +279,7 @@
     }
     if (act === 'explain') {
       if (!c.my.ok && !confirm('Показать разбор ошибок? Сначала попробуй объяснить, почему исходная программа ошибалась.')) return;
-      const run = BUG.runId, sid = student?.sid;
+      const run = BUG.runId, sid = appState.student?.sid;
       try { const r = await api('lab/bugs/explain', { id: c.id }); if (!bugCurrent(c, run, sid)) return; BUG.explain[c.id] = r.explain; if (!c.my.ok) c.my.seen = 1; bugRenderHints(); bugRenderResult(); }
       catch (x) { if (bugCurrent(c, run, sid)) toast(x.message || 'Не получилось открыть разбор', 3500); }
     }
