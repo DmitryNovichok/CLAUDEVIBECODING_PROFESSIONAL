@@ -1,7 +1,8 @@
 // Validate the real synthetic backend and lifecycle without needing a browser.
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {startFixture}=require('./browser/fixture.cjs');
+const {startFixture,seedBrowser}=require('./browser/fixture.cjs');
+const vm=require('node:vm');
 test('browser fixture has real dual gate, local runtime, synthetic pupils and bounded teardown',async()=>{
   const fixture=await startFixture();
   try {
@@ -33,3 +34,23 @@ test('synthetic fixtures refuse arbitrary executable paths and unbounded data',a
   await assert.rejects(startFixture({script:'../../server.py'}),/Unknown synthetic fixture/);
   await assert.rejects(startFixture({taskCount:20001}),/5..20000/);
 });
+
+for(const role of ['pupil','teacher']) {
+  test(`browser ${role} seed initializes main windows without reading storage in sandbox frames`,async()=>{
+    const initializers=[];
+    const context={route:async()=>{},addCookies:async()=>{},addInitScript:async(fn,arg)=>initializers.push({fn,arg})};
+    const fixture={origin:'http://127.0.0.1:12345',student:{sid:7,token:'synthetic'},
+      teachers:[{id:9,cookie:'synthetic',email_ok:true,moderation:'approved'}]};
+    await seedBrowser(context,fixture,role);assert.equal(initializers.length,1);
+    const {fn,arg}=initializers[0],source=`(${fn.toString()})(__seedArg)`;
+    let reads=0;
+    const frame=vm.createContext({window:{top:{}},__seedArg:arg});
+    Object.defineProperty(frame,'localStorage',{get(){reads++;throw Error('Opaque sandbox must not access storage');}});
+    assert.doesNotThrow(()=>vm.runInContext(source,frame));assert.equal(reads,0);
+    const writes=new Map(),mainWindow={};mainWindow.top=mainWindow;
+    vm.runInNewContext(source,{window:mainWindow,__seedArg:arg,localStorage:{setItem:(key,value)=>writes.set(key,value)}});
+    assert.equal(writes.get(role==='teacher'?'egeshka.atour.v1.9':'egeshka.tour.v1.7'),'1');
+    if(role==='pupil') {assert.equal(writes.get('egeshka.stories.labs-lessons-2026-11.7'),'1');assert.ok(writes.has('egeTrainer.lbShown.7'));}
+    assert.equal(writes.size,role==='teacher'?1:3);
+  });
+}

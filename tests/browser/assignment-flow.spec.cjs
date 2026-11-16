@@ -65,14 +65,22 @@ test('teacher invitation and assignment reach a new pupil, survive reload and pr
       await pupil.locator('#regTerms').check();
       await pupil.locator('#regConsent').check();
       const registration = posted(pupil, '/api/login');
+      // gate() reloads after registration. Chromium may discard the old response
+      // body, so identify the pupil through the persisted session in the new page.
+      const registeredPage = pupil.waitForEvent('domcontentloaded');
       await pupil.locator('#regForm button[type="submit"]').click();
       const registered = await registration;
       expect(registered.status()).toBe(200);
-      pupilId = (await registered.json()).sid;
+      await registeredPage;
+      const registeredProfile = await browserJson(pupil, '/api/me');
+      expect(registeredProfile.status).toBe(200);
+      expect(registeredProfile.body.name).toBe(pupilName);
+      pupilId = registeredProfile.body.sid;
       expect(pupilId).toBeGreaterThan(0);
       await expect(pupil.locator('#loginModal')).toBeHidden();
       // Suppress only introductory tours after real registration, not auth or work.
       await pupilContext.addInitScript(sid => {
+        if (window !== window.top) return;
         localStorage.setItem('egeshka.tour.v1.' + sid, '1');
         localStorage.setItem('egeshka.stories.labs-lessons-2026-11.' + sid, '1');
         const d = new Date();

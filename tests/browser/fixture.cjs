@@ -54,11 +54,16 @@ async function seedBrowser(context, fixture, role = 'pupil', account) {
   if (role === 'teacher') {
     const teacher = account || fixture.teachers.find(t => t.email_ok && t.moderation === 'approved');
     await context.addCookies([{name:'egeadm',value:teacher.cookie,url:fixture.origin,httpOnly:true,sameSite:'Strict'}]);
-    await context.addInitScript(id => localStorage.setItem('egeshka.atour.v1.' + id, '1'), teacher.id);
+    await context.addInitScript(id => {
+      // Playwright also runs init scripts inside opaque Python sandbox frames.
+      if (window !== window.top) return;
+      localStorage.setItem('egeshka.atour.v1.' + id, '1');
+    }, teacher.id);
   } else {
     const pupil = account || fixture.student;
     await context.addCookies([{name:'egest',value:pupil.token,url:fixture.origin,httpOnly:true,sameSite:'Lax'}]);
     await context.addInitScript(sid => {
+      if (window !== window.top) return;
       localStorage.setItem('egeshka.tour.v1.' + sid, '1');
       localStorage.setItem('egeshka.stories.labs-lessons-2026-11.' + sid, '1');
       const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
