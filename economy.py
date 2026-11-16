@@ -25,7 +25,8 @@ def financial_path(path):
             or path.startswith('/api/admin/batch/')
             or path in ('/api/teacher/signup', '/api/teacher/guest', '/api/admin/teacher/delete',
                         '/api/solution', '/api/assignments', '/api/admin/assignment/save',
-                        '/api/admin/assignment/delete', '/api/admin/class/delete', '/api/admin/class/members')
+                        '/api/admin/assignment/delete', '/api/admin/class/delete', '/api/admin/class/members',
+                        '/api/admin/class/weak')
             or path.startswith('/api/gifts') or path in ('/api/forbes', '/api/freeze/buy')
             or path.startswith('/api/admin/gifts')
             or path in ('/api/admin/bank', '/api/admin/thermo', '/api/admin/promo'))

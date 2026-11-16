@@ -57,7 +57,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import hash_pw, check_pw, revoke_access, reset_main_password, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
 from auth import recovery_codes_left
 from teacher_auth_http import TeacherAuthHandlers, TeacherAuthServices, TEACHER_AUTH_PATHS
+from teacher_students_http import TeacherStudentsHandlers, TeacherStudentsServices, TEACHER_STUDENTS_PATHS
+from teacher_work_http import TeacherWorkHandlers, TeacherWorkServices, TEACHER_WORK_PATHS
 from student_auth_http import StudentAuthHandlers, StudentAuthServices, STUDENT_AUTH_PATHS
+from learning_attempt_http import LearningAttemptHTTPHandlers, LearningAttemptServices, LEARNING_ATTEMPT_PATHS
 from task_http import TaskHTTPHandlers, TaskHTTPServices, TASK_ACTION_PATHS
 import api_access
 from bank_http import BankHTTPHandlers, BankHTTPServices
@@ -2732,7 +2735,7 @@ def tog_public(db, r, sid=None):
 APP = None
 
 
-class Handler(StudentAuthHandlers, TeacherAuthHandlers, TaskHTTPHandlers, BankHTTPHandlers, BaseHTTPRequestHandler):
+class Handler(TeacherStudentsHandlers, TeacherWorkHandlers, LearningAttemptHTTPHandlers, StudentAuthHandlers, TeacherAuthHandlers, TaskHTTPHandlers, BankHTTPHandlers, BaseHTTPRequestHandler):
     server_version = "EGETrainer/1.0"
     protocol_version = "HTTP/1.1"
     timeout = 60                      # медленный клиент не держит поток вечно
@@ -3580,6 +3583,40 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "teacher_name": "" if s["self_reg"] else (teacher_of(s)["name"] or ""),
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
+    def learning_attempt_services(self):
+        return LearningAttemptServices(
+            db=APP.db,
+            bank=APP.bank,
+            ege_scale=EGE_SCALE,
+            exam_limit_sec=EXAM_LIMIT_SEC,
+            exam_min_sec_for_answers=EXAM_MIN_SEC_FOR_ANSWERS,
+            exam_per_day=EXAM_PER_DAY,
+            exam_per_day_ip=EXAM_PER_DAY_IP,
+            answer_credit=answer_credit,
+            asg_code=asg_code,
+            asg_cutoff=asg_cutoff,
+            asg_expire=asg_expire,
+            asg_finish_run=asg_finish_run,
+            asg_items=asg_items,
+            asg_order=asg_order,
+            asg_review_locked=asg_review_locked,
+            asg_run_public=asg_run_public,
+            assignment_done=assignment_done,
+            ege_points=ege_points,
+            exam_input=exam_input,
+            exam_pick=exam_pick,
+            game_summary=game_summary,
+            live_teacher=live_teacher,
+            n_key=n_key,
+            practice_score=practice_score,
+            strict_locked=strict_locked,
+            to_float=to_float,
+            to_int=to_int,
+            tokens=tokens,
+            trap_hit=trap_hit,
+            trap_k=trap_k,
+        )
+
     def task_http_services(self):
         return TaskHTTPServices(
             app=APP, opened=OPENED, checks=CHECKS, think_sec=think_sec, trap_k=trap_k,
@@ -3623,6 +3660,35 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             parse_int=to_int,
         )
 
+    def teacher_work_services(self):
+        return TeacherWorkServices(
+            db=APP.db, bank=APP.bank, clusters=clusters,
+            kinds=ASG_KINDS, grades=ASG_GRADES,
+            asg_archive_html=asg_archive_html,
+            asg_cell=asg_cell,
+            asg_cutoff=asg_cutoff,
+            asg_expire=asg_expire,
+            asg_finish_run=asg_finish_run,
+            asg_grading=asg_grading,
+            asg_items=asg_items,
+            asg_score=asg_score,
+            asg_task_rows=asg_task_rows,
+            assignment_done=assignment_done,
+            batch_title=batch_title,
+            class_digest=class_digest,
+            exam_summary=exam_summary,
+            forecast_trend=forecast_trend,
+            live_class=live_class,
+            main_teacher=main_teacher,
+            n_key=n_key,
+            practice_score=practice_score,
+            teacher_asg_archive=teacher_asg_archive,
+            to_float=to_float,
+            to_int=to_int,
+            weak_sets=weak_sets,
+            week_start=week_start,
+        )
+
     def teacher_auth_services(self):
         return TeacherAuthServices(
             db=APP.db, throttle=THROTTLE, session_seconds=ADMIN_SESSION_DAYS * 86400,
@@ -3637,6 +3703,36 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             gate_routes=TEACHER_GATE_ROUTES, readonly_routes=ACCESS_RO_OK)
 
     # что видит учитель: главный — всех, остальные — только своих учеников и классы
+    def teacher_students_services(self):
+        return TeacherStudentsServices(
+            db=APP.db, bank=APP.bank,
+            main_teacher=main_teacher,
+            game_summary=game_summary,
+            parse_int=to_int,
+            parse_float=to_float,
+            legal_version=LEGAL_VERSION,
+            exam_brief=exam_brief,
+            sessions_list=sessions_list,
+            support_kinds=SUPPORT_KINDS,
+            csv_cell=csv_cell,
+            reasons=REASONS,
+            norm_name=norm_name,
+            name_re=NAME_RE,
+            sessions_end=sessions_end,
+            attempts_changed=attempts_changed,
+            live=LIVE,
+            game_lock=_GS_LOCK,
+            leaderboard_cache=_LB_PEOPLE,
+            forbes_cache=_FORBES,
+            restore_fire=restore_fire,
+            delete_student=delete_student,
+            parent_token=parent_token,
+            smtp_conf=smtp_conf,
+            import_max=IMPORT_MAX,
+            new_student_pw=new_student_pw,
+            make_login=make_login,
+        )
+
     def sees_student(self, sid):
         """Каждый учитель — и главный тоже — видит только своих учеников; у главного по остальным — общая статистика."""
         r = APP.db.q("SELECT teacher_id, is_teacher FROM students WHERE id=?", (sid,), one=True)
@@ -4133,6 +4229,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         db = APP.db
         if path in STUDENT_AUTH_PATHS:
             return self.student_auth_route(method, path, data)
+        if path in LEARNING_ATTEMPT_PATHS:
+            return self.learning_attempt_route(method, path, qs, data)
         if path == "/api/readiness":
             account = self.download_account()
             if not account:
@@ -4793,38 +4891,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             mine = [tog_public(db, r, s["id"]) for r in rows]
             return self.send_json({"sessions": mine})
 
-        if path == "/api/assignments":
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            APP.bank.ensure()
-            out = []
-            if s["class_id"]:
-                asg_expire(self, db, s["class_id"])
-                for a in db.q("""SELECT * FROM assignments WHERE class_id=? AND (student_id IS NULL OR student_id=?)
-                                 ORDER BY created DESC""", (s["class_id"], s["id"])):
-                    real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
-                    item = {"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
-                            "kind": a["kind"] or "self", "tasks": [APP.bank.pid(i) for i in real],
-                            "closed": a["closed"], "personal": a["batch"].split(":")[0] if a["batch"] else None}
-                    if a["strict"]:
-                        real = asg_order(real, a["id"], s["id"])      # у каждого ученика свой порядок заданий
-                        item["tasks"] = [APP.bank.pid(i) for i in real]
-                        item.update(asg_run_public(db, a, s["id"], real))
-                    else:
-                        done = assignment_done(db, s["id"], real, a["created"], asg_cutoff(a))
-                        item["done"] = [APP.bank.pid(i) for i in real if i in done]
-                        item["score"] = practice_score(db, a, s["id"], real)      # практическая и домашняя: оценка сама
-                    out.append(item)
-            return self.send_json({"assignments": out, "in_class": bool(s["class_id"])})
-
-        if path.startswith("/api/asg/"):
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            APP.bank.ensure()
-            return self.api_strict(s, path, method, data, qs)
-
         if path in ("/api/profile", "/api/profile/badges"):
             # профиль ученика: награды и достижения. Смотреть можно своих и учеников того же учителя
             s = self.student(data)
@@ -5115,65 +5181,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             return self.api_duels(s, path, method, data)
-
-        if path == "/api/exam/start" and method == "POST":
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            return self.api_exam_start(s)
-
-        if path in ("/api/exams", "/api/exam/view"):
-            # история вариантов ученика: список и разбор одного (свой ответ, баллы, правильный — если его показывали)
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if path == "/api/exams":
-                out = []
-                for e in db.q("""SELECT id, started, finished, primary_score, test_score, items, result FROM exams
-                                 WHERE student_id=? AND finished IS NOT NULL ORDER BY finished DESC LIMIT 100""", (s["id"],)):
-                    r = json.loads(e["result"] or "{}")
-                    res = r.get("results") or []
-                    out.append({"id": e["id"], "started": e["started"], "finished": e["finished"], "primary": e["primary_score"] or 0,
-                                "test": e["test_score"] or 0, "spent": r.get("spent"), "shown": bool(r.get("shown")),
-                                "items": len(res), "full": sum(1 for x in res if x.get("points") == x.get("max") and x.get("max")),
-                                "blank": sum(1 for x in res if x.get("blank"))})
-                return self.send_json({"exams": out})
-            e = db.q("SELECT * FROM exams WHERE id=? AND student_id=? AND finished IS NOT NULL", (str(qs.get("id") or ""), s["id"]), one=True)
-            if not e:
-                return self.err(404, "Вариант не найден")
-            r = json.loads(e["result"] or "{}")
-            mine = {}
-            for a in db.q("SELECT task_id, answers FROM attempts WHERE student_id=? AND exam=?", (s["id"], e["id"])):
-                try:
-                    mine[APP.bank.pid(a["task_id"])] = (json.loads(a["answers"] or "[]") or [""])[0]
-                except ValueError:
-                    pass
-            for x in r.get("results") or []:
-                x["mine"] = mine.get(x.get("task"), "")
-            return self.send_json(dict(r, id=e["id"], started=e["started"], finished=e["finished"]))
-
-        if path == "/api/exam/save" and method == "POST":
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            e = db.q("SELECT * FROM exams WHERE id=? AND student_id=?", (str(data.get("exam_id") or ""), s["id"]), one=True)
-            if not e:
-                return self.err(404, "Вариант не найден")
-            if e["finished"] or time.time() > e["started"] + EXAM_LIMIT_SEC:
-                return self.send_json({"saved": False, "expired": True})
-            rev = to_int(data.get("rev"))
-            if rev > (e["saved_rev"] or 0):
-                db.x("UPDATE exams SET saved_answers=?, saved_rev=? WHERE id=?",
-                     (json.dumps(exam_input(data), ensure_ascii=False), rev, e["id"]))
-            return self.send_json({"saved": True, "rev": max(rev, e["saved_rev"] or 0)})
-
-        if path == "/api/exam/finish" and method == "POST":
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if not APP.bank.ensure():
-                return self.err(503, "банк заданий не собран")
-            return self.api_exam_finish(s, data)
 
         # ----- учитель: тарифы и контакты для главной страницы, самостоятельная регистрация, гостевой вход на час
         if path == "/api/public/offer":
@@ -5595,177 +5602,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True})
         return self.err(404, "нет такого метода")
 
-    # ---------- вариант ЕГЭ
-    def api_exam_start(self, s):
-        db = APP.db
-        now = time.time()
-        ip = self.client_ip()
-        if db.q("SELECT COUNT(*) c FROM exams WHERE student_id=? AND started>?", (s["id"], now - 86400), one=True)["c"] >= EXAM_PER_DAY:
-            return self.err(429, f"Не больше {EXAM_PER_DAY} вариантов в сутки. Пока можно тренироваться по номерам.")
-        if db.q("SELECT COUNT(*) c FROM exams WHERE ip=? AND started>?", (ip, now - 86400), one=True)["c"] >= EXAM_PER_DAY_IP:
-            return self.err(429, "С этого адреса сегодня начато слишком много вариантов. Попробуйте завтра.")
-        if not APP.bank.ensure():
-            return self.err(503, "банк заданий не собран")
-        tasks = exam_pick(db, s)
-        if not tasks:
-            return self.err(503, "В банке нет заданий для варианта")
-        eid = secrets.token_urlsafe(9)
-        db.x("INSERT INTO exams(id,student_id,ip,started,tasks,save_protocol) VALUES(?,?,?,?,?,1)", (eid, s["id"], ip, now, json.dumps(tasks)))
-        return self.send_json({"exam_id": eid, "started": now, "limit": EXAM_LIMIT_SEC,
-                               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS,
-                               "items": [{"id": APP.bank.pid(i), "n": n_key(APP.bank.tasks[i].get("n")), "trap": trap_k(db, s, APP.bank.tasks[i])}
-                                         for i in tasks]})
-
-    def api_strict(self, s, path, method, data, qs):
-        """Контрольная от учителя: ответ сдаётся один раз и не проверяется до конца, результат — после сдачи."""
-        db = APP.db
-        aid = to_int(data.get("id") or qs.get("id"))
-        a = db.q("SELECT * FROM assignments WHERE id=? AND strict=1", (aid,), one=True)
-        if not a or a["class_id"] != s["class_id"] or (a["student_id"] and a["student_id"] != s["id"]):
-            return self.err(404, "Самостоятельная не найдена")
-        if a["due"] and not a["closed"] and time.time() > a["due"]:
-            asg_expire(self, db, a["class_id"])           # срок прошёл — работа закрывается, начатая сдаётся сама
-            a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
-        real = asg_order([i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks], aid, s["id"])
-        run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (aid, s["id"]), one=True)
-        now = time.time()
-        if path == "/api/asg/state":
-            return self.send_json(asg_run_public(db, a, s["id"], real))
-        if path == "/api/asg/review":
-            # разбор сданной контрольной: правильные ответы и решения — когда контрольная закончилась для всех
-            if not run or not run["finished"]:
-                return self.err(409, "Разбор откроется после того, как ты сдашь самостоятельную")
-            why = asg_review_locked(db, a)
-            if why:
-                return self.send_json({"locked": why, "title": a["title"]})
-            res = json.loads(run["result"] or "{}")
-            answers = json.loads(run["answers"] or "{}")
-            items = []
-            for k in asg_items(real):
-                t = APP.bank.tasks.get(k) or {}
-                top = t.get("group") or k
-                code = asg_code(db, a, s["id"], top, run)
-                it = self.with_answer_s(s, {"task": APP.bank.pid(k), "top": APP.bank.pid(top), "n": t.get("n"),
-                                            "mine": (answers.get(k) or {}).get("a") or "", "credit": res.get(k),
-                                            "code": code["code"] if code else ""}, t)
-                items.append(it)
-            return self.send_json({"title": a["title"], "items": items, "result": asg_run_public(db, a, s["id"], real).get("result")})
-        if method != "POST":
-            return self.err(405, "нужен POST")
-        if path == "/api/asg/start":
-            if not run:
-                if a["closed"]:
-                    return self.err(409, "Срок прошёл — самостоятельная закрыта" if a["due"] and a["closed"] >= a["due"]
-                                    else "Учитель уже завершил эту самостоятельную")
-                db.x("INSERT INTO asg_runs(asg_id, student_id, started, last, answers) VALUES(?,?,?,?,?)", (aid, s["id"], now, now, "{}"))
-                db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind) VALUES(?,?,?,'start')", (aid, s["id"], now))
-                live_teacher(s)
-            return self.send_json(asg_run_public(db, a, s["id"], real))
-        if not run:
-            return self.err(409, "Сначала начните самостоятельную")
-        if path == "/api/asg/away":
-            # ушёл со вкладки или вышел из полного экрана — учителю в живую сводку и в ленту
-            kind = "fs" if data.get("kind") == "fs" else "away"
-            if not run["finished"] and not a["closed"]:
-                recent = db.q("SELECT COUNT(*) AS c FROM asg_events WHERE student_id=? AND ts>?", (s["id"], now - 3600), one=True)["c"]
-                if recent < 300:
-                    db.x(f"UPDATE asg_runs SET {kind}=COALESCE({kind}, 0)+1, last=? WHERE asg_id=? AND student_id=?", (now, aid, s["id"]))
-                    db.x("INSERT INTO asg_events(asg_id, student_id, ts, kind, info) VALUES(?,?,?,?,?)",
-                         (aid, s["id"], now, kind, str(round(to_float(data.get("dur")))) if data.get("dur") else None))
-                    live_teacher(s)
-            return self.send_json({"ok": True})
-        if run["finished"] or a["closed"]:
-            if not run["finished"]:
-                asg_finish_run(self, db, a, s, real, forced=1)
-            return self.send_json(dict(asg_run_public(db, a, s["id"], real), closed_now=True))
-        if path == "/api/asg/answer":
-            answers = json.loads(run["answers"] or "{}")
-            tid = APP.bank.real(data.get("task")) or ""
-            t = APP.bank.tasks.get(tid)
-            if not t or (tid not in real and t.get("group") not in real):
-                return self.err(404, "Такого задания в самостоятельной нет")
-            if t.get("parts"):
-                return self.err(400, "вопросы 19–21 сдаются по отдельности")
-            ans = str(data.get("answer") or "")[:400]
-            cells = data.get("cells")
-            cells = [str(c)[:100] for c in cells[:40]] if isinstance(cells, list) else None
-            if tid in answers:
-                # сданный ответ можно один раз изменить — по кнопке «Изменить ответ»
-                if answers[tid].get("ch"):
-                    return self.err(409, "Ответ уже изменён один раз — больше изменить нельзя")
-                if not data.get("change"):
-                    return self.err(409, "Ответ на это задание уже сдан")
-                old = answers[tid]
-                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": old.get("ms"), "ch": 1, "prev": old.get("a")}
-            else:
-                answers[tid] = {"a": ans, "c": cells, "ts": now, "ms": to_int(data.get("spent_ms")) or None}
-            db.x("UPDATE asg_runs SET answers=?, last=? WHERE asg_id=? AND student_id=?",
-                 (json.dumps(answers, ensure_ascii=False), now, aid, s["id"]))
-            live_teacher(s)                      # «● Онлайн» у учителя: сдано на одно задание больше
-            return self.send_json(asg_run_public(db, a, s["id"], real))
-        if path == "/api/asg/finish":
-            asg_finish_run(self, db, a, s, real)
-            return self.send_json(dict(asg_run_public(db, a, s["id"], real), game=game_summary(db, s["id"])))
-        return self.err(404, "нет такого метода")
-
-    def api_exam_finish(self, s, data):
-        db = APP.db
-        e = db.q("SELECT * FROM exams WHERE id=? AND student_id=?", (str(data.get("exam_id") or ""), s["id"]), one=True)
-        if not e:
-            return self.err(404, "Вариант не найден — начните новый")
-        if e["finished"]:
-            return self.send_json(json.loads(e["result"] or "{}"))
-        now = time.time()
-        elapsed = max(0, now - e["started"])
-        # Exams already running during the upgrade keep their old submission protocol once.
-        spent = min(elapsed, EXAM_LIMIT_SEC) if e["save_protocol"] else elapsed
-        expired = bool(e["save_protocol"]) and elapsed > EXAM_LIMIT_SEC
-        show = spent >= EXAM_MIN_SEC_FOR_ANSWERS
-        items = json.loads(e["saved_answers"] or "[]") if expired else exam_input(data)
-        issued = set(json.loads(e["tasks"])) if e["tasks"] else None    # задания, выданные сервером при старте
-        present = {APP.bank.real(it.get("task")) for it in items}
-        for tid in asg_items(json.loads(e["tasks"] or "[]")):
-            if tid not in present:
-                items.append({"task": APP.bank.pid(tid), "answer": ""})
-        results, primary, seen, nums = [], 0, set(), set()
-        for it in items[:40]:
-            if not isinstance(it, dict):
-                continue
-            tid = APP.bank.real(it.get("task")) or ""
-            t = APP.bank.tasks.get(tid)
-            if not t or t.get("parts") or tid in seen or t.get("n") in nums:
-                continue                      # по одному заданию на номер, как на экзамене
-            if issued is not None and (t.get("group") or tid) not in issued:
-                continue                      # чужое задание в вариант не подставить — ни балла, ни ответа
-            if issued is None and strict_locked(db, s, t.get("group") or tid):
-                continue                      # вариант старого образца: задания идущей самостоятельной — без ответа
-            seen.add(tid)
-            n = t.get("n") or 0
-            nums.add(n)
-            ans = str(it.get("answer") or "")[:400]
-            cells = it.get("cells")
-            cells = [str(c)[:100] for c in cells[:40]] if isinstance(cells, list) else None
-            blank = not tokens(ans)
-            credit = 0.0 if blank else answer_credit(n, t.get("ans", ""), ans, cells)
-            pts = ege_points(n) if credit == 1.0 else (1 if credit == 0.5 else 0)
-            primary += pts
-            if not blank:                     # нетронутое задание варианта — не ошибка: в журнал и статистику не идёт
-                self.log_attempt(s, t, [ans], 1.0 if credit == 1.0 else 0.0, reason="exam",
-                                 part=credit, revealed=int(show), exam=e["id"], ai=credit < 1.0 and trap_hit(db, s, t, ans))
-            r = {"task": APP.bank.pid(tid), "n": n, "points": pts, "max": ege_points(n), "part": credit, "blank": blank, "mine": ans}
-            if show and not blank:
-                r["answer"] = t.get("ans", "")
-            results.append(r)
-        test = EGE_SCALE[min(primary, len(EGE_SCALE) - 1)]
-        out = {"results": results, "primary": primary, "test": test, "spent": int(spent), "shown": show,
-               "min_for_answers": EXAM_MIN_SEC_FOR_ANSWERS, "expired": expired}
-        db.x("UPDATE exams SET finished=?, items=?, primary_score=?, test_score=?, result=? WHERE id=?",
-             (e["started"] + spent, len(results), primary, test, json.dumps(out, ensure_ascii=False), e["id"]))
-        live_teacher(s)
-        return self.send_json(dict(out, game=game_summary(db, s["id"])))
-
     # ---------- API учителя
     def admin_api(self, method, path, qs, data):
+        if path in TEACHER_STUDENTS_PATHS:
+            return self.handle_teacher_students(method, path, qs, data)
+        if path in TEACHER_WORK_PATHS:
+            return self.teacher_work_route(method, path, qs, data)
         if path in TEACHER_AUTH_PATHS:
             return self.handle_teacher_auth(method, path, qs, data)
         db = APP.db
@@ -5935,180 +5777,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE duels SET status='void', finished=?, a_elo=NULL, b_elo=NULL, bonus=0, stake=0 WHERE id=?", (time.time(), d["id"]))
             return self.send_json({"ok": True})
 
-        if path == "/api/admin/students":
-            rows = db.q("""
-              SELECT s.id, s.name, s.created, s.last_seen, s.forecast, COALESCE(s.no_rank, 0) AS no_rank,
-                     COUNT(a.id) AS total,
-                     SUM(a.score = 1) AS ok1, SUM(a.score = 0.5) AS ok2, SUM(a.score = 0) AS bad,
-                     SUM(a.ts >= ?) AS today, SUM(a.ts >= ?) AS week,
-                     SUM(a.ts >= ? AND a.score = 0) AS bad_week,
-                     MAX(a.ts) AS last_attempt,
-                     (SELECT COUNT(*) FROM reveal_log r WHERE r.student_id = s.id AND r.granted = 1 AND r.ts >= ?) AS rev_week,
-                     (SELECT COUNT(*) FROM reveal_log r WHERE r.student_id = s.id AND r.granted = 0 AND r.why = 'limit' AND r.ts >= ?) AS blocked_week,
-                     (SELECT test_score FROM exams e WHERE e.student_id = s.id AND e.finished IS NOT NULL
-                       ORDER BY e.finished DESC LIMIT 1) AS exam_last,
-                     (SELECT COUNT(*) FROM activity v WHERE v.student_id = s.id AND v.ts >= ?) AS away_week,
-                     s.class_id, s.teacher_id
-              FROM students s LEFT JOIN attempts a ON a.student_id = s.id
-              WHERE {scope}
-              GROUP BY s.id ORDER BY COALESCE(MAX(a.ts), s.last_seen) DESC""".replace("{scope}", self.student_scope()[0]),
-                        (day0, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400, now - 7 * 86400)
-                        + self.student_scope()[1])
-            cid = qs.get("class_id")
-            names = {t["id"]: t["name"] for t in db.q("SELECT id, name FROM teachers")}
-            main_id = main_teacher()["id"]
-            out = []
-            for r in rows:
-                if cid == "none" and r["class_id"] is not None or cid not in (None, "", "none", "all") and r["class_id"] != to_int(cid):
-                    continue
-                d = dict(r)
-                g = game_summary(db, r["id"], brief=True)
-                d["level"], d["xp"] = g["level"], g["xp"]
-                d["cheat"] = g.get("cheat")                # пользовался лазейкой — опыт за этот период срезан
-                d["teacher_id"] = r["teacher_id"] or main_id
-                d["teacher"] = names.get(d["teacher_id"], "")
-                out.append(d)
-            return self.send_json({"students": out, "now": now})
-
-        if path == "/api/admin/student":
-            sid = to_int(qs.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            s = db.q("SELECT id,name,created,last_seen,forecast,progress_ts,last_ip,fc,progress FROM students WHERE id=?",
-                     (sid,), one=True)
-            if not s:
-                return self.err(404, "ученик не найден")
-            frm = to_float(qs.get("from"))
-            voids = [dict(r) for r in db.q("""SELECT batch, MIN(void_ts) AS ts, COUNT(*) AS n, MIN(t_from) AS t_from, MAX(t_to) AS t_to
-                                               FROM attempts_void WHERE student_id=? GROUP BY batch ORDER BY ts DESC LIMIT 20""", (sid,))]
-            att = db.q("""SELECT a.*, EXISTS(SELECT 1 FROM attempts prev WHERE prev.student_id=a.student_id
-                           AND prev.task_id=a.task_id AND prev.id<a.id) AS repeated
-                           FROM attempts a WHERE a.student_id=? AND a.ts>=? ORDER BY a.ts DESC LIMIT 5000""", (sid, frm))
-            APP.bank.ensure()
-            out = []
-            for a in att:
-                d = dict(a)
-                d["provenance"] = learning_quality.provenance(a, bool(a["repeated"]))
-                d["provenance_label"] = learning_quality.PROVENANCE[d["provenance"]]
-                d["answers"] = json.loads(d["answers"] or "[]")
-                d["snip"] = APP.bank.snippet(d["task_id"])
-                out.append(d)
-            fc_hist = []
-            try:
-                fc_hist = json.loads(s["fc"]) if s["fc"] else (json.loads(s["progress"] or "{}").get("fc") or [])
-            except (ValueError, AttributeError):
-                pass
-            rev = db.q("""SELECT SUM(granted = 1) AS granted, SUM(granted = 0 AND why = 'limit') AS blocked,
-                                 SUM(granted = 0 AND why = 'think') AS early
-                          FROM reveal_log WHERE student_id=? AND ts>=?""", (sid, frm), one=True)
-            exams = db.q("""SELECT id, started, finished, primary_score, test_score, items, result,
-                                   (SELECT COUNT(*) FROM activity v WHERE v.student_id = e.student_id AND v.exam = 1 AND v.kind = 'away'
-                                      AND v.ts BETWEEN e.started AND e.finished + 5) AS away,
-                                   (SELECT COALESCE(SUM(v.dur), 0) FROM activity v WHERE v.student_id = e.student_id AND v.exam = 1
-                                      AND v.kind = 'away' AND v.ts BETWEEN e.started AND e.finished + 5) AS away_sec,
-                                   (SELECT COUNT(*) FROM activity v WHERE v.student_id = e.student_id AND v.exam = 1 AND v.kind = 'fs'
-                                      AND v.ts BETWEEN e.started AND e.finished + 5) AS fs,
-                                   (SELECT COUNT(*) FROM activity v WHERE v.student_id = e.student_id AND v.exam = 1 AND v.kind = 'paste'
-                                      AND v.ts BETWEEN e.started AND e.finished + 5) AS paste
-                            FROM exams e WHERE student_id=? AND finished IS NOT NULL ORDER BY finished DESC LIMIT 20""", (sid,))
-            same_ip = []
-            if s["last_ip"]:
-                same_ip = [r["name"] for r in db.q("SELECT name FROM students WHERE last_ip=? AND id<>? ORDER BY last_seen DESC LIMIT 30",
-                                                     (s["last_ip"], sid))]
-            student = {k: s[k] for k in ("id", "name", "created", "last_seen", "forecast", "progress_ts", "last_ip")}
-            extra_row = db.q("SELECT role, consent_ver, consent_ts, consent_ip, no_rank FROM students WHERE id=?", (sid,), one=True)
-            student.update({k: extra_row[k] for k in ("role", "consent_ver", "consent_ts", "consent_ip", "no_rank")} if extra_row else {})
-            student["consent_ok"] = bool(extra_row and extra_row["consent_ver"] == LEGAL_VERSION)
-            student["has_password"] = bool(db.q("SELECT pw FROM students WHERE id=?", (sid,), one=True)["pw"])
-            coded = {r["task_id"] for r in db.q("SELECT task_id FROM solutions WHERE student_id=?", (sid,))}
-            for d in out:
-                d["has_code"] = 1 if d["task_id"] in coded or (d.get("grp") or "") in coded else 0
-            act = db.q("""SELECT kind, COUNT(*) AS c, SUM(dur) AS dur, SUM(exam) AS in_exam FROM activity
-                          WHERE student_id=? AND ts>=? GROUP BY kind""", (sid, frm))
-            # каждый уход со страницы: когда, насколько, на каком задании (сводка «вне тренажёра»)
-            away_log = []
-            for r in db.q("""SELECT ts, kind, task_id, dur, exam FROM activity WHERE student_id=? AND ts>=?
-                             ORDER BY ts DESC LIMIT 300""", (sid, frm)):
-                d = dict(r)
-                tk = APP.bank.tasks.get(d["task_id"]) if d["task_id"] else None
-                d["n"] = tk.get("n") if tk else None
-                d["snip"] = APP.bank.snippet(d["task_id"]) if tk else ""
-                away_log.append(d)
-            row = db.q("SELECT class_id, teacher_id FROM students WHERE id=?", (sid,), one=True)
-            student["class_id"] = row["class_id"]
-            student["teacher_id"] = row["teacher_id"] or main_teacher()["id"]
-            return self.send_json({"student": student, "attempts": out, "forecast_history": fc_hist,
-                                   "reveals": {k: rev[k] or 0 for k in ("granted", "blocked", "early")},
-                                   "exams": [exam_brief(r) for r in exams], "same_ip": same_ip, "sessions": sessions_list(db, sid),
-                                   "voids": voids,
-                                   "activity": {r["kind"]: {"count": r["c"], "sec": round(r["dur"] or 0), "exam": r["in_exam"] or 0} for r in act},
-                                   "away_log": away_log,
-                                   "game": game_summary(db, sid), "rules": self.rules()})
-
-        if path == "/api/admin/feed":
-            since = to_float(qs.get("since"))
-            cond, args = self.student_scope()
-            rows = db.q(f"""SELECT a.*, s.name, EXISTS(SELECT 1 FROM attempts prev WHERE prev.student_id=a.student_id
-                             AND prev.task_id=a.task_id AND prev.id<a.id) AS repeated FROM attempts a JOIN students s ON s.id = a.student_id
-                            WHERE a.ts > ? AND {cond} ORDER BY a.ts DESC LIMIT 300""", (since, *args))
-            APP.bank.ensure()
-            out = []
-            for a in rows:
-                d = dict(a)
-                d["provenance"] = learning_quality.provenance(a, bool(a["repeated"]))
-                d["provenance_label"] = learning_quality.PROVENANCE[d["provenance"]]
-                d["answers"] = json.loads(d["answers"] or "[]")
-                d["snip"] = APP.bank.snippet(d["task_id"])
-                out.append(d)
-            # события контрольных: начал, ушёл со вкладки, вышел из полного экрана, сдал
-            ev = db.q(f"""SELECT e.*, s.name, g.title FROM asg_events e JOIN students s ON s.id = e.student_id
-                          JOIN assignments g ON g.id = e.asg_id
-                          WHERE e.ts > ? AND {cond} ORDER BY e.ts DESC LIMIT 300""", (since, *args))
-            events = [dict(e) for e in ev]
-            # сданные варианты ЕГЭ — тоже в уведомления
-            for e in db.q(f"""SELECT x.id, x.student_id, x.finished, x.primary_score, x.test_score, s.name FROM exams x
-                              JOIN students s ON s.id = x.student_id
-                              WHERE x.finished > ? AND {cond} ORDER BY x.finished DESC LIMIT 100""", (since, *args)):
-                events.append({"ts": e["finished"], "kind": "exam", "student_id": e["student_id"], "name": e["name"],
-                               "title": "Вариант ЕГЭ", "exam": e["id"],
-                               "info": json.dumps({"test": e["test_score"], "primary": e["primary_score"]})})
-            if self.T["is_main"]:
-                # обращения в техподдержку — главному учителю
-                for t in db.q("""SELECT x.id, x.ts, x.kind, x.text, x.student_id, s.name FROM support x
-                                 JOIN students s ON s.id = x.student_id WHERE x.ts > ? ORDER BY x.ts DESC LIMIT 50""", (since,)):
-                    events.append({"ts": t["ts"], "kind": "support", "student_id": t["student_id"], "name": t["name"],
-                                   "title": SUPPORT_KINDS.get(t["kind"], "Обращение"), "info": (t["text"] or "")[:160]})
-                for t in db.q("""SELECT m.ts, m.text, p.kind, p.student_id, s.name FROM support_msgs m JOIN support p ON p.id = m.support_id
-                                 JOIN students s ON s.id = p.student_id WHERE m.who='student' AND m.ts > ? ORDER BY m.ts DESC LIMIT 50""", (since,)):
-                    events.append({"ts": t["ts"], "kind": "support", "student_id": t["student_id"], "name": t["name"],
-                                   "title": "ответ в обращении", "info": (t["text"] or "")[:160]})
-            events.sort(key=lambda x: -x["ts"])
-            return self.send_json({"attempts": out, "events": events, "now": now})
-
-        if path == "/api/admin/exam":
-            # разбор варианта ученика для учителя: ответ ученика, правильный ответ, баллы по каждому заданию
-            e = db.q("SELECT * FROM exams WHERE id=? AND finished IS NOT NULL", (str(qs.get("id") or ""),), one=True)
-            if not e or not self.sees_student(e["student_id"]):
-                return self.err(404, "вариант не найден")
-            APP.bank.ensure()
-            r = json.loads(e["result"] or "{}")
-            mine = {}
-            for a in db.q("SELECT task_id, answers FROM attempts WHERE student_id=? AND exam=?", (e["student_id"], e["id"])):
-                try:
-                    mine[a["task_id"]] = (json.loads(a["answers"] or "[]") or [""])[0]
-                except ValueError:
-                    pass
-            rows = []
-            for x in r.get("results") or []:
-                real = APP.bank.real(x.get("task")) or ""
-                t = APP.bank.tasks.get(real) or {}
-                rows.append({"task": real, "n": x.get("n"), "points": x.get("points"), "max": x.get("max"), "blank": x.get("blank"),
-                             "mine": mine.get(real, ""), "answer": t.get("ans", ""), "snip": APP.bank.snippet(real) if real else ""})
-            st = db.q("SELECT name FROM students WHERE id=?", (e["student_id"],), one=True)
-            return self.send_json({"id": e["id"], "student": st["name"] if st else "", "started": e["started"], "finished": e["finished"],
-                                   "primary": e["primary_score"], "test": e["test_score"], "spent": r.get("spent"),
-                                   "shown": bool(r.get("shown")), "rows": rows})
-
         if path == "/api/admin/task":
             APP.bank.ensure()
             t = APP.bank.tasks.get(APP.bank.real(qs.get("id")) or "")      # и открытый код из обращения ученика
@@ -6135,254 +5803,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             else:
                 db.x("DELETE FROM tsolutions WHERE teacher_id=? AND task_id=?", (self.T["id"], tid))
             return self.send_json({"ok": True})
-
-        if path == "/api/admin/solution":
-            if not self.sees_student(to_int(qs.get("student"))):
-                return self.err(404, "решение не прикреплено")
-            r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?",
-                     (to_int(qs.get("student")), str(qs.get("task") or "")), one=True)
-            if not r:
-                return self.err(404, "решение не прикреплено")
-            return self.send_json({"code": r["code"], "ts": r["ts"]})
-
-        if path == "/api/admin/export.csv":
-            sid = qs.get("student")
-            frm = to_float(qs.get("from"))
-            args = [frm]
-            cond, sargs = self.student_scope()
-            sql = f"""SELECT a.*, s.name FROM attempts a JOIN students s ON s.id=a.student_id WHERE a.ts>=? AND {cond}"""
-            args += list(sargs)
-            if sid:
-                sql += " AND a.student_id=?"
-                args.append(to_int(sid))
-            sql += " ORDER BY s.name, a.ts"
-            rows = db.q(sql, args)
-            buf = io.StringIO()
-            w = csv.writer(buf, delimiter=";")
-            w.writerow(["Ученик", "Дата", "Время", "№", "ID задания", "Банк", "Ответ ученика (1-я попытка)",
-                        "2-я попытка", "Правильный ответ", "Результат", "Баллы", "Время на задание, с", "Почему выдано"])
-            for a in rows:
-                answers = json.loads(a["answers"] or "[]")
-                dt = datetime.fromtimestamp(a["ts"])
-                res = ("верно" if a["score"] == 1 else "верно со 2-й попытки" if a["score"] == 0.5
-                       else "показал ответ" if a["gave_up"] else "ушёл после ошибки" if a["abandoned"]
-                       else "нет ответа" if a["reason"] == "exam" and not answers else "неверно")
-                if a["score"] == 0 and a["part"] == 0.5:
-                    res += " (верна половина — 1 балл из 2)"
-                w.writerow([csv_cell(x) for x in [a["name"], dt.strftime("%d.%m.%Y"), dt.strftime("%H:%M"), a["n"], a["task_id"].split(":", 1)[-1],
-                            a["bank"], (answers[0] if answers else "").replace("\n", " "),
-                            (answers[1] if len(answers) > 1 else "").replace("\n", " "),
-                            (a["correct"] or "").replace("\n", " | "), res,
-                            str(a["score"]).replace(".", ","), round((a["spent_ms"] or 0) / 1000), REASONS.get(a["reason"], a["reason"])]])
-            body = ("﻿" + buf.getvalue()).encode("utf-8")
-            name = "zhurnal.csv"
-            return self.send_bytes(200, body, "text/csv; charset=utf-8",
-                                   {"Content-Disposition": f"attachment; filename={name}", "Cache-Control": "no-store"})
-
-        if path == "/api/admin/student/rename" and method == "POST":
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            pretty, key = norm_name(data.get("name"))
-            if not NAME_RE.match(pretty) or len(pretty.split()) < 2:
-                return self.err(400, "Нужны фамилия и имя")
-            other = db.q("SELECT id FROM students WHERE name_key=? AND id<>?", (key, sid), one=True)
-            if other and not self.sees_student(other["id"]):
-                return self.err(409, "Ученик с таким ФИО уже есть у другого учителя — добавьте отчество")
-            if other:      # такое ФИО уже есть — объединяем журналы
-                for table in ("attempts", "reveal_log", "exams", "activity"):
-                    db.x(f"UPDATE {table} SET student_id=? WHERE student_id=?", (other["id"], sid))
-                db.x("UPDATE OR IGNORE solutions SET student_id=? WHERE student_id=?", (other["id"], sid))
-                db.x("DELETE FROM solutions WHERE student_id=?", (sid,))
-                db.x("UPDATE solution_history SET student_id=? WHERE student_id=?", (other["id"], sid))
-                buglab_merge.merge(db, sid, other["id"])
-                db.x("DELETE FROM student_sessions WHERE student_id=?", (sid,))
-                db.x("DELETE FROM students WHERE id=?", (sid,))
-                return self.send_json({"ok": True, "merged_into": other["id"]})
-            db.x("UPDATE students SET name=?, name_key=? WHERE id=?", (pretty, key, sid))
-            return self.send_json({"ok": True})
-
-        if path == "/api/admin/student/password-reset" and method == "POST":
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            if not db.q("SELECT 1 FROM students WHERE id=?", (sid,), one=True):
-                return self.err(404, "ученик не найден")
-            # пароль стирается, вход на всех устройствах сбрасывается; ученик задаст новый с кодом приглашения
-            db.x("UPDATE students SET pw=NULL WHERE id=?", (sid,))
-            sessions_end(db, sid)
-            return self.send_json({"ok": True})
-
-        if path in ("/api/admin/student/void", "/api/admin/student/void-undo") and method == "POST":
-            # отменить ответы ученика за промежуток (в аккаунт зашёл кто-то другой): предпросмотр, затем — в корзину attempts_void;
-            # опыт, монеты за труд, точность, огонёк, прогноз и рейтинги пересчитываются сами — они считаются по журналу ответов
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            if path == "/api/admin/student/void-undo":
-                rows = db.q("SELECT * FROM attempts_void WHERE student_id=? AND batch=?", (sid, str(data.get("batch") or "")))
-                if not rows:
-                    return self.err(404, "Эта отмена уже возвращена")
-                cols = {r[1] for r in db.q("PRAGMA table_info(attempts)")}
-                for r in rows:
-                    a = {k: v for k, v in json.loads(r["row"]).items() if k in cols}
-                    db.x(f"INSERT OR IGNORE INTO attempts({','.join(a)}) VALUES({','.join('?' * len(a))})", tuple(a.values()))
-                db.x("DELETE FROM attempts_void WHERE student_id=? AND batch=?", (sid, rows[0]["batch"]))
-                attempts_changed(sid)
-                return self.send_json({"ok": True, "restored": len(rows)})
-            t_from, t_to = to_float(data.get("from")), to_float(data.get("to"))
-            if not t_from or not t_to or t_to <= t_from or t_to - t_from > 7 * 86400:
-                return self.err(400, "Укажите промежуток — не длиннее недели")
-            att = db.q("SELECT * FROM attempts WHERE student_id=? AND ts>=? AND ts<=? ORDER BY ts", (sid, t_from, t_to))
-            if data.get("preview"):
-                APP.bank.ensure()
-                coins = db.q("SELECT COUNT(*) c FROM coins WHERE student_id=? AND ts>=? AND ts<=? AND reason IN ('gift','upgrade','sell','mbuy')",
-                             (sid, t_from, t_to), one=True)["c"]
-                return self.send_json({"n": len(att), "ok": sum(1 for a in att if (a["score"] or 0) >= 1),
-                                       "bad": sum(1 for a in att if (a["score"] or 0) <= 0), "exam": sum(1 for a in att if a["exam"]),
-                                       "nums": sorted({a["n"] for a in att if a["n"]}), "gift_ops": coins,
-                                       "list": [{"ts": a["ts"], "n": a["n"], "score": a["score"], "exam": bool(a["exam"]),
-                                                 "answer": (json.loads(a["answers"] or "[]") or [""])[-1] if a["answers"] else ""}
-                                                for a in att[:60]]})
-            if not att:
-                return self.err(400, "За этот промежуток ответов нет")
-            batch, now = secrets.token_hex(6), time.time()
-            for a in att:
-                db.x("INSERT INTO attempts_void(batch, student_id, ts, row, void_ts, teacher_id, t_from, t_to) VALUES(?,?,?,?,?,?,?,?)",
-                     (batch, sid, a["ts"], json.dumps(dict(a), ensure_ascii=False), now, self.T["id"], t_from, t_to))
-            db.x(f"DELETE FROM attempts WHERE id IN ({','.join('?' * len(att))})", tuple(a["id"] for a in att))
-            attempts_changed(sid)
-            return self.send_json({"ok": True, "voided": len(att), "batch": batch})
-
-        if path == "/api/admin/student/logout" and method == "POST":
-            # выйти у ученика на всех устройствах (например, вошёл на чужом компьютере)
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            return self.send_json({"ok": True, "ended": sessions_end(db, sid)})
-
-        if path == "/api/admin/logout-here" and method == "POST":
-            # конец урока: выйти всем вашим ученикам на компьютерах этой сети (адрес — как у учителя сейчас)
-            ip = self.client_ip()
-            where, args = self.student_scope()
-            sids = [r["id"] for r in db.q(f"SELECT s.id FROM students s WHERE {where}", args)]
-            n = 0
-            for i in range(0, len(sids), 500):
-                part = sids[i:i + 500]
-                n += db.xn(f"""UPDATE student_sessions SET ended=? WHERE ip=? AND ended IS NULL
-                                AND student_id IN ({','.join('?' * len(part))})""", (time.time(), ip, *part))
-                # прежний общий токен у тех, кто заходил с этого адреса, — тоже
-                db.x(f"UPDATE students SET token=lower(hex(randomblob(18))) WHERE last_ip=? AND id IN ({','.join('?' * len(part))})", (ip, *part))
-            LIVE.send(sids, "logout")
-            return self.send_json({"ok": True, "ended": n, "ip": ip})
-
-        if path == "/api/admin/student/norank" and method == "POST":
-            # убрать ученика из рейтингов (лига, ТОПы дня/недели/месяца, корона, битва классов, Forbes, Эло, сезоны) или вернуть
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            db.x("UPDATE students SET no_rank=? WHERE id=?", (1 if data.get("on") else 0, sid))
-            with _GS_LOCK:
-                _LB_PEOPLE.clear()
-            _FORBES.clear()
-            return self.send_json({"ok": True, "no_rank": bool(data.get("on"))})
-
-        if path == "/api/admin/student/role" and method == "POST":
-            # плашка 👑 admin рядом с именем ученика — выдаёт и снимает только главный учитель
-            if not self.T["is_main"]:
-                return self.err(403, "только для главного учителя")
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            db.x("UPDATE students SET role=? WHERE id=?", ("admin" if data.get("admin") else None, sid))
-            return self.send_json({"ok": True})
-
-        if path == "/api/admin/student/fire" and method == "POST":
-            # восстановить огонёк ученику (например, после сбоя сервера): серия станет не меньше days
-            sid = to_int(data.get("id"))
-            days = to_int(data.get("days"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            if not days or not 1 <= days <= 365:
-                return self.err(400, "Сколько дней огонька — от 1 до 365")
-            added, fire = restore_fire(db, sid, days)
-            return self.send_json({"ok": True, "added": added, "fire": fire})
-
-        if path == "/api/admin/student/delete" and method == "POST":
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            delete_student(db, sid)
-            return self.send_json({"ok": True})
-
-        if path == "/api/admin/student/parent" and method == "POST":
-            # ссылка для родителей ученика (new — выпустить новую, старая перестанет работать) и почта для писем
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            if "email" in data:
-                email = str(data.get("email") or "").strip().lower()[:120]
-                if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s.]{2,}", email):
-                    return self.err(400, "Проверьте адрес почты")
-                db.x("UPDATE students SET parent_email=? WHERE id=?", (email or None, sid))
-            tok = parent_token(db, sid, bool(data.get("new")))
-            r = db.q("SELECT parent_email FROM students WHERE id=?", (sid,), one=True)
-            return self.send_json({"token": tok, "email": r["parent_email"] or "", "mail_on": bool(smtp_conf())})
-
-        if path == "/api/admin/class/import" and method == "POST":
-            # список класса из Excel: ученики создаются сразу с паролями (их видно один раз — для карточек входа)
-            cid = to_int(data.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            names = data.get("names") if isinstance(data.get("names"), list) else []
-            if not names or len(names) > IMPORT_MAX:
-                return self.err(400, f"Вставьте от 1 до {IMPORT_MAX} учеников")
-            out, seen, now = [], set(), time.time()
-            for raw in names:
-                pretty, key = norm_name(str(raw or "")[:120])
-                if not pretty:
-                    continue
-                if not NAME_RE.match(pretty) or len(pretty.split()) < 2:
-                    out.append({"name": pretty[:80], "status": "bad"})
-                    continue
-                if key in seen:
-                    continue
-                seen.add(key)
-                ex = db.q("SELECT id, teacher_id FROM students WHERE name_key=?", (key,), one=True)
-                if ex:
-                    if self.sees_student(ex["id"]):                  # свой ученик — просто в этот класс
-                        db.x("UPDATE students SET class_id=? WHERE id=?", (cid, ex["id"]))
-                        out.append({"name": pretty, "status": "mine", "id": ex["id"]})
-                    else:
-                        out.append({"name": pretty, "status": "taken"})
-                    continue
-                pw, login = new_student_pw(), make_login(db, pretty)
-                sid = db.x("""INSERT INTO students(name, name_key, token, created, last_seen, pw, teacher_id, class_id, login)
-                              VALUES(?,?,?,?,?,?,?,?,?)""", (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw), self.T["id"], cid, login))
-                out.append({"name": pretty, "status": "new", "id": sid, "password": pw, "login": login})
-            return self.send_json({"rows": out})
-
-        if path == "/api/admin/student/newpw" and method == "POST":
-            # новый пароль для карточки входа (ученик забыл): прежний перестаёт действовать, входы закрываются
-            sid = to_int(data.get("id"))
-            if not self.sees_student(sid):
-                return self.err(404, "ученик не найден")
-            pw = new_student_pw()
-            db.x("UPDATE students SET pw=? WHERE id=?", (hash_pw(pw), sid))
-            sessions_end(db, sid)
-            r = db.q("SELECT name, login FROM students WHERE id=?", (sid,), one=True)
-            login = r["login"] or make_login(db, r["name"])
-            db.x("UPDATE students SET login=? WHERE id=?", (login, sid))
-            return self.send_json({"name": r["name"], "password": pw, "login": login})
-
-        if path == "/api/admin/class/parents":
-            # ссылки для родителей всего класса (недостающие создаются)
-            cid = to_int(qs.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            rows = db.q("SELECT id, name, parent_email FROM students WHERE class_id=? AND COALESCE(is_teacher, 0)=0 ORDER BY name", (cid,))
-            return self.send_json({"students": [{"id": r["id"], "name": r["name"], "email": r["parent_email"] or "",
-                                                 "token": parent_token(db, r["id"])} for r in rows]})
 
         if path == "/api/admin/invite" and method == "POST":
             code = re.sub(r"\s+", "", str(data.get("code") or ""))
@@ -7341,477 +6761,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("DELETE FROM lesson_readiness WHERE account=?", (f"teacher:{tid}",))
             db.x("DELETE FROM teachers WHERE id=?", (tid,))
             return self.send_json({"ok": True})
-
-        if path == "/api/admin/student/teacher" and method == "POST":
-            # главный передаёт ученика другому учителю (класс при этом снимается)
-            if not self.T["is_main"]:
-                return self.err(403, "только для главного учителя")
-            sid, tid = to_int(data.get("id")), to_int(data.get("teacher_id"))
-            if not db.q("SELECT 1 FROM teachers WHERE id=?", (tid,), one=True) or not self.sees_student(sid):
-                return self.err(404, "не найдено")
-            db.x("UPDATE students SET teacher_id=?, class_id=NULL WHERE id=?", (tid, sid))
-            return self.send_json({"ok": True})
-
-        if path == "/api/admin/classes":
-            main_id = main_teacher()["id"]
-            ccond = "COALESCE(c.teacher_id, ?) = ?"                 # только свои классы, и у главного тоже
-            cargs = (main_id, self.T["id"])
-            rows = db.q(f"""SELECT c.id, c.name, c.created, COALESCE(c.teacher_id, ?) AS teacher_id, t.name AS teacher,
-                                  c.goal_tasks, c.goal_reward, COALESCE(c.battle, 0) AS battle,
-                                  (SELECT COUNT(*) FROM attempts a JOIN students s2 ON s2.id = a.student_id
-                                   WHERE s2.class_id = c.id AND a.score > 0 AND a.ts >= {week_start()}) AS week_solved,
-                                  COUNT(s.id) AS students FROM classes c
-                           LEFT JOIN students s ON s.class_id = c.id
-                           LEFT JOIN teachers t ON t.id = COALESCE(c.teacher_id, ?)
-                           WHERE {ccond} GROUP BY c.id ORDER BY t.is_main DESC, t.name, c.name""", (main_id, main_id, *cargs))
-            cond, args = self.student_scope()
-            free = db.q(f"SELECT COUNT(*) c FROM students s WHERE class_id IS NULL AND {cond}", args, one=True)["c"]
-            return self.send_json({"classes": [dict(r) for r in rows], "unassigned": free})
-
-        if path == "/api/admin/class/goal" and method == "POST":
-            # битва классов: цель на неделю (сколько заданий решить) и награда, которую обещает учитель
-            cid = to_int(data.get("id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            goal = max(0, min(to_int(data.get("goal_tasks")) or 0, 100000))
-            reward = re.sub(r"\s+", " ", str(data.get("goal_reward") or "")).strip()[:120]
-            battle = 1 if data.get("battle") else 0
-            db.x("UPDATE classes SET goal_tasks=?, goal_reward=?, battle=? WHERE id=?", (goal or None, reward or None, battle, cid))
-            return self.send_json({"ok": True, "goal_tasks": goal, "goal_reward": reward, "battle": bool(battle)})
-
-        if path == "/api/admin/class/save" and method == "POST":
-            name = re.sub(r"\s+", " ", str(data.get("name") or "")).strip()[:40]
-            if not name:
-                return self.err(400, "Введите название класса, например «11А»")
-            cid = to_int(data.get("id"))
-            if cid:
-                if not self.sees_class(cid):
-                    return self.err(404, "класс не найден")
-                db.x("UPDATE classes SET name=? WHERE id=?", (name, cid))
-            else:
-                cid = db.x("INSERT INTO classes(name, created, teacher_id) VALUES(?,?,?)", (name, now, self.T["id"]))
-            return self.send_json({"ok": True, "id": cid})
-
-        if path == "/api/admin/class/delete" and method == "POST":
-            cid = to_int(data.get("id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            db.x("UPDATE students SET class_id=NULL WHERE class_id=?", (cid,))      # ученики возвращаются в «нераспределённые»
-            db.x("DELETE FROM assignments WHERE class_id=?", (cid,))
-            db.x("DELETE FROM classes WHERE id=?", (cid,))
-            return self.send_json({"ok": True})
-
-        if path == "/api/admin/class/members" and method == "POST":
-            cid = to_int(data.get("class_id")) or None
-            if cid and not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            ids = [to_int(i) for i in (data.get("students") or []) if to_int(i) and self.sees_student(to_int(i))][:500]
-            # ученик в классе — ученик учителя этого класса (главный может так передать ученика другому учителю)
-            owner = db.q("SELECT teacher_id FROM classes WHERE id=?", (cid,), one=True)["teacher_id"] if cid else None
-            for sid in ids:
-                if owner:
-                    db.x("UPDATE students SET class_id=?, teacher_id=? WHERE id=?", (cid, owner, sid))
-                else:
-                    db.x("UPDATE students SET class_id=? WHERE id=?", (cid, sid))
-            return self.send_json({"ok": True, "moved": len(ids)})
-
-        if path == "/api/admin/class/stats":
-            # статистика класса за период (урок, день, неделя) — по всем заданиям или по одной подборке: для оценок
-            cid = to_int(qs.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            try:
-                t0, t1 = float(qs.get("from") or 0), float(qs.get("to") or now)
-            except ValueError:
-                return self.err(400, "неверный период")
-            members = db.q("SELECT id, name FROM students WHERE class_id=? ORDER BY name", (cid,))
-            asg_tasks = None
-            aid = to_int(qs.get("asg"))
-            if aid:
-                a = db.q("SELECT tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
-                if not a:
-                    return self.err(404, "подборка не найдена")
-                asg_tasks = json.loads(a["tasks"] or "[]")
-            rows = {}
-            if members:
-                ids = [m["id"] for m in members]
-                cond, args = f"student_id IN ({','.join('?' * len(ids))}) AND ts>=? AND ts<? AND exam IS NULL", (*ids, t0, t1)
-                if asg_tasks is not None:
-                    qm = ",".join("?" * len(asg_tasks)) or "NULL"
-                    cond += f" AND (task_id IN ({qm}) OR grp IN ({qm}))"
-                    args += (*asg_tasks, *asg_tasks)
-                for r in db.q(f"""SELECT student_id, COUNT(*) AS answers, COUNT(DISTINCT COALESCE(grp, task_id)) AS tasks,
-                                         SUM(score = 1) AS ok1, SUM(score = 0.5) AS ok2, SUM(score = 0) AS bad,
-                                         SUM(score = 0 AND gave_up = 1 AND revealed = 1) AS shown,
-                                         COUNT(DISTINCT CASE WHEN score > 0 THEN COALESCE(grp, task_id) END) AS solved,
-                                         SUM(COALESCE(spent_ms, 0)) AS spent, SUM(COALESCE(away, 0)) AS away,
-                                         SUM(',' || COALESCE(flags, '') || ',' LIKE '%,sus,%') AS sus,
-                                         SUM(',' || COALESCE(flags, '') || ',' LIKE '%,paste,%') AS paste,
-                                         SUM(',' || COALESCE(flags, '') || ',' LIKE '%,ai,%') AS ai,
-                                         MIN(ts) AS first, MAX(ts) AS last, GROUP_CONCAT(DISTINCT n) AS nums
-                                  FROM attempts WHERE {cond} GROUP BY student_id""", args):
-                    rows[r["student_id"]] = dict(r)
-                for r in db.q(f"""SELECT student_id, MAX(test_score) AS exam FROM exams WHERE finished>=? AND finished<?
-                                  AND student_id IN ({','.join('?' * len(ids))}) GROUP BY student_id""", (t0, t1, *ids)):
-                    rows.setdefault(r["student_id"], {})["exam"] = r["exam"]
-                # вне тренажёра за период: все уходы со страницы (и в заданиях, и в варианте)
-                for r in db.q(f"""SELECT student_id, COUNT(*) AS c, SUM(dur) AS sec FROM activity WHERE kind = 'away'
-                                  AND ts>=? AND ts<? AND student_id IN ({','.join('?' * len(ids))}) GROUP BY student_id""", (t0, t1, *ids)):
-                    rows.setdefault(r["student_id"], {}).update(out_n=r["c"], out_sec=round(r["sec"] or 0))
-            out = []
-            for m in members:
-                r = rows.get(m["id"], {})
-                nums = sorted({int(x) for x in str(r.get("nums") or "").split(",") if x.strip().isdigit()})
-                out.append({"id": m["id"], "name": m["name"], "answers": r.get("answers") or 0, "tasks": r.get("tasks") or 0,
-                            "solved": r.get("solved") or 0, "ok1": r.get("ok1") or 0, "ok2": r.get("ok2") or 0,
-                            "bad": r.get("bad") or 0, "shown": r.get("shown") or 0, "spent": r.get("spent") or 0,
-                            "away": r.get("away") or 0, "first": r.get("first"), "last": r.get("last"), "nums": nums,
-                            "exam": r.get("exam"), "sus": r.get("sus") or 0, "paste": r.get("paste") or 0, "ai": r.get("ai") or 0,
-                            "out_n": r.get("out_n") or 0, "out_sec": r.get("out_sec") or 0})
-            return self.send_json({"rows": out, "asg_total": len(asg_tasks) if asg_tasks is not None else None})
-
-        if path == "/api/admin/assignments":
-            cid = to_int(qs.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            APP.bank.ensure()
-            members = db.q("SELECT id, name FROM students WHERE class_id=? ORDER BY name", (cid,))
-            asg_expire(self, db, cid)
-            out = []
-            batches = {}
-            for a in db.q("SELECT * FROM assignments WHERE class_id=? AND student_id IS NOT NULL ORDER BY created DESC", (cid,)):
-                real = json.loads(a["tasks"] or "[]")
-                b = batches.setdefault(a["batch"] or f"one:{a['id']}", {"batch": a["batch"] or f"one:{a['id']}", "title": batch_title(a),
-                                                                       "kind": a["kind"], "created": a["created"], "due": a["due"],
-                                                                       "students": 0, "done": 0, "tasks": 0, "ids": [], "closed": 0})
-                b["ids"].append(a["id"])
-                b["closed"] += bool(a["closed"])
-                if a["due"] and (not b["due"] or a["due"] > b["due"]):
-                    b["due"] = a["due"]                 # у кого-то продлён — показываем самый поздний срок
-                b["students"] += 1
-                b["tasks"] += len(real)
-                b["done"] += len(assignment_done(db, a["student_id"], real, a["created"], asg_cutoff(a))) >= len(real) > 0
-            for a in db.q("SELECT * FROM assignments WHERE class_id=? AND student_id IS NULL ORDER BY created DESC", (cid,)):
-                real = json.loads(a["tasks"] or "[]")
-                prog = [{"id": m["id"], "name": m["name"], "done": len(assignment_done(db, m["id"], real, a["created"], asg_cutoff(a)))}
-                        for m in members]
-                out.append({"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
-                            "strict": bool(a["strict"]), "kind": a["kind"] or "self", "closed": a["closed"], "grading": asg_grading(a),
-                            "tasks": [{"id": i, "n": (APP.bank.tasks.get(i) or {}).get("n"),
-                                       "c": (APP.bank.tasks.get(i) or {}).get("c"), "r": (APP.bank.tasks.get(i) or {}).get("r"),
-                                       "cname": dict(clusters.labels((APP.bank.tasks.get(i) or {}).get("n"))).get((APP.bank.tasks.get(i) or {}).get("c"), ""),
-                                       "snip": APP.bank.snippet(i), "missing": i not in APP.bank.tasks} for i in real],
-                            "progress": prog})
-            return self.send_json({"assignments": out, "batches": list(batches.values())})
-
-        if path == "/api/admin/class/journal":
-            # журнал класса: оценки по всем подборкам и точность по номерам ЕГЭ у каждого ученика
-            cid = to_int(qs.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            APP.bank.ensure()
-            members = db.q("""SELECT id, name, forecast, fc FROM students WHERE class_id=? AND COALESCE(is_teacher, 0) = 0
-                              ORDER BY name""", (cid,))
-            asg_expire(self, db, cid)
-            cols, cells = [], {m["id"]: {} for m in members}
-            by_batch = {}
-            for a in db.q("SELECT * FROM assignments WHERE class_id=? ORDER BY created", (cid,)):
-                real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
-                if a["student_id"]:
-                    # личные подборки одной серии (работа над ошибками, слабые места) — одна колонка
-                    key = "b:" + (a["batch"] or str(a["id"]))
-                    if key not in by_batch:
-                        by_batch[key] = {"id": key, "title": batch_title(a), "kind": a["kind"] or "practice", "created": a["created"],
-                                         "due": a["due"], "closed": a["closed"], "total": len(asg_items(real)), "personal": True}
-                        cols.append(by_batch[key])
-                    if a["student_id"] in cells:
-                        cells[a["student_id"]][key] = dict(asg_cell(db, a, a["student_id"], real), asg=a["id"], total=len(asg_items(real)))
-                    continue
-                cols.append({"id": a["id"], "title": a["title"], "kind": a["kind"] or "self", "created": a["created"],
-                             "due": a["due"], "closed": a["closed"], "total": len(asg_items(real))})
-                for m in members:
-                    cells[m["id"]][a["id"]] = asg_cell(db, a, m["id"], real)
-            ids = [m["id"] for m in members]
-            nums = {}
-            if ids:
-                # точность по номерам — первая попытка в тренажёре и подборках, без вариантов ЕГЭ
-                for r in db.q(f"""SELECT student_id, n, COUNT(*) AS a, SUM(score = 1) AS ok FROM attempts
-                                  WHERE student_id IN ({','.join('?' * len(ids))}) AND n IS NOT NULL AND exam IS NULL
-                                  AND COALESCE(gave_up, 0) = 0 GROUP BY student_id, n""", ids):
-                    cur = nums.setdefault(r["student_id"], {}).setdefault(n_key(r["n"]), [0, 0])
-                    cur[0] += r["a"]
-                    cur[1] += r["ok"] or 0
-            return self.send_json({"assignments": cols, "students": [{"id": m["id"], "name": m["name"], "cells": cells[m["id"]],
-                                                                      "nums": nums.get(m["id"], {}), "fc": forecast_trend(m),
-                                                                      "exam": exam_summary(db, m["id"])}
-                                                                     for m in members]})
-
-        if path == "/api/admin/class/digest":
-            # сводка недели: кто не занимался, у кого просели номера, кто не сдал работы, кто молодец
-            cid = to_int(qs.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            APP.bank.ensure()
-            asg_expire(self, db, cid)
-            return self.send_json(class_digest(db, cid))
-
-        if path == "/api/admin/class/weak" and method == "POST":
-            # каждому ученику — своя практическая подборка: по N заданий на его K самых слабых номеров
-            cid = to_int(data.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            if not APP.bank.ensure():
-                return self.err(503, "банк заданий не собран")
-            per = min(max(to_int(data.get("per")) or 3, 1), 10)
-            k = min(max(to_int(data.get("nums")) or 3, 1), 5)
-            days = min(max(to_int(data.get("days")) or 7, 1), 60)
-            made, skipped = weak_sets(db, cid, per, k, days, bool(self.T["authored"]))
-            return self.send_json({"ok": True, "made": made, "skipped": skipped})
-
-        if path == "/api/admin/batch/kind" and method == "POST":
-            # тип личной подборки (персональной, работы над ошибками, слабых мест) — сразу у всех учеников пачки;
-            # самостоятельная → практическая/домашняя: начатые сдаются по уже данным ответам, как у подборки класса
-            cid = to_int(data.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            kind = data.get("kind")
-            if kind not in ASG_KINDS:
-                return self.err(400, "неизвестный тип работы")
-            batch = str(data.get("batch") or "")
-            rows = (db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (to_int(batch[4:]), cid))
-                    if batch.startswith("one:") else
-                    db.q("SELECT * FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid)))
-            if not rows:
-                return self.err(404, "подборка не найдена")
-            APP.bank.ensure()
-            ended = 0
-            for a in rows:
-                if a["strict"] and kind != "self":
-                    real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
-                    for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NULL", (a["id"],)):
-                        st = db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True)
-                        if st:
-                            asg_finish_run(self, db, a, st, real, forced=1)
-                            ended += 1
-                db.x("UPDATE assignments SET kind=?, strict=? WHERE id=?", (kind, 1 if kind == "self" else 0, a["id"]))
-            live_class(db, cid, [a["student_id"] for a in rows])
-            return self.send_json({"ok": True, "changed": len(rows), "ended": ended})
-
-        if path == "/api/admin/batch/due" and method == "POST":
-            # перенести срок личной подборки: у всех учеников пачки или у одного (asg_id); закрытые по сроку снова открываются
-            cid = to_int(data.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            due = to_float(data.get("due")) or None
-            if due and due < now:
-                return self.err(400, "Этот срок уже прошёл — выберите сегодняшнюю или более позднюю дату")
-            batch, one = str(data.get("batch") or ""), to_int(data.get("asg_id"))
-            if one:
-                rows = db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (one, cid))
-            elif batch.startswith("one:"):
-                rows = db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (to_int(batch[4:]), cid))
-            else:
-                rows = db.q("SELECT * FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid))
-            if not rows:
-                return self.err(404, "подборка не найдена")
-            reopened = 0
-            for a in rows:
-                db.x("UPDATE assignments SET due=? WHERE id=?", (due, a["id"]))
-                # закрытую по сроку (closed = прежний срок) открываем снова; закрытую учителем вручную — не трогаем
-                if a["closed"] and a["due"] and a["closed"] == a["due"]:
-                    db.x("UPDATE assignments SET closed=NULL WHERE id=?", (a["id"],))
-                    reopened += 1
-            live_class(db, cid, [a["student_id"] for a in rows])
-            return self.send_json({"ok": True, "changed": len(rows), "reopened": reopened})
-
-        if path == "/api/admin/batch/delete" and method == "POST":
-            cid = to_int(data.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            batch = str(data.get("batch") or "")
-            if batch.startswith("one:"):
-                db.x("DELETE FROM assignments WHERE id=? AND class_id=? AND student_id IS NOT NULL", (to_int(batch[4:]), cid))
-            else:
-                db.x("DELETE FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid))
-            return self.send_json({"ok": True})
-
-        if path == "/api/admin/assignment/save" and method == "POST":
-            cid = to_int(data.get("class_id"))
-            if not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            title = re.sub(r"\s+", " ", str(data.get("title") or "")).strip()[:80]
-            if not title:
-                return self.err(400, "Введите название подборки")
-            APP.bank.ensure()
-            tasks = []
-            for i in data.get("tasks") or []:
-                i = str(i)
-                i = (APP.bank.tasks.get(i) or {}).get("group") or i      # вопрос 19–21 — в подборку идёт вся игра
-                if i in APP.bank.tasks and i not in tasks:
-                    tasks.append(i)
-            if not tasks:
-                return self.err(400, "В подборке нет ни одного задания")
-            tasks = tasks[:100]
-            due = to_float(data.get("due")) or None
-            aid = to_int(data.get("id"))
-            if due and not aid and due < now:
-                return self.err(400, "Срок уже прошёл — выберите сегодняшнюю или более позднюю дату")
-            kind = data.get("kind") if data.get("kind") in ASG_KINDS else "self"
-            strict = 1 if kind == "self" else 0      # самостоятельная — проверка после сдачи; практическая и домашняя — сразу
-            g = data.get("grading") if isinstance(data.get("grading"), dict) else {}
-            grading = json.dumps({k: max(0, min(100, to_int(g.get(k, v)))) for k, v in ASG_GRADES.items()})
-            if aid:
-                old = db.q("SELECT strict, kind, tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
-                if not old:
-                    return self.err(404, "подборка не найдена в этом классе")
-                ended = 0
-                if old and old["strict"] and db.q("SELECT 1 FROM asg_runs WHERE asg_id=? LIMIT 1", (aid,), one=True):
-                    if json.loads(old["tasks"]) != tasks:
-                        return self.err(409, "Самостоятельную уже начали писать — состав заданий менять нельзя")
-                    if kind != "self":
-                        # самостоятельная → практическая/домашняя: начатые сдаются по уже данным ответам (попадают в журнал),
-                        # дальше ученики решают как обычную подборку
-                        full = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
-                        real = [i for i in tasks if i in APP.bank.tasks]
-                        for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NULL", (aid,)):
-                            st = db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True)
-                            if st:
-                                asg_finish_run(self, db, full, st, real, forced=1)
-                                ended += 1
-                prev = db.q("SELECT closed, due FROM assignments WHERE id=?", (aid,), one=True)
-                db.x("UPDATE assignments SET title=?, tasks=?, due=?, strict=?, grading=?, kind=? WHERE id=? AND class_id=?",
-                     (title, json.dumps(tasks), due, strict, grading, kind, aid, cid))
-                # продлили срок у работы, закрытой по сроку (closed = прежний срок), — она снова открыта;
-                # закрытую учителем вручную не трогаем
-                if prev and prev["closed"] and prev["due"] and prev["closed"] == prev["due"] and (not due or due > now):
-                    db.x("UPDATE assignments SET closed=NULL WHERE id=?", (aid,))
-                live_class(db, cid)
-                return self.send_json({"ok": True, "id": aid, "ended": ended})
-            elif data.get("students"):
-                # персональная подборка: только выбранным ученикам класса (у каждого своя, в журнале — одна колонка)
-                want = {to_int(x) for x in data.get("students") or []}
-                members = [r["id"] for r in db.q("SELECT id FROM students WHERE class_id=? AND COALESCE(is_teacher, 0)=0", (cid,))
-                           if r["id"] in want]
-                if not members:
-                    return self.err(400, "Выберите хотя бы одного ученика этого класса")
-                batch = f"own:{int(now * 1000)}"
-                for sid in members:
-                    aid = db.x("""INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading,kind,student_id,batch)
-                                  VALUES(?,?,?,?,?,?,?,?,?,?)""", (cid, title, json.dumps(tasks), now, due, strict, grading, kind, sid, batch))
-                live_class(db, cid, members)
-                return self.send_json({"ok": True, "id": aid, "personal": len(members)})
-            else:
-                aid = db.x("INSERT INTO assignments(class_id,title,tasks,created,due,strict,grading,kind) VALUES(?,?,?,?,?,?,?,?)",
-                           (cid, title, json.dumps(tasks), now, due, strict, grading, kind))
-            live_class(db, cid)
-            return self.send_json({"ok": True, "id": aid})
-
-        if path == "/api/admin/assignment/delete" and method == "POST":
-            a = db.q("SELECT class_id FROM assignments WHERE id=?", (to_int(data.get("id")),), one=True)
-            if not a or not self.sees_class(a["class_id"]):
-                return self.err(404, "подборка не найдена")
-            db.x("DELETE FROM assignments WHERE id=?", (to_int(data.get("id")),))
-            db.x("DELETE FROM asg_runs WHERE asg_id=?", (to_int(data.get("id")),))
-            live_class(db, a["class_id"])
-            return self.send_json({"ok": True})
-
-        if path == "/api/admin/asg/all":
-            # архив выданных подборок: все классы учителя, поиск по названию и классу
-            APP.bank.ensure()
-            cid = to_int(qs.get("class_id"))
-            if cid and not self.sees_class(cid):
-                return self.err(404, "класс не найден")
-            return self.send_json({"items": teacher_asg_archive(db, self.T["id"], qs.get("q") or "", cid)})
-
-        if path == "/api/admin/asg/tasks":
-            # задания одной выданной подборки — чтобы отправить её снова (другому классу или ученикам)
-            APP.bank.ensure()
-            a = db.q("SELECT * FROM assignments WHERE id=?", (to_int(qs.get("id")),), one=True)
-            if not a or not self.sees_class(a["class_id"]):
-                return self.err(404, "подборка не найдена")
-            ids = json.loads(a["tasks"] or "[]")
-            rows = asg_task_rows(ids)
-            return self.send_json({"id": a["id"], "title": batch_title(a) if a["student_id"] else a["title"], "kind": a["kind"] or "self",
-                                   "tasks": rows, "missing": len(ids) - len(rows)})
-
-        if path == "/api/admin/asg/archive":
-            # архив работ для печати / PDF: одна подборка (id) или личные подборки пачки (ids=1,2,3)
-            ids = [to_int(x) for x in str(qs.get("ids") or qs.get("id") or "").split(",") if to_int(x)]
-            ok = [i for i in ids if (lambda a: a and self.sees_class(a["class_id"]))(
-                db.q("SELECT class_id FROM assignments WHERE id=?", (i,), one=True))]
-            body = asg_archive_html(db, self.T, ok) if ok else None
-            if not body:
-                return self.err(404, "подборка не найдена")
-            return self.send_bytes(200, body.encode("utf-8"), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
-
-        if path in ("/api/admin/asg/live", "/api/admin/asg/close"):
-            # контрольная онлайн: кто пишет, сколько сдал, сколько верно; «Завершить для всех»
-            aid = to_int(qs.get("id") or data.get("id"))
-            a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
-            if not a or not self.sees_class(a["class_id"]):
-                return self.err(404, "подборка не найдена")
-            APP.bank.ensure()
-            real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
-            if path == "/api/admin/asg/close":
-                if method != "POST":
-                    return self.err(405, "нужен POST")
-                if data.get("reopen"):
-                    # открыть снова: прошедший срок снимаем, иначе работа тут же закроется по сроку
-                    db.x("UPDATE assignments SET closed=NULL, due=CASE WHEN due < ? THEN NULL ELSE due END WHERE id=?", (now, aid))
-                    live_class(db, a["class_id"])
-                    return self.send_json({"ok": True})
-                db.x("UPDATE assignments SET closed=? WHERE id=?", (now, aid))
-                a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
-                n = 0
-                for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NULL", (aid,)):
-                    st = db.q("SELECT * FROM students WHERE id=?", (r["student_id"],), one=True)
-                    if st:
-                        asg_finish_run(self, db, a, st, real, forced=1)
-                        n += 1
-                live_class(db, a["class_id"])
-                return self.send_json({"ok": True, "finished": n})
-            items = asg_items(real)
-            # задания работы по порядку — учителю видно, что в подборке и что из этого ученик решил
-            item_info = [{"id": k, "n": (APP.bank.tasks.get(k) or {}).get("n")} for k in items]
-            sols = {}                              # сколько решений (кода) прикреплено к заданиям работы
-            if real:
-                for x in db.q(f"""SELECT student_id, COUNT(*) AS c FROM solutions WHERE task_id IN ({','.join('?' * len(real))})
-                                  AND ts >= ? GROUP BY student_id""", (*real, a["created"] or 0)):
-                    sols[x["student_id"]] = x["c"]
-            if not a["strict"]:
-                rows = []
-                for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? AND (? IS NULL OR id=?) ORDER BY name",
-                              (a["class_id"], a["student_id"], a["student_id"])):
-                    sc = practice_score(db, a, m["id"], real)
-                    rows.append({"id": m["id"], "name": m["name"], "total": len(items), "answered": sc["tried"],
-                                 "status": "done" if sc["tried"] >= len(items) else "work" if sc["tried"] else "none",
-                                 "ok": sc["ok"], "half": sc["half"], "bad": sc["bad"], "pct": sc["pct"], "grade": sc["grade"],
-                                 "attempts": sc["attempts"], "online": bool(m["last_seen"] and now - m["last_seen"] < 60),
-                                 "sol": sols.get(m["id"], 0), "tasks": len(real),
-                                 "cells": [sc["items"].get(APP.bank.pid(k)) for k in items]})   # 1 / 0.5 / 0 / None — не решал
-                return self.send_json({"id": aid, "title": a["title"], "strict": False, "kind": a["kind"], "closed": a["closed"], "due": a["due"],
-                                       "grading": asg_grading(a), "total": len(items), "items": item_info, "rows": rows})
-            runs = {r["student_id"]: r for r in db.q("SELECT * FROM asg_runs WHERE asg_id=?", (aid,))}
-            rows = []
-            for m in db.q("SELECT id, name, last_seen FROM students WHERE class_id=? AND (? IS NULL OR id=?) ORDER BY name",
-                          (a["class_id"], a["student_id"], a["student_id"])):
-                r = runs.get(m["id"])
-                row = {"id": m["id"], "name": m["name"], "status": "none", "answered": 0, "total": len(items),
-                       "sol": sols.get(m["id"], 0), "tasks": len(real), "cells": [None] * len(items)}
-                if r:
-                    answers = json.loads(r["answers"] or "{}")
-                    res = json.loads(r["result"]) if r["finished"] else asg_score(answers, items)
-                    got = [v for k, v in res.items() if k in answers]
-                    row.update(status="done" if r["finished"] else "work", answered=len(answers), started=r["started"],
-                               finished=r["finished"], last=r["last"], away=r["away"] or 0, fs=r["fs"] or 0, forced=bool(r["forced"]),
-                               ok=sum(1 for v in got if v == 1), half=sum(1 for v in got if v == 0.5),
-                               bad=sum(1 for v in got if v == 0 or v is None),
-                               pct=r["pct"] if r["finished"] else int(100 * sum(v or 0 for v in res.values()) / len(items) + 0.5) if items else 0,
-                               grade=r["grade"], online=bool(m["last_seen"] and now - m["last_seen"] < 60),
-                               cells=[(res.get(k) or 0) if k in answers else None for k in items])
-                rows.append(row)
-            return self.send_json({"id": aid, "title": a["title"], "strict": bool(a["strict"]), "closed": a["closed"], "due": a["due"],
-                                   "grading": asg_grading(a), "total": len(items), "items": item_info, "rows": rows})
 
         if path == "/api/admin/together/students":
             # свои ученики для приглашения: кто сейчас на сайте (держит живое соединение) — первыми
