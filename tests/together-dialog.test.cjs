@@ -41,3 +41,45 @@ test('Together dialogs wrap Tab at visible enabled controls without trapping nor
   assert.equal(press(modal), true);
   assert.equal(document.activeElement, modal);
 });
+
+test('a queued Together dialog close preserves subsequent focus and a reopened dialog', () => {
+  const body = {}, document = {body, activeElement: body};
+  const context = vm.createContext({document});
+  const lifecycle = source.slice(source.indexOf('  const modalTriggers'), source.indexOf("  $$('.tg-modal').forEach"));
+  vm.runInContext(lifecycle, context);
+  let restored = 0;
+  const trigger = {isConnected: true, hidden: false, focus() { restored++; document.activeElement = this; }};
+  const field = {}, splitter = {}, nextDialogField = {};
+  const modal = {open: false, hidden: false, contains: element => element === field};
+  context.modal = modal; context.trigger = trigger;
+  const remember = () => vm.runInContext('modalTriggers.set(modal, trigger)', context);
+
+  // close() already restored the trigger. The user then focuses a splitter
+  // before the queued event runs; ArrowRight must still go to the splitter.
+  for (const focused of [trigger, splitter, nextDialogField]) {
+    remember(); document.activeElement = focused; restored = 0;
+    context.finishModalClose(modal);
+    assert.equal(document.activeElement, focused);
+    assert.equal(restored, 0);
+    assert.equal(modal.hidden, true);
+  }
+
+  // If native focus restoration did not find a target, restore our trigger.
+  for (const focused of [body, modal, field]) {
+    remember(); document.activeElement = focused; restored = 0;
+    context.finishModalClose(modal);
+    assert.equal(document.activeElement, trigger);
+    assert.equal(restored, 1);
+  }
+
+  // The old queued event must neither hide a fresh opening nor clear its trigger.
+  remember(); modal.open = true; modal.hidden = false; document.activeElement = field; restored = 0;
+  context.finishModalClose(modal);
+  assert.equal(modal.hidden, false);
+  assert.equal(document.activeElement, field);
+  assert.equal(restored, 0);
+  modal.open = false; document.activeElement = body;
+  context.finishModalClose(modal);
+  assert.equal(document.activeElement, trigger);
+  assert.equal(restored, 1);
+});

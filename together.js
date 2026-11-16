@@ -864,15 +864,22 @@
     $(input).focus();
   }
   function closeModal(modal) { if (modal.open) modal.close(); else modal.hidden = true; }
+  function finishModalClose(modal) {
+    // Native close() may restore focus immediately, while the close event is
+    // queued. Do not hide a reopened dialog or steal focus moved in between.
+    if (modal.open) return;
+    modal.hidden = true;
+    const trigger = modalTriggers.get(modal);
+    modalTriggers.delete(modal);
+    const active = document.activeElement;
+    if ((!active || active === document.body || active === modal || modal.contains(active))
+        && trigger?.isConnected && !trigger.hidden) trigger.focus();
+  }
   $$('.tg-modal').forEach(modal => {
     modal.addEventListener('keydown', event => trapModalTab(modal, event));
     modal.addEventListener('cancel', event => { event.preventDefault(); closeModal(modal); });
     modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-close]')) closeModal(modal); });
-    modal.addEventListener('close', () => {
-      modal.hidden = true;
-      const trigger = modalTriggers.get(modal);
-      if (trigger?.isConnected && !trigger.hidden) trigger.focus();
-    });
+    modal.addEventListener('close', () => finishModalClose(modal));
   });
   $('#tgPick').onclick = () => { openModal('#tgPickM', '#tgPickQ'); $('#tgPickQ').value = ''; pickAuto = true; loadPick(); setTimeout(() => { if ($('#tgPickM').open) $('#tgPickQ').focus(); }, 30); };
   $('#tgBlank').onclick = () => { send({ t: 'task', task: null }); closeModal($('#tgPickM')); };

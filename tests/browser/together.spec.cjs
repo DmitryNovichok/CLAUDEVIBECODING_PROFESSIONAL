@@ -86,6 +86,28 @@ test('Together task picker and invitation dialogs trap focus and restore their t
     await teacher.keyboard.press('Enter');
   } finally {await c.close();}
 });
+test('a queued dialog close does not steal the splitter focus selected after closing',async({browser})=>{
+  const c=await clients(browser),{teacher}=c;
+  try {
+    await teacher.locator('#tgInvite').click();
+    await expect(teacher.getByRole('dialog',{name:'Позвать в сеанс'})).toBeVisible();
+    // Force the ordering behind the intermittent regression: native close()
+    // restores focus now, another control is focused, then close is dispatched.
+    await teacher.evaluate(async()=>{
+      const modal=document.querySelector('#tgInvM');
+      const closed=new Promise(resolve=>modal.addEventListener('close',resolve,{once:true}));
+      modal.close();
+      document.querySelector('#tgSplitTask').focus();
+      await closed;
+    });
+    const splitter=teacher.getByRole('separator',{name:'Ширина условия'});
+    await expect(teacher.locator('#tgInvM')).toBeHidden();
+    await expect(splitter).toBeFocused();
+    const before=await teacher.locator('#tgTask').evaluate(el=>el.getBoundingClientRect().width);
+    await teacher.keyboard.press('ArrowRight');
+    await expect.poll(()=>teacher.locator('#tgTask').evaluate(el=>el.getBoundingClientRect().width)).toBeGreaterThan(before);
+  } finally {await c.close();}
+});
 test('Together broadcasts the isolated Python execution result to both roles',async({browser},info)=>{
   const c=await clients(browser),{teacher,pupil}=c;
   try {
