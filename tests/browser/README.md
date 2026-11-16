@@ -16,6 +16,13 @@ npm test
 
 `test:list` только перечисляет сценарии и **ничего не подтверждает об интерфейсе**. При запрете запуска браузера операционной системой остановитесь и перенесите выполнение на обычный CI-хост. Скрипты не отключают sandbox, не подменяют Chromium и не обходят ограничения среды.
 
+В GitHub Actions используется уже установленный, принадлежащий root SUID-helper Chrome
+`/opt/google/chrome/chrome-sandbox` через `CHROME_DEVEL_SANDBOX`. Это поддерживаемый
+Chromium способ запуска его песочницы на Ubuntu с ограниченными user namespaces:
+[документация Chromium, вариант 3](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
+Отдельный шаг проверяет helper и настоящий запуск браузера до всего набора сценариев.
+`chromiumSandbox: true` остаётся включённым; политики AppArmor и sysctl не изменяются.
+
 Частичные запуски:
 
 ```sh

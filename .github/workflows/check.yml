@@ -44,6 +44,10 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      # Use the runner's existing Chrome sandbox helper on Ubuntu with restricted user namespaces.
+      # Keep Chromium sandboxing enabled and leave the host AppArmor policy unchanged.
+      CHROME_DEVEL_SANDBOX: /opt/google/chrome/chrome-sandbox
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -61,6 +65,19 @@ jobs:
         run: npm ci --ignore-scripts
         working-directory: arduino/source
       - run: npx playwright install --with-deps chromium
+        working-directory: tests/browser
+      - name: Check Chromium sandbox
+        run: |
+          test -x "$CHROME_DEVEL_SANDBOX"
+          test -u "$CHROME_DEVEL_SANDBOX"
+          test "$(stat -c %u "$CHROME_DEVEL_SANDBOX")" = 0
+          node - <<'JS'
+          const {chromium} = require('@playwright/test');
+          (async () => {
+            const browser = await chromium.launch({headless: true, chromiumSandbox: true});
+            await browser.close();
+          })().catch(error => { console.error(error); process.exit(1); });
+          JS
         working-directory: tests/browser
       - run: npm test
         working-directory: tests/browser
