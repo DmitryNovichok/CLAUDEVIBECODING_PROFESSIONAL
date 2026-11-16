@@ -109,7 +109,10 @@ class PodmanExecutor:
         return [self.podman, '--remote=false', 'run', '--pull=never', '--rm', '--interactive',
                 '--name=' + name, '--label=io.egeshka.verifier=1', '--timeout=8',
                 '--network=none', '--ipc=none', '--pid=private', '--uts=private',
-                '--userns=private', '--cgroupns=private', '--cgroups=enabled', '--user=65534:65534', '--privileged=false',
+                # Rootless nomap creates the UID/GID mapping from subuid/subgid
+                # while excluding the broker's own host identity. Bare private
+                # has no mapping on Podman 4.9 and cannot start a container.
+                '--userns=nomap', '--cgroupns=private', '--cgroups=enabled', '--user=65534:65534', '--privileged=false',
                 '--cap-drop=all', '--security-opt=no-new-privileges', '--read-only', '--read-only-tmpfs=false',
                 '--pids-limit=32', '--memory=256m', '--memory-swap=256m', '--cpus=1',
                 '--ulimit=cpu=2:3', '--ulimit=nofile=32:32', '--ulimit=fsize=1048576:1048576', '--ulimit=core=0:0',

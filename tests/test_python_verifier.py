@@ -155,10 +155,11 @@ class ExecutorTest(unittest.TestCase):
         executor = broker.PodmanExecutor(IMAGE, '/private/jobs')
         command = executor.command(Path('/private/jobs/fixed.py'), 'ege-verify-' + 'a' * 32)
         for flag in ('--network=none', '--read-only', '--cap-drop=all', '--security-opt=no-new-privileges',
-                     '--user=65534:65534', '--pids-limit=32', '--memory=256m', '--memory-swap=256m',
+                     '--userns=nomap', '--user=65534:65534', '--pids-limit=32', '--memory=256m', '--memory-swap=256m',
                      '--cpus=1', '--pull=never', '--timeout=8', '--unsetenv-all'):
             self.assertIn(flag, command)
         self.assertNotIn('--privileged', command)
+        self.assertNotIn('--userns=host', command)
         self.assertNotIn('--dns=none', command)  # incompatible with --network=none
         self.assertEqual(sum(x.startswith('--volume=') for x in command), 1)
         self.assertTrue(next(x for x in command if x.startswith('--volume=')).endswith(':/sandbox/main.py:ro,Z'))
