@@ -79,7 +79,7 @@
         <label for="demoTopic">Тема первой подборки</label><select id="demoTopic"><option value="8">№ 8 · Перебор слов</option><option value="13">№ 13 · Маски сети</option><option value="17">№ 17 · Обработка файла</option></select>
         <button type="button" class="w-btn green" id="demoAssign">Выдать демо-подборку</button>
         <button type="button" class="w-link" id="demoReset" hidden>Начать пример заново</button>
-        <p class="w-note">В настоящем кабинете сначала нужны подтверждение почты и одобрение главным учителем.</p>
+        <p class="w-note">В настоящем кабинете сначала нужны подтверждение почты и одобрение главным учителем. Пробные 7 дней начнутся после обеих проверок.</p>
       </div>
       <div class="w-demo-result" id="demoResult" aria-live="polite"><h3>Здесь появится журнал</h3><p>Выберите тему и выдайте пример. Затем откройте результат ученика, чтобы выбрать следующий шаг.</p></div>
     </div>
@@ -127,7 +127,7 @@
         <h2>Материал по каждому номеру</h2>
         <p>В курсе есть подробные уроки и краткие разборы. Формат каждой темы указан ниже: это помогает выбрать материал для занятия. Программу со слайда можно запустить или пройти по шагам.</p>
         <div class="w-nums" id="wNums" aria-label="Покрытие тем курса"></div>
-        <p class="w-leg" id="courseCoverageNote">Подробный урок или краткий разбор — формат указан при открытии темы.</p>
+        <p class="w-leg" id="courseCoverageNote">Загружаем карту материалов. Если она недоступна, количество уроков не подтверждено.</p>
       </div>
       <div class="w-art b" data-reveal="left">
         <figure class="w-frame" data-parallax><div class="w-bar"><i></i><i></i><i></i><span>Курс · №24</span></div>
@@ -136,6 +136,20 @@
         <span class="w-sticker s-green" style="left:-10px;bottom:56px">запуск в один клик</span>
       </div>
     </div>
+  </section>
+
+  <section class="w-wrap w-coverage" aria-labelledby="coverageTitle">
+    <h2 id="coverageTitle">Что есть по каждой теме</h2>
+    <p id="coverageEdition" class="w-note">Карта наполнения курса</p>
+    <p id="coverageHelp" class="w-note">На небольшом экране таблицу можно прокрутить вбок. Количество заданий показывает объём доступного банка, а не полноту всех типов ЕГЭ. Материалы открывает учитель; карта доступна без регистрации.</p>
+    <div class="w-coverage-scroll" tabindex="0" role="region" aria-label="Карта уроков и практики" aria-describedby="coverageHelp">
+      <table id="courseCoverageTable">
+        <caption>Уроки, разборы, лаборатории и практика</caption>
+        <thead><tr><th scope="col">Номер и тема</th><th scope="col">Подробный урок</th><th scope="col">Краткий разбор</th><th scope="col">Лаборатория</th><th scope="col">Практика</th></tr></thead>
+        <tbody id="courseCoverageRows"><tr><td colspan="5">Загружаем сведения о материалах…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="w-note" id="coverageAccess">Подробный урок и краткий разбор — альтернативные форматы одной темы. №19–21 используют общий урок и общий модуль Python. Архивные темы не входят в 27 номеров.</p>
   </section>
 
   <!-- ======================================================= python -->
@@ -175,6 +189,7 @@
         <span>🖥️ Контрольные на весь экран — уходы со вкладки видны</span><span>📬 Итоги недели на почту</span><span>👪 Ссылка для родителей</span><span>🔗 Приглашение ссылкой или QR-кодом</span>
       </div>
       <div class="w-cta" data-reveal><button type="button" class="w-btn blue lg" data-signup>Зарегистрироваться как учитель</button><a class="w-btn white lg" href="/admin">Войти в кабинет</a></div>
+      <p class="w-note">Подтвердите почту и дождитесь одобрения главным учителем. Пробные 7 дней начнутся после обеих проверок; ожидание их не расходует.</p>
     </div>
   </section>
 
@@ -197,7 +212,7 @@
   <section class="w-start" id="start">
     <div class="w-wrap w-start-in" data-stagger>
       <div class="w-scard st"><h3>Ученику</h3><ol><li>Зарегистрируйся: ФИО, логин и пароль. Если учитель дал код — ты сразу в классе.</li><li>Открой план на сегодня — сайт подберёт номера, где больше всего ошибок.</li></ol><a class="w-btn white" href="/?login=1">Я ученик</a></div>
-      <div class="w-scard te"><h3>Учителю</h3><ol><li>Зарегистрируйтесь: ФИО, почта и пароль.</li><li>Подтвердите почту и дождитесь одобрения главным учителем.</li><li>Создайте класс, пригласите учеников и выдайте первую подборку. Первые результаты появятся в журнале.</li></ol><button type="button" class="w-btn white" data-signup>Я учитель</button></div>
+      <div class="w-scard te"><h3>Учителю</h3><ol><li>Зарегистрируйтесь: ФИО, почта и пароль.</li><li>Подтвердите почту и дождитесь одобрения главным учителем. После обеих проверок начнутся пробные 7 дней.</li><li>Создайте класс, пригласите учеников и выдайте первую подборку. Первые результаты появятся в журнале.</li></ol><button type="button" class="w-btn white" data-signup>Я учитель</button></div>
     </div>
     <div class="w-wrap" id="contacts" hidden><div class="w-contact-box" data-reveal><div><b>Связаться</b><span>Подключение школы, вопросы и предложения</span></div><div class="w-contacts" id="contacts-list"></div></div></div>
   </section>
@@ -220,7 +235,7 @@
   <form class="w-dialog" id="signupForm" role="dialog" aria-modal="true" aria-labelledby="signupTitle" aria-describedby="signupNote" tabindex="-1" autocomplete="on">
     <button type="button" class="w-x" data-close aria-label="Закрыть">×</button>
     <h2 id="signupTitle">Регистрация учителя</h2>
-    <p class="w-note" id="signupNote">После регистрации подтвердите почту и дождитесь одобрения главным учителем. До обеих проверок все функции закрыты.</p>
+    <p class="w-note" id="signupNote">После регистрации подтвердите почту и дождитесь одобрения главным учителем. До обеих проверок все функции закрыты. Пробные 7 дней начнутся после обеих проверок; ожидание их не расходует.</p>
     <label>Фамилия, имя и отчество<input id="suName" aria-describedby="suErr" name="name" autocomplete="name" maxlength="80" required placeholder="Иванова Мария Сергеевна"></label>
     <label>Почта <small>— для входа и отчётов</small><input id="suEmail" aria-describedby="suErr" name="email" type="email" autocomplete="email" maxlength="120" required placeholder="you@school.ru"></label>
     <label>Пароль <small>— не короче 8 символов</small><input id="suPass" aria-describedby="suErr" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="200" required></label>

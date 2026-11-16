@@ -13,7 +13,6 @@ try:
 except ImportError:  # The training site can still open locally on Windows.
     pwd = None
 
-import buglab
 import python_runner_protocol as wire
 
 
@@ -90,6 +89,9 @@ def verify(case, code, client=None):
     A return value means the independent service completed the check. Exceptions
     mean no verdict exists: callers must not update a DB row or award anything.
     """
+    # The broker acceptance client needs only the wire protocol, never the bank
+    # of reference programs/answers owned by the web application.
+    import buglab
     runs = (client or Client()).execute(code, list(case['inputs']))
     tests = buglab.check(case, runs)
     return {'ok': all(t['ok'] for t in tests), 'verified': True, 'provenance': 'server_python',

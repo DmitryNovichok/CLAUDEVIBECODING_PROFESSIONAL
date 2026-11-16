@@ -71,6 +71,7 @@ import bank_delivery
 import download_delivery
 import http_security
 from learning_content import course_guide, course_coverage
+from learning_catalog import python_metadata
 from teacher_journey import teacher_journey, activation_stats
 import learning_quality
 from private_config import read_private, private_rewards, require_private
@@ -96,7 +97,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 MORE_BANKS = ("task10_bank.json",)
 
 # что можно отдавать из папки trainer
-SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
+SITE_FILES = {"index.html", "app.js", "app-exams.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
               "changelog-loader.js",
               "python-sandbox.js", "python-sandbox.html",
               "lesson-readiness.js", "lesson-readiness.css",
@@ -109,8 +110,8 @@ SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "ad
 LEGAL_VERSION = "2026-11-07"
 SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
-PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|changelog-loader|admin|teacher-gate|together|py-worker|python-sandbox|lesson-readiness|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|teacher-gate|lesson-readiness|legal|welcome|academy|lab|classroom|help)\.css)"')
-PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
+PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|app-exams|changelog|changelog-loader|admin|teacher-gate|together|py-worker|python-sandbox|lesson-readiness|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|teacher-gate|lesson-readiness|legal|welcome|academy|lab|classroom|help)\.css)"')
+PAGE_ASSETS = ("app.js", "app-exams.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
                "changelog-loader.js",
                "python-sandbox.js", "python-sandbox.html", "lesson-readiness.js", "lesson-readiness.css",
                "teacher-gate.js", "teacher-gate.css",
@@ -120,7 +121,7 @@ _PAGE_CACHE = {}                    # страница → (отпечаток �
 HTML_COMMENT_RE = re.compile(r"<!--(?!\[if).*?-->", re.S)
 # Сжатые копии скриптов и стилей (min/, собирает tools/minify.py): посетителю уходит код без комментариев и с короткими
 # именами вместо читаемых исходников. Отсутствие сборки не должно раскрывать исходник.
-MIN_FILES = ("app.js", "admin.js", "together.js", "welcome.js", "onboard.js", "visit.js",
+MIN_FILES = ("app.js", "app-exams.js", "admin.js", "together.js", "welcome.js", "onboard.js", "visit.js",
              "changelog-loader.js",
              "python-sandbox.js", "lesson-readiness.js", "lesson-readiness.css",
              "teacher-gate.js", "teacher-gate.css",
@@ -2106,6 +2107,8 @@ class DB(Transactional):
                     ("teachers", "moderated_by", "INTEGER"),
                     ("teachers", "moderated_at", "REAL"),
                     ("teachers", "trial_started", "REAL"),
+                    ("teachers", "activation_registered_at", "REAL"), # только наблюдаемая регистрация; старую историю не угадываем
+                    ("teachers", "admitted_at", "REAL"),              # первое прохождение обеих проверок после такой регистрации
                     ("students", "self_reg", "INTEGER DEFAULT 0"),   # 1 — зарегистрировался без кода учителя
                     ("pw_resets", "account_state", "TEXT"),          # привязка ссылки к аккаунту, паролю и почте
                     ("students", "parent_token", "TEXT"),            # секретная ссылка для родителей (только просмотр)
@@ -4066,6 +4069,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.err(404, "нет такого метода")
 
     def api(self, method, path, qs, data):
+        def dispatch():
+            # This boundary precedes *all* route implementations, including new
+            # handlers placed near the beginning of api_route. Keep it inside
+            # atomic_response for account mutations so access cannot change
+            # between authorization and a transaction's business writes.
+            if (path.startswith("/api/admin/")
+                    and (method, path) != ("POST", "/api/admin/login")
+                    and not self.guard_teacher_route(method, path)):
+                return
+            return self.api_route(method, path, qs, data)
+
         try:
             if method == "POST" and path == "/api/teacher/guest":
                 purge_guests(APP.db)  # Hub locks are acquired outside the request's DB transaction.
@@ -4080,13 +4094,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if account_write:
                         time.sleep(self._account_delay)
                 try:
-                    return atomic_response(self, APP.db, lambda: self.api_route(method, path, qs, data),
+                    return atomic_response(self, APP.db, dispatch,
                                            before_send=after_transaction)
                 finally:
                     # Exceptions also roll back application state, but must retain denials.
                     self.flush_failed_audit()
                     self._audit_failures = None
-            return self.api_route(method, path, qs, data)
+            return dispatch()
         finally:
             if method == "POST" and ("/tour" in path or "/duel" in path):
                 LIVE.poke()                      # дуэль или турнир поменялись — соперники узнают сразу
@@ -4109,7 +4123,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                        "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()}, extra=private)
             return self.err(405, "метод не поддерживается")
         if path == "/api/course/coverage" and method == "GET":
-            return self.send_json(course_coverage(HERE))
+            available = APP.bank.ensure()
+            return self.send_json(course_coverage(HERE, APP.bank.tasks if available else None))
         if path == "/api/learning/mistake" and method == "POST":
             s = self.student(data)
             if not s:
@@ -4405,6 +4420,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if r["kind"] == "t":
                 encoded = hash_pw(pw)
                 db.x("UPDATE teachers SET pw=?, email_ok=1 WHERE id=?", (encoded, r["uid"]))    # ссылка пришла на почту — адрес подтверждён
+                activate_teacher_trial(db, r['uid'])
                 self.tlog("reset", r["uid"], detail="новый пароль по ссылке из письма")
                 if account["is_main"]:
                     db.setting("admin_password", encoded)
@@ -5504,14 +5520,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 tid = guest["id"]
                 db.x("""UPDATE teachers SET name=?, login=?, email=?, pw=?, guest=0, paid=0, until=?, email_ok=?, self_signup=1,
                         moderation='pending', moderation_note=NULL, moderated_by=NULL, moderated_at=NULL, trial_started=NULL,
+                        activation_registered_at=?, admitted_at=NULL,
                         consent_ver=?, consent_ts=?, consent_ip=? WHERE id=?""",
-                     (name, email, email, hash_pw(pw), until, 0, LEGAL_VERSION, now, ip, tid))
+                     (name, email, email, hash_pw(pw), until, 0, now, LEGAL_VERSION, now, ip, tid))
                 db.x("UPDATE students SET name=? WHERE is_teacher=1 AND teacher_id=?", (name, tid))
                 db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
             else:
-                tid = db.x("""INSERT INTO teachers(name, login, email, pw, invite, is_main, created, until, consent_ver, consent_ts, consent_ip, email_ok, self_signup)
-                              VALUES(?,?,?,?,?,0,?,?,?,?,?,?,1)""", (name, email, email, hash_pw(pw), new_invite(db), now, until,
-                                                                 LEGAL_VERSION, now, ip, 0))
+                tid = db.x("""INSERT INTO teachers(name, login, email, pw, invite, is_main, created, until, consent_ver, consent_ts, consent_ip, email_ok, self_signup, activation_registered_at)
+                              VALUES(?,?,?,?,?,0,?,?,?,?,?,?,1,?)""", (name, email, email, hash_pw(pw), new_invite(db), now, until,
+                                                                 LEGAL_VERSION, now, ip, 0, now))
             t = db.q("SELECT * FROM teachers WHERE id=?", (tid,), one=True)
             sent = send_confirm(db, "t", t)
             return self.send_json({"ok": True, "until": until, "email_need": True,
@@ -5526,8 +5543,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.handle_teacher_login(data)
 
         if path.startswith("/api/admin/"):
-            if not self.guard_teacher_route(method, path):
-                return
             if method == "POST":
                 with _GS_LOCK:
                     _LB_PEOPLE.clear()          # учитель поменял классы, учеников, цели — рейтинг соберём заново
@@ -8802,13 +8817,16 @@ def pyc_load(name):
 
 
 def pyc_index():
-    return pyc_load("index.json") or []
+    return [python_metadata(m) for m in pyc_load("index.json") or []]
 
 
 def pyc_module(mid):
     if not re.fullmatch(r"m\d{2}", mid or ""):
         return None
-    return pyc_load(f"{mid}.json")
+    module = pyc_load(f"{mid}.json")
+    # Older modules can omit their id; the validated filename is their identity.
+    # Copy metadata so the cached JSON and stored task/progress keys stay intact.
+    return python_metadata({**module, 'id': module.get('id') or mid}) if module else None
 
 
 def pyc_task(tid):
@@ -12876,8 +12894,14 @@ def teacher_gate_profile(t):
 def activate_teacher_trial(db, tid):
     """Пробные дни начинаются после обеих проверок, один раз; оплаченный срок не меняем."""
     t = db.q('SELECT * FROM teachers WHERE id=?', (tid,), one=True)
-    if teacher_ready(t) and t['self_signup'] and not t['paid'] and t['trial_started'] is None:
-        now = time.time()
+    if not (teacher_ready(t) and t['self_signup']):
+        return
+    now = time.time()
+    # trial_started у старых аккаунтов мог быть восстановлен из даты создания.
+    # Метрика допуска использует отдельное реальное событие только новых регистраций.
+    if t['activation_registered_at'] is not None and t['admitted_at'] is None:
+        db.x('UPDATE teachers SET admitted_at=? WHERE id=? AND admitted_at IS NULL', (now, tid))
+    if not t['paid'] and t['trial_started'] is None:
         db.x('UPDATE teachers SET trial_started=?, until=? WHERE id=? AND trial_started IS NULL',
              (now, now + TRIAL_DAYS * 86400, tid))
 

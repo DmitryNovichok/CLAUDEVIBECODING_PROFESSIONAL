@@ -12,7 +12,7 @@
   const pycDone = id => !!((PYC && PYC.progress[id]) || {}).ok;
   const pycModDone = m => m.levels.reduce((a, lv) => a + lv.tasks.filter(pycDone).length, 0);
   const pycModTotal = m => m.levels.reduce((a, lv) => a + lv.tasks.length, 0);
-  const pycLabel = m => (m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
+  const pycLabel = m => (m.archive || ARCHIVE[m.n] ? `Архив · ${numLabel(m.n)}` : m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
 
   function pycSetAccess(on, pw) {
     PYC_OK = !!on;
@@ -104,7 +104,7 @@
         <i class="xp-bar"><b style="width:${t ? pct(d / t) : 0}%"></b></i></div>`;
     };
     const groups = [['base', 'Старт: язык Python', 'Если программируете впервые — начните отсюда'],
-      ['ege', 'Задания ЕГЭ', 'Короткие разборы и практика по темам проекта ЕГЭ-2027'],
+      ['ege', 'Задания ЕГЭ', 'Короткие разборы и практика по темам утверждённой демоверсии ЕГЭ-2027'],
       ['extra', 'Дополнительная практика', 'Архивные форматы: полезны для программирования, но не заменяют актуальную тему экзамена']];
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование</span><span class="scope-stats">${done} из ${all} задач</span>`;
     trainerEl.innerHTML = `<div class="course pyc">

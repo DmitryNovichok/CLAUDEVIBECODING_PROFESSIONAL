@@ -351,7 +351,7 @@
     const done = [st.class, st.students > 0, st.asg, !!j.first_result_at];
     const current = done.findIndex(ok => !ok);
     const step = (k, ok, title, body) => `<li class="${ok ? 'ok' : current === k - 1 ? 'current' : ''}"${current === k - 1 ? ' aria-current="step"' : ''}><span class="st-mark">${ok ? '✓' : k}</span><div><b>${title}</b>${body}</div></li>`;
-    const progress = j.first_assignment_at ? `Завершили работу: ${Number(j.finished_students || 0)} учеников. В первые 7 дней после первой выдачи — ${Number(j.week_results || 0)} из 5 для знакомства с результатами класса.` : 'Четыре шага до первого результата ученика. Статус обновляется по данным сервера.';
+    const progress = j.first_assignment_at ? `Завершили работу: ${Number(j.finished_students || 0)} учеников.${j.admitted_at != null ? ` В первые 7 дней после подтверждения почты и одобрения — ${Number(j.week_results || 0)} из 5 для знакомства с результатами класса.` : ''}` : 'Четыре шага до первого результата ученика. Статус обновляется по данным сервера.';
     box.innerHTML = `<div class="steps-head"><h3>Первый результат класса</h3><span class="muted">${done.filter(Boolean).length} из 4</span>
         <button type="button" class="link-btn" data-steps-off>скрыть</button></div>
       <p class="steps-progress">${progress}</p>
@@ -691,15 +691,20 @@
     }).join('');
     const activation = f.activation || {};
     const activationRate = activation.matured_windows ? `${Math.round(100 * activation.matured_activated / activation.matured_windows)}%` : 'Пока нет полных недель';
+    const registrationRate = activation.registration_matured ? `${Math.round(100 * activation.registration_activated / activation.registration_matured)}%` : 'Пока нет полных недель';
     const activationTime = activation.median_first_result_seconds == null ? 'Пока нет результатов' : `${Math.max(1, Math.round(activation.median_first_result_seconds / 60))} мин`;
     const activationHtml = `<h4>От регистрации к учебному результату</h4><div class="adm-table-wrap"><table class="adm-table"><tbody>
+      <tr><th scope="row">Зарегистрировались в выбранный период</th><td>${n(activation.registered)}</td></tr>
       <tr><th scope="row">Подтверждены почта и модерация</th><td>${n(activation.approved)}</td></tr>
-      <tr><th scope="row">Выдали первую подборку</th><td>${n(activation.first_assignments)}</td></tr>
+      <tr><th scope="row">Есть реальный класс у допущенных учителей</th><td>${n(activation.classes_after_admission)}</td></tr>
+      <tr><th scope="row">Выдали первую подборку после допуска</th><td>${n(activation.first_assignments)}</td></tr>
       <tr><th scope="row">Получили первый результат ученика</th><td>${n(activation.first_results)}</td></tr>
-      <tr><th scope="row">5 учеников сдали работу за первую неделю</th><td>${n(activation.activated_in_week)}</td></tr>
-      <tr><th scope="row">Доля среди завершившихся недель</th><td>${activationRate} <span class="muted">(${n(activation.matured_activated)} из ${n(activation.matured_windows)})</span></td></tr>
-      <tr><th scope="row">Медиана от первой выдачи до первого результата</th><td>${activationTime}</td></tr>
-      </tbody></table></div><p class="adm-hint">Учителя, зарегистрированные в выбранный период. Неделя начинается с первой выданной подборки; у ${n(activation.pending_windows)} учителей она ещё идёт. Считаются разные ученики, завершившие работу. Демо-классы и аккаунты учителей исключены. Удалённые работы не входят в расчёт.</p>`;
+      <tr><th scope="row">Класс, подборка и 5 результатов за неделю после допуска</th><td>${n(activation.activated_in_week)}</td></tr>
+      <tr><th scope="row">Активация за 7 дней среди всех допущенных</th><td>${activationRate} <span class="muted">(${n(activation.matured_activated)} из ${n(activation.matured_windows)} полных недель)</span></td></tr>
+      <tr><th scope="row">Активация за 7 дней среди всех зарегистрированных</th><td>${registrationRate} <span class="muted">(${n(activation.registration_activated)} из ${n(activation.registration_matured)} полных недель)</span></td></tr>
+      <tr><th scope="row">Медиана от допуска до первого результата</th><td>${activationTime}</td></tr>
+      </tbody></table></div><p class="adm-hint">Допуск — момент, когда выполнены обе проверки: почта и одобрение. Учитель без класса или подборки тоже входит в знаменатель. Ещё идут ${n(activation.pending_windows)} недель после допуска и ${n(activation.registration_pending)} недель после регистрации; они пока не оцениваются. Медиана считается только по получившим результат.</p>
+      <p class="adm-hint">Для ${n(activation.unknown_admission)} допущенных учителей дата первоначального допуска неизвестна. У ${n(activation.unknown_registration_windows)} старых регистраций нет полной истории этапов: они показаны в общей воронке, но исключены из недельных долей. Новая регистрация гостя считается с момента регистрации. Учитываются разные ученики, завершившие работу; демо, учителя и удалённые работы исключены.</p>`;
     return `<h3 class="adm-h3">Воронка учителей <span class="adm-hint">где теряются те, кто пришёл на главную</span>
         <span class="fn-sw">${[7, 30].map(k => `<button type="button" class="fn-chip${k === funnelDays ? ' on' : ''}" data-fn-days="${k}">${k} дней</button>`).join('')}</span></h3>
       <div class="fn">${rows}

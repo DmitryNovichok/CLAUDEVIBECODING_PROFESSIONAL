@@ -490,19 +490,23 @@
       if (restoreModal) { hubModalState = true; $('#forecastModal').hidden = false; }
     }
   });
-  let courseCoverage = null, courseCoverageLoading = false;
+  let courseCoverage = null, courseCoverageLoading = null;
   function loadCourseCoverage() {
-    if (courseCoverage || courseCoverageLoading || !SERVER) return;
-    courseCoverageLoading = true;
-    api('course/coverage').then(d => {
+    if (courseCoverage) return Promise.resolve(courseCoverage);
+    if (!SERVER) return Promise.resolve(null);
+    if (courseCoverageLoading) return courseCoverageLoading;
+    courseCoverageLoading = api('course/coverage').then(d => {
       if (!Array.isArray(d.topics)) return;
       courseCoverage = d;
+      d.topics.forEach(t => { if (Number.isInteger(t.n) && t.title) NUM_TOPIC[t.n] = t.title; });
       if (courseShown && pageKind === null && trainerEl.querySelector('.crs-hero')) openCourse();
-    }).catch(() => {}).finally(() => { courseCoverageLoading = false; });
+      return d;
+    }).catch(() => null).finally(() => { courseCoverageLoading = null; });
+    return courseCoverageLoading;
   }
   const courseKind = n => {
     const row = courseCoverage?.topics.find(t => t.n === n);
-    return row ? `${row.kind === 'lesson' ? 'подробный урок' : 'краткий разбор'} · ${row.slides} слайдов` : 'формат указан в открытом уроке';
+    return row ? `${row.kind === 'lesson' ? 'подробный урок' : 'краткий разбор'} · ${row.slides} слайдов${row.model ? ' · есть лаборатория' : ''}` : 'формат указан в открытом уроке';
   };
   let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
   function courseLock() {

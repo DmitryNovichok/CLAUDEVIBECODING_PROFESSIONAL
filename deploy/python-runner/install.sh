@@ -33,16 +33,26 @@ install -m 0644 "$source_dir/entrypoint.py" "$source_dir/Containerfile" /opt/ege
 install -m 0644 "$source_dir/ege-python-verifier.tmpfiles" /etc/tmpfiles.d/ege-python-verifier.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/ege-python-verifier.conf
 install -m 0644 "$source_dir/ege-python-verifier.service" /etc/systemd/user/ege-python-verifier.service
+# Keep acceptance tied to these installed sources and readable by ege-python,
+# without granting that account access to the application checkout/data.
+acceptance=/opt/ege-python-verifier/acceptance
+install -d -m 0755 "$acceptance/tests" "$acceptance/deploy/python-runner"
+install -m 0644 "$repo_dir/buglab_verifier.py" "$repo_dir/python_runner_protocol.py" "$acceptance/"
+install -m 0644 "$repo_dir/tests/test_python_runner_container.py" "$acceptance/tests/"
+install -m 0644 "$source_dir/python_executor.py" "$acceptance/deploy/python-runner/"
 runner_uid=$(id -u ege-python)
+runner() {
+  runuser -u ege-python -- env "XDG_RUNTIME_DIR=/run/user/$runner_uid" \
+    "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$runner_uid/bus" "$@"
+}
 loginctl enable-linger ege-python
 systemctl start "user@$runner_uid.service"
-runuser -u ege-python -- env "XDG_RUNTIME_DIR=/run/user/$runner_uid" podman pull "$base_image"
-runuser -u ege-python -- env "XDG_RUNTIME_DIR=/run/user/$runner_uid" podman build --pull=never --network=none \
+runner podman pull "$base_image"
+runner podman build --pull=never --network=none \
   --build-arg "PYTHON_BASE=$base_image" --iidfile /var/lib/ege-python/runner-image.id \
   -t localhost/ege-python-verifier /opt/ege-python-verifier/image
 install -m 0644 /var/lib/ege-python/runner-image.id /etc/ege-python-verifier/image
-runuser -u ege-python -- env "XDG_RUNTIME_DIR=/run/user/$runner_uid" \
-  /usr/bin/python3 /opt/ege-python-verifier/python_executor.py --probe
+runner /usr/bin/python3 /opt/ege-python-verifier/python_executor.py --probe
 systemctl --machine ege-python@ --user daemon-reload
 systemctl --machine ege-python@ --user enable ege-python-verifier.service
 systemctl --machine ege-python@ --user restart ege-python-verifier.service

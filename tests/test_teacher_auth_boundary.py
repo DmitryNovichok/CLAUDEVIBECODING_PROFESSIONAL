@@ -128,6 +128,48 @@ class TeacherAuthBoundaryTest(unittest.TestCase):
         self.db.x("UPDATE teachers SET moderation='approved' WHERE id=?", (self.tid,))
         self.assertEqual(self.call('GET', 'classes')[0], 200)
 
+    def test_new_early_admin_routes_cannot_bypass_the_common_access_boundary(self):
+        """A future handler must be protected before api_route can execute it.
+
+        Cover both a normal route and the atomic batch namespace. The previous
+        late guard let this early handler perform writes for every account.
+        """
+        original = server.Handler.api_route
+        routes = ('/api/admin/future-action', '/api/admin/batch/future-action')
+        reached = []
+
+        def early_route(handler, method, path, qs, data):
+            if path in routes:
+                reached.append(path)
+                self.db.x('INSERT INTO classes(name,teacher_id) VALUES(?,?)',
+                          ('Future route write', self.tid))
+                return handler.send_json({'ok': True})
+            return original(handler, method, path, qs, data)
+
+        states = (
+            ('anonymous', False, 'approved', 1, None, 401),
+            ('email', True, 'approved', 0, None, 403),
+            ('pending', True, 'pending', 1, None, 403),
+            ('rejected', True, 'rejected', 1, None, 403),
+            ('expired', True, 'approved', 1, time.time() - 60, 402),
+        )
+        with mock.patch.object(server.Handler, 'api_route', early_route):
+            for label, cookie, moderation, email_ok, until, expected in states:
+                self.db.x('UPDATE teachers SET moderation=?,email_ok=?,until=? WHERE id=?',
+                          (moderation, email_ok, until, self.tid))
+                for path in routes:
+                    with self.subTest(state=label, path=path):
+                        status, _, _ = self.client.creq('POST', path, {},
+                                                       cookie=self.cookie if cookie else None)
+                        self.assertEqual(status, expected)
+                        self.assertEqual(reached, [])
+                        self.assertFalse(self.db.q('SELECT 1 FROM classes WHERE teacher_id=?',
+                                                   (self.tid,), one=True))
+            self.db.x('UPDATE teachers SET moderation=\'approved\',email_ok=1,until=NULL WHERE id=?', (self.tid,))
+            for path in routes:
+                self.assertEqual(self.client.creq('POST', path, {}, cookie=self.cookie)[0], 200)
+            self.assertEqual(reached, list(routes))
+
 
 if __name__ == '__main__':
     unittest.main()

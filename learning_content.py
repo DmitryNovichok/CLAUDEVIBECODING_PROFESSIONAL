@@ -4,6 +4,7 @@
 Источник соответствия, не источник формулировок примеров: docs/learning-2027.md.
 """
 from html import escape
+from learning_catalog import public_catalog, python_metadata
 
 # title, idea, method, example, solution, answer, common mistake
 GUIDES = {
@@ -88,20 +89,30 @@ GUIDES = {
 }
 
 
-def course_coverage(root):
+def course_coverage(root, tasks=None):
     """Public metadata only; actual slides and attachments keep their access rules."""
     import json
+    from collections import Counter
+    catalog = public_catalog()
+    # Counts come from the same loaded bank that the trainer actually serves.
+    counts = Counter(p.get('n', t.get('n')) for t in tasks.values()
+                     for p in (t.get('parts') or [t])) if tasks is not None else None
+    index_file = root / 'pycourse' / 'index.json'
+    modules = [python_metadata(m) for m in json.loads(index_file.read_text(encoding='utf-8'))] if index_file.is_file() else []
     topics = []
-    models = {7: 'image', 13: 'net', 15: 'logic', 19: 'game', 20: 'game', 21: 'game', 28: 'graph'}
-    for n in range(1, 29):
-        lesson_n = 19 if n in (20, 21) else n
-        row = GUIDES.get(lesson_n)
+    for meta in catalog['topics']:
+        n, lesson_n = meta['n'], meta['lesson_n']
         f = root / 'course' / f'{lesson_n}.json'
         deck = json.loads(f.read_text(encoding='utf-8')) if f.is_file() else None
-        topics.append({'n': n, 'lesson_n': lesson_n, 'title': row[0], 'kind': 'lesson' if deck else 'guide',
-                       'slides': len(deck['slides']) if deck else 4, 'archive': n == 28, 'model': models.get(n)})
-    return {'topics': topics, 'full_count': sum(t['kind'] == 'lesson' and not t['archive'] for t in topics),
-            'guide_count': sum(t['kind'] == 'guide' and not t['archive'] for t in topics), 'archive_count': 1}
+        py = [{'id': m['id'], 'title': m['title'], 'tasks': sum(len(lv['tasks']) for lv in m['levels'])}
+              for m in modules if n in m['exam_nums']]
+        topics.append({**meta, 'kind': 'lesson' if deck else 'guide', 'slides': len(deck['slides']) if deck else 4,
+                       'lesson': bool(deck), 'guide': not bool(deck),
+                       'practice_count': counts.get(n, 0) if counts is not None else None,
+                       'python': py, 'python_tasks': sum(m['tasks'] for m in py)})
+    return {**catalog, 'topics': topics, 'full_count': sum(t['lesson'] and not t['archive'] for t in topics),
+            'unique_lessons': len({t['lesson_n'] for t in topics if t['lesson'] and not t['archive']}),
+            'guide_count': sum(t['guide'] and not t['archive'] for t in topics), 'archive_count': 1}
 
 
 def course_guide(n):

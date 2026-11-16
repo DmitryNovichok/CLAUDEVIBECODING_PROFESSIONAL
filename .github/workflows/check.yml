@@ -87,3 +87,21 @@ jobs:
             tests/browser/audit-summary.json
             tests/browser/results.json
           retention-days: 7
+  python-runner:
+    # Podman 4.9+ supports the mandatory environment/IPC isolation flags.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and accept the rootless Python verifier
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS bash deploy/python-runner/ci-acceptance.sh \
+            "$RUNNER_TEMP/python-runner-artifacts" "$GITHUB_SHA"
+      - name: Real-container acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-runner-acceptance
+          path: ${{ runner.temp }}/python-runner-artifacts/
+          if-no-files-found: error
+          retention-days: 14

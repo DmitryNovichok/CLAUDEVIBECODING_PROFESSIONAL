@@ -11,7 +11,7 @@
     slides[DECK.n] = deckI; learningMemory({ slides });
   }
   function learningSlide(n) { const i = (learningMemory().slides || {})[n]; return Number.isInteger(i) && i >= 0 ? i : 0; }
-  const learningFormat = '<p class="learning-format">Темы по проекту ФИПИ ЕГЭ-2027. Краткие примеры объясняют метод; полный формат и ограничения читай в условии задания.</p>';
+  const learningFormat = '<p class="learning-format">Темы по утверждённой демоверсии ФИПИ ЕГЭ-2027. Архивная практика отмечена отдельно. Краткие примеры объясняют метод; полный формат и ограничения читай в условии задания.</p>';
   function learningLabContext() {
     return pageKind === 'pyc' && PYC_L ? { kind: 'pyc', m: PYC_L.id, l: PYC_L.l, task: PYC_FOCUS,
       label: PYC_L.title, code: '', stdin: '' } : { kind: 'course', n: DECK?.n, label: DECK?.label || 'Урок ЕГЭ', code: '', stdin: '' };
