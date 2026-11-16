@@ -60,6 +60,7 @@ from teacher_auth_http import TeacherAuthHandlers, TeacherAuthServices, TEACHER_
 from teacher_students_http import TeacherStudentsHandlers, TeacherStudentsServices, TEACHER_STUDENTS_PATHS
 from teacher_work_http import TeacherWorkHandlers, TeacherWorkServices, TEACHER_WORK_PATHS
 from student_auth_http import StudentAuthHandlers, StudentAuthServices, STUDENT_AUTH_PATHS
+from learning_progress_http import LearningProgressHTTPHandlers, LearningProgressServices, LEARNING_PROGRESS_PATHS, LEARNING_PROGRESS_WRITES
 from learning_attempt_http import LearningAttemptHTTPHandlers, LearningAttemptServices, LEARNING_ATTEMPT_PATHS
 from task_http import TaskHTTPHandlers, TaskHTTPServices, TASK_ACTION_PATHS
 import api_access
@@ -2740,7 +2741,7 @@ def tog_public(db, r, sid=None):
 APP = None
 
 
-class Handler(TeacherStudentsHandlers, TeacherWorkHandlers, LearningAttemptHTTPHandlers, StudentAuthHandlers, TeacherAuthHandlers, TaskHTTPHandlers, BankHTTPHandlers, BaseHTTPRequestHandler):
+class Handler(LearningProgressHTTPHandlers, TeacherStudentsHandlers, TeacherWorkHandlers, LearningAttemptHTTPHandlers, StudentAuthHandlers, TeacherAuthHandlers, TaskHTTPHandlers, BankHTTPHandlers, BaseHTTPRequestHandler):
     server_version = "EGETrainer/1.0"
     protocol_version = "HTTP/1.1"
     timeout = 60                      # медленный клиент не держит поток вечно
@@ -3588,6 +3589,22 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "teacher_name": "" if s["self_reg"] else (teacher_of(s)["name"] or ""),
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
+    def learning_progress_services(self):
+        return LearningProgressServices(
+            db=APP.db, bank=APP.bank, root=HERE,
+            course_open=course_open, course_sets_all=course_sets_all,
+            lab_access=lab_access, ard_access=ard_access,
+            teacher_of=teacher_of, parse_int=to_int, live_teacher=live_teacher,
+            course_lock=_COURSE_LOCK, course_tries=_COURSE_TRIES,
+            course_window=COURSE_WINDOW, course_limit=COURSE_TRIES,
+            pyc_pw_tries=_PYC_PW_TRIES, lab_pw_tries=_LAB_PW_TRIES,
+            pyc_lock=_PYC_LOCK, pyc_tries=_PYC_TRIES, bug_tries=_BUG_TRIES,
+            pyc_window=PYC_WINDOW, pyc_limit=PYC_CHECKS,
+            pyc_access=pyc_access, pyc_solved=pyc_solved, pyc_index=pyc_index,
+            pyc_module=pyc_module, pyc_open_levels=pyc_open_levels,
+            pyc_task=pyc_task, pyc_norm=pyc_norm,
+            arduino_clean=arduino_clean, arduino_save=arduino_save)
+
     def learning_attempt_services(self):
         return LearningAttemptServices(
             db=APP.db,
@@ -3753,124 +3770,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         """Условие SQL на учеников этого учителя (без учительских аккаунтов) и его параметры."""
         return (f"COALESCE({alias}.teacher_id, ?) = ? AND COALESCE({alias}.is_teacher, 0) = 0",
                 (main_teacher()["id"], self.T["id"]))
-
-    def pyc_api(self, method, path, qs, data):
-        """Курс программирования для ученика: план, уровень (слайды и задачи без ответов), проверка ответа."""
-        db = APP.db
-        s = self.student(data)
-        if not s:
-            return self.err(401, "нужно войти")
-        if path == "/api/pyc/unlock" and method == "POST":
-            # вход по паролю курса (как у раздела «Курс»): кто знает пароль — тому курс открыт
-            if pyc_access(s):
-                return self.send_json({"ok": True})
-            stored = db.setting("pyc_pw")
-            if not stored:
-                return self.err(403, "Курс программирования открывает учитель")
-            now = time.time()
-            with _COURSE_LOCK:
-                tries = [t for t in _PYC_PW_TRIES.get(s["id"], []) if now - t < COURSE_WINDOW]
-                if len(tries) >= COURSE_TRIES:
-                    return self.err(429, f"Слишком много попыток — попробуйте через {int((COURSE_WINDOW - (now - tries[0])) // 60) + 1} мин")
-                tries.append(now)
-                _PYC_PW_TRIES[s["id"]] = tries
-            if not check_pw(str(data.get("password") or "").strip()[:200], stored):
-                return self.err(403, "Неверный пароль курса")
-            db.x("UPDATE students SET pyc=1, pyc_ts=? WHERE id=?", (now, s["id"]))
-            live_teacher(s)                       # во вкладке «Программирование» у учителя ученик появится сразу
-            return self.send_json({"ok": True})
-        if not pyc_access(s):
-            if path == "/api/pyc":
-                return self.send_json({"access": False, "pw": bool(db.setting("pyc_pw"))})
-            return self.err(403, "Курс программирования открывается по паролю от учителя")
-        teacher = bool(s["is_teacher"])
-        free = teacher or bool(s["pyc_free"])   # все уровни открыты: учителю и ученику, которому учитель так открыл
-        prog = pyc_solved(db, s["id"])
-        if path == "/api/pyc":
-            mods = []
-            for m in pyc_index():
-                mods.append({**m, "open": pyc_open_levels(m, prog, free)})
-            return self.send_json({"access": True, "teacher": teacher, "modules": mods,
-                                   "progress": {k: v for k, v in prog.items()}})
-        if path == "/api/pyc/level":
-            mod = pyc_module(qs.get("m"))
-            li = to_int(qs.get("l"))
-            if not mod or li is None or not 0 <= li < len(mod["levels"]):
-                return self.err(404, "нет такого уровня")
-            if li >= pyc_open_levels(mod, prog, free):
-                return self.err(403, "Уровень ещё закрыт: решите задачи предыдущего")
-            lv = mod["levels"][li]
-            tasks = []
-            for t in lv["tasks"]:
-                p = prog.get(t["id"]) or {}
-                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files", "practice") if k in t}
-                x.update(ok=bool(p.get("ok")), tries=p.get("tries", 0), hint_used=bool(p.get("hint_used")), solution_seen=bool(p.get("solution_seen")), independent=bool(p.get("independent")))
-                if p.get("ok") or p.get("tries", 0) >= 3 or teacher:
-                    x["sol"] = t["sol"]                 # разбор — после решения или трёх неудачных попыток
-                if p.get("ok") or teacher:
-                    x["ans"] = t["ans"]
-                tasks.append(x)
-            return self.send_json({"id": mod["id"], "n": mod["n"], "title": mod["title"], "icon": mod["icon"],
-                                   "levels": len(mod["levels"]), "l": li,
-                                   "level": {"title": lv["title"], "goal": lv["goal"], "need": lv["need"],
-                                             "slides": lv["slides"], "tasks": tasks}})
-        if path == "/api/pyc/help" and method == "POST":
-            mod, li, task = pyc_task(str(data.get("task") or "")[:40])
-            kind = data.get("kind")
-            if not task or kind not in ("hint", "solution"):
-                return self.err(400, "нет такой подсказки")
-            if li >= pyc_open_levels(mod, prog, free):
-                return self.err(403, "Уровень ещё закрыт")
-            was = prog.get(task["id"]) or {}
-            if kind == "solution" and not (teacher or was.get("ok") or was.get("tries", 0) >= 3):
-                return self.err(403, "Разбор доступен после решения или трёх попыток")
-            field = "hint_used" if kind == "hint" else "solution_seen"
-            db.x(f"INSERT INTO pyc_progress(student_id,task_id,{field},first_ts,last_ts) VALUES(?,?,1,?,?) "
-                 f"ON CONFLICT(student_id,task_id) DO UPDATE SET {field}=1, last_ts=excluded.last_ts",
-                 (s["id"], task["id"], time.time(), time.time()))
-            live_teacher(s)
-            return self.send_json({"ok": True})
-        if path == "/api/pyc/check" and method == "POST":
-            tid = str(data.get("task") or "")[:40]
-            mod, li, t = pyc_task(tid)
-            if not t:
-                return self.err(404, "нет такой задачи")
-            if li >= pyc_open_levels(mod, prog, free):
-                return self.err(403, "Уровень ещё закрыт")
-            ans = str(data.get("answer") or "").strip()[:300]
-            if not ans:
-                return self.err(400, "Введите ответ")
-            now = time.time()
-            with _PYC_LOCK:
-                tries = [x for x in _PYC_TRIES.get(s["id"], []) if now - x < PYC_WINDOW]
-                if len(tries) >= PYC_CHECKS:
-                    return self.err(429, "Слишком много проверок подряд — подождите минуту")
-                tries.append(now)
-                _PYC_TRIES[s["id"]] = tries
-            ok = pyc_norm(ans) == pyc_norm(t["ans"])
-            code = str(data.get("code") or "")[:20000] or None
-            was = prog.get(tid) or {}
-            if was.get("ok"):
-                return self.send_json({"ok": ok, "already": True, "tries": was.get("tries", 0), "ans": t["ans"], "sol": t["sol"]})
-            db.x("""INSERT INTO pyc_progress(student_id, task_id, ok, tries, first_ts, ok_ts, last_ts, code) VALUES(?,?,?,?,?,?,?,?)
-                    ON CONFLICT(student_id, task_id) DO UPDATE SET ok=excluded.ok, tries=tries + 1, last_ts=excluded.last_ts,
-                      ok_ts=COALESCE(ok_ts, excluded.ok_ts), code=COALESCE(excluded.code, code)""",
-                 (s["id"], tid, int(ok), 1, now, now if ok else None, now, code))
-            if ok:
-                db.x("UPDATE pyc_progress SET independent=? WHERE student_id=? AND task_id=?",
-                     (int(not was.get("hint_used") and not was.get("solution_seen")), s["id"], tid))
-            prog = pyc_solved(db, s["id"])
-            n_tries = prog[tid]["tries"]
-            out = {"ok": ok, "tries": n_tries}
-            if ok or n_tries >= 3 or teacher:
-                out["sol"] = t["sol"]
-            if ok:
-                out["ans"] = t["ans"]
-                before = li + 1
-                out["opened"] = pyc_open_levels(mod, prog, free) > before and before < len(mod["levels"])
-                live_teacher(s)                 # у учителя обновится прогресс курса
-            return self.send_json(out)
-        return self.err(404, "нет такого метода")
 
     # ---------- МЦКО-тренировка
     def mcko_api(self, method, path, qs, data):
@@ -4092,109 +3991,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                    "topics": mcko.TOPICS})
         return self.err(404, "нет такого метода")
 
-    def api_buglab(self, method, path, data, s):
-        """Самопроверка в браузере и отдельная проверка доверенным изолированным исполнителем."""
-        db = APP.db
-        if not lab_access(db, s):
-            return self.err(403, "Лаборатории открываются по паролю от учителя")
-        mine = {r["case_id"]: r for r in db.q("SELECT * FROM buglab WHERE student_id=?", (s["id"],))}
-        def state(cid):
-            return buglab_grading.state(mine.get(cid))
-        if path == "/api/lab/bugs" and method == "GET":
-            return self.send_json({"levels": buglab.LEVELS, "kinds": buglab.KINDS,
-                                   "cases": [dict(buglab.public(c), my=state(c["id"])) for c in buglab.CASES]})
-        case = buglab.BY_ID.get(str(data.get("id") or ""))
-        if not case:
-            return self.err(404, "нет такой задачи")
-        now = time.time()
-        if path == "/api/lab/bugs/verify" and method == "POST":
-            code = data.get("code")
-            try:
-                # Validate without executing or truncating the submitted program.
-                buglab_verifier.wire.program(code, list(case["inputs"]))
-            except (ValueError, UnicodeEncodeError) as exc:
-                return self.err(400, str(exc))
-            sid = s["id"]
-            denial = None
-            try:
-                with db.transaction():
-                    # Account deletion/revocation can race the initial read too.
-                    current = self.student(data)
-                    if not current or current["id"] != sid:
-                        denial = (401, "Вход завершён. Войдите снова для независимой проверки.")
-                    elif not lab_access(db, current):
-                        denial = (403, "Доступ к лабораториям закрыт.")
-                    else:
-                        job = buglab_grading.reserve(db, sid)
-            except buglab_grading.Limited as exc:
-                return self.send_json({"error": str(exc)}, 429, {"Retry-After": str(exc.retry_after)})
-            if denial:
-                return self.err(*denial)
-            try:
-                # No DB lock/transaction may span this potentially slow operation.
-                verdict = buglab_verifier.verify(case, code)
-            except (buglab_verifier.InvalidProgram, buglab_verifier.VerifierUnavailable) as exc:
-                with db.transaction():
-                    buglab_grading.finish(db, job, "unavailable")
-                status = 400 if isinstance(exc, buglab_verifier.InvalidProgram) else (429 if isinstance(exc, buglab_verifier.VerifierBusy) else 503)
-                return self.send_json({"error": str(exc)}, status, {"Retry-After": "5"} if status != 400 else None)
-            except BaseException:
-                with db.transaction():
-                    buglab_grading.finish(db, job, "unavailable")
-                raise
-            status, result = 200, None
-            with db.transaction():
-                # Re-read the original session and access after grading. Logout,
-                # account deletion and teacher suspension must revoke late credit.
-                current = self.student(data)
-                if not current or current["id"] != sid:
-                    status, result = 401, {"error": "Вход завершён. Войдите снова для независимой проверки."}
-                elif not lab_access(db, current):
-                    status, result = 403, {"error": "Доступ к лабораториям закрыт. Результат не сохранён."}
-                elif not buglab_grading.active(db, sid, job):
-                    status, result = 409, {"error": "Время проверки истекло. Повторите проверку."}
-                else:
-                    my = buglab_grading.save(db, sid, case, code, verdict)
-                    result = dict(verdict, my=my)
-                    if verdict["ok"]:
-                        result["explain"] = case["explain"]
-                buglab_grading.finish(db, job, "complete" if status == 200 else "cancelled")
-            return self.send_json(result, status)
-        if path == "/api/lab/bugs/check" and method == "POST":
-            with _PYC_LOCK:                                   # не чаще, чем проверки в курсе Python
-                tries = [x for x in _BUG_TRIES.get(s["id"], []) if now - x < PYC_WINDOW]
-                if len(tries) >= PYC_CHECKS:
-                    return self.err(429, "Слишком много проверок подряд — подождите минуту")
-                tries.append(now)
-                _BUG_TRIES[s["id"]] = tries
-            runs = data.get("runs") if isinstance(data.get("runs"), list) else []
-            code = str(data.get("code") or "")[:20000]
-            tests = buglab.check(case, runs[:len(case["inputs"])])
-            ok = all(t["ok"] for t in tests)
-            changed = buglab.changed_lines(case, code)
-            # Browser-supplied outputs are useful feedback, never independent proof.
-            with db.transaction():
-                db.x("""INSERT INTO buglab(student_id, case_id, ok, tries, star, seen, first_ts, ok_ts, code) VALUES(?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(student_id, case_id) DO UPDATE SET ok=MAX(ok, excluded.ok), tries=tries + (1 - excluded.ok) * (1 - ok),
-                      seen=MAX(seen, excluded.seen), ok_ts=COALESCE(ok_ts, excluded.ok_ts),
-                      code=CASE WHEN excluded.ok AND NOT verified THEN excluded.code ELSE code END""",
-                     (s["id"], case["id"], int(ok), 0 if ok else 1, 0, int(ok), now, now if ok else None, code if ok else None))
-                row = db.q("SELECT * FROM buglab WHERE student_id=? AND case_id=?", (s["id"], case["id"]), one=True)
-            out = {"ok": ok, "verified": False, "provenance": "self_check", "tests": tests,
-                   "changed": changed, "par": case["par"],
-                   "my": buglab_grading.state(row)}
-            if ok:
-                out["explain"] = case["explain"]
-            return self.send_json(out)
-        if path == "/api/lab/bugs/explain" and method == "POST":
-            was = state(case["id"])
-            if not was["ok"] and was["tries"] < 3:
-                return self.err(403, "Разбор откроется после трёх проверок — сначала попробуй сам и посмотри подсказки")
-            db.x("""INSERT INTO buglab(student_id, case_id, seen, first_ts) VALUES(?,?,1,?)
-                    ON CONFLICT(student_id, case_id) DO UPDATE SET seen=1""", (s["id"], case["id"], now))
-            return self.send_json({"explain": case["explain"]})
-        return self.err(404, "нет такого метода")
-
     def api(self, method, path, qs, data):
         def dispatch():
             # This boundary precedes *all* route implementations, including new
@@ -4212,7 +4008,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             account_write = method == "POST" and path in ACCOUNT_WRITE_PATHS
             if account_write:
                 self._account_delay = 0
-            if path != "/api/lab/bugs/verify" and (financial_path(path) or account_write or (method == "POST" and path in ("/api/pyc/check", "/api/pyc/help", "/api/admin/student/rename"))):
+            if path != "/api/lab/bugs/verify" and (financial_path(path) or account_write or (method == "POST" and (path in LEARNING_PROGRESS_WRITES or path == "/api/admin/student/rename"))):
                 # Slow failed authentication only after releasing the shared database lock.
                 self._audit_failures = []
                 def after_transaction():
@@ -4237,6 +4033,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.student_auth_route(method, path, data)
         if path in LEARNING_ATTEMPT_PATHS:
             return self.learning_attempt_route(method, path, qs, data)
+        if path in LEARNING_PROGRESS_PATHS:
+            return self.learning_progress_route(method, path, qs, data)
         if path == "/api/readiness":
             account = self.download_account()
             if not account:
@@ -4252,30 +4050,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json({"ok": True, "version": APP_VERSION,
                                        "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()}, extra=private)
             return self.err(405, "метод не поддерживается")
-        if path == "/api/course/coverage" and method == "GET":
-            available = APP.bank.ensure()
-            return self.send_json(course_coverage(HERE, APP.bank.tasks if available else None,
-                                                  include_skills=qs.get("skills") == "1"))
-        if path == "/api/learning/mistake" and method == "POST":
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            APP.bank.ensure()
-            task = APP.bank.real(str(data.get("task") or ""))
-            try:
-                return self.send_json(dict(ok=True, **learning_quality.save_mistake(db, s["id"], task, data.get("reason"))))
-            except ValueError as exc:
-                return self.err(400, str(exc))
-            except LookupError as exc:
-                return self.err(404, str(exc))
-        if path == "/api/learning/mistakes" and method == "GET":
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if not APP.bank.ensure():
-                return self.err(503, "банк заданий не собран")
-            return self.send_json({"items": learning_quality.mistake_summary(db, s["id"]), "days": 30,
-                                   "followup": learning_quality.followup_metrics(db, s["id"], APP.bank.tasks)})
         # ----- ученик
         if path == "/api/ping":
             return self.send_json({"ok": True, "server": True})
@@ -4572,137 +4346,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
 
 
-        if path == "/api/course/lesson":
-            # презентация урока — только тем, у кого курс открыт паролем (файлы course/ напрямую не раздаются)
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if not course_open(s):
-                return self.err(403, "курс закрыт")
-            n = to_int(qs.get("n"))
-            n = 19 if n in (20, 21) else n
-            f = HERE / "course" / f"{n}.json"
-            if not (n in kim.ALL_NUMS and f.is_file()):
-                return self.send_json(course_guide(n))
-            try:
-                return self.send_json(json.loads(f.read_text(encoding="utf-8")))
-            except ValueError:
-                return self.err(500, "презентация повреждена")
-
-        if path == "/api/course/sets":
-            # состав подборок курса (по 20 заданий) — собирает сервер по кластерам, одинаково для ученика и учителя
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if not course_open(s):
-                return self.err(403, "курс закрыт")
-            if not APP.bank.ensure():
-                return self.err(503, "банк заданий не собран")
-            sets = course_sets_all(bool(teacher_of(s)["authored"]))
-            pid = APP.bank.pid
-            return self.send_json({"sets": {n: {k: [pid(i) for i in ids] for k, ids in v.items()} for n, v in sets.items()}})
-
-        if path == "/api/course/seen" and method == "POST":
-            # докуда ученик долистал презентацию урока — учитель видит в прогрессе курса
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            n, sl, tot = to_int(data.get("n")), to_int(data.get("slide")), to_int(data.get("total"))
-            if not (n in kim.ALL_NUMS and sl and 0 < sl <= (tot or 0) <= 200):
-                return self.err(400, "неверные данные")
-            db.x("""INSERT INTO course_seen(student_id, n, slide, total, ts) VALUES(?,?,?,?,?)
-                    ON CONFLICT(student_id, n) DO UPDATE SET slide=MAX(slide, excluded.slide), total=excluded.total, ts=excluded.ts""",
-                 (s["id"], n, sl, tot, time.time()))
-            return self.send_json({"ok": True})
-
-        if path == "/api/course/unlock" and method == "POST":
-            # курс — по паролю от учителя; попыток немного, чтобы пароль не подбирали
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if course_open(s):
-                return self.send_json({"ok": True})
-            stored = db.setting("course_pw")
-            if not stored:
-                return self.err(403, "Учитель ещё не открыл курс")
-            now = time.time()
-            with _COURSE_LOCK:
-                tries = [t for t in _COURSE_TRIES.get(s["id"], []) if now - t < COURSE_WINDOW]
-                if len(tries) >= COURSE_TRIES:
-                    return self.err(429, f"Слишком много попыток — попробуйте через {int((COURSE_WINDOW - (now - tries[0])) // 60) + 1} мин")
-                tries.append(now)
-                _COURSE_TRIES[s["id"]] = tries
-            if not check_pw(str(data.get("password") or "")[:200], stored):
-                return self.err(403, "Неверный пароль курса")
-            db.x("UPDATE students SET course=1, course_ts=? WHERE id=?", (time.time(), s["id"]))
-            return self.send_json({"ok": True})
-
-        if path in ("/api/lab", "/api/lab/unlock", "/api/lab/bugs", "/api/lab/bugs/check", "/api/lab/bugs/explain", "/api/lab/bugs/verify"):
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if path == "/api/lab/unlock" and method == "POST" and not lab_access(db, s):
-                stored = db.setting("lab_pw")
-                if not stored:
-                    return self.err(403, "Лаборатории ещё не открыты учителем")
-                now = time.time()
-                with _COURSE_LOCK:
-                    tries = [t for t in _LAB_PW_TRIES.get(s["id"], []) if now - t < COURSE_WINDOW]
-                    if len(tries) >= COURSE_TRIES:
-                        return self.err(429, "Слишком много попыток — попробуйте позже")
-                    tries.append(now)
-                    _LAB_PW_TRIES[s["id"]] = tries
-                if not check_pw(str(data.get("password") or "")[:200], stored):
-                    return self.err(403, "Неверный пароль лабораторий")
-                db.x("UPDATE students SET lab=1 WHERE id=?", (s["id"],))
-                return self.send_json({"access": True})
-            if path.startswith("/api/lab/bugs"):
-                return self.api_buglab(method, path, data, s)
-            return self.send_json({"access": lab_access(db, s), "pw": bool(db.setting("lab_pw"))})
-
-        if path.startswith("/api/pyc"):
-            return self.pyc_api(method, path, qs, data)
-
         if path.startswith("/api/mcko"):
             return self.mcko_api(method, path, qs, data)
 
-        if path == "/api/arduino/unlock" and method == "POST":
-            # пароль лаборатории Arduino — свой, не пароль лабораторий; попытки ограничены, как у других разделов
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if ard_access(db, s):
-                return self.send_json({"access": True})
-            stored = db.setting("ard_pw")
-            if not stored:
-                return self.err(403, "Лабораторию Arduino ещё не открыл учитель")
-            now = time.time()
-            with _COURSE_LOCK:
-                tries = [t for t in _LAB_PW_TRIES.get(("ard", s["id"]), []) if now - t < COURSE_WINDOW]
-                if len(tries) >= COURSE_TRIES:
-                    return self.err(429, "Слишком много попыток — попробуйте позже")
-                tries.append(now)
-                _LAB_PW_TRIES[("ard", s["id"])] = tries
-            if not check_pw(str(data.get("password") or "")[:200], stored):
-                return self.err(403, "Неверный пароль лаборатории Arduino")
-            db.x("UPDATE students SET ard=1 WHERE id=?", (s["id"],))
-            return self.send_json({"access": True})
-
         if path == "/api/im" or path.startswith("/api/im/"):
             return self.api_im(method, path, qs, data)
-
-        if path == "/api/arduino/progress" and method == "POST":
-            # страница Arduino присылает сводку прогресса уроков; учитель видит её во вкладке «Arduino»
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if s["is_teacher"] or not ard_access(APP.db, s):
-                return self.send_json({"ok": True, "skipped": True})
-            clean = arduino_clean(data.get("tracks"))
-            if clean is None:
-                return self.err(400, "Неверные данные прогресса")
-            arduino_save(APP.db, s["id"], clean)
-            return self.send_json({"ok": True})
 
         if path == "/api/history":
             # Прогресс ученика страница восстанавливает из журнала попыток — один источник правды

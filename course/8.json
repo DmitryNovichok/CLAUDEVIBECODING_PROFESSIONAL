@@ -13,19 +13,19 @@
    "t": "text",
    "k": "Введение",
    "h": "Что это за задание",
-   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>первичный</span></div><div><b>4–6 мин</b><span>ориентир по времени</span></div><div><b>itertools</b><span>модуль Python</span></div><div><b>число</b><span>ответ</span></div></div><div class=\"sl-cols\"><div><h4>Суть</h4><p>Посчитать слова (числа), удовлетворяющие условиям, или найти номер слова в алфавитном списке.</p></div><div><h4>Два пути</h4><p>Формулы комбинаторики — быстро для простых условий. Перебор на Python — надёжно для любых.</p></div></div>"
+   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>первичный</span></div><div><b>4–6 мин</b><span>ориентир по времени</span></div><div><b>itertools</b><span>модуль Python</span></div><div><b>число</b><span>ответ</span></div></div><div class=\"sl-cols\"><div><h4>Суть</h4><p>Посчитать слова (числа), удовлетворяющие условиям, или найти номер слова в алфавитном списке.</p></div><div><h4>Два пути</h4><p>Формулы комбинаторики — быстро для простых условий. Перебор на Python проверяет сложные условия, если число вариантов укладывается во время и память.</p></div></div>"
   },
   {
    "t": "text",
    "k": "Теория",
    "h": "Правила подсчёта",
-   "html": "<div class=\"sl-cards c2 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>Правило произведения</b><code>5⁴ = 625</code><p>Слово длины n из алфавита в k букв: kⁿ вариантов. Позиции независимы — перемножаем.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>Перестановки</b><code>5! = 120</code><p>Каждая из n различных букв ровно один раз: n! вариантов.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>Без повторов, длина m</b><code>6 · 5 · 4 = 120</code><p>Размещения: n · (n − 1) · … · (n − m + 1).</p></div><div class=\"sl-card t1\"><i class=\"t1\">4</i><b>Ровно одна буква X</b><code>5 · 4⁴ = 1280</code><p>Выбрать место для X, остальные места — любые, кроме X.</p></div></div>"
+   "html": "<div class=\"sl-cards c2 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>Правило произведения</b><code>5⁴ = 625</code><p>Слово длины n из k различных букв с разрешёнными повторами: kⁿ вариантов. Позиции независимы — перемножаем.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>Перестановки</b><code>5! = 120</code><p>Каждая из n различных букв ровно один раз: n! вариантов.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>Без повторов, длина m</b><code>6 · 5 · 4 = 120</code><p>Размещения: n · (n − 1) · … · (n − m + 1).</p></div><div class=\"sl-card t1\"><i class=\"t1\">4</i><b>Ровно одна буква X</b><code>5 · 4⁴ = 1280</code><p>Выбрать место для X, остальные места — любые, кроме X.</p></div></div>"
   },
   {
    "t": "text",
    "k": "Python",
    "h": "Инструменты itertools",
-   "html": "<table class=\"sl-tab\"><tr><th>Задача</th><th>Как написать</th></tr><tr><td>все слова длины n с повторами</td><td><code>product(alphabet, repeat=n)</code></td></tr><tr><td>перестановки всех букв</td><td><code>permutations(letters)</code></td></tr><tr><td>перестановки длины m без повторов</td><td><code>permutations(letters, m)</code></td></tr><tr><td>нумерация с 1</td><td><code>for i, w in enumerate(words, 1)</code></td></tr><tr><td>склеить кортеж в строку</td><td><code>s = ''.join(w)</code></td></tr><tr><td>убрать одинаковые слова</td><td><code>set(...)</code> — при повторяющихся буквах</td></tr><tr><td>буквы в алфавитном порядке</td><td><code>sorted('АКЦЕНТ')</code></td></tr></table><div class=\"sl-callout\"><b>Важно</b><p>product выдаёт слова в порядке букв переданной строки. Чтобы список был алфавитным, сначала отсортируйте буквы!</p></div>"
+   "html": "<table class=\"sl-tab\"><tr><th>Задача</th><th>Как написать</th></tr><tr><td>все слова длины n с повторами</td><td><code>product(alphabet, repeat=n)</code></td></tr><tr><td>перестановки всех букв</td><td><code>permutations(letters)</code></td></tr><tr><td>перестановки длины m без повторов</td><td><code>permutations(letters, m)</code></td></tr><tr><td>нумерация с 1</td><td><code>for i, w in enumerate(words, 1)</code></td></tr><tr><td>склеить кортеж в строку</td><td><code>s = ''.join(w)</code></td></tr><tr><td>убрать одинаковые слова</td><td><code>set(...)</code> — при повторяющихся буквах</td></tr><tr><td>буквы в алфавитном порядке</td><td><code>sorted('АКЦЕНТ')</code></td></tr></table><div class=\"sl-callout\"><b>Важно</b><p>product выдаёт слова в порядке букв переданной строки. Используйте порядок из условия. Для этих букв подходит sorted; для Е/Ё и особого порядка задайте алфавит вручную.</p></div>"
   },
   {
    "t": "section",
@@ -42,11 +42,11 @@
    "h": "Перебор на Python",
    "ch": "Задание",
    "cond": "<p>Все пятибуквенные слова из букв А, К, Ц, Е, Н, Т записаны в алфавитном порядке и пронумерованы: 1. ААААА, 2. ААААЕ, 3. ААААК … Под каким номером стоит первое слово с чётным номером, которое не начинается с А, Е или К и содержит хотя бы одну букву Т?</p>",
-   "note": "В условии буквы даны НЕ по алфавиту — без <code>sorted</code> нумерация будет неверной.",
+   "note": "Для этого алфавита <code>sorted</code> задаёт нужный порядок. Первое подходящее слово — НААТЕ; в ответ записываем только его номер 3914.",
    "nk": "warn",
-   "code": "from itertools import product\n\nletters = sorted('АКЦЕНТ')                  # А Е К Н Т Ц — алфавитный порядок\nfor i, w in enumerate(product(letters, repeat=5), 1):\n    w = ''.join(w)\n    if i % 2 == 0 and w[0] not in 'АЕК' and 'Т' in w:\n        print(i, w)\n        break",
+   "code": "from itertools import product\n\nletters = sorted('АКЦЕНТ')                  # А Е К Н Т Ц — алфавитный порядок\nfor i, w in enumerate(product(letters, repeat=5), 1):\n    w = ''.join(w)\n    if i % 2 == 0 and w[0] not in 'АЕК' and 'Т' in w:\n        print(i)                         # в ответе нужен только номер слова\n        break",
    "sub": "",
-   "ans": "3914 НААТЕ"
+   "ans": "3914"
   },
   {
    "t": "text",
@@ -62,7 +62,7 @@
    "h": "Номер слова через систему счисления",
    "ch": "Задание",
    "cond": "<p>Переведём слово НААТЕ в число: каждая буква — цифра шестеричной системы.</p>",
-   "note": "Тот же приём работает для любого алфавита из k букв — это k-ичная система счисления.",
+   "note": "Для слов одной длины из k различных букв заданного порядка получаем k-ичную систему счисления; ведущие буквы с кодом 0 сохраняют длину слова.",
    "nk": "secret",
    "code": "digits = {c: d for d, c in enumerate('АЕКНТЦ')}   # буква → цифра шестеричной системы\nw = 'НААТЕ'\nvalue = 0\nfor c in w:\n    value = value * 6 + digits[c]\nprint(value + 1)                                  # номер = значение + 1",
    "sub": "",
@@ -96,7 +96,7 @@
    "h": "Без двух гласных рядом",
    "ch": "Задание",
    "cond": "<p>Сколько различных слов можно получить перестановкой букв слова КАНОЭ так, чтобы гласные не стояли рядом?</p>",
-   "note": "Проверяем все пары соседних букв: <code>any(w[i] in V and w[i + 1] in V ...)</code>.",
+   "note": "Три гласные можно разместить только в трёх промежутках вокруг двух согласных: ГСГСГ. Получаем 3! · 2! = 12. Код проверяет все соседние пары.",
    "nk": "secret",
    "code": "from itertools import permutations\n\nV = 'АОЭ'\nok = {w for w in permutations('КАНОЭ') if not any(w[i] in V and w[i + 1] in V for i in range(4))}\nprint(len(ok))",
    "sub": "",
@@ -109,7 +109,7 @@
    "h": "Числа с условиями на цифры",
    "ch": "Задание",
    "cond": "<p>Сколько существует пятизначных восьмеричных чисел без цифры 7, в которых ровно две цифры 6?</p>",
-   "note": "n-значное число не начинается с 0: <code>w[0] != '0'</code>.",
+   "note": "Всего C(5, 2) · 6³ = 2160 записей, из них C(4, 2) · 6² = 216 начинаются с 0. Получаем 1944 числа.",
    "nk": "secret",
    "code": "from itertools import product\n\nprint(sum(1 for w in product('01234567', repeat=5) if w[0] != '0' and '7' not in w and w.count('6') == 2))",
    "sub": "",
@@ -137,16 +137,16 @@
    "cond": "<p>Сколько различных слов получится перестановкой букв слова АННА?</p>",
    "note": "<code>permutations</code> считает одинаковые буквы разными: 24 вместо 6. Нужен <code>set</code>.",
    "nk": "warn",
-   "code": "from itertools import permutations\n\nprint(len(set(permutations('АННА'))), len(list(permutations('АННА'))))",
+   "code": "from itertools import permutations\n\nprint(len(set(permutations('АННА'))))",
    "sub": "",
-   "ans": "6 24"
+   "ans": "6"
   },
   {
    "t": "text",
    "k": "Карта",
    "kc": "t2",
    "h": "Какие бывают задачи 8",
-   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>Сколько слов</b><p>С условиями: буква ровно k раз, не начинается с…, без двух гласных подряд.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>Номер слова</b><p>Под каким номером стоит слово / первое слово с условием.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>Слово по номеру</b><p>Какое слово стоит на месте N: перевести N − 1 в k-ичную систему.</p></div><div class=\"sl-card t1\"><i class=\"t1\">4</i><b>Перестановки букв</b><p>Слова из букв данного слова, каждая ровно раз; одинаковые буквы → set.</p></div><div class=\"sl-card t2\"><i class=\"t2\">5</i><b>Числа</b><p>k-ичные n-значные числа с условиями на цифры; первая цифра ≠ 0.</p></div><div class=\"sl-card t3\"><i class=\"t3\">6</i><b>Шифры и коды</b><p>Сигнальные флажки, азбука Морзе: сумма kⁿ по длинам.</p></div></div>"
+   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>Сколько слов</b><p>С условиями: буква ровно k раз, не начинается с…, без двух гласных подряд.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>Номер слова</b><p>Под каким номером стоит слово / первое слово с условием.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>Слово по номеру</b><p>Какое слово стоит на месте N: перевести N − 1 в k-ичную систему.</p></div><div class=\"sl-card t1\"><i class=\"t1\">4</i><b>Перестановки букв</b><p>Слова из букв данного слова, каждая ровно раз; одинаковые буквы → set.</p></div><div class=\"sl-card t2\"><i class=\"t2\">5</i><b>Числа</b><p>k-ичные n-значные числа с условиями на цифры; первая цифра ≠ 0.</p></div><div class=\"sl-card t3\"><i class=\"t3\">6</i><b>Шифры и коды</b><p>При k символах и разрешённых повторах — kⁿ для длины n; для нескольких допустимых длин результаты складывают.</p></div></div>"
   },
   {
    "t": "code",
@@ -171,7 +171,7 @@
    "t": "text",
    "k": "Шпаргалка",
    "h": "Весь №8 на одном слайде",
-   "html": "<div class=\"sl-cheat\"><div><b>Слова с повторами</b><code>product(sorted(letters), repeat=n)</code></div><div><b>Перестановки</b><code>set(permutations(word))</code></div><div><b>Номер</b><code>enumerate(words, 1)</code></div><div><b>Без соседей</b><code>any(w[i] in V and w[i+1] in V for i in ...)</code></div><div><b>Ровно k раз</b><code>w.count('Ё') == k</code></div><div><b>Номер ↔ число</b>k-ичная система, номер = значение + 1</div></div>"
+   "html": "<div class=\"sl-cheat\"><div><b>Слова с повторами</b><code>product(sorted(letters), repeat=n)</code></div><div><b>Перестановки</b><code>set(permutations(word))</code></div><div><b>Номер</b><code>enumerate(words, 1)</code></div><div><b>Без соседей</b><code>not any(w[i] in V and w[i+1] in V for i in ...)</code></div><div><b>Ровно k раз</b><code>w.count('Ё') == k</code></div><div><b>Номер ↔ число</b>k-ичная система, номер = значение + 1</div></div>"
   },
   {
    "t": "text",
