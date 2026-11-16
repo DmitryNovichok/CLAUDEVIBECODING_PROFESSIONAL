@@ -65,7 +65,7 @@ test('Together task picker and invitation dialogs trap focus and restore their t
     // Explicitly choose the recent-task search after the empty fixture's auto-fallback.
     await teacher.locator('#tgPickChips [data-kind=recent]').click();
     await teacher.locator('#tgPickQ').fill('5');
-    const choice=teacher.locator('#tgPickL [data-task="'+fixture.task+'"]');
+    const choice=teacher.locator('#tgPickL [data-task="'+fixture.teacherTask+'"]');
     await expect(choice).toBeVisible();await choice.focus();await teacher.keyboard.press('Enter');
     await expect(teacher.locator('#tgPickM')).toBeHidden();await expect(teacher.locator('#tgPick')).toBeFocused();
     await expect(pupil.locator('#tgCond')).toContainText('Пять');
