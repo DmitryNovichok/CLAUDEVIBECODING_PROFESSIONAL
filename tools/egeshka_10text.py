@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Задания №10 КИМ 2027 «Поиск слова в тексте» для банка Egeshka (Egeshka Malevin D.).
+Задания №10 КИМ 2027 «Поиск в тексте» для банка Egeshka (Egeshka Malevin D.) — на уровне заданий ФИПИ и КомпЕГЭ.
 
-Тексты — свои: 10 повестей по 5 глав, собранных из набора авторских предложений с разными героями и местами
-(никаких чужих произведений). К каждому заданию прикладывается повесть в двух видах — .docx (как на экзамене,
-искать через «Найти» с «Только слово целиком» / «Учитывать регистр») и .txt. Ответ считает программа
-по тому же тексту, что лежит в файле: слова — непрерывные последовательности русских букв (как «слово целиком»
-в текстовом редакторе), буква «ё» в текстах не используется.
+Тексты — 10 произведений русской классики (общественное достояние): «Поединок», «Отцы и дети», «Капитанская дочка»,
+«Дубровский», «Тарас Бульба», «Гранатовый браслет», «Мертвые души», «Алые паруса», «Пиковая дама»,
+«Герой нашего времени». Сам текст и сноски лежат в tools/books10/<книга>.json.gz; документы оформляются здесь заново:
+к каждому заданию — архив с тремя форматами, как на экзамене: 10.docx (сноски — настоящие сноски Word),
+10.odt (сноски LibreOffice) и 10.txt (сноски — [N] в тексте и список «Примечания» в конце файла).
 
-    python3 tools/egeshka_10text.py      # добавляет/обновляет задания №10 в data/egeshka_bank.json и файлы в media/egeshka_bank/10t/
+Ответ считает программа по тексту 10.txt — так же, как «Найти» в текстовом редакторе:
+  «только слово целиком» — слово не продолжается буквой или цифрой с обеих сторон;
+  «учитывать регистр» — заглавные и строчные различаются; без него — нет;
+  сочетание букв «в составе других слов» = все вхождения минус вхождения отдельным словом.
+Задания составлены так, чтобы спорных мест не было: искомое сочетание не встречается в названии и заголовках глав,
+рядом с дефисом, апострофом или знаком сноски, а если в нём есть «е»/«ё» — то и в написании через другую букву.
 
-Задания помечены "kim": 2027 — сервер не переносит их номер (старые задания нумерации 2026 года переносятся).
-Сид фиксированный: повторный запуск даёт те же тексты и задания.
+    python3 tools/egeshka_10text.py      # задания №10 в data/egeshka_bank.json и архивы в media/egeshka_bank/10t/
+
+Задания помечены "kim": 2027 — сервер не переносит их номер. Сид фиксированный: повторный запуск даёт то же самое.
 """
+import gzip
 import html
 import json
 import random
@@ -23,391 +30,615 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_JSON = ROOT / "data" / "egeshka_bank.json"
+BOOKS_DIR = ROOT / "tools" / "books10"
 MEDIA = ROOT / "media" / "egeshka_bank" / "10t"
 SRC = "Egeshka Malevin D."
-TODAY = "2026-11-15"
-ROMAN = ["I", "II", "III", "IV", "V", "VI"]
-WORD = re.compile(r"[А-Яа-я]+")
+TODAY = "2026-11-16"
+PREFIX = "egeshka_bank:e10b-"
+OLD_PREFIXES = ("egeshka_bank:e10t-", PREFIX)
+ZIP_DATE = (2026, 11, 16, 0, 0, 0)          # постоянная дата в архивах — файлы не меняются при пересборке
 
-# ---------------------------------------------------------------- герои и места повестей
-# формы имён: им., род., дат., вин., твор.; g — окончание глагола прошедшего времени ("" или "а")
-STORIES = [
-    dict(title="Летний лагерь у реки", A=("Миша", "Миши", "Мише", "Мишу", "Мишей", ""), B=("Саша", "Саши", "Саше", "Сашу", "Сашей", ""),
-         place="Сосновка", placeL="в Сосновке", river="Луга", thing="старая лодка", thingV="старую лодку", season="лето"),
-    dict(title="Маяк на острове", A=("Анна", "Анны", "Анне", "Анну", "Анной", "а"), B=("Петр", "Петра", "Петру", "Петра", "Петром", ""),
-         place="Каменный остров", placeL="на Каменном острове", river="Синяя", thing="фонарь маяка", thingV="фонарь маяка", season="осень"),
-    dict(title="Часы на башне", A=("Илья", "Ильи", "Илье", "Илью", "Ильей", ""), B=("Вера", "Веры", "Вере", "Веру", "Верой", "а"),
-         place="Озерск", placeL="в Озерске", river="Ясная", thing="башенные часы", thingV="башенные часы", season="зима"),
-    dict(title="Дорога через перевал", A=("Тимур", "Тимура", "Тимуру", "Тимура", "Тимуром", ""), B=("Лена", "Лены", "Лене", "Лену", "Леной", "а"),
-         place="Верхний поселок", placeL="в Верхнем поселке", river="Белая", thing="карта перевала", thingV="карту перевала", season="весна"),
-    dict(title="Тайна старой библиотеки", A=("Катя", "Кати", "Кате", "Катю", "Катей", "а"), B=("Роман", "Романа", "Роману", "Романа", "Романом", ""),
-         place="Липовец", placeL="в Липовце", river="Тихая", thing="рукописная книга", thingV="рукописную книгу", season="осень"),
-    dict(title="Северный ветер", A=("Андрей", "Андрея", "Андрею", "Андрея", "Андреем", ""), B=("Оля", "Оли", "Оле", "Олю", "Олей", "а"),
-         place="Поморье", placeL="в Поморье", river="Мезень", thing="компас деда", thingV="компас деда", season="зима"),
-    dict(title="Сад за станцией", A=("Даша", "Даши", "Даше", "Дашу", "Дашей", "а"), B=("Глеб", "Глеба", "Глебу", "Глеба", "Глебом", ""),
-         place="Березовка", placeL="в Березовке", river="Ракитная", thing="садовая калитка", thingV="садовую калитку", season="лето"),
-    dict(title="Мастерская на чердаке", A=("Костя", "Кости", "Косте", "Костю", "Костей", ""), B=("Нина", "Нины", "Нине", "Нину", "Ниной", "а"),
-         place="Заречье", placeL="в Заречье", river="Сеть", thing="деревянный планер", thingV="деревянный планер", season="весна"),
-    dict(title="Звезды над полем", A=("Полина", "Полины", "Полине", "Полину", "Полиной", "а"), B=("Степан", "Степана", "Степану", "Степана", "Степаном", ""),
-         place="Ключи", placeL="в Ключах", river="Ока", thing="подзорная труба", thingV="подзорную трубу", season="лето"),
-    dict(title="Последний поезд", A=("Егор", "Егора", "Егору", "Егора", "Егором", ""), B=("Маша", "Маши", "Маше", "Машу", "Машей", "а"),
-         place="Узловая", placeL="на Узловой", river="Медведица", thing="старый билет", thingV="старый билет", season="осень"),
-]
-
-# ---------------------------------------------------------------- авторские предложения
-# {A}/{Ar}/{Ad}/{Av}/{At} — главный герой в падежах, {B}… — друг, {g}/{gb} — окончание глагола героя/друга,
-# {he}/{she_b} — он/она, {place}, {placeL}, {river}, {thing}, {season}
-POOL = [
-    "{A} проснул{g}ся рано и долго смотрел{g} в окно на тихую улицу.",
-    "Утро было ясным, и над крышами медленно поднимался дым.",
-    "{B} {prb} к дому {Ar} еще до завтрака и постучал{gb} в калитку.",
-    "Они вышли на дорогу и пошли к реке, где уже пели птицы.",
-    "Вода в реке {river} была холодной и прозрачной, как стекло.",
-    "{A} сказал{g}, что сегодня обязательно нужно найти {thingV}.",
-    "{B} пожал{gb} плечами и ответил{gb}, что не верит в старые истории.",
-    "Но {he} все равно {poa} следом, потому что любил{g} загадки.",
-    "{placeL} все знали друг друга, и новости расходились очень быстро.",
-    "Старый сторож рассказал им, что {thingV} видели много лет назад.",
-    "Они долго шли вдоль берега и считали шаги, чтобы не сбиться.",
-    "Ветер шумел в траве, и где то далеко лаяла собака.",
-    "{A} достал{g} из кармана тетрадь и записал{g} все, что услышал{g}.",
-    "В тетради уже было несколько страниц с рисунками и стрелками.",
-    "{B} заглянул{gb} через плечо и засмеял{gb}ся над кривой картой.",
-    "Тогда они решили вернуться домой и спросить совета у бабушки.",
-    "Бабушка налила им чаю и долго молчала, глядя в окно.",
-    "Потом она сказала, что каждая вещь хранит свою историю.",
-    "Вечером {placeL} зажглись первые огни, и стало тихо.",
-    "{A} долго не мог{gk} уснуть и думал{g} о том, что будет завтра.",
-    "Время шло медленно, и каждый день был похож на предыдущий.",
-    "Однажды {B} принес{gb2} письмо, которое {nab} в старом сундуке.",
-    "Письмо было написано аккуратным почерком на желтой бумаге.",
-    "В нем говорилось о доме у реки и о человеке, который любил звезды.",
-    "{A} перечитал{g} письмо несколько раз и спрятал{g} его в книгу.",
-    "Они договорились никому не рассказывать о находке до осени.",
-    "Дождь начался внезапно, и им пришлось спрятаться под навесом.",
-    "Капли стучали по крыше, а по дороге бежали мутные ручьи.",
-    "{B} рассказывал{gb} смешные истории, и время прошло незаметно.",
-    "Когда дождь кончился, над полем появилась яркая радуга.",
-    "Дорога после дождя стала скользкой, и идти было трудно.",
-    "У старого моста они встретили почтальона на велосипеде.",
-    "Почтальон знал каждый дом и каждую тропинку в округе.",
-    "Он показал им короткий путь через лес и пожелал удачи.",
-    "В лесу было прохладно, пахло хвоей и мокрой землей.",
-    "{A} остановил{g}ся у большого дуба и прислушал{g}ся.",
-    "Где то рядом журчал ручей, и шелестели листья.",
-    "Они нашли поляну, на которой стоял маленький деревянный дом.",
-    "Дверь дома была заперта, а окна закрыты ставнями.",
-    "{B} обош{gb3} дом кругом и {nab} ключ под камнем у крыльца.",
-    "Внутри было пусто, только на столе лежала старая книга.",
-    "Книга была открыта на странице с рисунком маяка.",
-    "{A} осторожно перевернул{g} страницу и увидел{g} знакомое имя.",
-    "Это было имя деда, который когда то жил {placeL}.",
-    "Они сели на скамейку у окна и стали читать вслух.",
-    "В книге рассказывалось о долгом пути и о верных друзьях.",
-    "Каждая глава заканчивалась вопросом, на который не было ответа.",
-    "К вечеру они вернулись домой усталые, но довольные.",
-    "Мама накрыла на стол и спросила, где они пропадали весь день.",
-    "{A} улыбнул{g}ся и ответил{g}, что гуляли у реки.",
-    "Ночью пошел снег, и утром весь двор стал белым.",
-    "Дети лепили снежную крепость и смеялись до самого обеда.",
-    "Мороз щипал щеки, но домой никто не торопился.",
-    "Весной река разлилась, и вода подошла к самым огородам.",
-    "По улице бежали ручьи, а на деревьях набухали почки.",
-    "Летом дни стали длинными, и солнце садилось поздно.",
-    "Осенью листья пожелтели, и над полями потянулись птицы.",
-    "Время года было {season}, и это чувствовалось во всем.",
-    "В школе учитель рассказал о старинных картах и о том, как их читать.",
-    "{A} слушал{g} внимательно и задавал{g} много вопросов.",
-    "После уроков они пошли в библиотеку и взяли толстый атлас.",
-    "В атласе была подробная карта окрестностей и реки {river}.",
-    "{B} провел{gb4} пальцем по карте и {nab} отмеченное место.",
-    "Это место было недалеко, всего в часе ходьбы от станции.",
-    "На следующий день они собрали рюкзаки и вышли на рассвете.",
-    "Солнце только поднималось, и туман лежал над водой.",
-    "Тропинка вела вдоль реки, потом поворачивала в лес.",
-    "Они шли молча, и только шаги шуршали по листьям.",
-    "Вдруг {B} остановил{gb}ся и показал{gb} на следы у ручья.",
-    "Следы были свежими и вели к старой мельнице.",
-    "Мельница давно не работала, и колесо заросло мхом.",
-    "Внутри пахло мукой и сухим деревом, как много лет назад.",
-    "На стене висел календарь, где был обведен один день.",
-    "{A} записал{g} эту дату и долго думал{g}, что она значит.",
-    "Дома {he} рассказал{g} обо всем отцу, и тот задумался.",
-    "Отец сказал, что в тот день {placeL} пришел первый поезд.",
-    "Старожилы до сих пор помнили этот праздник и гудок паровоза.",
-    "{A} решил{g} узнать об этом дне все, что можно.",
-    "Они ходили по домам и расспрашивали соседей.",
-    "Одни помнили музыку, другие флаги, третьи угощение.",
-    "Но никто не помнил, куда потом делась эта вещь.",
-    "Каждый вечер друзья собирались и сравнивали записи.",
-    "Постепенно из отдельных рассказов складывалась общая картина.",
-    "Не хватало только одной детали, самой важной.",
-    "Эту деталь подсказал случай, как это часто бывает.",
-    "В субботу на рынке {B} увидел{gb} у старика знакомую вещь.",
-    "Старик сказал, что вещь досталась ему от брата.",
-    "Брат когда то работал на станции и хранил разные мелочи.",
-    "{A} попросил{g} разрешения посмотреть вещь поближе.",
-    "На обратной стороне была выцарапана маленькая звезда.",
-    "Такая же звезда была нарисована на полях книги в лесном доме.",
-    "Теперь сомнений не оставалось, и сердце билось быстрее.",
-    "Они побежали к лесу, не дожидаясь утра.",
-    "Луна освещала дорогу, и тени деревьев лежали поперек тропы.",
-    "Дом на поляне стоял, как прежде, тихий и темный.",
-    "Внутри они зажгли фонарь и снова открыли книгу.",
-    "На последней странице была приклеена маленькая карта.",
-    "Карта показывала место у самой воды, под старой ивой.",
-    "Под ивой лежал плоский камень, а под камнем жестяная коробка.",
-    "В коробке были письма, фотографии и {thing}.",
-    "{A} держал{g} находку в руках и не мог{gk} сказать ни слова.",
-    "{B} обнял{gb} друга и сказал, что это лучший день лета.",
-    "Домой они вернулись под утро, когда уже пели петухи.",
-    "Новость облетела всю округу за один день.",
-    "Соседи приходили посмотреть на находку и вспоминали прошлое.",
-    "В местном музее для нее выделили отдельную витрину.",
-    "На открытие пришли все, даже те, кто давно уехал.",
-    "Учитель сказал речь о памяти и о том, как важно беречь историю.",
-    "{A} стоял{g} в первом ряду и смотрел{g} на витрину.",
-    "Рядом стоял{gb} {B} и тоже улыбал{gb}ся.",
-    "После праздника они долго гуляли по берегу реки.",
-    "Вода тихо плескалась у берега, и над ней кружили стрижи.",
-    "Они говорили о будущем и о новых загадках.",
-    "Ведь у каждого места есть свои тайны, и не все еще раскрыты.",
-    "Вечер был теплым, и никто не хотел расходиться.",
-    "Небо постепенно темнело, и на нем зажигались звезды.",
-    "{A} подумал{g}, что запомнит этот вечер на всю жизнь.",
-    "И это было правдой, потому что такие вечера не забываются.",
-    "На следующий год они снова встретились у старой ивы.",
-    "Многое изменилось, но дружба осталась прежней.",
-    "Они вспоминали прошлое лето и смеялись над своими страхами.",
-    "А потом достали новую тетрадь и начали новую историю.",
-    "В той истории тоже были дороги, реки и старые дома.",
-    "И снова каждый день приносил что то новое.",
-    "Иногда они спорили, но всегда мирились к вечеру.",
-    "Иногда уставали, но не сдавались и шли дальше.",
-    "И каждый раз находили то, что искали, или даже больше.",
-]
+BOOKS = ["duel", "otcy", "kap", "dub", "taras", "gran", "md", "alye", "pik", "geroy"]
+AUTHOR_FULL = {"duel": "Александр Куприн", "otcy": "Иван Тургенев", "kap": "Александр Пушкин", "dub": "Александр Пушкин",
+               "taras": "Николай Гоголь", "gran": "Александр Куприн", "md": "Николай Гоголь", "alye": "Александр Грин",
+               "pik": "Александр Пушкин", "geroy": "Михаил Лермонтов"}
+L = "А-Яа-яЁёA-Za-z0-9"
+MARK = re.compile("(\\d+)")
+NOTES_HEAD = "Примечания"
+GEROY_PHRASE = {
+    "Предисловие": "в тексте предисловия к роману",
+    "Бэла": "в тексте повести «Бэла»",
+    "Максим Максимыч": "в тексте повести «Максим Максимыч»",
+    "Предисловие к журналу Печорина": "в тексте предисловия к журналу Печорина",
+    "Тамань": "в тексте повести «Тамань»",
+    "Княжна Мери": "в тексте повести «Княжна Мери»",
+    "Фаталист": "в тексте повести «Фаталист»",
+}
+PAIRS = [("да", "нет"), ("он", "она"), ("тут", "там"), ("здесь", "там"), ("всегда", "никогда"), ("теперь", "тогда"),
+         ("день", "ночь"), ("утро", "вечер"), ("отец", "мать"), ("мы", "вы"), ("я", "ты"), ("сказал", "отвечал"),
+         ("вдруг", "опять"), ("много", "мало"), ("лучше", "хуже"), ("брат", "сестра"), ("дом", "двор"), ("рука", "нога"),
+         ("глаза", "лицо"), ("старый", "молодой"), ("большой", "маленький"), ("вот", "вон"), ("уж", "уже"),
+         ("потом", "тогда"), ("очень", "слишком"), ("тихо", "громко"), ("друг", "враг"), ("сударь", "барин")]
+NUM_WORD = {2: "двух", 3: "трёх", 4: "четырёх", 5: "пяти", 6: "шести"}
+FUNC_WORDS = ["и", "в", "не", "на", "он", "она", "они", "я", "с", "что", "как", "а", "но", "по", "его", "к", "это", "все",
+              "так", "за", "же", "вы", "ты", "мы", "у", "от", "из", "бы", "был", "была", "о", "вот", "да", "нет", "уже",
+              "еще", "только", "когда", "даже", "ни", "их", "ее", "ему", "сказал", "теперь", "тут", "там", "очень"]
 
 
-def forms(st):
-    a, b = st["A"], st["B"]
-    return {"A": a[0], "Ar": a[1], "Ad": a[2], "Av": a[3], "At": a[4], "g": a[5],
-            "B": b[0], "Br": b[1], "Bd": b[2], "Bv": b[3], "Bt": b[4], "gb": b[5],
-            "gk": "ла" if a[5] else "",                         # мог / могла
-            "gb2": "ла" if b[5] else "",                        # принес / принесла
-            "gb3": "ла" if b[5] else "ел",                      # обошел / обошла
-            "gb4": "а" if b[5] else "",                         # провел / провела
-            "he": "она" if a[5] else "он", "place": st["place"], "placeL": st["placeL"],
-            "river": st["river"], "thing": st["thing"], "thingV": st["thingV"], "season": st["season"],
-            "prb": "пришла" if b[5] else "пришел", "nab": "нашла" if b[5] else "нашел", "poa": "пошла" if a[5] else "пошел"}
+# ================================================================ книга и её текст
+def load(key):
+    with gzip.open(BOOKS_DIR / f"{key}.json.gz", "rt", encoding="utf-8") as f:
+        return json.load(f)
 
 
-def fix(s):
-    """Склейки окончаний: «обошела» → «обошла», «принесла» → верно; «ё» не используем."""
-    s = s.replace("обошела", "обошла").replace("обошел ", "обошел ").replace("ё", "е").replace("Ё", "Е")
-    return re.sub(r"\s+", " ", s).strip()
+def title_case(s):
+    s = s.strip().lower()
+    s = s[:1].upper() + s[1:]
+    return re.sub(r"«(\w)", lambda m: "«" + m.group(1).upper(), s)
 
 
-def make_story(k, st, rnd):
-    f = forms(st)
-    chapters = []
-    for c in range(5):
-        n = rnd.randint(34, 46)
-        sents = rnd.sample(POOL, n)
-        paras, cur = [], []
-        for s in sents:
-            cur.append(fix(s.format(**f)))
-            if len(cur) >= rnd.randint(3, 6):
-                paras.append(" ".join(cur))
-                cur = []
-        if cur:
-            paras.append(" ".join(cur))
-        chapters.append(paras)
-    return chapters
+def heading(book, u):
+    if book["named"]:
+        return u["label"]
+    if u["label"] == "Заключение":
+        return "Заключение"
+    h = f"Глава {u['label']}"
+    sub = ""
+    if len(u["head"]) > 1:
+        sub = u["head"][1]                                   # «Капитанская дочка»: Глава I / Сержант гвардии
+    elif u["head"] and re.match(r"^[IVXLCХ]+\.\s+\S", u["head"][0]):
+        sub = title_case(u["head"][0].split(".", 1)[1])      # «Алые паруса»: I. ПРЕДСКАЗАНИЕ
+    return f"{h}. {sub}" if sub else h
 
 
-# ---------------------------------------------------------------- файлы
-def write_txt(path, title, chapters):
-    lines = [title, ""]
-    for i, paras in enumerate(chapters):
-        lines += [f"Глава {ROMAN[i]}", ""] + [p + "\n" for p in paras]
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+def front(book, key):
+    return [AUTHOR_FULL[key], book["title"]]
 
 
-def write_docx(path, title, chapters):
-    def par(text, head=False):
-        ppr = '<w:pPr><w:jc w:val="center"/><w:spacing w:before="240" w:after="120"/></w:pPr>' if head else \
-              '<w:pPr><w:ind w:firstLine="567"/><w:spacing w:after="120"/></w:pPr>'
-        rpr = '<w:rPr><w:b/><w:sz w:val="28"/></w:rPr>' if head else '<w:rPr><w:sz w:val="26"/></w:rPr>'
-        return f'<w:p>{ppr}<w:r>{rpr}<w:t xml:space="preserve">{html.escape(text, quote=False)}</w:t></w:r></w:p>'
-    body = [par(title, True)]
-    for i, paras in enumerate(chapters):
-        body.append(par(f"Глава {ROMAN[i]}", True))
-        body += [par(p) for p in paras]
-    doc = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-           '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
-           + "".join(body) +
+def as_txt(p):
+    return MARK.sub(lambda m: f"[{m.group(1)}]", p)
+
+
+def unit_texts(book):
+    """Текст каждой главы так, как он стоит в 10.txt между заголовками (сноски — [N])."""
+    return ["\n" + "\n".join(as_txt(p) for p in u["paras"]) + "\n" for u in book["units"]]
+
+
+def notes_lines(book):
+    return [f"[{i}] {t}" for i, t in enumerate(book["notes"], 1)]
+
+
+def write_txt(book, key):
+    lines = front(book, key) + [""]
+    for u in book["units"]:
+        lines += [heading(book, u)] + [as_txt(p) for p in u["paras"]]
+    if book["notes"]:
+        lines += [NOTES_HEAD] + notes_lines(book)
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------- .docx со сносками
+def _esc(s):
+    return html.escape(s, quote=False)
+
+
+def _runs(text, sz=26):
+    out = []
+    for i, piece in enumerate(MARK.split(text)):
+        if i % 2:
+            out.append(f'<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteReference w:id="{piece}"/></w:r>')
+        elif piece:
+            out.append(f'<w:r><w:rPr><w:sz w:val="{sz}"/></w:rPr><w:t xml:space="preserve">{_esc(piece)}</w:t></w:r>')
+    return "".join(out)
+
+
+def _p(text, head=False):
+    if head:
+        return ('<w:p><w:pPr><w:keepNext/><w:jc w:val="center"/><w:spacing w:before="360" w:after="160"/></w:pPr>'
+                f'<w:r><w:rPr><w:b/><w:sz w:val="30"/></w:rPr><w:t xml:space="preserve">{_esc(text)}</w:t></w:r></w:p>')
+    return f'<w:p><w:pPr><w:ind w:firstLine="567"/><w:spacing w:after="80"/><w:jc w:val="both"/></w:pPr>{_runs(text)}</w:p>'
+
+
+NS_W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+
+
+def docx_bytes(book, key):
+    body = [_p(x, True) for x in front(book, key)]
+    for u in book["units"]:
+        body.append(_p(heading(book, u), True))
+        body += [_p(p) for p in u["paras"]]
+    doc = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {NS_W}><w:body>' + "".join(body) +
            '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" '
            'w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>')
+    fns = ['<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>',
+           '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>']
+    for i, t in enumerate(book["notes"], 1):
+        fns.append(f'<w:footnote w:id="{i}"><w:p><w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteRef/></w:r>'
+                   f'<w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve"> {_esc(t)}</w:t></w:r></w:p></w:footnote>')
     parts = {
         "[Content_Types].xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
             '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
             '<Default Extension="xml" ContentType="application/xml"/>'
             '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            '<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>'
+            '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>'
             '</Types>',
         "_rels/.rels": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
             '</Relationships>',
+        "word/_rels/document.xml.rels": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>'
+            '</Relationships>',
+        "word/settings.xml": f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings {NS_W}>'
+            '<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr></w:settings>',
+        "word/footnotes.xml": f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes {NS_W}>' + "".join(fns) + "</w:footnotes>",
         "word/document.xml": doc,
     }
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+    return _zip_bytes(parts)
+
+
+# ---------------------------------------------------------------- .odt со сносками
+def _odt_inline(text):
+    out = []
+    for i, piece in enumerate(MARK.split(text)):
+        if i % 2:
+            note = _esc(BOOK_NOTES[int(piece) - 1])
+            out.append(f'<text:note text:id="ftn{piece}" text:note-class="footnote"><text:note-citation>{piece}</text:note-citation>'
+                       f'<text:note-body><text:p text:style-name="Footnote">{note}</text:p></text:note-body></text:note>')
+        elif piece:
+            out.append(_esc(piece))
+    return "".join(out)
+
+
+BOOK_NOTES = []
+
+
+def odt_bytes(book, key):
+    BOOK_NOTES[:] = book["notes"]
+    body = [f'<text:h text:style-name="H" text:outline-level="1">{_esc(x)}</text:h>' for x in front(book, key)]
+    for u in book["units"]:
+        body.append(f'<text:h text:style-name="H" text:outline-level="2">{_esc(heading(book, u))}</text:h>')
+        body += [f'<text:p text:style-name="P">{_odt_inline(p)}</text:p>' for p in u["paras"]]
+    content = ('<?xml version="1.0" encoding="UTF-8"?>'
+               '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+               'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+               'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+               'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" office:version="1.2">'
+               '<office:automatic-styles>'
+               '<style:style style:name="H" style:family="paragraph"><style:paragraph-properties fo:text-align="center" '
+               'fo:margin-top="0.4cm" fo:margin-bottom="0.2cm"/><style:text-properties fo:font-size="15pt" fo:font-weight="bold"/></style:style>'
+               '<style:style style:name="P" style:family="paragraph"><style:paragraph-properties fo:text-indent="1cm" '
+               'fo:text-align="justify" fo:margin-bottom="0.14cm"/><style:text-properties fo:font-size="13pt"/></style:style>'
+               '<style:style style:name="Footnote" style:family="paragraph"><style:text-properties fo:font-size="10pt"/></style:style>'
+               '</office:automatic-styles><office:body><office:text>' + "".join(body) +
+               '</office:text></office:body></office:document-content>')
+    manifest = ('<?xml version="1.0" encoding="UTF-8"?>'
+                '<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">'
+                '<manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/>'
+                '<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>'
+                '</manifest:manifest>')
+    return _zip_bytes({"mimetype": "application/vnd.oasis.opendocument.text", "content.xml": content,
+                       "META-INF/manifest.xml": manifest}, stored_first="mimetype")
+
+
+def _zip_bytes(parts, stored_first=None):
+    import io
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
         for name, data in parts.items():
-            info = zipfile.ZipInfo(name, date_time=(2026, 11, 15, 0, 0, 0))   # постоянная дата — файл не меняется при пересборке
+            info = zipfile.ZipInfo(name, date_time=ZIP_DATE)
+            info.compress_type = zipfile.ZIP_STORED if name == stored_first else zipfile.ZIP_DEFLATED
+            z.writestr(info, data.encode("utf-8") if isinstance(data, str) else data)
+    return buf.getvalue()
+
+
+def write_archive(book, key):
+    MEDIA.mkdir(parents=True, exist_ok=True)
+    path = MEDIA / f"{key}.zip"
+    files = {"10.docx": docx_bytes(book, key), "10.odt": odt_bytes(book, key), "10.txt": write_txt(book, key)}
+    with zipfile.ZipFile(path, "w") as z:
+        for name, data in files.items():
+            info = zipfile.ZipInfo(name, date_time=ZIP_DATE)
             info.compress_type = zipfile.ZIP_DEFLATED
-            z.writestr(info, data)
+            z.writestr(info, data.encode("utf-8") if isinstance(data, str) else data)
+    return path
 
 
-# ---------------------------------------------------------------- подсчёт (как «Найти» в текстовом редакторе)
-def words(text):
-    return WORD.findall(text)
+# ================================================================ подсчёт, как «Найти» в редакторе
+def _flags(case):
+    return 0 if case else re.I
 
 
-def count_word(text, w, case=False):
-    """Отдельное слово целиком; case=True — с учётом регистра."""
-    return sum(1 for x in words(text) if (x == w if case else x.lower() == w.lower()))
+def whole(t, w, case=False):
+    return len(re.findall(rf"(?<![{L}]){re.escape(w)}(?![{L}])", t, _flags(case)))
 
 
-def count_part(text, part):
-    """Сочетание букв в составе других слов (не как отдельное слово), без учёта регистра."""
-    p = part.lower()
-    return sum(x.lower().count(p) for x in words(text) if x.lower() != p)
+def total(t, w, case=False):
+    return len(re.findall(re.escape(w), t, _flags(case)))
 
 
-def count_any(text, part):
-    """Сочетание букв всего: и в составе слов, и отдельным словом, без учёта регистра."""
-    return sum(x.lower().count(part.lower()) for x in words(text))
+def part(t, w, case=False):
+    return total(t, w, case) - whole(t, w, case)
 
 
-def chap(chapters, i):
-    return "\n".join(chapters[i])
+def start(t, w, case=False):
+    """Слова, которые начинаются с сочетания w, но не само слово w."""
+    return len(re.findall(rf"(?<![{L}]){re.escape(w)}(?=[{L}])", t, _flags(case)))
 
 
-# ---------------------------------------------------------------- задания
-FILE_NOTE = ('<p>Задание выполняется с использованием прилагаемого файла. Текст — в двух видах: .docx '
-             '(откройте в текстовом редакторе) и .txt.</p>')
+class Book:
+    def __init__(self, key):
+        self.key = key
+        self.b = load(key)
+        self.units = unit_texts(self.b)
+        self.notes = notes_lines(self.b)
+        self.notes_text = "\n".join(self.notes)
+        self.heads = "\n".join(front(self.b, key) + [heading(self.b, u) for u in self.b["units"]] + [NOTES_HEAD])
+        self.everything = "\n".join(self.units) + "\n" + self.notes_text
+        self.numbered = [i for i, u in enumerate(self.b["units"]) if u["label"] not in ("Заключение",) and not self.b["named"]]
+        self.tokens = re.findall(rf"[{L}]+", "\n".join(self.units))
+        self.upper_tokens = {x for x in re.findall(rf"[{L}]+", self.everything) if len(x) > 1 and x.isupper()}
+
+    def scope(self, idx, with_notes=False):
+        t = "".join(self.units[i] for i in idx)
+        if with_notes:
+            refs = set(re.findall(r"\[(\d+)\]", t))
+            t += "\n".join(x for x in self.notes if x[1:].split("]")[0] in refs)
+        return t
+
+    def notes_in(self, idx):
+        refs = set(re.findall(r"\[(\d+)\]", "".join(self.units[i] for i in idx)))
+        return "\n".join(x for x in self.notes if x[1:].split("]")[0] in refs)
+
+    def clean(self, w):
+        """Сочетание без спорных мест: нет в заголовках, рядом с дефисом/апострофом/сноской, нет е↔ё и ЗАГЛАВНЫМИ."""
+        if re.search(re.escape(w), self.heads, re.I):
+            return False
+        for m in re.finditer(re.escape(w), self.everything, re.I):
+            a, b = m.start(), m.end()
+            near = self.everything[a - 1:a] + self.everything[b:b + 1]
+            if re.search(r"[-‑'’\[\]]", near):
+                return False
+        if any(len(x) > 1 and x.isupper() and w.upper() in x for x in self.upper_tokens):
+            return False                                     # слова ЗАГЛАВНЫМИ буквами: «x» или «X» было бы неточно
+        sw = w.replace("е", "\0").replace("ё", "е").replace("\0", "ё")
+        if sw != w and re.search(re.escape(sw), self.everything, re.I):
+            return False
+        return True
 
 
-def task_html(q):
-    return f"{FILE_NOTE}<p>{q}</p><p>В ответе укажите только число.</p>"
+# ================================================================ формулировки
+def unit_name(bk, i):
+    return bk.b["units"][i]["label"]
 
 
-SOL_EDITOR = ("<p>В текстовом редакторе: выделите нужный фрагмент (главу), откройте «Найти» (Ctrl+F), в параметрах поиска "
-              "отметьте «Только слово целиком» и, если нужно различать заглавные и строчные буквы, — «Учитывать регистр». "
-              "Число найденных совпадений — ответ. Для поиска в составе слов «Только слово целиком» не отмечайте и вычтите "
-              "отдельные вхождения слова.</p>")
+def join_ru(xs):
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " и " + xs[-1]
 
 
-def py_sol(kind, arg, chaps=None):
-    """Решение на Python по файлу 10.txt; chaps — номера глав с нуля (None — весь текст без названия и заголовков)."""
-    head = ("import re\ntext = open('10.txt', encoding='utf-8').read()\n"
-            "parts = re.split(r'^Глава [IVX]+$', text, flags=re.M)   # parts[0] — название, дальше главы\n")
-    head += ("text = " + " + ".join(f"parts[{c + 1}]" for c in chaps) + f"   # глава {', '.join(ROMAN[c] for c in chaps)}\n"
-             if chaps else "text = ''.join(parts[1:])\n")
-    head += "words = re.findall('[А-Яа-я]+', text)\n"
-    body = {
-        "word": f"print(sum(1 for w in words if w.lower() == '{arg.lower()}'))",
-        "case": f"print(sum(1 for w in words if w == '{arg}'))",
-        "part": f"print(sum(w.lower().count('{arg}') for w in words if w.lower() != '{arg}'))",
-        "any": f"print(sum(w.lower().count('{arg}') for w in words))",
-    }[kind]
-    return '<pre class="py-sol"><code>' + html.escape(head + body) + "</code></pre>"
+def selector(bk, rnd, kind):
+    """-> (номера глав, фраза «в тексте …»). kind: all / one / two / three / range / even / except / first / last."""
+    b = bk.b
+    n_units = len(b["units"])
+    genre = b["genre"]
+    if kind == "all":
+        return list(range(n_units)), f"в тексте {genre}"
+    if b["named"]:
+        if kind == "except":
+            k = rnd.choice([1, 4])
+            return [i for i in range(n_units) if i != k], f"в тексте романа, за исключением {GEROY_PHRASE[unit_name(bk, k)][9:]}"
+        if kind in ("two", "three", "range", "even", "first", "last"):
+            a = rnd.randrange(n_units - 1)
+            ks = [a, a + 1]
+            names = [GEROY_PHRASE[unit_name(bk, k)][9:] for k in ks]
+            return ks, "в тексте " + " и ".join(names)
+        k = rnd.choice([1, 2, 4, 5, 6])
+        return [k], GEROY_PHRASE[unit_name(bk, k)]
+    nums = bk.numbered
+    lab = lambda i: unit_name(bk, i)
+    if kind == "one":
+        k = rnd.choice(nums)
+        return [k], f"в тексте главы {lab(k)}"
+    if kind == "two":
+        a = rnd.choice(nums[:-1])
+        ks = [a, a + 1] if rnd.random() < .6 else sorted(rnd.sample(nums, 2))
+        return ks, f"в тексте глав {lab(ks[0])} и {lab(ks[1])}"
+    if kind == "three":
+        a = rnd.choice(nums[:-2])
+        ks = [a, a + 1, a + 2]
+        return ks, f"в тексте глав {join_ru([lab(k) for k in ks])}"
+    if kind == "range":
+        a = rnd.choice(nums[:max(1, len(nums) - 3)])
+        z = min(nums[-1], a + rnd.randint(2, 4))
+        return list(range(a, z + 1)), f"в тексте глав с {lab(a)} по {lab(z)} включительно"
+    if kind == "even":
+        ev = rnd.random() < .5
+        ks = [i for i in nums if (i + 1) % 2 == (0 if ev else 1)]
+        return ks, f"в тексте глав с {'чётными' if ev else 'нечётными'} номерами"
+    if kind == "except":
+        ks = sorted(rnd.sample(nums, 2))
+        return [i for i in range(n_units) if i not in ks], f"в тексте {genre}, за исключением глав {lab(ks[0])} и {lab(ks[1])}"
+    if kind in ("first", "last"):
+        c = rnd.randint(2, 5)
+        if kind == "last" and len(nums) < n_units:
+            kind = "first"                                   # «Пиковая дама»: после глав — «Заключение»
+        ks = nums[:c] if kind == "first" else nums[-c:]
+        return ks, f"в тексте {'первых' if kind == 'first' else 'последних'} {NUM_WORD[c]} глав"
+    raise ValueError(kind)
 
 
-WORDS_LOW = ["и", "в", "не", "на", "что", "он", "она", "они", "с", "к", "а", "но", "по", "о", "у"]
-WORDS_CAP = ["Они", "Он", "Она", "В", "И", "На", "Но", "А", "Потом", "Когда", "Тогда"]
-PARTS = ["ст", "ли", "ро", "ка", "ни", "до", "ло", "те", "ре", "ва"]
+def form_example(bk, w, idx):
+    """Пример другой формы слова: «солдат» → «солдаты» (берём из того же текста)."""
+    if len(w) < 4 or w in FUNC_WORDS:
+        return None                                         # «вы» → «вышла» — не форма слова
+    t = bk.scope(idx)
+    cands = {}
+    for x in re.findall(rf"(?<![{L}]){re.escape(w)}[а-яё]{{1,2}}(?![{L}])", t, re.I):
+        x = x.lower()
+        if 1 <= len(x) - len(w) <= 2:
+            cands[x] = cands.get(x, 0) + 1
+    return max(cands, key=cands.get) if cands else None
+
+
+# ================================================================ задания
+KINDS = {
+    # тип: (как считать, регистр, текст условия)
+    "word": "слово",            # отдельное слово, любой регистр
+    "word_low": "строчная",     # отдельное слово со строчной
+    "word_cap": "прописная",    # отдельное слово с прописной
+    "part": "в составе",        # только в составе других слов, любой регистр
+    "part_low": "в составе, строчная",
+    "any": "всего",             # и в составе, и отдельно
+    "start": "начало слова",    # слова, начинающиеся с сочетания (само слово не считается)
+    "pair": "два слова",        # сумма двух отдельных слов
+}
+
+# план одной книги: (тип, выбор глав, сноски: None / "без" / "со")
+PLAN = [("word", "all", None), ("word_low", "two", None), ("word_cap", "one", None), ("part", "all", None),
+        ("part_low", "three", None), ("any", "one", None), ("start", "range", None), ("pair", "even", None),
+        ("word", "except", None), ("part", "first", None)]
+PLAN_NOTES = [("word", "all", "со"), ("word_low", "two", None), ("word_cap", "one", None), ("part", "all", "без"),
+              ("part_low", "three", None), ("any", "one", None), ("start", "range", None), ("pair", "even", None),
+              ("word", "except", None), ("part", "last", None)]
+
+
+def count(bk, kind, w, idx, notes_mode, w2=None):
+    t = bk.scope(idx, with_notes=(notes_mode == "со"))
+    if kind == "word":
+        return whole(t, w)
+    if kind in ("word_low", "word_cap"):
+        return whole(t, w, case=True)
+    if kind == "part":
+        return part(t, w)
+    if kind == "part_low":
+        return part(t, w, case=True)
+    if kind == "any":
+        return total(t, w)
+    if kind == "start":
+        return start(t, w)
+    if kind == "pair":
+        return whole(t, w) + whole(t, w2)
+    raise ValueError(kind)
+
+
+def cap(w):
+    return w[:1].upper() + w[1:]
+
+
+def question(bk, kind, w, sel_phrase, notes_mode, example=None, w2=None):
+    b = bk.b
+    notes = ""
+    if notes_mode == "без":
+        notes = ", не считая сносок,"
+    elif notes_mode == "со":
+        notes = ", учитывая текст сносок,"
+    head = f"Текст {b['genre']} {b['author']} «{b['title']}» представлен в виде файлов различных форматов. Откройте один из файлов и определите"
+    forms = (f" Другие формы слова «{w}», такие как «{example}», учитывать не следует." if example
+             else " Другие формы этого слова учитывать не следует.")
+    if kind == "word":
+        q = f"{head}, сколько раз{notes} встречается слово «{w}» или «{cap(w)}» {sel_phrase}.{forms}"
+    elif kind == "word_low":
+        q = f"{head}, сколько раз{notes} встречается отдельное слово «{w}» со строчной буквы {sel_phrase}.{forms}"
+    elif kind == "word_cap":
+        q = (f"{head}, сколько раз{notes} встречается отдельное слово «{w}», начинающееся с прописной буквы, {sel_phrase}."
+             f"{forms}")
+    elif kind == "part":
+        q = (f"{head}, сколько раз{notes} встречается сочетание букв «{w}» или «{cap(w)}» только в составе других слов, "
+             f"но не как отдельное слово, {sel_phrase}.")
+    elif kind == "part_low":
+        q = (f"{head}, сколько раз{notes} встречается сочетание букв «{w}» со строчной буквы только в составе других слов, "
+             f"но не как отдельное слово, {sel_phrase}.")
+    elif kind == "any":
+        q = (f"{head}, сколько раз{notes} встречается сочетание букв «{w}» или «{cap(w)}» — как в составе других слов, "
+             f"так и как отдельное слово, — {sel_phrase}.")
+    elif kind == "start":
+        q = (f"{head}, сколько{notes} {sel_phrase} слов, которые начинаются с сочетания букв «{w}» или «{cap(w)}». "
+             f"Само слово «{w}» («{cap(w)}») не учитывайте; если слово начинается с этого сочетания, считайте его один раз.")
+    elif kind == "pair":
+        q = (f"{head}, сколько раз{notes} в сумме встречаются отдельные слова «{w}» и «{w2}» (в любом регистре) "
+             f"{sel_phrase}. Другие формы этих слов учитывать не следует.")
+    else:
+        raise ValueError(kind)
+    q = q.replace("  ", " ").replace(" ,", ",")
+    return ('<p><b><i>Задание выполняется с использованием прилагаемых файлов.</i></b></p>'
+            f"<p>{html.escape(q, quote=False)}</p><p>В ответе укажите только число.</p>")
+
+
+# ---------------------------------------------------------------- разбор
+WORD_HOW = {
+    "word": "в «Найти» (Ctrl+H → «Больше») отметьте «Только слово целиком», «Учитывать регистр» не отмечайте",
+    "word_low": "отметьте «Только слово целиком» и «Учитывать регистр», ищите слово со строчной буквы",
+    "word_cap": "отметьте «Только слово целиком» и «Учитывать регистр», ищите слово с прописной буквы",
+    "part": "найдите сочетание без «Только слово целиком» (это все вхождения), затем — с «Только слово целиком» "
+            "(отдельные слова) и вычтите второе число из первого",
+    "part_low": "то же с «Учитывать регистр»: все вхождения сочетания со строчной буквы минус вхождения отдельным словом",
+    "any": "ищите сочетание без «Только слово целиком» и без «Учитывать регистр» — это и есть ответ",
+    "start": "включите «Подстановочные знаки» и ищите &lt;сочетание (начало слова) — отдельно со строчной и с прописной "
+             "буквы, так как с подстановочными знаками регистр учитывается всегда; из суммы вычтите вхождения сочетания "
+             "отдельным словом («Только слово целиком»)",
+    "pair": "найдите каждое слово с «Только слово целиком» без учёта регистра и сложите",
+}
+
+
+def sol_html(bk, kind, notes_mode, sel_phrase):
+    where = ("Выделите нужные главы (через Ctrl — несколько фрагментов) и в «Найти» выберите «Найти в → Текущий фрагмент»."
+             if "глав" in sel_phrase or "повести «" in sel_phrase or "предислов" in sel_phrase
+             else "Поиск ведите по всему документу.")
+    notes = ""
+    if notes_mode == "без":
+        notes = " Сноски не считаются: в «Найти в» выберите «Основной документ» (в Word сноски — отдельная часть документа)."
+    elif notes_mode == "со":
+        notes = " Сноски считаются: сложите найденное в «Основном документе» и в «Сносках»."
+    elif bk.b["notes"]:
+        notes = " Текст сносок к заданию не относится — ищите в «Основном документе»."
+    return f"<p>В текстовом редакторе: {where} Затем {WORD_HOW[kind]}.{notes}</p>"
+
+
+def py_code(bk, kind, w, idx, notes_mode, w2=None):
+    b = bk.b
+    lines = ["import re", "text = open('10.txt', encoding='utf-8').read()"]
+    if b["notes"]:
+        lines.append(f"text, _, notes = text.partition('\\n{NOTES_HEAD}\\n')   # сноски — в конце файла")
+    if b["named"]:
+        names = "|".join(u["label"] for u in b["units"])
+        lines.append(f"parts = re.split(r'^(?:{names})$', text, flags=re.M)   # parts[1] — первая часть")
+    else:
+        lines.append("parts = re.split(r'^(?:Глава [IVXLC]+.*|Заключение)$', text, flags=re.M)   # parts[k] — глава k")
+    n = len(b["units"])
+    if idx == list(range(n)):
+        lines.append("t = ''.join(parts[1:])                     # весь текст без названия и заголовков")
+    else:
+        labels = [unit_name(bk, i) for i in idx]
+        lines.append("t = " + " + ".join(f"parts[{i + 1}]" for i in idx) + f"   # {', '.join(labels)}")
+    if notes_mode == "со":
+        lines.append("refs = set(re.findall(r'\\[(\\d+)\\]', t))                 # сноски, на которые есть ссылки в этом тексте")
+        lines.append("t += '\\n'.join(s for s in notes.splitlines() if s[1:].split(']')[0] in refs)")
+    lines.append(f"L = '{L}'")
+    flag = ", flags=re.I"
+    if kind == "word":
+        lines.append(f"print(len(re.findall(rf'(?<![{{L}}]){w}(?![{{L}}])', t{flag})))")
+    elif kind in ("word_low", "word_cap"):
+        lines.append(f"print(len(re.findall(rf'(?<![{{L}}]){w}(?![{{L}}])', t)))")
+    elif kind in ("part", "part_low"):
+        f = flag if kind == "part" else ""
+        lines.append(f"everywhere = len(re.findall('{w}', t{f}))")
+        lines.append(f"alone = len(re.findall(rf'(?<![{{L}}]){w}(?![{{L}}])', t{f}))")
+        lines.append("print(everywhere - alone)")
+    elif kind == "any":
+        lines.append(f"print(len(re.findall('{w}', t{flag})))")
+    elif kind == "start":
+        lines.append(f"print(len(re.findall(rf'(?<![{{L}}]){w}(?=[{{L}}])', t{flag})))   # начало слова, дальше ещё буква")
+    elif kind == "pair":
+        lines.append(f"print(sum(len(re.findall(rf'(?<![{{L}}]){{x}}(?![{{L}}])', t{flag})) for x in ('{w}', '{w2}')))")
+    return '<pre class="py-sol"><code>' + html.escape("\n".join(lines)) + "</code></pre>"
+
+
+# ---------------------------------------------------------------- подбор слов
+def candidates(bk, kind, rnd):
+    toks = bk.tokens
+    low = [x for x in toks if x.islower()]
+    freq = {}
+    for x in low:
+        freq[x] = freq.get(x, 0) + 1
+    if kind == "pair":
+        pool = [a for a, _ in PAIRS]
+    elif kind in ("word", "word_low"):
+        pool = [w for w in FUNC_WORDS if freq.get(w, 0) >= 3] + [w for w, c in freq.items() if len(w) >= 4 and 4 <= c <= 120]
+    elif kind == "word_cap":
+        capf = {}
+        for x in toks:
+            if x[:1].isupper() and x[1:].islower():
+                capf[x] = capf.get(x, 0) + 1
+        pool = [w for w, c in capf.items() if c >= 3 and freq.get(w.lower(), 0) >= 1] or [w for w, c in capf.items() if c >= 5]
+    elif kind in ("part", "part_low", "any"):
+        pool = [w for w, c in freq.items() if 2 <= len(w) <= 5 and c >= 1]
+    else:                                                     # start
+        pool = [w for w, c in freq.items() if 2 <= len(w) <= 5 and c >= 1]
+    pool = sorted(set(pool))
+    rnd.shuffle(pool)
+    return pool
+
+
+def make_task(bk, rnd, kind, sel_kind, notes_mode, used):
+    lo, hi = (8, 600) if sel_kind in ("all", "except") else (3, 250)
+    for _ in range(60):
+        idx, phrase = selector(bk, rnd, sel_kind)
+        if notes_mode and not bk.notes_in(idx):
+            continue
+        for w in candidates(bk, kind, rnd)[:400]:
+            if (kind, w) in used or not bk.clean(w):
+                continue
+            w2 = None
+            if kind == "pair":
+                pair = next((p for p in PAIRS if p[0] == w), None)
+                if not pair or not bk.clean(pair[1]) or (kind, pair[1]) in used:
+                    continue
+                w2 = pair[1]
+            ans = count(bk, kind, w, idx, notes_mode, w2)
+            if not lo <= ans <= hi:
+                continue
+            # условие должно «работать»: регистр, отдельные слова, сноски меняют ответ
+            t = bk.scope(idx)
+            if kind == "word_low" and whole(t, cap(w), case=True) == 0:
+                continue
+            if kind == "word_cap" and whole(t, w.lower(), case=True) == 0:
+                continue
+            if kind in ("part", "part_low", "start") and whole(t, w, case=(kind == "part_low")) == 0:
+                continue
+            if kind == "part_low" and part(t, cap(w), case=True) == 0:
+                continue
+            if notes_mode and count(bk, kind, w, idx, "со" if notes_mode == "без" else None, w2) == ans:
+                continue                                      # слово есть и в сносках — иначе оговорка ни на что не влияет
+            if kind == "any" and part(t, w) == 0:
+                continue
+            example = form_example(bk, w.lower(), idx) if kind in ("word", "word_low", "word_cap") else None
+            if example and kind == "word_cap":
+                example = cap(example)
+            used.add((kind, w))
+            if w2:
+                used.add((kind, w2))
+            return {"html": question(bk, kind, w, phrase, notes_mode, example, w2), "ans": str(ans),
+                    "sol": sol_html(bk, kind, notes_mode, phrase) + py_code(bk, kind, w, idx, notes_mode, w2),
+                    "meta": {"kind": kind, "w": w, "w2": w2, "idx": idx, "notes": notes_mode}}
+    raise RuntimeError(f"{bk.key}: не подобрано задание {kind}/{sel_kind}/{notes_mode}")
 
 
 def build_tasks():
-    rnd = random.Random(20261115)
-    out = []
-    MEDIA.mkdir(parents=True, exist_ok=True)
-    k = 0
-    for si, st in enumerate(STORIES, 1):
-        chapters = make_story(si, st, rnd)
-        stem = f"e10-{si:02d}"
-        write_txt(MEDIA / f"{stem}.txt", st["title"], chapters)
-        write_docx(MEDIA / f"{stem}.docx", st["title"], chapters)
-        full = "\n".join("\n".join(p) for p in chapters)
-        att = [{"name": "10.docx", "href": f"media/egeshka_bank/10t/{stem}.docx"},
-               {"name": "10.txt", "href": f"media/egeshka_bank/10t/{stem}.txt"}]
-        made, guard = 0, 0
+    rnd = random.Random(20261116)
+    out, k = [], 0
+    for key in BOOKS:
+        bk = Book(key)
+        path = write_archive(bk.b, key)
+        att = [{"name": "10.zip", "href": path.relative_to(ROOT).as_posix()}]
         used = set()
-        while made < 10 and guard < 500:
-            guard += 1
-            kind = ["word", "word", "case", "part", "word2", "any"][made % 6]
-            ci = rnd.randrange(5)
-            if kind == "word":
-                w = rnd.choice(WORDS_LOW)
-                ans = count_word(chap(chapters, ci), w)
-                q = (f"С помощью текстового редактора определите, сколько раз встречается отдельное слово «{w}» или «{w.capitalize()}» "
-                     f"в тексте главы {ROMAN[ci]} повести «{st['title']}». Другие формы слова и слова, в состав которых входит "
-                     f"«{w}», учитывать не следует.")
-                sol = py_sol("word", w, [ci])
-                key = ("word", w, ci)
-            elif kind == "case":
-                w = rnd.choice(WORDS_CAP)
-                ans = count_word(full, w, case=True)
-                q = (f"С помощью текстового редактора определите, сколько раз встречается слово «{w}» с заглавной буквы "
-                     f"(отдельное слово, именно в таком написании) во всём тексте повести «{st['title']}», кроме названия "
-                     f"и заголовков глав.")
-                sol = py_sol("case", w, None)
-                key = ("case", w)
-            elif kind == "part":
-                w = rnd.choice(PARTS)
-                ans = count_part(chap(chapters, ci), w)
-                q = (f"С помощью текстового редактора определите, сколько раз в тексте главы {ROMAN[ci]} повести «{st['title']}» "
-                     f"встречается сочетание букв «{w}» в составе других слов (без учёта регистра). Если в одном слове "
-                     f"сочетание встречается несколько раз, учитывайте каждое вхождение; отдельное слово «{w}» не учитывайте.")
-                sol = py_sol("part", w, [ci])
-                key = ("part", w, ci)
-            elif kind == "word2":
-                w = rnd.choice(WORDS_LOW)
-                c2 = (ci + 1) % 5
-                a, b = sorted((ci, c2))
-                ans = count_word(chap(chapters, a), w) + count_word(chap(chapters, b), w)
-                q = (f"С помощью текстового редактора определите, сколько раз встречается отдельное слово «{w}» или «{w.capitalize()}» "
-                     f"в тексте глав {ROMAN[a]} и {ROMAN[b]} повести «{st['title']}» (вместе).")
-                sol = py_sol("word", w, [a, b])
-                key = ("word2", w, a, b)
-            else:
-                w = rnd.choice(PARTS)
-                ans = count_any(chap(chapters, ci), w)
-                q = (f"С помощью текстового редактора определите, сколько всего раз встречается сочетание букв «{w}» "
-                     f"(и отдельным словом, и в составе других слов, без учёта регистра) в тексте главы {ROMAN[ci]} "
-                     f"повести «{st['title']}».")
-                sol = py_sol("any", w, [ci])
-                key = ("any", w, ci)
-            if key in used or not 3 <= ans <= 400:
-                continue
-            used.add(key)
-            made += 1
+        plan = PLAN_NOTES if bk.b["notes"] else PLAN
+        if bk.b["named"]:
+            plan = [(kd, s if s in ("all", "one", "two", "except") else "one", nm) for kd, s, nm in plan]
+        for kind, sel_kind, notes_mode in plan:
+            t = make_task(bk, rnd, kind, sel_kind, notes_mode, used)
             k += 1
-            out.append({"id": f"egeshka_bank:e10t-{k:03d}", "n": 10, "kim": 2027, "bank": "egeshka_bank",
-                        "html": task_html(q), "ans": str(ans), "src": SRC, "y": 2027, "dt": TODAY,
-                        "topic": "Поиск в тексте", "sol": SOL_EDITOR + sol, "att": att})
+            out.append({"id": f"{PREFIX}{k:03d}", "n": 10, "kim": 2027, "bank": "egeshka_bank", "html": t["html"],
+                        "ans": t["ans"], "src": SRC, "y": 2027, "dt": TODAY, "topic": "Поиск в тексте",
+                        "sol": t["sol"], "att": att, "_meta": dict(t["meta"], book=key)})
     return out
 
 
 def main():
     data = json.loads(OUT_JSON.read_text(encoding="utf-8"))
-    keep = [t for t in data["tasks"] if not t["id"].startswith("egeshka_bank:e10t-")]
+    keep = [t for t in data["tasks"] if not t["id"].startswith(OLD_PREFIXES)]
     new = build_tasks()
+    meta = [dict(id=t["id"], ans=t["ans"], **t.pop("_meta")) for t in new]
     data["tasks"] = keep + new
     data["bank"]["count"] = len(data["tasks"])
     OUT_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=0), encoding="utf-8")   # как tools/gen_egeshka.py
-    print(f"№10 (КИМ 2027): {len(new)} заданий, {len(STORIES)} повестей в {MEDIA.relative_to(ROOT)}")
+    for old in MEDIA.glob("e10-*"):
+        old.unlink()                                          # файлы прежней версии (короткие повести)
+    print(f"№10 (КИМ 2027): {len(new)} заданий по {len(BOOKS)} книгам, архивы в {MEDIA.relative_to(ROOT)}")
+    return meta
 
 
 if __name__ == "__main__":
