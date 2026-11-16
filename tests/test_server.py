@@ -5070,6 +5070,12 @@ class ServerTest(unittest.TestCase):
         f2 = json.loads(d)["file"]
         self.assertEqual([x["id"] for x in page.files], [f2["id"]])
         self.assertEqual(sorted(p.name for p in server.tog_files_dir(sid).iterdir()), [f2["id"]])
+        # не больше TOG_FILES_PER_PAGE файлов на странице, но новая версия уже прикреплённого файла — можно
+        with mock.patch.object(server, "TOG_FILES_PER_PAGE", 2):
+            self.assertEqual(up(b"a", "a.txt")[0], 200)
+            self.assertEqual(up(b"b", "b.txt")[0], 409)
+            self.assertEqual(up(b"a2", "a.txt")[0], 200)
+            self.assertEqual(sorted(x["name"] for x in page.files), ["_27 B.txt", "a.txt"])
         # слишком большой — нет
         with mock.patch.object(server, "TOG_FILE_MAX", 4):
             self.assertEqual(up(b"12345", "big.txt")[0], 413)
@@ -5078,7 +5084,7 @@ class ServerTest(unittest.TestCase):
         st, _, _ = self.rawreq("POST", "/api/together/file/delete", json.dumps({"s": sid, "f": f2["id"]}).encode(),
                             dict(adm, **{"Content-Type": "application/json"}))
         self.assertEqual(st, 200)
-        self.assertEqual(page.files, [])
+        self.assertEqual([x["name"] for x in page.files], ["a.txt"])
         self.assertFalse((server.tog_files_dir(sid) / f2["id"]).exists())
         # удалить занятие — и его папка с файлами уходит
         up(b"x", "1.txt")
@@ -5639,6 +5645,20 @@ class ServerTest(unittest.TestCase):
         # каждое задание банка принимает свой эталонный ответ
         for t in im.bank()["tasks"]:
             self.assertTrue(im.check(t, t["ans"]), t["id"])
+        # вариант сдан дважды (двойное нажатие) — ответы в журнале один раз, баллы те же
+        db = server.APP.db
+        self.login("Двойнов Дмитрий")
+        sid = db.q("SELECT id FROM students WHERE name LIKE 'Двойнов%'", one=True)["id"]
+        r = im.trial_start(db, sid)
+        items = json.loads(r["items"])
+        ans = {items[0]: im.task(items[0])["ans"]}
+        import threading
+        out = []
+        ths = [threading.Thread(target=lambda: out.append(im.trial_finish(db, sid, r, ans))) for _ in range(4)]
+        [t.start() for t in ths]
+        [t.join() for t in ths]
+        self.assertEqual(len({x["score"] for x in out}), 1)
+        self.assertEqual(db.q("SELECT COUNT(*) c FROM im_attempts WHERE trial_id=?", (r["id"],), one=True)["c"], len(items))
 
 
 class MailHeadersTest(unittest.TestCase):

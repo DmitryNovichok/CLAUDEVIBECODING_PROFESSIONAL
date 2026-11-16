@@ -92,34 +92,37 @@ class MigrateTest(unittest.TestCase):
 
 
 class TextSearchTasksTest(unittest.TestCase):
-    def test_hundred_tasks_with_files_and_correct_answers(self):
+    def test_hundred_tasks_on_classics_with_three_formats(self):
+        import contextlib
+        import html as html_mod
+        import io
+        import zipfile
         data = json.loads((ROOT / "data" / "egeshka_bank.json").read_text(encoding="utf-8"))
         self.assertEqual(data["bank"]["count"], len(data["tasks"]))
-        ts = [t for t in data["tasks"] if t["id"].startswith("egeshka_bank:e10t-")]
+        self.assertFalse([t for t in data["tasks"] if t["id"].startswith("egeshka_bank:e10t-")])   # прежние короткие повести
+        ts = [t for t in data["tasks"] if t["id"].startswith("egeshka_bank:e10b-")]
         self.assertEqual(len(ts), 100)
         texts = {}
         for t in ts:
             self.assertEqual((t["n"], t["kim"]), (10, 2027))
-            names = [a["name"] for a in t["att"]]
-            self.assertEqual(names, ["10.docx", "10.txt"])
-            for a in t["att"]:
-                self.assertTrue((ROOT / a["href"]).is_file(), a["href"])
-            txt = t["att"][1]["href"]
-            texts.setdefault(txt, (ROOT / txt).read_text(encoding="utf-8"))
-        # ответ «отдельного слова в главе» проверяем независимо: слово целиком, без учёта регистра
-        checked = 0
+            self.assertEqual([a["name"] for a in t["att"]], ["10.zip"])
+            href = t["att"][0]["href"]
+            if href not in texts:
+                with zipfile.ZipFile(ROOT / href) as z:
+                    self.assertEqual(sorted(z.namelist()), ["10.docx", "10.odt", "10.txt"])
+                    texts[href] = z.read("10.txt").decode("utf-8")
+            self.assertRegex(t["ans"], r"^\d+$")
+            self.assertIn("Задание выполняется с использованием прилагаемых файлов", t["html"])
+        self.assertEqual(len(texts), 10)
+        # программа из разбора даёт ответ задания (по 10.txt из архива)
         for t in ts:
-            q = clusters.plain(t["html"])
-            m = re.search(r"отдельное слово «([^»]+)».*? в тексте главы ([ivx]+) ", q)
-            if not m or "регистр" in q:
-                continue
-            word, ch = m.group(1), m.group(2).upper()
-            parts = re.split(r"^Глава ([IVX]+)$", texts[t["att"][1]["href"]], flags=re.M)
-            body = dict(zip(parts[1::2], parts[2::2]))[ch]
-            n = len(re.findall(r"(?<![А-Яа-яЁёA-Za-z\-])" + re.escape(word) + r"(?![А-Яа-яЁёA-Za-z\-])", body, flags=re.I))
-            self.assertEqual(str(n), t["ans"], t["id"])
-            checked += 1
-        self.assertGreater(checked, 20)
+            code = html_mod.unescape(re.search(r"<code>(.*?)</code>", t["sol"], re.S).group(1))
+            txt = texts[t["att"][0]["href"]]
+            out = io.StringIO()
+            fake_open = lambda *a, **k: io.StringIO(txt)
+            with contextlib.redirect_stdout(out):
+                exec(code, {"open": fake_open, "__builtins__": __builtins__})
+            self.assertEqual(out.getvalue().strip(), t["ans"], t["id"])
 
 
 class ArchiveLessonTest(unittest.TestCase):
