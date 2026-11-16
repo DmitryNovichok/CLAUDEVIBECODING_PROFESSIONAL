@@ -681,6 +681,11 @@ def login_code_required(t):
     return False
 
 
+def teacher_login_code_required(t):
+    """Обычный учитель с подтверждённой почтой входит по паролю и коду из письма, если на сервере настроена почта."""
+    return bool(t and not t["is_main"] and not t["guest"] and t["email"] and t["email_ok"] and smtp_conf())
+
+
 def login_code_hash(ticket, code):
     return hashlib.sha256(f"{ticket}:{code}".encode()).hexdigest()
 
@@ -3697,6 +3702,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             code_hash=login_code_hash, mask_email=mask_email, device_label=ua_label,
             session_mark=sess_mark, main_teacher=main_teacher,
             code_required=login_code_required, code_ready=login_code_ready, send_mail=send_mail,
+            teacher_code_required=teacher_login_code_required,
             security_summary=teacher_security, parse_int=to_int,
             teacher_ready=teacher_ready, teacher_email_pending=teacher_email_pending,
             teacher_onboarding=teacher_onboarding, teacher_access=teacher_access,

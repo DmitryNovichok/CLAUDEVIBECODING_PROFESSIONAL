@@ -9,8 +9,8 @@
       "source": "52238498e218601050d9f71ca82c409c504b1416b99eea16906a6046bc6e48be"
     },
     "admin.js": {
-      "min": "f3d687b0dd6fd5751d9b2b2b47b01b98eece5bfccf101f4be136770ec13b2bc1",
-      "source": "a41e78e207e640333f9952916ea89e4b7623cb04857505149cf83a7a9c90eaea"
+      "min": "56e01608e254eb29d860e4dc5d3c07a392ee5e104c731dd6846ac8c7465f9f49",
+      "source": "f24477c559921f95fdda18c5695283fd3f9fe2ca37d407e454aa10b212d7cb9d"
     },
     "app-exams.js": {
       "min": "b75d54c2a7c0f0b6ff34b50971e2e636be1bc3bbb6dc08790fb27bacae63ec82",
@@ -25,8 +25,8 @@
       "source": "9c16fec2138d703509dcb3967809822c14d00cfb8a082dc752bc6f78954f4863"
     },
     "changelog-loader.js": {
-      "min": "dc09a63600d263d1a34af91a28b2b0f3ff96b4cef6073f7ae900bf2a2375dfad",
-      "source": "5aa73cf2d020221bc7f0d13c79c3f846b693dcdf924ce6b1fe201e41dcbdc268"
+      "min": "264d1728b5c7e1a5cb82c5b6387ab5841d6d23ee64e9b0c1a5bf223230b72457",
+      "source": "9a6e02246c84983f0001b77b7d3397dfb2640e975b0695a35df7bb365ef699a7"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
