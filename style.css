@@ -11,7 +11,7 @@
   --good: #58cc02; --good-strong: #58a700; --good-soft: rgba(88, 204, 2, .14);
   --mid: #ffc800; --weak: #ff4b4b; --weak-soft: rgba(255, 75, 75, .14);
   --review: #ff9600; --review-soft: rgba(255, 150, 0, .16);
-  --on-accent: #ffffff; --on-good: #ffffff; --badge: #58cc02;
+  --on-accent: #10354d; --on-good: #17350b; --badge: #58cc02;
   --sel: rgba(28, 176, 246, .16); --sel-border: #1cb0f6; --sel-text: #49c0f8;
   --input-bg: #22262e; --code-bg: #1a1d23; --topbar-bg: #16181d;
   --track: #343a45; --subtle: rgba(255, 255, 255, .03); --linked: #d9dee7;
@@ -37,7 +37,7 @@
     --good: #58cc02; --good-strong: #58a700; --good-soft: #d7ffb8;
     --mid: #ffc800; --weak: #ff4b4b; --weak-soft: #ffdfe0;
     --review: #ff9600; --review-soft: rgba(255, 150, 0, .12);
-    --on-accent: #ffffff; --on-good: #ffffff; --badge: #58cc02;
+    --on-accent: #10354d; --on-good: #17350b; --badge: #58cc02;
     --sel: #ddf4ff; --sel-border: #84d8ff; --sel-text: #1899d6;
     --input-bg: #f7f3ea; --code-bg: #f7f3ea; --topbar-bg: #fbf9f4;
     --track: #e6dfd0; --subtle: rgba(0, 0, 0, .03); --linked: #4a443a;
@@ -55,7 +55,7 @@
   --good: #58cc02; --good-strong: #58a700; --good-soft: #d7ffb8;
   --mid: #ffc800; --weak: #ff4b4b; --weak-soft: #ffdfe0;
   --review: #ff9600; --review-soft: rgba(255, 150, 0, .12);
-  --on-accent: #ffffff; --on-good: #ffffff; --badge: #58cc02;
+  --on-accent: #10354d; --on-good: #17350b; --badge: #58cc02;
   --sel: #ddf4ff; --sel-border: #84d8ff; --sel-text: #1899d6;
   --input-bg: #f7f3ea; --code-bg: #f7f3ea; --topbar-bg: #fbf9f4;
   --track: #e6dfd0; --subtle: rgba(0, 0, 0, .03); --linked: #4a443a;
@@ -3985,6 +3985,7 @@ body.hubnav.hub-on .me-box { order: 3; }
 .ide-gutter { flex: none; width: 52px; overflow: hidden; background: var(--ide-gutter); border-right: 1px solid rgba(0, 0, 0, .12); padding: 12px 0; }
 .ide-gutter-in { will-change: transform; }
 .ide-ln { position: relative; display: block; height: 24.5px; padding-right: 12px; text-align: right; font: 13px/24.5px var(--mono); color: var(--ide-ln); cursor: pointer; user-select: none; }
+.ide-ln[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ide-ln:hover::before { content: ""; position: absolute; left: 8px; top: 50%; width: 11px; height: 11px; margin-top: -5.5px; border-radius: 50%; background: var(--ide-bp); opacity: .35; }
 .ide-ln.bp::before, .lab-code-line.bp .ide-ln::before { content: ""; position: absolute; left: 8px; top: 50%; width: 11px; height: 11px; margin-top: -5.5px; border-radius: 50%; background: var(--ide-bp); opacity: 1; }
 .ide-area { position: relative; flex: 1; min-width: 0; display: flex; }
@@ -4094,7 +4095,7 @@ body.hubnav.hub-on .me-box { order: 3; }
 .ob-btn { height: 46px; padding: 0 20px; border-radius: 14px; border: 2px solid #e8e2d4; background: #fff; color: #1d2433; font: 900 15px "Nunito"; cursor: pointer; box-shadow: 0 4px 0 #e8e2d4;
   transition: transform .12s, filter .12s; }
 .ob-btn:hover { transform: translateY(-1px); filter: brightness(1.03); } .ob-btn:active { transform: translateY(2px); box-shadow: none; }
-.ob-btn.primary { background: #58cc02; border-color: #58cc02; color: #fff; box-shadow: 0 4px 0 #46a302; }
+.ob-btn.primary { background: #58cc02; border-color: #58cc02; color: #17350b; box-shadow: 0 4px 0 #46a302; }
 .ob-btn:focus-visible, .ob-dots button:focus-visible, .ob-x:focus-visible { outline: 3px solid rgba(28, 176, 246, .55); outline-offset: 2px; }
 /* обучение на месте */
 .ob-coach { position: fixed; inset: 0; z-index: 9000; opacity: 0; transition: opacity .25s; font-family: "Nunito", system-ui, sans-serif; }

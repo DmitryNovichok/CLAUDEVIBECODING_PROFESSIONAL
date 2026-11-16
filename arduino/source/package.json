@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node tests/runtime.test.js && node tests/course.test.js && node tests/school.test.js && node tests/catalog.test.js && node tests/year.test.js && node tests/reliability.test.js && node --test tests/account-storage.test.js && python3 tests/local.test.py",
+    "test": "node tests/runtime.test.js && node tests/course.test.js && node tests/school.test.js && node tests/catalog.test.js && node tests/year.test.js && node tests/reliability.test.js && node --test tests/account-storage.test.js tests/sandbox.test.js && python3 tests/local.test.py",
     "package": "npm run build && node scripts/package.mjs"
   },
   "keywords": [],

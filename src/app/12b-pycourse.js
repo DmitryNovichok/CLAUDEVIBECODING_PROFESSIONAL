@@ -329,7 +329,7 @@
     const status = text => { msg.textContent = text; if (PY.task?.id === 'pyc:' + id) $('#pycDockStatus').textContent = text; };
     button.disabled = true; $('#pycDockTests').disabled = true; $('#pycDockStop').hidden = false; status('Загружаю Python для учебной проверки…');
     let worker;
-    try { worker = new Worker('py-worker.js' + (RULES.py_local ? '?local=1' : '')); }
+    try { worker = new EgePythonWorker('py-worker.js' + (RULES.py_local ? '?local=1' : '')); }
     catch (err) { button.disabled = false; $('#pycDockTests').disabled = false; $('#pycDockStop').hidden = true; status('Браузер не смог запустить проверку Python.'); return; }
     let timer, index = 0, passed = 0, output = '', error = '', finished = false;
     const finish = text => {

@@ -170,18 +170,21 @@ class StorageSafetyTest(unittest.TestCase):
                     proc.kill(); proc.communicate()
 
     def test_backup_includes_wal_and_checks_integrity(self):
-        import gzip
         import subprocess
+        from deploy.snapshot import verify
         with tempfile.TemporaryDirectory() as d:
-            root = Path(d); src = root / 'synthetic.db'
+            root = Path(d)
+            (root / 'app/server_data').mkdir(parents=True)
+            src = root / 'app/server_data/synthetic.db'
             db = sqlite3.connect(src)
             try:
                 db.execute('PRAGMA journal_mode=WAL')
                 db.execute('CREATE TABLE example(value INTEGER)')
                 db.execute('INSERT INTO example VALUES(42)'); db.commit()
                 subprocess.run(['sh', str(Path(__file__).resolve().parents[1]/'deploy/backup.sh'), str(src), str(root/'copies')], check=True, capture_output=True)
-                archive = next((root/'copies').glob('*.db.gz'))
-                restored = root/'restored.db'; restored.write_bytes(gzip.decompress(archive.read_bytes()))
+                archive = next((root/'copies').glob('*.tar.gz'))
+                verify(archive, root / 'restore')
+                restored = root / 'restore/server_data/trainer.db'
                 with sqlite3.connect(restored) as copy:
                     self.assertEqual(copy.execute('SELECT value FROM example').fetchone()[0],42)
                     self.assertEqual(copy.execute('PRAGMA integrity_check').fetchone()[0],'ok')

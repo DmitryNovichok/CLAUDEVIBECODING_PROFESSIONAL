@@ -38,15 +38,51 @@
     else if (e.target.closest('a[href^="/?login"]')) funnel('student');
   }, true);
 
-  // ---- регистрация учителя: условия пробного периода покажет панель сразу после входа
+  // ---- модальные окна: изолируем фон, удерживаем фокус и возвращаем его к кнопке
+  let activeOverlay = null, returnFocus = null, background = [], previousOverflow = '';
+  const focusable = box => [...box.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
+    .filter(el => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden]') && el.getClientRects().length);
+  function closeOverlay() {
+    if (!activeOverlay) return;
+    const old = activeOverlay;
+    activeOverlay = null;
+    old.hidden = true;
+    background.forEach(([el, inert]) => { el.inert = inert; });
+    background = [];
+    document.body.style.overflow = previousOverflow;
+    if (old.id === 'signupModal') visit(false);
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    returnFocus = null;
+  }
+  function showOverlay(box, first) {
+    if (activeOverlay) closeOverlay();
+    returnFocus = document.activeElement;
+    activeOverlay = box;
+    previousOverflow = document.body.style.overflow;
+    box.hidden = false;
+    background = [...document.body.children].filter(el => el !== box && el.tagName !== 'SCRIPT').map(el => [el, el.inert]);
+    background.forEach(([el]) => { el.inert = true; });
+    document.body.style.overflow = 'hidden';
+    (first || focusable(box)[0] || box).focus({ preventScroll: true });
+  }
+  document.addEventListener('keydown', e => {
+    if (!activeOverlay) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeOverlay(); return; }
+    if (e.key !== 'Tab') return;
+    const items = focusable(activeOverlay), first = items[0], last = items[items.length - 1];
+    if (!first) { e.preventDefault(); activeOverlay.querySelector('[role=dialog]')?.focus(); return; }
+    if (e.shiftKey && (document.activeElement === first || !activeOverlay.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || !activeOverlay.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+  });
+
+  // ---- регистрация учителя
   const modal = $('#signupModal');
   const visit = on => { if (window.EgVisit) on ? EgVisit.start('teacher', 'signup') : EgVisit.stop(); };   // главный учитель видит, что кто-то регистрируется
-  const open = () => { modal.hidden = false; visit(true); setTimeout(() => $('#suName').focus(), 30); };
+  const open = () => { showOverlay(modal, $('#suName')); visit(true); };
   document.addEventListener('click', e => {
     if (e.target.closest('[data-signup]')) { e.preventDefault(); open(); }
-    if (e.target.closest('[data-close]') || e.target === modal) { modal.hidden = true; visit(false); }
+    if (e.target.closest('[data-close]') || e.target === modal) closeOverlay();
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) { modal.hidden = true; visit(false); } });
   if (location.hash === '#signup') open();
   $('#signupForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -59,6 +95,61 @@
       visit(false);
       location.href = '/admin';
     } catch (err) { $('#suErr').textContent = err.message; btn.disabled = false; }
+  });
+
+  // ---- покрытие курса: только метаданные, без закрытых уроков
+  fetch('api/course/coverage', { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject()).then(data => {
+    if (!Array.isArray(data.topics)) return;
+    const topics = data.topics.filter(t => Number.isInteger(t.n) && t.n >= 1 && t.n <= 27 && !t.archive);
+    const box = $('#wNums');
+    box.replaceChildren(...topics.map(t => {
+      const el = document.createElement('span');
+      const full = t.kind === 'lesson';
+      el.textContent = t.n;
+      el.className = full ? 'full lit' : '';
+      el.title = `№ ${t.n}: ${full ? 'подробный урок' : 'краткий разбор'}`;
+      el.setAttribute('aria-label', el.title);
+      return el;
+    }));
+    const full = topics.filter(t => t.kind === 'lesson').length;
+    $('#courseFullCount').textContent = full;
+    $('#courseCountNote').textContent = `номеров с подробными уроками; ещё ${topics.length - full} — с краткими разборами`;
+    $('#courseCoverageNote').textContent = `Зелёным — подробные уроки (${full}), остальные — краткие разборы (${topics.length - full}). Архивные темы не входят в 27 номеров.`;
+  }).catch(() => { /* Остаётся честное описание без неподтверждённых чисел. */ });
+
+  // ---- автономный пример: только вымышленные данные, ни одного запроса кабинета
+  const demoNames = ['Александра Демо', 'Борис Демо', 'Вера Демо', 'Глеб Демо', 'Дарья Демо'];
+  let demoTopic = '', demoSelected = -1;
+  const demoReasons = ['Проверить крайний случай', 'Вернуться к условию', 'Объяснить способ решения', 'Повторить алгоритм', 'Закрепить на новом примере'];
+  function renderDemo() {
+    const box = $('#demoResult');
+    if (!demoTopic) {
+      box.innerHTML = '<h3>Здесь появится журнал</h3><p>Выберите тему и выдайте пример. Затем откройте результат ученика, чтобы выбрать следующий шаг.</p>';
+      return;
+    }
+    box.innerHTML = `<h3>Демо-подборка · № ${esc(demoTopic)}</h3><p>Синтетические результаты, не реальные ответы учеников.</p>
+      <div class="w-demo-table"><table><caption>Пример журнала класса</caption><thead><tr><th scope="col">Ученик</th><th scope="col">Решено</th><th scope="col">Следующий шаг</th></tr></thead><tbody>
+      ${demoNames.map((name, i) => `<tr><th scope="row">${name}</th><td>${[4, 2, 5, 3, 5][i]} из 5</td><td><button type="button" class="w-link" data-demo-student="${i}" aria-label="Разобрать: ${esc(name)}" aria-expanded="${demoSelected === i}" aria-controls="demoDetail">Разобрать<span class="w-sr">: ${name}</span></button></td></tr>`).join('')}</tbody></table></div>
+      <div id="demoDetail" class="w-demo-detail">${demoSelected < 0 ? 'Нажмите «Разобрать» рядом с учеником.' : `<b>${demoNames[demoSelected]} · ${demoReasons[demoSelected]}</b><p>Пример действия учителя: попросить ученика объяснить первый шаг, разобрать похожий случай вместе, затем выдать самостоятельное задание по № ${esc(demoTopic)}.</p><a class="w-link" href="#python">Инструменты для разбора →</a>`}</div>`;
+  }
+  $('#demoAssign').addEventListener('click', () => {
+    demoTopic = $('#demoTopic').value;
+    demoSelected = -1;
+    renderDemo();
+    $('#demoAssign').textContent = 'Выдать другой пример';
+    $('#demoReset').hidden = false;
+  });
+  $('#demoReset').addEventListener('click', () => {
+    demoTopic = ''; demoSelected = -1; renderDemo();
+    $('#demoAssign').textContent = 'Выдать демо-подборку';
+    $('#demoAssign').focus(); $('#demoReset').hidden = true;
+  });
+  $('#demoResult').addEventListener('click', e => {
+    const button = e.target.closest('[data-demo-student]');
+    if (!button) return;
+    demoSelected = Number(button.dataset.demoStudent);
+    renderDemo();
+    $(`[data-demo-student="${demoSelected}"]`).focus({ preventScroll: true });
   });
 
   // ---- появление при прокрутке; у групп — по очереди
@@ -134,48 +225,19 @@
     });
   }
 
-  // ---- подробность к пункту «Что есть на сайте»: наведение на компьютере, нажатие на телефоне
-  const pop = $('#wPop');
-  let popFor = null;
-  let showPop = function (el) {
-    popFor = el;
-    $$('.w-ft.on').forEach(x => x.classList.toggle('on', x === el));
-    el.classList.add('on');
-    pop.textContent = el.dataset.more;
-    pop.hidden = false;
-    const r = el.getBoundingClientRect(), pw = Math.min(300, innerWidth - 32);
-    pop.style.maxWidth = pw + 'px';
-    const ph = pop.offsetHeight, left = Math.max(16, Math.min(innerWidth - pop.offsetWidth - 16, r.left + r.width / 2 - pop.offsetWidth / 2));
-    const below = r.top - ph - 12 < 70;
-    pop.classList.toggle('below', below);
-    pop.style.left = left + 'px';
-    pop.style.top = (below ? r.bottom + 12 : r.top - ph - 12) + 'px';
-    pop.style.setProperty('--ax', (r.left + r.width / 2 - left) + 'px');
-    requestAnimationFrame(() => pop.classList.add('on'));
-  };
-  function hidePop() { popFor?.classList.remove('on'); popFor = null; pop.classList.remove('on'); pop.hidden = true; }
-  if (!window.matchMedia('(hover: hover)').matches) $('.w-feat-h p').textContent = 'Нажмите на пункт — появится подробность.';
-  $$('.w-ft').forEach(el => {
-    el.addEventListener('mouseenter', () => { if (window.matchMedia('(hover: hover)').matches) showPop(el); });
-    el.addEventListener('mouseleave', () => { if (window.matchMedia('(hover: hover)').matches) hidePop(); });
-    el.addEventListener('focus', () => { if (el.matches(':focus-visible')) showPop(el); });   // с клавиатуры; касание обрабатывает click
-    el.addEventListener('blur', hidePop);
-    el.addEventListener('click', () => { if (popFor === el && !window.matchMedia('(hover: hover)').matches) hidePop(); else showPop(el); });
-  });
-  let popY = 0;
-  const _show = showPop;
-  showPop = el => { popY = window.scrollY; _show(el); };
-  window.addEventListener('scroll', () => { if (popFor && Math.abs(window.scrollY - popY) > 60) hidePop(); }, { passive: true });   // подсказка уходит, когда страницу заметно прокрутили
-
-  // ---- снимок крупно
+  // ---- снимок крупно: мышь и клавиатура используют одно доступное окно
   const zoom = $('#wZoom');
+  function openZoom(img) {
+    zoom.querySelector('img').src = img.currentSrc || img.src;
+    zoom.querySelector('img').alt = img.alt;
+    showOverlay(zoom, zoom.querySelector('button'));
+  }
   document.addEventListener('click', e => {
     const img = e.target.closest('img[data-zoom]');
-    if (img) { zoom.querySelector('img').src = img.currentSrc || img.src; zoom.querySelector('img').alt = img.alt; zoom.hidden = false; return; }
-    if (!zoom.hidden && e.target.closest('#wZoom')) zoom.hidden = true;
+    if (img) { openZoom(img); return; }
+    if (!zoom.hidden && (e.target === zoom || e.target.closest('#wZoom button'))) closeOverlay();
   });
   document.addEventListener('keydown', e => {
-    if (e.key !== 'Escape') return;
-    modal.hidden = true; zoom.hidden = true; hidePop();
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('img[data-zoom]')) { e.preventDefault(); openZoom(e.target); }
   });
 })();

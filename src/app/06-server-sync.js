@@ -1,20 +1,32 @@
   // ------------------------------------------------------------ сервер: вход и синхронизация
   let localWriteAt = 0;                 // когда эта вкладка сама отправила ответ или сдала работу — для живых обновлений
+  let answerWriteSequence = 0;
+  let answerWriteSession = 0;
+  if (typeof window !== 'undefined') window.addEventListener?.('egeshka:session-ended', () => { answerWriteSession++; });
   async function api(path, body, method) {
     if (body && /^(check|reveal|asg\/(answer|finish)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
     if (isTemp()) headers['X-Temp'] = '1';
-    const r = await fetch('api/' + path, {
+    const writeId = body && /^(check|asg\/(answer|finish)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
+    const sessionAtStart = answerWriteSession;
+    const notify = state => { if (writeId && sessionAtStart === answerWriteSession && typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') window.dispatchEvent(new CustomEvent('egeshka:answer-save', { detail: { id: writeId, state } })); };
+    notify('pending');
+    let r;
+    try { r = await fetch('api/' + path, {
       method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined,
-    });
+    }); } catch (error) { notify('error'); throw error; }
     let data = {};
-    try { data = await r.json(); } catch (e) { /* пусто */ }
+    try { data = await r.json(); } catch (e) {
+      if (writeId) { notify('error'); throw new Error('Сервер не подтвердил сохранение ответа'); }
+    }
     if (!r.ok) {
+      notify('error');
       const err = new Error(data.error || r.statusText);
       err.status = r.status;
       throw err;
     }
+    notify((path === 'check' && data.final === false) || data.expired ? 'accepted' : 'saved');
     return data;
   }
 
@@ -25,7 +37,7 @@
     syncTimer = setTimeout(() => flushSync(false), 3000);
   }
   function currentForecast() {
-    try { return P.log.length >= CFG.forecast.minAnswers ? forecast().score : null; } catch (e) { return null; }
+    try { return forecastEvidence().count >= CFG.forecast.minAnswers ? forecast().score : null; } catch (e) { return null; }
   }
   /** На сервер уходят только прогноз (для учителя) и настройки. Сам прогресс сервер знает
       из журнала попыток — его больше не нужно пересылать целиком. */
@@ -51,8 +63,8 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
-    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); resetBugLab(); }
-    if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
+    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); pyDisposeSession(); }
+    if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
       try { localStorage.removeItem(STUDENT_STORE); sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
@@ -289,6 +301,7 @@
   });
 
   async function logout() {
+    pyDisposeSession();
     schoolWatch(false);
     if (examShown) saveExamInputs();
     abandonCurrent();

@@ -1,14 +1,17 @@
 /* Egeshka: Python в браузере (Pyodide) в отдельном потоке — бесконечный цикл не вешает страницу,
    кнопка «Стоп» просто завершает поток.
-   Сообщения: { type: 'run', code, files: [{ name, url }], stdin } → { type: 'out' | 'err', text },
+   Сообщения: { type: 'run', code, files: [{ name, data: ArrayBuffer }], stdin } → { type: 'out' | 'err', text },
    { type: 'turtle', ops }, { type: 'done', ok, ms }, { type: 'ready' }, { type: 'status', text }. */
 /* global loadPyodide */
 'use strict';
 
 const PYODIDE_VERSION = '0.28.3';
 const CDN = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
-// ?local=1 — Pyodide лежит на самом сервере в vendor/pyodide (школьная сеть может не пускать на CDN)
-const SOURCES = /[?&]local=1/.test(self.location.search) ? [new URL('vendor/pyodide/', self.location.href).href, CDN] : [CDN];
+// Fail closed if an old page tries to execute pupil code in the signed-in origin.
+// The adapter creates this Blob inside sandbox="allow-scripts" (opaque origin).
+if (self.location.protocol !== 'blob:' || self.location.origin !== 'null')
+  throw Error('Python должен запускаться через изолированную среду. Обновите страницу.');
+const SOURCES = self.EGE_PYODIDE_SOURCES || [CDN];
 
 // Черепашка для №6: стандартный turtle требует tkinter, которого в браузере нет.
 // Эта версия запоминает линии и точки, а рисует их страница.
@@ -264,7 +267,6 @@ _ft.cache = cache
 
 let pyodide = null;
 let broken = false;
-const fileCache = new Map();          // url → байты (файлы задания скачиваем один раз)
 
 async function boot() {
   let lastErr = null;
@@ -283,7 +285,12 @@ async function boot() {
   pyodide.runPython(CACHE_PY);
 }
 const ready = boot().then(() => self.postMessage({ type: 'ready', version: pyodide.version }),
-  e => { self.postMessage({ type: 'err', text: 'Не удалось загрузить Python: ' + (e && e.message || e) + '\n' }); self.postMessage({ type: 'done', ok: false, ms: 0 }); });
+  e => {
+    self.postMessage({ type: 'err', text: 'Не удалось загрузить Python: ' + (e && e.message || e) + '\n' });
+    self.postMessage({ type: 'done', ok: false, ms: 0 });
+    // Let the UI discard this failed interpreter; the next click can retry boot.
+    self.postMessage({ type: 'sandbox-error' });
+  });
 
 function chunker(type) {
   let buf = '', size = 0, cut = false;
@@ -315,17 +322,12 @@ self.onmessage = async ev => {
   let ok = true;
   try {
     for (const f of msg.files || []) {
-      if (!fileCache.has(f.url)) {
-        try {
-          const r = await fetch(f.url, { credentials: 'same-origin' });
-          if (!r.ok) throw new Error(String(r.status));
-          fileCache.set(f.url, new Uint8Array(await r.arrayBuffer()));
-        } catch (e) {
-          err.write(`Файл ${f.name} не удалось загрузить (${e.message}) — open('${f.name}') не сработает.\n`);
-          continue;
-        }
+      if (!f.name || /[/\\\x00-\x1f]/.test(f.name) || ['.', '..'].includes(f.name)) throw Error('Недопустимое имя файла');
+      if (f.error || !(f.data instanceof ArrayBuffer)) {
+        err.write(`Файл ${f.name} не удалось загрузить (${f.error || 'нет данных'}) — open('${f.name}') не сработает.\n`);
+        continue;
       }
-      pyodide.FS.writeFile('/home/pyodide/' + f.name, fileCache.get(f.url));
+      pyodide.FS.writeFile('/home/pyodide/' + f.name, new Uint8Array(f.data));
     }
     // каждый запуск — с чистого листа: свои переменные, своя черепашка
     pyodide.runPython("import os, sys; os.chdir('/home/pyodide'); sys.modules.pop('turtle', None)");

@@ -44,7 +44,7 @@ if [ "${free:-100}" -lt 10 ] && once_a_day disk; then
     $ALERT "на диске свободно меньше 10% ($free%) — база может перестать сохраняться"
 fi
 
-last=$(ls -t "$BACKUPS"/trainer-*.db.gz 2>/dev/null | head -1)
+last=$(ls -t "$BACKUPS"/trainer-*.tar.gz 2>/dev/null | head -1)
 if [ -n "$last" ]; then
     age=$(( (now - $(stat -c %Y "$last")) / 3600 ))
     if [ $age -ge 26 ] && once_a_day backup; then

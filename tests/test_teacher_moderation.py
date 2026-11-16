@@ -92,7 +92,7 @@ class TeacherModerationTest(unittest.TestCase):
         self.assertFalse(me['mail_on'])
         self.assertEqual(me['onboarding']['moderation'], 'pending')
         self.assertIsNone(self.row()['until'])
-        for secret in ('invite', 'access', 'steps', 'offer', 'consent_needed'):
+        for secret in ('invite', 'access', 'steps', 'journey', 'offer', 'consent_needed'):
             self.assertNotIn(secret, me)
         self.assertEqual(self.call('POST', 'email/resend', {})[0], 503)
         self.assertFalse(self.row()['email_ok'])

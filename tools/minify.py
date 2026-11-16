@@ -10,11 +10,12 @@
     python3 tools/minify.py --check  # проверить, что min/ собран из текущих файлов (CI)
 
 Нужны esbuild (arduino/source/node_modules или PATH) и обфускатор скриптов (tools/obfuscate: npm ci --ignore-scripts).
-Скрипты после сжатия обфусцируются: строки в зашифрованном массиве, имена — шестнадцатеричные, код привязан
-к домену egeshka.online (а также localhost для разработки).
-Код в браузере нельзя скрыть полностью — браузер должен его выполнить. Сжатие лишь делает копирование
-и разбор заметно труднее; ответы, ключи и проверка остаются только на сервере.
+Основная логика и совместное занятие после сжатия проходят лёгкую обфускацию с ограничением размера.
+Интерфейсы входа, знакомства и учителя остаются минифицированными для быстрого запуска.
+Код в браузере нельзя скрыть полностью — браузер должен его выполнить. Ответы, ключи и проверка
+остаются на сервере; обфускация не является границей доступа.
 """
+import gzip
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,12 @@ def esbuild():
 
 
 OBF = ROOT / "tools" / "obfuscate"
+# Only application logic uses light obfuscation. Login, onboarding and teacher UI
+# stay minified to keep parsing and startup economical on school computers.
+OBFUSCATED = frozenset(("app.js", "together.js"))
+# Compressed transfer budgets, not a claim about measured device rendering time.
+GZIP_BUDGET = {"app.js": 320_000, "admin.js": 180_000, "together.js": 45_000,
+               "welcome.js": 20_000, "onboard.js": 15_000, "teacher-gate.js": 12_000}
 
 
 def obfuscator():
@@ -70,15 +77,24 @@ def build(dest, maps=MAPS):
         subprocess.run([exe, str(src), "--minify", "--legal-comments=none", "--charset=utf8", "--log-level=warning",
                         "--target=es2020" if js else "--target=chrome90,firefox88,safari14", f"--outfile={out}"]
                        + (["--sourcemap=external"] if js else []), check=True)
-        if js:                                  # скрипты — ещё и обфускация: зашифрованные строки, привязка к домену
+        if js:
             m1, m2 = Path(str(out) + ".map"), Path(str(out) + ".obf.map")
-            subprocess.run(obf + [str(out), str(out), str(m2)], check=True)
-            table = sourcemap.compose(json.loads(m1.read_text(encoding="utf-8")), json.loads(m2.read_text(encoding="utf-8")),
-                                      shift=1)  # строка 1 — баннер с правами
+            first = json.loads(m1.read_text(encoding="utf-8"))
+            if name in OBFUSCATED:
+                plain_size = len(gzip.compress(out.read_bytes(), mtime=0))
+                subprocess.run(obf + [str(out), str(out), str(m2)], check=True)
+                if len(gzip.compress(out.read_bytes(), mtime=0)) > plain_size * 1.18 + 1024:
+                    raise SystemExit(f"{name}: обфускация превышает бюджет +18% gzip")
+                table = sourcemap.compose(first, json.loads(m2.read_text(encoding="utf-8")), shift=1)
+                m2.unlink()
+            else:
+                table = sourcemap.single(first, shift=1)
             (maps / (name + ".json")).write_text(sourcemap.dump(table), encoding="utf-8")
             m1.unlink()
-            m2.unlink()
         out.write_text(BANNER + "\n" + out.read_text(encoding="utf-8"), encoding="utf-8")
+        compressed = len(gzip.compress(out.read_bytes(), mtime=0))
+        if name in GZIP_BUDGET and compressed > GZIP_BUDGET[name]:
+            raise SystemExit(f"{name}: gzip {compressed} превышает бюджет {GZIP_BUDGET[name]}")
     for extra in dest.iterdir():                # лишнее (файл убрали из MIN_FILES) — удаляем, чтобы сервер его не отдавал
         if extra.name not in files():
             extra.unlink()

@@ -251,10 +251,10 @@ class AuditRegressionTest(unittest.TestCase):
             # Other synthetic teachers must not be eligible for this test.
             self.db.x('UPDATE teachers SET report=0 WHERE id<>?', (main,))
             self.db.x('UPDATE teachers SET report=1 WHERE id=?', (main,))
-            self.assertEqual(server.report_tick(self.db), 0)
+            self.assertEqual(server.report_tick(self.db, 'https://egeshka.test'), 0)
             self.assertIsNone(self.db.q('SELECT report_ts FROM teachers WHERE id=?', (main,), one=True)['report_ts'])
-            self.assertEqual(server.report_tick(self.db), 1)
-            self.assertEqual(server.report_tick(self.db), 0)
+            self.assertEqual(server.report_tick(self.db, 'https://egeshka.test'), 1)
+            self.assertEqual(server.report_tick(self.db, 'https://egeshka.test'), 0)
             self.assertEqual(send.call_count, 2)
 
     def test_failed_parent_report_is_retried(self):

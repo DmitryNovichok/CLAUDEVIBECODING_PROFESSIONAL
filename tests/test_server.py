@@ -386,6 +386,7 @@ class ServerTest(unittest.TestCase):
 
     def test_task9_gets_txt_copy_of_table(self):
         # №9 решают, скопировав таблицу в .txt: сервер сам даёт 9.txt (ячейки через табуляцию)
+        tok = self.login('Табличный Файл')
         old_bank = server.APP.bank
         server.APP.bank = server.Bank(old_bank.path, old_bank.secret.decode())
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
@@ -403,7 +404,7 @@ class ServerTest(unittest.TestCase):
             att = next(t for t in pub["tasks"] if t["n"] == 9 and t["bank"] == "egeshka_bank")["att"]
             self.assertEqual([a["name"] for a in att], ["9.xlsx", "9.txt"])
             c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-            c.request("GET", "/" + att[1]["href"])
+            c.request("GET", "/" + att[1]["href"], headers={'X-Token': tok})
             r = c.getresponse()
             self.assertEqual((r.status, r.read()), (200, b"12\t7\t33\n100\t8\tx\n"))
             c.close()
@@ -427,6 +428,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/vendor/ok.css")[0], 200)
 
     def test_bank_images_served_from_found_folder(self):
+        tok = self.login('Картинкин Файл')
         bank = self.tmp / "img_bank" / "assets"
         bank.mkdir(parents=True)
         (bank / "a.png").write_bytes(b"\x89PNG")
@@ -434,9 +436,10 @@ class ServerTest(unittest.TestCase):
         server.BIBLIO = self.tmp
         server._bank_cache.clear()
         try:
-            self.assertEqual(self.req("GET", "/img_bank/assets/a.png")[0], 200)
+            self.assertEqual(self.req("GET", "/img_bank/assets/a.png")[0], 401)
+            self.assertEqual(self.req("GET", "/img_bank/assets/a.png", token=tok)[0], 200)
             # банк собран из другой папки: перед именем банка лишние папки — всё равно находим
-            self.assertEqual(self.req("GET", "/Documents/Biblio/img_bank/assets/a.png")[0], 200)
+            self.assertEqual(self.req("GET", "/Documents/Biblio/img_bank/assets/a.png", token=tok)[0], 200)
             self.assertEqual(self.req("GET", "/img_bank/assets/../../server_data/secret.txt", raw_path=True)[0], 404)
             self.assertEqual(self.req("GET", "/img_bank/task.json")[0], 404)
         finally:
@@ -482,7 +485,7 @@ class ServerTest(unittest.TestCase):
 
         def get(href):
             c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-            c.request("GET", "/" + href)
+            c.request("GET", "/" + href, headers={'X-Token': tok})
             r = c.getresponse()
             out = (r.status, r.read(), r.headers.get("Content-Disposition") or "")
             c.close()
@@ -1029,6 +1032,7 @@ class ServerTest(unittest.TestCase):
         lv = lambda i, ans: {"title": f"Уровень {i}", "goal": "", "need": 1, "slides": [{"t": "text", "h": "Слайд", "html": "<p>x</p>"}],
                              "tasks": [{"id": f"m90.t{i}", "h": "Задача", "cond": "<p>?</p>", "stars": 1, "ans": ans, "sol": "print(42)"}]}
         mod = {"id": "m90", "n": 5, "title": "Тест", "icon": "🐍", "sub": "", "levels": [lv(1, "2, 5"), lv(2, "abc")]}
+        mod['levels'][0]['tasks'][0]['files'] = [{'name': 'a.txt', 'url': 'pyc-data/m90/t1/a.txt'}]
         (d / "m90.json").write_text(json.dumps(mod, ensure_ascii=False), encoding="utf-8")
         (d / "index.json").write_text(json.dumps([{**{k: mod[k] for k in ("id", "n", "title", "icon", "sub")}, "group": "ege",
                                                    "levels": [{"title": x["title"], "goal": "", "need": 1, "tasks": [t["id"] for t in x["tasks"]],
@@ -1067,7 +1071,8 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(r["opened"])                                                              # открылся следующий уровень
         self.assertEqual(r["sol"], "print(42)")
         self.assertEqual(self.req("GET", "/api/pyc/level?m=m90&l=1", token=tok)[0], 200)
-        self.assertEqual(self.req("GET", "/pyc-data/m90/t1/a.txt")[1], b"1\n2\n")              # файл задачи отдаётся как есть
+        self.assertEqual(self.req("GET", "/pyc-data/m90/t1/a.txt")[0], 401)
+        self.assertEqual(self.req("GET", "/pyc-data/m90/t1/a.txt", token=tok)[1], b"1\n2\n")
         self.assertEqual(self.req("GET", "/pycourse/m90.json")[0], 404)                         # а уроки с ответами — нет
         st, a = self.admin("GET", "/api/admin/pyc")
         self.assertEqual([x["id"] for x in a["students"]], [me["sid"]])                            # в списке — только вошедшие
@@ -2467,10 +2472,18 @@ class ServerTest(unittest.TestCase):
         d.mkdir(parents=True, exist_ok=True)
         (d / "24.txt").write_text("ABCABC\n", encoding="utf-8")
         (server.HERE / "course" / "24.json").write_text('{"n": 24, "slides": []}', encoding="utf-8")
-        st, body = self.req("GET", "/course-data/24/24.txt?v=abc12345")
+        tok = self.login('Файлов Курс')
+        sid = self.req('GET', '/api/me', token=tok)[1]['sid']
+        old_password = server.APP.db.setting('course_pw')
+        self.addCleanup(lambda: server.APP.db.setting('course_pw', old_password or ''))
+        self.addCleanup(lambda: server.APP.db.x('UPDATE students SET course=0 WHERE id=?', (sid,)))
+        server.APP.db.setting('course_pw', server.hash_pw('synthetic-course'))
+        server.APP.db.x('UPDATE students SET course=1 WHERE id=?', (sid,))
+        self.assertEqual(self.req('GET', '/course-data/24/24.txt')[0], 401)
+        st, body = self.req("GET", "/course-data/24/24.txt?v=abc12345", token=tok)
         self.assertEqual((st, body if isinstance(body, str) else body), (200, body))
         self.assertIn("ABCABC", body if isinstance(body, str) else body.decode())
-        self.assertEqual(self.req("GET", "/course-data/24/none.txt")[0], 404)
+        self.assertEqual(self.req("GET", "/course-data/24/none.txt", token=tok)[0], 404)
         self.assertEqual(self.req("GET", "/course-data/../24.json")[0], 404)
         self.assertEqual(self.req("GET", "/course/24.json")[0], 404)
 
@@ -2889,7 +2902,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sid2, "coins": 5000})[0], 400)
         self.assertEqual(self.admin("GET", "/api/admin/gifts")[1]["recent"][0]["t"], "Ракета")
         # подарки видны у ника в рейтинге
-        rows = self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]["league"]["top"]
+        # Этот тест проверяет значок, а не место в top-N: другие сценарии оставляют
+        # учеников с опытом в общей fixture и могут вытеснить получателя из top-N.
+        with mock.patch.object(server, 'LEAGUE_SHOW', db.q('SELECT COUNT(*) AS n FROM students', one=True)['n']):
+            rows = self.req("GET", "/api/leaderboard", token=tok)[1]["boards"]["league"]["top"]
         self.assertIn("🧸", [g["i"] for g in next(r for r in rows if r["sid"] == sid2)["gifts"]])
         # «случайный подарок» — выпадает подарок из каталога за GIFT_BOX_PRICE
         have = self.req("GET", "/api/gifts", token=tok)[1]["coins"]
@@ -5519,11 +5535,14 @@ class ServerTest(unittest.TestCase):
     def test_main_teacher_logs_in_with_code_from_email(self):
         db = server.APP.db
         old = db.q("SELECT pw, email FROM teachers WHERE is_main=1", one=True)
+        old_policy = db.setting("main_login_code")
+        db.x("DELETE FROM settings WHERE key='main_login_code'")
         db.x("UPDATE teachers SET pw=?, email=? WHERE is_main=1", (server.hash_pw("Main-Pass-91"), "owner@example.ru"))
         db.x("DELETE FROM admin_codes")
         sent = []
         try:
             with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+                 mock.patch.object(server, "LOGIN_CODE_RETRY_SEC", 0), \
                  mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, subj, t)) or True):
                 server.THROTTLE.fails.clear()
                 # верный пароль — сессии нет, на почту ушёл код
@@ -5559,15 +5578,17 @@ class ServerTest(unittest.TestCase):
                 st, sec = self.admin("GET", "/api/admin/security")
                 self.assertTrue(sec["code_login"]["on"])
                 events = [(r["event"], r["ok"], r["detail"]) for r in sec["log"]]
-                self.assertIn(("code", True, "пароль верный, код отправлен на почту"), events)
+                self.assertIn(("code", True, "пароль верный, письмо с кодом принято SMTP"), events)
                 self.assertIn(("login", False, "неверный код из письма"), events)
-            # почта не настроена — главный входит по паролю (иначе остался бы без панели), в журнале пометка
+            # Once required, SMTP loss cannot downgrade the principal to password-only login.
             with mock.patch.object(server, "smtp_conf", lambda: None):
                 st, d, ck = self.creq("POST", "/api/admin/login", {"login": "owner@example.ru", "password": "Main-Pass-91"})
-                self.assertEqual(st, 200)
-                self.assertTrue(ck.startswith("egeadm="))
+                self.assertEqual((st, ck), (503, ""))
         finally:
             db.x("UPDATE teachers SET pw=?, email=? WHERE is_main=1", (old["pw"], old["email"]))
+            db.x("DELETE FROM settings WHERE key='main_login_code'")
+            if old_policy is not None:
+                db.setting("main_login_code", old_policy)
             server.THROTTLE.fails.clear()
 
 

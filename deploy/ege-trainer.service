@@ -10,6 +10,16 @@ ExecStart=/usr/bin/python3 /opt/trainer/server.py --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
+Environment=EGE_HTTP_WORKERS=128
+Environment=EGE_STREAM_WORKERS=256
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+RestrictSUIDSGID=true
+TasksMax=512
+TimeoutStopSec=30
 # живые обновления держат по соединению на браузер — запас открытых файлов
 LimitNOFILE=8192
 

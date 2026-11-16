@@ -17,15 +17,14 @@ REMOTE= KEEP_DAYS=30
 [ -n "$REMOTE" ] || { echo "В $CONF не указан REMOTE" >&2; exit 1; }
 [ -s "$PASS" ] || { echo "Нет пароля шифрования $PASS" >&2; exit 1; }
 command -v rclone >/dev/null || { echo "rclone не установлен: apt install -y rclone" >&2; exit 1; }
-last=$(ls -t "$BACKUPS"/trainer-*.db.gz 2>/dev/null | head -1)
+last=$(ls -t "$BACKUPS"/trainer-*.tar.gz 2>/dev/null | head -1)
 [ -n "$last" ] || { echo "Нет локальных копий в $BACKUPS" >&2; exit 1; }
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
-name=$(basename "$last" .db.gz)
-# база и настройки (почта, тарифы) — одним архивом, зашифрованным AES-256
-tar -C "$BACKUPS" -cf "$TMP/$name.tar" "$(basename "$last")" $( [ -f "$last.private.json" ] && basename "$last.private.json" )
-openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in "$TMP/$name.tar" -out "$TMP/$name.tar.enc" -pass "file:$PASS"
-rclone copyto "$TMP/$name.tar.enc" "$REMOTE/$name.tar.enc"
-rclone delete --min-age "${KEEP_DAYS}d" "$REMOTE" 2>/dev/null || true
-echo "Копия вне сервера: $REMOTE/$name.tar.enc"
-# Восстановить: rclone copy REMOTE/ФАЙЛ.tar.enc . && openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in ФАЙЛ.tar.enc -out x.tar -pass file:backup.pass && tar xf x.tar
+name=$(basename "$last")
+python3 "$APP/deploy/snapshot.py" verify "$last"
+openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in "$last" -out "$TMP/$name.enc" -pass "file:$PASS"
+rclone copyto "$TMP/$name.enc" "$REMOTE/$name.enc"
+rclone delete --include 'trainer-*.tar.gz.enc' --min-age "${KEEP_DAYS}d" "$REMOTE" 2>/dev/null || true
+echo "Полная копия вне сервера: $REMOTE/$name.enc"
+# Decrypt to snapshot.tar.gz, then use snapshot.py restore into a NEW empty directory.

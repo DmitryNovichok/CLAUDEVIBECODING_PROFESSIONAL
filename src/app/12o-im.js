@@ -3,7 +3,8 @@
      (информатика, математика, физика) с прогрессом; у номера — разбор (идея, шаги, типичные ошибки, демо-задание)
      и тренировка без лимита; «Пробный вариант» — 10 заданий на 120 минут, баллы как на конкурсе (из 60). */
   let IM_OK = false, IM_PW = false;
-  const IM = { d: null, view: 'home', slot: 1, task: null, res: null, trial: null, result: null, timer: 0, saveT: 0, pos: 0, auto: false };
+  const IM = { d: null, view: 'home', slot: 1, task: null, res: null, trial: null, result: null, timer: 0, saveT: 0, pos: 0, auto: false,
+    saver: null, finishBusy: false, finishPending: false, finishError: '' };
   const IM_SUBJ = { inf: ['Информатика', 'inf'], mat: ['Математика', 'mat'], phy: ['Физика', 'phy'] };
   const imActive = () => courseShown && pageKind === 'im';
   const imBox = () => trainerEl.querySelector('.im');
@@ -179,12 +180,93 @@
   }
 
   // ---------- пробный вариант: 10 заданий, 120 минут, ответы сохраняются на сервере, проверка — после сдачи
+  function createImTrialSaver({ id, sid, answers, storage, send, changed = () => {}, clock = () => Date.now() }) {
+    const key = `egeTrainer.imDraft.s${sid}.t${id}`;
+    let revision = 0, savedRevision = 0, inFlight = null, paused = false, state = 'saved', error = '', nextOnline = 0;
+    let baseline = { ...answers }, observed = { ...answers }, local = true;
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const report = () => changed({ state, error, local, pending: revision !== savedRevision });
+    const persist = () => {
+      try {
+        if (revision === savedRevision) storage.removeItem(key);
+        else {
+          // Restore only locally edited fields; newer answers in other fields remain on the server.
+          const patch = Object.fromEntries(Object.keys(answers).filter(k => answers[k] !== baseline[k]).map(k => [k, answers[k]]));
+          storage.setItem(key, JSON.stringify({ sid, id, patch, ts: clock() }));
+        }
+        local = true;
+      } catch (_) { local = false; }
+    };
+    try {
+      const draft = JSON.parse(storage.getItem(key) || 'null');
+      if (draft && draft.sid === sid && draft.id === id && draft.patch && clock() - draft.ts < 86400000) {
+        for (const [k, v] of Object.entries(draft.patch)) {
+          if (Object.hasOwn(answers, k) && typeof v === 'string') answers[k] = v.slice(0, 120);
+        }
+        if (!same(answers, baseline)) { revision++; state = 'pending'; observed = { ...answers }; }
+      }
+    } catch (_) { local = false; }
+    function touch() {
+      if (!same(answers, observed)) {
+        observed = { ...answers }; revision++; state = 'pending'; error = ''; persist(); report();
+      }
+    }
+    function flush() {
+      touch();
+      if (paused) return Promise.resolve(false);
+      if (inFlight) return inFlight;
+      if (revision === savedRevision) return Promise.resolve(true);
+      inFlight = (async () => {
+        while (!paused && revision !== savedRevision) {
+          const sentRevision = revision, snapshot = { ...answers };
+          state = 'saving'; error = ''; report();
+          try { await send({ id, answers: snapshot }); }
+          catch (e) {
+            state = 'error'; error = e.message || 'Нет связи с сервером'; nextOnline = clock() + 10000;
+            persist(); report(); return false;
+          }
+          savedRevision = sentRevision; baseline = snapshot;
+          state = revision === savedRevision ? 'saved' : 'pending'; persist(); report();
+        }
+        return revision === savedRevision;
+      })().finally(() => { inFlight = null; });
+      return inFlight;
+    }
+    return {
+      id, sid, answers, touch, flush,
+      status: () => ({ state, error, local, pending: revision !== savedRevision }),
+      // A connectivity event is one attempt, never a timer retry loop or a finish retry.
+      online() { if (!paused && revision !== savedRevision && clock() >= nextOnline) { nextOnline = clock() + 10000; return flush(); } },
+      pause() { touch(); paused = true; return inFlight || Promise.resolve(true); },
+      clear() { paused = true; savedRevision = revision; try { storage.removeItem(key); } catch (_) { /* no storage */ } },
+    };
+  }
+  function imSaveStatus() {
+    const box = $('#imSaveStatus'), retry = $('#imSaveRetry');
+    if (!box || !IM.saver) return;
+    const s = IM.saver.status();
+    box.textContent = IM.finishBusy ? 'Отправляю вариант…' : IM.finishError ? `Сдача не подтверждена: ${IM.finishError}. Повтори сдачу кнопкой «Сдать вариант».`
+      : s.state === 'saved' ? 'Сохранено на сервере' : s.state === 'saving' ? 'Сохраняю ответы…'
+        : s.state === 'error' ? `Не сохранено на сервере: ${s.error}. ${s.local ? 'Черновик остался в этой вкладке.' : 'Ответы пока только в памяти вкладки — не закрывай её.'}`
+          : 'Изменения ожидают отправки';
+    if (retry) retry.hidden = IM.finishPending || !['error', 'pending'].includes(s.state);
+  }
   async function imTrialOpen() {
+    clearTimeout(IM.saveT);
+    if (IM.saver) await IM.saver.pause();
     let r;
     try { r = await api('im/trial/start', {}); } catch (e) { toast(e.message); return; }
     if (!imActive()) return;
+    r.answers = Object.fromEntries(r.items.map(it => [it.id, r.answers[it.id] || '']));
     IM.trial = r; IM.view = 'trial'; IM.pos = IM.pos < r.items.length ? IM.pos : 0;
+    const sid = student?.sid;
+    IM.finishBusy = false; IM.finishPending = false; IM.finishError = '';
+    let draftStorage;
+    try { draftStorage = sessionStorage; } catch (_) { /* storage disabled: report memory-only draft */ }
+    IM.saver = createImTrialSaver({ id: r.id, sid, answers: r.answers, storage: draftStorage, changed: imSaveStatus,
+      send: data => student?.sid === sid ? api('im/trial/save', data) : Promise.reject(new Error('Войди в свой аккаунт, чтобы сохранить ответы')) });
     imTrialRender();
+    if (IM.saver.status().pending) IM.saver.flush();
   }
   function imTrialRender() {
     const box = imBox(), T = IM.trial;
@@ -192,10 +274,11 @@
     const it = T.items[IM.pos], s = imSlot(it.slot);
     const left = () => Math.max(0, T.deadline - Date.now() / 1000);
     const clock = () => { const x = left(); return `${Math.floor(x / 3600)}:${String(Math.floor(x % 3600 / 60)).padStart(2, '0')}:${String(Math.floor(x % 60)).padStart(2, '0')}`; };
-    box.innerHTML = `<section class="im-trialbar"><button type="button" class="link-btn" data-im-home title="Вариант не прервётся: время идёт, ответы сохранены">← К номерам</button><b>Пробный вариант</b><span class="im-clock${left() < 600 ? ' warn' : ''}" id="imClock">${clock()}</span>
+    box.innerHTML = `<section class="im-trialbar"><button type="button" class="link-btn" data-im-home title="Вариант не прервётся: время продолжает идти">← К номерам</button><b>Пробный вариант</b><span class="im-clock${left() < 600 ? ' warn' : ''}" id="imClock">${clock()}</span>
         <nav class="im-nav">${T.items.map((x, i) => `<button type="button" class="${i === IM.pos ? 'on' : ''}${(T.answers[x.id] || '').trim() ? ' done' : ''}" data-im-go="${i}" title="Задание ${i + 1} · ${esc(imSlot(x.slot).title)}">${i + 1}</button>`).join('')}</nav>
         <button type="button" class="btn ghost im-calc" data-im-calc>🧮</button>
         <button type="button" class="btn primary" data-im-finish>Сдать вариант</button></section>
+      <p class="fm-note"><span id="imSaveStatus" role="status" aria-live="polite"></span> <button type="button" class="btn" id="imSaveRetry" hidden>Повторить сохранение</button></p>
       <section class="im-train ${s.subj}">
         <div class="im-card-top"><span class="im-num">${IM.pos + 1}</span><span class="im-chip ${s.subj}">${IM_SUBJ[s.subj][0]}</span><span class="im-lv">${esc(s.level)}</span><span class="im-pts">${s.points} б.</span></div>
         <div class="im-task">${imTaskHtml(it.html)}</div>
@@ -204,6 +287,10 @@
           ${IM.pos < T.items.length - 1 ? `<button type="button" class="btn primary" data-im-go="${IM.pos + 1}">Дальше →</button>` : '<button type="button" class="btn primary" data-im-finish>Сдать вариант</button>'}</div>
       </section>`;
     imBindOptions(box, 'imTAns');
+    $('#imSaveRetry').onclick = () => IM.saver?.flush();
+    $('#imTAns').disabled = IM.finishPending;
+    $$('[data-im-finish]').forEach(btn => { btn.disabled = IM.finishBusy; });
+    imSaveStatus();
     $('#imTAns').addEventListener('input', e => { T.answers[it.id] = e.target.value; imTrialSave(); $$('.im-nav button')[IM.pos].classList.toggle('done', !!e.target.value.trim()); });
     renderMathIn(box);
     clearInterval(IM.timer);
@@ -211,26 +298,39 @@
       const c = $('#imClock');
       if (!c || !imActive()) { clearInterval(IM.timer); return; }
       c.textContent = clock(); c.classList.toggle('warn', left() < 600);
-      if (left() <= 0) { clearInterval(IM.timer); toast('Время вышло — вариант сдан', 4000); imTrialFinish(true); }
+      if (left() <= 0) { clearInterval(IM.timer); if (!IM.finishPending) { toast('Время вышло — отправляю вариант', 4000); imTrialFinish(true); } }
     }, 1000);
   }
   function imTrialSave(now) {
     clearTimeout(IM.saveT);
-    const go = () => api('im/trial/save', { id: IM.trial.id, answers: IM.trial.answers }).catch(() => {});
-    if (now) return go();
-    IM.saveT = setTimeout(go, 700);
+    const saver = IM.saver;
+    if (!saver || !IM.trial || saver.id !== IM.trial.id || IM.finishPending) return;
+    saver.touch();
+    if (now) return saver.flush();
+    IM.saveT = setTimeout(() => saver.flush(), 700);
   }
   async function imTrialFinish(force) {
     const T = IM.trial;
-    if (!T) return;
+    if (!T || IM.finishBusy) return;
     const empty = T.items.filter(x => !(T.answers[x.id] || '').trim()).length;
     if (!force && !confirm(empty ? `Без ответа: ${empty}. Сдать вариант?` : 'Сдать вариант? Изменить ответы будет нельзя.')) return;
     clearTimeout(IM.saveT); clearInterval(IM.timer);
-    try { IM.result = await api('im/trial/finish', { id: T.id, answers: T.answers }); } catch (e) { toast(e.message); return; }
+    IM.finishBusy = true; IM.finishPending = true; IM.finishError = '';
+    $('#imTAns')?.setAttribute('disabled', '');
+    $$('[data-im-finish]').forEach(btn => { btn.disabled = true; }); imSaveStatus();
+    await IM.saver?.pause();
+    try { IM.result = await api('im/trial/finish', { id: T.id, answers: { ...T.answers } }); }
+    catch (e) {
+      IM.finishError = e.message || 'Нет связи с сервером'; IM.finishBusy = false;
+      $$('[data-im-finish]').forEach(btn => { btn.disabled = false; }); imSaveStatus(); return;
+    }
+    IM.saver?.clear(); IM.saver = null; IM.finishBusy = false; IM.finishPending = false;
     IM.trial = null; IM.view = 'result';
     try { IM.d = await api('im'); } catch (e) { /* итог уже есть */ }
     if (imActive()) imRender();
   }
+  window.addEventListener('online', () => { if (IM.saver?.sid === student?.sid) IM.saver.online(); });
+  window.addEventListener('pagehide', () => { IM.saver?.touch(); });
   function imResultView(box) {
     const R = IM.result;
     if (!R) { IM.view = 'home'; return imRender(); }
@@ -258,7 +358,7 @@
   function imBindOptions(box, inputId) {
     box.querySelectorAll('.im-task .im-opts li[data-o]').forEach(li => li.addEventListener('click', () => {
       const inp = $('#' + inputId);
-      if (!inp) return;
+      if (!inp || inp.disabled) return;
       const two = li.closest('.im-two');
       if (two) {
         const which = [...two.querySelectorAll('.im-opts')].indexOf(li.closest('.im-opts'));

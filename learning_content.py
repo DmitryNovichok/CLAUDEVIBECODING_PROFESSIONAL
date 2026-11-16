@@ -88,6 +88,22 @@ GUIDES = {
 }
 
 
+def course_coverage(root):
+    """Public metadata only; actual slides and attachments keep their access rules."""
+    import json
+    topics = []
+    models = {7: 'image', 13: 'net', 15: 'logic', 19: 'game', 20: 'game', 21: 'game', 28: 'graph'}
+    for n in range(1, 29):
+        lesson_n = 19 if n in (20, 21) else n
+        row = GUIDES.get(lesson_n)
+        f = root / 'course' / f'{lesson_n}.json'
+        deck = json.loads(f.read_text(encoding='utf-8')) if f.is_file() else None
+        topics.append({'n': n, 'lesson_n': lesson_n, 'title': row[0], 'kind': 'lesson' if deck else 'guide',
+                       'slides': len(deck['slides']) if deck else 4, 'archive': n == 28, 'model': models.get(n)})
+    return {'topics': topics, 'full_count': sum(t['kind'] == 'lesson' and not t['archive'] for t in topics),
+            'guide_count': sum(t['kind'] == 'guide' and not t['archive'] for t in topics), 'archive_count': 1}
+
+
 def course_guide(n):
     row = GUIDES.get(19 if n in (20, 21) else n)
     if not row:

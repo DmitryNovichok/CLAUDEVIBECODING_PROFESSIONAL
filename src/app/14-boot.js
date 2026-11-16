@@ -281,17 +281,30 @@
   const CHANGELOG = (window.EGE_CHANGELOG && window.EGE_CHANGELOG.student) || [['', '', [], []]];
   const versionBtn = $('#versionBtn');
   if (versionBtn) versionBtn.textContent = `Версия ${CHANGELOG[0][0]} · что нового`;
-  versionBtn?.addEventListener('click', () => {
-    if (isNarrow()) setSideOpen(false);
+  let changelogLoading = false, changelogError = '';
+  function renderChangelog() {
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Что нового</h2>
+      ${changelogLoading ? '<p class="fm-muted" role="status">Загружаю предыдущие версии…</p>' : ''}${changelogError ? `<p role="alert">${esc(changelogError)} <button type="button" class="link-btn" data-changelog-retry>Повторить</button></p>` : ''}
       ${SERVER && student ? `<button type="button" class="sto-launch" id="storiesGo"><span class="sto-l-ic">🐞</span><span><b>Что нового: лаборатории и уроки</b>
         <small>исправление ошибок, отладчик, полные уроки курса, инструкция · ${storySlides().length} слайдов</small></span></button>` : ''}
       <div class="changelog">${CHANGELOG.map(([v, d, added, changed], i) => `<section class="cl-ver${i ? '' : ' cl-now'}">
         <h3><span class="cl-num">${v}</span><span class="fm-muted">${d}</span>${i ? '' : '<span class="chip good">сейчас</span>'}</h3>
         ${(added || []).length ? `<div class="cl-kind cl-add">✨ Добавлено</div><ul>${added.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${(changed || []).length ? `<div class="cl-kind cl-chg">🔧 Изменено</div><ul>${changed.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>`).join('')}</div>`;
-    $('#forecastModal').hidden = false;
-  });
+  }
+  async function openChangelog() {
+    if (isNarrow()) setSideOpen(false);
+    changelogLoading = !!window.EgeLoadChangelog; changelogError = '';
+    renderChangelog(); $('#forecastModal').hidden = false;
+    try { if (window.EgeLoadChangelog) await window.EgeLoadChangelog(); }
+    catch (error) { changelogError = error.message; }
+    finally {
+      changelogLoading = false;
+      if (!$('#forecastModal').hidden && $('#forecastBody .changelog')) renderChangelog();
+    }
+  }
+  versionBtn?.addEventListener('click', openChangelog);
+  $('#forecastBody').addEventListener('click', e => { if (e.target.closest('[data-changelog-retry]')) openChangelog(); });
   let promoNext = false;                                              // после знакомства с сайтом — объявление об акции
   // «Решать задания» в окне акции и «К заданиям» после матча — просто закрывают окно
   $('#forecastBody').addEventListener('click', e => { if (e.target.closest('#tourGo')) closeForecast(); });

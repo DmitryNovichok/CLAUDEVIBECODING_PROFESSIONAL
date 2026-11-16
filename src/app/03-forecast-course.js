@@ -9,6 +9,19 @@
   };
   const testScore = primary => EGE.scale[Math.min(Math.max(primary, 0), EGE.scale.length - 1)];
 
+  // Only first encounters with no recorded site assistance enter the model.
+  // This is evidence from the site, not proof that outside help was absent.
+  const forecastEligible = e => e.n >= 1 && e.n <= 27 && e.v === 'independent' && !e.w && !e.b && !e.r;
+  function forecastEvidence(now = Date.now()) {
+    const all = P.log.filter(e => e.t <= now);
+    const independent = all.filter(forecastEligible);
+    const recent = independent.filter(e => now - e.t <= 30 * DAY);
+    const covered = new Set(recent.map(e => e.n));
+    return { count: independent.length, recent: recent.length, excluded: all.length - independent.length,
+      latest: independent.reduce((v, e) => Math.max(v, e.t), 0),
+      missing: Array.from({length:27}, (_, i) => i + 1).filter(n => !covered.has(n)) };
+  }
+
   /**
    * Вероятности по номерам на момент now по истории ответов:
    * p — решить целиком с первой попытки; ph — у №26, 27 верна ровно половина ответа (1 балл из 2);
@@ -19,7 +32,7 @@
     const perNum = {};
     for (let i = P.log.length - 1; i >= 0; i--) {
       const e = P.log[i];
-      if (e.t > now) continue;
+      if (e.t > now || !forecastEligible(e)) continue;
       const arr = perNum[e.n] || (perNum[e.n] = []);
       if (arr.length < F.lastN) arr.push(e);
     }
@@ -45,7 +58,7 @@
       });
       const p = (ss + F.priorMean * F.priorWeight) / (sw + F.priorWeight);
       const ph = n >= 26 ? Math.min(sh / (sw + F.priorWeight), 1 - p) : 0;
-      res[n] = { p, ph, exp: p + ph / 2, tried: true, a: st ? st.a : arr.length, ok: st ? st.ok : 0 };
+      res[n] = { p, ph, exp: p + ph / 2, tried: true, a: arr.length, ok: arr.filter(e => e.s === 1).length };
     }
     return res;
   }
@@ -82,7 +95,7 @@
     return {
       probs, score: Math.round(exp), primary, lo: quant(0.1), hi: quant(0.9),
       pMin: atLeast(EGE.minScore), pAdm: atLeast(EGE.admission), p80: atLeast(80),
-      answers: P.log.filter(e => e.t <= now).length, covered,
+      answers: forecastEvidence(now).count, evidence: forecastEvidence(now), covered,
     };
   }
 
@@ -93,7 +106,7 @@
 
   /** Прогноз на конец дня — для графика (при восстановлении из журнала). */
   function snapshotForecast(day, now) {
-    if (P.log.filter(e => e.t <= now).length < CFG.forecast.minAnswers) return;
+    if (forecastEvidence(now).count < CFG.forecast.minAnswers) return;
     if (!P.fc) P.fc = [];
     const s = forecast(now).score;
     const last = P.fc[P.fc.length - 1];
@@ -136,12 +149,12 @@
     const el = $('#forecastBtn');
     if (!el) return;
     const F = CFG.forecast;
-    if (P.log.length < F.minAnswers) {
-      const left = F.minAnswers - P.log.length;
+    if (forecastEvidence().count < F.minAnswers) {
+      const left = F.minAnswers - forecastEvidence().count;
       el.className = 'forecast fc-empty';
       el.innerHTML = `${fcIcon(0)}<span class="fc-txt"><span class="fc-label">Прогноз ЕГЭ</span>
         <span class="fc-value">ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}</span></span>`;
-      el.title = 'Прогноз появится, когда наберётся немного ответов';
+      el.title = 'Прогноз появится после новых заданий, решённых без подсказок на сайте';
       return;
     }
     const f = forecast();
@@ -150,7 +163,7 @@
     const prelim = f.covered < 27;
     el.innerHTML = `${fcIcon(f.score >= 70 ? 3 : f.score >= EGE.minScore ? 2 : 1)}<span class="fc-txt"><span class="fc-label">Прогноз ЕГЭ${prelim ? ' *' : ''}</span>
       <span class="fc-value">${f.score} ${plural(f.score, 'балл', 'балла', 'баллов')}</span></span>`;
-    el.title = `Скорее всего ${f.lo}–${f.hi} баллов. Нажмите — что подтянуть, чтобы поднять балл`
+    el.title = `Учебный ориентир: ${f.score} баллов. За 30 дней: ${f.evidence.recent} ответов без подсказок. Нажмите — посмотреть данные`
       + (prelim ? `\n* Данные есть по ${f.covered} из 27 номерам — остальные пока считаются нерешёнными.` : '');
   }
 
@@ -224,9 +237,9 @@
     const F = CFG.forecast;
     const box = $('#forecastModal');
     const body = $('#forecastBody');
-    if (P.log.length < F.minAnswers) {
+    if (forecastEvidence().count < F.minAnswers) {
       body.innerHTML = `<h2 class="fm-title">Прогноз балла ЕГЭ</h2>
-        <p class="fm-note">Прогноз появится после ${F.minAnswers} ответов. Сейчас: ${P.log.length}. Лучше всего начать с режима «Все задания» или с варианта ЕГЭ — так быстрее соберётся картина по всем номерам.</p>`;
+        <p class="fm-note">Прогноз появится после ${F.minAnswers} новых заданий без подсказок на сайте. Сейчас: ${forecastEvidence().count}. Лучше всего начать с режима «Все задания» или с варианта ЕГЭ — так быстрее соберётся картина по всем номерам.</p>`;
       box.hidden = false;
       return;
     }
@@ -264,17 +277,15 @@
           <span class="fm-sub">тестовых баллов<br>≈ ${f.primary.toFixed(1).replace('.', ',')} первичных из 29</span>
         </div>
         <div class="fm-facts">
-          <div>С вероятностью 80% — <b>от ${f.lo} до ${f.hi}</b></div>
+          <div><b>Учебный ориентир, не обещание результата</b></div>
           ${delta != null ? `<div>${delta > 0 ? '▲' : delta < 0 ? '▼' : '='} ${delta > 0 ? '+' : ''}${delta} с ${dayLabel(wk.d)}</div>` : ''}
-          <div class="fm-chips">
-            <span class="chip ${f.pMin >= 0.9 ? 'good' : f.pMin >= 0.5 ? 'mid' : 'weak'}">порог ${EGE.minScore}: ${pctOr(f.pMin)}</span>
-            <span class="chip ${f.pAdm >= 0.9 ? 'good' : f.pAdm >= 0.5 ? 'mid' : 'weak'}">вуз, ${EGE.admission}+: ${pctOr(f.pAdm)}</span>
-            <span class="chip accent">80+: ${pctOr(f.p80)}</span>
-          </div>
+          <div class="fm-chips"><span class="chip">${f.evidence.recent} ответов за 30 дней</span>
+            <span class="chip">${27 - f.evidence.missing.length} из 27 номеров за 30 дней</span></div>
         </div>
       </div>
 
       ${trainPlan(f)}
+      <div class="fm-note" id="mistakeSummary" role="status"></div>
 
       <div class="fm-chart-wrap">
         <div class="fm-h">Прогноз за ${F.chartDays} дней</div>
@@ -282,7 +293,11 @@
       </div>
 
       <p class="fm-note">По ${f.answers} ${plural(f.answers, 'ответу', 'ответам', 'ответам')}, данные есть по ${f.covered} из 27 номеров.
-        ${untried.length ? 'Номера, которые ещё не решали, считаются нерешёнными — прогноз вырастет, когда вы их попробуете.' : ''}</p>
+        ${untried.length ? 'По непроверенным номерам модель пока не добавляет баллы; это не доказательство, что вы их не умеете.' : ''}</p>
+      <p class="fm-note">В расчёте — первые встречи с заданиями без подсказок, повторов и занятия «Вместе».
+        Исключено записей: ${f.evidence.excluded}. Последний подходящий ответ: ${f.evidence.latest ? new Date(f.evidence.latest).toLocaleDateString('ru-RU') : 'нет'}.
+        ${f.evidence.missing.length ? `Нет свежих данных за 30 дней по номерам: ${f.evidence.missing.join(', ')}.` : 'По всем номерам есть свежие данные.'}
+        Сайт не может проверить помощь вне платформы. Точность модели ещё не проверена на результатах настоящих экзаменов, поэтому вероятность и доверительный диапазон не показываются.</p>
 
       ${untried.length || weak.length ? `<div class="fm-where">
         <div class="fm-h">Ещё можно добрать</div>
@@ -291,17 +306,28 @@
       </div>` : ''}
 
       <div class="fm-table-wrap"><table class="fm-table">
-        <thead><tr><th>№</th><th>Баллов</th><th>Шанс решить</th><th>Ответов</th><th>В прогноз</th></tr></thead>
+        <thead><tr><th>№</th><th>Баллов</th><th>Оценка модели</th><th>Ответов</th><th>В прогноз</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
 
       <details class="fm-how"><summary>Как считается прогноз</summary>
-        <p>Для каждого номера оценивается вероятность решить его на экзамене с первой попытки. Последние ответы весят больше старых, а через месяц без практики вес ответа падает вдвое. Верный ответ на сложном задании и ошибка на простом весят сильнее. Ответ со второй попытки засчитывается на четверть: на экзамене подсказки «неверно» не будет.</p>
-        <p>Задание, которое уже встречалось, весит втрое меньше: его ответ мог запомниться. Ответы в варианте ЕГЭ весят в полтора раза больше — это экзаменационные условия. Пока ответов мало, оценка осторожная.</p>
-        <p>У заданий 26 и 27 учитывается частичный балл: если с первой попытки верна половина ответа (одно из двух чисел), это 1 балл из 2. Из вероятностей складывается распределение первичных баллов (всего 29), и оно переводится в тестовые по шкале ЕГЭ‑2026. Диапазон покрывает 80% вероятных исходов.</p>
+        <p>Для каждого номера оценивается вероятность решить его на экзамене с первой попытки. Последние ответы весят больше старых, а через месяц без практики вес ответа падает вдвое. Верный ответ на сложном задании и ошибка на простом весят сильнее. В расчёт входят первые попытки на новых заданиях; подсказки, повторные задания и работа «Вместе» исключаются.</p>
+        <p>Ответы на новые задания в варианте ЕГЭ весят в полтора раза больше. Для самопроверки кода в браузере баллы прогноза не начисляются. Пока ответов мало, оценка осторожная.</p>
+        <p>У заданий 26 и 27 учитывается частичный балл: если с первой попытки верна половина ответа (одно из двух чисел), это 1 балл из 2. Из вероятностей складывается распределение первичных баллов (всего 29), и оно переводится в тестовые по шкале ЕГЭ‑2026. Это расчётная модель, а не измеренная вероятность результата на экзамене.</p>
       </details>`;
     chart.bind(body);
     box.hidden = false;
+    const reflection = body.querySelector('#mistakeSummary');
+    if (SERVER && reflection) api('learning/mistakes').then(d => {
+      if (!reflection.isConnected || !d.items?.length) return;
+      reflection.textContent = 'Твои отметки за 30 дней (не оценка учителя): ' + d.items.map(x => `${x.label} — ${x.count}${x.repeated_topics ? ` (повторилась в ${x.repeated_topics} номерах)` : ''}`).join('; ') + '. После нового решения проверь, повторилась ли та же причина.';
+      if (d.followup) {
+        const f = d.followup;
+        reflection.textContent += f.evaluated
+          ? ` Следующее новое задание того же номера и типа: ${f.recovered} из ${f.evaluated} решены с первой попытки без подсказок. Это признак закрепления навыка, а не доказательство исчезновения конкретной причины.`
+          : ' Для оценки закрепления пока нет следующего самостоятельного решения нового задания того же типа.';
+      }
+    }).catch(() => { if (reflection.isConnected) reflection.textContent = 'Отметки причин пока не загрузились. Открой прогноз ещё раз.'; });
   }
 
   function closeForecast() { $('#forecastModal').hidden = true; }
@@ -464,6 +490,20 @@
       if (restoreModal) { hubModalState = true; $('#forecastModal').hidden = false; }
     }
   });
+  let courseCoverage = null, courseCoverageLoading = false;
+  function loadCourseCoverage() {
+    if (courseCoverage || courseCoverageLoading || !SERVER) return;
+    courseCoverageLoading = true;
+    api('course/coverage').then(d => {
+      if (!Array.isArray(d.topics)) return;
+      courseCoverage = d;
+      if (courseShown && pageKind === null && trainerEl.querySelector('.crs-hero')) openCourse();
+    }).catch(() => {}).finally(() => { courseCoverageLoading = false; });
+  }
+  const courseKind = n => {
+    const row = courseCoverage?.topics.find(t => t.n === n);
+    return row ? `${row.kind === 'lesson' ? 'подробный урок' : 'краткий разбор'} · ${row.slides} слайдов` : 'формат указан в открытом уроке';
+  };
   let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
   function courseLock() {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span>';
@@ -517,6 +557,7 @@
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
+    loadCourseCoverage();
     const all = COURSE.filter(m => !m.archive).flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
     const savedN = learningMemory().course;
     const nextN = all.includes(savedN) || ARCHIVE[savedN] ? savedN : all.find(n => lessonState(n) !== 'done');
@@ -528,6 +569,7 @@
         <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
       </div>
       ${learningFormat}
+      <p class="fm-note">${courseCoverage ? `Номеров с подробным уроком: ${courseCoverage.full_count}; с кратким разбором: ${courseCoverage.guide_count}. №19–21 используют один общий урок. Архивные темы указаны отдельно.` : 'В курсе есть подробные уроки и краткие разборы. Формат каждой темы указан в списке.'} Это карта наполнения, а не оценка знаний.</p>
       ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
         <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>${m.archive ? '' : `Модуль ${i + 1}. `}${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
@@ -536,7 +578,7 @@
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
           return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
             <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
-            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · теория и пример · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · ${courseKind(n)} · ${COURSE_SETS.length} подборок</small></span>
             <span class="crs-go">›</span></button>`;
         }).join('')}</div></section>`).join('')}
     </div>`;

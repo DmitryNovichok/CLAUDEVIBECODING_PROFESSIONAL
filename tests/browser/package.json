@@ -1,0 +1,16 @@
+{
+  "name": "egeshka-browser-regressions",
+  "private": true,
+  "scripts": {
+    "test": "node run.cjs",
+    "test:ui": "node run.cjs --profile ui",
+    "test:python": "node run.cjs --profile python",
+    "test:performance": "node run.cjs --profile performance",
+    "test:list": "node run.cjs --list",
+    "report": "playwright show-report playwright-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "pyodide": "0.28.3"
+  }
+}

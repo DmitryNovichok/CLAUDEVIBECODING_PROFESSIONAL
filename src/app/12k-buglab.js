@@ -1,7 +1,7 @@
   // ------------------------------------------------------------ лаборатория исправления ошибок
   /* Даётся задача и чужое «решение»: в нём ошибки, пропуск или оно слишком медленное. Ученик правит код и нажимает
      «Проверить»: код выполняется в браузере на входных данных тестов, выводы уходят на сервер, сервер сравнивает их
-     с ожидаемыми (правильные решения и ответы скрытых тестов в браузер не попадают). После решения — разбор ошибок. */
+     с ожидаемыми. Это самопроверка по присланным выводам, не независимое выполнение кода и не основание для оценки. */
   const BUG = { cases: null, levels: {}, kinds: {}, cur: null, filter: 0, worker: null, timer: null, busy: false,
     results: {}, hints: {}, explain: {}, owner: null, loadId: 0, runId: 0, cancel: null };
   const bugActive = () => labActive() && LAB.view === 'bugs' && !!$('#bugRoot');
@@ -63,17 +63,17 @@
     if (!bugActive()) return;
     if (bugCase()) bugRenderCase(); else bugRenderList();
   }
-  const bugStatus = c => (c.my.ok ? (c.my.star ? ['good', '★ точная правка'] : ['good', 'решено']) : c.my.tries ? ['review', `${c.my.tries} ${plural(c.my.tries, 'попытка', 'попытки', 'попыток')}`] : ['', 'новая']);
+  const bugStatus = c => (c.my.verified ? ['good', 'есть проверенное решение'] : c.my.ok ? ['good', 'самопроверка пройдена'] : c.my.tries ? ['review', `${c.my.tries} ${plural(c.my.tries, 'попытка', 'попытки', 'попыток')}`] : ['', 'новая']);
   function bugRenderList() {
-    const all = BUG.cases, done = all.filter(c => c.my.ok).length, stars = all.filter(c => c.my.star).length;
+    const all = BUG.cases, done = all.filter(c => c.my.ok).length;
     const list = all.filter(c => !BUG.filter || c.level === BUG.filter);
     const next = all.find(c => !c.my.ok);
     $('#bugRoot').innerHTML = `
-      <div class="bug-top"><div class="bug-prog"><b>${done} из ${all.length}</b><span>решено${stars ? ` · ★ ${stars}` : ''}</span>
+      <div class="bug-top"><div class="bug-prog"><b>${done} из ${all.length}</b><span>самопроверок пройдено</span>
           <i class="bug-track"><b style="width:${all.length ? Math.round(done / all.length * 100) : 0}%"></b></i></div>
-        ${next ? `<button type="button" class="btn primary" data-bug-open="${esc(next.id)}">${done ? 'Продолжить' : 'Начать'}: «${esc(next.title)}» →</button>` : '<span class="chip good">Все задачи решены</span>'}</div>
+        ${next ? `<button type="button" class="btn primary" data-bug-open="${esc(next.id)}">${done ? 'Продолжить' : 'Начать'}: «${esc(next.title)}» →</button>` : '<span class="chip good">Все самопроверки пройдены</span>'}</div>
       <p class="lab-note">В каждой задаче — условие и чужое решение. Где-то в нём ошибки, где-то оно не дописано, а где-то работает слишком долго.
-        Исправь код так, чтобы он прошёл все тесты. Чем меньше строк пришлось изменить, тем точнее правка — за неё даётся ★.</p>
+        Исправь код и проверь его на примерах. Это самопроверка: программа запускается в твоём браузере. Она не даёт оценку, звёзды или подтверждение самостоятельного решения; код можно затем обсудить с учителем. Кнопка «Проверить на сервере» отдельно запускает присланный код и подтверждает результат тестов.</p>
       <nav class="lab-tabs bug-filter" aria-label="Уровень">${[[0, 'Все'], ...Object.entries(BUG.levels).map(([k, v]) => [+k, v])].map(([k, v]) =>
         `<button type="button" class="${BUG.filter === k ? 'on' : ''}" data-bug-level="${k}">${esc(v)}</button>`).join('')}</nav>
       <div class="bug-grid">${list.map(c => { const [cls, txt] = bugStatus(c); return `<button type="button" class="bug-card${c.my.ok ? ' done' : ''}" data-bug-open="${esc(c.id)}">
@@ -102,12 +102,13 @@
           <div class="bug-code ide"><pre class="bug-gutter" id="bugGutter" aria-hidden="true"></pre>
             <div class="ide-area"><pre class="ide-hl bug-hl" id="bugCodeHl" aria-hidden="true"></pre>
             <textarea id="bugCode" class="inp" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" maxlength="20000" aria-label="Код решения">${esc(code)}</textarea></div></div>
-          <div class="bug-actions"><button type="button" class="btn primary" id="bugCheck" data-bug-act="check">Проверить</button>
+          <div class="bug-actions"><button type="button" class="btn primary" id="bugCheck" data-bug-act="check">Самопроверка</button>
+            <button type="button" class="btn" id="bugVerify" data-bug-act="verify">Проверить на сервере</button>
             <button type="button" class="btn" id="bugStop" data-bug-act="stop" hidden>Остановить</button>
             <button type="button" class="btn" data-bug-act="hint" id="bugHintBtn"></button>
             <button type="button" class="btn ghost" data-bug-act="reset">Сбросить код</button>
             <button type="button" class="btn ghost" data-bug-act="explain" id="bugExplainBtn" hidden>Показать разбор</button></div>
-          <p class="lab-status" id="bugStatus" role="status">Ctrl+Enter — проверить. Код выполняется в браузере.</p>
+          <p class="lab-status" id="bugStatus" role="status">Ctrl+Enter — самопроверка. Код выполняется в браузере; это не независимая проверка решения.</p>
           <details class="bug-own"><summary>Запустить на своих данных</summary>
             <textarea class="inp" id="bugStdin" rows="3" maxlength="10000" spellcheck="false" placeholder="Входные данные для input()"></textarea>
             <button type="button" class="btn" data-bug-act="run" id="bugOwnRun">Запустить</button><pre id="bugOwnOut" class="bug-out" hidden></pre></details>
@@ -140,8 +141,8 @@
     if (!box) return;
     if (!r) { box.innerHTML = BUG.explain[c.id] ? bugExplainHtml(BUG.explain[c.id]) : ''; return; }
     const rows = r.tests.map((t, i) => {
-      const run = r.runs[i] || {}, src = c.tests[i];
-      const got = run.timeout ? (run.skipped ? 'не запускался' : 'не дождались ответа — программа работает слишком долго')
+      const run = r.runs?.[i] || {}, src = c.tests[i];
+      const got = r.verified ? (t.ok ? 'тест пройден' : 'тест не пройден') : run.timeout ? (run.skipped ? 'не запускался' : 'не дождались ответа — программа работает слишком долго')
         : run.err ? bugErrText(run) : (run.out || '').trim() || '(пусто)';
       return `<tr class="${t.ok ? 'ok' : 'bad'}"><td>${t.ok ? '✓' : '✗'}</td><td>${i + 1}</td>
         <td>${t.open ? `<pre>${esc(src.in)}</pre>` : '<span class="fm-muted">скрытый тест</span>'}</td>
@@ -150,8 +151,8 @@
     }).join('');
     const pass = r.tests.filter(t => t.ok).length;
     const idx = BUG.cases.indexOf(c), nxt = BUG.cases.slice(idx + 1).concat(BUG.cases.slice(0, idx)).find(x => !x.my.ok);
-    const head = r.ok ? `<div class="bug-win"><b>Все тесты пройдены!</b>
-        <span>${r.star ? `★ Точная правка: изменено строк — ${r.changed}.` : r.changed > r.par ? `Изменено строк — ${r.changed}. Можно точнее: достаточно ${r.par}.` : 'Задача решена.'}</span>
+    const head = r.ok ? `<div class="bug-win"><b>${r.verified ? 'Код проверен на сервере' : 'Самопроверка пройдена'}</b>
+        <span>${r.verified ? 'Присланный код прошёл все тесты при отдельном запуске.' : 'По выводам из браузера все примеры совпали. Независимая проверка кода не проводилась.'} Изменено строк: ${r.changed}.</span>
         <span class="bug-win-btns">${nxt ? `<button type="button" class="btn primary" data-bug-open="${esc(nxt.id)}">Следующая задача →</button>` : ''}<button type="button" class="btn" data-bug-open="">К списку задач</button></span></div>`
       : `<div class="bug-fail"><b>Пройдено тестов: ${pass} из ${r.tests.length}</b><span>Посмотри, на каком примере ответ расходится, и найди строку, которая за это отвечает.</span></div>`;
     box.innerHTML = `${head}${(r.explain || BUG.explain[c.id]) ? bugExplainHtml(r.explain || BUG.explain[c.id]) : ''}
@@ -159,7 +160,7 @@
   }
   function bugSetBusy(on, text) {
     BUG.busy = on;
-    for (const id of ['bugCheck', 'bugCode', 'bugOwnRun']) if ($('#' + id)) $('#' + id).disabled = on;
+    for (const id of ['bugCheck', 'bugVerify', 'bugCode', 'bugOwnRun']) if ($('#' + id)) $('#' + id).disabled = on;
     if ($('#bugStop')) $('#bugStop').hidden = !on;
     if (text && $('#bugStatus')) $('#bugStatus').textContent = text;
   }
@@ -168,7 +169,7 @@
     return new Promise((resolve, reject) => {
       const runs = [];
       let worker;
-      try { worker = new Worker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); } catch (e) { reject(Error('Браузер не смог запустить Python.')); return; }
+      try { worker = new EgePythonWorker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); } catch (e) { reject(Error('Браузер не смог запустить Python.')); return; }
       BUG.worker = worker;
       BUG.cancel = reject;
       const fail = message => { bugReleaseWorker(); reject(Error(message)); };
@@ -211,11 +212,37 @@
     c.my = r.my;
     BUG.results[c.id] = { ok: r.ok, tests: r.tests, runs, changed: r.changed, par: r.par, star: r.ok && r.changed <= r.par && !!r.my.star, explain: r.explain };
     if (r.explain) BUG.explain[c.id] = r.explain;
-    bugSetBusy(false, r.ok ? 'Готово: решение проходит все тесты.' : 'Есть тесты, которые не прошли. Таблица — ниже.');
+    bugSetBusy(false, r.ok ? 'Самопроверка: примеры совпали. Это не оценка за решение.' : 'Есть тесты, которые не прошли. Таблица — ниже.');
     const [cls, txt] = bugStatus(c);
     $('#bugChip').className = 'chip ' + cls; $('#bugChip').textContent = txt;
     bugRenderHints(); bugRenderResult();
     $('#bugResult').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  async function bugVerify() {
+    const c = bugCase();
+    if (!c || BUG.busy) return;
+    const code = $('#bugCode').value;
+    if (!code.trim()) { $('#bugStatus').textContent = 'Сначала введи код решения.'; return; }
+    bugStop();
+    const run = BUG.runId, sid = student?.sid;
+    bugSetBusy(true, 'Проверяю код на сервере… Это может занять до двух минут.');
+    // Closing the exercise only detaches its view; it does not pretend to cancel the server job.
+    $('#bugStop').hidden = true;
+    try {
+      const r = await api('lab/bugs/verify', { id: c.id, code });
+      if (!bugCurrent(c, run, sid)) return;
+      if (r.verified !== true || r.provenance !== 'server_python') throw Error('Сервер не подтвердил независимую проверку. Результат не засчитан.');
+      c.my = r.my;
+      BUG.results[c.id] = { ...r, runs: [] };
+      if (r.explain) BUG.explain[c.id] = r.explain;
+      bugSetBusy(false, r.ok ? 'Код прошёл независимую проверку на сервере.' : 'Код проверен на сервере: есть непройденные тесты.');
+      const [cls, txt] = bugStatus(c);
+      $('#bugChip').className = 'chip ' + cls; $('#bugChip').textContent = txt;
+      bugRenderHints(); bugRenderResult();
+      $('#bugResult').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (e) {
+      if (bugCurrent(c, run, sid)) bugSetBusy(false, e.message || 'Не удалось проверить код. Результат не засчитан.');
+    }
   }
   async function bugRunOwn() {
     const c = bugCase(), out = $('#bugOwnOut');
@@ -240,6 +267,7 @@
     const act = e.target.closest('[data-bug-act]')?.dataset.bugAct, c = bugCase();
     if (!act || !c) return;
     if (act === 'check') bugCheck();
+    if (act === 'verify') bugVerify();
     if (act === 'run') bugRunOwn();
     if (act === 'stop') { bugStop(); bugSetBusy(false, 'Остановлено.'); }
     if (act === 'hint') { BUG.hints[c.id] = Math.min(c.hints.length, (BUG.hints[c.id] || 0) + 1); bugRenderHints(); }
@@ -250,7 +278,7 @@
       delete BUG.results[c.id]; bugSyncEditor(); bugRenderResult(); $('#bugStatus').textContent = 'Код возвращён к исходному.';
     }
     if (act === 'explain') {
-      if (!c.my.ok && !confirm('Показать разбор ошибок? После этого ★ за точную правку в этой задаче не даётся.')) return;
+      if (!c.my.ok && !confirm('Показать разбор ошибок? Сначала попробуй объяснить, почему исходная программа ошибалась.')) return;
       const run = BUG.runId, sid = student?.sid;
       try { const r = await api('lab/bugs/explain', { id: c.id }); if (!bugCurrent(c, run, sid)) return; BUG.explain[c.id] = r.explain; if (!c.my.ok) c.my.seen = 1; bugRenderHints(); bugRenderResult(); }
       catch (x) { if (bugCurrent(c, run, sid)) toast(x.message || 'Не получилось открыть разбор', 3500); }

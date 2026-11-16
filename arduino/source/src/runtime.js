@@ -1,6 +1,7 @@
 import {CPU, avrInstruction, AVRIOPort, portBConfig, portCConfig, portDConfig, AVRTimer, timer0Config, timer1Config, timer2Config, AVRUSART, usart0Config, AVRADC, adcConfig} from 'avr8js';
 import {Simulator, USBCDC} from 'rp2040js';
 import {bootromB1} from './bootrom.js';
+import {startEducationalSandbox} from './sandbox.js';
 export function parseHex(text) {
  const data=new Uint8Array(32768);let base=0,total=0,eof=false;
  for(const line of text.trim().split(/\r?\n/)){if(!line.trim())continue;if(!/^:[0-9a-f]+$/i.test(line))throw Error('Некорректная запись Intel HEX');const bytes=line.slice(1).match(/../g).map(x=>parseInt(x,16));if(bytes.length!==bytes[0]+5||bytes.reduce((a,b)=>a+b,0)%256)throw Error('Ошибка контрольной суммы HEX');const [len,hi,lo,type]=bytes;let addr=base+(hi<<8|lo);if(type===0){if(addr+len>data.length)throw Error('Прошивка превышает 32 КБ ATmega328P');data.set(bytes.slice(4,4+len),addr);total+=len;}else if(type===1)eof=true;else if(type===4)base=(bytes[4]<<8|bytes[5])*65536;else if(type===2)base=(bytes[4]<<8|bytes[5])*16;}
@@ -74,11 +75,12 @@ export function humanError(message) {
 
 export function runEducational(source,callbacks){
  let body;
- try { body=workerBody(source); new Function(body); }
+ // Parse generated JavaScript in its worker. A duplicate Function() parse in the
+ // page forced unsafe-eval without running any sketch or improving diagnostics.
+ try { body=workerBody(source); }
  catch(e){ throw Object.assign(Error(humanError(e.message)),{line:e.line}); }
- const url=URL.createObjectURL(new Blob([body],{type:'text/javascript'}));
- const w=new Worker(url);URL.revokeObjectURL(url);
- w.onmessage=e=>{const d=e.data;if(d.type==='pin')callbacks.pin(d.pin,d.value);else if(d.type==='serial')callbacks.serial(d.text);else if(d.type==='error')callbacks.error(humanError(d.message));else callbacks.event(d)};
- w.onerror=e=>{e.preventDefault?.();callbacks.error(humanError(e.message||'Ошибка выполнения'));};
- return {stop(){w.terminate()},inputs(digital,analog){w.postMessage({type:'inputs',digital,analog})},serial(text){w.postMessage({type:'serial',text})}};
+ return startEducationalSandbox(body,{
+  event(d){if(d.type==='pin')callbacks.pin(d.pin,d.value);else if(d.type==='serial')callbacks.serial(d.text);else if(d.type==='error')callbacks.error(humanError(d.message));else callbacks.event(d);},
+  error(message){callbacks.error(humanError(message));}
+ });
 }
