@@ -5594,6 +5594,62 @@ class ServerTest(unittest.TestCase):
             server.THROTTLE.fails.clear()
 
 
+    def test_teacher_logs_in_with_code_from_email(self):
+        db = server.APP.db
+        tid = db.x("""INSERT INTO teachers(name, login, pw, invite, is_main, created, email, email_ok, moderation)
+                      VALUES('Кодов Учитель', 'kodteach', ?, 'KODT77', 0, ?, 'kod@example.ru', 1, 'approved')""",
+                   (server.hash_pw("Teach-Pass-42"), time.time()))
+        sent = []
+        try:
+            with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+                 mock.patch.object(server, "LOGIN_CODE_RETRY_SEC", 0), \
+                 mock.patch.object(server, "send_mail", lambda to, subj, h, t: sent.append((to, subj, t)) or True):
+                server.THROTTLE.fails.clear()
+                # верный пароль — сессии нет, код ушёл на почту учителя
+                st, d, ck = self.creq("POST", "/api/admin/login", {"login": "kodteach", "password": "Teach-Pass-42"})
+                self.assertEqual(st, 200, d)
+                self.assertEqual((d.get("need_code"), d["to"], d["backup"], ck), (True, "k•••@example.ru", False, ""))
+                to, subj, text = sent[-1]
+                code = re.search(r"\b(\d{6})\b", subj).group(1)
+                self.assertEqual(to, "kod@example.ru")
+                self.assertIn("панель учителя", text)
+                self.assertNotIn("главного", text)
+                # неверный код — нет входа; верный — вход своим аккаунтом; повтор того же кода не работает
+                st, d2, ck = self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": "000000" if code != "000000" else "111111"})
+                self.assertEqual((st, ck), (403, ""))
+                server.THROTTLE.fails.clear()
+                st, _, ck = self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": code})
+                self.assertEqual(st, 200)
+                me = self.creq("GET", "/api/admin/me", cookie=ck)[1]
+                self.assertEqual((me["id"], me["is_main"]), (tid, 0))
+                self.assertEqual(self.creq("POST", "/api/admin/login", {"ticket": d["ticket"], "code": code})[0], 410)
+                # почта не подтверждена — подтверждать нечем: вход по паролю (панель всё равно закрыта до подтверждения)
+                db.x("UPDATE teachers SET email_ok=0 WHERE id=?", (tid,))
+                server.THROTTLE.fails.clear()
+                st, d, ck = self.creq("POST", "/api/admin/login", {"login": "kodteach", "password": "Teach-Pass-42"})
+                self.assertEqual((st, d.get("need_code")), (200, None))
+                self.assertTrue(ck.startswith("egeadm="))
+                db.x("UPDATE teachers SET email_ok=1 WHERE id=?", (tid,))
+            # на сервере не настроена почта — код отправить некуда, вход по паролю
+            with mock.patch.object(server, "smtp_conf", lambda: None):
+                server.THROTTLE.fails.clear()
+                st, d, ck = self.creq("POST", "/api/admin/login", {"login": "kodteach", "password": "Teach-Pass-42"})
+                self.assertEqual((st, d.get("need_code")), (200, None))
+            # почта настроена, но письмо не ушло — не пускаем без кода
+            with mock.patch.object(server, "smtp_conf", lambda: {"SMTP_HOST": "x"}), \
+                 mock.patch.object(server, "LOGIN_CODE_RETRY_SEC", 0), \
+                 mock.patch.object(server, "send_mail", lambda *a: False):
+                server.THROTTLE.fails.clear()
+                st, d, ck = self.creq("POST", "/api/admin/login", {"login": "kodteach", "password": "Teach-Pass-42"})
+                self.assertEqual((st, ck), (503, ""))
+        finally:
+            db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
+            db.x("DELETE FROM admin_codes WHERE teacher_id=?", (tid,))
+            db.x("DELETE FROM teacher_log WHERE teacher_id=?", (tid,))
+            db.x("DELETE FROM teachers WHERE id=?", (tid,))
+            server.THROTTLE.fails.clear()
+
+
     def test_intellectual_megapolis_section(self):
         import im
         tok = self.login("Мегаполисов Марк")

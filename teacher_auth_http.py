@@ -43,6 +43,7 @@ class TeacherAuthServices:
     code_required: Callable
     code_ready: Callable
     send_mail: Callable
+    teacher_code_required: Callable
     security_summary: Callable
     parse_int: Callable
     teacher_ready: Callable
@@ -73,7 +74,7 @@ class TeacherAuthHandlers:
         return f"egeadm={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age={int(seconds)}{self.cookie_attrs()}"
 
     def admin_login_send_code(self, t, ip, *, mail_available=True):
-        """Пароль главного учителя верный — второй шаг: код на его почту. Сессии ещё нет."""
+        """Пароль верный — второй шаг: код на почту учителя. Сессии ещё нет."""
         services = self.teacher_auth_services()
         db, now = services.db, time.time()
         ticket, code = secrets.token_urlsafe(24), f"{secrets.randbelow(10 ** 6):06d}"
@@ -100,15 +101,16 @@ class TeacherAuthHandlers:
         when = time.strftime("%d.%m.%Y %H:%M", time.localtime(now))
         safe = html_mod.escape
         to, name = t["email"], t["name"]
+        panel = "панель главного учителя" if t["is_main"] else "панель учителя"
         # SMTP is outside the database transaction. Do not report delivery before its result.
         try:
             accepted = mail_available and services.send_mail(to, f"Egeshka: код входа {code}",
-                          f"<p>{safe(name)}, код для входа в панель главного учителя:</p>"
+                          f"<p>{safe(name)}, код для входа в {panel}:</p>"
                           f"<p style='font-size:28px;font-weight:700;letter-spacing:6px'>{code}</p>"
                           f"<p>Действует {services.code_seconds // 60} минут. Вход: {safe(when)}, адрес {safe(ip)}, {safe(device)}.</p>"
                           "<p style='color:#c53030'>Если это были не вы — кто-то знает ваш пароль: смените его в панели (Настройки) "
                           "и никому не сообщайте этот код.</p>",
-                          f"{name}, код для входа в панель главного учителя: {code}\n"
+                          f"{name}, код для входа в {panel}: {code}\n"
                           f"Действует {services.code_seconds // 60} минут. Вход: {when}, адрес {ip}, {device}.\n"
                           "Если это были не вы — кто-то знает ваш пароль: смените его и никому не сообщайте этот код.") is True
         except Exception:
@@ -132,10 +134,10 @@ class TeacherAuthHandlers:
                                    "delivery": "failed", "retry_after": services.code_retry_seconds}, 503,
                                   {"Retry-After": str(services.code_retry_seconds)})
         return self.send_json({"need_code": True, "ticket": ticket, "to": services.mask_email(t["email"]), "minutes": services.code_seconds // 60,
-                               "delivery": "accepted"})
+                               "delivery": "accepted", "backup": bool(backups)})
 
     def admin_login_code(self, data, ip):
-        """Второй шаг входа главного учителя: код из письма → сессия."""
+        """Второй шаг входа учителя: код из письма (у главного — или резервный код) → сессия."""
         services = self.teacher_auth_services()
         db, now = services.db, time.time()
         ticket = str(data.get("ticket") or "")
@@ -147,7 +149,7 @@ class TeacherAuthHandlers:
             r = db.q("SELECT * FROM admin_codes WHERE ticket=?", (key,), one=True)
             t = db.q("SELECT * FROM teachers WHERE id=?", (r["teacher_id"],), one=True) if r else None
             if (not r or r["expires"] < now or r["tries"] >= services.code_tries or r["delivery"] not in ("accepted", "failed", "unavailable")
-                    or not t or not t["is_main"] or not hmac.compare_digest(r["account_state"] or "", reset_fingerprint(t))):
+                    or not t or t["guest"] or not hmac.compare_digest(r["account_state"] or "", reset_fingerprint(t))):
                 if r:
                     db.x("UPDATE admin_codes SET delivery='invalid' WHERE ticket=?", (key,))
                 status, message, cookie = 410, "Код устарел — войдите заново, придёт новый", None
@@ -233,6 +235,8 @@ class TeacherAuthHandlers:
                     self.tlog("login", t["id"], ok=False, detail="обязательный второй фактор недоступен: нет настройки почты")
                     return self.err(503, "Вход требует кода из письма, но отправка сейчас недоступна. Обратитесь к администратору сервера для восстановления почты или доступа.")
                 return self.admin_login_send_code(t, ip)
+            if services.teacher_code_required(t):
+                return self.admin_login_send_code(t, ip)
             if t["is_main"]:
                 self.tlog("login", t["id"], detail="второй фактор ещё не подключён или явно отключён администратором")
             with db.transaction():
@@ -241,7 +245,7 @@ class TeacherAuthHandlers:
                     return self.err(410, "Данные аккаунта изменились — войдите заново")
                 # Enrollment may have made the second factor mandatory while
                 # this request was between its policy check and session creation.
-                if current["is_main"] and services.code_required(current):
+                if (current["is_main"] and services.code_required(current)) or services.teacher_code_required(current):
                     return self.err(409, "Требования ко входу изменились — войдите заново")
                 cookie = self.admin_login(t["id"], services.session_seconds)
             return self.send_json({"ok": True}, extra={"Set-Cookie": cookie})
