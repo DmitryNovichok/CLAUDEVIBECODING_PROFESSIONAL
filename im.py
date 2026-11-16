@@ -7,6 +7,7 @@
 import json
 import random
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -179,8 +180,17 @@ def trial_save(db, sid, r, answers):
     return True
 
 
+_FINISH_LOCK = threading.Lock()
+
+
 def trial_finish(db, sid, r, answers=None):
-    """Сдать вариант: баллы по номерам (как в спецификации — задание засчитывается целиком), ответы в журнал тренировки."""
+    """Сдать вариант: баллы по номерам (как в спецификации — задание засчитывается целиком), ответы в журнал тренировки.
+    Под замком: двойное нажатие «Сдать» или сдача одновременно с автосдачей не запишут ответы дважды."""
+    with _FINISH_LOCK:
+        return _trial_finish(db, sid, db.q("SELECT * FROM im_trials WHERE id=?", (r["id"],), one=True), answers)
+
+
+def _trial_finish(db, sid, r, answers=None):
     if r["finished"]:
         return trial_result(r)
     late = time.time() > r["deadline"] + TRIAL_GRACE

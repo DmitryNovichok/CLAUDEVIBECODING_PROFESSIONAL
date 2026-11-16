@@ -2815,7 +2815,7 @@ class Handler(BaseHTTPRequestHandler):
         entry = {"id": fid, "name": name, "size": n, "ts": time.time()}
 
         def add(files):
-            if len(files) >= TOG_FILES_PER_PAGE:
+            if len([f for f in files if f["name"] != name]) >= TOG_FILES_PER_PAGE:    # новая версия того же файла — можно
                 return False
             files[:] = [f for f in files if f["name"] != name] + [entry]      # то же имя — новая версия файла
             return True
