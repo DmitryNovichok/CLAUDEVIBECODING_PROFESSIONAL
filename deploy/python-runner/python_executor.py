@@ -25,6 +25,8 @@ MARKER = b'EGE_PYTHON_ISOLATED_V1\n'
 WALL_SECONDS = 6
 JOB_SECONDS = 80
 MAX_ACTIVE = 2
+# A cold rootless Podman (first storage/pause-process setup) can take >10 s to answer `info`.
+INFO_SECONDS = 30
 IMAGE_ID = re.compile(r'^sha256:[0-9a-f]{64}$')
 
 
@@ -126,7 +128,7 @@ class PodmanExecutor:
         if os.geteuid() == 0:
             raise RuntimeUnavailable('Run the broker under its dedicated non-root account')
         try:
-            rc, out, _, status = bounded_process([self.podman, '--remote=false', 'info', '--format=json'], b'', 10, 65536, 8192)
+            rc, out, _, status = bounded_process([self.podman, '--remote=false', 'info', '--format=json'], b'', INFO_SECONDS, 65536, 8192)
             info = json.loads(out)
             host = info['host']
             if (rc or status != 'ok' or host.get('cgroupVersion') != 'v2'
