@@ -42,12 +42,10 @@ jobs:
       - name: Minified and obfuscated copies for visitors (min/)
         run: python3 tools/minify.py --check && for f in min/*.js; do node --check "$f"; done
   browser:
-    runs-on: ubuntu-latest
+    # Bundled Chromium needs unprivileged user namespaces with its sandbox enabled.
+    # Migrate this runner before Ubuntu 22.04 retires on 2027-04-17.
+    runs-on: ubuntu-22.04
     timeout-minutes: 25
-    env:
-      # Use the runner's existing Chrome sandbox helper on Ubuntu with restricted user namespaces.
-      # Keep Chromium sandboxing enabled and leave the host AppArmor policy unchanged.
-      CHROME_DEVEL_SANDBOX: /opt/google/chrome/chrome-sandbox
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,9 +66,6 @@ jobs:
         working-directory: tests/browser
       - name: Check Chromium sandbox
         run: |
-          test -x "$CHROME_DEVEL_SANDBOX"
-          test -u "$CHROME_DEVEL_SANDBOX"
-          test "$(stat -c %u "$CHROME_DEVEL_SANDBOX")" = 0
           node - <<'JS'
           const {chromium} = require('@playwright/test');
           (async () => {

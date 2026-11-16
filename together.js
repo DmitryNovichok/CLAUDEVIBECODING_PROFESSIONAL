@@ -842,6 +842,19 @@
 
   // ---------- выбор задания (учитель)
   let pickKind = 'recent', pickT = 0, pickAsg = 0, pickVersion = 0;
+  function trapModalTab(modal, event) {
+    if (event.key !== 'Tab' || !modal.open) return;
+    // Native modal inertness protects the page; wrap at the dialog edges as well,
+    // so Tab/Shift+Tab do not send keyboard users into the browser toolbar.
+    const controls = [...modal.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]')]
+      .filter(el => el.tabIndex >= 0 && !el.matches(':disabled, [hidden]') && el.getClientRects().length);
+    const index = controls.indexOf(document.activeElement);
+    if (!controls.length) { event.preventDefault(); modal.focus(); return; }
+    if ((event.shiftKey && index <= 0) || (!event.shiftKey && (index < 0 || index === controls.length - 1))) {
+      event.preventDefault();
+      controls[event.shiftKey ? controls.length - 1 : 0].focus();
+    }
+  }
   const modalTriggers = new WeakMap();
   function openModal(id, input) {
     const modal = $(id);
@@ -852,6 +865,7 @@
   }
   function closeModal(modal) { if (modal.open) modal.close(); else modal.hidden = true; }
   $$('.tg-modal').forEach(modal => {
+    modal.addEventListener('keydown', event => trapModalTab(modal, event));
     modal.addEventListener('cancel', event => { event.preventDefault(); closeModal(modal); });
     modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-close]')) closeModal(modal); });
     modal.addEventListener('close', () => {

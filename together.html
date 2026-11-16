@@ -87,8 +87,8 @@ body.tgp [hidden] { display: none !important; }
 :root[data-theme="dark"] .tg-csl i { mix-blend-mode: screen; opacity: .35; }
 .tg-rsel { background: color-mix(in srgb, var(--c) 35%, transparent); color: transparent; border-radius: 2px; }
 .tg-btn.sm.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
-.tg-files { display: inline-flex; gap: 6px; flex-wrap: wrap; font-weight: 700; }
-.tg-files button { font: 700 12px var(--mono); background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 2px 7px; color: var(--text); cursor: pointer; }
+.tg-files { display: inline-flex; gap: 6px; flex-wrap: wrap; font-weight: 700; min-width: 0; max-width: 100%; }
+.tg-files button { font: 700 12px var(--mono); background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 2px 7px; color: var(--text); cursor: pointer; max-width: 100%; overflow-wrap: anywhere; }
 .tg-files button:hover { border-color: var(--accent); }
 .tg-files .tg-attach { font: 700 12px var(--sans, inherit); border-style: dashed; color: var(--accent); }
 .tg-own { white-space: nowrap; }
@@ -139,7 +139,8 @@ body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resi
     --py-bg: #ffffff; --hl-text: #080808; --hl-kw: #0033b3; --hl-str: #067d17; --hl-num: #1750eb; --hl-com: #8c8c8c;
     --hl-bi: #000080; --hl-def: #00627a; --hl-dec: #9e880d; --hl-self: #94558d; --hl-op: #080808; }
 }
-.tg-code-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; font-weight: 800; color: var(--muted); }
+.tg-code-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 10px; font-size: 13px; font-weight: 800; color: var(--muted); }
+.tg-code-bar .py-font { margin-left: auto; }
 .tg-code .py-editor { flex: 1 1 auto; min-height: 120px; border-left: 0; border-right: 0; }
 .tg-code .py-code:read-only { caret-color: transparent; }
 .tg-code .py-code:focus-visible { box-shadow: none; }

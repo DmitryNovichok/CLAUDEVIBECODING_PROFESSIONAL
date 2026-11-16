@@ -12,6 +12,12 @@ test.afterAll(async () => { await fixture?.stop(); });
 for (const profile of profiles) {
   test(`cold load performance: ${profile.name}`, async ({page, context}, testInfo) => {
     await seedBrowser(context, fixture, 'pupil');
+    const changelogRequests = [];
+    page.on('request', request => {
+      if (new URL(request.url()).pathname === '/changelog.js') {
+        changelogRequests.push({method:request.method(), type:request.resourceType()});
+      }
+    });
     await page.setViewportSize({width:profile.width, height:profile.height});
     const cdp = await context.newCDPSession(page);
     await cdp.send('Network.enable');
@@ -54,6 +60,7 @@ for (const profile of profiles) {
     });
     const report = {profile, scope:'synthetic accounts/content; actual shipped assets/handlers; cold cache',
       taskCount:fixture.taskCount ?? null, browser:testInfo.project.name || 'chromium', metrics,
+      changelogRequests:changelogRequests.slice(),
       limitations:['CPU multiplier is relative to the runner, not a physical device specification.',
         'HTTP cache is disabled; no warm-cache conclusion is made.',
         'No timing baseline/SLA is asserted until this profile has actually run and been reviewed.']};
@@ -66,7 +73,18 @@ for (const profile of profiles) {
     expect(app).toBeTruthy();
     expect(app.encodedBytes).toBeGreaterThan(0);
     expect(app.encodedBytes).toBeLessThanOrEqual(320000);
-    expect(metrics.resources.some(e=>e.path==='/changelog.js')).toBe(false);
+    // The update detector checks ETag/Last-Modified with HEAD at startup; this
+    // transfers no history body. Any GET/prefetch/script before a click is a regression.
+    expect(changelogRequests.every(request => request.method === 'HEAD')).toBe(true);
+    expect(await page.evaluate(() => window.EGE_CHANGELOG.student.length)).toBe(1);
     await cdp.detach();
+    // Verify the lazy path as well: opening the real history control must fetch
+    // and render the full history once, after the cold-load measurements above.
+    const historyRequest = page.waitForRequest(request =>
+      new URL(request.url()).pathname === '/changelog.js' && request.method() === 'GET');
+    await page.locator('[data-hub-link="versionBtn"]').click();
+    expect((await historyRequest).resourceType()).toBe('script');
+    await expect.poll(() => page.evaluate(() => window.EGE_CHANGELOG.student.length)).toBeGreaterThan(1);
+    expect(changelogRequests.filter(request => request.method === 'GET')).toHaveLength(1);
   });
 }

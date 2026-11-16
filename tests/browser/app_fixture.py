@@ -90,7 +90,8 @@ def main():
         # No real SMTP or external requests exist in this fixture.
         server.smtp_conf = lambda: None
     print(json.dumps({'origin': origin, 'teachers': teachers, 'student': {'token': token, 'sid': pupil['sid']},
-                      'task': server.APP.bank.pid('b:5'), 'participants': participants,
+                      # Teacher bank routes use canonical IDs; pupil routes expose opaque IDs.
+                      'task': server.APP.bank.pid('b:5'), 'teacherTask': 'b:5', 'participants': participants,
                       'together': {'id': lesson['id']}, 'taskCount': len(fixtures.BANK['tasks'])}), flush=True)
     stopped = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
