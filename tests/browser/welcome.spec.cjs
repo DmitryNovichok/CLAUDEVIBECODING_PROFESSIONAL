@@ -110,6 +110,7 @@ test('skill references load on demand, expose real gaps and separate shared type
   await expect(page.locator('#courseCoverageRows tr')).toHaveCount(28);expect(requests).toHaveLength(0);
   await page.locator('#skillCoverage > summary').click();
   await expect(page.locator('#skillRows article')).toHaveCount(skillCoverage.rows.length);expect(requests).toHaveLength(1);
+  await expect(page.locator('#skillRetry')).toBeHidden();
   await page.locator('#skillTopic').selectOption('13');await page.locator('#skillState').selectOption('missing');
   await expect(page.locator('#skillRows article')).toHaveCount(2); // IP fragments and unclassified formulations.
   await expect(page.locator('[data-skill-id="13.frag"]')).toContainText('Явный материал в карте не найден');
@@ -132,6 +133,7 @@ test('skill inventory retries a malformed successful response without exposing m
   await page.goto(origin+'/welcome');await page.locator('#skillCoverage > summary').click();
   await expect(page.locator('#skillRetry')).toBeVisible();await page.locator('#skillRetry').click();
   await expect(page.locator('#skillRows article')).toHaveCount(report.rows.length);expect(calls).toBe(2);
+  await expect(page.locator('#skillRetry')).toBeHidden();
   await expect(page.locator('[data-skill-id="13.count"] h3')).toContainText('<img');
   await expect(page.locator('#skillRows img')).toHaveCount(0);
   expect(await page.evaluate(()=>window.skillInjected)).toBeUndefined();
@@ -141,6 +143,7 @@ for(const width of [320,375,1366]) test(`expanded skill references remain readab
   await page.setViewportSize({width,height:900});await page.goto(origin+'/welcome');
   await page.locator('#skillCoverage > summary').click();
   await expect(page.locator('#skillRows article')).toHaveCount(skillCoverage.rows.length);
+  await expect(page.locator('#skillRetry')).toBeHidden();
   await page.locator('#skillTopic').selectOption('13');
   await page.locator('[data-skill-id="13.count"] summary').click();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

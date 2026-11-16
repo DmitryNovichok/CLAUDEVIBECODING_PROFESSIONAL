@@ -1,6 +1,7 @@
 .sk-coverage { margin: 24px 0 48px; border: 2px solid var(--line, #d9dfd6); border-radius: 16px; background: #fff; padding: 20px; }
 .sk-coverage > summary { cursor: pointer; font-size: 21px; font-weight: 850; line-height: 1.4; }
 .sk-coverage p { line-height: 1.6; margin: 12px 0; }
+#skillRetry[hidden] { display: none; }
 .sk-filters { display: flex; flex-wrap: wrap; gap: 14px; margin: 22px 0; }
 .sk-filters label { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex: 1 1 210px; font-weight: 750; }
 .sk-filters input, .sk-filters select { width: 100%; min-width: 0; min-height: 44px; font: inherit; color: #1d2433; background: #fff; border: 2px solid #b7c2b0; border-radius: 10px; padding: 10px; }
