@@ -23,11 +23,12 @@ diagnostics() {
   uname -a > "$artifacts/kernel.txt"
   dpkg-query -W podman crun conmon uidmap systemd > "$artifacts/packages.txt" 2>&1
   if [[ -n $runner_uid ]]; then
-    runner podman info --format=json > "$artifacts/podman-info.json" 2>&1
-    runner podman ps -a --filter label=io.egeshka.verifier=1 --format=json > "$artifacts/remaining-containers.json" 2>&1
-    systemctl show "user@$runner_uid.service" -p Delegate -p DelegateControllers > "$artifacts/delegation.txt" 2>&1
-    systemctl --machine ege-python@ --user status ege-python-verifier.service --no-pager > "$artifacts/service.txt" 2>&1
-    journalctl --no-pager "_UID=$runner_uid" -n 200 > "$artifacts/runner-journal.txt" 2>&1
+    runner timeout --kill-after=3s 15s podman info --format=json > "$artifacts/podman-info.json" 2>&1
+    runner timeout --kill-after=3s 15s podman ps -a --filter label=io.egeshka.verifier=1 --format=json > "$artifacts/remaining-containers.json" 2>&1
+    timeout --kill-after=3s 15s systemctl show "user@$runner_uid.service" -p Delegate -p DelegateControllers > "$artifacts/delegation.txt" 2>&1
+    timeout --kill-after=3s 15s systemctl status "user@$runner_uid.service" --no-pager > "$artifacts/user-manager.txt" 2>&1
+    timeout --kill-after=3s 15s systemctl --machine ege-python@ --user status ege-python-verifier.service --no-pager > "$artifacts/service.txt" 2>&1
+    timeout --kill-after=3s 15s journalctl --no-pager "_UID=$runner_uid" -n 200 > "$artifacts/runner-journal.txt" 2>&1
   fi
   if [[ -f /etc/ege-python-verifier/image ]]; then
     cp /etc/ege-python-verifier/image "$artifacts/image-id.txt"
@@ -56,6 +57,17 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends podman
 useradd --system --no-create-home --shell /usr/sbin/nologin trainer
 useradd --create-home --home-dir /var/lib/ege-python --shell /usr/sbin/nologin ege-python
 runner_uid=$(id -u ege-python)
+# The user environment generator imports /etc/environment again AFTER exec.
+# Override the GitHub image's runner-specific paths only for this new account.
+# environment.d does not expand systemd %i: write the actual allocated UID.
+install -d -o ege-python -g ege-python -m 0700 /var/lib/ege-python/.config /var/lib/ege-python/.config/environment.d
+cat > /var/lib/ege-python/.config/environment.d/99-z-ege-verifier.conf <<EOF
+HOME=/var/lib/ege-python
+XDG_CONFIG_HOME=/var/lib/ege-python/.config
+XDG_DATA_HOME=/var/lib/ege-python/.local/share
+XDG_CACHE_HOME=/var/lib/ege-python/.cache
+XDG_RUNTIME_DIR=/run/user/$runner_uid
+EOF
 # Delegate controllers to this user manager; container limits remain mandatory.
 # No global sysctl, privileged container or disabled LSM/seccomp workaround.
 install -d -m 0755 "/etc/systemd/system/user@$runner_uid.service.d"
@@ -67,11 +79,10 @@ Environment=XDG_CONFIG_HOME=/var/lib/ege-python/.config
 Environment=XDG_DATA_HOME=/var/lib/ege-python/.local/share
 Environment=XDG_CACHE_HOME=/var/lib/ege-python/.cache
 Environment=XDG_RUNTIME_DIR=/run/user/%i
-Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%i/bus
 # PAM may reintroduce the image's runner-specific /etc/environment after
 # Environment=. Override only these paths after PAM, retaining its session setup.
 ExecStart=
-ExecStart=/usr/bin/env HOME=/var/lib/ege-python XDG_CONFIG_HOME=/var/lib/ege-python/.config XDG_DATA_HOME=/var/lib/ege-python/.local/share XDG_CACHE_HOME=/var/lib/ege-python/.cache XDG_RUNTIME_DIR=/run/user/%i DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%i/bus /usr/lib/systemd/systemd --user
+ExecStart=/usr/bin/env HOME=/var/lib/ege-python XDG_CONFIG_HOME=/var/lib/ege-python/.config XDG_DATA_HOME=/var/lib/ege-python/.local/share XDG_CACHE_HOME=/var/lib/ege-python/.cache XDG_RUNTIME_DIR=/run/user/%i /usr/lib/systemd/systemd --user
 EOF
 systemctl daemon-reload
 base_image=$(cat "$source_dir/base-image.txt")
