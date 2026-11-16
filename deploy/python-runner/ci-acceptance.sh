@@ -11,7 +11,8 @@ revision=$2
 install -d -m 0755 "$artifacts"
 runner_uid=
 runner() {
-  runuser -u ege-python -- env "XDG_RUNTIME_DIR=/run/user/$runner_uid" \
+  runuser -u ege-python -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
+    HOME=/var/lib/ege-python USER=ege-python LOGNAME=ege-python "XDG_RUNTIME_DIR=/run/user/$runner_uid" \
     "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$runner_uid/bus" "$@"
 }
 diagnostics() {

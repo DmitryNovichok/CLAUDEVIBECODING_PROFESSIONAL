@@ -42,7 +42,10 @@ install -m 0644 "$repo_dir/tests/test_python_runner_container.py" "$acceptance/t
 install -m 0644 "$source_dir/python_executor.py" "$acceptance/deploy/python-runner/"
 runner_uid=$(id -u ege-python)
 runner() {
-  runuser -u ege-python -- env "XDG_RUNTIME_DIR=/run/user/$runner_uid" \
+  # runuser preserves XDG_CONFIG_HOME/CONTAINERS_* from the invoking account.
+  # Use only the dedicated account's context, never its caller's Podman config.
+  runuser -u ege-python -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
+    HOME=/var/lib/ege-python USER=ege-python LOGNAME=ege-python "XDG_RUNTIME_DIR=/run/user/$runner_uid" \
     "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$runner_uid/bus" "$@"
 }
 loginctl enable-linger ege-python
