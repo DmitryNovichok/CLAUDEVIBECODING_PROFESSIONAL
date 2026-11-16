@@ -38,6 +38,11 @@ for(const width of [320,375,1366]) {
       await expect(pupil.locator('#tgTa')).toHaveValue(text+'\nprint(2)');
       for(const [role,page] of [['teacher',teacher],['pupil',pupil]]) {
         expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+        for (const selector of ['#pyEmacs', '#pyFontDown', '#pyFontUp']) {
+          const bounds = await page.locator(selector).boundingBox();
+          expect(bounds.x).toBeGreaterThanOrEqual(0);
+          expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        }
         await expect(page.locator('#tgTa')).toBeInViewport();
         await recordUI(page,info,'together-'+role+'-'+width);
       }
@@ -67,6 +72,10 @@ test('Together task picker and invitation dialogs trap focus and restore their t
     await teacher.locator('#tgInvite').click();
     await expect(teacher.getByRole('dialog',{name:'Позвать в сеанс'})).toBeVisible();
     await expect(teacher.getByLabel('Найти ученика по имени')).toBeFocused();
+    for(let i=0;i<14;i++) {
+      await teacher.keyboard.press(i<3?'Shift+Tab':'Tab');
+      expect(await teacher.evaluate(()=>!!document.activeElement.closest('#tgInvM'))).toBe(true);
+    }
     await recordUI(teacher,info,'invitation-dialog');
     await teacher.keyboard.press('Escape');await expect(teacher.locator('#tgInvite')).toBeFocused();
     const splitter=teacher.getByRole('separator',{name:'Ширина условия'});

@@ -16,7 +16,18 @@ test.beforeAll(async () => {
     res.setHeader('Content-Security-Policy', policy);
     const send = (body,type) => {res.setHeader('Content-Type',type);res.end(body);};
     if(req.url === '/') return send('<!doctype html><script>window.violations=[];addEventListener("securitypolicyviolation",e=>violations.push({directive:e.effectiveDirective,url:e.blockedURI}));window.inlineRan=true;</script><script src="/probe.js"></script><h1>CSP fixture</h1>', 'text/html');
-    if(req.url === '/probe.js') return send('window.localRan=true;', 'text/javascript');
+    if(req.url === '/probe.js') return send(`
+      window.localRan=true;
+      // Execute this probe as a real page script: DevTools evaluation can bypass
+      // the eval restriction and must only read the recorded result below.
+      window.executionProbeReady=(async()=>{
+        let evaluated=false;
+        try { new Function('return 42')(); evaluated=true; } catch (_) {}
+        const binary=new Uint8Array([0,97,115,109,1,0,0,0]);
+        const wasm=await WebAssembly.instantiate(binary);
+        return {evaluated,wasm:!!wasm.instance};
+      })();
+    `, 'text/javascript');
     if(req.url === '/api/ping') return send('ok', 'text/plain');
     if(req.url === '/font.woff2') {
       const folder=path.join(ROOT,'vendor/fonts');
@@ -77,14 +88,13 @@ test('only the pinned Pyodide directory is allowed on the shared CDN',async({pag
 test('same-site HTTP and WebSocket work; foreign WebSocket and JavaScript eval do not',async({page})=>{
   const result=await page.evaluate(async({origin,foreignOrigin})=>{
     const ws=address=>new Promise(resolve=>{const socket=new WebSocket(address);socket.onopen=()=>{socket.close();resolve(true);};socket.onerror=()=>resolve(false);});
-    let evaluated=false;try{new Function('return 42')();evaluated=true;}catch(_){}
-    const binary=new Uint8Array([0,97,115,109,1,0,0,0]);
-    const wasm=await WebAssembly.instantiate(binary);
+    const {evaluated,wasm}=await window.executionProbeReady;
     return {http:await(await fetch('/api/ping')).text(),ws:await ws(origin.replace('http:','ws:')+'/api/together/ws'),
-      foreign:await ws(foreignOrigin.replace('http:','ws:')+'/api/together/ws'),evaluated,wasm:!!wasm.instance};
+      foreign:await ws(foreignOrigin.replace('http:','ws:')+'/api/together/ws'),evaluated,wasm};
   },{origin,foreignOrigin});
   expect(result).toEqual({http:'ok',ws:true,foreign:false,evaluated:false,wasm:true});
   expect(wsRequests).toBe(1);expect(foreignRequests).toBe(0);
+  await expect.poll(()=>page.evaluate(()=>violations.some(v=>v.directive==='script-src'&&v.url==='eval'))).toBe(true);
 });
 
 test('local fonts, blob images and blob workers remain functional',async({page})=>{

@@ -12,7 +12,12 @@ test.beforeAll(async () => {
   server = http.createServer((req, res) => {
     res.setHeader('Content-Security-Policy', policy);
     const url = new URL(req.url, 'http://localhost');
-    const send = (data, type = 'text/plain') => { res.setHeader('Content-Type', type); res.end(data); };
+    const send = (data, type = 'text/plain') => {
+      // Match the production server: classic scripts inherit the page encoding.
+      // Without UTF-8, Cyrillic adapter errors are decoded as Windows-1252.
+      res.setHeader('Content-Type', type.startsWith('text/') ? type + '; charset=utf-8' : type);
+      res.end(data);
+    };
     if (url.pathname === '/') {
       res.setHeader('Set-Cookie', 'principal=secret-admin-session; Path=/; HttpOnly; SameSite=Lax');
       return send('<!doctype html><script src="/python-sandbox.js"></script>', 'text/html');
@@ -102,6 +107,7 @@ test('Python cannot read or mutate the principal API or delegate a credentialed 
 });
 
 test('arbitrary principal API URLs cannot be disguised as input attachments', async ({ page }) => {
+  expect(await page.evaluate(() => document.characterSet)).toBe('UTF-8');
   const messages = await page.evaluate(() => executePython({ type: 'run',
     files: [{ name: 'stolen.txt', url: '/api/admin/whoami' },
       { name: 'escape.txt', url: location.origin + '.evil.invalid/files/01234567890123456789/a.txt' }],
