@@ -118,9 +118,31 @@
   const codeKey = id => `egeshka.code.${student ? student.sid : 'local'}.${id}`;
   function readCode(id) { try { return localStorage.getItem(codeKey(id)); } catch (e) { return null; } }
   function writeCode(id, code) { try { if (code.trim()) localStorage.setItem(codeKey(id), code); else localStorage.removeItem(codeKey(id)); } catch (e) { /* нет места */ } }
+  // Virtual files and output belong to one signed-in pupil. Destroy all Python
+  // contexts before switching accounts, including checks running in other views.
+  function pyDisposeSession() {
+    clearTimeout(PY.saveTimer); PY.saveTimer = null;
+    if (PY.task && $('#pyCode')) writeCode(PY.task.id, $('#pyCode').value);
+    if (PY.worker) PY.worker.terminate();
+    Object.assign(PY, { worker: null, ready: false, running: false, task: null });
+    pycStopTests(); labStop(); resetBugLab();
+    Object.assign(LAB, { context: null, owner: null, result: null, code: '', stdin: '', index: 0, seen: null });
+    for (const id of ['pyCode', 'pyIn', 'labCode', 'labStdin']) if ($('#' + id)) $('#' + id).value = '';
+    for (const id of ['pyOut', 'pyFiles', 'pyTask', 'labOutput', 'labVariables', 'labStack', 'labTraceCode', 'bugRoot'])
+      if ($('#' + id)) $('#' + id).textContent = '';
+    if ($('#pyTurtle')) $('#pyTurtle').hidden = true;
+    if ($('#pyCanvas')) $('#pyCanvas').width = $('#pyCanvas').width;
+    TT.ops = null; TT.drag = null;
+    if ($('#pyDock')) $('#pyDock').hidden = true;
+    if ($('#pyRun')) $('#pyRun').hidden = false;
+    if ($('#pyStop')) $('#pyStop').hidden = true;
+    document.body.classList.remove('py-open');
+    $$('#pyBtn').forEach(b => b.classList.remove('on'));
+    window.dispatchEvent(new Event('egeshka:session-ended'));
+  }
   function pyFilesOf(t) {
     return (t && t.att || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
-      .filter(f => f.url.startsWith(location.origin));       // внешние ссылки браузер не даст прочитать
+      .filter(f => new URL(f.url).origin === location.origin);
   }
   /** Редактор открывается пустым: заготовки для черепахи (№6) и файлов (№17 и др.) убраны — пишем сами. */
   function pyStarter() { return ''; }
@@ -133,7 +155,7 @@
     if (PY.worker) return;
     PY.ready = false;
     if (typeof Worker === 'undefined') { setPyStatus('Этот браузер не умеет запускать Python', 'bad'); return; }
-    PY.worker = new Worker('py-worker.js' + (RULES.py_local ? '?local=1' : ''));
+    PY.worker = new EgePythonWorker('py-worker.js' + (RULES.py_local ? '?local=1' : ''));
     setPyStatus('Загружаю Python… (в первый раз около 10 МБ, потом из кеша)');
     PY.worker.onmessage = ev => {
       const m = ev.data;
@@ -149,7 +171,12 @@
         if (m.fatal) { PY.worker.terminate(); PY.worker = null; ensureWorker(); }   // интерпретатор сломан — запускаем новый
       }
     };
-    PY.worker.onerror = () => { setPyStatus('Python не загрузился. Проверьте интернет и обновите страницу.', 'bad'); };
+    PY.worker.onerror = () => {
+      if (PY.worker) PY.worker.terminate();
+      PY.worker = null; PY.ready = false; PY.running = false;
+      $('#pyRun').hidden = false; $('#pyStop').hidden = true;
+      setPyStatus('Python не загрузился. Проверьте интернет и повторите запуск.', 'bad');
+    };
   }
   function pyPrint(text, isErr) {
     const out = $('#pyOut');

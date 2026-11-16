@@ -201,7 +201,7 @@
   function hubPills() {
     const L = LB && LB.boards && LB.boards.league, me = L && L.me;
     const focus = viewPrefs().focus;
-    const fcOk = P.log.length >= CFG.forecast.minAnswers, fc = fcOk ? forecast().score : null;
+    const fcOk = forecastEvidence().count >= CFG.forecast.minAnswers, fc = fcOk ? forecast().score : null;
     const days = dayStreak(), lit = hubTodayCount() >= fireNeed();
     const up = '<svg viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>';
     const star = '<svg viewBox="0 0 24 24"><path fill="#ffc21a" d="m12 2.5 2.9 5.9 6.5.95-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.05 1.1-6.5-4.7-4.6 6.5-.95z"/></svg>';

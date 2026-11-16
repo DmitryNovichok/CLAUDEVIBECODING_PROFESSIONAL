@@ -1,5 +1,5 @@
 """Лаборатория исправления ошибок: задачи честные (эталон проходит, «ошибочное» решение — нет),
-ответы наружу не выходят, сервер засчитывает решение только по верным выводам на всех тестах."""
+ответы наружу не выходят, сервер сравнивает выводы только как самопроверку, не выдавая звёзды или независимое подтверждение."""
 import contextlib
 import io
 import json
@@ -98,7 +98,7 @@ class BugLabHTTPTest(unittest.TestCase):
         server._BUG_TRIES.clear()
         type(self).serial += 1                                                           # у каждого теста — свой ученик
         with contextlib.redirect_stdout(io.StringIO()):
-            self.token = self.client.login('Ошибкин ' + ['Первый', 'Второй', 'Третий'][self.serial - 1])
+            self.token = self.client.login('Ошибкин ' + ['Первый', 'Второй', 'Третий', 'Четвёртый'][self.serial - 1])
         self.sid = self.client.req('GET', '/api/me', token=self.token)[1]['sid']
         set_learning_passwords(self.db.conn, 'synthetic-lesson-pass')
 
@@ -113,7 +113,7 @@ class BugLabHTTPTest(unittest.TestCase):
         st, d = self.req('/api/lab/bugs')
         self.assertEqual((st, len(d['cases'])), (200, len(buglab.CASES)))
         self.assertNotIn('ref', json.dumps(d))
-        self.assertEqual(d['cases'][0]['my'], {'ok': 0, 'tries': 0, 'star': 0, 'seen': 0})
+        self.assertEqual(d['cases'][0]['my'], {'ok': 0, 'tries': 0, 'star': 0, 'seen': 0, 'verified': False, 'provenance': 'self_check'})
         c = buglab.BY_ID['even-sum']
         self.assertEqual(self.req('/api/lab/bugs/check', {'id': 'нет-такой', 'runs': []})[0], 404)
         self.assertEqual(self.req('/api/lab/bugs/explain', {'id': c['id']})[0], 403)     # разбор — не раньше трёх проверок
@@ -124,16 +124,16 @@ class BugLabHTTPTest(unittest.TestCase):
         self.assertEqual([('exp' in t) for t in r['tests']], [True, True, False, False])
         good = [{'out': e} for e in c['expected']]
         st, r = self.req('/api/lab/bugs/check', {'id': c['id'], 'code': c['ref'], 'runs': good})
-        self.assertEqual((r['ok'], r['my']['ok'], r['my']['star'], r['my']['tries'], r['changed']), (True, 1, 1, 1, 1))
+        self.assertEqual((r['ok'], r['my']['ok'], r['my']['star'], r['my']['tries'], r['changed']), (True, 1, 0, 1, 1))
         self.assertEqual(r['explain'], c['explain'])
         # повторная неудачная проверка решённой задачи ничего не портит
         r = self.req('/api/lab/bugs/check', {'id': c['id'], 'code': c['code'], 'runs': wrong})[1]
-        self.assertEqual((r['ok'], r['my']['ok'], r['my']['star'], r['my']['tries']), (False, 1, 1, 1))
+        self.assertEqual((r['ok'], r['my']['ok'], r['my']['star'], r['my']['tries']), (False, 1, 0, 1))
         self.assertEqual(self.req('/api/lab/bugs/explain', {'id': c['id']})[1]['explain'], c['explain'])
         mine = {x['id']: x['my'] for x in self.req('/api/lab/bugs')[1]['cases']}
-        self.assertEqual(mine['even-sum'], {'ok': 1, 'tries': 1, 'star': 1, 'seen': 0})
+        self.assertEqual(mine['even-sum'], {'ok': 1, 'tries': 1, 'star': 0, 'seen': 1, 'verified': False, 'provenance': 'self_check'})
 
-    def test_star_needs_small_fix_and_no_peeking(self):
+    def test_self_check_never_awards_stars(self):
         self.req('/api/lab/unlock', {'password': 'synthetic-lesson-pass'})
         c = buglab.BY_ID['digits']
         good = [{'out': e} for e in c['expected']]
@@ -148,6 +148,19 @@ class BugLabHTTPTest(unittest.TestCase):
         self.assertEqual(self.req('/api/lab/bugs/explain', {'id': c['id']})[0], 200)      # подсмотрел разбор
         r = self.req('/api/lab/bugs/check', {'id': c['id'], 'code': c['ref'], 'runs': [{'out': e} for e in c['expected']]})[1]
         self.assertEqual((r['ok'], r['my']['star'], r['my']['seen']), (True, 0, 1))
+
+    def test_forged_browser_outputs_never_become_verified_credit(self):
+        self.req('/api/lab/unlock', {'password': 'synthetic-lesson-pass'})
+        c = buglab.BY_ID['even-sum']
+        # The unchanged broken code is paired with fabricated correct output.
+        r = self.req('/api/lab/bugs/check', {'id': c['id'], 'code': c['code'],
+                     'verified': True, 'star': 1, 'runs': [{'out': e} for e in c['expected']]})[1]
+        self.assertTrue(r['ok'])  # comparisons only, explicitly labelled self-check
+        self.assertFalse(r['verified'])
+        self.assertEqual(r['provenance'], 'self_check')
+        self.assertEqual((r['changed'], r['my']['star'], r['my']['verified']), (0, 0, False))
+        self.assertEqual(self.db.q('SELECT star FROM buglab WHERE student_id=? AND case_id=?',
+                                  (self.sid, c['id']), one=True)['star'], 0)
 
     def test_check_rate_limit(self):
         self.req('/api/lab/unlock', {'password': 'synthetic-lesson-pass'})

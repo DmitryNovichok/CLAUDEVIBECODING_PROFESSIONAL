@@ -1,20 +1,24 @@
 {
   "files": {
     "admin-theme.css": {
-      "min": "5c5012efdd8478891e7127f866168d8bcc7760cbeb99fb84f08dc92dc05f04d3",
-      "source": "49b30276270fd193c3f6663cb252654254966bef1966b347c93bb627d2090b10"
+      "min": "408cf55d1c5d29891888ff93c9bdfac66cacfe01b5db6fbb0fa994af5ab5983b",
+      "source": "8866c0bb99d0b4e1c7e3d1ace14891a9132cc1a2703eb3e81387588375550d26"
     },
     "admin.css": {
       "min": "c4c3b07859a0c7f21249dd602a19f408cd84138fbb2421cb7ef43e1ee09a66c2",
       "source": "52238498e218601050d9f71ca82c409c504b1416b99eea16906a6046bc6e48be"
     },
     "admin.js": {
-      "min": "34a238784c931292e1279877e345795e3f87365c26e96a3983084b92a07b927a",
-      "source": "7d2037021b3f33a88c0ee58e0cc74a4869bd9a211a5f477e451bec201f1aaaa4"
+      "min": "4e6c1340be665dccb139b56462e0012cea35a7a6acb64150cd7a85b243f0ed6f",
+      "source": "70010fc3b141b2d59b983dc4368942c60fd0af2a40615fcf70f9e37c3bd2b5bf"
     },
     "app.js": {
-      "min": "fea54abc06f1aad9ba54ceda9a1de2acbd0a1879294b5a343589779ba978c7ee",
-      "source": "046c41fa76f628ea20029b9cde125d07d012a10ef3f751dc813e6fbc2cf0744e"
+      "min": "a9e8eb36218a3100fa39323ac913f75a3352ff179a35a9962612aee76433e791",
+      "source": "3ff433ac798d68582a4d655099ddab4a9cf377cae021c9ae990cb9d7c7c127b1"
+    },
+    "changelog-loader.js": {
+      "min": "58d3352aef9529990e1fee9af41a724b581218b5fcecaee283d1d69156c49340",
+      "source": "7356414e1bfb01eb3def34ba4d74b6ff8da20514d0ffaae5a5dc16bf4d56789a"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -24,37 +28,49 @@
       "min": "a26adc589074c7163840605fc71936a32da54c3c14cacde6897a2dff7b4d1e37",
       "source": "a5e1cc143a5f5477cfa84a75197d29e420687ef6ecdf15f5e25e5e8a609d537f"
     },
+    "lesson-readiness.css": {
+      "min": "0776b9f24bc30b3a8e8b39ba7534e09248a8de930497fd38220fb6b922cd80dd",
+      "source": "bc0c253acfa3020e09d17e875f44e5e08f2c21ed5866f2e9d7a4649e71b403c0"
+    },
+    "lesson-readiness.js": {
+      "min": "0e6610fee06913a9da73f0b96ca78d0a429a8eee0f741c2fdb81a450f82b7dd4",
+      "source": "d957f0cfce7871b9b1bb13e8d91c2165d66982b4d53c021488604ccf89da7232"
+    },
     "onboard.js": {
-      "min": "bad81f5245c5976d2f9806a06ff43ca52d150e5f7fb060594a6198acf852f01c",
+      "min": "874403a55aff97046869fabb487d046ca9985bf07daa8893b6fd28455525c259",
       "source": "b36e1d9e82c8ec5a9287bba2472f6b15d1b6dcaafc231ae9dc141807a9b91b83"
     },
+    "python-sandbox.js": {
+      "min": "db55af6690ce35c0e4cf1441aff714ecdbe48e97adcab14955b8e1d10d53a9ac",
+      "source": "d16004d9797a49a187e20bf59aa2df6fddec05e8fde19a9df8468858b65ccace"
+    },
     "style.css": {
-      "min": "ac17ec57f09f31483e2b94afb6d1f59c40f89554d98e231c1f16673ccf6292fb",
-      "source": "ef52bb42298ad8512144cfa55210695343c323dfe2b4c3efb0a0d0cbaf187c0f"
+      "min": "deea138ef646ac86b0bfd1264732a847f3a5aa2bdff73fb3c8374bdd57214744",
+      "source": "f4adea374d3c3c25e20f705a73e83eb1d47242b1d51bb7068377b03e16554817"
     },
     "teacher-gate.css": {
       "min": "c8f0179539d87566094032c3eb75c4527d16654942427b30a59390dcf6b2f24f",
       "source": "70be115a66ed94b5dc9ec36ce3ee70a04b6c15faec4c9ca80ae995d1730683c0"
     },
     "teacher-gate.js": {
-      "min": "f1e450f28b2397fc7045565ca60532fb47bc54279bbf06b484ee2dcc343ea3c7",
+      "min": "8b8c91bed9bdd71dfef677a47b9b8845a579a9e688dfde057787e593c29b8ae1",
       "source": "99563a8c25bd3457cafc24add900ea7f2526cbd19a22eb5d447685beaecd55aa"
     },
     "together.js": {
-      "min": "f7ea94bfc40f49cfd87507352252b52ddf252358824c396281b5d711fe5bcb6d",
-      "source": "43722e056a8060aaa80d60f616dd36dda191a18aeb51619932f10a2f140a16c5"
+      "min": "eae5f9253e912ef93df03d8853661c204e70e65c71e437528cf958075ae8cb9a",
+      "source": "e507e628e1ddde3389fec678e688471113ab760d8b10d249ed28ae433fc28b5c"
     },
     "visit.js": {
-      "min": "9d99466daf57071370063347cae758df3d8aea5ec418751fd69298a3e8952ae9",
+      "min": "68866dd9d984e9fdef9715ff70f5fe86fbd85c69583a471db13530cc62bba9f8",
       "source": "c15a80b2e7894c2f63ef12eab080746b313be3c6aef8f2af2ee91cb062cfdaa9"
     },
     "welcome.css": {
-      "min": "2ff78ad0d731dbfca6cb8072ce136340df2da0074f49f425dbf6eea3930e214f",
-      "source": "2c6f82d8d08cd4d45f7384aacab6be477dc188622caa04c7110d70145c9aa248"
+      "min": "55b216708789c872e83545a492e1bcf9e89d4dcca0c70a71b049c0d21cae72dc",
+      "source": "ef67f9a987218bfd122fcbbd392e139b6f195680f25742bd1981425cb0ccd0c2"
     },
     "welcome.js": {
-      "min": "bc523bf916e7771e838c5f3bc4f684c14a93e54336eec2157b254822f4a46a9b",
-      "source": "f8d0531950ad5e7a4d594ba0e81bb9a9fdc408d1fe90efccae608ea307b7ba51"
+      "min": "1fdb456734369236aaf2006a87271a13bc6370f12e6afb7a873cfce9c37f715c",
+      "source": "c3d799327c31ad486c07613b1700c7a355066450272cc3a4291c4a6eb0110616"
     }
   },
   "version": 1

@@ -28,6 +28,32 @@ ESP32 CPU/Wi-Fi, Mega CPU, Raspberry Pi Linux, complete I2C/SPI/one-wire periphe
 
 Node runtime tests cover HEX checksum/range/EOF errors, real AVR SBI GPIO output, UF2 size validation, five educational examples, LCD output, loops, strings and unsupported include rejection. Browser QA covers editor rendering, Blink/Serial, wired LED, LCD output and project persistence. Full firmware ecosystem coverage is not claimed.
 
+## Educational sketch isolation
+
+Imported sketches, including pupil projects opened by a teacher, execute inside a
+Blob worker owned by an opaque `srcdoc` iframe (`sandbox="allow-scripts"`). The
+frame policy forbids network access, other frames, forms and external script
+imports. Sketch code is transferred through a private port; it is never inserted
+into iframe HTML. No logged-in API, cookie, navigation or fetch operation is
+exposed through the bridge. Startup failure stops execution rather than falling
+back to a worker belonging to the application origin.
+
+The bridge accepts digital/analog inputs and Serial input, and returns bounded
+numeric pin/mode/servo/tone events, LCD text, Serial text and errors. Unknown
+commands and malformed payloads are discarded before application state changes.
+Repeated hardware state is combined; excessive event/Serial output stops the
+sketch with an actionable message. Stop removes the frame and terminates its
+worker, including an infinite loop. AVR/UF2 binaries still run through the existing
+trusted instruction emulators; they are not interpreted as browser JavaScript.
+
+The `sandbox.test.js` contract tests include the minified bootstrap and teardown.
+`tests/browser/sandbox.spec.cjs` supplies real browser regressions for opaque
+origin, blocked credentialed HTTP/WebSocket access, peripherals and stop/restart.
+Contract tests do not prove browser isolation by themselves; those browser cases
+must run in an ordinary supported Chromium environment without disabling its
+sandbox. Client-side telemetry remains suitable for practice feedback, not an
+independently trusted assessment of arbitrary student code.
+
 ## Licenses
 
 See `dist/licenses.txt` for third-party notices: AVR8js, RP2040js, Wokwi Elements, Lit, Raspberry Pi boot ROM. Dependencies are pinned by package-lock.json. No external scripts/CDN resources are needed at runtime.

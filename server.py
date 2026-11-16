@@ -48,18 +48,31 @@ from collections import Counter
 from fractions import Fraction
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from runtime_http import BoundedHTTPServer
+import lesson_readiness
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from auth import hash_pw, check_pw, revoke_access, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
+from auth import hash_pw, check_pw, revoke_access, reset_main_password, ACCOUNT_WRITE_PATHS, reset_fingerprint, recovery_origin
+from auth import recovery_codes_left
+from teacher_auth_http import TeacherAuthHandlers, TeacherAuthServices, TEACHER_AUTH_PATHS
+from task_http import TaskHTTPHandlers, TaskHTTPServices, TASK_ACTION_PATHS
+from bank_http import BankHTTPHandlers, BankHTTPServices
 from learning import clean_ans, tokens, alternatives, shape_of, ege_points, answer_credit, _credit
 from learning_access import lab_access, ard_access, im_access
 import im                                         # noqa: E402  «Интеллектуальный мегаполис»: тренировка и пробный вариант
 import buglab
+import buglab_grading
+import buglab_merge
+import buglab_verifier
 import mcko
 import bank_delivery
-from learning_content import course_guide
+import download_delivery
+import http_security
+from learning_content import course_guide, course_coverage
+from teacher_journey import teacher_journey, activation_stats
+import learning_quality
 from private_config import read_private, private_rewards, require_private
 import hints as hints_mod
 PRIVATE_CONFIG = read_private()
@@ -84,6 +97,9 @@ MORE_BANKS = ("task10_bank.json",)
 
 # что можно отдавать из папки trainer
 SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
+              "changelog-loader.js",
+              "python-sandbox.js", "python-sandbox.html",
+              "lesson-readiness.js", "lesson-readiness.css",
               "teacher-gate.js", "teacher-gate.css",
               "together.html", "together.js", "parent.html", "reset.html", "admin-theme.css", "welcome.html", "welcome.css", "welcome.js", "qr.js", "onboard.js", "visit.js",
               "terms.html", "privacy.html", "consent.html", "legal.css", "help.html", "help.css", "confirm.html",
@@ -93,8 +109,10 @@ SITE_FILES = {"index.html", "app.js", "style.css", "admin.html", "admin.js", "ad
 LEGAL_VERSION = "2026-11-07"
 SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаборатория Arduino (MicroLab): отдельное приложение, GPL-2.0
 # скрипты и стили сайта в страницах: им сервер дописывает версию (?v=…) — новая версия сайта не застрянет в кэше
-PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|admin|teacher-gate|together|py-worker|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|teacher-gate|legal|welcome|academy|lab|classroom|help)\.css)"')
+PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|changelog|changelog-loader|admin|teacher-gate|together|py-worker|python-sandbox|lesson-readiness|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|teacher-gate|lesson-readiness|legal|welcome|academy|lab|classroom|help)\.css)"')
 PAGE_ASSETS = ("app.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
+               "changelog-loader.js",
+               "python-sandbox.js", "python-sandbox.html", "lesson-readiness.js", "lesson-readiness.css",
                "teacher-gate.js", "teacher-gate.css",
                "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css", "help.css",
                "egeshka.js", "elements.js", "onboard.js", "visit.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
@@ -103,6 +121,8 @@ HTML_COMMENT_RE = re.compile(r"<!--(?!\[if).*?-->", re.S)
 # Сжатые копии скриптов и стилей (min/, собирает tools/minify.py): посетителю уходит код без комментариев и с короткими
 # именами вместо читаемых исходников. Отсутствие сборки не должно раскрывать исходник.
 MIN_FILES = ("app.js", "admin.js", "together.js", "welcome.js", "onboard.js", "visit.js",
+             "changelog-loader.js",
+             "python-sandbox.js", "lesson-readiness.js", "lesson-readiness.css",
              "teacher-gate.js", "teacher-gate.css",
              "style.css", "admin.css", "admin-theme.css", "welcome.css", "help.css", "legal.css")
 
@@ -119,7 +139,6 @@ BANK_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".emf", ".
 MAX_BODY = 4_000_000
 ADMIN_SESSION_DAYS = 14
 SITE_URL = (os.environ.get("EGE_SITE_URL") or str(PRIVATE_CONFIG.get("SITE_URL") or "")).rstrip("/")   # для ссылок в письмах
-SITE_ORIGIN = ""                         # …или адрес, с которого последний раз заходил учитель
 TRIAL_DAYS = 7                           # пробный период учителя, который зарегистрировался сам
 GUEST_SECONDS = 3600                     # гостевой вход учителя (с демо-классом) — на час
 GUEST_KEEP_SECONDS = 86400               # закончившийся гостевой аккаунт стирается через сутки
@@ -625,19 +644,33 @@ TLOG_NAMES = {
     "teacher/moderate": "проверка учителя", "email/change": "сменил почту", "as-student": "открыл тренажёр как ученик",
     "gifts/give": "выдал подарок", "gifts/remove": "забрал подарок", "logout-here": "завершил другие входы",
 }
-TLOG_EVENTS = {"code": "код входа отправлен на почту", "login": "вход", "signup": "регистрация и вход", "logout": "выход", "password": "смена пароля",
-               "reset": "пароль по ссылке из письма", "reset_request": "запрос «Забыли пароль?»", "action": "действие", "end": "входы завершены главным учителем"}
+TLOG_EVENTS = {"code": "отправка кода входа", "login": "вход", "signup": "регистрация и вход", "logout": "выход", "password": "смена пароля",
+               "reset": "восстановление доступа", "recovery_codes": "резервные коды входа", "reset_request": "запрос «Забыли пароль?»", "action": "действие", "end": "входы завершены главным учителем"}
 _TLOG_KEYS = ("name", "title", "class_name", "class_id", "student_id", "teacher_id", "id", "ids", "login", "email", "kind", "status")
 
 
 LOGIN_CODE_SEC = 10 * 60           # код входа главного учителя из письма действует 10 минут
 LOGIN_CODE_TRIES = 5               # попыток ввести код
 LOGIN_CODE_PER_15MIN = 5           # писем с кодом за 15 минут
+LOGIN_CODE_RETRY_SEC = 60
 
 
 def login_code_ready(t):
-    """Вход главного учителя по коду из письма: включён (по умолчанию да), есть почта и настроена отправка писем."""
+    """Transport availability is separate from the required authentication policy."""
     return APP.db.setting("main_login_code") != "0" and bool(t["email"]) and bool(smtp_conf())
+
+
+def login_code_required(t):
+    """Once configured, loss of SMTP or email must never remove the second factor."""
+    db = APP.db
+    with db.transaction():
+        policy = db.setting("main_login_code")
+        if policy == "1":
+            return True
+        if policy != "0" and t["email"] and smtp_conf():
+            db.setting("main_login_code", "1")
+            return True
+    return False
 
 
 def login_code_hash(ticket, code):
@@ -720,7 +753,8 @@ def teacher_security(db, tid=None, limit=400, cur=None):
                                  ORDER BY c.created DESC LIMIT 100""", (main_id, now - 90 * 86400, *a3))]
     teachers = [{"id": r["id"], "name": r["name"]} for r in db.q("SELECT id, name FROM teachers WHERE COALESCE(guest, 0) = 0 ORDER BY is_main DESC, name")]
     m = main_teacher()
-    code_login = {"on": login_code_ready(m), "to": mask_email(m["email"]), "email": bool(m["email"]), "smtp": bool(smtp_conf())}
+    code_login = {"on": login_code_required(m), "ready": login_code_ready(m), "to": mask_email(m["email"]), "email": bool(m["email"]), "smtp": bool(smtp_conf()),
+                  "recovery_left": recovery_codes_left(db, m)}
     return {"code_login": code_login, "sessions": sessions, "log": log, "summary": summary, "unknown_fails": unknown_fails, "classes": classes,
             "teachers": teachers, "days": TLOG_DAYS, "now": now}
 
@@ -1949,6 +1983,9 @@ class DB(Transactional):
             CREATE TABLE IF NOT EXISTS admin_codes(
                 ticket TEXT PRIMARY KEY, teacher_id INTEGER NOT NULL, code TEXT NOT NULL, expires REAL NOT NULL,
                 tries INTEGER DEFAULT 0, ip TEXT, created REAL);
+            CREATE TABLE IF NOT EXISTS admin_recovery_codes(
+                teacher_id INTEGER NOT NULL, code_hash TEXT NOT NULL, account_state TEXT NOT NULL,
+                created REAL NOT NULL, used REAL, PRIMARY KEY(teacher_id, code_hash));
             CREATE TABLE IF NOT EXISTS attempts_void(
                 id INTEGER PRIMARY KEY, batch TEXT NOT NULL, student_id INTEGER NOT NULL, ts REAL, row TEXT NOT NULL,
                 void_ts REAL NOT NULL, teacher_id INTEGER, t_from REAL, t_to REAL);
@@ -2004,6 +2041,7 @@ class DB(Transactional):
                     ("admin_sessions", "ua", "TEXT"),
                     ("admin_sessions", "last_seen", "REAL"),          # последний запрос этой сессии и его адрес
                     ("admin_sessions", "last_ip", "TEXT"),
+                    ("admin_sessions", "factor_ts", "REAL"),
                     ("classes", "goal_tasks", "INTEGER"),  # цель класса на неделю (заданий) — битва классов
                     ("classes", "goal_reward", "TEXT"),    # награда за цель, её задаёт учитель
                     ("classes", "battle", "INTEGER DEFAULT 0"),    # участвует ли класс в битве классов (решает учитель)
@@ -2084,6 +2122,9 @@ class DB(Transactional):
                     ("teachers", "renew_ts", "REAL"),                 # когда учитель последний раз попросил продлить доступ
                     ("teachers", "renew_note", "TEXT"),
                     ("teachers", "steps_off", "INTEGER DEFAULT 0"),   # учитель скрыл карточку «Первые шаги»
+                    ("admin_codes", "account_state", "TEXT"),
+                    ("admin_codes", "delivery", "TEXT DEFAULT 'invalid'"),
+                    ("admin_codes", "delivered", "REAL"),
                     ("assignments", "batch", "TEXT"),                 # серия личных подборок: fix:<id> — работа над ошибками, weak:<ts>
                     ("tournaments", "fmt", "INTEGER DEFAULT 0"),      # 2 — с групповым этапом
                     ("tour_players", "grp", "TEXT"),
@@ -2117,6 +2158,14 @@ class DB(Transactional):
                     ("econ_hist", "s_med", "REAL")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            # Preserve already-used principal 2FA across the upgrade, including SMTP outages.
+            if not c.execute("SELECT 1 FROM settings WHERE key='main_login_code_migrated'").fetchone():
+                if (not c.execute("SELECT 1 FROM settings WHERE key='main_login_code' AND value='0'").fetchone()
+                        and c.execute("SELECT 1 FROM teacher_log l JOIN teachers t ON t.id=l.teacher_id WHERE t.is_main=1 AND l.event='code' LIMIT 1").fetchone()):
+                    c.execute("INSERT INTO settings(key,value) VALUES('main_login_code','1') ON CONFLICT(key) DO UPDATE SET value='1'")
+                c.execute("UPDATE admin_codes SET delivery='invalid'")
+                c.execute("INSERT INTO settings(key,value) VALUES('main_login_code_migrated','1')")
+            c.execute("CREATE INDEX IF NOT EXISTS admin_codes_teacher_created ON admin_codes(teacher_id, created)")
             # ученики учителя нужны на каждый запрос рейтинга, дуэлей и турниров (колонка добавляется выше — индекс после неё)
             c.execute("CREATE INDEX IF NOT EXISTS students_teacher ON students(teacher_id)")
             # Stable demo identity survives renames. Never infer it from a class name.
@@ -2257,6 +2306,8 @@ class DB(Transactional):
                 c.execute("INSERT INTO settings(key, value) VALUES('bot_flags_cleared', '1')")
             # прежние версии записывали нетронутые задания варианта как ошибки — убираем их из журнала
             c.execute("DELETE FROM attempts WHERE reason='exam' AND answers='[]'")
+            buglab_grading.migrate(c)
+            learning_quality.migrate(c)
             c.commit()
 
     def q(self, sql, args=(), one=False):
@@ -2296,9 +2347,11 @@ def delete_student(db, sid):
             db.x("UPDATE together SET students=? WHERE id=?", (json.dumps([x for x in members if x != sid]), row["id"]))
     for table in ("student_sessions", "attempts", "reveal_log", "exams", "activity", "solutions", "solution_history", "daily_starts", "daily_results",
                   "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue",
-                  "arduino_progress", "mcko_runs", "im_attempts", "im_trials"):
+                  "arduino_progress", "mcko_runs", "im_attempts", "im_trials", "learning_mistakes", "buglab", "buglab_jobs"):
         db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
     db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
+    if db.q("SELECT 1 FROM sqlite_master WHERE name='lesson_readiness' AND type='table'", one=True):
+        db.x("DELETE FROM lesson_readiness WHERE account=?", (f"student:{sid}",))
     support_img_cleanup(db)
     for aid in [r["id"] for r in db.q("SELECT id FROM assignments WHERE student_id=?", (sid,))]:
         db.x("DELETE FROM asg_runs WHERE asg_id=?", (aid,))
@@ -2327,6 +2380,7 @@ class App:
     def __init__(self):
         self.db = DB(DB_PATH)
         self.delivery = bank_delivery.BankDelivery(self.db)
+        self.downloads = download_delivery.DownloadDelivery(self.db)
         secret = self.db.setting("id_secret")
         if not secret:
             secret = secrets.token_hex(16)
@@ -2671,7 +2725,7 @@ def tog_public(db, r, sid=None):
 APP = None
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(TeacherAuthHandlers, TaskHTTPHandlers, BankHTTPHandlers, BaseHTTPRequestHandler):
     server_version = "EGETrainer/1.0"
     protocol_version = "HTTP/1.1"
     timeout = 60                      # медленный клиент не держит поток вечно
@@ -2688,6 +2742,23 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     # ---------- ответы
+    def end_headers(self):
+        # Apply to streamed files, errors and SSE too, without duplicating route overrides.
+        existing = {line.split(b':', 1)[0].lower() for line in getattr(self, '_headers_buffer', ()) if b':' in line}
+        defaults = {
+            'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
+            'X-Frame-Options': 'SAMEORIGIN',
+            'Permissions-Policy': 'geolocation=(), payment=()',
+            'Content-Security-Policy': http_security.content_security_policy(self.headers, self.client_address[0]),
+        }
+        if self.is_https():
+            # No includeSubDomains/preload: those require a separate domain inventory.
+            defaults['Strict-Transport-Security'] = 'max-age=31536000'
+        for name, value in defaults.items():
+            if name.lower().encode() not in existing:
+                self.send_header(name, value)
+        super().end_headers()
+
     def send_bytes(self, code, body, ctype, extra=None):
         extra = dict(extra or {})
         if (code == 200 and len(body) > 2048 and "Content-Encoding" not in extra and GZIP_TYPES.match(ctype)
@@ -2759,6 +2830,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if not http_security.allows_mutation(self.headers, self.client_address[0]):
+                # The unread body must not become the next request on this connection.
+                self.close_connection = True
+                return self.err(403, "Запрос с другого сайта отклонён")
             u = urlparse(self.path)
             path = unquote(u.path)
             qs = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -2851,15 +2926,21 @@ class Handler(BaseHTTPRequestHandler):
         return ip
 
     def is_https(self):
-        return (self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
+        return (self.client_address[0] in http_security.LOOPBACK and
+                (self.headers.get("X-Forwarded-Proto") or "").lower() == "https")
 
     def site_origin(self):
-        """Адрес сайта для ссылок в письмах: из настроек или из запроса учителя (запоминается для рассылки)."""
-        global SITE_ORIGIN
-        host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or ""
-        if host and not SITE_URL:
-            SITE_ORIGIN = ("https" if self.is_https() else "http") + "://" + host
-        return SITE_URL or SITE_ORIGIN
+        """Preview may use this request's origin; email always uses configured SITE_URL."""
+        configured = recovery_origin(SITE_URL)
+        if configured:
+            return configured
+        origin = http_security.request_origin(self.headers, self.client_address[0])
+        if not origin:
+            return ""
+        scheme, host, port = origin
+        host = f"[{host}]" if ":" in host else host
+        suffix = "" if port == (443 if scheme == "https" else 80) else f":{port}"
+        return f"{scheme}://{host}{suffix}"
 
     def cookie_attrs(self):
         return "; Secure" if self.is_https() else ""
@@ -2921,9 +3002,22 @@ class Handler(BaseHTTPRequestHandler):
         if rel.startswith("files/"):
             return self.serve_task_file(rel)
         if rel.startswith("course-data/"):        # файлы данных к программам на слайдах курса (без ответов)
-            return self.serve_file(HERE / "course" / "data", rel[len("course-data/"):])
+            account = self.download_account('course')
+            if not account:
+                return
+            return self.serve_file(HERE / "course" / "data", rel[len("course-data/"):], account=account)
         if rel.startswith("pyc-data/"):           # файлы к задачам курса программирования (без ответов)
-            return self.serve_file(HERE / "pycourse" / "data", rel[len("pyc-data/"):])
+            account = self.download_account('pyc', rel)
+            if not account:
+                return
+            return self.serve_file(HERE / "pycourse" / "data", rel[len("pyc-data/"):], account=account)
+        if rel.startswith('media/'):
+            if Path(rel).suffix.lower() not in BANK_EXT:
+                return self.err(404, "нет такого файла")
+            account = self.download_account()
+            if not account:
+                return
+            return self.serve_file(HERE / 'media', rel[len('media/'):], account=account)
         # файлы сайта
         if rel in ("index.html", "welcome.html"):
             self.count_visit("welcome" if rel == "welcome.html" else None)
@@ -2959,7 +3053,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.err(403, "Лаборатория Arduino открывается по паролю от учителя")
         if rel in SITE_FILES:
             f = site_asset(rel)
-            return self.serve_file(f.parent, f.name, html=rel.endswith(".html"), private=rel == "lab-worker.js")
+            return self.serve_file(f.parent, f.name, html=rel.endswith(".html"),
+                                   private=rel in ("lab-worker.js", "python-sandbox.html"))
         for d in SITE_DIRS:
             if rel.startswith(d):
                 return self.serve_file(HERE / d.rstrip("/"), rel[len(d):], private=d == "arduino/")
@@ -2977,10 +3072,13 @@ class Handler(BaseHTTPRequestHandler):
             if parts[1] == "raw":
                 return self.err(404, "нет такого файла")
             if in_assets or ext in BANK_EXT:
+                account = self.download_account()
+                if not account:
+                    return
                 bdir = find_bank(parts[0])
                 if not bdir:
                     return self.not_found(f"папка {parts[0]} не найдена (см. python server.py --banks)")
-                return self.serve_file(bdir, "/".join(parts[1:]))
+                return self.serve_file(bdir, "/".join(parts[1:]), account=account)
         return self.not_found()
 
     def not_found(self, disk_path=None):
@@ -3048,8 +3146,56 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             body, extra["Content-Encoding"] = gz, "gzip"
         return self.send_bytes(200, body, "text/html; charset=utf-8", extra)
 
+    def download_account(self, section=None, rel=None):
+        """Authenticate every protected route; opaque file URLs are not credentials."""
+        student = self.student()
+        if student:
+            if section == 'course' and not course_open(student):
+                self.err(403, "Курс открывается по паролю от учителя")
+                return None
+            if section == 'pyc':
+                if not pyc_access(student):
+                    self.err(403, "Курс программирования открывается по паролю от учителя")
+                    return None
+                if not student['is_teacher'] and not student['pyc_free'] and rel:
+                    module = pyc_module(rel.split('/')[1])
+                    levels = (module or {}).get('levels', [])
+                    opened = pyc_open_levels(module or {}, pyc_solved(APP.db, student['id']))
+                    def references(value):
+                        if isinstance(value, dict):
+                            return any(references(v) for v in value.values())
+                        if isinstance(value, list):
+                            return any(references(v) for v in value)
+                        return isinstance(value, str) and urlparse(value).path.lstrip('/') == rel
+                    if not any(references(lv) for lv in levels[:opened]):
+                        self.err(403, "Файл относится к ещё не открытому уровню")
+                        return None
+            # A teacher preview and the teacher panel share their teacher's budget.
+            if student['is_teacher']:
+                return ('teacher', teacher_of(student)['id'])
+            return ('student', student['id'])
+        if self.is_admin():
+            if not teacher_ready(self.T):
+                self.err(403, "Для доступа нужны подтверждение почты и одобрение главным учителем")
+                return None
+            return ('teacher', self.T['id'])
+        self.err(401, "нужно войти")
+        return None
+
+    def reserve_download(self, account, resource, size):
+        decision = APP.downloads.check(account, resource, size, head=self.command == 'HEAD')
+        if decision.status == 200:
+            return True
+        self.send_json({'error': 'Слишком много запросов файлов. Попробуйте позже'}, decision.status,
+                       {'Retry-After': str(decision.retry_after), 'Cache-Control': 'private, no-store',
+                        'Vary': 'Cookie, X-Token'})
+        return False
+
     def serve_task_file(self, rel):
         """Картинка или файл задания по безликой ссылке files/<код>/<имя>; файл из архива ФИПИ — прямо из zip."""
+        account = self.download_account()
+        if not account:
+            return
         parts = rel.split("/")
         APP.bank.ensure()
         target = APP.bank.files.get(parts[1]) if len(parts) >= 3 else None
@@ -3062,17 +3208,21 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.not_found(p or href)
         name = unquote(parts[-1])
         if member is None and not as_text:
-            return self.serve_file(p.parent, p.name, download_name=name)
+            return self.serve_file(p.parent, p.name, download_name=name, account=account)
         try:
             if member is None:
                 if p.stat().st_size > MAX_ZIP_MEMBER:
                     return self.not_found(p)
+                if not self.reserve_download(account, str(p.resolve()), p.stat().st_size):
+                    return
                 body = p.read_bytes()
             else:
                 with zipfile.ZipFile(p) as z:
                     info = z.getinfo(member)
                     if info.file_size > MAX_ZIP_MEMBER:
                         return self.not_found(p)
+                    if not self.reserve_download(account, str(p.resolve()) + '::' + member, info.file_size):
+                        return
                     body = z.read(info)
         except (KeyError, zipfile.BadZipFile, OSError):
             return self.not_found(p)
@@ -3084,9 +3234,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if ctype.startswith("text/"):
             ctype += "; charset=utf-8"
         return self.send_bytes(200, body, ctype, {
-            "Cache-Control": "no-cache", "Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name)})
+            "Cache-Control": "private, no-store", "Vary": "Cookie, X-Token, Accept-Encoding",
+            "Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name)})
 
-    def serve_file(self, root: Path, rel, html=False, download_name=None, private=False):
+    def serve_file(self, root: Path, rel, html=False, download_name=None, private=False, account=None):
         root = root.resolve()
         p = (root / rel).resolve()
         try:
@@ -3096,12 +3247,20 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if not p.is_file():
             return self.not_found(p)
         st = p.stat()
+        if account:
+            private = True
+            if not self.reserve_download(account, str(p), st.st_size):
+                return
         etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
         ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
         extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff",
                  "Vary": "Accept-Encoding"}
+        runtime = (HERE / 'vendor' / 'pyodide').resolve()
+        if runtime in p.parents:
+            # Only public runtime artifacts are readable from the opaque Python frame.
+            extra['Access-Control-Allow-Origin'] = '*'
         if private:                                  # закрытый код не остаётся в общем кэше после выхода/смены ученика
             extra["Cache-Control"] = "private, no-store"
             extra["Vary"] = "Accept-Encoding, Cookie, X-Token"
@@ -3138,68 +3297,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     break
                 self.wfile.write(chunk)
 
-    def serve_task_html(self, qs):
-        """Ограниченные страницы условий; общая квота всех сессий аккаунта."""
-        tok = self.headers.get("X-Token") or self.cookie("egest")
-        student = student_by_token(APP.db, tok, self.client_ip())[0]
-        if not student:
-            return self.err(401, "нужно войти")
-        extra = {"Cache-Control": "private, no-store", "Vary": "Cookie, X-Token, Accept-Encoding"}
-        if self.command != 'GET':
-            return self.send_json({"error": "используйте GET"}, 405, dict(extra, Allow='GET'))
-        if not APP.bank.ensure():
-            return self.err(503, "банк заданий не собран")
-        b = APP.bank
-        # A reload replaces both dictionaries. Keep one consistent bank generation
-        # while accounting/delivery runs, without holding the bank lock during I/O.
-        with b.lock:
-            html_pub, html_n = b.html_pub, b.html_n
-        ids, issue, requested, next_offset = [], None, 0, None
-        if 'n' in qs and 'ids' not in qs:
-            n, offset = str(qs['n']), str(qs.get('offset', '0'))
-            if not re.fullmatch(r'(?:[1-9]|1[0-9]|2[0-7])', n) or not re.fullmatch(r'[0-9]{1,6}', offset):
-                issue = 'invalid_page'
-            else:
-                offset = int(offset)
-                candidates = html_n.get(n, ())
-                ids = candidates[offset:offset + bank_delivery.PAGE_SIZE]
-                if offset + len(ids) < len(candidates):
-                    next_offset = offset + len(ids)
-                requested = len(ids)
-        elif 'ids' in qs and 'n' not in qs and 'offset' not in qs:
-            raw = str(qs['ids'])
-            requested = raw.count(',') + 1
-            if requested > bank_delivery.MAX_BATCH or len(raw) > 4096:
-                issue = 'batch_size'
-            else:
-                ids = [i for i in dict.fromkeys(raw.split(',')) if i in html_pub]
-        else:
-            issue = 'invalid_page'
-        decision = APP.delivery.check(student, ids, issue=issue, requested=requested)
-        if decision.status == 429:
-            extra['Retry-After'] = str(decision.retry_after)
-            return self.send_json({"error": "Загрузка временно приостановлена. Попробуйте позже.",
-                                   "retry_after": decision.retry_after}, 429, extra)
-        if decision.status != 200:
-            return self.send_json({"error": "Не удалось загрузить задания. Обновите страницу."}, decision.status, extra)
-        return self.send_json({"html": {i: html_pub[i] for i in ids}, "next_offset": next_offset}, extra=extra)
-
-    def serve_bank(self):
-        if not student_by_token(APP.db, self.cookie("egest"), self.client_ip())[0]:
-            # без входа (код приглашения + ФИО) задания не отдаём
-            return self.send_bytes(200, LOCKED_BANK, "application/javascript; charset=utf-8", {"Cache-Control": "no-store"})
-        if not APP.bank.ensure():
-            return self.send_bytes(200, b"window.EGE_BANK = null;\n", "application/javascript; charset=utf-8",
-                                   {"Cache-Control": "no-cache"})
-        b = APP.bank
-        if self.headers.get("If-None-Match") == b.etag:
-            return self.send_bytes(304, b"", "text/plain", {"ETag": b.etag})
-        extra = {"ETag": b.etag, "Cache-Control": "no-cache", "Vary": "Accept-Encoding"}
-        if "gzip" in (self.headers.get("Accept-Encoding") or ""):
-            extra["Content-Encoding"] = "gzip"
-            return self.send_bytes(200, b.public_gz, "application/javascript; charset=utf-8", extra)
-        return self.send_bytes(200, b.public_raw, "application/javascript; charset=utf-8", extra)
-
     def support_img(self, name, sid):
         """Картинка из техподдержки: автору обращения (sid) или главному учителю (sid=None)."""
         name = str(name or "")
@@ -3230,6 +3327,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.live_stream(("t", self.T["id"]), None)
 
     def live_stream(self, key, tid):
+        if hasattr(self.server, 'reserve_stream') and not self.server.reserve_stream(self.connection):
+            return self.err(503, "Сейчас много подключений. Повторите через несколько секунд")
         q = LIVE.subscribe(key, tid)
         if q is None:
             return self.err(503, "много соединений — обновления придут обычными запросами")
@@ -3290,9 +3389,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     def together_ws(self, qs):
         sid = to_int(qs.get("id"))
-        origin = self.headers.get("Origin") or ""
-        host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or ""
-        if origin and urlparse(origin).netloc != host:
+        if not http_security.allows_mutation(self.headers, self.client_address[0]):
             return self.err(403, "чужой сайт")               # чужая страница не подключится к сеансу с cookie ученика
         who = self.together_who(sid, qs.get("as") == "t") if sid else None
         if not who:
@@ -3303,6 +3400,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         sess = TOG.get(sid)
         if not sess:
             return self.err(404, "сеанс не найден")
+        if hasattr(self.server, 'reserve_stream') and not self.server.reserve_stream(self.connection):
+            return self.err(503, "Сейчас много подключений. Повторите через несколько секунд")
         self.close_connection = True
         self.send_response(101, "Switching Protocols")
         self.send_header("Upgrade", "websocket")
@@ -3484,93 +3583,30 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "teacher_name": "" if s["self_reg"] else (teacher_of(s)["name"] or ""),
                 "admins": [r["id"] for r in APP.db.q("SELECT id FROM students WHERE role='admin'")]}
 
-    def admin_login(self, tid, seconds, event="login"):
-        """Новая сессия учителя: строка Set-Cookie. Вход попадает в журнал безопасности с адресом и устройством."""
-        tok = secrets.token_urlsafe(32)
-        now, ip, ua = time.time(), self.client_ip(), (self.headers.get("User-Agent") or "")[:300]
-        APP.db.x("INSERT INTO admin_sessions(token,expires,teacher_id,created,ip,ua,last_seen,last_ip) VALUES(?,?,?,?,?,?,?,?)",
-                 (tok, now + seconds, tid, now, ip, ua, now, ip))
-        APP.db.x("DELETE FROM admin_sessions WHERE expires<?", (now,))
-        self.tlog(event, tid, sess=sess_mark(tok))
-        return f"egeadm={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age={int(seconds)}{self.cookie_attrs()}"
+    def task_http_services(self):
+        return TaskHTTPServices(
+            app=APP, opened=OPENED, checks=CHECKS, think_sec=think_sec, trap_k=trap_k,
+            work_reason=WORK_REASON, to_int=to_int, to_float=to_float, tokens=tokens,
+            answer_credit=answer_credit, trap_hit=trap_hit, is_daily_of=is_daily_of,
+            answer_min_ms=answer_min_ms, last_attempt_skipped=last_attempt_skipped,
+            game_summary=game_summary, attempts_per_task=ATTEMPTS_PER_TASK,
+            teacher_of=teacher_of, hints=hints_mod, clusters=clusters, strict_locked=strict_locked)
 
-    def admin_login_send_code(self, t, ip):
-        """Пароль главного учителя верный — второй шаг: код на его почту. Сессии ещё нет."""
-        db, now = APP.db, time.time()
-        db.x("DELETE FROM admin_codes WHERE expires<?", (now,))
-        if db.q("SELECT COUNT(*) c FROM admin_codes WHERE teacher_id=? AND created>?", (t["id"], now - 900), one=True)["c"] >= LOGIN_CODE_PER_15MIN:
-            return self.err(429, "Слишком много кодов подряд — подождите 15 минут и войдите снова")
-        ticket, code = secrets.token_urlsafe(24), f"{secrets.randbelow(10 ** 6):06d}"
-        db.x("INSERT INTO admin_codes(ticket, teacher_id, code, expires, ip, created) VALUES(?,?,?,?,?,?)",
-             (hashlib.sha256(ticket.encode()).hexdigest(), t["id"], login_code_hash(ticket, code), now + LOGIN_CODE_SEC, ip, now))
-        device = ua_label(self.headers.get("User-Agent") or "")
-        when = time.strftime("%d.%m.%Y %H:%M", time.localtime(now))
-        safe = html_mod.escape
+    def bank_http_services(self):
+        return BankHTTPServices(app=APP, student_by_token=student_by_token, locked_bank=LOCKED_BANK)
 
-        def mail(to=t["email"], name=t["name"]):
-            try:
-                send_mail(to, f"Egeshka: код входа {code}",
-                          f"<p>{safe(name)}, код для входа в панель главного учителя:</p>"
-                          f"<p style='font-size:28px;font-weight:700;letter-spacing:6px'>{code}</p>"
-                          f"<p>Действует {LOGIN_CODE_SEC // 60} минут. Вход: {safe(when)}, адрес {safe(ip)}, {safe(device)}.</p>"
-                          "<p style='color:#c53030'>Если это были не вы — кто-то знает ваш пароль: смените его в панели (Настройки) "
-                          "и никому не сообщайте этот код.</p>",
-                          f"{name}, код для входа в панель главного учителя: {code}\n"
-                          f"Действует {LOGIN_CODE_SEC // 60} минут. Вход: {when}, адрес {ip}, {device}.\n"
-                          "Если это были не вы — кто-то знает ваш пароль: смените его и никому не сообщайте этот код.")
-            except Exception as e:
-                print(f"[код входа] {e!r}", flush=True)
-        threading.Thread(target=mail, daemon=True).start()
-        self.tlog("code", t["id"], detail="пароль верный, код отправлен на почту")
-        return self.send_json({"need_code": True, "ticket": ticket, "to": mask_email(t["email"]), "minutes": LOGIN_CODE_SEC // 60})
-
-    def admin_login_code(self, data, ip):
-        """Второй шаг входа главного учителя: код из письма → сессия."""
-        db, now = APP.db, time.time()
-        ticket = str(data.get("ticket") or "")
-        key = hashlib.sha256(ticket.encode()).hexdigest()
-        r = db.q("SELECT * FROM admin_codes WHERE ticket=?", (key,), one=True)
-        if not r or r["expires"] < now or r["tries"] >= LOGIN_CODE_TRIES:
-            if r:
-                db.x("DELETE FROM admin_codes WHERE ticket=?", (key,))
-            return self.err(410, "Код устарел — войдите заново, придёт новый")
-        code = re.sub(r"\D", "", str(data.get("code") or ""))
-        if not hmac.compare_digest(login_code_hash(ticket, code), r["code"]):
-            db.x("UPDATE admin_codes SET tries=tries+1 WHERE ticket=?", (key,))
-            THROTTLE.fail("admin", ip)
-            self.tlog("login", r["teacher_id"], ok=False, detail="неверный код из письма")
-            time.sleep(1.0)
-            left = LOGIN_CODE_TRIES - r["tries"] - 1
-            return self.err(403, f"Неверный код — осталось попыток: {left}" if left > 0 else "Неверный код — войдите заново, придёт новый")
-        db.x("DELETE FROM admin_codes WHERE ticket=?", (key,))
-        THROTTLE.ok("admin", ip)
-        return self.send_json({"ok": True}, extra={"Set-Cookie": self.admin_login(r["teacher_id"], ADMIN_SESSION_DAYS * 86400)})
-
-    def tlog(self, event, tid=None, *, ok=True, login=None, path=None, detail=None, sess=None):
-        """Строка журнала безопасности учителей: что, кто, когда, с какого адреса и устройства."""
-        if sess is None:
-            sess = sess_mark(self.cookie("egeadm") or "") if self.cookie("egeadm") else None
-        APP.db.x("""INSERT INTO teacher_log(ts, teacher_id, event, ok, ip, ua, login, path, detail, sess)
-                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                 (time.time(), tid, event, int(bool(ok)), self.client_ip(), (self.headers.get("User-Agent") or "")[:300],
-                  (login or "")[:120] or None, path, (detail or "")[:300] or None, sess))
-
-    def is_admin(self):
-        """Вошёл ли учитель; запоминает его в self.T (сессии без учителя — от прежних версий — главного)."""
-        c = cookies.SimpleCookie(self.headers.get("Cookie") or "")
-        if "egeadm" not in c:
-            return False
-        r = APP.db.q("SELECT expires, teacher_id, last_seen, last_ip FROM admin_sessions WHERE token=?", (c["egeadm"].value,), one=True)
-        if not (r and r["expires"] > time.time()):
-            return False
-        ip = self.client_ip() if getattr(self, "client_address", None) else None
-        if ip and (ip != r["last_ip"] or time.time() - (r["last_seen"] or 0) > 120):   # последняя активность сессии и её адрес
-            APP.db.x("UPDATE admin_sessions SET last_seen=?, last_ip=? WHERE token=?", (time.time(), ip, c["egeadm"].value))
-        t = APP.db.q("SELECT * FROM teachers WHERE id=?", (r["teacher_id"],), one=True) if r["teacher_id"] else main_teacher()
-        if not t:
-            return False
-        self.T = t
-        return True
+    def teacher_auth_services(self):
+        return TeacherAuthServices(
+            db=APP.db, throttle=THROTTLE, session_seconds=ADMIN_SESSION_DAYS * 86400,
+            code_seconds=LOGIN_CODE_SEC, code_tries=LOGIN_CODE_TRIES,
+            code_per_window=LOGIN_CODE_PER_15MIN, code_retry_seconds=LOGIN_CODE_RETRY_SEC,
+            code_hash=login_code_hash, mask_email=mask_email, device_label=ua_label,
+            session_mark=sess_mark, main_teacher=main_teacher,
+            code_required=login_code_required, code_ready=login_code_ready, send_mail=send_mail,
+            security_summary=teacher_security, parse_int=to_int,
+            teacher_ready=teacher_ready, teacher_email_pending=teacher_email_pending,
+            teacher_onboarding=teacher_onboarding, teacher_access=teacher_access,
+            gate_routes=TEACHER_GATE_ROUTES, readonly_routes=ACCESS_RO_OK)
 
     # что видит учитель: главный — всех, остальные — только своих учеников и классы
     def sees_student(self, sid):
@@ -3927,12 +3963,13 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         return self.err(404, "нет такого метода")
 
     def api_buglab(self, method, path, data, s):
-        """Лаборатория исправления ошибок. Код ученика выполняется у него в браузере; сюда приходят выводы по тестам."""
+        """Самопроверка в браузере и отдельная проверка доверенным изолированным исполнителем."""
         db = APP.db
         if not lab_access(db, s):
             return self.err(403, "Лаборатории открываются по паролю от учителя")
         mine = {r["case_id"]: r for r in db.q("SELECT * FROM buglab WHERE student_id=?", (s["id"],))}
-        state = lambda cid: {k: (mine.get(cid) or {k: 0})[k] for k in ("ok", "tries", "star", "seen")} if cid in mine else {"ok": 0, "tries": 0, "star": 0, "seen": 0}
+        def state(cid):
+            return buglab_grading.state(mine.get(cid))
         if path == "/api/lab/bugs" and method == "GET":
             return self.send_json({"levels": buglab.LEVELS, "kinds": buglab.KINDS,
                                    "cases": [dict(buglab.public(c), my=state(c["id"])) for c in buglab.CASES]})
@@ -3940,6 +3977,59 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if not case:
             return self.err(404, "нет такой задачи")
         now = time.time()
+        if path == "/api/lab/bugs/verify" and method == "POST":
+            code = data.get("code")
+            try:
+                # Validate without executing or truncating the submitted program.
+                buglab_verifier.wire.program(code, list(case["inputs"]))
+            except (ValueError, UnicodeEncodeError) as exc:
+                return self.err(400, str(exc))
+            sid = s["id"]
+            denial = None
+            try:
+                with db.transaction():
+                    # Account deletion/revocation can race the initial read too.
+                    current = self.student(data)
+                    if not current or current["id"] != sid:
+                        denial = (401, "Вход завершён. Войдите снова для независимой проверки.")
+                    elif not lab_access(db, current):
+                        denial = (403, "Доступ к лабораториям закрыт.")
+                    else:
+                        job = buglab_grading.reserve(db, sid)
+            except buglab_grading.Limited as exc:
+                return self.send_json({"error": str(exc)}, 429, {"Retry-After": str(exc.retry_after)})
+            if denial:
+                return self.err(*denial)
+            try:
+                # No DB lock/transaction may span this potentially slow operation.
+                verdict = buglab_verifier.verify(case, code)
+            except (buglab_verifier.InvalidProgram, buglab_verifier.VerifierUnavailable) as exc:
+                with db.transaction():
+                    buglab_grading.finish(db, job, "unavailable")
+                status = 400 if isinstance(exc, buglab_verifier.InvalidProgram) else (429 if isinstance(exc, buglab_verifier.VerifierBusy) else 503)
+                return self.send_json({"error": str(exc)}, status, {"Retry-After": "5"} if status != 400 else None)
+            except BaseException:
+                with db.transaction():
+                    buglab_grading.finish(db, job, "unavailable")
+                raise
+            status, result = 200, None
+            with db.transaction():
+                # Re-read the original session and access after grading. Logout,
+                # account deletion and teacher suspension must revoke late credit.
+                current = self.student(data)
+                if not current or current["id"] != sid:
+                    status, result = 401, {"error": "Вход завершён. Войдите снова для независимой проверки."}
+                elif not lab_access(db, current):
+                    status, result = 403, {"error": "Доступ к лабораториям закрыт. Результат не сохранён."}
+                elif not buglab_grading.active(db, sid, job):
+                    status, result = 409, {"error": "Время проверки истекло. Повторите проверку."}
+                else:
+                    my = buglab_grading.save(db, sid, case, code, verdict)
+                    result = dict(verdict, my=my)
+                    if verdict["ok"]:
+                        result["explain"] = case["explain"]
+                buglab_grading.finish(db, job, "complete" if status == 200 else "cancelled")
+            return self.send_json(result, status)
         if path == "/api/lab/bugs/check" and method == "POST":
             with _PYC_LOCK:                                   # не чаще, чем проверки в курсе Python
                 tries = [x for x in _BUG_TRIES.get(s["id"], []) if now - x < PYC_WINDOW]
@@ -3952,14 +4042,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tests = buglab.check(case, runs[:len(case["inputs"])])
             ok = all(t["ok"] for t in tests)
             changed = buglab.changed_lines(case, code)
-            was = state(case["id"])
-            star = int(ok and changed <= case["par"] and not was["seen"])
-            db.x("""INSERT INTO buglab(student_id, case_id, ok, tries, star, first_ts, ok_ts, code) VALUES(?,?,?,?,?,?,?,?)
+            # Browser-supplied outputs are useful feedback, never independent proof.
+            with db.transaction():
+                db.x("""INSERT INTO buglab(student_id, case_id, ok, tries, star, seen, first_ts, ok_ts, code) VALUES(?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(student_id, case_id) DO UPDATE SET ok=MAX(ok, excluded.ok), tries=tries + (1 - excluded.ok) * (1 - ok),
-                      star=MAX(star, excluded.star), ok_ts=COALESCE(ok_ts, excluded.ok_ts), code=CASE WHEN excluded.ok THEN excluded.code ELSE code END""",
-                 (s["id"], case["id"], int(ok), 0 if ok else 1, star, now, now if ok else None, code if ok else None))
-            row = db.q("SELECT ok, tries, star, seen FROM buglab WHERE student_id=? AND case_id=?", (s["id"], case["id"]), one=True)
-            out = {"ok": ok, "tests": tests, "changed": changed, "par": case["par"], "my": dict(row)}
+                      seen=MAX(seen, excluded.seen), ok_ts=COALESCE(ok_ts, excluded.ok_ts),
+                      code=CASE WHEN excluded.ok AND NOT verified THEN excluded.code ELSE code END""",
+                     (s["id"], case["id"], int(ok), 0 if ok else 1, 0, int(ok), now, now if ok else None, code if ok else None))
+                row = db.q("SELECT * FROM buglab WHERE student_id=? AND case_id=?", (s["id"], case["id"]), one=True)
+            out = {"ok": ok, "verified": False, "provenance": "self_check", "tests": tests,
+                   "changed": changed, "par": case["par"],
+                   "my": buglab_grading.state(row)}
             if ok:
                 out["explain"] = case["explain"]
             return self.send_json(out)
@@ -3968,7 +4061,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not was["ok"] and was["tries"] < 3:
                 return self.err(403, "Разбор откроется после трёх проверок — сначала попробуй сам и посмотри подсказки")
             db.x("""INSERT INTO buglab(student_id, case_id, seen, first_ts) VALUES(?,?,1,?)
-                    ON CONFLICT(student_id, case_id) DO UPDATE SET seen=CASE WHEN ok THEN seen ELSE 1 END""", (s["id"], case["id"], now))
+                    ON CONFLICT(student_id, case_id) DO UPDATE SET seen=1""", (s["id"], case["id"], now))
             return self.send_json({"explain": case["explain"]})
         return self.err(404, "нет такого метода")
 
@@ -3979,10 +4072,20 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             account_write = method == "POST" and path in ACCOUNT_WRITE_PATHS
             if account_write:
                 self._account_delay = 0
-            if financial_path(path) or account_write or (method == "POST" and path in ("/api/pyc/check", "/api/pyc/help")):
+            if path != "/api/lab/bugs/verify" and (financial_path(path) or account_write or (method == "POST" and path in ("/api/pyc/check", "/api/pyc/help", "/api/admin/student/rename"))):
                 # Slow failed authentication only after releasing the shared database lock.
-                return atomic_response(self, APP.db, lambda: self.api_route(method, path, qs, data),
-                                       before_send=(lambda: time.sleep(self._account_delay)) if account_write else None)
+                self._audit_failures = []
+                def after_transaction():
+                    self.flush_failed_audit()
+                    if account_write:
+                        time.sleep(self._account_delay)
+                try:
+                    return atomic_response(self, APP.db, lambda: self.api_route(method, path, qs, data),
+                                           before_send=after_transaction)
+                finally:
+                    # Exceptions also roll back application state, but must retain denials.
+                    self.flush_failed_audit()
+                    self._audit_failures = None
             return self.api_route(method, path, qs, data)
         finally:
             if method == "POST" and ("/tour" in path or "/duel" in path):
@@ -3990,6 +4093,43 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     def api_route(self, method, path, qs, data):
         db = APP.db
+        if path == "/api/readiness":
+            account = self.download_account()
+            if not account:
+                return
+            private = {"Cache-Control": "private, no-store", "Vary": "Cookie, X-Token"}
+            if method == "GET" and qs.get("file") == "1":
+                return self.send_bytes(200, lesson_readiness.SAMPLE, "text/plain; charset=utf-8", private)
+            if method == "POST" or (method == "GET" and qs.get("receipt")):
+                code, result = lesson_readiness.probe(db, ':'.join(map(str, account)),
+                    data.get('nonce') if method == 'POST' else qs.get('receipt'), write=method == 'POST')
+                return self.send_json(result, code, private)
+            if method == "GET":
+                return self.send_json({"ok": True, "version": APP_VERSION,
+                                       "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file()}, extra=private)
+            return self.err(405, "метод не поддерживается")
+        if path == "/api/course/coverage" and method == "GET":
+            return self.send_json(course_coverage(HERE))
+        if path == "/api/learning/mistake" and method == "POST":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            APP.bank.ensure()
+            task = APP.bank.real(str(data.get("task") or ""))
+            try:
+                return self.send_json(dict(ok=True, **learning_quality.save_mistake(db, s["id"], task, data.get("reason"))))
+            except ValueError as exc:
+                return self.err(400, str(exc))
+            except LookupError as exc:
+                return self.err(404, str(exc))
+        if path == "/api/learning/mistakes" and method == "GET":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if not APP.bank.ensure():
+                return self.err(503, "банк заданий не собран")
+            return self.send_json({"items": learning_quality.mistake_summary(db, s["id"]), "days": 30,
+                                   "followup": learning_quality.followup_metrics(db, s["id"], APP.bank.tasks)})
         # ----- ученик
         if path == "/api/ping":
             return self.send_json({"ok": True, "server": True})
@@ -4269,6 +4409,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 if account["is_main"]:
                     db.setting("admin_password", encoded)
                 db.x("DELETE FROM admin_sessions WHERE COALESCE(teacher_id, ?)=?", (main_teacher()["id"], r["uid"]))
+                db.x("DELETE FROM admin_codes WHERE teacher_id=?", (r["uid"],))
+                db.x("DELETE FROM admin_recovery_codes WHERE teacher_id=?", (r["uid"],))
             else:
                 db.x("UPDATE students SET pw=?, email_ok=1 WHERE id=?", (hash_pw(pw), r["uid"]))
                 sessions_end(db, r["uid"])
@@ -4597,6 +4739,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not course_open(s):
                 return self.err(403, "курс закрыт")
             n = to_int(qs.get("n"))
+            n = 19 if n in (20, 21) else n
             f = HERE / "course" / f"{n}.json"
             if not (n in kim.ALL_NUMS and f.is_file()):
                 return self.send_json(course_guide(n))
@@ -4653,7 +4796,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE students SET course=1, course_ts=? WHERE id=?", (time.time(), s["id"]))
             return self.send_json({"ok": True})
 
-        if path in ("/api/lab", "/api/lab/unlock", "/api/lab/bugs", "/api/lab/bugs/check", "/api/lab/bugs/explain"):
+        if path in ("/api/lab", "/api/lab/unlock", "/api/lab/bugs", "/api/lab/bugs/check", "/api/lab/bugs/explain", "/api/lab/bugs/verify"):
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
@@ -4727,17 +4870,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             APP.bank.ensure()
-            rows = db.q("""SELECT task_id, n, score, ts, reason, rk, part, grp, exam, answers, revealed, spent_ms FROM attempts
+            rows = db.q("""SELECT task_id, n, score, ts, reason, rk, part, grp, exam, answers, revealed, spent_ms, flags, gave_up, abandoned FROM attempts
                            WHERE student_id=? ORDER BY ts, id""", (s["id"],))
             skips = reward_skips(rows, fast_xp_since(db))
             tasks, pid = APP.bank.tasks, APP.bank.pid
             # [id, n, score, ts, reason, rk, part, grp, exam, пустой ответ в варианте, не засчитан]; id — открытые коды
-            h = []
+            h, seen_tasks = [], set()
             for r, skip in zip(rows, skips):
                 grp = r["grp"] or (tasks.get(r["task_id"]) or {}).get("group") or ""
                 h.append([pid(r["task_id"]), r["n"], r["score"], int(r["ts"] * 1000), r["reason"] or "",
                           r["rk"] or "", r["part"], pid(grp) if grp else "", 1 if r["exam"] else 0,
-                          1 if r["exam"] and r["answers"] in (None, "", "[]") else 0, 1 if skip else 0])
+                          1 if r["exam"] and r["answers"] in (None, "", "[]") else 0, 1 if skip else 0,
+                          learning_quality.provenance(r, r["task_id"] in seen_tasks)])
+                seen_tasks.add(r["task_id"])
             return self.send_json({"h": h})
 
         if path == "/api/logout" and method == "POST":
@@ -4819,28 +4964,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE students SET prefs=?, progress_ts=? WHERE id=?", (raw, time.time(), s["id"]))
             return self.send_json({"ok": True})
 
-        if path == "/api/hint" and method == "POST":
-            path, data = "/api/check", dict(data, hint=True)        # подсказка — через те же проверки задания
-        if path in ("/api/open", "/api/check", "/api/reveal") and method == "POST":
-            s = self.student(data)
-            if not s:
-                return self.err(401, "нужно войти")
-            if not APP.bank.ensure():
-                return self.err(503, "банк заданий не собран")
-            t = APP.bank.tasks.get(APP.bank.real(data.get("task")))
-            if not t:
-                return self.err(404, "задание не найдено — обновите страницу")
-            if path == "/api/open":
-                return self.api_open(s, t)
-            if path in ("/api/check", "/api/reveal") and strict_locked(db, s, t.get("group") or t["id"]):
-                return self.err(403, "Это задание из самостоятельной работы — ответ сдаётся в ней")
-            if t.get("parts"):
-                return self.err(400, "вопросы 19–21 проверяются по отдельности")
-            if path == "/api/reveal":
-                return self.api_reveal(s, t)
-            if data.get("hint"):
-                return self.api_hint(s, t)
-            return self.api_check(s, t, data)
+        if path in TASK_ACTION_PATHS:
+            return self.api_task_action(method, path, data)
 
         if path == "/api/find":
             s = self.student(data)
@@ -4908,6 +5033,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             f = tog_files_dir(sid) / fid if name else None
             if not f or not f.is_file():
                 return self.err(404, "Файл удалён")
+            account = ('teacher' if who[0] == 't' else 'student', who[1])
+            if not self.reserve_download(account, str(f.resolve()), f.stat().st_size):
+                return
             return self.send_bytes(200, f.read_bytes(), mimetypes.guess_type(name)[0] or "application/octet-stream",
                                    {"Content-Disposition": "attachment; filename*=UTF-8''" + quote_rfc(name),
                                     "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
@@ -5395,41 +5523,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
         # ----- учитель
         if path == "/api/admin/login" and method == "POST":
-            ip = self.client_ip()
-            wait = THROTTLE.blocked("admin", ip)
-            if wait:
-                return self.err(429, self.wait_msg(wait))
-            if data.get("ticket"):
-                return self.admin_login_code(data, ip)
-            login = str(data.get("login") or "").strip().lower()
-            t = (db.q("SELECT * FROM teachers WHERE (lower(login)=? OR lower(email)=?) AND COALESCE(guest, 0)=0", (login, login), one=True)
-                 if login else db.q("SELECT * FROM teachers WHERE is_main=1", one=True))
-            if t and check_pw(str(data.get("password") or ""), t["pw"]):
-                THROTTLE.ok("admin", ip)
-                if t["is_main"] and login_code_ready(t):
-                    return self.admin_login_send_code(t, ip)
-                if t["is_main"]:
-                    self.tlog("login", t["id"], detail="без кода из письма: почта для входа не настроена")
-                return self.send_json({"ok": True}, extra={"Set-Cookie": self.admin_login(t["id"], ADMIN_SESSION_DAYS * 86400)})
-            THROTTLE.fail("admin", ip)
-            self.tlog("login", t["id"] if t else None, ok=False, login=login or "(главный)",
-                      detail="неверный пароль" if t else "нет такого учителя")
-            time.sleep(1.0)
-            return self.err(403, "Неверный логин или пароль")
+            return self.handle_teacher_login(data)
 
         if path.startswith("/api/admin/"):
-            if not self.is_admin():
-                return self.err(401, "нужен вход учителя")
-            if not teacher_ready(self.T) and (method, path) not in TEACHER_GATE_ROUTES:
-                return self.send_json({"error": "Для доступа нужны подтверждение почты и одобрение главным учителем",
-                                       "need_onboarding": True, "need_email": teacher_email_pending(self.T),
-                                       "onboarding": teacher_onboarding(self.T)}, 403)
-            if (method == "POST" and path not in ACCESS_RO_OK and (method, path) not in TEACHER_GATE_ROUTES
-                    and teacher_access(self.T)["expired"]):
-                # пробный период (или гостевой час) закончился: всё видно, но менять ничего нельзя
-                return self.send_json({"error": "Гостевой час закончился — зарегистрируйтесь, чтобы продолжить" if self.T["guest"]
-                                       else "Доступ закончился — панель открыта только для чтения. Продлите доступ",
-                                       "expired": True}, 402)
+            if not self.guard_teacher_route(method, path):
+                return
             if method == "POST":
                 with _GS_LOCK:
                     _LB_PEOPLE.clear()          # учитель поменял классы, учеников, цели — рейтинг соберём заново
@@ -5783,134 +5881,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"ok": True})
         return self.err(404, "нет такого метода")
 
-    def api_open(self, s, t):
-        """Ученик открыл задание: с этого момента идёт время на раздумье.
-        Открыл заново, не закончив после неверной попытки, — попытки не обнуляются: ученик продолжает
-        с того же места (в подборке можно уйти к другому заданию и вернуться). Новых попыток так не получить."""
-        ids = [p["id"] for p in t["parts"]] if t.get("parts") else [t["id"]]
-        used = {}
-        for tid in ids:
-            st = OPENED.get(s["id"], tid, create=False)
-            if st and st["final"] is None and st["tries"]:
-                used[APP.bank.pid(tid)] = len(st["tries"])      # уже была неверная попытка — продолжаем с неё
-            elif st is None or st["final"] is not None:
-                OPENED.reset(s["id"], tid)
-            # открыто и ещё без ответа (например, перезагрузили страницу) — время открытия не сбрасываем
-        st = OPENED.get(s["id"], ids[0])
-        return self.send_json({"ok": True, "think": think_sec(t.get("n")), "tries": used, "trap": trap_k(APP.db, s, t),
-                               "think_left": max(0, math.ceil(st["ts"] + think_sec(t.get("n")) - time.time()))})
-
-    def api_check(self, s, t, data):
-        st = OPENED.get(s["id"], t["id"])
-        if st["final"] is not None:          # повтор того же запроса (например, после обрыва связи)
-            return self.send_json(st["final"])
-        st["reason"] = str(data.get("reason") or "")[:20]
-        if st["reason"] == WORK_REASON:            # эту метку ставит только сервер при сдаче контрольной
-            st["reason"] = "asg"
-        st["rk"] = str(data.get("rk") or "")[:200] or None
-        spent = data.get("spent_ms")
-        spent = int(spent) if isinstance(spent, (int, float)) and 0 <= spent < 864e5 else None
-        srv = (time.time() - st["ts"]) * 1000          # сколько прошло с открытия задания по часам сервера
-        if srv >= 1000:
-            spent = int(min(spent, srv)) if spent is not None else int(srv)
-        away = to_int(data.get("away"))
-        st["away"] = min(max(away or 0, st.get("away") or 0), 999)
-        st["away_sec"] = min(max(to_float(data.get("away_sec")), st.get("away_sec") or 0, 0), 86400)
-        # сколько секунд назад ученик вернулся после долгого (30+ с) ухода; None — долгих уходов не было
-        back = data.get("back_sec")
-        st["back_sec"] = round(min(max(float(back), 0), 86400), 1) if isinstance(back, (int, float)) else None
-        st["paste"] = bool(st.get("paste") or data.get("paste"))
-        n = t.get("n") or 0
-
-        if data.get("abandoned"):
-            if not st["tries"]:              # пропустил, не отвечая, — без штрафа
-                OPENED.reset(s["id"], t["id"])
-                return self.send_json({"ok": True, "skipped": True})
-            self.log_attempt(s, t, st["tries"], 0.0, abandoned=True, reason=st["reason"], rk=st["rk"],
-                             part=st.get("part"), spent=spent, away=st["away"], st=st)
-            st["final"] = {"correct": False, "final": True, "score": 0.0}
-            return self.send_json(st["final"])
-
-        gave_up = bool(data.get("gave_up"))
-        if not gave_up:
-            ans = str(data.get("answer") or "")[:400]
-            if not tokens(ans):
-                return self.err(400, "Пустой ответ")
-            stop = CHECKS.hit(s["id"], t["id"])
-            if stop:
-                return self.err(429, stop)
-            cells = data.get("cells")
-            cells = [str(c)[:100] for c in cells[:40]] if isinstance(cells, list) else None
-            st["tries"].append(ans)
-            credit = answer_credit(n, t.get("ans", ""), ans, cells)
-            if credit < 1.0 and trap_hit(APP.db, s, t, ans):
-                st["trap"] = True
-            if len(st["tries"]) == 1:
-                st["part"] = credit          # на экзамене попытка одна — частичный балл считаем по первой
-            if credit == 1.0:
-                score = 1.0 if len(st["tries"]) == 1 and not st.get("hints") else 0.5      # с подсказкой — как со 2-й
-                daily_fast = score == 1.0 and is_daily_of(s["id"], t["id"]) and self.daily_result(s, t, st)
-                self.log_attempt(s, t, st["tries"], score, reason=st["reason"], rk=st["rk"], part=st["part"],
-                                 revealed=1, spent=spent, away=st["away"], st=st)
-                st["final"] = self.with_answer_s(s, {"correct": True, "final": True, "score": score, "part": st["part"],
-                                                     "fast": spent is not None and spent < answer_min_ms(n, time.time()),
-                                                     "fast_min": answer_min_ms(n, time.time()) // 60000,
-                                                     "nocount": last_attempt_skipped(APP.db, s["id"])}, t)
-                if daily_fast:
-                    st["final"]["daily_fast"] = True
-                return self.send_json(dict(st["final"], game=game_summary(APP.db, s["id"])))
-            if len(st["tries"]) < ATTEMPTS_PER_TASK:
-                return self.send_json({"correct": False, "final": False, "attempts_left": ATTEMPTS_PER_TASK - len(st["tries"]),
-                                       "half": credit == 0.5})
-
-        # итог «не решено»: исчерпаны попытки или «Показать ответ»
-        block = self.reveal_block(s, t, st)
-        part = st.get("part", 0.0) if st["tries"] else 0.0
-        aid = self.log_attempt(s, t, st["tries"], 0.0, gave_up=gave_up, reason=st["reason"], rk=st["rk"],
-                               part=part, revealed=0 if block else 1, spent=spent, away=st["away"], st=st)
-        self.log_reveal(s, t, block)
-        res = {"correct": False, "final": True, "score": 0.0, "part": part}
-        if block:
-            res["hidden"] = block
-        else:
-            res = self.with_answer_s(s, res, t)
-        st["final"] = res
-        st["aid"] = aid
-        return self.send_json(res)
-
-    def api_hint(self, s, t):
-        """Следующая подсказка (1 — идея, 2 — план). С подсказкой верный ответ засчитывается как со второй попытки."""
-        if not teacher_of(s)["hints"]:
-            return self.err(403, "Подсказки выключены учителем")
-        st = OPENED.get(s["id"], t["id"])
-        if st["final"] is not None:
-            return self.err(409, "Задание уже решено")
-        step = min(2, (st.get("hints") or 0) + 1)
-        text = hints_mod.hint(t.get("n"), step)
-        if not text:
-            return self.err(404, "Для этого номера подсказок нет")
-        st["hints"] = step
-        kind = clusters.labels(t.get("n")) if t.get("n") else []
-        label = dict(kind).get(t.get("c"), "") if kind else ""
-        return self.send_json({"step": step, "of": 2, "title": "Идея" if step == 1 else "План решения",
-                               "type": label if step == 1 else "", "text": text})
-
-    def api_reveal(self, s, t):
-        """Ответ был скрыт (рано или исчерпан лимит) — показать, если теперь можно."""
-        st = OPENED.get(s["id"], t["id"], create=False)
-        if not st or not st["final"]:
-            return self.err(409, "Ответ открывается после попыток или кнопки «Показать ответ»")
-        if not st["final"].get("hidden"):
-            return self.send_json(st["final"])
-        block = self.reveal_block(s, t, st)
-        self.log_reveal(s, t, block)
-        if block:
-            return self.send_json({"hidden": block})
-        st["final"] = self.with_answer_s(s, st["final"], t)
-        if st.get("aid"):
-            APP.db.x("UPDATE attempts SET revealed=1 WHERE id=?", (st["aid"],))
-        return self.send_json(st["final"])
-
     # ---------- вариант ЕГЭ
     def api_exam_start(self, s):
         db = APP.db
@@ -6082,6 +6052,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
 
     # ---------- API учителя
     def admin_api(self, method, path, qs, data):
+        if path in TEACHER_AUTH_PATHS:
+            return self.handle_teacher_auth(method, path, qs, data)
         db = APP.db
         now = time.time()
         day0 = datetime.combine(datetime.now().date(), datetime.min.time()).timestamp()
@@ -6295,11 +6267,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             frm = to_float(qs.get("from"))
             voids = [dict(r) for r in db.q("""SELECT batch, MIN(void_ts) AS ts, COUNT(*) AS n, MIN(t_from) AS t_from, MAX(t_to) AS t_to
                                                FROM attempts_void WHERE student_id=? GROUP BY batch ORDER BY ts DESC LIMIT 20""", (sid,))]
-            att = db.q("SELECT * FROM attempts WHERE student_id=? AND ts>=? ORDER BY ts DESC LIMIT 5000", (sid, frm))
+            att = db.q("""SELECT a.*, EXISTS(SELECT 1 FROM attempts prev WHERE prev.student_id=a.student_id
+                           AND prev.task_id=a.task_id AND prev.id<a.id) AS repeated
+                           FROM attempts a WHERE a.student_id=? AND a.ts>=? ORDER BY a.ts DESC LIMIT 5000""", (sid, frm))
             APP.bank.ensure()
             out = []
             for a in att:
                 d = dict(a)
+                d["provenance"] = learning_quality.provenance(a, bool(a["repeated"]))
+                d["provenance_label"] = learning_quality.PROVENANCE[d["provenance"]]
                 d["answers"] = json.loads(d["answers"] or "[]")
                 d["snip"] = APP.bank.snippet(d["task_id"])
                 out.append(d)
@@ -6358,12 +6334,15 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/admin/feed":
             since = to_float(qs.get("since"))
             cond, args = self.student_scope()
-            rows = db.q(f"""SELECT a.*, s.name FROM attempts a JOIN students s ON s.id = a.student_id
+            rows = db.q(f"""SELECT a.*, s.name, EXISTS(SELECT 1 FROM attempts prev WHERE prev.student_id=a.student_id
+                             AND prev.task_id=a.task_id AND prev.id<a.id) AS repeated FROM attempts a JOIN students s ON s.id = a.student_id
                             WHERE a.ts > ? AND {cond} ORDER BY a.ts DESC LIMIT 300""", (since, *args))
             APP.bank.ensure()
             out = []
             for a in rows:
                 d = dict(a)
+                d["provenance"] = learning_quality.provenance(a, bool(a["repeated"]))
+                d["provenance_label"] = learning_quality.PROVENANCE[d["provenance"]]
                 d["answers"] = json.loads(d["answers"] or "[]")
                 d["snip"] = APP.bank.snippet(d["task_id"])
                 out.append(d)
@@ -6486,29 +6465,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_bytes(200, body, "text/csv; charset=utf-8",
                                    {"Content-Disposition": f"attachment; filename={name}", "Cache-Control": "no-store"})
 
-        if path == "/api/admin/password" and method == "POST":
-            ip = self.client_ip()
-            wait = THROTTLE.blocked("admin", ip)
-            if wait:
-                return self.err(429, self.wait_msg(wait))
-            if not check_pw(str(data.get("old") or ""), self.T["pw"]):
-                THROTTLE.fail("admin", ip)
-                self._account_delay = 1.0
-                self.tlog("password", self.T["id"], ok=False, detail="неверный текущий пароль при смене")
-                return self.err(403, "Текущий пароль неверный")
-            new = str(data.get("new") or "")
-            if len(new) < 6:
-                return self.err(400, "Новый пароль — не короче 6 символов")
-            db.x("UPDATE teachers SET pw=? WHERE id=?", (hash_pw(new), self.T["id"]))
-            self.tlog("password", self.T["id"], detail="сменил пароль, остальные входы завершены")
-            if self.T["is_main"]:
-                db.setting("admin_password", hash_pw(new))
-            # остальные сессии этого учителя (например, на забытом компьютере) больше не действуют
-            cur_tok = self.cookie("egeadm") or ""
-            db.x("DELETE FROM admin_sessions WHERE token<>? AND COALESCE(teacher_id, ?)=?",
-                 (cur_tok, main_teacher()["id"], self.T["id"]))
-            return self.send_json({"ok": True})
-
         if path == "/api/admin/student/rename" and method == "POST":
             sid = to_int(data.get("id"))
             if not self.sees_student(sid):
@@ -6525,6 +6481,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE OR IGNORE solutions SET student_id=? WHERE student_id=?", (other["id"], sid))
                 db.x("DELETE FROM solutions WHERE student_id=?", (sid,))
                 db.x("UPDATE solution_history SET student_id=? WHERE student_id=?", (other["id"], sid))
+                buglab_merge.merge(db, sid, other["id"])
+                db.x("DELETE FROM student_sessions WHERE student_id=?", (sid,))
                 db.x("DELETE FROM students WHERE id=?", (sid,))
                 return self.send_json({"ok": True, "merged_into": other["id"]})
             db.x("UPDATE students SET name=?, name_key=? WHERE id=?", (pretty, key, sid))
@@ -7272,25 +7230,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 mods.append({"id": m["id"], "n": m["n"], "title": m["title"], "icon": m["icon"], "levels": levels})
             return self.send_json({"name": st["name"], "modules": mods})
 
-        if path in ("/api/admin/security", "/api/admin/security/end"):
-            # входы учителей и журнал их действий с адресами — только главному учителю
-            if not self.T["is_main"]:
-                return self.err(403, "Входы учителей видит главный учитель")
-            if path == "/api/admin/security/end" and method == "POST":
-                tid, mark = to_int(data.get("teacher_id")), str(data.get("sess") or "")
-                cur = sess_mark(self.cookie("egeadm") or "")
-                ended = 0
-                for r in db.q("SELECT token, teacher_id FROM admin_sessions"):
-                    rt = r["teacher_id"] or main_teacher()["id"]
-                    m = sess_mark(r["token"])
-                    if m == cur or not ((mark and m == mark) or (not mark and tid and rt == tid)):
-                        continue
-                    db.x("DELETE FROM admin_sessions WHERE token=?", (r["token"],))
-                    self.tlog("end", rt, detail=f"завершил: {self.T['name']}", sess=m)
-                    ended += 1
-                return self.send_json({"ok": True, "ended": ended})
-            return self.send_json(teacher_security(db, to_int(qs.get("teacher_id")), cur=sess_mark(self.cookie("egeadm") or "")))
-
         if path == "/api/admin/jserr":
             # ошибки JavaScript у учеников и учителей — только главному учителю
             if not self.T["is_main"]:
@@ -7327,7 +7266,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/admin/bank-audit" and method == 'GET':
             if not self.T["is_main"]:
                 return self.err(403, "только главный учитель")
-            return self.send_json({"events": APP.delivery.audit()})
+            events = APP.delivery.audit() + APP.downloads.audit()
+            return self.send_json({"events": sorted(events, key=lambda e: e['last_ts'], reverse=True)[:100]})
 
         if path == "/api/admin/status" and method == 'GET':
             return self.send_json(teacher_gate_profile(self.T))
@@ -7347,7 +7287,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             out.update(access=teacher_access(self.T), guest=bool(self.T["guest"]), email=self.T["email"] or "",
                        email_need=teacher_email_pending(self.T), onboarding=teacher_onboarding(self.T),
                        report=bool(self.T["report"]), mail_on=bool(smtp_conf()), steps=teacher_steps(db, self.T["id"]),
-                       steps_off=bool(self.T["steps_off"]), renew_ts=self.T["renew_ts"], offer=offer_get(db), trial_days=TRIAL_DAYS)
+                       steps_off=bool(self.T["steps_off"]), journey=teacher_journey(db, self.T["id"], main_teacher()["id"]),
+                       renew_ts=self.T["renew_ts"], offer=offer_get(db), trial_days=TRIAL_DAYS)
             return self.send_json(out)
 
         if path == "/api/admin/email/resend" and method == "POST":
@@ -7376,6 +7317,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if db.q("SELECT 1 FROM teachers WHERE (lower(email)=? OR lower(login)=?) AND id<>?", (email, email, self.T["id"]), one=True):
                 return self.err(409, "Учитель с такой почтой уже зарегистрирован")
             db.x("UPDATE teachers SET email=?, login=?, email_ok=0 WHERE id=?", (email, email, self.T["id"]))
+            db.x("DELETE FROM admin_codes WHERE teacher_id=?", (self.T["id"],))
+            db.x("DELETE FROM admin_recovery_codes WHERE teacher_id=?", (self.T["id"],))
             _CONFIRM_SENT.pop(("t", self.T["id"]), None)          # новый адрес — письмо уходит сразу
             sent = send_confirm(db, "t", db.q("SELECT * FROM teachers WHERE id=?", (self.T["id"],), one=True))
             return self.send_json({"ok": True, "email": email, "email_sent": sent is True})
@@ -7412,10 +7355,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not email and not self.T['is_main']:
                 return self.err(400, "Учителю нужна подтверждённая почта")
             changed = email != (self.T['email'] or '')
+            if changed and self.T['is_main'] and login_code_required(self.T) and not email:
+                return self.err(400, "Для обязательного кода входа нужна почта. Сначала укажите новый адрес.")
             db.x("UPDATE teachers SET email=?, report=?, email_ok=? WHERE id=?",
                  (email or None, 1 if data.get("on") else 0, 0 if changed else self.T['email_ok'], self.T["id"]))
             t = db.q('SELECT * FROM teachers WHERE id=?', (self.T['id'],), one=True)
             if changed:
+                db.x("DELETE FROM admin_codes WHERE teacher_id=?", (t['id'],))
+                db.x("DELETE FROM admin_recovery_codes WHERE teacher_id=?", (t['id'],))
                 _CONFIRM_SENT.pop(('t', t['id']), None)
                 send_confirm(db, 't', t)
             return self.send_json({"ok": True, "onboarding": teacher_onboarding(t)})
@@ -7647,7 +7594,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     if len(pw) < 6:
                         return self.err(400, "Пароль — не короче 6 символов")
                     db.x("UPDATE teachers SET pw=? WHERE id=?", (hash_pw(pw), tid))
-                    db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))      # старый пароль больше не действует
+                    db.x("DELETE FROM admin_codes WHERE teacher_id=?", (tid,))
+                    db.x("DELETE FROM admin_recovery_codes WHERE teacher_id=?", (tid,))
+                    db.x("DELETE FROM admin_sessions WHERE COALESCE(teacher_id, ?)=?", (main_teacher()["id"], tid))
+                    if tid == main_teacher()["id"]:
+                        db.setting("admin_password", db.q("SELECT pw FROM teachers WHERE id=?", (tid,), one=True)["pw"])
             else:
                 if len(pw) < 6:
                     return self.err(400, "Пароль — не короче 6 символов")
@@ -7670,6 +7621,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             db.x("UPDATE together SET teacher_id=? WHERE teacher_id=?", (main_id, tid))
             db.x("DELETE FROM tsolutions WHERE teacher_id=?", (tid,))
             db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
+            db.x("DELETE FROM admin_codes WHERE teacher_id=?", (tid,))
+            db.x("DELETE FROM admin_recovery_codes WHERE teacher_id=?", (tid,))
+            if db.q("SELECT 1 FROM sqlite_master WHERE name='lesson_readiness' AND type='table'", one=True):
+                db.x("DELETE FROM lesson_readiness WHERE account=?", (f"teacher:{tid}",))
             db.x("DELETE FROM teachers WHERE id=?", (tid,))
             return self.send_json({"ok": True})
 
@@ -12871,7 +12826,8 @@ def funnel_stats(db, days):
                   FROM teachers WHERE self_signup = 1 AND COALESCE(guest, 0) = 0 AND created >= ?""", (since_ts,), one=True)
     return {"days": days, "since": since_day, "welcome": steps.get("welcome", 0), "teacher": steps.get("teacher", 0),
             "student": steps.get("student", 0), "guest": steps.get("guest", 0),
-            "signup": t["reg"] or 0, "confirmed": t["ok"] or 0, "classes": t["cls"] or 0}
+            "signup": t["reg"] or 0, "confirmed": t["ok"] or 0, "classes": t["cls"] or 0,
+            "activation": activation_stats(db, since_ts, main_teacher()["id"])}
 
 
 # ---------- подтверждение почты: ученику — напоминание на главной, учителю — панель после перехода по ссылке
@@ -13235,7 +13191,7 @@ def report_tick(db, site=""):
 
 def _report_tick(db, site=""):
     """Разослать отчёты, которые положены на этой неделе (с понедельника 8:00). Возвращает число отправленных."""
-    if not smtp_conf():
+    if not smtp_conf() or not recovery_origin(site):
         return 0
     since = report_due_since()
     if time.time() < since:
@@ -13375,7 +13331,7 @@ def parent_tick(db, site):
 
 def _parent_tick(db, site):
     """Письма родителям раз в неделю (с понедельника 8:00), только если учитель с действующим доступом."""
-    if not smtp_conf() or not site:
+    if not smtp_conf() or not recovery_origin(site):
         return 0
     since = report_due_since()
     if time.time() < since:
@@ -13513,14 +13469,27 @@ def main():
     ap.add_argument("--host", default="0.0.0.0", help="0.0.0.0 — доступен из сети, 127.0.0.1 — только с этого компьютера")
     ap.add_argument("--revoke-access", action="store_true", help="отозвать все сессии и сменить коды приглашений (сервер остановить)")
     ap.add_argument("--password", help="задать пароль учителя и выйти")
+    ap.add_argument("--recover-main-login", action="store_true",
+                    help="локальное восстановление: с --password явно сбросить второй фактор и завершить все входы главного учителя")
+    ap.add_argument("--require-main-login-code", action="store_true", help="снова сделать код из письма обязательным и выйти")
     ap.add_argument("--invite", help="задать код приглашения для учеников и выйти")
     ap.add_argument("--banks", help="папка, где лежат банки (ege_bank, kompege_bank, …); запоминается")
     ap.add_argument("--fire", nargs=2, metavar=("ФАМИЛИЯ", "ДНЕЙ"),
                     help='восстановить огонёк ученику и выйти, например --fire "Мегрелидзе" 5')
     args = ap.parse_args()
+    if args.recover_main_login and not args.password:
+        ap.error("--recover-main-login требует --password с новым паролем")
+    if args.require_main_login_code and args.password:
+        ap.error("--require-main-login-code выполняется отдельно от смены пароля")
     require_private(PRIVATE_CONFIG)
 
     db = DB(DB_PATH)
+    if args.require_main_login_code:
+        if args.recover_main_login:
+            ap.error("Включение второго фактора и его восстановление — разные операции")
+        db.setting("main_login_code", "1")
+        print("Код входа главного учителя обязателен. До следующего входа проверьте почту аккаунта и SMTP.")
+        return
     if args.revoke_access:
         revoke_access(db)
         print("Сессии отозваны; коды приглашений заменены. Пароли учителей и учеников смените отдельно.")
@@ -13538,9 +13507,10 @@ def main():
     if args.password:
         if len(args.password) < 6:
             sys.exit("Пароль должен быть не короче 6 символов")
-        db.setting("admin_password", hash_pw(args.password))
-        db.x("UPDATE teachers SET pw=? WHERE is_main=1", (hash_pw(args.password),))
+        reset_main_password(db, args.password, recover_factor=args.recover_main_login)
         print("Пароль главного учителя сохранён (логин admin).")
+        if args.recover_main_login:
+            print("Второй фактор явно отключён локальным администратором. После восстановления почты включите: python server.py --require-main-login-code")
         return
     if args.fire:
         who, days = args.fire[0].strip(), to_int(args.fire[1])
@@ -13574,9 +13544,8 @@ def main():
     if not APP.bank.tasks:
         print("! Банк заданий не найден (data/bank.js). Сначала выполните: python build.py")
 
-    ThreadingHTTPServer.request_queue_size = 128     # по умолчанию 5: в начале урока соединения отбрасывались бы
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    threading.Thread(target=lambda: report_loop(lambda: SITE_URL or SITE_ORIGIN), name="reports", daemon=True).start()
+    httpd = BoundedHTTPServer((args.host, args.port), Handler)
+    threading.Thread(target=lambda: report_loop(lambda: recovery_origin(SITE_URL) or ""), name="reports", daemon=True).start()
     httpd.daemon_threads = True
     port = args.port
     print("\nТренажёр запущен.")

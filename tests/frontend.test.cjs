@@ -764,7 +764,7 @@ function bugLabContext() {
     terminate() { this.terminated=true; }
     emit(data) { this.onmessage({data}); }
   }
-  const c=vm.createContext({$,Worker,student:{sid:1},RULES:{},LAB:{view:'bugs'},labActive:()=>true,
+  const c=vm.createContext({$,EgePythonWorker:Worker,student:{sid:1},RULES:{},LAB:{view:'bugs'},labActive:()=>true,
     codeKey:id=>'code:'+id,readJSON:()=>null,writeJSON:()=>{},
     trainerEl:{addEventListener(){}},window:{addEventListener(){}},MutationObserver:class{observe(){}},
     setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id},clearTimeout:id=>timers.delete(id),
@@ -840,5 +840,33 @@ test('admin.js and app.js do not declare the same function twice in one scope', 
     const names = {};
     for (const m of fs.readFileSync(f, 'utf8').matchAll(/^  (?:async )?function (\w+)\(/gm)) names[m[1]] = (names[m[1]] || 0) + 1;
     assert.deepEqual(Object.entries(names).filter(([, n]) => n > 1), [], f);
+  }
+});
+
+test('independent bug verification submits code once without running browser Python', async()=>{
+  const x=bugLabContext();
+  const pending=x.c.bugVerify();
+  await x.c.bugVerify();
+  assert.equal(x.apiCalls(),1);assert.equal(x.workers.length,0);
+  assert.equal(x.$('#bugVerify').disabled,true);assert.equal(x.$('#bugStop').hidden,true);
+  x.resolve({ok:true,verified:true,provenance:'server_python',my:{ok:1,verified:true},tests:[],changed:1});
+  await pending;
+  assert.equal(vm.runInContext('BUG.cases[0].my.verified',x.c),true);
+  assert.equal(x.$('#bugVerify').disabled,false);
+});
+test('unavailable verifier preserves prior progress and reports no new award',async()=>{
+  const x=bugLabContext();
+  const pending=x.c.bugVerify();x.reject(Error('Независимая проверка временно недоступна. Результат не засчитан.'));
+  await pending;
+  assert.equal(vm.runInContext('BUG.cases[0].my.verified',x.c),undefined);
+  assert.match(x.$('#bugStatus').textContent,/не засчитан/);assert.equal(x.$('#bugCode').disabled,false);
+});
+test('independent verification rejects unconfirmed and old-account responses',async()=>{
+  for (const switched of [false,true]) {
+    const x=bugLabContext(),pending=x.c.bugVerify();
+    if(switched)x.c.student={sid:2};
+    x.resolve({ok:true,verified:switched,provenance:switched?'server_python':'self_check',my:{ok:1,verified:true}});
+    await pending;
+    assert.equal(vm.runInContext('BUG.cases[0].my.verified',x.c),undefined);
   }
 });

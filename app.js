@@ -923,6 +923,7 @@
     s.due = score === 1 ? null : now + (CFG.retryTaskDays[score] || CFG.retryTaskDays[0]) * DAY;
     bump(P.nums, t.n, score, CFG.alphaNum);
     const e = { id: t.id, n: t.n, s: score, t: now };
+    e.v = o.provenance || (o.tog ? 'together' : o.hinted ? 'hinted' : o.blank || o.gaveUp ? 'unanswered' : repeat ? 'repeat' : score === 0.5 ? 'retry' : SERVER ? 'independent' : 'self_check');
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
     if (again) e.ra = 1;
@@ -1010,13 +1011,13 @@
       pend = null;
     };
     for (const row of rows) {
-      const [id, n, score, ts, reason, rk, part, grp, exam, blank, skip] = row;
+      const [id, n, score, ts, reason, rk, part, grp, exam, blank, skip, provenance] = row;
       const day = dayKey(ts);
       if (lastDay && day !== lastDay) { endGroup(); snapshotForecast(lastDay, ts - 1); }
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -1948,6 +1949,8 @@
     const withLinks = cur.parts.map(x => x.res).find(r => r && (r.link || r.video)) || {};
     setFeedback(ok === scores.length ? 'ok' : ok ? 'retry' : 'bad', title,
       `<div class="fb-note">${note}</div>${anyHidden ? '' : taskLinks(SERVER ? withLinks : t)}`);
+    const firstError = cur.parts.find(x => x.final && x.score < 1);
+    if (firstError && SERVER) $('#feedback').insertAdjacentHTML('beforeend', mistakePanel(firstError.p));
     renderActions();
     renderSidebar();
     renderTopbar();
@@ -1986,6 +1989,41 @@
     save();
   }
 
+  const MISTAKE_REASONS = {
+    condition: ['Не так прочитал условие', 'Перечитай вопрос и выпиши: что дано, что требуется и какие есть ограничения.'],
+    logic: ['Ошибка в способе решения', 'Найди маленький пример, на котором твой способ даёт неверный результат. Затем сравни метод с уроком.'],
+    implementation: ['Ошибка в программе', 'Проследи значения переменных на первом примере, где ответ расходится. Для этого есть пошаговая лаборатория.'],
+    attention: ['Счёт, перенос или невнимательность', 'Сверь единицы, границы, знак сравнения и порядок чисел в ответе. Проверь каждый пункт отдельно.']
+  };
+  function mistakePanel(t) {
+    return `<section class="fb-note" data-mistake-panel="${esc(t.id)}"><b>Что помешало решить?</b>
+      <p>Необязательно. Отметка поможет выбрать следующий шаг; повторение уже запланировано.</p>
+      <div class="fm-chips">${Object.entries(MISTAKE_REASONS).map(([key, row]) => `<button type="button" class="btn" data-mistake="${key}" aria-pressed="false">${row[0]}</button>`).join('')}</div>
+      <p data-mistake-result role="status"></p></section>`;
+  }
+  trainerEl.addEventListener('click', async e => {
+    const button = e.target.closest('[data-mistake]');
+    if (!button) return;
+    const panel = button.closest('[data-mistake-panel]'), task = panel?.dataset.mistakePanel;
+    const t = byId.get(task), reason = button.dataset.mistake, row = MISTAKE_REASONS[reason];
+    if (!panel || !t || !row) return;
+    const status = panel.querySelector('[data-mistake-result]');
+    const buttons = [...panel.querySelectorAll('[data-mistake]')];
+    buttons.forEach(b => { b.disabled = true; }); status.textContent = 'Сохраняю отметку…';
+    try {
+      if (SERVER) await api('learning/mistake', { task, reason });
+      else throw Error('Отметки причин доступны после входа на сайт.');
+      if (!panel.isConnected) return;
+      buttons.forEach(b => b.setAttribute('aria-pressed', b === button ? 'true' : 'false'));
+      status.replaceChildren(document.createTextNode('Сохранено. ' + row[1] + ' '));
+      const link = document.createElement('button'); link.type = 'button'; link.className = 'link-btn';
+      link.textContent = reason === 'implementation' ? 'Открыть лабораторию' : `Открыть разбор №${numLabel(t.n)}`;
+      link.addEventListener('click', () => reason === 'implementation' ? openLab('code') : openLesson(scopeOf(t.n)));
+      status.append(link);
+    } catch (err) { if (panel.isConnected) status.textContent = err.message || 'Не удалось сохранить. Нажми на причину ещё раз.'; }
+    finally { buttons.forEach(b => { b.disabled = false; }); }
+  });
+
   function finish(score, gaveUp, res) {
     if (!cur || cur.done) return;
     if (res && res.daily_fast) toast('⚠ Задание дня решено слишком быстро — так его не прочитать. Результат в рейтинг не засчитан.', 6000);
@@ -1993,7 +2031,7 @@
     cur.score = score;
     const t = cur.task;
     res = res || {};
-    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount });
+    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp });
     ui.currentId = null;
     save();
 
@@ -2035,6 +2073,7 @@
         }
       });
     }
+    if (score < 1 && SERVER) $('#feedback').insertAdjacentHTML('beforeend', mistakePanel(t));
     $$('#feedback .solution .cond').forEach(decorateCondition);
     renderActions();
     renderSidebar();
@@ -2102,6 +2141,19 @@
   };
   const testScore = primary => EGE.scale[Math.min(Math.max(primary, 0), EGE.scale.length - 1)];
 
+  // Only first encounters with no recorded site assistance enter the model.
+  // This is evidence from the site, not proof that outside help was absent.
+  const forecastEligible = e => e.n >= 1 && e.n <= 27 && e.v === 'independent' && !e.w && !e.b && !e.r;
+  function forecastEvidence(now = Date.now()) {
+    const all = P.log.filter(e => e.t <= now);
+    const independent = all.filter(forecastEligible);
+    const recent = independent.filter(e => now - e.t <= 30 * DAY);
+    const covered = new Set(recent.map(e => e.n));
+    return { count: independent.length, recent: recent.length, excluded: all.length - independent.length,
+      latest: independent.reduce((v, e) => Math.max(v, e.t), 0),
+      missing: Array.from({length:27}, (_, i) => i + 1).filter(n => !covered.has(n)) };
+  }
+
   /**
    * Вероятности по номерам на момент now по истории ответов:
    * p — решить целиком с первой попытки; ph — у №26, 27 верна ровно половина ответа (1 балл из 2);
@@ -2112,7 +2164,7 @@
     const perNum = {};
     for (let i = P.log.length - 1; i >= 0; i--) {
       const e = P.log[i];
-      if (e.t > now) continue;
+      if (e.t > now || !forecastEligible(e)) continue;
       const arr = perNum[e.n] || (perNum[e.n] = []);
       if (arr.length < F.lastN) arr.push(e);
     }
@@ -2138,7 +2190,7 @@
       });
       const p = (ss + F.priorMean * F.priorWeight) / (sw + F.priorWeight);
       const ph = n >= 26 ? Math.min(sh / (sw + F.priorWeight), 1 - p) : 0;
-      res[n] = { p, ph, exp: p + ph / 2, tried: true, a: st ? st.a : arr.length, ok: st ? st.ok : 0 };
+      res[n] = { p, ph, exp: p + ph / 2, tried: true, a: arr.length, ok: arr.filter(e => e.s === 1).length };
     }
     return res;
   }
@@ -2175,7 +2227,7 @@
     return {
       probs, score: Math.round(exp), primary, lo: quant(0.1), hi: quant(0.9),
       pMin: atLeast(EGE.minScore), pAdm: atLeast(EGE.admission), p80: atLeast(80),
-      answers: P.log.filter(e => e.t <= now).length, covered,
+      answers: forecastEvidence(now).count, evidence: forecastEvidence(now), covered,
     };
   }
 
@@ -2186,7 +2238,7 @@
 
   /** Прогноз на конец дня — для графика (при восстановлении из журнала). */
   function snapshotForecast(day, now) {
-    if (P.log.filter(e => e.t <= now).length < CFG.forecast.minAnswers) return;
+    if (forecastEvidence(now).count < CFG.forecast.minAnswers) return;
     if (!P.fc) P.fc = [];
     const s = forecast(now).score;
     const last = P.fc[P.fc.length - 1];
@@ -2229,12 +2281,12 @@
     const el = $('#forecastBtn');
     if (!el) return;
     const F = CFG.forecast;
-    if (P.log.length < F.minAnswers) {
-      const left = F.minAnswers - P.log.length;
+    if (forecastEvidence().count < F.minAnswers) {
+      const left = F.minAnswers - forecastEvidence().count;
       el.className = 'forecast fc-empty';
       el.innerHTML = `${fcIcon(0)}<span class="fc-txt"><span class="fc-label">Прогноз ЕГЭ</span>
         <span class="fc-value">ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}</span></span>`;
-      el.title = 'Прогноз появится, когда наберётся немного ответов';
+      el.title = 'Прогноз появится после новых заданий, решённых без подсказок на сайте';
       return;
     }
     const f = forecast();
@@ -2243,7 +2295,7 @@
     const prelim = f.covered < 27;
     el.innerHTML = `${fcIcon(f.score >= 70 ? 3 : f.score >= EGE.minScore ? 2 : 1)}<span class="fc-txt"><span class="fc-label">Прогноз ЕГЭ${prelim ? ' *' : ''}</span>
       <span class="fc-value">${f.score} ${plural(f.score, 'балл', 'балла', 'баллов')}</span></span>`;
-    el.title = `Скорее всего ${f.lo}–${f.hi} баллов. Нажмите — что подтянуть, чтобы поднять балл`
+    el.title = `Учебный ориентир: ${f.score} баллов. За 30 дней: ${f.evidence.recent} ответов без подсказок. Нажмите — посмотреть данные`
       + (prelim ? `\n* Данные есть по ${f.covered} из 27 номерам — остальные пока считаются нерешёнными.` : '');
   }
 
@@ -2317,9 +2369,9 @@
     const F = CFG.forecast;
     const box = $('#forecastModal');
     const body = $('#forecastBody');
-    if (P.log.length < F.minAnswers) {
+    if (forecastEvidence().count < F.minAnswers) {
       body.innerHTML = `<h2 class="fm-title">Прогноз балла ЕГЭ</h2>
-        <p class="fm-note">Прогноз появится после ${F.minAnswers} ответов. Сейчас: ${P.log.length}. Лучше всего начать с режима «Все задания» или с варианта ЕГЭ — так быстрее соберётся картина по всем номерам.</p>`;
+        <p class="fm-note">Прогноз появится после ${F.minAnswers} новых заданий без подсказок на сайте. Сейчас: ${forecastEvidence().count}. Лучше всего начать с режима «Все задания» или с варианта ЕГЭ — так быстрее соберётся картина по всем номерам.</p>`;
       box.hidden = false;
       return;
     }
@@ -2357,17 +2409,15 @@
           <span class="fm-sub">тестовых баллов<br>≈ ${f.primary.toFixed(1).replace('.', ',')} первичных из 29</span>
         </div>
         <div class="fm-facts">
-          <div>С вероятностью 80% — <b>от ${f.lo} до ${f.hi}</b></div>
+          <div><b>Учебный ориентир, не обещание результата</b></div>
           ${delta != null ? `<div>${delta > 0 ? '▲' : delta < 0 ? '▼' : '='} ${delta > 0 ? '+' : ''}${delta} с ${dayLabel(wk.d)}</div>` : ''}
-          <div class="fm-chips">
-            <span class="chip ${f.pMin >= 0.9 ? 'good' : f.pMin >= 0.5 ? 'mid' : 'weak'}">порог ${EGE.minScore}: ${pctOr(f.pMin)}</span>
-            <span class="chip ${f.pAdm >= 0.9 ? 'good' : f.pAdm >= 0.5 ? 'mid' : 'weak'}">вуз, ${EGE.admission}+: ${pctOr(f.pAdm)}</span>
-            <span class="chip accent">80+: ${pctOr(f.p80)}</span>
-          </div>
+          <div class="fm-chips"><span class="chip">${f.evidence.recent} ответов за 30 дней</span>
+            <span class="chip">${27 - f.evidence.missing.length} из 27 номеров за 30 дней</span></div>
         </div>
       </div>
 
       ${trainPlan(f)}
+      <div class="fm-note" id="mistakeSummary" role="status"></div>
 
       <div class="fm-chart-wrap">
         <div class="fm-h">Прогноз за ${F.chartDays} дней</div>
@@ -2375,7 +2425,11 @@
       </div>
 
       <p class="fm-note">По ${f.answers} ${plural(f.answers, 'ответу', 'ответам', 'ответам')}, данные есть по ${f.covered} из 27 номеров.
-        ${untried.length ? 'Номера, которые ещё не решали, считаются нерешёнными — прогноз вырастет, когда вы их попробуете.' : ''}</p>
+        ${untried.length ? 'По непроверенным номерам модель пока не добавляет баллы; это не доказательство, что вы их не умеете.' : ''}</p>
+      <p class="fm-note">В расчёте — первые встречи с заданиями без подсказок, повторов и занятия «Вместе».
+        Исключено записей: ${f.evidence.excluded}. Последний подходящий ответ: ${f.evidence.latest ? new Date(f.evidence.latest).toLocaleDateString('ru-RU') : 'нет'}.
+        ${f.evidence.missing.length ? `Нет свежих данных за 30 дней по номерам: ${f.evidence.missing.join(', ')}.` : 'По всем номерам есть свежие данные.'}
+        Сайт не может проверить помощь вне платформы. Точность модели ещё не проверена на результатах настоящих экзаменов, поэтому вероятность и доверительный диапазон не показываются.</p>
 
       ${untried.length || weak.length ? `<div class="fm-where">
         <div class="fm-h">Ещё можно добрать</div>
@@ -2384,17 +2438,28 @@
       </div>` : ''}
 
       <div class="fm-table-wrap"><table class="fm-table">
-        <thead><tr><th>№</th><th>Баллов</th><th>Шанс решить</th><th>Ответов</th><th>В прогноз</th></tr></thead>
+        <thead><tr><th>№</th><th>Баллов</th><th>Оценка модели</th><th>Ответов</th><th>В прогноз</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
 
       <details class="fm-how"><summary>Как считается прогноз</summary>
-        <p>Для каждого номера оценивается вероятность решить его на экзамене с первой попытки. Последние ответы весят больше старых, а через месяц без практики вес ответа падает вдвое. Верный ответ на сложном задании и ошибка на простом весят сильнее. Ответ со второй попытки засчитывается на четверть: на экзамене подсказки «неверно» не будет.</p>
-        <p>Задание, которое уже встречалось, весит втрое меньше: его ответ мог запомниться. Ответы в варианте ЕГЭ весят в полтора раза больше — это экзаменационные условия. Пока ответов мало, оценка осторожная.</p>
-        <p>У заданий 26 и 27 учитывается частичный балл: если с первой попытки верна половина ответа (одно из двух чисел), это 1 балл из 2. Из вероятностей складывается распределение первичных баллов (всего 29), и оно переводится в тестовые по шкале ЕГЭ‑2026. Диапазон покрывает 80% вероятных исходов.</p>
+        <p>Для каждого номера оценивается вероятность решить его на экзамене с первой попытки. Последние ответы весят больше старых, а через месяц без практики вес ответа падает вдвое. Верный ответ на сложном задании и ошибка на простом весят сильнее. В расчёт входят первые попытки на новых заданиях; подсказки, повторные задания и работа «Вместе» исключаются.</p>
+        <p>Ответы на новые задания в варианте ЕГЭ весят в полтора раза больше. Для самопроверки кода в браузере баллы прогноза не начисляются. Пока ответов мало, оценка осторожная.</p>
+        <p>У заданий 26 и 27 учитывается частичный балл: если с первой попытки верна половина ответа (одно из двух чисел), это 1 балл из 2. Из вероятностей складывается распределение первичных баллов (всего 29), и оно переводится в тестовые по шкале ЕГЭ‑2026. Это расчётная модель, а не измеренная вероятность результата на экзамене.</p>
       </details>`;
     chart.bind(body);
     box.hidden = false;
+    const reflection = body.querySelector('#mistakeSummary');
+    if (SERVER && reflection) api('learning/mistakes').then(d => {
+      if (!reflection.isConnected || !d.items?.length) return;
+      reflection.textContent = 'Твои отметки за 30 дней (не оценка учителя): ' + d.items.map(x => `${x.label} — ${x.count}${x.repeated_topics ? ` (повторилась в ${x.repeated_topics} номерах)` : ''}`).join('; ') + '. После нового решения проверь, повторилась ли та же причина.';
+      if (d.followup) {
+        const f = d.followup;
+        reflection.textContent += f.evaluated
+          ? ` Следующее новое задание того же номера и типа: ${f.recovered} из ${f.evaluated} решены с первой попытки без подсказок. Это признак закрепления навыка, а не доказательство исчезновения конкретной причины.`
+          : ' Для оценки закрепления пока нет следующего самостоятельного решения нового задания того же типа.';
+      }
+    }).catch(() => { if (reflection.isConnected) reflection.textContent = 'Отметки причин пока не загрузились. Открой прогноз ещё раз.'; });
   }
 
   function closeForecast() { $('#forecastModal').hidden = true; }
@@ -2557,6 +2622,20 @@
       if (restoreModal) { hubModalState = true; $('#forecastModal').hidden = false; }
     }
   });
+  let courseCoverage = null, courseCoverageLoading = false;
+  function loadCourseCoverage() {
+    if (courseCoverage || courseCoverageLoading || !SERVER) return;
+    courseCoverageLoading = true;
+    api('course/coverage').then(d => {
+      if (!Array.isArray(d.topics)) return;
+      courseCoverage = d;
+      if (courseShown && pageKind === null && trainerEl.querySelector('.crs-hero')) openCourse();
+    }).catch(() => {}).finally(() => { courseCoverageLoading = false; });
+  }
+  const courseKind = n => {
+    const row = courseCoverage?.topics.find(t => t.n === n);
+    return row ? `${row.kind === 'lesson' ? 'подробный урок' : 'краткий разбор'} · ${row.slides} слайдов` : 'формат указан в открытом уроке';
+  };
   let COURSE_OK = false;                 // курс открыт паролем от учителя (проверяет сервер)
   function courseLock() {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span>';
@@ -2610,6 +2689,7 @@
     document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
     $('#courseCard')?.classList.add('on');
     if (!COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
+    loadCourseCoverage();
     const all = COURSE.filter(m => !m.archive).flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
     const savedN = learningMemory().course;
     const nextN = all.includes(savedN) || ARCHIVE[savedN] ? savedN : all.find(n => lessonState(n) !== 'done');
@@ -2621,6 +2701,7 @@
         <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
       </div>
       ${learningFormat}
+      <p class="fm-note">${courseCoverage ? `Номеров с подробным уроком: ${courseCoverage.full_count}; с кратким разбором: ${courseCoverage.guide_count}. №19–21 используют один общий урок. Архивные темы указаны отдельно.` : 'В курсе есть подробные уроки и краткие разборы. Формат каждой темы указан в списке.'} Это карта наполнения, а не оценка знаний.</p>
       ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
         <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>${m.archive ? '' : `Модуль ${i + 1}. `}${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
@@ -2629,7 +2710,7 @@
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
           return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
             <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
-            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · теория и пример · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · ${courseKind(n)} · ${COURSE_SETS.length} подборок</small></span>
             <span class="crs-go">›</span></button>`;
         }).join('')}</div></section>`).join('')}
     </div>`;
@@ -4315,21 +4396,33 @@
   // ═══════ src/app/06-server-sync.js
   // ------------------------------------------------------------ сервер: вход и синхронизация
   let localWriteAt = 0;                 // когда эта вкладка сама отправила ответ или сдала работу — для живых обновлений
+  let answerWriteSequence = 0;
+  let answerWriteSession = 0;
+  if (typeof window !== 'undefined') window.addEventListener?.('egeshka:session-ended', () => { answerWriteSession++; });
   async function api(path, body, method) {
     if (body && /^(check|reveal|asg\/(answer|finish)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
     if (isTemp()) headers['X-Temp'] = '1';
-    const r = await fetch('api/' + path, {
+    const writeId = body && /^(check|asg\/(answer|finish)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
+    const sessionAtStart = answerWriteSession;
+    const notify = state => { if (writeId && sessionAtStart === answerWriteSession && typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') window.dispatchEvent(new CustomEvent('egeshka:answer-save', { detail: { id: writeId, state } })); };
+    notify('pending');
+    let r;
+    try { r = await fetch('api/' + path, {
       method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined,
-    });
+    }); } catch (error) { notify('error'); throw error; }
     let data = {};
-    try { data = await r.json(); } catch (e) { /* пусто */ }
+    try { data = await r.json(); } catch (e) {
+      if (writeId) { notify('error'); throw new Error('Сервер не подтвердил сохранение ответа'); }
+    }
     if (!r.ok) {
+      notify('error');
       const err = new Error(data.error || r.statusText);
       err.status = r.status;
       throw err;
     }
+    notify((path === 'check' && data.final === false) || data.expired ? 'accepted' : 'saved');
     return data;
   }
 
@@ -4340,7 +4433,7 @@
     syncTimer = setTimeout(() => flushSync(false), 3000);
   }
   function currentForecast() {
-    try { return P.log.length >= CFG.forecast.minAnswers ? forecast().score : null; } catch (e) { return null; }
+    try { return forecastEvidence().count >= CFG.forecast.minAnswers ? forecast().score : null; } catch (e) { return null; }
   }
   /** На сервер уходят только прогноз (для учителя) и настройки. Сам прогресс сервер знает
       из журнала попыток — его больше не нужно пересылать целиком. */
@@ -4366,8 +4459,8 @@
 
   /** Данные ученика с сервера: правила показа ответа, избранное и заметки. */
   function applyMe(me) {
-    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); resetBugLab(); }
-    if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); labStop(); LAB.context = null; LAB.owner = null; }
+    if (student?.sid !== me.sid) { resetAssignments(); resetDaily(); pyDisposeSession(); }
+    if (student?.sid !== me.sid) { PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); }
     student = { sid: me.sid, name: me.name, token: me.token || (student && student.token) };
     if (me.shared && !isTemp()) {                // компьютер в классе: вход — только до закрытия браузера
       try { localStorage.removeItem(STUDENT_STORE); sessionStorage.setItem(TEMP_KEY, '1'); } catch (e) { /* нет доступа */ }
@@ -4604,6 +4697,7 @@
   });
 
   async function logout() {
+    pyDisposeSession();
     schoolWatch(false);
     if (examShown) saveExamInputs();
     abandonCurrent();
@@ -5462,9 +5556,31 @@
   const codeKey = id => `egeshka.code.${student ? student.sid : 'local'}.${id}`;
   function readCode(id) { try { return localStorage.getItem(codeKey(id)); } catch (e) { return null; } }
   function writeCode(id, code) { try { if (code.trim()) localStorage.setItem(codeKey(id), code); else localStorage.removeItem(codeKey(id)); } catch (e) { /* нет места */ } }
+  // Virtual files and output belong to one signed-in pupil. Destroy all Python
+  // contexts before switching accounts, including checks running in other views.
+  function pyDisposeSession() {
+    clearTimeout(PY.saveTimer); PY.saveTimer = null;
+    if (PY.task && $('#pyCode')) writeCode(PY.task.id, $('#pyCode').value);
+    if (PY.worker) PY.worker.terminate();
+    Object.assign(PY, { worker: null, ready: false, running: false, task: null });
+    pycStopTests(); labStop(); resetBugLab();
+    Object.assign(LAB, { context: null, owner: null, result: null, code: '', stdin: '', index: 0, seen: null });
+    for (const id of ['pyCode', 'pyIn', 'labCode', 'labStdin']) if ($('#' + id)) $('#' + id).value = '';
+    for (const id of ['pyOut', 'pyFiles', 'pyTask', 'labOutput', 'labVariables', 'labStack', 'labTraceCode', 'bugRoot'])
+      if ($('#' + id)) $('#' + id).textContent = '';
+    if ($('#pyTurtle')) $('#pyTurtle').hidden = true;
+    if ($('#pyCanvas')) $('#pyCanvas').width = $('#pyCanvas').width;
+    TT.ops = null; TT.drag = null;
+    if ($('#pyDock')) $('#pyDock').hidden = true;
+    if ($('#pyRun')) $('#pyRun').hidden = false;
+    if ($('#pyStop')) $('#pyStop').hidden = true;
+    document.body.classList.remove('py-open');
+    $$('#pyBtn').forEach(b => b.classList.remove('on'));
+    window.dispatchEvent(new Event('egeshka:session-ended'));
+  }
   function pyFilesOf(t) {
     return (t && t.att || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
-      .filter(f => f.url.startsWith(location.origin));       // внешние ссылки браузер не даст прочитать
+      .filter(f => new URL(f.url).origin === location.origin);
   }
   /** Редактор открывается пустым: заготовки для черепахи (№6) и файлов (№17 и др.) убраны — пишем сами. */
   function pyStarter() { return ''; }
@@ -5477,7 +5593,7 @@
     if (PY.worker) return;
     PY.ready = false;
     if (typeof Worker === 'undefined') { setPyStatus('Этот браузер не умеет запускать Python', 'bad'); return; }
-    PY.worker = new Worker('py-worker.js' + (RULES.py_local ? '?local=1' : ''));
+    PY.worker = new EgePythonWorker('py-worker.js' + (RULES.py_local ? '?local=1' : ''));
     setPyStatus('Загружаю Python… (в первый раз около 10 МБ, потом из кеша)');
     PY.worker.onmessage = ev => {
       const m = ev.data;
@@ -5493,7 +5609,12 @@
         if (m.fatal) { PY.worker.terminate(); PY.worker = null; ensureWorker(); }   // интерпретатор сломан — запускаем новый
       }
     };
-    PY.worker.onerror = () => { setPyStatus('Python не загрузился. Проверьте интернет и обновите страницу.', 'bad'); };
+    PY.worker.onerror = () => {
+      if (PY.worker) PY.worker.terminate();
+      PY.worker = null; PY.ready = false; PY.running = false;
+      $('#pyRun').hidden = false; $('#pyStop').hidden = true;
+      setPyStatus('Python не загрузился. Проверьте интернет и повторите запуск.', 'bad');
+    };
   }
   function pyPrint(text, isErr) {
     const out = $('#pyOut');
@@ -8366,7 +8487,7 @@
     const status = text => { msg.textContent = text; if (PY.task?.id === 'pyc:' + id) $('#pycDockStatus').textContent = text; };
     button.disabled = true; $('#pycDockTests').disabled = true; $('#pycDockStop').hidden = false; status('Загружаю Python для учебной проверки…');
     let worker;
-    try { worker = new Worker('py-worker.js' + (RULES.py_local ? '?local=1' : '')); }
+    try { worker = new EgePythonWorker('py-worker.js' + (RULES.py_local ? '?local=1' : '')); }
     catch (err) { button.disabled = false; $('#pycDockTests').disabled = false; $('#pycDockStop').hidden = true; status('Браузер не смог запустить проверку Python.'); return; }
     let timer, index = 0, passed = 0, output = '', error = '', finished = false;
     const finish = text => {
@@ -10187,7 +10308,7 @@
       ${view ? '<button type="button" class="link-btn lab-back" data-lab-view="">← Все лаборатории</button>' : ''}
       <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>${title}</h1><p>${sub}</p></div></header>
       ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : view === 'bugs' ? bugLabHtml() : `<div class="lab-cards">
-        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">№ 7 · 10 · 19–21</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
+        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">№ 7 · 13 · 15 · 19–21</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения, логика и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
         <button type="button" class="lab-entry" data-lab-view="code"><span class="lab-kicker">Python</span><h2>Программирование</h2><p>Смотри, какая строка выполняется, как меняются переменные и что выводит программа.</p><b>Открыть лабораторию →</b></button>
         ${SERVER ? '<button type="button" class="lab-entry" data-lab-view="bugs"><span class="lab-kicker">Python · поиск ошибок</span><h2>Исправление ошибок</h2><p>Задача и чужое решение: в нём ошибки, пропуск или оно слишком медленное. Почини код так, чтобы он прошёл все тесты.</p><b>Искать ошибки →</b></button>' : ''}</div>
         <p class="lab-note">Здесь можно пробовать и ошибаться: эксперименты не меняют оценки и награды за задания.</p>`}
@@ -10201,13 +10322,13 @@
     return `<nav class="lab-tabs" aria-label="Эксперименты">${[['image', '№ 7 · Изображения'], ['net', '№ 13 · IP-сети'], ['logic', '№ 15 · Логика'], ['game', '№ 19–21 · Игры'], ['graph', '23_old · Графы']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по КИМ ЕГЭ-2027 (демоверсия ФИПИ). Графы из файла (23_old) в КИМ-2027 нет — модель оставлена в архиве. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
   }
   function labPrediction(question) {
-    return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
+    return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" aria-describedby="labFeedback" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
   }
   function labRenderModel() {
     const box = $('#labModel'); if (!box) return;
     if (LAB.mode === 'net') {
       box.innerHTML = `<section class="lab-panel"><h2>Где заканчивается сеть и начинается адрес узла?</h2>
-        <div class="lab-fields"><label>IPv4-адрес<input class="inp" id="labIp" value="${esc(LAB.net.ip)}" spellcheck="false" maxlength="15"></label><label>Маска /<span id="labPrefixLabel">${LAB.net.prefix}</span><input type="range" id="labPrefix" min="0" max="32" value="${LAB.net.prefix}"></label></div>
+        <div class="lab-fields"><label>IPv4-адрес<input class="inp" id="labIp" aria-describedby="labNetResult" value="${esc(LAB.net.ip)}" spellcheck="false" maxlength="15"></label><label>Маска /<span id="labPrefixLabel">${LAB.net.prefix}</span><input type="range" id="labPrefix" min="0" max="32" value="${LAB.net.prefix}"></label></div>
         <p class="lab-note">Голубые биты задают сеть, остальные — адрес внутри неё. Все адреса считаются вместе с адресом сети и широковещательным адресом.</p>
         <div id="labNetResult" aria-live="polite"></div>
         ${labPrediction('Сколько всего IPv4-адресов в этой подсети?')}</section>`;
@@ -10215,9 +10336,9 @@
     } else if (LAB.mode === 'image') {
       const p = LAB.picture;
       box.innerHTML = `<section class="lab-panel"><h2>Как глубина цвета влияет на объём?</h2><div class="lab-fields">
-        <label>Ширина, пиксели<input class="inp" type="number" id="labWidth" min="1" max="8192" value="${p.w}"></label>
-        <label>Высота, пиксели<input class="inp" type="number" id="labHeight" min="1" max="8192" value="${p.h}"></label>
-        <label>Бит на пиксель: <span id="labDepthLabel">${p.depth}</span><input type="range" id="labDepth" min="1" max="24" value="${p.depth}"></label></div>
+        <label>Ширина, пиксели<input class="inp" type="number" id="labWidth" aria-describedby="labImageResult" min="1" max="8192" value="${p.w}"></label>
+        <label>Высота, пиксели<input class="inp" type="number" id="labHeight" aria-describedby="labImageResult" min="1" max="8192" value="${p.h}"></label>
+        <label>Бит на пиксель: <span id="labDepthLabel">${p.depth}</span><input type="range" id="labDepth" aria-describedby="labImageResult" min="1" max="24" value="${p.depth}"></label></div>
         <div class="lab-image-demo"><canvas id="labCanvas" width="256" height="128" aria-label="Пример изменения палитры изображения"></canvas><div id="labImageResult" aria-live="polite"></div></div>
         <p class="lab-note">Модель без сжатия, заголовков и выравнивания строк. Биты упакованы подряд; итог округляется вверх до целого байта. Иллюстрация показывает изменение палитры, её размер на экране условный.</p>
         ${labPrediction('Сколько байт занимает это изображение?')}</section>`;
@@ -10284,14 +10405,14 @@
     const edgeOn = (a, b) => { const i = r.path.indexOf(a); return i >= 0 && r.path[i + 1] === b; };
     const X = c => 40 + c * 108, Y = r_ => 52 + r_ * 96, fmt = v => v == null ? '∞' : v;
     const cur = G.shown < t.steps.length ? t.steps[G.shown - 1] : null;
-    const svg = `<svg class="lab-graph" viewBox="0 0 620 300" role="img" aria-label="Граф с вершинами A–H">
+    const svg = `<svg class="lab-graph" viewBox="0 0 620 300" role="group" aria-label="Граф с вершинами A–H">
       <defs><marker id="labArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
       ${LAB_G.e.map(([a, b, w]) => { const [x1, y1] = [X(LAB_G.v[a][0]), Y(LAB_G.v[a][1])], [x2, y2] = [X(LAB_G.v[b][0]), Y(LAB_G.v[b][1])];
         const k = 24 / Math.hypot(x2 - x1, y2 - y1), sx = x1 + (x2 - x1) * k, sy = y1 + (y2 - y1) * k, ex = x2 - (x2 - x1) * k, ey = y2 - (y2 - y1) * k;
         const dim = G.banned.has(a) || G.banned.has(b);
         return `<g class="e${edgeOn(a, b) ? ' on' : ''}${dim ? ' dim' : ''}"><line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" marker-end="url(#labArr)"/>${G.kind === 'count' ? '' : `<text x="${(sx + ex) / 2}" y="${(sy + ey) / 2 - 5}">${w}</text>`}</g>`; }).join('')}
       ${LAB_G.order.map(v => { const [c, r_] = LAB_G.v[v], cls = [G.banned.has(v) ? 'ban' : '', v === G.via ? 'via' : '', v === G.start || v === G.end ? 'end' : '', onPath.has(v) ? 'on' : '', v === cur ? 'cur' : ''].filter(Boolean).join(' ');
-        return `<g class="v ${cls}" data-lab-gv="${v}" tabindex="0" role="button" aria-label="Вершина ${v}"><circle cx="${X(c)}" cy="${Y(r_)}" r="22"/><text x="${X(c)}" y="${Y(r_) + 6}">${v}</text>
+        return `<g class="v ${cls}" data-lab-gv="${v}" tabindex="0" role="button" aria-disabled="${v === G.start || v === G.end}" aria-label="Вершина ${v}${G.banned.has(v) ? ", запрещена" : v === G.via ? ", обязательная" : ""}"><circle cx="${X(c)}" cy="${Y(r_)}" r="22"/><text x="${X(c)}" y="${Y(r_) + 6}">${v}</text>
           ${shown.has(v) ? `<text class="val" x="${X(c)}" y="${Y(r_) + (r_ === 0 ? -30 : 42)}">${fmt(t.val[v])}</text>` : ''}</g>`; }).join('')}</svg>`;
     const kindTxt = { count: 'сколько путей ведёт отсюда в конец', short: 'длина кратчайшего пути отсюда до конца', long: 'длина самого длинного пути отсюда до конца' }[G.kind];
     const how = G.kind === 'count' ? 'в конце пути — 1, иначе сумма чисел соседей' : `в конце пути — 0, иначе ${G.kind === 'short' ? 'min' : 'max'}(вес ребра + число соседа)`;
@@ -10307,14 +10428,20 @@
   function labUpdateNetwork() {
     LAB.net.ip = $('#labIp').value; LAB.net.prefix = +$('#labPrefix').value;
     $('#labPrefixLabel').textContent = LAB.net.prefix; labResetFeedback();
+    $('#labIp').removeAttribute('aria-invalid');
     try {
       const n = labNetwork(LAB.net.ip, LAB.net.prefix);
       $('#labNetResult').innerHTML = `<div class="lab-bits" aria-label="Двоичная запись адреса">${[0, 8, 16, 24].map(start => `<span class="lab-octet">${n.bits.slice(start, start + 8).split('').map((bit, i) => `<b class="${start + i < n.prefix ? 'network' : 'host'}">${bit}</b>`).join('')}</span>`).join('')}</div>
         <dl class="lab-facts"><div><dt>Маска</dt><dd>${n.mask}</dd></div><div><dt>Первый адрес</dt><dd>${n.network}</dd></div><div><dt>Последний адрес</dt><dd>${n.last}</dd></div><div><dt>Битов для адреса внутри сети</dt><dd>32 − ${n.prefix} = ${32 - n.prefix}</dd></div></dl>`;
-    } catch (e) { $('#labNetResult').textContent = e.message; }
+    } catch (e) { $('#labIp').setAttribute('aria-invalid', 'true'); $('#labNetResult').textContent = e.message; }
   }
   function labUpdateImage() {
     LAB.picture = { w: +$('#labWidth').value, h: +$('#labHeight').value, depth: +$('#labDepth').value };
+    for (const id of ['labWidth', 'labHeight', 'labDepth']) {
+      const field = $('#' + id);
+      if (field.value === '' || !field.validity.valid) field.setAttribute('aria-invalid', 'true');
+      else field.removeAttribute('aria-invalid');
+    }
     const p = LAB.picture; $('#labDepthLabel').textContent = p.depth; labResetFeedback();
     try {
       const v = labImageSize(p.w, p.h, p.depth);
@@ -10350,11 +10477,11 @@
       <div class="lab-code-grid"><section class="lab-panel lab-editor"><h2>Код Python</h2>
         <div class="ide">
           <div class="ide-tabs"><span class="ide-tab"><i class="ide-pyico" aria-hidden="true"></i>main.py</span><span class="ide-mode" id="labIdeMode">${LAB.result ? 'Отладка' : 'Редактор'}</span></div>
-          <div class="ide-ed" id="labEd" ${LAB.result ? 'hidden' : ''}><div class="ide-gutter" id="labGutter" aria-hidden="true"></div>
+          <div class="ide-ed" id="labEd" ${LAB.result ? 'hidden' : ''}><div class="ide-gutter" id="labGutter" role="group" aria-label="Точки останова"></div>
             <div class="ide-area"><pre class="ide-hl" id="labCodeHl" aria-hidden="true"></pre>
               <textarea id="labCode" class="ide-code" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" maxlength="30000" aria-label="Код Python">${esc(LAB.code)}</textarea></div></div>
           <div id="labTraceCode" class="lab-trace-code ide-trace" tabindex="0" aria-label="Код с текущей строкой" ${LAB.result ? '' : 'hidden'}></div>
-          <div class="ide-foot">Щёлкни по номеру строки — поставишь точку останова <i class="ide-bp-dot" aria-hidden="true"></i></div>
+          <div class="ide-foot">Нажми номер строки или Enter на нём — поставишь точку останова <i class="ide-bp-dot" aria-hidden="true"></i></div>
         </div>
         <label class="lab-stdin">Входные данные для input()<textarea class="inp" id="labStdin" rows="3" maxlength="10000" spellcheck="false" ${LAB.result ? 'disabled' : ''}>${esc(LAB.stdin)}</textarea></label>
       </section><section class="lab-panel"><h2>Что происходит</h2><p id="labEvent">Здесь появятся значения переменных на каждом шаге.</p><div id="labStack" class="lab-stack"></div><div id="labVariables"></div><h3>Вывод программы</h3><pre class="lab-output ide-out" id="labOutput" aria-label="Вывод программы"></pre></section></div>
@@ -10373,7 +10500,7 @@
     $('#labEd').hidden = false; $('#labTraceCode').hidden = true; $('#labControls').hidden = true; $('#labEdit').hidden = true; $('#labIdeMode').textContent = 'Редактор';
     $('#labVariables').textContent = ''; $('#labStack').textContent = ''; $('#labOutput').textContent = ''; $('#labEvent').textContent = 'Готовим запись выполнения…';
     try {
-      const worker = new Worker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); LAB.worker = worker;
+      const worker = new EgePythonWorker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); LAB.worker = worker;
       labSetBusy(true); labSetStatus('Загружаю Python… При первом запуске это может занять около минуты.');
       const fail = text => { if (LAB.worker !== worker) return; labStop(); labSetBusy(false); labSetStatus(text); };
       LAB.timeout = setTimeout(() => fail('Python не успел загрузиться. Проверь интернет и повтори запуск.'), 90000);
@@ -10411,7 +10538,7 @@
         const names = [...new Set(line.replace(/#.*$/, '').replace(/(['"])(?:\\.|(?!\1).)*\1/g, '').match(/[A-Za-z_][\w]*/g) || [])].filter(w => vals.has(w) && !PY_KW.has(w));
         if (names.length) inline = `<em class="ide-inline">${names.slice(0, 5).map(w => `${esc(w)}: ${esc(labShort(vals.get(w).value))}`).join('&nbsp;&nbsp; ')}</em>`;
       }
-      return `<div class="lab-code-line${cur ? ' current' : ''}${bp ? ' bp' : ''}" ${cur ? 'aria-current="step"' : ''}><span class="ide-ln" data-lab-bp="${n}" title="Точка останова">${n}</span><code>${highlightPy(line) || ' '}</code>${inline}</div>`;
+      return `<div class="lab-code-line${cur ? ' current' : ''}${bp ? ' bp' : ''}" ${cur ? 'aria-current="step"' : ''}><span class="ide-ln" data-lab-bp="${n}" role="button" tabindex="0" aria-label="Точка останова: строка ${n}" aria-pressed="${bp}">${n}</span><code>${highlightPy(line) || ' '}</code>${inline}</div>`;
     }).join('');
     if (!s) { $('#labEvent').textContent = 'Не удалось начать выполнение. Исправь код и повтори запуск.'; $('#labOutput').textContent = r.output; return; }
     $('#labEvent').textContent = s.event === 'line' ? `Следующая строка: ${s.line}` : s.event === 'exception' ? `Строка ${s.line}: исключение ${s.exception}` : s.function === '<module>' ? (r.error ? 'Выполнение завершилось с ошибкой' : 'Выполнение основного кода завершено') : `Выход из ${s.function}: ${s.returnValue}`;
@@ -10457,7 +10584,7 @@
     if (!ta || !hl) return;
     hl.innerHTML = '<div class="ide-hl-in">' + highlightPy(ta.value) + '\n</div>';
     const n = ta.value.split('\n').length;
-    $('#labGutter').innerHTML = '<div class="ide-gutter-in">' + Array.from({ length: n }, (_, i) => `<span class="ide-ln${LAB.bps.has(i + 1) ? ' bp' : ''}" data-lab-bp="${i + 1}">${i + 1}</span>`).join('') + '</div>';
+    $('#labGutter').innerHTML = '<div class="ide-gutter-in">' + Array.from({ length: n }, (_, i) => `<span class="ide-ln${LAB.bps.has(i + 1) ? ' bp' : ''}" data-lab-bp="${i + 1}" role="button" tabindex="0" aria-label="Точка останова: строка ${i + 1}" aria-pressed="${LAB.bps.has(i + 1)}">${i + 1}</span>`).join('') + '</div>';
     labFitCode();
     labScrollEditor();
   }
@@ -10497,9 +10624,10 @@
     if (a === 'resume' && LAB.result) { labPause(); labResume(); }
     const bp = e.target.closest('[data-lab-bp]');
     if (bp) {
-      const n = +bp.dataset.labBp;
+      const n = +bp.dataset.labBp, hadFocus = document.activeElement === bp;
       if (LAB.bps.has(n)) LAB.bps.delete(n); else LAB.bps.add(n);
       if (LAB.result) labRenderStep(); else labPaintEditor();
+      if (hadFocus) trainerEl.querySelector((LAB.result ? '#labTraceCode ' : '#labGutter ') + '[data-lab-bp="' + n + '"]').focus();
     }
     if (a === 'play' && LAB.result) {
       if (LAB.play) { labPause(); return; }
@@ -10523,7 +10651,10 @@
       if (G.banned.has(v)) G.banned.delete(v);
       else if (G.via === v) { G.via = ''; G.banned.add(v); }
       else G.via = v;
-      labResetFeedback(); labUpdateGraph(); return;
+      const hadFocus = document.activeElement === gv;
+      labResetFeedback(); labUpdateGraph();
+      if (hadFocus) trainerEl.querySelector('[data-lab-gv="' + v + '"]').focus();
+      return;
     }
     if (a === 'game-reset') {
       const g = { start: +$('#labStart').value, second: +$('#labSecond').value, heaps: +$('#labHeaps').value, target: +$('#labTarget').value, add: +$('#labAdd').value, factor: +$('#labFactor').value };
@@ -10585,7 +10716,12 @@
     if (e.key === 'F9') labResume(); else labStep(e.key === 'F7' ? -1 : 1);
   });
   trainerEl.addEventListener('keydown', e => {
-    if (!labActive() || LAB.view !== 'code') return;
+    if (!labActive()) return;
+    const control = e.target.closest('[data-lab-gv], [data-lab-bp]');
+    if (control && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault(); control.dispatchEvent(new MouseEvent('click', { bubbles: true })); return;
+    }
+    if (LAB.view !== 'code') return;
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); labRun(); return; }
     if (e.target.id === 'labCode' && e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); const t = e.target; t.setRangeText('    ', t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input', { bubbles: true })); }
   });
@@ -10601,7 +10737,7 @@
   // ------------------------------------------------------------ лаборатория исправления ошибок
   /* Даётся задача и чужое «решение»: в нём ошибки, пропуск или оно слишком медленное. Ученик правит код и нажимает
      «Проверить»: код выполняется в браузере на входных данных тестов, выводы уходят на сервер, сервер сравнивает их
-     с ожидаемыми (правильные решения и ответы скрытых тестов в браузер не попадают). После решения — разбор ошибок. */
+     с ожидаемыми. Это самопроверка по присланным выводам, не независимое выполнение кода и не основание для оценки. */
   const BUG = { cases: null, levels: {}, kinds: {}, cur: null, filter: 0, worker: null, timer: null, busy: false,
     results: {}, hints: {}, explain: {}, owner: null, loadId: 0, runId: 0, cancel: null };
   const bugActive = () => labActive() && LAB.view === 'bugs' && !!$('#bugRoot');
@@ -10663,17 +10799,17 @@
     if (!bugActive()) return;
     if (bugCase()) bugRenderCase(); else bugRenderList();
   }
-  const bugStatus = c => (c.my.ok ? (c.my.star ? ['good', '★ точная правка'] : ['good', 'решено']) : c.my.tries ? ['review', `${c.my.tries} ${plural(c.my.tries, 'попытка', 'попытки', 'попыток')}`] : ['', 'новая']);
+  const bugStatus = c => (c.my.verified ? ['good', 'есть проверенное решение'] : c.my.ok ? ['good', 'самопроверка пройдена'] : c.my.tries ? ['review', `${c.my.tries} ${plural(c.my.tries, 'попытка', 'попытки', 'попыток')}`] : ['', 'новая']);
   function bugRenderList() {
-    const all = BUG.cases, done = all.filter(c => c.my.ok).length, stars = all.filter(c => c.my.star).length;
+    const all = BUG.cases, done = all.filter(c => c.my.ok).length;
     const list = all.filter(c => !BUG.filter || c.level === BUG.filter);
     const next = all.find(c => !c.my.ok);
     $('#bugRoot').innerHTML = `
-      <div class="bug-top"><div class="bug-prog"><b>${done} из ${all.length}</b><span>решено${stars ? ` · ★ ${stars}` : ''}</span>
+      <div class="bug-top"><div class="bug-prog"><b>${done} из ${all.length}</b><span>самопроверок пройдено</span>
           <i class="bug-track"><b style="width:${all.length ? Math.round(done / all.length * 100) : 0}%"></b></i></div>
-        ${next ? `<button type="button" class="btn primary" data-bug-open="${esc(next.id)}">${done ? 'Продолжить' : 'Начать'}: «${esc(next.title)}» →</button>` : '<span class="chip good">Все задачи решены</span>'}</div>
+        ${next ? `<button type="button" class="btn primary" data-bug-open="${esc(next.id)}">${done ? 'Продолжить' : 'Начать'}: «${esc(next.title)}» →</button>` : '<span class="chip good">Все самопроверки пройдены</span>'}</div>
       <p class="lab-note">В каждой задаче — условие и чужое решение. Где-то в нём ошибки, где-то оно не дописано, а где-то работает слишком долго.
-        Исправь код так, чтобы он прошёл все тесты. Чем меньше строк пришлось изменить, тем точнее правка — за неё даётся ★.</p>
+        Исправь код и проверь его на примерах. Это самопроверка: программа запускается в твоём браузере. Она не даёт оценку, звёзды или подтверждение самостоятельного решения; код можно затем обсудить с учителем. Кнопка «Проверить на сервере» отдельно запускает присланный код и подтверждает результат тестов.</p>
       <nav class="lab-tabs bug-filter" aria-label="Уровень">${[[0, 'Все'], ...Object.entries(BUG.levels).map(([k, v]) => [+k, v])].map(([k, v]) =>
         `<button type="button" class="${BUG.filter === k ? 'on' : ''}" data-bug-level="${k}">${esc(v)}</button>`).join('')}</nav>
       <div class="bug-grid">${list.map(c => { const [cls, txt] = bugStatus(c); return `<button type="button" class="bug-card${c.my.ok ? ' done' : ''}" data-bug-open="${esc(c.id)}">
@@ -10702,12 +10838,13 @@
           <div class="bug-code ide"><pre class="bug-gutter" id="bugGutter" aria-hidden="true"></pre>
             <div class="ide-area"><pre class="ide-hl bug-hl" id="bugCodeHl" aria-hidden="true"></pre>
             <textarea id="bugCode" class="inp" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" maxlength="20000" aria-label="Код решения">${esc(code)}</textarea></div></div>
-          <div class="bug-actions"><button type="button" class="btn primary" id="bugCheck" data-bug-act="check">Проверить</button>
+          <div class="bug-actions"><button type="button" class="btn primary" id="bugCheck" data-bug-act="check">Самопроверка</button>
+            <button type="button" class="btn" id="bugVerify" data-bug-act="verify">Проверить на сервере</button>
             <button type="button" class="btn" id="bugStop" data-bug-act="stop" hidden>Остановить</button>
             <button type="button" class="btn" data-bug-act="hint" id="bugHintBtn"></button>
             <button type="button" class="btn ghost" data-bug-act="reset">Сбросить код</button>
             <button type="button" class="btn ghost" data-bug-act="explain" id="bugExplainBtn" hidden>Показать разбор</button></div>
-          <p class="lab-status" id="bugStatus" role="status">Ctrl+Enter — проверить. Код выполняется в браузере.</p>
+          <p class="lab-status" id="bugStatus" role="status">Ctrl+Enter — самопроверка. Код выполняется в браузере; это не независимая проверка решения.</p>
           <details class="bug-own"><summary>Запустить на своих данных</summary>
             <textarea class="inp" id="bugStdin" rows="3" maxlength="10000" spellcheck="false" placeholder="Входные данные для input()"></textarea>
             <button type="button" class="btn" data-bug-act="run" id="bugOwnRun">Запустить</button><pre id="bugOwnOut" class="bug-out" hidden></pre></details>
@@ -10740,8 +10877,8 @@
     if (!box) return;
     if (!r) { box.innerHTML = BUG.explain[c.id] ? bugExplainHtml(BUG.explain[c.id]) : ''; return; }
     const rows = r.tests.map((t, i) => {
-      const run = r.runs[i] || {}, src = c.tests[i];
-      const got = run.timeout ? (run.skipped ? 'не запускался' : 'не дождались ответа — программа работает слишком долго')
+      const run = r.runs?.[i] || {}, src = c.tests[i];
+      const got = r.verified ? (t.ok ? 'тест пройден' : 'тест не пройден') : run.timeout ? (run.skipped ? 'не запускался' : 'не дождались ответа — программа работает слишком долго')
         : run.err ? bugErrText(run) : (run.out || '').trim() || '(пусто)';
       return `<tr class="${t.ok ? 'ok' : 'bad'}"><td>${t.ok ? '✓' : '✗'}</td><td>${i + 1}</td>
         <td>${t.open ? `<pre>${esc(src.in)}</pre>` : '<span class="fm-muted">скрытый тест</span>'}</td>
@@ -10750,8 +10887,8 @@
     }).join('');
     const pass = r.tests.filter(t => t.ok).length;
     const idx = BUG.cases.indexOf(c), nxt = BUG.cases.slice(idx + 1).concat(BUG.cases.slice(0, idx)).find(x => !x.my.ok);
-    const head = r.ok ? `<div class="bug-win"><b>Все тесты пройдены!</b>
-        <span>${r.star ? `★ Точная правка: изменено строк — ${r.changed}.` : r.changed > r.par ? `Изменено строк — ${r.changed}. Можно точнее: достаточно ${r.par}.` : 'Задача решена.'}</span>
+    const head = r.ok ? `<div class="bug-win"><b>${r.verified ? 'Код проверен на сервере' : 'Самопроверка пройдена'}</b>
+        <span>${r.verified ? 'Присланный код прошёл все тесты при отдельном запуске.' : 'По выводам из браузера все примеры совпали. Независимая проверка кода не проводилась.'} Изменено строк: ${r.changed}.</span>
         <span class="bug-win-btns">${nxt ? `<button type="button" class="btn primary" data-bug-open="${esc(nxt.id)}">Следующая задача →</button>` : ''}<button type="button" class="btn" data-bug-open="">К списку задач</button></span></div>`
       : `<div class="bug-fail"><b>Пройдено тестов: ${pass} из ${r.tests.length}</b><span>Посмотри, на каком примере ответ расходится, и найди строку, которая за это отвечает.</span></div>`;
     box.innerHTML = `${head}${(r.explain || BUG.explain[c.id]) ? bugExplainHtml(r.explain || BUG.explain[c.id]) : ''}
@@ -10759,7 +10896,7 @@
   }
   function bugSetBusy(on, text) {
     BUG.busy = on;
-    for (const id of ['bugCheck', 'bugCode', 'bugOwnRun']) if ($('#' + id)) $('#' + id).disabled = on;
+    for (const id of ['bugCheck', 'bugVerify', 'bugCode', 'bugOwnRun']) if ($('#' + id)) $('#' + id).disabled = on;
     if ($('#bugStop')) $('#bugStop').hidden = !on;
     if (text && $('#bugStatus')) $('#bugStatus').textContent = text;
   }
@@ -10768,7 +10905,7 @@
     return new Promise((resolve, reject) => {
       const runs = [];
       let worker;
-      try { worker = new Worker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); } catch (e) { reject(Error('Браузер не смог запустить Python.')); return; }
+      try { worker = new EgePythonWorker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); } catch (e) { reject(Error('Браузер не смог запустить Python.')); return; }
       BUG.worker = worker;
       BUG.cancel = reject;
       const fail = message => { bugReleaseWorker(); reject(Error(message)); };
@@ -10811,11 +10948,37 @@
     c.my = r.my;
     BUG.results[c.id] = { ok: r.ok, tests: r.tests, runs, changed: r.changed, par: r.par, star: r.ok && r.changed <= r.par && !!r.my.star, explain: r.explain };
     if (r.explain) BUG.explain[c.id] = r.explain;
-    bugSetBusy(false, r.ok ? 'Готово: решение проходит все тесты.' : 'Есть тесты, которые не прошли. Таблица — ниже.');
+    bugSetBusy(false, r.ok ? 'Самопроверка: примеры совпали. Это не оценка за решение.' : 'Есть тесты, которые не прошли. Таблица — ниже.');
     const [cls, txt] = bugStatus(c);
     $('#bugChip').className = 'chip ' + cls; $('#bugChip').textContent = txt;
     bugRenderHints(); bugRenderResult();
     $('#bugResult').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  async function bugVerify() {
+    const c = bugCase();
+    if (!c || BUG.busy) return;
+    const code = $('#bugCode').value;
+    if (!code.trim()) { $('#bugStatus').textContent = 'Сначала введи код решения.'; return; }
+    bugStop();
+    const run = BUG.runId, sid = student?.sid;
+    bugSetBusy(true, 'Проверяю код на сервере… Это может занять до двух минут.');
+    // Closing the exercise only detaches its view; it does not pretend to cancel the server job.
+    $('#bugStop').hidden = true;
+    try {
+      const r = await api('lab/bugs/verify', { id: c.id, code });
+      if (!bugCurrent(c, run, sid)) return;
+      if (r.verified !== true || r.provenance !== 'server_python') throw Error('Сервер не подтвердил независимую проверку. Результат не засчитан.');
+      c.my = r.my;
+      BUG.results[c.id] = { ...r, runs: [] };
+      if (r.explain) BUG.explain[c.id] = r.explain;
+      bugSetBusy(false, r.ok ? 'Код прошёл независимую проверку на сервере.' : 'Код проверен на сервере: есть непройденные тесты.');
+      const [cls, txt] = bugStatus(c);
+      $('#bugChip').className = 'chip ' + cls; $('#bugChip').textContent = txt;
+      bugRenderHints(); bugRenderResult();
+      $('#bugResult').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (e) {
+      if (bugCurrent(c, run, sid)) bugSetBusy(false, e.message || 'Не удалось проверить код. Результат не засчитан.');
+    }
   }
   async function bugRunOwn() {
     const c = bugCase(), out = $('#bugOwnOut');
@@ -10840,6 +11003,7 @@
     const act = e.target.closest('[data-bug-act]')?.dataset.bugAct, c = bugCase();
     if (!act || !c) return;
     if (act === 'check') bugCheck();
+    if (act === 'verify') bugVerify();
     if (act === 'run') bugRunOwn();
     if (act === 'stop') { bugStop(); bugSetBusy(false, 'Остановлено.'); }
     if (act === 'hint') { BUG.hints[c.id] = Math.min(c.hints.length, (BUG.hints[c.id] || 0) + 1); bugRenderHints(); }
@@ -10850,7 +11014,7 @@
       delete BUG.results[c.id]; bugSyncEditor(); bugRenderResult(); $('#bugStatus').textContent = 'Код возвращён к исходному.';
     }
     if (act === 'explain') {
-      if (!c.my.ok && !confirm('Показать разбор ошибок? После этого ★ за точную правку в этой задаче не даётся.')) return;
+      if (!c.my.ok && !confirm('Показать разбор ошибок? Сначала попробуй объяснить, почему исходная программа ошибалась.')) return;
       const run = BUG.runId, sid = student?.sid;
       try { const r = await api('lab/bugs/explain', { id: c.id }); if (!bugCurrent(c, run, sid)) return; BUG.explain[c.id] = r.explain; if (!c.my.ok) c.my.seen = 1; bugRenderHints(); bugRenderResult(); }
       catch (x) { if (bugCurrent(c, run, sid)) toast(x.message || 'Не получилось открыть разбор', 3500); }
@@ -11116,7 +11280,8 @@
      (информатика, математика, физика) с прогрессом; у номера — разбор (идея, шаги, типичные ошибки, демо-задание)
      и тренировка без лимита; «Пробный вариант» — 10 заданий на 120 минут, баллы как на конкурсе (из 60). */
   let IM_OK = false, IM_PW = false;
-  const IM = { d: null, view: 'home', slot: 1, task: null, res: null, trial: null, result: null, timer: 0, saveT: 0, pos: 0, auto: false };
+  const IM = { d: null, view: 'home', slot: 1, task: null, res: null, trial: null, result: null, timer: 0, saveT: 0, pos: 0, auto: false,
+    saver: null, finishBusy: false, finishPending: false, finishError: '' };
   const IM_SUBJ = { inf: ['Информатика', 'inf'], mat: ['Математика', 'mat'], phy: ['Физика', 'phy'] };
   const imActive = () => courseShown && pageKind === 'im';
   const imBox = () => trainerEl.querySelector('.im');
@@ -11292,12 +11457,93 @@
   }
 
   // ---------- пробный вариант: 10 заданий, 120 минут, ответы сохраняются на сервере, проверка — после сдачи
+  function createImTrialSaver({ id, sid, answers, storage, send, changed = () => {}, clock = () => Date.now() }) {
+    const key = `egeTrainer.imDraft.s${sid}.t${id}`;
+    let revision = 0, savedRevision = 0, inFlight = null, paused = false, state = 'saved', error = '', nextOnline = 0;
+    let baseline = { ...answers }, observed = { ...answers }, local = true;
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const report = () => changed({ state, error, local, pending: revision !== savedRevision });
+    const persist = () => {
+      try {
+        if (revision === savedRevision) storage.removeItem(key);
+        else {
+          // Restore only locally edited fields; newer answers in other fields remain on the server.
+          const patch = Object.fromEntries(Object.keys(answers).filter(k => answers[k] !== baseline[k]).map(k => [k, answers[k]]));
+          storage.setItem(key, JSON.stringify({ sid, id, patch, ts: clock() }));
+        }
+        local = true;
+      } catch (_) { local = false; }
+    };
+    try {
+      const draft = JSON.parse(storage.getItem(key) || 'null');
+      if (draft && draft.sid === sid && draft.id === id && draft.patch && clock() - draft.ts < 86400000) {
+        for (const [k, v] of Object.entries(draft.patch)) {
+          if (Object.hasOwn(answers, k) && typeof v === 'string') answers[k] = v.slice(0, 120);
+        }
+        if (!same(answers, baseline)) { revision++; state = 'pending'; observed = { ...answers }; }
+      }
+    } catch (_) { local = false; }
+    function touch() {
+      if (!same(answers, observed)) {
+        observed = { ...answers }; revision++; state = 'pending'; error = ''; persist(); report();
+      }
+    }
+    function flush() {
+      touch();
+      if (paused) return Promise.resolve(false);
+      if (inFlight) return inFlight;
+      if (revision === savedRevision) return Promise.resolve(true);
+      inFlight = (async () => {
+        while (!paused && revision !== savedRevision) {
+          const sentRevision = revision, snapshot = { ...answers };
+          state = 'saving'; error = ''; report();
+          try { await send({ id, answers: snapshot }); }
+          catch (e) {
+            state = 'error'; error = e.message || 'Нет связи с сервером'; nextOnline = clock() + 10000;
+            persist(); report(); return false;
+          }
+          savedRevision = sentRevision; baseline = snapshot;
+          state = revision === savedRevision ? 'saved' : 'pending'; persist(); report();
+        }
+        return revision === savedRevision;
+      })().finally(() => { inFlight = null; });
+      return inFlight;
+    }
+    return {
+      id, sid, answers, touch, flush,
+      status: () => ({ state, error, local, pending: revision !== savedRevision }),
+      // A connectivity event is one attempt, never a timer retry loop or a finish retry.
+      online() { if (!paused && revision !== savedRevision && clock() >= nextOnline) { nextOnline = clock() + 10000; return flush(); } },
+      pause() { touch(); paused = true; return inFlight || Promise.resolve(true); },
+      clear() { paused = true; savedRevision = revision; try { storage.removeItem(key); } catch (_) { /* no storage */ } },
+    };
+  }
+  function imSaveStatus() {
+    const box = $('#imSaveStatus'), retry = $('#imSaveRetry');
+    if (!box || !IM.saver) return;
+    const s = IM.saver.status();
+    box.textContent = IM.finishBusy ? 'Отправляю вариант…' : IM.finishError ? `Сдача не подтверждена: ${IM.finishError}. Повтори сдачу кнопкой «Сдать вариант».`
+      : s.state === 'saved' ? 'Сохранено на сервере' : s.state === 'saving' ? 'Сохраняю ответы…'
+        : s.state === 'error' ? `Не сохранено на сервере: ${s.error}. ${s.local ? 'Черновик остался в этой вкладке.' : 'Ответы пока только в памяти вкладки — не закрывай её.'}`
+          : 'Изменения ожидают отправки';
+    if (retry) retry.hidden = IM.finishPending || !['error', 'pending'].includes(s.state);
+  }
   async function imTrialOpen() {
+    clearTimeout(IM.saveT);
+    if (IM.saver) await IM.saver.pause();
     let r;
     try { r = await api('im/trial/start', {}); } catch (e) { toast(e.message); return; }
     if (!imActive()) return;
+    r.answers = Object.fromEntries(r.items.map(it => [it.id, r.answers[it.id] || '']));
     IM.trial = r; IM.view = 'trial'; IM.pos = IM.pos < r.items.length ? IM.pos : 0;
+    const sid = student?.sid;
+    IM.finishBusy = false; IM.finishPending = false; IM.finishError = '';
+    let draftStorage;
+    try { draftStorage = sessionStorage; } catch (_) { /* storage disabled: report memory-only draft */ }
+    IM.saver = createImTrialSaver({ id: r.id, sid, answers: r.answers, storage: draftStorage, changed: imSaveStatus,
+      send: data => student?.sid === sid ? api('im/trial/save', data) : Promise.reject(new Error('Войди в свой аккаунт, чтобы сохранить ответы')) });
     imTrialRender();
+    if (IM.saver.status().pending) IM.saver.flush();
   }
   function imTrialRender() {
     const box = imBox(), T = IM.trial;
@@ -11305,10 +11551,11 @@
     const it = T.items[IM.pos], s = imSlot(it.slot);
     const left = () => Math.max(0, T.deadline - Date.now() / 1000);
     const clock = () => { const x = left(); return `${Math.floor(x / 3600)}:${String(Math.floor(x % 3600 / 60)).padStart(2, '0')}:${String(Math.floor(x % 60)).padStart(2, '0')}`; };
-    box.innerHTML = `<section class="im-trialbar"><button type="button" class="link-btn" data-im-home title="Вариант не прервётся: время идёт, ответы сохранены">← К номерам</button><b>Пробный вариант</b><span class="im-clock${left() < 600 ? ' warn' : ''}" id="imClock">${clock()}</span>
+    box.innerHTML = `<section class="im-trialbar"><button type="button" class="link-btn" data-im-home title="Вариант не прервётся: время продолжает идти">← К номерам</button><b>Пробный вариант</b><span class="im-clock${left() < 600 ? ' warn' : ''}" id="imClock">${clock()}</span>
         <nav class="im-nav">${T.items.map((x, i) => `<button type="button" class="${i === IM.pos ? 'on' : ''}${(T.answers[x.id] || '').trim() ? ' done' : ''}" data-im-go="${i}" title="Задание ${i + 1} · ${esc(imSlot(x.slot).title)}">${i + 1}</button>`).join('')}</nav>
         <button type="button" class="btn ghost im-calc" data-im-calc>🧮</button>
         <button type="button" class="btn primary" data-im-finish>Сдать вариант</button></section>
+      <p class="fm-note"><span id="imSaveStatus" role="status" aria-live="polite"></span> <button type="button" class="btn" id="imSaveRetry" hidden>Повторить сохранение</button></p>
       <section class="im-train ${s.subj}">
         <div class="im-card-top"><span class="im-num">${IM.pos + 1}</span><span class="im-chip ${s.subj}">${IM_SUBJ[s.subj][0]}</span><span class="im-lv">${esc(s.level)}</span><span class="im-pts">${s.points} б.</span></div>
         <div class="im-task">${imTaskHtml(it.html)}</div>
@@ -11317,6 +11564,10 @@
           ${IM.pos < T.items.length - 1 ? `<button type="button" class="btn primary" data-im-go="${IM.pos + 1}">Дальше →</button>` : '<button type="button" class="btn primary" data-im-finish>Сдать вариант</button>'}</div>
       </section>`;
     imBindOptions(box, 'imTAns');
+    $('#imSaveRetry').onclick = () => IM.saver?.flush();
+    $('#imTAns').disabled = IM.finishPending;
+    $$('[data-im-finish]').forEach(btn => { btn.disabled = IM.finishBusy; });
+    imSaveStatus();
     $('#imTAns').addEventListener('input', e => { T.answers[it.id] = e.target.value; imTrialSave(); $$('.im-nav button')[IM.pos].classList.toggle('done', !!e.target.value.trim()); });
     renderMathIn(box);
     clearInterval(IM.timer);
@@ -11324,26 +11575,39 @@
       const c = $('#imClock');
       if (!c || !imActive()) { clearInterval(IM.timer); return; }
       c.textContent = clock(); c.classList.toggle('warn', left() < 600);
-      if (left() <= 0) { clearInterval(IM.timer); toast('Время вышло — вариант сдан', 4000); imTrialFinish(true); }
+      if (left() <= 0) { clearInterval(IM.timer); if (!IM.finishPending) { toast('Время вышло — отправляю вариант', 4000); imTrialFinish(true); } }
     }, 1000);
   }
   function imTrialSave(now) {
     clearTimeout(IM.saveT);
-    const go = () => api('im/trial/save', { id: IM.trial.id, answers: IM.trial.answers }).catch(() => {});
-    if (now) return go();
-    IM.saveT = setTimeout(go, 700);
+    const saver = IM.saver;
+    if (!saver || !IM.trial || saver.id !== IM.trial.id || IM.finishPending) return;
+    saver.touch();
+    if (now) return saver.flush();
+    IM.saveT = setTimeout(() => saver.flush(), 700);
   }
   async function imTrialFinish(force) {
     const T = IM.trial;
-    if (!T) return;
+    if (!T || IM.finishBusy) return;
     const empty = T.items.filter(x => !(T.answers[x.id] || '').trim()).length;
     if (!force && !confirm(empty ? `Без ответа: ${empty}. Сдать вариант?` : 'Сдать вариант? Изменить ответы будет нельзя.')) return;
     clearTimeout(IM.saveT); clearInterval(IM.timer);
-    try { IM.result = await api('im/trial/finish', { id: T.id, answers: T.answers }); } catch (e) { toast(e.message); return; }
+    IM.finishBusy = true; IM.finishPending = true; IM.finishError = '';
+    $('#imTAns')?.setAttribute('disabled', '');
+    $$('[data-im-finish]').forEach(btn => { btn.disabled = true; }); imSaveStatus();
+    await IM.saver?.pause();
+    try { IM.result = await api('im/trial/finish', { id: T.id, answers: { ...T.answers } }); }
+    catch (e) {
+      IM.finishError = e.message || 'Нет связи с сервером'; IM.finishBusy = false;
+      $$('[data-im-finish]').forEach(btn => { btn.disabled = false; }); imSaveStatus(); return;
+    }
+    IM.saver?.clear(); IM.saver = null; IM.finishBusy = false; IM.finishPending = false;
     IM.trial = null; IM.view = 'result';
     try { IM.d = await api('im'); } catch (e) { /* итог уже есть */ }
     if (imActive()) imRender();
   }
+  window.addEventListener('online', () => { if (IM.saver?.sid === student?.sid) IM.saver.online(); });
+  window.addEventListener('pagehide', () => { IM.saver?.touch(); });
   function imResultView(box) {
     const R = IM.result;
     if (!R) { IM.view = 'home'; return imRender(); }
@@ -11371,7 +11635,7 @@
   function imBindOptions(box, inputId) {
     box.querySelectorAll('.im-task .im-opts li[data-o]').forEach(li => li.addEventListener('click', () => {
       const inp = $('#' + inputId);
-      if (!inp) return;
+      if (!inp || inp.disabled) return;
       const two = li.closest('.im-two');
       if (two) {
         const which = [...two.querySelectorAll('.im-opts')].indexOf(li.closest('.im-opts'));
@@ -11823,7 +12087,7 @@
   function hubPills() {
     const L = LB && LB.boards && LB.boards.league, me = L && L.me;
     const focus = viewPrefs().focus;
-    const fcOk = P.log.length >= CFG.forecast.minAnswers, fc = fcOk ? forecast().score : null;
+    const fcOk = forecastEvidence().count >= CFG.forecast.minAnswers, fc = fcOk ? forecast().score : null;
     const days = dayStreak(), lit = hubTodayCount() >= fireNeed();
     const up = '<svg viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>';
     const star = '<svg viewBox="0 0 24 24"><path fill="#ffc21a" d="m12 2.5 2.9 5.9 6.5.95-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.05 1.1-6.5-4.7-4.6 6.5-.95z"/></svg>';
@@ -12398,17 +12662,30 @@
   const CHANGELOG = (window.EGE_CHANGELOG && window.EGE_CHANGELOG.student) || [['', '', [], []]];
   const versionBtn = $('#versionBtn');
   if (versionBtn) versionBtn.textContent = `Версия ${CHANGELOG[0][0]} · что нового`;
-  versionBtn?.addEventListener('click', () => {
-    if (isNarrow()) setSideOpen(false);
+  let changelogLoading = false, changelogError = '';
+  function renderChangelog() {
     $('#forecastBody').innerHTML = `<h2 class="fm-title">Что нового</h2>
+      ${changelogLoading ? '<p class="fm-muted" role="status">Загружаю предыдущие версии…</p>' : ''}${changelogError ? `<p role="alert">${esc(changelogError)} <button type="button" class="link-btn" data-changelog-retry>Повторить</button></p>` : ''}
       ${SERVER && student ? `<button type="button" class="sto-launch" id="storiesGo"><span class="sto-l-ic">🐞</span><span><b>Что нового: лаборатории и уроки</b>
         <small>исправление ошибок, отладчик, полные уроки курса, инструкция · ${storySlides().length} слайдов</small></span></button>` : ''}
       <div class="changelog">${CHANGELOG.map(([v, d, added, changed], i) => `<section class="cl-ver${i ? '' : ' cl-now'}">
         <h3><span class="cl-num">${v}</span><span class="fm-muted">${d}</span>${i ? '' : '<span class="chip good">сейчас</span>'}</h3>
         ${(added || []).length ? `<div class="cl-kind cl-add">✨ Добавлено</div><ul>${added.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${(changed || []).length ? `<div class="cl-kind cl-chg">🔧 Изменено</div><ul>${changed.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>`).join('')}</div>`;
-    $('#forecastModal').hidden = false;
-  });
+  }
+  async function openChangelog() {
+    if (isNarrow()) setSideOpen(false);
+    changelogLoading = !!window.EgeLoadChangelog; changelogError = '';
+    renderChangelog(); $('#forecastModal').hidden = false;
+    try { if (window.EgeLoadChangelog) await window.EgeLoadChangelog(); }
+    catch (error) { changelogError = error.message; }
+    finally {
+      changelogLoading = false;
+      if (!$('#forecastModal').hidden && $('#forecastBody .changelog')) renderChangelog();
+    }
+  }
+  versionBtn?.addEventListener('click', openChangelog);
+  $('#forecastBody').addEventListener('click', e => { if (e.target.closest('[data-changelog-retry]')) openChangelog(); });
   let promoNext = false;                                              // после знакомства с сайтом — объявление об акции
   // «Решать задания» в окне акции и «К заданиям» после матча — просто закрывают окно
   $('#forecastBody').addEventListener('click', e => { if (e.target.closest('#tourGo')) closeForecast(); });

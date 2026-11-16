@@ -153,6 +153,9 @@
       return wrong ? `<s>${esc(x)}</s>` : esc(x);
     }).join(' → ');
   }
+  function provenanceHtml(a) {
+    return a.provenance_label ? `<small class="attempt-provenance" title="Отмечены действия внутри сайта. Сайт не может установить, использовалась ли помощь вне него.">${esc(a.provenance_label)}</small>` : '';
+  }
   const idOf = taskId => String(taskId || '').split(':').slice(1).join(':') || taskId;
   const BANK_NAMES = { ege_bank: 'Банк ЕГЭ', kompege_bank: 'КомпЕГЭ', openfipi_bank: 'ФИПИ', egeshka_bank: 'Egeshka' };
 
@@ -160,7 +163,7 @@
   function showLogin() {
     $('#appView').hidden = true;
     $('#loginView').hidden = false;
-    setTimeout(() => $('#admPassword').focus(), 30);
+    setTimeout(() => ($('#admLogin').value.trim() ? $('#admPassword') : $('#admLogin')).focus(), 30);
   }
   // Закрытый аккаунт видит отдельную страницу двух проверок.
   function showMailGate() { location.replace('/admin'); }
@@ -341,27 +344,30 @@
     $('#qrModal').hidden = false;
   }
 
-  // ------------------------------------------------------------ «Первые шаги»: класс → приглашение → первая подборка
+  // ------------------------------------------------------------ первый результат: класс → приглашение → работа → журнал
   function renderSteps() {
-    const box = $('#stepsCard'), st = ME.steps;
-    if (!st || ME.steps_off || ME.is_main && st.asg || (tab !== 'students' && tab !== 'settings')) { box.hidden = true; return; }
-    const done = [st.class, st.students > 0, st.asg];
-    if (done.every(Boolean)) { box.hidden = true; return; }
-    const step = (k, ok, title, body) => `<li class="${ok ? 'ok' : ''}"><span class="st-mark">${ok ? '✓' : k}</span><div><b>${title}</b>${body}</div></li>`;
-    box.innerHTML = `<div class="steps-head"><h3>Первые шаги</h3><span class="muted">${done.filter(Boolean).length} из 3</span>
+    const box = $('#stepsCard'), st = ME.steps, j = ME.journey || {};
+    if (!st || ME.steps_off || j.finished_students >= 5 || !['overview', 'students', 'settings'].includes(tab)) { box.hidden = true; return; }
+    const done = [st.class, st.students > 0, st.asg, !!j.first_result_at];
+    const current = done.findIndex(ok => !ok);
+    const step = (k, ok, title, body) => `<li class="${ok ? 'ok' : current === k - 1 ? 'current' : ''}"${current === k - 1 ? ' aria-current="step"' : ''}><span class="st-mark">${ok ? '✓' : k}</span><div><b>${title}</b>${body}</div></li>`;
+    const progress = j.first_assignment_at ? `Завершили работу: ${Number(j.finished_students || 0)} учеников. В первые 7 дней после первой выдачи — ${Number(j.week_results || 0)} из 5 для знакомства с результатами класса.` : 'Четыре шага до первого результата ученика. Статус обновляется по данным сервера.';
+    box.innerHTML = `<div class="steps-head"><h3>Первый результат класса</h3><span class="muted">${done.filter(Boolean).length} из 4</span>
         <button type="button" class="link-btn" data-steps-off>скрыть</button></div>
+      <p class="steps-progress">${progress}</p>
       <ol class="steps-list">
         ${step(1, st.class, 'Создайте класс', st.class ? '<p class="muted">Готово.</p>' : '<p class="muted">Например, «11 А». Класс — это журнал, сводка и подборки на всех учеников сразу.</p><button type="button" class="btn" data-step-go="classes">Создать класс</button>')}
         ${step(2, st.students > 0, 'Отправьте ученикам ссылку-приглашение', `<p class="muted">${st.students ? `Уже зарегистрировались: <b>${st.students}</b>. ` : ''}Ученик открывает ссылку, придумывает пароль — и попадает в ваш список. Новых учеников перенесите в класс на вкладке «Ученики».</p>
           <div class="inv-row"><code>${esc(inviteLink().replace(/^https?:\/\//, ''))}</code><button type="button" class="btn sm" data-inv-copy>Скопировать</button><button type="button" class="btn sm" data-inv-qr>QR для доски</button></div>`)}
         ${step(3, st.asg, 'Выдайте первую подборку', st.asg ? '<p class="muted">Готово.</p>' : '<p class="muted">Шаблоны в один клик: «Вариант ЕГЭ», «10 заданий на номер» или «Работа над ошибками класса».</p><button type="button" class="btn" data-step-go="build">Собрать подборку</button>')}
-      </ol>`;
+        ${step(4, !!j.first_result_at, 'Откройте первый результат', `<p class="muted">${j.first_result_at ? 'Первый ученик уже завершил работу. Посмотрите ответы и выберите, что разобрать на занятии.' : 'Когда ученик сдаст подборку, результат появится в «Моих работах» и журнале класса. До этого шага результаты не считаются полученными.'}</p><button type="button" class="btn" data-step-go="archive">Открыть работы</button>`)}
+      </ol><button type="button" class="link-btn" data-lesson-readiness>Проверить компьютер и связь перед уроком</button>`;
     box.hidden = false;
   }
   async function refreshSteps() {
     renderSteps();
     if (!ME.steps || ME.steps_off || $('#stepsCard').hidden) return;
-    try { const m = await api('me'); ME.steps = m.steps; ME.invite = m.invite; renderSteps(); } catch (e) { /* не страшно */ }
+    try { const m = await api('me'); ME.steps = m.steps; ME.journey = m.journey; ME.invite = m.invite; renderSteps(); } catch (e) { /* не страшно */ }
   }
   /** Рубильник звуков у учеников (фон 🎧 и звуки кейса): на уроке — выключить, замолкнут сразу. */
   function sndSwitch() {
@@ -408,13 +414,28 @@
 
   // вход главного учителя в два шага: пароль верный → код из письма на его почту
   let codeTicket = null;
+  function loginErrorFields(invalid = false) {
+    for (const id of ['admLogin', 'admPassword', 'admCode']) {
+      const field = $('#' + id);
+      if (invalid && !field.hidden) field.setAttribute('aria-invalid', 'true');
+      else field.removeAttribute('aria-invalid');
+    }
+  }
+  for (const id of ['admLogin', 'admPassword', 'admCode']) $('#' + id).addEventListener('input', () => {
+    loginErrorFields();
+    $('#admLoginErr').textContent = '';
+  });
   function codeStep(d) {
+    loginErrorFields();
     codeTicket = d ? d.ticket : null;
     $('#admLogin').hidden = !!d; $('#admPassword').hidden = !!d; $('#admPassword').required = !d;
+    document.querySelectorAll('label[for="admLogin"], label[for="admPassword"]').forEach(label => { label.hidden = !!d; });
     $('#admCode').hidden = !d; $('#admCode').required = !!d; $('#admCodeBack').hidden = !d;
     $('#admCodeNote').hidden = !d;
     if (d) {
-      $('#admCodeNote').textContent = `Пароль верный. Код для входа отправлен на ${d.to || 'вашу почту'} — действует ${d.minutes || 10} минут (если письма нет, проверьте «Спам»).`;
+      $('#admCodeNote').textContent = d.backup_only
+        ? 'Пароль верный, но отправка письма сейчас недоступна. Введите один из сохранённых резервных кодов. Каждый код работает один раз.'
+        : `Пароль верный. Почтовый сервер принял письмо с кодом для ${d.to || 'вашей почты'}. Код действует ${d.minutes || 10} минут. Проверьте «Спам» или используйте сохранённый резервный код. Для повтора отправки вернитесь к входу через минуту.`;
       $('#admCode').value = '';
       setTimeout(() => $('#admCode').focus(), 30);
     } else { $('#admPassword').value = ''; setTimeout(() => $('#admPassword').focus(), 30); }
@@ -426,6 +447,7 @@
     e.preventDefault();
     const btn = e.target.querySelector('button');
     btn.disabled = true;
+    loginErrorFields();
     $('#admLoginErr').textContent = '';
     try {
       const r = await fetch('api/admin/login', {
@@ -434,7 +456,10 @@
       });
       const d = await r.json().catch(() => ({}));
       if (r.status === 410) codeStep(null);
-      if (!r.ok) throw new Error(d.error || 'Ошибка входа');
+      if (!r.ok) {
+        loginErrorFields(r.status === 401 || r.status === 403);
+        throw new Error(d.error || 'Ошибка входа');
+      }
       if (d.need_code) { codeStep(d); return; }
       codeStep(null);
       $('#admPassword').value = '';
@@ -493,11 +518,12 @@
     try {
       const d = await api('bank-audit');
       const reasons = {new_conditions: 'Большой объём новых заданий', request_rate: 'Частые запросы',
-        batch_size: 'Большая порция заданий', invalid_page: 'Некорректный запрос'};
+        batch_size: 'Большая порция заданий', invalid_page: 'Некорректный запрос',
+        file_request_rate: 'Частые запросы файлов', new_files: 'Большой объём новых файлов', file_volume: 'Большой объём скачивания'};
       box.innerHTML = d.events.length ? d.events.map(e => `<div class="adm-box">
         <b>${esc(e.name || 'Удалённый аккаунт')}</b> · ${esc(reasons[e.reason] || 'Ограниченный запрос')}
         <div class="muted">${esc(new Date(e.last_ts * 1000).toLocaleString('ru-RU'))} · запросов: ${esc(String(e.n))}
-          · запрошено условий: ${esc(String(e.requested))}${e.teacher_name ? ' · учитель: ' + esc(e.teacher_name) : ''}</div>
+          · ${e.unit === 'bytes' ? 'запрошено МБ: ' + esc((e.requested / 1048576).toFixed(1)) : 'запрошено условий: ' + esc(String(e.requested))}${e.teacher_name ? ' · учитель: ' + esc(e.teacher_name) : ''}</div>
       </div>`).join('') : '<p class="adm-empty">Ограниченных запросов нет.</p>';
     } catch (err) {
       if (err.status !== 401) box.innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`;
@@ -577,14 +603,54 @@
       : '<p class="adm-empty">Нет.</p>'}`;
     const C = D.code_login || {};
     const codeHtml = `<div class="adm-box sec-code${C.on ? '' : ' off'}">${C.on
-      ? `🔐 <b>Вход главного учителя — по паролю и коду из письма</b> на ${esc(C.to)}. Знать пароль недостаточно.`
-      : `⚠️ <b>Вход главного учителя — только по паролю.</b> ${!C.email ? 'Укажите почту главного учителя в «Настройках».' : 'На сервере не настроена отправка писем (SMTP) — код не может прийти.'} Когда это будет настроено, вход потребует ещё и код из письма.`}</div>`;
+      ? `🔐 <b>Вход главного учителя требует пароль и второй код.</b> ${C.ready ? `Письмо направляется на ${esc(C.to)}.` : C.recovery_left ? 'Почта недоступна — войти можно с сохранённым резервным кодом.' : 'Отправка сейчас не настроена. Новые входы закрыты до восстановления почты или доступа администратором сервера.'}`
+      : `⚠️ <b>Вход главного учителя — только по паролю.</b> ${!C.email ? 'Укажите почту главного учителя в «Настройках».' : !C.smtp ? 'Настройте отправку писем на сервере.' : 'Второй фактор явно отключён администратором сервера; включите его после восстановления почты.'}`}
+      <p>Резервных кодов осталось: ${C.recovery_left || 0}. Сохраните их отдельно от пароля: они помогают войти при недоступной почте.</p>
+      <button type="button" class="btn" data-sec-recovery>Создать новый набор резервных кодов</button></div>`;
     $('#secBody').innerHTML = codeHtml + sum + sessHtml + logHtml + clsHtml;
   }
   $('#secReload')?.addEventListener('click', loadSecurity);
   $('#secTeacher')?.addEventListener('change', loadSecurity);
   $('#secQ')?.addEventListener('input', renderSecurity);
   $('#secBody')?.addEventListener('click', async e => {
+    const recovery = e.target.closest('[data-sec-recovery]');
+    if (recovery) {
+      const password = await new Promise(resolve => {
+        const dialog = document.createElement('dialog');
+        dialog.className = 'adm-box';
+        dialog.setAttribute('aria-labelledby', 'recoveryPasswordTitle');
+        dialog.innerHTML = '<form method="dialog"><h2 id="recoveryPasswordTitle">Новый набор резервных кодов</h2><p>Прежние резервные коды перестанут действовать. Подтвердите пароль главного учителя.</p><label for="recoveryCurrentPassword">Текущий пароль</label><input class="inp" id="recoveryCurrentPassword" type="password" autocomplete="current-password" required autofocus><p><button type="submit" class="btn" value="create">Создать коды</button> <button type="submit" class="btn" value="cancel" formnovalidate>Отмена</button></p></form>';
+        dialog.addEventListener('close', () => {
+          const value = dialog.returnValue === 'create' ? dialog.querySelector('input').value : '';
+          dialog.querySelector('input').value = '';
+          dialog.remove(); resolve(value);
+        });
+        document.body.appendChild(dialog); dialog.showModal();
+      });
+      if (!password) return;
+      recovery.disabled = true;
+      try {
+        const r = await api('security/recovery', { password });
+        const dialog = document.createElement('dialog');
+        dialog.className = 'adm-box';
+        dialog.setAttribute('aria-labelledby', 'recoveryCodeTitle');
+        dialog.innerHTML = '<h2 id="recoveryCodeTitle">Сохраните резервные коды</h2><p>Они показываются только сейчас. Каждый работает один раз вместе с паролем. Смена пароля, почты или отзыв доступа отменит этот набор.</p><textarea aria-label="Резервные коды" readonly rows="10" spellcheck="false"></textarea><p><button type="button" class="btn" data-download>Скачать коды</button> <button type="button" class="btn" data-close>Я сохранил — закрыть</button></p>';
+        dialog.querySelector('textarea').value = r.codes.join('\n');
+        dialog.querySelector('[data-download]').addEventListener('click', () => {
+          const blob = new Blob(['Egeshka — резервные коды главного учителя\nКаждый код используется один раз вместе с паролем.\nХраните отдельно от пароля.\n\n' + r.codes.join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+          const url = URL.createObjectURL(blob), link = document.createElement('a');
+          link.href = url; link.download = 'egeshka-recovery-codes.txt'; link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        });
+        dialog.querySelector('[data-close]').addEventListener('click', () => dialog.close());
+        dialog.addEventListener('close', () => { r.codes.fill(''); dialog.remove(); });
+        document.body.appendChild(dialog);
+        dialog.showModal();
+        loadSecurity();
+      } catch (err) { toast(err.message); }
+      finally { recovery.disabled = false; }
+      return;
+    }
     const f = e.target.closest('[data-sec-ip], [data-sec-q]');
     if (f) { $('#secQ').value = f.dataset.secIp || f.dataset.secQ; renderSecurity(); return; }
     const b = e.target.closest('[data-sec-end], [data-sec-end-all]');
@@ -623,12 +689,23 @@
         <div class="fn-bar"><i style="width:${Math.max(v ? 2 : 0, v / top * 100)}%"></i></div>
         <div class="fn-v"><b>${n(v)}</b>${conv != null ? `<small class="${conv < 30 ? 'low' : ''}">${conv}% от шага выше</small>` : '<small>&nbsp;</small>'}</div></div>`;
     }).join('');
+    const activation = f.activation || {};
+    const activationRate = activation.matured_windows ? `${Math.round(100 * activation.matured_activated / activation.matured_windows)}%` : 'Пока нет полных недель';
+    const activationTime = activation.median_first_result_seconds == null ? 'Пока нет результатов' : `${Math.max(1, Math.round(activation.median_first_result_seconds / 60))} мин`;
+    const activationHtml = `<h4>От регистрации к учебному результату</h4><div class="adm-table-wrap"><table class="adm-table"><tbody>
+      <tr><th scope="row">Подтверждены почта и модерация</th><td>${n(activation.approved)}</td></tr>
+      <tr><th scope="row">Выдали первую подборку</th><td>${n(activation.first_assignments)}</td></tr>
+      <tr><th scope="row">Получили первый результат ученика</th><td>${n(activation.first_results)}</td></tr>
+      <tr><th scope="row">5 учеников сдали работу за первую неделю</th><td>${n(activation.activated_in_week)}</td></tr>
+      <tr><th scope="row">Доля среди завершившихся недель</th><td>${activationRate} <span class="muted">(${n(activation.matured_activated)} из ${n(activation.matured_windows)})</span></td></tr>
+      <tr><th scope="row">Медиана от первой выдачи до первого результата</th><td>${activationTime}</td></tr>
+      </tbody></table></div><p class="adm-hint">Учителя, зарегистрированные в выбранный период. Неделя начинается с первой выданной подборки; у ${n(activation.pending_windows)} учителей она ещё идёт. Считаются разные ученики, завершившие работу. Демо-классы и аккаунты учителей исключены. Удалённые работы не входят в расчёт.</p>`;
     return `<h3 class="adm-h3">Воронка учителей <span class="adm-hint">где теряются те, кто пришёл на главную</span>
         <span class="fn-sw">${[7, 30].map(k => `<button type="button" class="fn-chip${k === funnelDays ? ' on' : ''}" data-fn-days="${k}">${k} дней</button>`).join('')}</span></h3>
       <div class="fn">${rows}
         <p class="adm-hint fn-side">Ещё на главной: «Посмотреть без регистрации» — <b>${n(f.guest)}</b>, «Я ученик» — <b>${n(f.student)}</b>.
         Период — с ${f.since.split('-').reverse().join('.')}. Посещения и нажатия начали считаться с версии 2.51.0, а регистрации видны и раньше, —
-        поэтому первое время нижние шаги могут быть больше верхних.</p></div>`;
+        поэтому первое время нижние шаги могут быть больше верхних.</p>${activationHtml}</div>`;
   }
   $('#siteBody').addEventListener('click', e => {
     const b = e.target.closest('[data-fn-days]');
@@ -2281,19 +2358,30 @@
   // ------------------------------------------------------------ история версий (changelog.js): для учителя и для учеников
   const CL = window.EGE_CHANGELOG || { student: [], teacher: [] };
   const CL_NOW = (CL.teacher[0] || CL.student[0] || [''])[0];
+  let verKind = 'teacher', verLoading = false, verError = '';
   if ($('#admVerBtn')) $('#admVerBtn').textContent = `Версия ${CL_NOW} · что нового`;
   function renderVer(kind) {
+    verKind = kind;
     const list = CL[kind] || [];
     $$('#verModal [data-ver]').forEach(b => b.classList.toggle('on', b.dataset.ver === kind));
     const ul = arr => `<ul>${arr.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
-    $('#verBody').innerHTML = `<p class="adm-hint">${kind === 'teacher' ? 'Что менялось в панели учителя и на сервере — с версии 1.0.0.' : 'Что видят ученики в «Что нового» на сайте.'}</p>
+    $('#verBody').innerHTML = `<p class="adm-hint">${kind === 'teacher' ? 'Что менялось в панели учителя — с версии 1.0.0.' : 'Что видят ученики в «Что нового» на сайте.'}</p>
+      ${verLoading ? '<p role="status" class="adm-hint">Загружаю предыдущие версии…</p>' : ''}${verError ? `<p role="alert">${esc(verError)} <button type="button" class="link-btn" data-ver-retry>Повторить</button></p>` : ''}
       <div class="ver-list">${list.map(([v, d, added, changed], i) => `<section class="ver-item">
         <h3><b>${esc(v)}</b> <span class="muted">${esc(d)}</span>${i === 0 ? ' <span class="ver-now">сейчас</span>' : ''}</h3>
         ${(added || []).length ? `<div class="ver-k ver-add">✨ Добавлено</div>${ul(added)}` : ''}
         ${(changed || []).length ? `<div class="ver-k ver-chg">🔧 Изменено</div>${ul(changed)}` : ''}</section>`).join('')}</div>`;
   }
-  $('#admVerBtn')?.addEventListener('click', () => { renderVer('teacher'); $('#verModal').hidden = false; });
+  async function loadVersionHistory() {
+    verLoading = !!window.EgeLoadChangelog; verError = '';
+    renderVer(verKind);
+    try { if (window.EgeLoadChangelog) await window.EgeLoadChangelog(); }
+    catch (error) { verError = error.message; }
+    finally { verLoading = false; if (!$('#verModal').hidden) renderVer(verKind); }
+  }
+  $('#admVerBtn')?.addEventListener('click', () => { verKind = 'teacher'; $('#verModal').hidden = false; loadVersionHistory(); });
   $('#verModal').addEventListener('click', e => {
+    if (e.target.closest('[data-ver-retry]')) return loadVersionHistory();
     const b = e.target.closest('[data-ver]');
     if (b) return renderVer(b.dataset.ver);
     if (e.target.id === 'verModal' || e.target.closest('.fm-close')) $('#verModal').hidden = true;
@@ -4029,7 +4117,7 @@
         <td class="num"><b>${a.n}</b></td>
         <td><button type="button" class="task-link" data-task="${esc(a.task_id)}">${esc(BANK_NAMES[a.bank] || a.bank)} · ${esc(idOf(a.task_id))}</button>
             <span class="task-snip">${esc(a.snip || '')}</span></td>
-        <td class="ans">${answersCell(a)}${a.has_code ? ` <button type="button" class="link-btn code-link" data-code="${esc(a.task_id)}" title="Решение, которое ученик прикрепил к заданию">код</button>` : ''}</td>
+        <td class="ans">${answersCell(a)}${a.has_code ? ` <button type="button" class="link-btn code-link" data-code="${esc(a.task_id)}" title="Решение, которое ученик прикрепил к заданию">код</button>` : ''}${provenanceHtml(a)}</td>
         <td class="ans">${esc(a.correct)}</td>
         <td><span class="res ${r.cls}">${r.text}</span>${flagsHtml(a)}</td>
         <td class="num muted">${fmtSpent(a.spent_ms)}</td>
@@ -4383,6 +4471,7 @@
     try {
       const d = await api(`feed?since=${feedSince}`);
       feedEvents(d.events, !evPolled);
+      if (evPolled && d.events?.length && !$('#stepsCard').hidden) refreshSteps();
       evPolled = true;
       // подозрительные ответы (ушёл со страницы и сразу верно, вставка ответа) — тоже в уведомления
       ntfAdd(d.attempts.filter(a => /sus|paste|ai/.test(a.flags || '')).map(a => ({ ts: a.ts, kind: 'sus', sid: a.student_id, name: a.name,
@@ -4507,7 +4596,7 @@
         <td class="num"><b>${a.n}</b></td>
         <td><button type="button" class="task-link" data-task="${esc(a.task_id)}">${esc(BANK_NAMES[a.bank] || a.bank)} · ${esc(idOf(a.task_id))}</button>
             <span class="task-snip">${esc(a.snip || '')}</span></td>
-        <td class="ans">${answersCell(a)}</td>
+        <td class="ans">${answersCell(a)}${provenanceHtml(a)}</td>
         <td class="ans">${esc(a.correct)}</td>
         <td><span class="res ${r.cls}">${r.text}</span>${flagsHtml(a)}</td>
       </tr>`;

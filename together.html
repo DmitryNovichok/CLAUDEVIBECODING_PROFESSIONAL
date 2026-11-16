@@ -422,6 +422,10 @@ body.tgp {
   .tgp #tgExit { font-size: 0; gap: 0; }
   .tgp #tgExit svg { width: 16px; height: 16px; }
 }
+/* Native modal semantics keep keyboard focus inside while the lesson is inert. */
+dialog.tg-modal { margin: 0; border: 0; width: 100%; height: 100%; max-width: none; max-height: none; color: inherit; }
+dialog.tg-modal::backdrop { background: transparent; }
+.tg-split:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 </style>
 </head>
 <body class="tgp">
@@ -476,7 +480,7 @@ body.tgp {
       <span class="tg-key" id="tgKey" hidden><button type="button" class="tg-btn sm" id="tgKeyBtn"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/></svg> Показать ответ</button> <b id="tgKeyV" hidden></b></span>
     </div>
   </section>
-  <div class="tg-split tg-split-v" id="tgSplitTask" role="separator" aria-orientation="vertical" title="Потяните — задание шире или уже"></div>
+  <div class="tg-split tg-split-v" id="tgSplitTask" role="separator" tabindex="0" aria-label="Ширина условия" aria-controls="tgTask" aria-orientation="vertical" title="Потяните — задание шире или уже"></div>
   <main class="tg-main" id="tgMain">
     <section class="tg-code" id="tgCode">
       <div class="tg-code-bar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/><path d="m14 4-4 16"/></svg> Python <span class="tg-files" id="tgFiles"></span><span class="tg-sp"></span>
@@ -501,7 +505,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
           <textarea class="py-code" id="tgTa" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Общий код Python"></textarea>
         </div>
       </div>
-      <div class="tg-split tg-split-h" id="tgSplitOut" role="separator" aria-orientation="horizontal" title="Потяните — изменить высоту вывода"></div>
+      <div class="tg-split tg-split-h" id="tgSplitOut" role="separator" tabindex="0" aria-label="Высота вывода" aria-controls="tgOut" aria-orientation="horizontal" title="Потяните — изменить высоту вывода"></div>
       <div class="tg-out">
         <div class="tg-out-h">Вывод <span id="tgRunWho"></span><span class="tg-sp"></span>
           <button type="button" class="tg-btn sm" id="tgStop" hidden><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"/></svg> Стоп</button>
@@ -509,7 +513,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
         <pre id="tgOut"></pre>
       </div>
     </section>
-    <div class="tg-split tg-split-h" id="tgSplitMid" role="separator" aria-orientation="horizontal" title="Потяните — больше места коду или доске"></div>
+    <div class="tg-split tg-split-h" id="tgSplitMid" role="separator" tabindex="0" aria-label="Размер кода и доски" aria-controls="tgMain" aria-orientation="horizontal" title="Потяните — больше места коду или доске"></div>
     <section class="tg-board">
       <div class="tg-tools" id="tgTools">
         <button type="button" data-tool="pen" class="cur" title="Ручка (P)" aria-label="Ручка"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
@@ -535,9 +539,9 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
   </nav>
 </div>
 
-<div class="tg-modal" id="tgPickM" hidden><div class="tg-dlg">
-  <h3>Задание для сеанса <button type="button" class="tg-btn sm" id="tgBlank" title="Страница без задания — для объяснения на доске"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Чистая страница</button><button type="button" class="tg-btn sm tg-x" data-close aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></h3>
-  <input class="tg-q" id="tgPickQ" placeholder="Номер ЕГЭ (1–27), номер или id задания" autocomplete="off">
+<dialog class="tg-modal" id="tgPickM" aria-labelledby="tgPickMTitle" hidden><div class="tg-dlg">
+  <h3><span id="tgPickMTitle">Задание для сеанса</span> <button type="button" class="tg-btn sm" id="tgBlank" title="Страница без задания — для объяснения на доске"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Чистая страница</button><button type="button" class="tg-btn sm tg-x" data-close aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></h3>
+  <input class="tg-q" id="tgPickQ" aria-label="Найти задание по номеру или id" placeholder="Номер ЕГЭ (1–27), номер или id задания" autocomplete="off">
   <div class="tg-chips" id="tgPickChips">
     <button type="button" class="tg-btn sm on" data-kind="recent">Последние у учеников</button>
     <button type="button" class="tg-btn sm" data-kind="errors">Ошибки учеников</button>
@@ -545,17 +549,18 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
     <button type="button" class="tg-btn sm" data-kind="pages">Страницы сеанса</button>
   </div>
   <ul class="tg-list" id="tgPickL"></ul>
-</div></div>
+</div></dialog>
 
-<div class="tg-modal" id="tgInvM" hidden><div class="tg-dlg">
-  <h3>Позвать в сеанс <button type="button" class="tg-btn sm tg-x" data-close aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></h3>
-  <input class="tg-q" id="tgInvQ" placeholder="Поиск по фамилии или имени" autocomplete="off">
+<dialog class="tg-modal" id="tgInvM" aria-labelledby="tgInvMTitle" hidden><div class="tg-dlg">
+  <h3><span id="tgInvMTitle">Позвать в сеанс</span> <button type="button" class="tg-btn sm tg-x" data-close aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></h3>
+  <input class="tg-q" id="tgInvQ" aria-label="Найти ученика по имени" placeholder="Поиск по фамилии или имени" autocomplete="off">
   <ul class="tg-list tg-inv" id="tgInvL"></ul>
-  <div class="tg-dlg-foot"><span class="tg-hint" id="tgInvHint"></span><button type="button" class="tg-btn pri" id="tgInvGo" disabled>Позвать</button></div>
-</div></div>
+  <div class="tg-dlg-foot"><span class="tg-hint" id="tgInvHint" role="status"></span><button type="button" class="tg-btn pri" id="tgInvGo" disabled>Позвать</button></div>
+</div></dialog>
 
 <div class="tg-over" id="tgOver"><div class="box"><h2 id="tgOverH">Подключаюсь…</h2><p id="tgOverP">Соединяемся с сервером.</p><div class="acts" id="tgOverA"></div></div></div>
-<div class="tg-toast" id="tgToast" hidden></div>
+<div class="tg-toast" id="tgToast" role="status" hidden></div>
+<script src="python-sandbox.js"></script>
 <script src="together.js"></script>
 </body>
 </html>

@@ -521,7 +521,7 @@
   function taskFiles() {
     return ((S.task && S.task.att) || []).map(a => ({ name: a.name, url: new URL(a.href, location.href).href }))
       .concat((S.files || []).map(f => ({ name: f.name, url: new URL(ownHref(f), location.href).href, own: f.id })))
-      .filter(f => f.url.startsWith(location.origin));
+      .filter(f => new URL(f.url).origin === location.origin);
   }
   const kb = n => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ');
   const canAttach = () => S.teacher && !S.ended && !S.expired;
@@ -842,12 +842,28 @@
 
   // ---------- выбор задания (учитель)
   let pickKind = 'recent', pickT = 0, pickAsg = 0, pickVersion = 0;
-  $('#tgPick').onclick = () => { $('#tgPickM').hidden = false; $('#tgPickQ').value = ''; pickAuto = true; loadPick(); setTimeout(() => $('#tgPickQ').focus(), 30); };
-  $('#tgBlank').onclick = () => { send({ t: 'task', task: null }); $('#tgPickM').hidden = true; };
+  const modalTriggers = new WeakMap();
+  function openModal(id, input) {
+    const modal = $(id);
+    modalTriggers.set(modal, document.activeElement);
+    modal.hidden = false;
+    modal.showModal();
+    $(input).focus();
+  }
+  function closeModal(modal) { if (modal.open) modal.close(); else modal.hidden = true; }
+  $$('.tg-modal').forEach(modal => {
+    modal.addEventListener('cancel', event => { event.preventDefault(); closeModal(modal); });
+    modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-close]')) closeModal(modal); });
+    modal.addEventListener('close', () => {
+      modal.hidden = true;
+      const trigger = modalTriggers.get(modal);
+      if (trigger?.isConnected && !trigger.hidden) trigger.focus();
+    });
+  });
+  $('#tgPick').onclick = () => { openModal('#tgPickM', '#tgPickQ'); $('#tgPickQ').value = ''; pickAuto = true; loadPick(); setTimeout(() => { if ($('#tgPickM').open) $('#tgPickQ').focus(); }, 30); };
+  $('#tgBlank').onclick = () => { send({ t: 'task', task: null }); closeModal($('#tgPickM')); };
   let pickAuto = false;                       // первое открытие: «Последние у учеников» пусто — сразу «Подборки»
   function pickChip(kind) { pickKind = kind; pickAsg = 0; $$('#tgPickChips [data-kind]').forEach(x => x.classList.toggle('on', x.dataset.kind === kind)); }
-  $$('.tg-modal').forEach(m => m.addEventListener('click', e => { if (e.target === m || e.target.closest('[data-close]')) m.hidden = true; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') $$('.tg-modal').forEach(m => { m.hidden = true; }); });
   $('#tgPickChips').addEventListener('click', e => {
     const b = e.target.closest('[data-kind]');
     if (!b) return;
@@ -862,7 +878,7 @@
     const request = ++pickVersion, kind = pickKind, asg = pickAsg;
     const current = () => request === pickVersion && kind === pickKind && asg === pickAsg && q === $('#tgPickQ').value.trim();
     if (!q && pickKind === 'pages') {
-      L.innerHTML = S.pages.map((p, i) => `<li data-key="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"><span class="tg-num">${i + 1}</span><span class="tx">${p.name ? `<b>${esc(p.name)}</b><small>${esc(p.task || 'без задания')}</small>` : esc(p.task || 'Чистая страница')}</span>${p.key === S.page ? '<span class="mk">сейчас</span>' : ''}</li>`).join('');
+      L.innerHTML = S.pages.map((p, i) => `<li role="button" tabindex="0" data-key="${esc(p.key)}" class="${p.key === S.page ? 'cur' : ''}"><span class="tg-num">${i + 1}</span><span class="tx">${p.name ? `<b>${esc(p.name)}</b><small>${esc(p.task || 'без задания')}</small>` : esc(p.task || 'Чистая страница')}</span>${p.key === S.page ? '<span class="mk">сейчас</span>' : ''}</li>`).join('');
       return;
     }
     L.innerHTML = '<li class="empty">Загружаю…</li>';
@@ -873,10 +889,10 @@
         if (!current()) return;
         if (asg) {
           L.innerHTML = `<li class="back" data-back="1"><span class="tx">← Все подборки · <b>${esc(d.title || '')}</b></span></li>`
-            + (d.tasks.map(t => `<li data-task="${esc(t.id)}"><span class="tg-num">${esc(t.label)}</span><span class="tx">${esc(t.snip)}</span><span class="mk">${esc(t.mark || '')}</span></li>`).join('')
+            + (d.tasks.map(t => `<li role="button" tabindex="0" data-task="${esc(t.id)}"><span class="tg-num">${esc(t.label)}</span><span class="tx">${esc(t.snip)}</span><span class="mk">${esc(t.mark || '')}</span></li>`).join('')
               || '<li class="empty">В подборке нет заданий из банка.</li>');
         } else {
-          L.innerHTML = d.sets.map(x => `<li data-asg="${x.id}"><span class="tg-num">${x.tasks} зад.</span><span class="tx"><b>${esc(x.title)}</b> · ${esc(x.class_name)}${x.personal ? ' · лично' : ''}</span><span class="mk">${new Date(x.created * 1000).toLocaleDateString('ru-RU')}</span></li>`).join('')
+          L.innerHTML = d.sets.map(x => `<li role="button" tabindex="0" data-asg="${x.id}"><span class="tg-num">${x.tasks} зад.</span><span class="tx"><b>${esc(x.title)}</b> · ${esc(x.class_name)}${x.personal ? ' · лично' : ''}</span><span class="mk">${new Date(x.created * 1000).toLocaleDateString('ru-RU')}</span></li>`).join('')
             || `<li class="empty">${q ? 'Подборок с таким названием нет.' : 'Вы ещё не выдавали подборок.'}</li>`;
         }
       } catch (e) { if (current()) L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
@@ -887,10 +903,13 @@
       if (!current()) return;
       if (pickAuto && !q && pickKind === 'recent' && !d.tasks.length) { pickAuto = false; pickChip('sets'); loadPick(); return; }
       pickAuto = false;
-      L.innerHTML = d.tasks.length ? d.tasks.map(t => `<li data-task="${esc(t.id)}"><span class="tg-num">${esc(t.label)}</span><span class="tx">${esc(t.snip)}</span><span class="mk">${esc(t.mark || '')}</span></li>`).join('')
+      L.innerHTML = d.tasks.length ? d.tasks.map(t => `<li role="button" tabindex="0" data-task="${esc(t.id)}"><span class="tg-num">${esc(t.label)}</span><span class="tx">${esc(t.snip)}</span><span class="mk">${esc(t.mark || '')}</span></li>`).join('')
         : `<li class="empty">${q ? 'Ничего не нашлось. Напишите номер ЕГЭ (например, 8) или номер задания.' : 'У учеников сеанса пока нет таких заданий. Найдите задание поиском выше.'}</li>`;
     } catch (e) { if (current()) L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
   }
+  $('#tgPickL').addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('li[role=button]')) { e.preventDefault(); e.target.click(); }
+  });
   $('#tgPickL').addEventListener('click', e => {
     const set = e.target.closest('li[data-asg]');
     if (set) { pickAsg = +set.dataset.asg; loadPick(); return; }
@@ -898,12 +917,12 @@
     const li = e.target.closest('li[data-task], li[data-key]');
     if (!li) return;
     send(li.dataset.key ? { t: 'task', key: li.dataset.key } : { t: 'task', task: li.dataset.task });
-    $('#tgPickM').hidden = true;
+    closeModal($('#tgPickM'));
   });
   // ---------- позвать ещё (учитель)
   const INV = { list: [], pick: new Set(), inside: new Set() };
   $('#tgInvite').onclick = async () => {
-    $('#tgInvM').hidden = false;
+    openModal('#tgInvM', '#tgInvQ');
     $('#tgInvQ').value = '';
     INV.pick = new Set();
     const L = $('#tgInvL');
@@ -914,7 +933,7 @@
       INV.inside = new Set(S.people.filter(p => !p.teacher).map(p => +p.key.slice(1)));
       INV.list = d.students;
       invRender();
-      setTimeout(() => $('#tgInvQ').focus(), 30);
+      setTimeout(() => { if ($('#tgInvM').open) $('#tgInvQ').focus(); }, 30);
     } catch (e) { L.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
   };
   /** Сверху — кто сейчас на сайте, дальше — по классам; у класса — «весь класс». Поиск по ФИО. */
@@ -955,7 +974,7 @@
   $('#tgInvGo').onclick = async () => {
     const ids = [...INV.pick];
     if (!ids.length) return toast('Отметьте учеников');
-    try { await adminPost('together/invite', { id: SID, students: ids }); $('#tgInvM').hidden = true; toast('Приглашение отправлено'); } catch (e) { toast(e.message); }
+    try { await adminPost('together/invite', { id: SID, students: ids }); closeModal($('#tgInvM')); toast('Приглашение отправлено'); } catch (e) { toast(e.message); }
   };
 
   // ================================================================ код
@@ -1384,7 +1403,7 @@
   }
   function ensureWorker() {
     if (PY.worker) return;
-    PY.worker = new Worker('py-worker.js' + (S.pyLocal ? '?local=1' : ''));
+    PY.worker = new EgePythonWorker('py-worker.js' + (S.pyLocal ? '?local=1' : ''));
     PY.worker.onmessage = ev => {
       const m = ev.data || {};
       if (m.type === 'out' || m.type === 'err') {
@@ -1408,6 +1427,12 @@
         outSys(m.ok ? `\n✓ Готово${m.ms != null ? ` за ${(m.ms / 1000).toFixed(2)} с` : ''}\n` : '\n✗ Программа завершилась с ошибкой\n');
         send({ t: 'done', page: S.page, ok: !!m.ok, ms: m.ms, full: PY.full });
       }
+    };
+    PY.worker.onerror = () => {
+      if (PY.worker) PY.worker.terminate();
+      PY.worker = null; PY.busy = false; PY.dead = false;
+      $('#tgStop').hidden = true; $('#tgRun').disabled = !canWrite();
+      outSys('\nНе удалось запустить Python. Проверьте интернет и повторите запуск.\n');
     };
   }
   $('#tgRun').onclick = () => {
@@ -1868,19 +1893,54 @@
         el.removeEventListener('pointermove', mv);
         el.removeEventListener('pointerup', up);
         el.removeEventListener('pointercancel', up);
-        saveSizes();
+        saveSizes(); splitAria();
       };
       el.addEventListener('pointermove', mv);
       el.addEventListener('pointerup', up);
       el.addEventListener('pointercancel', up);
     });
-    el.addEventListener('dblclick', () => {                     // двойной щелчок — как было
+    const reset = () => {                     // двойной щелчок — как было
       if (id === '#tgSplitTask') { delete SZ.tw; $('#tgApp').style.removeProperty('--tw'); }
       if (id === '#tgSplitOut') { delete SZ.out; $('.tg-out').style.height = ''; $('.tg-out').classList.remove('sized'); }
       if (id === '#tgSplitMid') { delete SZ.mid; $('#tgApp').style.removeProperty('--cw'); $('#tgApp').style.removeProperty('--bw'); }
       saveSizes();
-      requestAnimationFrame(() => { sizeBoard(); layoutCode(); condLayout(); });
+      requestAnimationFrame(() => { sizeBoard(); layoutCode(); condLayout(); splitAria(); });
+    };
+    el.addEventListener('dblclick', reset);
+    el.addEventListener('keydown', e => {
+      const horizontal = axis === 'v';
+      const decrease = horizontal ? 'ArrowLeft' : 'ArrowUp';
+      const increase = horizontal ? 'ArrowRight' : 'ArrowDown';
+      if (!['Home', 'End', 'Enter', decrease, increase].includes(e.key)) return;
+      e.preventDefault();
+      if (e.key === 'Enter') { reset(); return; }
+      let point;
+      if (id === '#tgSplitTask') {
+        const r = $('#tgTask').getBoundingClientRect();
+        point = {clientX: e.key === 'Home' ? r.left + 520 : e.key === 'End' ? r.left + innerWidth * .6 : r.right + (e.key === increase ? 24 : -24)};
+      } else if (id === '#tgSplitOut') {
+        const r = $('.tg-out').getBoundingClientRect();
+        point = {clientY: e.key === 'Home' ? r.bottom - 50 : e.key === 'End' ? r.bottom - (innerHeight - 220) : r.top + (e.key === increase ? 24 : -24)};
+      } else {
+        const r = $('#tgMain').getBoundingClientRect(), split = el.getBoundingClientRect();
+        point = {clientY: e.key === 'Home' ? r.top + r.height * .15 : e.key === 'End' ? r.top + r.height * .85 : split.top + (e.key === increase ? 24 : -24)};
+      }
+      onMove(point); saveSizes();
+      requestAnimationFrame(() => { sizeBoard(); layoutCode(); condLayout(); splitAria(); });
     });
+  }
+  function splitAria() {
+    const values = [
+      ['#tgSplitTask', 520, Math.max(520, innerWidth * .6), $('#tgTask').getBoundingClientRect().width],
+      ['#tgSplitOut', 50, Math.max(50, innerHeight - 220), $('.tg-out').getBoundingClientRect().height],
+      ['#tgSplitMid', 15, 85, (SZ.mid || .5) * 100],
+    ];
+    for (const [id, min, max, now] of values) {
+      const el = $(id);
+      el.setAttribute('aria-valuemin', String(Math.round(min)));
+      el.setAttribute('aria-valuemax', String(Math.round(max)));
+      el.setAttribute('aria-valuenow', String(Math.round(Math.max(min, Math.min(max, now)))));
+    }
   }
   dragSplit('#tgSplitTask', 'v', e => {                    // ширина колонки задания
     const left = $('#tgWork').getBoundingClientRect().left;
@@ -1900,6 +1960,7 @@
     $('#tgApp').style.setProperty('--bw', (1 - SZ.mid) + 'fr');
   });
   applySizes();
+  requestAnimationFrame(splitAria);
 
   // ================================================================ старт
   addEventListener('resize', () => { clearTimeout(S.rsT); S.rsT = setTimeout(() => { if (NARROW() && S.tab === 'board' && $('#tgApp').dataset.tab !== S.tab) setTab(S.tab, false); sizeBoard(); layoutCode(); }, 80); });

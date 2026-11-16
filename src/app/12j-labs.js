@@ -189,7 +189,7 @@
       ${view ? '<button type="button" class="link-btn lab-back" data-lab-view="">← Все лаборатории</button>' : ''}
       <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>${title}</h1><p>${sub}</p></div></header>
       ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : view === 'bugs' ? bugLabHtml() : `<div class="lab-cards">
-        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">№ 7 · 10 · 19–21</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
+        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">№ 7 · 13 · 15 · 19–21</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения, логика и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
         <button type="button" class="lab-entry" data-lab-view="code"><span class="lab-kicker">Python</span><h2>Программирование</h2><p>Смотри, какая строка выполняется, как меняются переменные и что выводит программа.</p><b>Открыть лабораторию →</b></button>
         ${SERVER ? '<button type="button" class="lab-entry" data-lab-view="bugs"><span class="lab-kicker">Python · поиск ошибок</span><h2>Исправление ошибок</h2><p>Задача и чужое решение: в нём ошибки, пропуск или оно слишком медленное. Почини код так, чтобы он прошёл все тесты.</p><b>Искать ошибки →</b></button>' : ''}</div>
         <p class="lab-note">Здесь можно пробовать и ошибаться: эксперименты не меняют оценки и награды за задания.</p>`}
@@ -203,13 +203,13 @@
     return `<nav class="lab-tabs" aria-label="Эксперименты">${[['image', '№ 7 · Изображения'], ['net', '№ 13 · IP-сети'], ['logic', '№ 15 · Логика'], ['game', '№ 19–21 · Игры'], ['graph', '23_old · Графы']].map(([id, name]) => `<button type="button" class="btn${LAB.mode === id ? ' primary' : ''}" data-lab-model="${id}" aria-pressed="${LAB.mode === id}">${name}</button>`).join('')}</nav><p class="lab-note">Нумерация по КИМ ЕГЭ-2027 (демоверсия ФИПИ). Графы из файла (23_old) в КИМ-2027 нет — модель оставлена в архиве. Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
   }
   function labPrediction(question) {
-    return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
+    return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" aria-describedby="labFeedback" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
   }
   function labRenderModel() {
     const box = $('#labModel'); if (!box) return;
     if (LAB.mode === 'net') {
       box.innerHTML = `<section class="lab-panel"><h2>Где заканчивается сеть и начинается адрес узла?</h2>
-        <div class="lab-fields"><label>IPv4-адрес<input class="inp" id="labIp" value="${esc(LAB.net.ip)}" spellcheck="false" maxlength="15"></label><label>Маска /<span id="labPrefixLabel">${LAB.net.prefix}</span><input type="range" id="labPrefix" min="0" max="32" value="${LAB.net.prefix}"></label></div>
+        <div class="lab-fields"><label>IPv4-адрес<input class="inp" id="labIp" aria-describedby="labNetResult" value="${esc(LAB.net.ip)}" spellcheck="false" maxlength="15"></label><label>Маска /<span id="labPrefixLabel">${LAB.net.prefix}</span><input type="range" id="labPrefix" min="0" max="32" value="${LAB.net.prefix}"></label></div>
         <p class="lab-note">Голубые биты задают сеть, остальные — адрес внутри неё. Все адреса считаются вместе с адресом сети и широковещательным адресом.</p>
         <div id="labNetResult" aria-live="polite"></div>
         ${labPrediction('Сколько всего IPv4-адресов в этой подсети?')}</section>`;
@@ -217,9 +217,9 @@
     } else if (LAB.mode === 'image') {
       const p = LAB.picture;
       box.innerHTML = `<section class="lab-panel"><h2>Как глубина цвета влияет на объём?</h2><div class="lab-fields">
-        <label>Ширина, пиксели<input class="inp" type="number" id="labWidth" min="1" max="8192" value="${p.w}"></label>
-        <label>Высота, пиксели<input class="inp" type="number" id="labHeight" min="1" max="8192" value="${p.h}"></label>
-        <label>Бит на пиксель: <span id="labDepthLabel">${p.depth}</span><input type="range" id="labDepth" min="1" max="24" value="${p.depth}"></label></div>
+        <label>Ширина, пиксели<input class="inp" type="number" id="labWidth" aria-describedby="labImageResult" min="1" max="8192" value="${p.w}"></label>
+        <label>Высота, пиксели<input class="inp" type="number" id="labHeight" aria-describedby="labImageResult" min="1" max="8192" value="${p.h}"></label>
+        <label>Бит на пиксель: <span id="labDepthLabel">${p.depth}</span><input type="range" id="labDepth" aria-describedby="labImageResult" min="1" max="24" value="${p.depth}"></label></div>
         <div class="lab-image-demo"><canvas id="labCanvas" width="256" height="128" aria-label="Пример изменения палитры изображения"></canvas><div id="labImageResult" aria-live="polite"></div></div>
         <p class="lab-note">Модель без сжатия, заголовков и выравнивания строк. Биты упакованы подряд; итог округляется вверх до целого байта. Иллюстрация показывает изменение палитры, её размер на экране условный.</p>
         ${labPrediction('Сколько байт занимает это изображение?')}</section>`;
@@ -286,14 +286,14 @@
     const edgeOn = (a, b) => { const i = r.path.indexOf(a); return i >= 0 && r.path[i + 1] === b; };
     const X = c => 40 + c * 108, Y = r_ => 52 + r_ * 96, fmt = v => v == null ? '∞' : v;
     const cur = G.shown < t.steps.length ? t.steps[G.shown - 1] : null;
-    const svg = `<svg class="lab-graph" viewBox="0 0 620 300" role="img" aria-label="Граф с вершинами A–H">
+    const svg = `<svg class="lab-graph" viewBox="0 0 620 300" role="group" aria-label="Граф с вершинами A–H">
       <defs><marker id="labArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
       ${LAB_G.e.map(([a, b, w]) => { const [x1, y1] = [X(LAB_G.v[a][0]), Y(LAB_G.v[a][1])], [x2, y2] = [X(LAB_G.v[b][0]), Y(LAB_G.v[b][1])];
         const k = 24 / Math.hypot(x2 - x1, y2 - y1), sx = x1 + (x2 - x1) * k, sy = y1 + (y2 - y1) * k, ex = x2 - (x2 - x1) * k, ey = y2 - (y2 - y1) * k;
         const dim = G.banned.has(a) || G.banned.has(b);
         return `<g class="e${edgeOn(a, b) ? ' on' : ''}${dim ? ' dim' : ''}"><line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" marker-end="url(#labArr)"/>${G.kind === 'count' ? '' : `<text x="${(sx + ex) / 2}" y="${(sy + ey) / 2 - 5}">${w}</text>`}</g>`; }).join('')}
       ${LAB_G.order.map(v => { const [c, r_] = LAB_G.v[v], cls = [G.banned.has(v) ? 'ban' : '', v === G.via ? 'via' : '', v === G.start || v === G.end ? 'end' : '', onPath.has(v) ? 'on' : '', v === cur ? 'cur' : ''].filter(Boolean).join(' ');
-        return `<g class="v ${cls}" data-lab-gv="${v}" tabindex="0" role="button" aria-label="Вершина ${v}"><circle cx="${X(c)}" cy="${Y(r_)}" r="22"/><text x="${X(c)}" y="${Y(r_) + 6}">${v}</text>
+        return `<g class="v ${cls}" data-lab-gv="${v}" tabindex="0" role="button" aria-disabled="${v === G.start || v === G.end}" aria-label="Вершина ${v}${G.banned.has(v) ? ", запрещена" : v === G.via ? ", обязательная" : ""}"><circle cx="${X(c)}" cy="${Y(r_)}" r="22"/><text x="${X(c)}" y="${Y(r_) + 6}">${v}</text>
           ${shown.has(v) ? `<text class="val" x="${X(c)}" y="${Y(r_) + (r_ === 0 ? -30 : 42)}">${fmt(t.val[v])}</text>` : ''}</g>`; }).join('')}</svg>`;
     const kindTxt = { count: 'сколько путей ведёт отсюда в конец', short: 'длина кратчайшего пути отсюда до конца', long: 'длина самого длинного пути отсюда до конца' }[G.kind];
     const how = G.kind === 'count' ? 'в конце пути — 1, иначе сумма чисел соседей' : `в конце пути — 0, иначе ${G.kind === 'short' ? 'min' : 'max'}(вес ребра + число соседа)`;
@@ -309,14 +309,20 @@
   function labUpdateNetwork() {
     LAB.net.ip = $('#labIp').value; LAB.net.prefix = +$('#labPrefix').value;
     $('#labPrefixLabel').textContent = LAB.net.prefix; labResetFeedback();
+    $('#labIp').removeAttribute('aria-invalid');
     try {
       const n = labNetwork(LAB.net.ip, LAB.net.prefix);
       $('#labNetResult').innerHTML = `<div class="lab-bits" aria-label="Двоичная запись адреса">${[0, 8, 16, 24].map(start => `<span class="lab-octet">${n.bits.slice(start, start + 8).split('').map((bit, i) => `<b class="${start + i < n.prefix ? 'network' : 'host'}">${bit}</b>`).join('')}</span>`).join('')}</div>
         <dl class="lab-facts"><div><dt>Маска</dt><dd>${n.mask}</dd></div><div><dt>Первый адрес</dt><dd>${n.network}</dd></div><div><dt>Последний адрес</dt><dd>${n.last}</dd></div><div><dt>Битов для адреса внутри сети</dt><dd>32 − ${n.prefix} = ${32 - n.prefix}</dd></div></dl>`;
-    } catch (e) { $('#labNetResult').textContent = e.message; }
+    } catch (e) { $('#labIp').setAttribute('aria-invalid', 'true'); $('#labNetResult').textContent = e.message; }
   }
   function labUpdateImage() {
     LAB.picture = { w: +$('#labWidth').value, h: +$('#labHeight').value, depth: +$('#labDepth').value };
+    for (const id of ['labWidth', 'labHeight', 'labDepth']) {
+      const field = $('#' + id);
+      if (field.value === '' || !field.validity.valid) field.setAttribute('aria-invalid', 'true');
+      else field.removeAttribute('aria-invalid');
+    }
     const p = LAB.picture; $('#labDepthLabel').textContent = p.depth; labResetFeedback();
     try {
       const v = labImageSize(p.w, p.h, p.depth);
@@ -352,11 +358,11 @@
       <div class="lab-code-grid"><section class="lab-panel lab-editor"><h2>Код Python</h2>
         <div class="ide">
           <div class="ide-tabs"><span class="ide-tab"><i class="ide-pyico" aria-hidden="true"></i>main.py</span><span class="ide-mode" id="labIdeMode">${LAB.result ? 'Отладка' : 'Редактор'}</span></div>
-          <div class="ide-ed" id="labEd" ${LAB.result ? 'hidden' : ''}><div class="ide-gutter" id="labGutter" aria-hidden="true"></div>
+          <div class="ide-ed" id="labEd" ${LAB.result ? 'hidden' : ''}><div class="ide-gutter" id="labGutter" role="group" aria-label="Точки останова"></div>
             <div class="ide-area"><pre class="ide-hl" id="labCodeHl" aria-hidden="true"></pre>
               <textarea id="labCode" class="ide-code" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" maxlength="30000" aria-label="Код Python">${esc(LAB.code)}</textarea></div></div>
           <div id="labTraceCode" class="lab-trace-code ide-trace" tabindex="0" aria-label="Код с текущей строкой" ${LAB.result ? '' : 'hidden'}></div>
-          <div class="ide-foot">Щёлкни по номеру строки — поставишь точку останова <i class="ide-bp-dot" aria-hidden="true"></i></div>
+          <div class="ide-foot">Нажми номер строки или Enter на нём — поставишь точку останова <i class="ide-bp-dot" aria-hidden="true"></i></div>
         </div>
         <label class="lab-stdin">Входные данные для input()<textarea class="inp" id="labStdin" rows="3" maxlength="10000" spellcheck="false" ${LAB.result ? 'disabled' : ''}>${esc(LAB.stdin)}</textarea></label>
       </section><section class="lab-panel"><h2>Что происходит</h2><p id="labEvent">Здесь появятся значения переменных на каждом шаге.</p><div id="labStack" class="lab-stack"></div><div id="labVariables"></div><h3>Вывод программы</h3><pre class="lab-output ide-out" id="labOutput" aria-label="Вывод программы"></pre></section></div>
@@ -375,7 +381,7 @@
     $('#labEd').hidden = false; $('#labTraceCode').hidden = true; $('#labControls').hidden = true; $('#labEdit').hidden = true; $('#labIdeMode').textContent = 'Редактор';
     $('#labVariables').textContent = ''; $('#labStack').textContent = ''; $('#labOutput').textContent = ''; $('#labEvent').textContent = 'Готовим запись выполнения…';
     try {
-      const worker = new Worker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); LAB.worker = worker;
+      const worker = new EgePythonWorker('lab-worker.js' + (RULES.py_local ? '?local=1' : '')); LAB.worker = worker;
       labSetBusy(true); labSetStatus('Загружаю Python… При первом запуске это может занять около минуты.');
       const fail = text => { if (LAB.worker !== worker) return; labStop(); labSetBusy(false); labSetStatus(text); };
       LAB.timeout = setTimeout(() => fail('Python не успел загрузиться. Проверь интернет и повтори запуск.'), 90000);
@@ -413,7 +419,7 @@
         const names = [...new Set(line.replace(/#.*$/, '').replace(/(['"])(?:\\.|(?!\1).)*\1/g, '').match(/[A-Za-z_][\w]*/g) || [])].filter(w => vals.has(w) && !PY_KW.has(w));
         if (names.length) inline = `<em class="ide-inline">${names.slice(0, 5).map(w => `${esc(w)}: ${esc(labShort(vals.get(w).value))}`).join('&nbsp;&nbsp; ')}</em>`;
       }
-      return `<div class="lab-code-line${cur ? ' current' : ''}${bp ? ' bp' : ''}" ${cur ? 'aria-current="step"' : ''}><span class="ide-ln" data-lab-bp="${n}" title="Точка останова">${n}</span><code>${highlightPy(line) || ' '}</code>${inline}</div>`;
+      return `<div class="lab-code-line${cur ? ' current' : ''}${bp ? ' bp' : ''}" ${cur ? 'aria-current="step"' : ''}><span class="ide-ln" data-lab-bp="${n}" role="button" tabindex="0" aria-label="Точка останова: строка ${n}" aria-pressed="${bp}">${n}</span><code>${highlightPy(line) || ' '}</code>${inline}</div>`;
     }).join('');
     if (!s) { $('#labEvent').textContent = 'Не удалось начать выполнение. Исправь код и повтори запуск.'; $('#labOutput').textContent = r.output; return; }
     $('#labEvent').textContent = s.event === 'line' ? `Следующая строка: ${s.line}` : s.event === 'exception' ? `Строка ${s.line}: исключение ${s.exception}` : s.function === '<module>' ? (r.error ? 'Выполнение завершилось с ошибкой' : 'Выполнение основного кода завершено') : `Выход из ${s.function}: ${s.returnValue}`;
@@ -459,7 +465,7 @@
     if (!ta || !hl) return;
     hl.innerHTML = '<div class="ide-hl-in">' + highlightPy(ta.value) + '\n</div>';
     const n = ta.value.split('\n').length;
-    $('#labGutter').innerHTML = '<div class="ide-gutter-in">' + Array.from({ length: n }, (_, i) => `<span class="ide-ln${LAB.bps.has(i + 1) ? ' bp' : ''}" data-lab-bp="${i + 1}">${i + 1}</span>`).join('') + '</div>';
+    $('#labGutter').innerHTML = '<div class="ide-gutter-in">' + Array.from({ length: n }, (_, i) => `<span class="ide-ln${LAB.bps.has(i + 1) ? ' bp' : ''}" data-lab-bp="${i + 1}" role="button" tabindex="0" aria-label="Точка останова: строка ${i + 1}" aria-pressed="${LAB.bps.has(i + 1)}">${i + 1}</span>`).join('') + '</div>';
     labFitCode();
     labScrollEditor();
   }
@@ -499,9 +505,10 @@
     if (a === 'resume' && LAB.result) { labPause(); labResume(); }
     const bp = e.target.closest('[data-lab-bp]');
     if (bp) {
-      const n = +bp.dataset.labBp;
+      const n = +bp.dataset.labBp, hadFocus = document.activeElement === bp;
       if (LAB.bps.has(n)) LAB.bps.delete(n); else LAB.bps.add(n);
       if (LAB.result) labRenderStep(); else labPaintEditor();
+      if (hadFocus) trainerEl.querySelector((LAB.result ? '#labTraceCode ' : '#labGutter ') + '[data-lab-bp="' + n + '"]').focus();
     }
     if (a === 'play' && LAB.result) {
       if (LAB.play) { labPause(); return; }
@@ -525,7 +532,10 @@
       if (G.banned.has(v)) G.banned.delete(v);
       else if (G.via === v) { G.via = ''; G.banned.add(v); }
       else G.via = v;
-      labResetFeedback(); labUpdateGraph(); return;
+      const hadFocus = document.activeElement === gv;
+      labResetFeedback(); labUpdateGraph();
+      if (hadFocus) trainerEl.querySelector('[data-lab-gv="' + v + '"]').focus();
+      return;
     }
     if (a === 'game-reset') {
       const g = { start: +$('#labStart').value, second: +$('#labSecond').value, heaps: +$('#labHeaps').value, target: +$('#labTarget').value, add: +$('#labAdd').value, factor: +$('#labFactor').value };
@@ -587,7 +597,12 @@
     if (e.key === 'F9') labResume(); else labStep(e.key === 'F7' ? -1 : 1);
   });
   trainerEl.addEventListener('keydown', e => {
-    if (!labActive() || LAB.view !== 'code') return;
+    if (!labActive()) return;
+    const control = e.target.closest('[data-lab-gv], [data-lab-bp]');
+    if (control && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault(); control.dispatchEvent(new MouseEvent('click', { bubbles: true })); return;
+    }
+    if (LAB.view !== 'code') return;
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); labRun(); return; }
     if (e.target.id === 'labCode' && e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); const t = e.target; t.setRangeText('    ', t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input', { bubbles: true })); }
   });

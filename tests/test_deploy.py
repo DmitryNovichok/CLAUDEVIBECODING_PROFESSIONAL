@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 from tools.check_release import write_manifest
+from tools.build_changelog_loader import build as build_changelog
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,12 +33,15 @@ class UpdateScriptTest(unittest.TestCase):
         (self.release / 'data/bank.js').write_text('synthetic-bank')
         (self.release / 'server.py').write_text('MIN_FILES = ("app.js",)\n')
         (self.release / 'together.py').write_text('# synthetic\n')
-        (self.release / 'changelog.js').write_text('["2.59.1"]')
+        (self.release / 'changelog.js').write_text('window.EGE_CHANGELOG = {student: [["2.59.1", "test", [], []]], teacher: [["2.59.1", "test", [], []]]};')
         (self.release / 'app.js').write_text('source')
         (self.release / 'min/app.js').write_text('minified')
         (self.release / 'admin-login.js').write_text('login')
         (self.release / 'tools/build_app.py').write_text('# synthetic build already checked\n')
         shutil.copy(ROOT / 'tools/check_release.py', self.release / 'tools/check_release.py')
+        for name in ('build_changelog_loader.py', 'changelog-loader.template.js'):
+            shutil.copy(ROOT / 'tools' / name, self.release / 'tools' / name)
+        (self.release / 'changelog-loader.js').write_text(build_changelog(self.release))
         write_manifest(self.release)
         bindir = self.root / 'bin'
         bindir.mkdir()
@@ -88,6 +92,15 @@ elif cmd not in ('chown','sleep'):sys.exit('unexpected fake tool')
         (self.release / 'min/app.js').unlink()
         result = self.run_update()
         self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.app / 'server.py').read_text(), '# old code\n')
+        self.assertNotIn('rsync ', (self.root / 'calls').read_text())
+        self.assertFalse((self.root / 'restart').exists())
+
+    def test_missing_extracted_handler_does_not_touch_app(self):
+        (self.release / 'server.py').write_text('import task_http\nMIN_FILES = ("app.js",)\n')
+        result = self.run_update()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('task_http.py', result.stderr)
         self.assertEqual((self.app / 'server.py').read_text(), '# old code\n')
         self.assertNotIn('rsync ', (self.root / 'calls').read_text())
         self.assertFalse((self.root / 'restart').exists())

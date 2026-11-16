@@ -1,0 +1,171 @@
+{
+  "recorded_utc": "2026-11-16T12:11:19.045045+00:00",
+  "base_commit": "22cabf1",
+  "source_state": "Working tree under implementation; these are local synthetic observations, not deployed-server results.",
+  "dependency_audits": {
+    "arduino": {
+      "lock_sha256": "5535a1acf233541d76bab22d3b8033e167d4598644b8d2aaf2ce4b47670113b1",
+      "result": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        },
+        "dependencies": {
+          "prod": 13,
+          "dev": 0,
+          "optional": 26,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 38
+        }
+      }
+    },
+    "obfuscator": {
+      "lock_sha256": "f7fb2a99ec338d44564ef00c523709ba5dad776db11ddf446b7b61eeb5d3812d",
+      "result": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        },
+        "dependencies": {
+          "prod": 129,
+          "dev": 0,
+          "optional": 1,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 129
+        }
+      }
+    },
+    "browser": {
+      "lock_sha256": "d99425ea7cf713986bb720a61816d8f5fdc78d41dbb7b6dd52fff31323b8194b",
+      "result": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 5,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 5
+        }
+      }
+    }
+  },
+  "recovery_drill": {
+    "ok": true,
+    "scope": "synthetic data only; actual restored subprocess and authenticated HTTP probes",
+    "version": "2.72.0",
+    "release_identity_recorded": true,
+    "verified_files": 8,
+    "banks": 1,
+    "records": {
+      "students": 1,
+      "assignments": 1,
+      "attempts": 1,
+      "solutions": 1,
+      "support": 0,
+      "together": 1
+    },
+    "archive_verify_seconds": 0.006,
+    "recovery_to_healthy_seconds": 0.632,
+    "probes": {
+      "saved_answer_visible": true,
+      "assignment_visible": true,
+      "checkpoint_code_visible": true,
+      "lesson_attachment_served": true,
+      "external_bank_image_served": true,
+      "post_checkpoint_write_absent": true,
+      "observed_rpo_seconds": 0.031,
+      "intentionally_lost_post_checkpoint_results": 1
+    },
+    "backup_seconds": 0.025,
+    "checkpoint_age_at_simulated_failure_seconds": 0.025,
+    "limitations": "Local filesystem and tiny synthetic content; excludes archive download, operator time and DNS/TLS."
+  },
+  "classroom_soak": {
+    "scope": "temporary SQLite, synthetic accounts, real HTTP handlers, local loopback",
+    "students": 60,
+    "bank_tasks": 15002,
+    "soak_target_seconds": 300,
+    "poll_interval_seconds": 10,
+    "peak_rss_mib": 240.46,
+    "requests": 7440,
+    "seconds": 291.874,
+    "requests_per_second": 25.49,
+    "status": {
+      "200": 7440
+    },
+    "p50_ms": 1.32,
+    "p95_ms": 75.73,
+    "max_ms": 728.58,
+    "db_lock": {
+      "acquisitions": 68890,
+      "p95_wait_ms": 4.72,
+      "max_wait_ms": 316.25
+    },
+    "durable_attempts": 60,
+    "durable_solutions": 60,
+    "ok": true,
+    "routes": {
+      "GET /api/me": {
+        "count": 1860,
+        "p95_ms": 146.74
+      },
+      "GET /data/bank.js": {
+        "count": 60,
+        "p95_ms": 163.83
+      },
+      "GET /api/html": {
+        "count": 1800,
+        "p95_ms": 27.21
+      },
+      "POST /api/open": {
+        "count": 60,
+        "p95_ms": 300.17
+      },
+      "POST /api/solution": {
+        "count": 1800,
+        "p95_ms": 11.32
+      },
+      "POST /api/check": {
+        "count": 60,
+        "p95_ms": 421.04
+      },
+      "GET /api/history": {
+        "count": 1800,
+        "p95_ms": 18.16
+      }
+    },
+    "failures": [],
+    "measurement_note": "Requested target from CLI --seconds 300; measured duration remains 291.874 s, ending before the next 10 s poll."
+  },
+  "browser_performance": {
+    "status": "not_run",
+    "reason": "Local browser blocked by operating-system policy; runnable profile and CI artifact collection provided."
+  },
+  "production_operations": {
+    "status": "not_run",
+    "pending": [
+      "Actual server preflight",
+      "Offsite fetch/decrypt verification",
+      "Real snapshot restore rehearsal",
+      "Physical school device measurements"
+    ]
+  }
+}

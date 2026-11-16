@@ -35,7 +35,7 @@ class Rejected(Exception):
     pass
 
 
-def atomic_response(handler, db, run, before_send=None):
+def atomic_response(handler, db, run, before_send=None, after_rollback=None):
     # Send HTTP success only AFTER durable commit. A disconnect cannot undo a sale.
     send = handler.send_json
     response = []
@@ -52,9 +52,17 @@ def atomic_response(handler, db, run, before_send=None):
                     if response[1] >= 400:
                         raise Rejected()
             except Rejected:
-                on_rollback()
+                try:
+                    on_rollback()
+                finally:
+                    if after_rollback:
+                        after_rollback()
             except BaseException:
-                on_rollback()
+                try:
+                    on_rollback()
+                finally:
+                    if after_rollback:
+                        after_rollback()
                 raise
     finally:
         handler.send_json = send

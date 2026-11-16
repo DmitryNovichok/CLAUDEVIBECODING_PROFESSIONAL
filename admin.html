@@ -25,6 +25,9 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="admin.css">
 <link rel="stylesheet" href="admin-theme.css">
+<link rel="stylesheet" href="lesson-readiness.css">
+<script defer src="python-sandbox.js"></script>
+<script defer src="lesson-readiness.js"></script>
 <script defer src="vendor/katex/katex.min.js"></script>
 <script defer src="vendor/katex/contrib/auto-render.min.js"></script>
 </head>
@@ -32,13 +35,16 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
 
 <section class="adm-login" id="loginView" hidden>
   <form class="modal-panel adm-login-panel" id="admLoginForm">
+    <a class="adm-login-brand" href="/welcome"><img src="/favicon.svg" alt="" width="36" height="36"><span>Egeshka <small>by Malevin</small></span></a>
     <h1 class="fm-title">Панель учителя</h1>
     <p class="fm-note">Войдите по почте (или логину) и паролю.</p>
     <div class="login-form login-stack">
-      <input class="inp" id="admLogin" name="username" placeholder="Почта или логин" autocomplete="username" autocapitalize="off" spellcheck="false">
-      <input class="inp" type="password" id="admPassword" name="password" placeholder="Пароль" autocomplete="current-password" required>
+      <label class="adm-login-label" for="admLogin">Почта или логин</label>
+      <input class="inp" id="admLogin" aria-describedby="admLoginErr" name="username" placeholder="you@school.ru" autocomplete="username" autocapitalize="off" spellcheck="false">
+      <label class="adm-login-label" for="admPassword">Пароль</label>
+      <input class="inp" type="password" id="admPassword" aria-describedby="admLoginErr" name="password" autocomplete="current-password" required>
       <p class="fm-note adm-code-note" id="admCodeNote" hidden></p>
-      <input class="inp adm-code" id="admCode" name="code" placeholder="Код из письма" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" hidden>
+      <input class="inp adm-code" id="admCode" name="code" placeholder="Код из письма или резервный код" aria-label="Код из письма или резервный код" aria-describedby="admCodeNote admLoginErr" inputmode="text" autocomplete="one-time-code" maxlength="39" pattern="([0-9]{6}|[a-fA-F0-9]{8}(-?[a-fA-F0-9]{8}){3})" hidden>
       <button class="btn primary" type="submit">Войти</button>
       <button type="button" class="link-btn" id="admCodeBack" hidden>← Ввести пароль заново</button>
     </div>
@@ -48,6 +54,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <div class="adm-login-new">
       <a class="btn btn-block" href="/welcome#signup">Зарегистрироваться — 7 дней бесплатно</a>
       <a class="link-btn" href="/welcome">Что такое Egeshka и тарифы</a>
+      <a class="link-btn" href="/welcome#demo">Попробовать на вымышленном классе</a>
     </div>
     <p class="login-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика персональных данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></p>
   </form>
@@ -101,6 +108,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div class="adm-side-me"><span class="adm-who" id="admWho"></span>
         <span class="adm-side-links"><a class="link-btn" href="help.html#teacher" target="_blank" rel="noopener" title="Инструкция для учителя и ученика">Инструкция</a>
         <button type="button" class="link-btn" id="adminTourBtn" title="Знакомство с панелью и подсказки по разделам">Как работает панель</button>
+        <button type="button" class="link-btn" data-lesson-readiness>Проверить перед уроком</button>
         <button type="button" class="link-btn adm-ver" id="admVerBtn" title="История версий: что добавлено и что изменено">Версия</button>
         <button type="button" class="link-btn" id="logoutBtn">Выйти</button></span></div>
     </div>
@@ -115,8 +123,8 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <section class="adm-view" id="view-students" hidden>
       <div class="adm-toolbar">
         <h2 class="adm-h"><span id="studentsTitle">Новые ученики</span> <span class="adm-count" id="studentsCount"></span></h2>
-        <input class="inp adm-search" id="studentSearch" placeholder="Поиск по ФИО">
-        <select class="adm-select" id="studentsScope" title="Каких учеников показать">
+        <input class="inp adm-search" id="studentSearch" aria-label="Поиск учеников по ФИО" placeholder="Поиск по ФИО">
+        <select class="adm-select" id="studentsScope" aria-label="Каких учеников показать" title="Каких учеников показать">
           <option value="none">Без класса</option>
           <option value="all">Все ученики</option>
         </select>
@@ -125,7 +133,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       </div>
       <div class="adm-bulk" id="bulkBar" hidden>
         <span id="bulkCount"></span>
-        <select class="adm-select" id="bulkClass"></select>
+        <select class="adm-select" id="bulkClass" aria-label="Класс для выбранных учеников"></select>
         <button type="button" class="btn primary" id="bulkMove">Перенести в класс</button>
         <button type="button" class="link-btn" id="bulkClear">снять выбор</button>
       </div>
@@ -133,7 +141,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div class="adm-table-wrap">
         <table class="adm-table" id="studentsTable">
           <thead><tr>
-            <th class="chk"><input type="checkbox" id="chkAll" title="Выбрать всех"></th>
+            <th class="chk"><input type="checkbox" id="chkAll" aria-label="Выбрать всех учеников" title="Выбрать всех"></th>
             <th data-sort="name">Ученик</th>
             <th data-sort="xp" class="num" title="Уровень в тренажёре (опыт за решённые задания)">Ур.</th>
             <th data-sort="teacher" class="adm-off">Учитель</th>
@@ -177,10 +185,10 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
               <h3 id="bldTplTitle">Быстро собрать по шаблону</h3>
               <div class="bld-tpl-row">
                 <div class="bld-tpl-option"><label for="tplN">10 заданий на №</label>
-                  <span class="bld-tpl-ctl"><select class="adm-select" id="tplN"></select>
+                  <span class="bld-tpl-ctl"><select class="adm-select" id="tplN" aria-label="Номер ЕГЭ для шаблона"></select>
                   <button type="button" class="btn sm" data-tpl="ten">Добавить</button></span></div>
                 <div class="bld-tpl-option"><label for="tplClass">Работа над ошибками класса</label>
-                  <span class="bld-tpl-ctl"><select class="adm-select" id="tplClass" aria-describedby="tplFixHint"></select>
+                  <span class="bld-tpl-ctl"><select class="adm-select" id="tplClass" aria-label="Класс для шаблона" aria-describedby="tplFixHint"></select>
                   <button type="button" class="btn sm" data-tpl="fix">Собрать</button></span>
                   <small id="tplFixHint">Новые задания по типам с ошибками за 2 недели</small></div>
               </div>
@@ -202,8 +210,8 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     </section>
     <section class="adm-view" id="view-archive" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Мои работы</h2>
-        <input class="inp adm-search" id="arcQ" placeholder="Поиск по названию или классу" autocomplete="off">
-        <select class="adm-select" id="arcClass" title="Класс"><option value="">Все классы</option></select></div>
+        <input class="inp adm-search" id="arcQ" aria-label="Поиск подборок по названию или классу" placeholder="Поиск по названию или классу" autocomplete="off">
+        <select class="adm-select" id="arcClass" aria-label="Класс подборки" title="Класс"><option value="">Все классы</option></select></div>
       <p class="adm-hint" style="margin:0 0 12px">Все подборки, которые вы выдавали, — новые сверху. «Создать копию» открывает подборку в конструкторе как новую:
         выберите другой класс или отметьте учеников — и отправьте. «Во «Вместе»» — разобрать её задания на совместном занятии.</p>
       <div id="arcBody"><p class="adm-hint">Загружаю…</p></div>
@@ -211,7 +219,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
 
     <section class="adm-view" id="view-course" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Прогресс курса</h2>
-        <input class="inp" id="cpFind" placeholder="Поиск по ФИО" style="max-width:240px">
+        <input class="inp" id="cpFind" aria-label="Поиск учеников в курсе" placeholder="Поиск по ФИО" style="max-width:240px">
         <button type="button" class="btn ghost" id="cpReload">Обновить</button></div>
       <p class="adm-hint" style="margin:0 0 12px">Ученики, которые открыли курс паролем. Прогресс урока: <b>30%</b> — презентация (докуда долистал),
         <b>70%</b> — решённые задания пяти подборок. Нажмите на ученика — увидите каждое задание: <span class="cp-sq ok"></span> решено,
@@ -222,7 +230,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <section class="adm-view" id="view-im" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Интеллектуальный мегаполис</h2>
         <span class="adm-tabs" id="imTabs"><button type="button" class="on" data-im-pane="st">Ученики</button><button type="button" data-im-pane="mat">Материалы</button></span>
-        <input class="inp" id="imFind" placeholder="Поиск по ФИО" style="max-width:240px">
+        <input class="inp" id="imFind" aria-label="Поиск учеников в мегаполисе" placeholder="Поиск по ФИО" style="max-width:240px">
         <button type="button" class="btn ghost" id="imReload">Обновить</button></div>
       <p class="adm-hint" style="margin:0 0 12px">Подготовка к конкурсу «Интеллектуальный мегаполис. Потенциал» · ИТ-класс, теоретический этап: 10 заданий
         (информатика, математика, физика), 120 минут, 60 баллов. Ученики открывают раздел своим паролем; у каждого номера — разбор, задание из демоварианта
@@ -232,7 +240,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
 
     <section class="adm-view" id="view-ard" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Лаборатория Arduino</h2>
-        <input class="inp" id="ardFind" placeholder="Поиск по ФИО" style="max-width:240px">
+        <input class="inp" id="ardFind" aria-label="Поиск учеников в Arduino" placeholder="Поиск по ФИО" style="max-width:240px">
         <button type="button" class="btn ghost" id="ardReload">Обновить</button></div>
       <p class="adm-hint" style="margin:0 0 12px">Ученики, открывшие лабораторию Arduino её паролем, и их прогресс в двух курсах Arduino: 7 класс и 10–11 классы (по 36 уроков).
         Урок пройден, когда выполнены все три шага: <b>теория</b>, <b>схема</b> и <b>запуск</b>. Прогресс приходит, когда ученик занимается в лаборатории Arduino на сайте.
@@ -241,7 +249,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     </section>
     <section class="adm-view" id="view-pyc" hidden>
       <div class="adm-toolbar"><h2 class="adm-h">Курс «Программирование для ЕГЭ»</h2>
-        <input class="inp" id="pycFind" placeholder="Поиск по ФИО" style="max-width:240px">
+        <input class="inp" id="pycFind" aria-label="Поиск учеников в Python" placeholder="Поиск по ФИО" style="max-width:240px">
         <button type="button" class="btn ghost" id="pycReload">Обновить</button></div>
       <p class="adm-hint" style="margin:0 0 12px">Ученики, которые открыли курс паролем (как в «Прогрессе курса»). Итог — доля решённых задач курса; красное число — задачи, которые ученик пробовал, но пока не решил. Нажмите на ученика — увидите каждую задачу:
         <span class="cp-sq ok"></span> решена, <span class="cp-sq bad"></span> есть неверные попытки, <span class="cp-sq"></span> не начата; по клику — его код. Там же кнопка «Открыть все уровни» — уровни тем без замков (например, для тестового аккаунта).</p>
@@ -292,7 +300,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
         <h3 class="adm-h3">Подарки ученика</h3>
         <p class="fm-note">Выберите ученика — увидите все его подарки. Лишний (например, подаренный не по правилам) можно удалить из профиля:
           подарок сгорает без возврата монет, номер и сочетание уникального больше никому не выпадут.</p>
-        <select class="inp" id="giftOwner" style="max-width:360px"><option value="">— выберите ученика —</option></select>
+        <select class="inp" id="giftOwner" aria-label="Владелец подарка" style="max-width:360px"><option value="">— выберите ученика —</option></select>
         <div id="giftWallet" style="margin-top:10px"></div>
         <div id="giftOwned" style="margin-top:10px"></div>
         <div id="giftHistory" style="margin-top:12px"></div>
@@ -310,7 +318,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <div class="tog-new">
         <div class="tog-col">
           <div class="tog-lbl">Кого позвать (необязательно)</div>
-          <input class="inp" id="togSearch" placeholder="Поиск по ФИО" autocomplete="off">
+          <input class="inp" id="togSearch" aria-label="Поиск участников по ФИО" placeholder="Поиск по ФИО" autocomplete="off">
           <div class="tog-stu" id="togStu"></div>
         </div>
         <div class="tog-col">
@@ -389,10 +397,10 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <form class="adm-box adm-teacher-form" id="teacherForm">
         <h3 class="adm-h3" style="margin:0" id="teacherFormTitle">Добавить учителя</h3>
         <div class="adm-draft-row">
-          <input class="inp" id="tName" placeholder="Имя, например Мария Ивановна" maxlength="80" required>
-          <input class="inp" id="tLogin" placeholder="Логин латиницей" maxlength="32" autocapitalize="off" spellcheck="false" required>
-          <input class="inp" id="tPass" type="text" placeholder="Пароль (от 6 символов)" autocomplete="new-password">
-          <input class="inp" id="tInvite" placeholder="Код приглашения (можно пусто)" maxlength="40">
+          <input class="inp" id="tName" aria-label="Имя учителя" placeholder="Имя, например Мария Ивановна" maxlength="80" required>
+          <input class="inp" id="tLogin" aria-label="Логин учителя" placeholder="Логин латиницей" maxlength="32" autocapitalize="off" spellcheck="false" required>
+          <input class="inp" id="tPass" aria-label="Пароль учителя" type="text" placeholder="Пароль (от 6 символов)" autocomplete="new-password">
+          <input class="inp" id="tInvite" aria-label="Код приглашения учителя" placeholder="Код приглашения (можно пусто)" maxlength="40">
         </div>
         <div class="adm-draft-row">
           <button type="submit" class="btn primary" id="tSave">Добавить</button>
@@ -422,7 +430,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
           <h2 class="adm-h">Классы</h2>
           <div id="classList"></div>
           <form class="adm-class-new" id="classNewForm">
-            <input class="inp" id="classNewName" placeholder="Новый класс, например 11А" maxlength="40" required>
+            <input class="inp" id="classNewName" aria-label="Название нового класса" placeholder="Новый класс, например 11А" maxlength="40" required>
             <button type="submit" class="btn primary">Создать</button>
           </form>
           <p class="adm-hint" id="unassignedHint"></p>
@@ -439,14 +447,14 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
         <button type="button" class="btn ghost" id="backBtn">← Назад</button>
         <h2 class="adm-h" id="stName"></h2>
         <div class="adm-actions">
-          <select class="adm-select" id="stPeriod">
+          <select class="adm-select" id="stPeriod" aria-label="Период статистики">
             <option value="1">Сегодня</option>
             <option value="7" selected>7 дней</option>
             <option value="30">30 дней</option>
             <option value="0">Всё время</option>
           </select>
-          <select class="adm-select" id="stClass" title="Класс ученика"></select>
-          <select class="adm-select main-only" id="stTeacher" title="Учитель ученика"></select>
+          <select class="adm-select" id="stClass" aria-label="Класс ученика" title="Класс ученика"></select>
+          <select class="adm-select main-only" id="stTeacher" aria-label="Учитель ученика" title="Учитель ученика"></select>
           <a class="btn" id="stExport" href="#">CSV</a>
           <button type="button" class="btn" id="stParent" title="Ссылка для родителей: только просмотр — занятия, прогноз, оценки, что не сдано. Можно отправлять письмо раз в неделю">Родителям</button>
           <button type="button" class="btn ghost" id="stRename">Переименовать</button>
@@ -495,7 +503,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <section class="adm-view" id="view-comp" hidden>
       <div class="adm-toolbar">
         <h2 class="adm-h">Турниры и дуэли <span class="adm-hint">все разыгранные соревнования ваших учеников</span></h2>
-        <input class="inp" id="compFind" placeholder="Поиск по ученику" style="max-width:240px">
+        <input class="inp" id="compFind" aria-label="Поиск ученика для сравнения" placeholder="Поиск по ученику" style="max-width:240px">
       </div>
       <div id="compBody"><p class="adm-empty">Загрузка…</p></div>
     </section>
@@ -525,7 +533,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
         <h3 class="adm-h3">Один пароль на всё</h3>
         <p class="fm-note">Задать одинаковый пароль сразу курсу по заданиям, курсу программирования и лабораториям. Лаборатории Arduino это не касается — у неё всегда свой пароль. Уже открытые доступы у учеников не закрываются.</p>
         <div class="login-form">
-          <input class="inp" id="accAll" type="text" autocomplete="off" maxlength="200" placeholder="общий пароль">
+          <input class="inp" id="accAll" aria-label="Общий пароль учебных разделов" type="text" autocomplete="off" maxlength="200" placeholder="общий пароль">
           <button class="btn primary" type="submit">Задать всем трём</button>
         </div>
         <div class="login-err" id="accAllMsg"></div>
@@ -577,7 +585,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
           <h3 class="adm-h3">Код приглашения</h3>
           <p class="fm-note">Без него ученик не войдёт на сайт. Скажите код классу; если он разошёлся дальше — поменяйте. Уже вошедшие ученики остаются в системе.</p>
           <div class="login-form">
-            <input class="inp" id="inviteCode" autocomplete="off" maxlength="40" required>
+            <input class="inp" id="inviteCode" aria-label="Код приглашения учеников" autocomplete="off" maxlength="40" required>
             <button class="btn primary" type="submit">Сохранить</button>
           </div>
           <div class="login-err" id="inviteMsg"></div>
@@ -588,7 +596,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
         <form class="adm-box" id="reportForm">
           <h3 class="adm-h3">Отчёт на почту</h3>
           <p class="fm-note">По понедельникам — итоги недели по каждому классу: кто занимался, средний прогноз, слабые номера, кто отстаёт и что не сдано в срок.</p>
-          <input class="inp" id="reportEmail" type="email" maxlength="120" placeholder="почта учителя" autocomplete="email">
+          <input class="inp" id="reportEmail" aria-label="Почта учителя для отчётов" type="email" maxlength="120" placeholder="почта учителя" autocomplete="email">
           <label class="adm-switch"><input type="checkbox" id="reportOn"> Присылать отчёт каждую неделю</label>
           <div class="adm-row-btns"><button class="btn primary" type="submit">Сохранить</button>
             <a class="btn ghost" href="api/admin/report/preview" target="_blank" rel="noopener">Посмотреть отчёт сейчас</a></div>
@@ -597,8 +605,8 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
         </form>
         <form class="adm-box" id="pwForm">
           <h3 class="adm-h3">Сменить пароль</h3>
-          <input class="inp" type="password" id="pwOld" placeholder="Текущий пароль" autocomplete="current-password" required>
-          <input class="inp" type="password" id="pwNew" placeholder="Новый пароль (от 6 символов)" autocomplete="new-password" minlength="6" required>
+          <input class="inp" type="password" id="pwOld" aria-label="Текущий пароль" placeholder="Текущий пароль" autocomplete="current-password" required>
+          <input class="inp" type="password" id="pwNew" aria-label="Новый пароль" placeholder="Новый пароль (от 6 символов)" autocomplete="new-password" minlength="6" required>
           <button class="btn primary" type="submit">Сохранить</button>
           <div class="login-err" id="pwMsg"></div>
         </form>
@@ -675,7 +683,7 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
 <script src="qr.js"></script>
 <script src="onboard.js"></script>
 <script src="visit.js"></script>
-<script src="changelog.js"></script>
+<script src="changelog-loader.js"></script>
 <script src="admin.js"></script>
 </body>
 </html>

@@ -1,0 +1,107 @@
+const {test,expect}=require('@playwright/test');
+const {startFixture,seedBrowser}=require('./fixture.cjs');
+const {recordUI}=require('./ui-evidence.cjs');
+let fixture;
+test.beforeAll(async()=>{fixture=await startFixture();});
+test.afterAll(async()=>{await fixture?.stop();});
+async function openLab(page,context,view='tasks') {
+  await seedBrowser(context,fixture);
+  await page.goto(fixture.origin+'/#lab');
+  await expect(page.locator('#labRoot')).toBeVisible();
+  if(view==='tasks') await expect(page.locator('[data-lab-view=tasks] .lab-kicker')).toHaveText('№ 7 · 13 · 15 · 19–21');
+  await page.locator('[data-lab-view="'+view+'"]').click();
+}
+for(const width of [320,375,1366]) {
+  test(`real EGE models map correctly and accept keyboard experiments at ${width}px`,async({page,context},info)=>{
+    await page.setViewportSize({width,height:900});
+    await openLab(page,context);
+    const map={image:'№ 7',net:'№ 13',logic:'№ 15',game:'№ 19–21',graph:'23_old'};
+    for(const [model,label] of Object.entries(map)) await expect(page.locator('[data-lab-model="'+model+'"]').filter({hasText:label})).toHaveCount(1);
+    await page.locator('[data-lab-model=image]').click();
+    await page.getByLabel('Ширина, пиксели').fill('8');
+    await page.getByLabel('Высота, пиксели').fill('8');
+    const depth=page.locator('#labDepth');await depth.focus();await page.keyboard.press('Home');
+    await page.locator('#labGuess').fill('8');await page.locator('#labPredict button').click();
+    await expect(page.locator('#labFeedback')).toContainText('Верно!');
+    await page.getByLabel('Ширина, пиксели').fill('0');
+    await expect(page.locator('#labWidth')).toHaveAttribute('aria-invalid','true');
+    await expect(page.locator('#labWidth')).toHaveAttribute('aria-describedby','labImageResult');
+    await page.getByLabel('Ширина, пиксели').fill('8');
+    await expect(page.locator('#labWidth')).not.toHaveAttribute('aria-invalid','true');
+    await recordUI(page,info,'image-'+width);
+    await page.locator('[data-lab-model=net]').click();
+    await page.getByLabel('IPv4-адрес').fill('bad');
+    await expect(page.locator('#labIp')).toHaveAttribute('aria-invalid','true');
+    await page.getByLabel('IPv4-адрес').fill('192.168.1.10');
+    await expect(page.locator('#labIp')).not.toHaveAttribute('aria-invalid','true');
+    await page.locator('#labPrefix').focus();await page.keyboard.press('End');
+    await page.locator('#labGuess').fill('1');await page.locator('#labPredict button').click();
+    await expect(page.locator('#labFeedback')).toContainText('Верно!');
+    await page.locator('[data-lab-model=logic]').click();
+    await expect(page.locator('#labLogicResult')).toContainText('Контрпример');
+    await page.locator('[data-lab-logic=seg]').click();
+    await expect(page.locator('#labLogicResult')).toContainText('Отрезок A');
+    await page.locator('[data-lab-model=game]').click();
+    await page.locator('#labHeaps').selectOption('1');
+    await page.locator('#labStart').fill('5');await page.locator('#labTarget').fill('20');
+    await page.locator('[data-lab-action=game-reset]').click();
+    await expect(page.locator('#labGameResult')).toContainText('Петя');
+    await page.locator('[data-lab-move]').first().focus();await page.keyboard.press('Enter');
+    await expect(page.locator('#labGameResult')).toContainText('Ваня');
+    await page.locator('[data-lab-action=game-back]').click();
+    await expect(page.locator('#labGameResult')).toContainText('Петя');
+    await page.locator('[data-lab-model=graph]').click();
+    const vertex=page.locator('[data-lab-gv][aria-disabled=false]').first();
+    await vertex.focus();await page.keyboard.press('Enter');
+    await expect(vertex).toBeFocused();await expect(vertex).toHaveAttribute('aria-label',/обязательная/);
+    await page.keyboard.press('Space');
+    await expect(vertex).toBeFocused();await expect(vertex).toHaveAttribute('aria-label',/запрещена/);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await recordUI(page,info,'graph-'+width);
+  });
+}
+test('actual debugger executes local Python and supports breakpoint and step keys',async({page,context},info)=>{
+  await openLab(page,context,'code');
+  await page.locator('#labCode').fill('total = 0\nfor n in range(3):\n    total += n\nprint(total)');
+  const breakpoint=page.locator('#labGutter [data-lab-bp="3"]');
+  await breakpoint.focus();await page.keyboard.press('Enter');
+  await expect(breakpoint).toBeFocused();await expect(breakpoint).toHaveAttribute('aria-pressed','true');
+  await page.locator('#labCode').focus();await page.keyboard.press('Control+Enter');
+  await expect(page.locator('#labStatus')).toContainText('Программа выполнена до конца',{timeout:90000});
+  await page.locator('#labNext').focus();await page.keyboard.press('F8');
+  await expect(page.locator('#labStep')).toHaveValue('1');
+  await page.keyboard.press('F7');await expect(page.locator('#labStep')).toHaveValue('0');
+  await page.locator('#labEnd').click();await expect(page.locator('#labOutput')).toHaveText('3\n');
+  await recordUI(page,info,'debugger');
+});
+test('teacher opens laboratories through the real teacher-as-pupil action',async({page,context},info)=>{
+  await seedBrowser(context,fixture,'teacher');
+  await page.goto(fixture.origin+'/admin');
+  const popup=page.waitForEvent('popup');await page.locator('#adminLabBtn').click();const lab=await popup;
+  await expect(lab.locator('#labRoot')).toBeVisible();
+  await lab.locator('[data-lab-view=tasks]').click();
+  await expect(lab.locator('[data-lab-model=net]')).toBeVisible();
+  const me=await context.request.get(fixture.origin+'/api/me');
+  expect((await me.json()).teacher).toBe(true);
+  await recordUI(lab,info,'teacher-laboratory');
+});
+
+test('bug laboratory runs self-check and reports unavailable independent verifier honestly',async({page,context},info)=>{
+  await openLab(page,context,'bugs');
+  await page.locator('[data-bug-open]').first().click();
+  await expect(page.locator('#bugCode')).toBeVisible();
+  const before=await (await context.request.get(fixture.origin+'/api/history')).json();
+  await page.locator('#bugCode').fill('print("synthetic-wrong-output")');
+  const checked=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/lab/bugs/check',{timeout:90000});
+  await page.locator('#bugCheck').click();const response=await checked;
+  expect(response.status()).toBe(200);const result=await response.json();
+  expect(result.ok).toBe(false);expect(result.provenance).toBe('self_check');
+  await expect(page.locator('#bugResult tr.bad').first()).toBeVisible({timeout:90000});
+  const verification=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/lab/bugs/verify');
+  await page.locator('#bugVerify').click();expect((await verification).status()).toBe(503);
+  await expect(page.locator('#bugStatus')).toContainText(/недоступ|не настроен|не подключён/i);
+  await expect(page.locator('#bugVerify')).toBeEnabled();
+  const after=await (await context.request.get(fixture.origin+'/api/history')).json();
+  expect(after.h).toEqual(before.h);
+  await recordUI(page,info,'bug-laboratory');
+});

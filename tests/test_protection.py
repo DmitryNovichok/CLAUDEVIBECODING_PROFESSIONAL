@@ -17,6 +17,7 @@ import server
 import test_server as fixtures
 from deploy import github_release
 from tools import check_release
+from tools.build_changelog_loader import build as build_changelog_loader
 
 
 class PrivateAssetsTest(unittest.TestCase):
@@ -133,9 +134,22 @@ class ReleaseIntegrityTest(unittest.TestCase):
         (self.root / 'app.js').write_text('source')
         (self.root / 'min/app.js').write_text('minified')
         (self.root / 'admin-login.js').write_text('login')
+        (self.root / 'tools').mkdir()
+        template = Path(__file__).resolve().parent.parent / 'tools/changelog-loader.template.js'
+        (self.root / 'tools/changelog-loader.template.js').write_text(template.read_text(encoding='utf-8'), encoding='utf-8')
+        (self.root / 'changelog.js').write_text('window.EGE_CHANGELOG={student:[["1.0.0","date",[],[]]],teacher:[["1.0.0","date",[],[]]]};')
+        (self.root / 'changelog-loader.js').write_text(build_changelog_loader(self.root), encoding='utf-8')
         check_release.write_manifest(self.root)
 
     def test_valid_release(self):
+        check_release.validate(self.root)
+
+    def test_current_version_loader_cannot_lag_behind_full_history(self):
+        path = self.root / 'changelog.js'
+        path.write_text(path.read_text().replace('1.0.0', '1.1.0'))
+        with self.assertRaisesRegex(ValueError, 'changelog-loader.js'):
+            check_release.validate(self.root)
+        (self.root / 'changelog-loader.js').write_text(build_changelog_loader(self.root), encoding='utf-8')
         check_release.validate(self.root)
 
     def test_gate_page_is_required_when_gate_script_is_shipped(self):

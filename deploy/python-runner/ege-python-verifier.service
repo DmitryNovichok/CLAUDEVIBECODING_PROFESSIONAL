@@ -1,0 +1,23 @@
+[Unit]
+Description=Independent Python verifier for Egeshka
+ConditionUser=ege-python
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ege-python-verifier
+ExecStart=/usr/bin/python3 /opt/ege-python-verifier/python_executor.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+Delegate=yes
+TasksMax=192
+MemoryMax=768M
+LimitNOFILE=512
+KillMode=control-group
+TimeoutStopSec=15
+# This is a dedicated rootless USER service. Podman's newuidmap/newgidmap
+# helpers need their normal OS permissions. The pupil container itself always
+# has no-new-privileges, zero capabilities and a non-root UID, checked before exec.
+
+[Install]
+WantedBy=default.target

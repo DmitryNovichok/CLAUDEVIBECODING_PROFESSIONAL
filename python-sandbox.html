@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<!-- Loaded as srcdoc by python-sandbox.js, with an opaque origin. Only the public,
+     pinned interpreter distribution may use the network. No app/API origin grant. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval' blob: __EGE_RUNTIME__; connect-src __EGE_RUNTIME__; worker-src blob:; child-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Python</title></head><body><script>
+'use strict';
+// The parent transfers a private port once. There is deliberately no fetch,
+// navigation, storage or application command bridge back to the parent.
+addEventListener('message', function initialise(event) {
+  if (event.source !== parent || event.data?.type !== 'ege-python-init' || !event.ports[0]) return;
+  removeEventListener('message', initialise);
+  const port = event.ports[0];
+  let worker;
+  try {
+    const blob = new Blob([event.data.source], { type: 'text/javascript' });
+    const url = URL.createObjectURL(blob);
+    worker = new Worker(url);
+    URL.revokeObjectURL(url);
+    worker.onmessage = e => port.postMessage(e.data);
+    worker.onerror = () => port.postMessage({ type: 'sandbox-error' });
+    port.onmessage = e => {
+      if (['run', 'trace', 'tests'].includes(e.data?.type)) worker.postMessage(e.data);
+    };
+    port.start();
+    port.postMessage({ type: 'sandbox-ready' });
+  } catch (e) { port.postMessage({ type: 'sandbox-error' }); }
+});
+</script></body></html>

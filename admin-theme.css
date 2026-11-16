@@ -398,3 +398,31 @@ body.admin .bld-item .bld-add.primary { background: var(--card); color: var(--ac
   .bld-item-act .bld-add { order: 0; }
   .bld-dtools button { min-width: 32px; min-height: 40px; }
 }
+
+/* Вход принадлежит тому же сервису, что и главная; тема рабочей панели независима. */
+body.admin .adm-login {
+  --bg: #fbf9f4; --card: #fff; --card-hover: #f6f3ea; --text: #1d2433; --muted: #5f6878;
+  --border: #e8e2d4; --border-strong: #bfb8a7; --input-bg: #fdfcf9; --faint: #687181;
+  --accent: #58cc02; --accent-strong: #68dc12; --accent-soft: #e8f8db; --accent-text: #286b0a;
+  --font: "Nunito", system-ui, sans-serif; background: var(--bg); color: var(--text); color-scheme: light;
+}
+body.admin .adm-login-panel { width: 100%; padding: 30px; border-radius: 24px; border: 2px solid var(--border); font-family: var(--font); }
+body.admin .adm-login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; color: #286b0a; text-decoration: none; font-size: 25px; font-weight: 900; }
+body.admin .adm-login-brand small { display: block; color: #5f6878; font-size: 12px; }
+body.admin .adm-login .fm-title { font-family: var(--font); font-size: 25px; }
+body.admin .adm-login .login-stack { gap: 9px; }
+body.admin .adm-login-label { font-weight: 800; font-size: 14px; margin-top: 6px; }
+body.admin .adm-login .inp { min-height: 46px; border-radius: 12px; font-family: var(--font); }
+body.admin .adm-login .btn { border-radius: 12px; min-height: 46px; font-family: var(--font); font-weight: 800; }
+body.admin .adm-login .btn.primary { width: 100%; margin-top: 10px; color: #17350b; box-shadow: 0 4px 0 #46a302; }
+body.admin .adm-login :where(a,button,input):focus-visible { outline: 3px solid #134da3; outline-offset: 3px; }
+body.admin .adm-login .link-btn { color: #286b0a; }
+body.admin .steps-list li.current { border-radius: 10px; background: var(--accent-soft); padding: 12px; }
+body.admin .steps-head { flex-wrap: wrap; }
+body.admin .steps-progress { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--muted); }
+body.admin .steps-list .inv-row { flex-wrap: wrap; }
+body.admin .steps-list .inv-row code { overflow-wrap: anywhere; min-width: 0; }
+@media(max-width: 440px) { body.admin .adm-login-panel { padding: 22px 18px; } }
+body.admin .attempt-provenance { display: block; margin-top: 5px; color: var(--muted); font: 400 12px/1.4 var(--font); white-space: normal; }
+
+body.admin .adm-login input[aria-invalid="true"] { border-color: #a92525; }

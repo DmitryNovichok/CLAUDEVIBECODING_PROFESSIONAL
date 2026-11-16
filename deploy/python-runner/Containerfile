@@ -1,0 +1,8 @@
+# Build with an explicitly reviewed official Python image digest; no latest tag.
+ARG PYTHON_BASE
+FROM ${PYTHON_BASE}
+COPY entrypoint.py /opt/ege-runner/entrypoint.py
+RUN mkdir -p /sandbox && touch /sandbox/main.py && chmod 0555 /sandbox /opt/ege-runner && chmod 0444 /sandbox/main.py /opt/ege-runner/entrypoint.py
+USER 65534:65534
+WORKDIR /sandbox
+ENTRYPOINT ["/usr/local/bin/python3", "-I", "-S", "-B", "/opt/ege-runner/entrypoint.py"]

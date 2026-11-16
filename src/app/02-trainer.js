@@ -146,6 +146,7 @@
     s.due = score === 1 ? null : now + (CFG.retryTaskDays[score] || CFG.retryTaskDays[0]) * DAY;
     bump(P.nums, t.n, score, CFG.alphaNum);
     const e = { id: t.id, n: t.n, s: score, t: now };
+    e.v = o.provenance || (o.tog ? 'together' : o.hinted ? 'hinted' : o.blank || o.gaveUp ? 'unanswered' : repeat ? 'repeat' : score === 0.5 ? 'retry' : SERVER ? 'independent' : 'self_check');
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
     if (again) e.ra = 1;
@@ -233,13 +234,13 @@
       pend = null;
     };
     for (const row of rows) {
-      const [id, n, score, ts, reason, rk, part, grp, exam, blank, skip] = row;
+      const [id, n, score, ts, reason, rk, part, grp, exam, blank, skip, provenance] = row;
       const day = dayKey(ts);
       if (lastDay && day !== lastDay) { endGroup(); snapshotForecast(lastDay, ts - 1); }
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -1171,6 +1172,8 @@
     const withLinks = cur.parts.map(x => x.res).find(r => r && (r.link || r.video)) || {};
     setFeedback(ok === scores.length ? 'ok' : ok ? 'retry' : 'bad', title,
       `<div class="fb-note">${note}</div>${anyHidden ? '' : taskLinks(SERVER ? withLinks : t)}`);
+    const firstError = cur.parts.find(x => x.final && x.score < 1);
+    if (firstError && SERVER) $('#feedback').insertAdjacentHTML('beforeend', mistakePanel(firstError.p));
     renderActions();
     renderSidebar();
     renderTopbar();
@@ -1209,6 +1212,41 @@
     save();
   }
 
+  const MISTAKE_REASONS = {
+    condition: ['Не так прочитал условие', 'Перечитай вопрос и выпиши: что дано, что требуется и какие есть ограничения.'],
+    logic: ['Ошибка в способе решения', 'Найди маленький пример, на котором твой способ даёт неверный результат. Затем сравни метод с уроком.'],
+    implementation: ['Ошибка в программе', 'Проследи значения переменных на первом примере, где ответ расходится. Для этого есть пошаговая лаборатория.'],
+    attention: ['Счёт, перенос или невнимательность', 'Сверь единицы, границы, знак сравнения и порядок чисел в ответе. Проверь каждый пункт отдельно.']
+  };
+  function mistakePanel(t) {
+    return `<section class="fb-note" data-mistake-panel="${esc(t.id)}"><b>Что помешало решить?</b>
+      <p>Необязательно. Отметка поможет выбрать следующий шаг; повторение уже запланировано.</p>
+      <div class="fm-chips">${Object.entries(MISTAKE_REASONS).map(([key, row]) => `<button type="button" class="btn" data-mistake="${key}" aria-pressed="false">${row[0]}</button>`).join('')}</div>
+      <p data-mistake-result role="status"></p></section>`;
+  }
+  trainerEl.addEventListener('click', async e => {
+    const button = e.target.closest('[data-mistake]');
+    if (!button) return;
+    const panel = button.closest('[data-mistake-panel]'), task = panel?.dataset.mistakePanel;
+    const t = byId.get(task), reason = button.dataset.mistake, row = MISTAKE_REASONS[reason];
+    if (!panel || !t || !row) return;
+    const status = panel.querySelector('[data-mistake-result]');
+    const buttons = [...panel.querySelectorAll('[data-mistake]')];
+    buttons.forEach(b => { b.disabled = true; }); status.textContent = 'Сохраняю отметку…';
+    try {
+      if (SERVER) await api('learning/mistake', { task, reason });
+      else throw Error('Отметки причин доступны после входа на сайт.');
+      if (!panel.isConnected) return;
+      buttons.forEach(b => b.setAttribute('aria-pressed', b === button ? 'true' : 'false'));
+      status.replaceChildren(document.createTextNode('Сохранено. ' + row[1] + ' '));
+      const link = document.createElement('button'); link.type = 'button'; link.className = 'link-btn';
+      link.textContent = reason === 'implementation' ? 'Открыть лабораторию' : `Открыть разбор №${numLabel(t.n)}`;
+      link.addEventListener('click', () => reason === 'implementation' ? openLab('code') : openLesson(scopeOf(t.n)));
+      status.append(link);
+    } catch (err) { if (panel.isConnected) status.textContent = err.message || 'Не удалось сохранить. Нажми на причину ещё раз.'; }
+    finally { buttons.forEach(b => { b.disabled = false; }); }
+  });
+
   function finish(score, gaveUp, res) {
     if (!cur || cur.done) return;
     if (res && res.daily_fast) toast('⚠ Задание дня решено слишком быстро — так его не прочитать. Результат в рейтинг не засчитан.', 6000);
@@ -1216,7 +1254,7 @@
     cur.score = score;
     const t = cur.task;
     res = res || {};
-    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount });
+    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp });
     ui.currentId = null;
     save();
 
@@ -1258,6 +1296,7 @@
         }
       });
     }
+    if (score < 1 && SERVER) $('#feedback').insertAdjacentHTML('beforeend', mistakePanel(t));
     $$('#feedback .solution .cond').forEach(decorateCondition);
     renderActions();
     renderSidebar();

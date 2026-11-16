@@ -1,6 +1,6 @@
 /* Отдельный Python-поток лаборатории. Трассировка не меняет обычный редактор. */
 'use strict';
-importScripts('py-worker.js');
+// python-sandbox.js prepends py-worker.js before creating the opaque-origin worker.
 
 // Тот же код проверяется в tests/test_lab_trace.py на обычном CPython.
 const LAB_TRACE_PY = String.raw`
@@ -175,12 +175,9 @@ self.onmessage = async ev => {
     await ready;
     if (!pyodide) throw new Error('Python не загрузился. Проверьте подключение и повторите запуск.');
     for (const file of (msg.files || []).slice(0, 10)) {
-      if (!/^[A-Za-z0-9_.-]{1,60}$/.test(file.name) || file.name === '.' || file.name === '..') throw Error('Недопустимое имя файла');
-      const url = new URL(file.url, self.location.href);
-      if (url.origin !== self.location.origin || !/^\/(pyc|course)-data\//.test(url.pathname)) throw Error('Недопустимый файл урока');
-      const r = await fetch(url, { credentials: 'same-origin' });
-      if (!r.ok) throw Error('Не удалось загрузить файл ' + file.name);
-      const data = new Uint8Array(await r.arrayBuffer());
+      if (!file.name || /[/\\\x00-\x1f]/.test(file.name) || ['.', '..'].includes(file.name)) throw Error('Недопустимое имя файла');
+      if (file.error || !(file.data instanceof ArrayBuffer)) throw Error('Не удалось загрузить файл ' + file.name);
+      const data = new Uint8Array(file.data);
       if (data.length > 10000000) throw Error('Файл слишком большой для пошагового разбора');
       pyodide.FS.writeFile('/home/pyodide/' + file.name, data);
     }
