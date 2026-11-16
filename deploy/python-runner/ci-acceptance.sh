@@ -62,6 +62,16 @@ install -d -m 0755 "/etc/systemd/system/user@$runner_uid.service.d"
 cat > "/etc/systemd/system/user@$runner_uid.service.d/50-verifier-controllers.conf" <<'EOF'
 [Service]
 Delegate=cpu cpuset io memory pids
+Environment=HOME=/var/lib/ege-python
+Environment=XDG_CONFIG_HOME=/var/lib/ege-python/.config
+Environment=XDG_DATA_HOME=/var/lib/ege-python/.local/share
+Environment=XDG_CACHE_HOME=/var/lib/ege-python/.cache
+Environment=XDG_RUNTIME_DIR=/run/user/%i
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%i/bus
+# PAM may reintroduce the image's runner-specific /etc/environment after
+# Environment=. Override only these paths after PAM, retaining its session setup.
+ExecStart=
+ExecStart=/usr/bin/env HOME=/var/lib/ege-python XDG_CONFIG_HOME=/var/lib/ege-python/.config XDG_DATA_HOME=/var/lib/ege-python/.local/share XDG_CACHE_HOME=/var/lib/ege-python/.cache XDG_RUNTIME_DIR=/run/user/%i DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%i/bus /usr/lib/systemd/systemd --user
 EOF
 systemctl daemon-reload
 base_image=$(cat "$source_dir/base-image.txt")

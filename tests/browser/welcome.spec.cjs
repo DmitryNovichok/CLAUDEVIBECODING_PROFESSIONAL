@@ -100,13 +100,16 @@ test('unavailable coverage makes no fabricated material counts',async({page})=>{
   await expect(page.locator('#courseFullCount')).toHaveText('—');
 });
 
-for(const width of [320,375,1366]) test(`coverage matrix stays within the page at ${width}px`,async({page})=>{
+for(const width of [320,375,1366]) test(`coverage matrix stays within the page at ${width}px`,async({page},testInfo)=>{
   await page.setViewportSize({width,height:900});await page.goto(origin+'/welcome');
   await expect(page.locator('#courseCoverageRows tr')).toHaveCount(28);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const scroll=page.getByRole('region',{name:'Карта уроков и практики'});
   await scroll.focus();await expect(scroll).toBeFocused();
   const box=await scroll.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
+  await testInfo.attach(`coverage-${width}.png`, {
+    body:await page.locator('.w-coverage').screenshot(),contentType:'image/png',
+  });
 });
 
 test('teacher login has persistent labels, login-first focus and accessible code step', async ({ page }) => {

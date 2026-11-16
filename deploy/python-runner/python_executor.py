@@ -13,6 +13,7 @@ import selectors
 import signal
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -132,13 +133,13 @@ class PodmanExecutor:
             self.jobs.mkdir(parents=True, exist_ok=True, mode=0o700)
             if self.jobs.stat().st_uid != os.geteuid() or self.jobs.stat().st_mode & 0o077:
                 raise RuntimeUnavailable('Runner jobs directory must be private to the broker')
-            result = self.run_one("print('ege-verifier-ready')\n", '')
+            result = self.run_one("print('ege-verifier-ready')\n", '', diagnose=True)
             if result['status'] != 'ok' or result['out'] != 'ege-verifier-ready\n':
                 raise RuntimeUnavailable('Runner attestation failed')
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
             raise RuntimeUnavailable('Isolated runtime unavailable') from exc
 
-    def run_one(self, code, stdin):
+    def run_one(self, code, stdin, *, diagnose=False):
         name = 'ege-verify-' + uuid.uuid4().hex
         with tempfile.TemporaryDirectory(prefix='job-', dir=self.jobs) as job:
             source = Path(job) / 'main.py'
@@ -162,6 +163,13 @@ class PodmanExecutor:
                     self.failed = True
                     raise RuntimeUnavailable('Container cleanup unavailable') from exc
         if not err.startswith(MARKER) or rc == 125:
+            if diagnose:
+                # Only preflight's fixed trusted program enables diagnostics.
+                # Ordinary submissions never log code, input or output here.
+                print('Independent Python runner preflight: ' + json.dumps({
+                    'exit_code': rc, 'status': status,
+                    'stderr': err.decode('utf-8', 'replace'),
+                }, ensure_ascii=True), file=sys.stderr)
             raise RuntimeUnavailable('Container did not attest enforced isolation')
         err = err[len(MARKER):]
         if status == 'ok' and (rc or err):
