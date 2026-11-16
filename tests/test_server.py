@@ -3802,6 +3802,8 @@ class ServerTest(unittest.TestCase):
         tid = db.x("INSERT INTO teachers(name, login, pw, invite, is_main, created) VALUES('Второй Учитель', 'second', 'x', 'JOIN42', 0, ?)",
                    (time.time(),))
         self.assertEqual(self.req("POST", "/api/account", {"code": "BAD"}, tok)[0], 403)
+        self.assertNotEqual(self.req("POST", "/api/account", {"code": "JOIN42", "email": "new@example.ru"}, tok)[0], 200)   # не допущенный учитель
+        db.x("UPDATE teachers SET email='second@example.ru', email_ok=1, moderation='approved' WHERE id=?", (tid,))
         st, d = self.req("POST", "/api/account", {"code": "JOIN42", "email": "new@example.ru"}, tok)
         self.assertEqual((st, d["teacher"], d["self_reg"], d["email"]), (200, "Второй Учитель", False, "new@example.ru"))
         self.assertEqual(self.req("POST", "/api/account", {"code": "1234"}, tok)[0], 403)   # дальше учителя меняет только учитель
