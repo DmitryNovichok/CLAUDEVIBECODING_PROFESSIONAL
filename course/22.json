@@ -1,0 +1,239 @@
+{
+ "n": 22,
+ "title": "Задание 22. Параллельные процессы",
+ "slides": [
+  {
+   "t": "title",
+   "k": "ЕГЭ · Информатика · 2027",
+   "h": "Задание 22",
+   "sub": "Параллельные процессы с зависимостями: самое раннее начало, время окончания, загрузка в заданную миллисекунду",
+   "aside": "<span class=\"b\">start = max(end) + 1</span><span class=\"o\">end = start + t − 1</span>"
+  },
+  {
+   "t": "text",
+   "k": "Введение",
+   "h": "Что это за задание",
+   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>первичный</span></div><div><b>6–10 мин</b><span>ориентир по времени</span></div><div><b>xlsx</b><span>таблица процессов</span></div><div><b>число</b><span>ответ</span></div></div><div class=\"sl-cols\"><div><h4>Суть</h4><p>Процессы зависят друг от друга. Каждый стартует как можно раньше. Нужно найти общее время, число одновременно идущих процессов и т. п.</p></div><div><h4>Без приостановки</h4><p>Начавшийся процесс идёт до конца. Зависимый стартует только после окончания ВСЕХ, от кого зависит.</p></div></div>"
+  },
+  {
+   "t": "text",
+   "k": "Пример из условия",
+   "h": "Таблица процессов и расписание",
+   "html": "<table class=\"sl-tab\"><tr><th>ID</th><th>Время, мс</th><th>Зависит от</th><th>Начало</th><th>Конец</th></tr><tr><td>1</td><td>3</td><td>0</td><td>1</td><td>3</td></tr><tr><td>2</td><td>4</td><td>1</td><td>4</td><td>7</td></tr><tr><td>3</td><td>2</td><td>2; 4</td><td>8</td><td>9</td></tr><tr><td>4</td><td>5</td><td>0</td><td>1</td><td>5</td></tr><tr><td>5</td><td>8</td><td>1; 4</td><td>6</td><td>13</td></tr><tr><td>6</td><td>3</td><td>1</td><td>4</td><td>6</td></tr></table><div class=\"sl-callout\"><b>Правила</b><p>Независимый процесс начинается на 1-й мс. Зависимый — на следующей мс после самого позднего окончания своих «родителей». Конец = начало + время − 1.</p></div>"
+  },
+  {
+   "t": "solve",
+   "k": "Пример · Вручную",
+   "kc": "t1",
+   "h": "Кто работает на 7-й мс",
+   "ch": "Задание",
+   "cond": "<p>По таблице примера: какие процессы выполняются на 7-й мс?</p>",
+   "note": "Процесс идёт на мс ms, если начало ≤ ms ≤ конец.",
+   "nk": "secret",
+   "sol": "<p>P2 (4–7) и P5 (6–13). Максимум одновременно — 3 процесса (мс 4–6), всё закончится на 13-й мс.</p>",
+   "ans": "P2 и P5"
+  },
+  {
+   "t": "code",
+   "k": "Пример · Python",
+   "kc": "t1",
+   "h": "Расписание на Python",
+   "ch": "Задание",
+   "cond": "<p>Таблицу копируем из Excel в текстовый файл: ID, время, зависимости через «;». Время окончания — рекурсия с запоминанием.</p>",
+   "note": "<code>end(i)</code> — максимум окончаний родителей + время процесса. Порядок строк не важен: рекурсия сама найдёт родителей.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22s.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nfor i in T:\n    print(i, end(i) - T[i][0] + 1, end(i))   # номер, начало, конец",
+   "sub": "",
+   "out": "1 1 3\n2 4 7\n3 8 9\n4 1 5\n5 6 13\n6 4 6",
+   "wide": true,
+   "files": [
+    {
+     "name": "22s.txt",
+     "url": "course-data/22/22s.txt?v=fe205d92"
+    }
+   ]
+  },
+  {
+   "t": "section",
+   "k": "Демо-2027",
+   "kc": "t1",
+   "h": "Процессов на заданной миллисекунде",
+   "tag": "начало ≤ ms ≤ конец",
+   "sub": "Каждый процесс начинается в самое раннее допустимое время"
+  },
+  {
+   "t": "text",
+   "k": "Демо-2027 · Разбор",
+   "kc": "t1",
+   "h": "Порядок действий",
+   "html": "<div class=\"sl-steps\"><div><i>1</i><b>Начало и конец</b><span>каждого процесса</span></div><div class=\"dark\"><i>2</i><b>Условие</b><span>начало ≤ 7 и конец ≥ 7</span></div><div><i>3</i><b>Сосчитать</b><span>сколько таких процессов</span></div></div><p class=\"sl-note\">«Максимальное» здесь не мешает: при самых ранних стартах расписание однозначно. Ответ демо-2027: 8.</p>"
+  },
+  {
+   "t": "code",
+   "k": "Демо-2027 · Python",
+   "kc": "t1",
+   "h": "Процессы в момент времени",
+   "ch": "Задание",
+   "cond": "<p>Файл <code>22.txt</code>: 60 процессов; в строке — ID, время в мс и ID процессов, от которых он зависит (0 — независимый).</p><p>Сколько процессов выполняется на 30-й мс, если каждый начинается в самое раннее допустимое время?</p>",
+   "note": "Та же программа, другой файл и другая миллисекунда.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nprint(sum(works(i, 30) for i in T))",
+   "sub": "",
+   "ans": "10",
+   "files": [
+    {
+     "name": "22.txt",
+     "url": "course-data/22/22.txt?v=e9082fbe"
+    }
+   ]
+  },
+  {
+   "t": "text",
+   "k": "Excel",
+   "kc": "t1",
+   "h": "То же в электронной таблице",
+   "html": "<div class=\"sl-steps\"><div><i>1</i><b>Столбцы</b><span>D — начало, E — конец. Для независимых: D = 1</span></div><div><i>2</i><b>Конец</b><span>E2 = D2 + B2 − 1</span></div><div class=\"dark\"><i>3</i><b>Начало зависимых</b><span>D = МАКС(конец родителя 1; конец родителя 2) + 1 — ссылки на ячейки E нужных строк</span></div><div><i>4</i><b>Подсчёт</b><span><code>=СЧЁТЕСЛИМН(D:D;\"&lt;=7\";E:E;\"&gt;=7\")</code> — сколько идут на 7-й мс</span></div></div>"
+  },
+  {
+   "t": "section",
+   "k": "Варианты",
+   "kc": "t2",
+   "h": "Что ещё спрашивают",
+   "tag": "max(end) · пик · ускорение",
+   "sub": "Общее время · пик загрузки · сокращение времени"
+  },
+  {
+   "t": "code",
+   "k": "Варианты · 1 из 3",
+   "kc": "t2",
+   "h": "Общее время",
+   "ch": "Задание",
+   "cond": "<p>Файл <code>22.txt</code>: 60 процессов; в строке — ID, время в мс и ID процессов, от которых он зависит (0 — независимый).</p><p>Через сколько миллисекунд завершатся все процессы?</p>",
+   "note": "Общее время — наибольшее время окончания.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nprint(max(end(i) for i in T))",
+   "sub": "",
+   "ans": "58",
+   "files": [
+    {
+     "name": "22.txt",
+     "url": "course-data/22/22.txt?v=e9082fbe"
+    }
+   ]
+  },
+  {
+   "t": "code",
+   "k": "Варианты · 2 из 3",
+   "kc": "t2",
+   "h": "Пик загрузки",
+   "ch": "Задание",
+   "cond": "<p>Файл <code>22.txt</code>: 60 процессов; в строке — ID, время в мс и ID процессов, от которых он зависит (0 — независимый).</p><p>Какое наибольшее число процессов выполняется одновременно?</p>",
+   "note": "Перебираем все миллисекунды от 1 до конца и берём максимум.",
+   "nk": "secret",
+   "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nlast = max(end(i) for i in T)\nprint(max(sum(works(i, ms) for i in T) for ms in range(1, last + 1)))",
+   "sub": "",
+   "ans": "20",
+   "files": [
+    {
+     "name": "22.txt",
+     "url": "course-data/22/22.txt?v=e9082fbe"
+    }
+   ]
+  },
+  {
+   "t": "code",
+   "k": "Варианты · 3 из 3",
+   "kc": "t3",
+   "h": "Сокращение времени",
+   "ch": "Задание",
+   "cond": "<p>Файл <code>22.txt</code>: 60 процессов; в строке — ID, время в мс и ID процессов, от которых он зависит (0 — независимый).</p><p>Как изменится общее время, если процесс 27 ускорить до 1 мс?</p>",
+   "note": "После изменения данных очищаем кэш: <code>end.cache_clear()</code>, иначе останутся старые значения.",
+   "nk": "warn",
+   "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nbefore = max(end(i) for i in T)\nt, d = T[27]\nT[27] = (1, d)                              # процесс 27 ускорили до 1 мс\nend.cache_clear()\nprint(before, max(end(i) for i in T))",
+   "sub": "",
+   "ans": "58 54",
+   "files": [
+    {
+     "name": "22.txt",
+     "url": "course-data/22/22.txt?v=e9082fbe"
+    }
+   ]
+  },
+  {
+   "t": "text",
+   "k": "Ловушки",
+   "h": "Где теряют балл",
+   "html": "<ul class=\"sl-bad\"><li><b>Конец = начало + t.</b> Без «−1» процесс «длится» на миллисекунду дольше.</li><li><b>Старт с 0.</b> В условии нумерация с 1: независимые стартуют на 1-й мс.</li><li><b>Один родитель.</b> Зависимостей может быть несколько — берём МАКСИМУМ их окончаний.</li><li><b>Порядок строк.</b> Родитель может стоять ниже ребёнка — рекурсия решает это сама.</li><li><b>Разделитель.</b> «;» с пробелом: «2; 4» — <code>split(';')</code> и <code>int()</code> справятся.</li><li><b>0 — не процесс.</b> 0 в зависимостях означает «независим».</li></ul>"
+  },
+  {
+   "t": "text",
+   "k": "Шпаргалка",
+   "h": "Весь №22 на одном слайде",
+   "html": "<div class=\"sl-cheat\"><div><b>Конец</b><code>end(i) = max(end(родителей)) + t</code></div><div><b>Начало</b><code>end(i) - t + 1</code></div><div><b>Идёт на мс</b><code>начало &lt;= ms &lt;= конец</code></div><div><b>Общее время</b><code>max(end(i) for i in T)</code></div><div><b>Пик</b>перебор всех мс</div><div><b>Excel</b><code>СЧЁТЕСЛИМН(D:D;\"&lt;=7\";E:E;\"&gt;=7\")</code></div></div>"
+  },
+  {
+   "t": "text",
+   "k": "Практика",
+   "h": "Решите самостоятельно",
+   "html": "<div class=\"sl-cards c2 \"><div class=\"sl-card t1\"><i class=\"t1\">1 · момент</i><b></b><p>Для таблицы из примера: сколько процессов выполняется на 7-й мс?</p></div><div class=\"sl-card t2\"><i class=\"t2\">2 · общее время</i><b></b><p>Для того же примера: через сколько мс завершатся все процессы?</p></div><div class=\"sl-card t3\"><i class=\"t3\">3 · пик</i><b></b><p>Каково максимальное число одновременно выполняемых процессов?</p></div><div class=\"sl-card t1\"><i class=\"t1\">4 · конец</i><b></b><p>На какой мс заканчивается процесс 6?</p></div></div><p class=\"sl-note\">Таблица — в файле 22s.txt. Ответы и решения — на следующих слайдах.</p>"
+  },
+  {
+   "t": "text",
+   "k": "Урок пройден!",
+   "h": "Ответы",
+   "dark": true,
+   "html": "<div class=\"sl-cards c4 answers\"><div class=\"sl-card t1\"><i>Задача 1</i><b>2</b><p>P2 и P5</p></div><div class=\"sl-card t2\"><i>Задача 2</i><b>13</b><p>P5: 6–13</p></div><div class=\"sl-card t3\"><i>Задача 3</i><b>3</b><p>мс 4–6</p></div><div class=\"sl-card t1\"><i>Задача 4</i><b>6</b><p>4–6</p></div></div><div class=\"sl-callout dark\"><b>Не сошлось?</b><p>Выведите начало и конец каждого процесса и нарисуйте диаграмму на бумаге.</p></div>"
+  },
+  {
+   "t": "codes",
+   "k": "Практика",
+   "h": "Решения задач 1–4",
+   "blocks": [
+    {
+     "cond": "<b>Задача 1.</b>",
+     "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22s.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nprint(sum(works(i, 7) for i in T))",
+     "ans": "2",
+     "files": [
+      {
+       "name": "22s.txt",
+       "url": "course-data/22/22s.txt?v=fe205d92"
+      }
+     ]
+    },
+    {
+     "cond": "<b>Задача 2.</b>",
+     "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22s.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nprint(max(end(i) for i in T))",
+     "ans": "13",
+     "files": [
+      {
+       "name": "22s.txt",
+       "url": "course-data/22/22s.txt?v=fe205d92"
+      }
+     ]
+    },
+    {
+     "cond": "<b>Задача 3.</b>",
+     "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22s.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nprint(max(sum(works(i, ms) for i in T) for ms in range(1, 14)))",
+     "ans": "3",
+     "files": [
+      {
+       "name": "22s.txt",
+       "url": "course-data/22/22s.txt?v=fe205d92"
+      }
+     ]
+    },
+    {
+     "cond": "<b>Задача 4.</b>",
+     "code": "from functools import lru_cache\n\nT = {}\nfor s in open('22s.txt'):\n    i, t, dep = s.strip().split('\\t')\n    T[int(i)] = (int(t), [int(x) for x in dep.split(';') if int(x) != 0])\n\n@lru_cache(None)\ndef end(i):                                # время окончания: максимум окончаний родителей + своё время\n    t, d = T[i]\n    return max([end(j) for j in d], default=0) + t\n\ndef works(i, ms):                          # идёт ли процесс i на миллисекунде ms\n    return end(i) - T[i][0] + 1 <= ms <= end(i)\n\nprint(end(6))",
+     "ans": "6",
+     "files": [
+      {
+       "name": "22s.txt",
+       "url": "course-data/22/22s.txt?v=fe205d92"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

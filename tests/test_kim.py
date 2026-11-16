@@ -130,7 +130,10 @@ class ArchiveLessonTest(unittest.TestCase):
         d = json.loads((ROOT / "course" / "28.json").read_text(encoding="utf-8"))
         self.assertEqual(d["n"], 28)
         self.assertIn("23_old", d["title"])
-        self.assertFalse((ROOT / "course" / "23.json").exists())   # №23 — исполнитель: краткий разбор, не урок про графы
+        d23 = json.loads((ROOT / "course" / "23.json").read_text(encoding="utf-8"))   # №23 — урок про исполнителя, не про графы
+        self.assertEqual(d23["n"], 23)
+        self.assertIn("исполнител", d23["title"])
+        self.assertNotIn("23_old", d23["title"])
         for sl in d["slides"]:
             for f in sl.get("files") or []:
                 self.assertTrue(f["url"].startswith("course-data/28/"))

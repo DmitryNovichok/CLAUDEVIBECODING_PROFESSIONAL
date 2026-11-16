@@ -1,0 +1,209 @@
+{
+ "n": 6,
+ "title": "Задание 6. Исполнитель Черепаха",
+ "slides": [
+  {
+   "t": "title",
+   "k": "ЕГЭ · Информатика · 2027",
+   "h": "Задание 6",
+   "sub": "Исполнитель Черепаха: команды, модуль turtle и подсчёт точек внутри фигур — графически, аналитически и точным расчётом",
+   "aside": "<span class=\"b\">Повтори 6 [</span><span>  Вперёд 24 Направо 90</span><span>  Вперёд 30 Направо 90</span><span class=\"b\">]</span>"
+  },
+  {
+   "t": "text",
+   "k": "Введение",
+   "h": "Что это за задание",
+   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>первичный</span></div><div><b>5–8 мин</b><span>ориентир по времени</span></div><div><b>turtle</b><span>модуль Python</span></div><div><b>число</b><span>точек в ответе</span></div></div><div class=\"sl-cols\"><div><h4>Суть</h4><p>Черепаха рисует фигуры по программе. Нужно посчитать точки с целыми координатами внутри фигуры, в пересечении или объединении фигур.</p></div><div><h4>Старт</h4><p>Черепаха в (0, 0), голова смотрит вверх — вдоль оси ординат, хвост опущен.</p></div></div>"
+  },
+  {
+   "t": "text",
+   "k": "Теория",
+   "h": "Команды Черепахи и модуль turtle",
+   "html": "<table class=\"sl-tab\"><tr><th>Команда исполнителя</th><th>Python (turtle)</th><th>Что делает</th></tr><tr><td>Вперёд n</td><td><code>forward(n * k)</code></td><td>идёт на n шагов туда, куда смотрит</td></tr><tr><td>Назад n</td><td><code>back(n * k)</code></td><td>идёт назад, не поворачиваясь</td></tr><tr><td>Направо m</td><td><code>right(m)</code></td><td>поворот по часовой стрелке</td></tr><tr><td>Налево m</td><td><code>left(m)</code></td><td>поворот против часовой</td></tr><tr><td>Поднять хвост</td><td><code>up()</code></td><td>дальше без рисования</td></tr><tr><td>Опустить хвост</td><td><code>down()</code></td><td>снова рисует</td></tr><tr><td>Повтори k [ … ]</td><td><code>for i in range(k):</code></td><td>повтор блока</td></tr></table><div class=\"sl-callout\"><b>Важно</b><p>В turtle черепаха стартует вправо! Первой строкой — <code>left(90)</code>, чтобы голова смотрела вверх, как в условии.</p></div>"
+  },
+  {
+   "t": "text",
+   "k": "Теория",
+   "h": "Три способа решения",
+   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>Рисунок</b><p>turtle + сетка точек dot(): рисуем фигуру и считаем точки глазами. Быстро для небольших фигур.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>Формула</b><p>Прямоугольник со сторонами вдоль осей: (x₂ − x₁ + 1) · (y₂ − y₁ + 1) точек с границей.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>Точный расчёт</b><p>Моделируем Черепаху математикой и проверяем каждую точку: внутри или на границе. Работает для любых углов.</p></div></div>"
+  },
+  {
+   "t": "section",
+   "k": "Демо-2027",
+   "kc": "t1",
+   "h": "Два прямоугольника",
+   "tag": "пересечение, включая границы",
+   "sub": "Повтори 6 [Вперёд 24 Направо 90 Вперёд 30 Направо 90] … Повтори 6 [Вперёд 75 Направо 90 Вперёд 71 Направо 90]"
+  },
+  {
+   "t": "text",
+   "k": "Демо-2027 · Условие",
+   "kc": "t1",
+   "h": "Что рисует программа",
+   "html": "<div class=\"sl-steps\"><div><i>1</i><b>Фигура 1</b><span>из (0, 0): вверх 24, вправо 30 → x ∈ [0; 30], y ∈ [0; 24]</span></div><div><i>2</i><b>Перемещение</b><span>вверх 2, направо, вперёд 10, налево → стоим в (10, 2), смотрим вверх</span></div><div class=\"dark\"><i>3</i><b>Фигура 2</b><span>вверх 75, вправо 71 → x ∈ [10; 81], y ∈ [2; 77]</span></div></div><p class=\"sl-note\">«Повтори 6» не страшно: два прохода по две стороны замыкают прямоугольник, остальные повторы рисуют поверх него же.</p>"
+  },
+  {
+   "t": "solve",
+   "k": "Демо-2027 · Вручную",
+   "kc": "t1",
+   "h": "Пересечение — тоже прямоугольник",
+   "ch": "Посчитайте",
+   "cond": "<p>Сколько точек с целыми координатами лежит внутри пересечения фигур, включая границы?</p>",
+   "note": "«+1» — главное: от 10 до 30 включительно 21 число, а не 20.",
+   "nk": "warn",
+   "sol": "<p>По x: [0; 30] ∩ [10; 81] = [10; 30] → 21 значение. По y: [0; 24] ∩ [2; 77] = [2; 24] → 23 значения. Каждая пара — точка: 21 · 23.</p>",
+   "ans": "483"
+  },
+  {
+   "t": "code",
+   "k": "Демо-2027 · Python",
+   "kc": "t1",
+   "h": "Множества точек",
+   "ch": "Задание",
+   "cond": "<p>Тот же подсчёт множествами: строим множество целых точек каждого прямоугольника и пересекаем их.</p>",
+   "note": "<code>A &amp; B</code> — пересечение, <code>A | B</code> — объединение, <code>A ^ B</code> — точки только в одной фигуре.",
+   "nk": "secret",
+   "code": "# прямоугольник по углам: все целые точки, включая границу\ndef rect(x1, y1, x2, y2):\n    return {(x, y) for x in range(x1, x2 + 1) for y in range(y1, y2 + 1)}\n\nA = rect(0, 0, 30, 24)          # вверх 24, вправо 30\nB = rect(10, 2, 81, 77)         # из (10, 2): вверх 75, вправо 71\nprint(len(A & B))",
+   "sub": "",
+   "ans": "483"
+  },
+  {
+   "t": "code",
+   "k": "Демо-2027 · Формула",
+   "kc": "t2",
+   "h": "Формула пересечения",
+   "ch": "Задание",
+   "cond": "<p>Если фигуры — прямоугольники со сторонами вдоль осей, хватает формулы для пересечения отрезков.</p>",
+   "note": "Пересечение отрезков [a₁; a₂] и [b₁; b₂] — это [max(a₁, b₁); min(a₂, b₂)].",
+   "nk": "secret",
+   "code": "x1, x2 = max(0, 10), min(30, 81)      # пересечение отрезков по x\ny1, y2 = max(0, 2), min(24, 77)       # и по y\nprint((x2 - x1 + 1) * (y2 - y1 + 1))",
+   "sub": "",
+   "ans": "483"
+  },
+  {
+   "t": "section",
+   "k": "Способы",
+   "kc": "t2",
+   "h": "Рисунок и точный расчёт",
+   "tag": "turtle · path · inside",
+   "sub": "Когда фигура не прямоугольник: повороты на 45°, 60°, 120°"
+  },
+  {
+   "t": "text",
+   "k": "Способ 1 · Рисуем",
+   "kc": "t2",
+   "h": "turtle + сетка точек",
+   "html": "<div class=\"sl-cols\"><div><h4>Как работает</h4><p><code>k</code> — масштаб: 1 шаг Черепахи = k пикселей, иначе фигура крошечная. <code>tracer(0)</code> отключает анимацию, <code>update()</code> показывает всё сразу. Точки ставим <code>dot()</code> во всех целых координатах и считаем по рядам.<br><br>Не помещается? <code>screensize(3000, 3000)</code> и уменьшить k.</p></div><div><h4>Программа</h4><p><pre class=\"sl-mini\">from turtle import *\ntracer(0); left(90); k = 15          # голова вверх, масштаб\nfor i in range(6):\n    forward(24 * k); right(90)\n    forward(30 * k); right(90)\nup(); forward(2 * k); right(90)\nforward(10 * k); left(90); down()\nfor i in range(6):\n    forward(75 * k); right(90)\n    forward(71 * k); right(90)\nup()\nfor x in range(0, 40):\n    for y in range(0, 30):\n        goto(x * k, y * k); dot(3, 'red')\nupdate(); done()</pre></p></div></div><p class=\"sl-note\">turtle открывает окно с рисунком — запускайте этот код у себя на компьютере.</p>"
+  },
+  {
+   "t": "code",
+   "k": "Способ 2 · Точно",
+   "kc": "t3",
+   "h": "Способ 2: вершины + проверка точки",
+   "ch": "Задание",
+   "cond": "<p>Повтори 3 [Вперёд 12 Направо 120]. Сколько целых точек строго внутри треугольника?</p>",
+   "note": "Сначала проверяем границу (на ней «луч» ошибается), потом внутренность. <code>round</code> убирает погрешности вида 23.999999.",
+   "nk": "secret",
+   "code": "from math import cos, sin, radians\n\ndef path(cmds, x=0, y=0, h=90):       # cmds: [('F', 24), ('R', 90), ...]; h = 90 — голова вверх\n    pts = [(x, y)]\n    for c, v in cmds:\n        if c == 'F':\n            x += v * cos(radians(h))\n            y += v * sin(radians(h))\n            pts.append((round(x, 6), round(y, 6)))\n        else:\n            h += -v if c == 'R' else v\n    return pts[:-1]                    # последняя вершина совпала с первой\n\ndef on_edge(px, py, P):\n    for (x1, y1), (x2, y2) in zip(P, P[1:] + P[:1]):\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-6 and min(x1, x2) - 1e-6 <= px <= max(x1, x2) + 1e-6 \\\n                and min(y1, y2) - 1e-6 <= py <= max(y1, y2) + 1e-6:\n            return True\n    return False\n\ndef inside(px, py, P):                 # луч вправо: нечётное число пересечений — внутри\n    res = False\n    for (x1, y1), (x2, y2) in zip(P, P[1:] + P[:1]):\n        if (y1 > py) != (y2 > py) and px < x1 + (py - y1) * (x2 - x1) / (y2 - y1):\n            res = not res\n    return res\n\nP = path([('F', 12), ('R', 120)] * 3)\nprint(sum(inside(x, y, P) and not on_edge(x, y, P) for x in range(-50, 50) for y in range(-50, 50)))",
+   "sub": "",
+   "ans": "56",
+   "wide": true
+  },
+  {
+   "t": "code",
+   "k": "Способ 2 · Точно",
+   "kc": "t3",
+   "h": "Не прямые углы",
+   "ch": "Задание",
+   "cond": "<p>Направо 45; Повтори 4 [Вперёд 10√2 Направо 90]. Сколько целых точек внутри квадрата, повёрнутого на 45°, включая границу?</p>",
+   "note": "Для повёрнутых фигур формула прямоугольника не работает — проверяем каждую точку.",
+   "nk": "secret",
+   "code": "from math import cos, sin, radians\n\ndef path(cmds, x=0, y=0, h=90):       # cmds: [('F', 24), ('R', 90), ...]; h = 90 — голова вверх\n    pts = [(x, y)]\n    for c, v in cmds:\n        if c == 'F':\n            x += v * cos(radians(h))\n            y += v * sin(radians(h))\n            pts.append((round(x, 6), round(y, 6)))\n        else:\n            h += -v if c == 'R' else v\n    return pts[:-1]                    # последняя вершина совпала с первой\n\ndef on_edge(px, py, P):\n    for (x1, y1), (x2, y2) in zip(P, P[1:] + P[:1]):\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-6 and min(x1, x2) - 1e-6 <= px <= max(x1, x2) + 1e-6 \\\n                and min(y1, y2) - 1e-6 <= py <= max(y1, y2) + 1e-6:\n            return True\n    return False\n\ndef inside(px, py, P):                 # луч вправо: нечётное число пересечений — внутри\n    res = False\n    for (x1, y1), (x2, y2) in zip(P, P[1:] + P[:1]):\n        if (y1 > py) != (y2 > py) and px < x1 + (py - y1) * (x2 - x1) / (y2 - y1):\n            res = not res\n    return res\n\nP = path([('R', 45)] + [('F', 10 * 2 ** 0.5), ('R', 90)] * 4)\nprint(sum(inside(x, y, P) or on_edge(x, y, P) for x in range(-40, 40) for y in range(-40, 40)))",
+   "sub": "",
+   "ans": "221",
+   "wide": true
+  },
+  {
+   "t": "section",
+   "k": "Варианты",
+   "kc": "t3",
+   "h": "Что спрашивают",
+   "tag": "|A| + |B| − |A ∩ B|",
+   "sub": "Внутри · пересечение · объединение · только в одной · на линиях"
+  },
+  {
+   "t": "code",
+   "k": "Варианты · 1 из 2",
+   "kc": "t3",
+   "h": "Объединение и «только в одной»",
+   "ch": "Задание",
+   "cond": "<p>Повтори 2 [Вперёд 10 Направо 90 Вперёд 20 Направо 90]; Поднять хвост; Вперёд 4 Направо 90 Вперёд 5 Налево 90; Опустить хвост; Повтори 2 [Вперёд 15 Направо 90 Вперёд 8 Направо 90]. Найдите число точек объединения и число точек, лежащих только в одной фигуре (с границей).</p>",
+   "note": "Объединение: |A| + |B| − |A ∩ B|. Только в одной: |A ∪ B| − |A ∩ B|.",
+   "nk": "secret",
+   "code": "def rect(x1, y1, x2, y2):\n    return {(x, y) for x in range(x1, x2 + 1) for y in range(y1, y2 + 1)}\n\nA = rect(0, 0, 20, 10)\nB = rect(5, 4, 13, 19)\nprint(len(A | B), len(A ^ B))         # объединение и «только в одной»",
+   "sub": "",
+   "ans": "312 249"
+  },
+  {
+   "t": "code",
+   "k": "Варианты · 2 из 2",
+   "kc": "t3",
+   "h": "Точки на линиях",
+   "ch": "Задание",
+   "cond": "<p>Повтори 2 [Вперёд 6 Направо 90 Вперёд 9 Направо 90]. Через сколько точек с целыми координатами прошла Черепаха (точки на линиях)?</p>",
+   "note": "Точки на границе прямоугольника a × b: 2(a + b).",
+   "nk": "secret",
+   "code": "from math import cos, sin, radians\n\ndef path(cmds, x=0, y=0, h=90):       # cmds: [('F', 24), ('R', 90), ...]; h = 90 — голова вверх\n    pts = [(x, y)]\n    for c, v in cmds:\n        if c == 'F':\n            x += v * cos(radians(h))\n            y += v * sin(radians(h))\n            pts.append((round(x, 6), round(y, 6)))\n        else:\n            h += -v if c == 'R' else v\n    return pts[:-1]                    # последняя вершина совпала с первой\n\ndef on_edge(px, py, P):\n    for (x1, y1), (x2, y2) in zip(P, P[1:] + P[:1]):\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-6 and min(x1, x2) - 1e-6 <= px <= max(x1, x2) + 1e-6 \\\n                and min(y1, y2) - 1e-6 <= py <= max(y1, y2) + 1e-6:\n            return True\n    return False\n\ndef inside(px, py, P):                 # луч вправо: нечётное число пересечений — внутри\n    res = False\n    for (x1, y1), (x2, y2) in zip(P, P[1:] + P[:1]):\n        if (y1 > py) != (y2 > py) and px < x1 + (py - y1) * (x2 - x1) / (y2 - y1):\n            res = not res\n    return res\n\nP = path([('F', 6), ('R', 90), ('F', 9), ('R', 90)] * 2)\nprint(sum(on_edge(x, y, P) for x in range(-20, 20) for y in range(-20, 20)))",
+   "sub": "",
+   "ans": "30",
+   "wide": true
+  },
+  {
+   "t": "text",
+   "k": "Ловушки",
+   "h": "Где теряют балл",
+   "html": "<ul class=\"sl-bad\"><li><b>Забыли left(90).</b> Черепаха в Python смотрит вправо — фигура повёрнута.</li><li><b>Граница.</b> «Внутри» и «включая границу» отличаются на десятки точек.</li><li><b>+1 при подсчёте.</b> Целых чисел на отрезке [a; b] ровно b − a + 1.</li><li><b>Масштаб в goto.</b> Точки ставим в (x · k, y · k), а не (x, y).</li><li><b>Назад ≠ поворот.</b> «Назад n» не меняет направление головы.</li><li><b>Налево / направо.</b> Направо — по часовой: <code>right()</code>, налево — <code>left()</code>.</li></ul>"
+  },
+  {
+   "t": "text",
+   "k": "Шпаргалка",
+   "h": "Весь №6 на одном слайде",
+   "html": "<div class=\"sl-cheat\"><div><b>Старт</b><code>left(90)</code> — голова вверх</div><div><b>Прямоугольник</b><code>(x2 - x1 + 1) * (y2 - y1 + 1)</code></div><div><b>Пересечение</b><code>[max(a1, b1); min(a2, b2)]</code></div><div><b>Множества</b><code>A &amp; B</code> · <code>A | B</code> · <code>A ^ B</code></div><div><b>Любые углы</b><code>path()</code> + <code>inside()</code> + <code>on_edge()</code></div><div><b>Строго внутри</b><code>inside(x, y, P) and not on_edge(x, y, P)</code></div></div>"
+  },
+  {
+   "t": "text",
+   "k": "Практика",
+   "h": "Решите самостоятельно",
+   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1 · квадрат</i><b></b><p>Повтори 4 [Вперёд 12 Направо 90]. Сколько целых точек внутри квадрата, включая границу? А строго внутри?</p></div><div class=\"sl-card t2\"><i class=\"t2\">2 · две фигуры</i><b></b><p>Для фигур со слайда «Объединение» найдите число точек пересечения и объединения (с границей).</p></div><div class=\"sl-card t3\"><i class=\"t3\">3 · треугольник</i><b></b><p>Повтори 3 [Вперёд 12 Направо 120]. Сколько целых точек внутри треугольника, включая границу?</p></div></div><p class=\"sl-note\">Ответы и решения — на следующих слайдах.</p>"
+  },
+  {
+   "t": "text",
+   "k": "Урок пройден!",
+   "h": "Ответы",
+   "dark": true,
+   "html": "<div class=\"sl-cards c3 answers\"><div class=\"sl-card t1\"><i>Задача 1</i><b>169 121</b><p>13 · 13 и 11 · 11</p></div><div class=\"sl-card t2\"><i>Задача 2</i><b>63 312</b><p>9 · 7 и 231 + 144 − 63</p></div><div class=\"sl-card t3\"><i>Задача 3</i><b>69</b><p>56 строго внутри + 13 на сторонах</p></div></div><div class=\"sl-callout dark\"><b>Не сошлось?</b><p>Нарисуйте фигуру на клетчатой бумаге для маленьких размеров и сравните с программой.</p></div>"
+  },
+  {
+   "t": "codes",
+   "k": "Практика",
+   "h": "Решения задач 1–3",
+   "blocks": [
+    {
+     "cond": "<b>Задача 1.</b> Квадрат 12 × 12.",
+     "code": "n = 12\nprint((n + 1) ** 2, (n - 1) ** 2)     # с границей и строго внутри",
+     "ans": "169 121"
+    },
+    {
+     "cond": "<b>Задача 2.</b> Множества точек.",
+     "code": "def rect(x1, y1, x2, y2):\n    return {(x, y) for x in range(x1, x2 + 1) for y in range(y1, y2 + 1)}\n\nA = rect(0, 0, 20, 10)\nB = rect(5, 4, 13, 19)\nprint(len(A & B), len(A | B))",
+     "ans": "63 312"
+    },
+    {
+     "cond": "<b>Задача 3.</b> Внутри или на границе.",
+     "code": "from math import cos, sin, radians\n\ndef path(cmds, x=0, y=0, h=90):       # cmds: [('F', 24), ('R', 90), ...]; h = 90 — голова вверх\n    pts = [(x, y)]\n    for c, v in cmds:\n        if c == 'F':\n            x += v * cos(radians(h))\n            y += v * sin(radians(h))\n            pts.append((round(x, 6), round(y, 6)))\n        else:\n            h += -v if c == 'R' else v\n    return pts[:-1]                    # последняя вершина совпала с первой\n\ndef on_edge(px, py, P):\n    for (x1, y1), (x2, y2) in zip(P, P[1:] + P[:1]):\n        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)\n        if abs(cross) < 1e-6 and min(x1, x2) - 1e-6 <= px <= max(x1, x2) + 1e-6 \\\n                and min(y1, y2) - 1e-6 <= py <= max(y1, y2) + 1e-6:\n            return True\n    return False\n\ndef inside(px, py, P):                 # луч вправо: нечётное число пересечений — внутри\n    res = False\n    for (x1, y1), (x2, y2) in zip(P, P[1:] + P[:1]):\n        if (y1 > py) != (y2 > py) and px < x1 + (py - y1) * (x2 - x1) / (y2 - y1):\n            res = not res\n    return res\n\nP = path([('F', 12), ('R', 120)] * 3)\nprint(sum(inside(x, y, P) or on_edge(x, y, P) for x in range(-50, 50) for y in range(-50, 50)))",
+     "ans": "69"
+    }
+   ]
+  }
+ ]
+}

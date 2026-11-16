@@ -1,0 +1,175 @@
+{
+ "n": 18,
+ "title": "Задание 18. Робот на клетчатом поле",
+ "slides": [
+  {
+   "t": "title",
+   "k": "ЕГЭ · Информатика · 2027",
+   "h": "Задание 18",
+   "sub": "Робот на клетчатом поле: динамическое программирование в Excel. Стены, несколько конечных клеток, максимум и минимум",
+   "aside": "<span class=\"b\">=МАКС(B1;A2)+Лист1!B2</span><span class=\"o\">=МИН(B1;A2)+Лист1!B2</span>"
+  },
+  {
+   "t": "text",
+   "k": "Введение",
+   "h": "Что это за задание",
+   "html": "<div class=\"sl-stats\"><div><b>1 балл</b><span>первичный</span></div><div><b>8–12 мин</b><span>ориентир по времени</span></div><div><b>N×N</b><span>таблица до 29 × 29</span></div><div><b>2</b><span>числа: max и min</span></div></div><div class=\"sl-cols\"><div><h4>Суть</h4><p>Робот идёт только вправо или вниз и собирает монеты. Найти наибольшую и наименьшую возможные суммы.</p></div><div><h4>Метод</h4><p>Динамика: лучшая сумма в клетке = монета клетки + лучшая из сумм соседей слева и сверху.</p></div></div>"
+  },
+  {
+   "t": "text",
+   "k": "Идея",
+   "h": "Почему работает «динамика»",
+   "html": "<div class=\"sl-steps\"><div><i>1</i><b>В клетку можно прийти</b><span>только из соседней слева или сверху — других путей нет</span></div><div class=\"dark\"><i>2</i><b>Лучшее к клетке</b><span>монета клетки + лучшее из двух соседей; для минимума — меньшее</span></div><div><i>3</i><b>Края</b><span>в первой строке — только слева, в первом столбце — только сверху</span></div><div><i>4</i><b>Стены</b><span>если между клетками стена — этот сосед недоступен, берём только другого</span></div></div>"
+  },
+  {
+   "t": "text",
+   "k": "Пример",
+   "h": "Поле 4 × 4 без внутренних стен",
+   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1</i><b>Монеты</b><p><table class=\"sl-tab\"><tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th></tr><tr><td>1</td><td>1</td><td>8</td><td>8</td><td>4</td></tr><tr><td>2</td><td>10</td><td>1</td><td>1</td><td>3</td></tr><tr><td>3</td><td>1</td><td>3</td><td>12</td><td>2</td></tr><tr><td>4</td><td>2</td><td>3</td><td>5</td><td>6</td></tr></table></p></div><div class=\"sl-card t2\"><i class=\"t2\">2</i><b>Максимум суммы</b><p><table class=\"sl-tab\"><tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th></tr><tr><td>1</td><td>1</td><td>9</td><td>17</td><td>21</td></tr><tr><td>2</td><td>11</td><td>12</td><td>18</td><td>24</td></tr><tr><td>3</td><td>12</td><td>15</td><td>30</td><td>32</td></tr><tr><td>4</td><td>14</td><td>18</td><td>35</td><td>41</td></tr></table></p></div><div class=\"sl-card t3\"><i class=\"t3\">3</i><b>Минимум суммы</b><p><table class=\"sl-tab\"><tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th></tr><tr><td>1</td><td>1</td><td>9</td><td>17</td><td>21</td></tr><tr><td>2</td><td>11</td><td>10</td><td>11</td><td>14</td></tr><tr><td>3</td><td>12</td><td>13</td><td>23</td><td>16</td></tr><tr><td>4</td><td>14</td><td>16</td><td>21</td><td>22</td></tr></table></p></div></div><p class=\"sl-note\">Клетка C3: 12 (монета) + max(18 сверху, 15 слева) = 30. Ответ для правой нижней клетки: 41 и 22.</p>"
+  },
+  {
+   "t": "solve",
+   "k": "Пример · Вручную",
+   "kc": "t1",
+   "h": "Заполните клетку",
+   "ch": "Задание",
+   "cond": "<p>В таблице максимумов уже известно: над клеткой D4 — 32, слева — 35. Монета в D4 — 6. Чему равна клетка D4?</p>",
+   "note": "Монета стартовой клетки тоже входит в сумму.",
+   "nk": "secret",
+   "sol": "<p>6 + max(32, 35) = 41.</p>",
+   "ans": "41"
+  },
+  {
+   "t": "code",
+   "k": "Пример · Python",
+   "kc": "t1",
+   "h": "Динамика на Python",
+   "ch": "Задание",
+   "cond": "<p>То же на Python: таблица лучших сумм заполняется по строкам слева направо. Стены — множества клеток, в которые нельзя прийти сверху или слева.</p>",
+   "note": "Функция одна для максимума и минимума — передаём <code>max</code> или <code>min</code>.",
+   "nk": "secret",
+   "code": "g = [[1, 8, 8, 4], [10, 1, 1, 3], [1, 3, 12, 2], [2, 3, 5, 6]]\ndef best(g, pick, wall_up=(), wall_left=()):\n    \"\"\"Лучшая сумма в каждой клетке: монета + лучшее из соседей слева и сверху (pick = max или min).\n    wall_up — клетки со стеной сверху, wall_left — со стеной слева.\"\"\"\n    n, m = len(g), len(g[0])\n    d = [[None] * m for _ in range(n)]\n    for i in range(n):\n        for j in range(m):\n            came = []\n            if i > 0 and (i, j) not in wall_up and d[i - 1][j] is not None:\n                came.append(d[i - 1][j])\n            if j > 0 and (i, j) not in wall_left and d[i][j - 1] is not None:\n                came.append(d[i][j - 1])\n            if i == 0 and j == 0:\n                d[i][j] = g[0][0]\n            elif came:\n                d[i][j] = g[i][j] + pick(came)\n    return d\n\nprint(best(g, max)[3][3], best(g, min)[3][3])",
+   "sub": "",
+   "ans": "41 22",
+   "wide": true
+  },
+  {
+   "t": "section",
+   "k": "Excel",
+   "kc": "t2",
+   "h": "Решение в электронной таблице",
+   "tag": "=МАКС(B1;A2)+Лист1!B2",
+   "sub": "Копия поля · угол и края · формула · стены · минимум на отдельном листе"
+  },
+  {
+   "t": "text",
+   "k": "Excel",
+   "kc": "t2",
+   "h": "Пять шагов в Excel",
+   "html": "<div class=\"sl-steps\"><div><i>1</i><b>Копия поля</b><span>Лист 2 — формулы, Лист 1 — исходные монеты</span></div><div><i>2</i><b>Угол и края</b><span>A1 = Лист1!A1; первая строка: =A1+Лист1!B1; первый столбец: =A1+Лист1!A2</span></div><div class=\"dark\"><i>3</i><b>Остальные</b><span>B2 = МАКС(B1;A2)+Лист1!B2 — протянуть на всё поле</span></div><div><i>4</i><b>Стены</b><span>со стеной сверху: =A2+Лист1!B2 (только слева); со стеной слева — только сверху</span></div><div><i>5</i><b>Минимум</b><span>Лист 3 — то же с МИН. Ответ — значения в конечной клетке</span></div></div><div class=\"sl-callout\"><b>Проверка</b><p>Посмотрите, «протянулась» ли формула через стену: у клеток рядом со стенами формулы должны отличаться.</p></div>"
+  },
+  {
+   "t": "section",
+   "k": "Демо-2027",
+   "kc": "t1",
+   "h": "Несколько конечных клеток",
+   "tag": "max и min по всем угловым клеткам",
+   "sub": "Раньше конечной была только правая нижняя клетка. В 2027 их может быть несколько"
+  },
+  {
+   "t": "text",
+   "k": "Демо-2027 · Новое",
+   "kc": "t1",
+   "h": "Что изменилось в 2027",
+   "html": "<div class=\"sl-steps\"><div><i>1</i><b>Шаг 1</b><span>построить таблицы максимумов и минимумов с учётом стен</span></div><div><i>2</i><b>Шаг 2</b><span>найти все клетки, у которых стена справа И снизу (включая правую нижнюю)</span></div><div class=\"dark\"><i>3</i><b>Шаг 3</b><span>максимум — по таблице максимумов среди этих клеток, минимум — по таблице минимумов</span></div></div><p class=\"sl-note\">Ответ демо-2027: 2598 803 — сначала максимум, потом минимум.</p>"
+  },
+  {
+   "t": "code",
+   "k": "Демо-2027 · Стены",
+   "kc": "t2",
+   "h": "Стены",
+   "ch": "Задание",
+   "cond": "<p>Поле 6 × 6 со стенами: над клетками (3, 2), (3, 3), (5, 5) и слева от (2, 4), (4, 4), (6, 3) (номер строки, номер столбца с единицы). Наибольшая и наименьшая сумма в правой нижней клетке.</p>",
+   "note": "В Python строки и столбцы нумеруются с нуля: клетка (3, 2) из условия — это (2, 1).",
+   "nk": "secret",
+   "code": "def best(g, pick, wall_up=(), wall_left=()):\n    \"\"\"Лучшая сумма в каждой клетке: монета + лучшее из соседей слева и сверху (pick = max или min).\n    wall_up — клетки со стеной сверху, wall_left — со стеной слева.\"\"\"\n    n, m = len(g), len(g[0])\n    d = [[None] * m for _ in range(n)]\n    for i in range(n):\n        for j in range(m):\n            came = []\n            if i > 0 and (i, j) not in wall_up and d[i - 1][j] is not None:\n                came.append(d[i - 1][j])\n            if j > 0 and (i, j) not in wall_left and d[i][j - 1] is not None:\n                came.append(d[i][j - 1])\n            if i == 0 and j == 0:\n                d[i][j] = g[0][0]\n            elif came:\n                d[i][j] = g[i][j] + pick(came)\n    return d\n\ng = [[3, 7, 2, 9, 4, 1],\n     [6, 1, 8, 2, 7, 5],\n     [2, 9, 4, 6, 1, 8],\n     [7, 3, 5, 1, 9, 2],\n     [4, 8, 1, 7, 3, 6],\n     [9, 2, 6, 4, 8, 3]]\nup = {(2, 1), (2, 2), (4, 4)}             # стена над клеткой\nleft = {(1, 3), (3, 3), (5, 2)}          # стена слева от клетки\nmx, mn = best(g, max, up, left), best(g, min, up, left)\nprint(mx[5][5], mn[5][5])",
+   "sub": "",
+   "ans": "56 46",
+   "wide": true
+  },
+  {
+   "t": "code",
+   "k": "Демо-2027 · Конечные клетки",
+   "kc": "t3",
+   "h": "Несколько конечных клеток",
+   "ch": "Задание",
+   "cond": "<p>То же поле. Конечные клетки — правая нижняя и «угловые» (2, 3) и (5, 4) — у них стена справа и снизу. Найдите максимальную и минимальную итоговые суммы.</p>",
+   "note": "max — среди значений таблицы максимумов в конечных клетках, min — среди таблицы минимумов.",
+   "nk": "secret",
+   "code": "def best(g, pick, wall_up=(), wall_left=()):\n    \"\"\"Лучшая сумма в каждой клетке: монета + лучшее из соседей слева и сверху (pick = max или min).\n    wall_up — клетки со стеной сверху, wall_left — со стеной слева.\"\"\"\n    n, m = len(g), len(g[0])\n    d = [[None] * m for _ in range(n)]\n    for i in range(n):\n        for j in range(m):\n            came = []\n            if i > 0 and (i, j) not in wall_up and d[i - 1][j] is not None:\n                came.append(d[i - 1][j])\n            if j > 0 and (i, j) not in wall_left and d[i][j - 1] is not None:\n                came.append(d[i][j - 1])\n            if i == 0 and j == 0:\n                d[i][j] = g[0][0]\n            elif came:\n                d[i][j] = g[i][j] + pick(came)\n    return d\n\ng = [[3, 7, 2, 9, 4, 1],\n     [6, 1, 8, 2, 7, 5],\n     [2, 9, 4, 6, 1, 8],\n     [7, 3, 5, 1, 9, 2],\n     [4, 8, 1, 7, 3, 6],\n     [9, 2, 6, 4, 8, 3]]\nup = {(2, 1), (2, 2), (4, 4)}\nleft = {(1, 3), (3, 3), (5, 2)}\nends = [(5, 5), (1, 2), (4, 3)]          # «угловые» клетки: стена справа и снизу\nmx, mn = best(g, max, up, left), best(g, min, up, left)\nprint(max(mx[i][j] for i, j in ends), min(mn[i][j] for i, j in ends))",
+   "sub": "",
+   "ans": "56 18",
+   "wide": true
+  },
+  {
+   "t": "code",
+   "k": "Варианты",
+   "kc": "t2",
+   "h": "Сколько путей",
+   "ch": "Задание",
+   "cond": "<p>Сколько различных путей из левой верхней в правую нижнюю клетку поля 4 × 4 без стен?</p>",
+   "note": "Та же динамика, только вместо max — сумма: число путей = пути сверху + пути слева. Формула: C(6, 3).",
+   "nk": "secret",
+   "code": "from math import comb\n\nn = 4                                     # поле 4 × 4: 3 шага вправо и 3 вниз\nd = [[1] * n for _ in range(n)]\nfor i in range(1, n):\n    for j in range(1, n):\n        d[i][j] = d[i - 1][j] + d[i][j - 1]\nprint(d[n - 1][n - 1], comb(2 * (n - 1), n - 1))",
+   "sub": "",
+   "ans": "20 20"
+  },
+  {
+   "t": "text",
+   "k": "Ловушки",
+   "h": "Где теряют балл",
+   "html": "<ul class=\"sl-bad\"><li><b>Стены не учтены.</b> Формула «протянулась» через стену — ответ больше настоящего.</li><li><b>Одна конечная клетка.</b> В 2027 их может быть несколько — проверьте все угловые.</li><li><b>Первая клетка.</b> Монета стартовой клетки тоже входит в сумму.</li><li><b>МАКС вместо МИН.</b> Для минимума — отдельная таблица с МИН.</li><li><b>Тупики.</b> В клетку, куда нельзя прийти, формулы не ставим.</li><li><b>Порядок ответа.</b> Сначала максимум, потом минимум.</li></ul>"
+  },
+  {
+   "t": "text",
+   "k": "Шпаргалка",
+   "h": "Весь №18 на одном слайде",
+   "html": "<div class=\"sl-cheat\"><div><b>Угол</b><code>A1 = Лист1!A1</code></div><div><b>Первая строка</b><code>=A1+Лист1!B1</code></div><div><b>Внутри</b><code>=МАКС(B1;A2)+Лист1!B2</code></div><div><b>Стена сверху</b><code>=A2+Лист1!B2</code></div><div><b>Минимум</b>отдельный лист с <code>МИН</code></div><div><b>Конечные клетки</b>все угловые: стена справа и снизу</div></div>"
+  },
+  {
+   "t": "text",
+   "k": "Практика",
+   "h": "Решите самостоятельно",
+   "html": "<div class=\"sl-cards c3 \"><div class=\"sl-card t1\"><i class=\"t1\">1 · другая клетка</i><b></b><p>Для поля из примера (без стен) найдите максимальную сумму, если конечная клетка — третья строка, четвёртый столбец.</p></div><div class=\"sl-card t2\"><i class=\"t2\">2 · минимум</i><b></b><p>Для того же поля: минимальная сумма в правой нижней клетке.</p></div><div class=\"sl-card t3\"><i class=\"t3\">3 · стена</i><b></b><p>В поле примера стена между клетками B1 и B2. Найдите максимум и минимум в правой нижней клетке.</p></div></div><p class=\"sl-note\">Ответы и решения — на следующих слайдах.</p>"
+  },
+  {
+   "t": "text",
+   "k": "Урок пройден!",
+   "h": "Ответы",
+   "dark": true,
+   "html": "<div class=\"sl-cards c3 answers\"><div class=\"sl-card t1\"><i>Задача 1</i><b>32</b><p>30 + 2</p></div><div class=\"sl-card t2\"><i>Задача 2</i><b>22</b><p>таблица минимумов</p></div><div class=\"sl-card t3\"><i>Задача 3</i><b>41 24</b><p>B2 = A2 + Лист1!B2</p></div></div><div class=\"sl-callout dark\"><b>Не сошлось?</b><p>Сверьте таблицу лучших сумм с ручным подсчётом для первых двух строк.</p></div>"
+  },
+  {
+   "t": "codes",
+   "k": "Практика",
+   "h": "Решения задач 1–3",
+   "blocks": [
+    {
+     "cond": "<b>Задача 1.</b>",
+     "code": "g = [[1, 8, 8, 4], [10, 1, 1, 3], [1, 3, 12, 2], [2, 3, 5, 6]]\ndef best(g, pick, wall_up=(), wall_left=()):\n    \"\"\"Лучшая сумма в каждой клетке: монета + лучшее из соседей слева и сверху (pick = max или min).\n    wall_up — клетки со стеной сверху, wall_left — со стеной слева.\"\"\"\n    n, m = len(g), len(g[0])\n    d = [[None] * m for _ in range(n)]\n    for i in range(n):\n        for j in range(m):\n            came = []\n            if i > 0 and (i, j) not in wall_up and d[i - 1][j] is not None:\n                came.append(d[i - 1][j])\n            if j > 0 and (i, j) not in wall_left and d[i][j - 1] is not None:\n                came.append(d[i][j - 1])\n            if i == 0 and j == 0:\n                d[i][j] = g[0][0]\n            elif came:\n                d[i][j] = g[i][j] + pick(came)\n    return d\n\nprint(best(g, max)[2][3])",
+     "ans": "32"
+    },
+    {
+     "cond": "<b>Задача 2.</b>",
+     "code": "g = [[1, 8, 8, 4], [10, 1, 1, 3], [1, 3, 12, 2], [2, 3, 5, 6]]\ndef best(g, pick, wall_up=(), wall_left=()):\n    \"\"\"Лучшая сумма в каждой клетке: монета + лучшее из соседей слева и сверху (pick = max или min).\n    wall_up — клетки со стеной сверху, wall_left — со стеной слева.\"\"\"\n    n, m = len(g), len(g[0])\n    d = [[None] * m for _ in range(n)]\n    for i in range(n):\n        for j in range(m):\n            came = []\n            if i > 0 and (i, j) not in wall_up and d[i - 1][j] is not None:\n                came.append(d[i - 1][j])\n            if j > 0 and (i, j) not in wall_left and d[i][j - 1] is not None:\n                came.append(d[i][j - 1])\n            if i == 0 and j == 0:\n                d[i][j] = g[0][0]\n            elif came:\n                d[i][j] = g[i][j] + pick(came)\n    return d\n\nprint(best(g, min)[3][3])",
+     "ans": "22"
+    },
+    {
+     "cond": "<b>Задача 3.</b> Стена над B2.",
+     "code": "g = [[1, 8, 8, 4], [10, 1, 1, 3], [1, 3, 12, 2], [2, 3, 5, 6]]\ndef best(g, pick, wall_up=(), wall_left=()):\n    \"\"\"Лучшая сумма в каждой клетке: монета + лучшее из соседей слева и сверху (pick = max или min).\n    wall_up — клетки со стеной сверху, wall_left — со стеной слева.\"\"\"\n    n, m = len(g), len(g[0])\n    d = [[None] * m for _ in range(n)]\n    for i in range(n):\n        for j in range(m):\n            came = []\n            if i > 0 and (i, j) not in wall_up and d[i - 1][j] is not None:\n                came.append(d[i - 1][j])\n            if j > 0 and (i, j) not in wall_left and d[i][j - 1] is not None:\n                came.append(d[i][j - 1])\n            if i == 0 and j == 0:\n                d[i][j] = g[0][0]\n            elif came:\n                d[i][j] = g[i][j] + pick(came)\n    return d\n\nprint(best(g, max, wall_up={(1, 1)})[3][3], best(g, min, wall_up={(1, 1)})[3][3])",
+     "ans": "41 24"
+    }
+   ]
+  }
+ ]
+}
