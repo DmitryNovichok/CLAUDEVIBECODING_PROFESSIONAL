@@ -128,7 +128,7 @@ def _evidence(root, mapping):
             issues.append({'kind': 'python', 'module': mid, 'level': i + 1, 'reason': 'input_unavailable'})
     for model in mapping.get('labs', []):
         base = model.split(':')[0]
-        if model in {'image', 'net', 'logic:bit', 'logic:div', 'logic:seg', 'game', 'graph'}:
+        if model in {'image', 'net', 'logic:bit', 'logic:div', 'logic:seg', 'game', 'graph', 'alg', 'pairs', 'str', 'mask', 'sort', 'clust'}:
             title = {'logic:bit': 'Логика: поразрядное И', 'logic:div': 'Логика: делимость',
                      'logic:seg': 'Логика: отрезки'}.get(model, LAB_MODELS[base])
             evidence.append({'kind': 'lab', 'model': model, 'title': title, 'scope': 'limited_model'})

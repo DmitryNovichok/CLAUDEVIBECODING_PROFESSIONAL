@@ -10,12 +10,14 @@ import json as _lab_json
 import traceback as _lab_tb
 import time as _lab_time
 
-def _lab_run(source, stdin=''):
+def _lab_run(source, stdin='', notify=None, record_seconds=25, total_seconds=300):
     filename = '<egeshka-lab>'
     steps = []
-    limit = 200000          # запись идёт до конца программы; ограничения — только от зависания и переполнения памяти
-    deadline = _lab_time.monotonic() + 25
+    limit = 200000          # пошагово записываются первые 200 000 шагов; дальше программа досчитывается без записи
+    started = _lab_time.monotonic()
+    deadline = started + record_seconds
     stop = {'why': ''}
+    state = {'cut': False, 'n': 0, 'tick': started}
     class TraceLimit(BaseException):
         pass
     class Output(_lab_io.StringIO):
@@ -61,14 +63,41 @@ def _lab_run(source, stdin=''):
             if len(result) >= 24:
                 break
         return result
+    def light(frame, event, arg):
+        # После записи: только следим за временем, чтобы бесконечный цикл не повесил страницу.
+        if frame.f_code.co_filename != filename:
+            return None
+        state['n'] += 1
+        if not state['n'] & 4095:
+            now = _lab_time.monotonic()
+            if now > started + total_seconds:
+                stop['why'] = 'total'
+                raise TraceLimit()
+            if notify is not None and now - state['tick'] > 2:
+                state['tick'] = now
+                notify(_lab_json.dumps({'progress': round(now - started)}))
+        return light
+    def partial():
+        return _lab_json.dumps({'steps': steps, 'output': out.getvalue(), 'outputTruncated': out.truncated, 'error': '',
+                                'truncated': False, 'stop': 'steps', 'cut': True, 'pending': True}, ensure_ascii=False)
     def trace(frame, event, arg):
         if frame.f_code.co_filename != filename:
             return trace
         if event not in ('line', 'return', 'exception'):
             return trace
         if len(steps) >= limit:
+            # Шаги для просмотра записаны. Отдаём их сразу и досчитываем программу до конца без записи.
             stop['why'] = 'steps'
-            raise TraceLimit()
+            state['cut'] = True
+            _lab_sys.settrace(light)
+            current = frame
+            while current is not None:
+                if current.f_code.co_filename == filename:
+                    current.f_trace = light
+                current = current.f_back
+            if notify is not None:
+                notify(partial())
+            return light
         if not len(steps) & 255 and _lab_time.monotonic() > deadline:
             stop['why'] = 'time'
             raise TraceLimit()
@@ -102,7 +131,12 @@ def _lab_run(source, stdin=''):
     finally:
         _lab_sys.settrace(old_trace)
         _lab_sys.stdin, _lab_sys.stdout, _lab_sys.stderr = old_in, old_out, old_err
-    return _lab_json.dumps({'steps': steps, 'output': out.getvalue(), 'outputTruncated': out.truncated, 'error': error, 'truncated': truncated, 'stop': stop['why']}, ensure_ascii=False)
+    if state['cut'] and not truncated:
+        stop['why'] = 'steps'
+    return _lab_json.dumps({'steps': [] if state['cut'] and notify is not None else steps, 'output': out.getvalue(),
+                            'outputTruncated': out.truncated, 'error': error, 'truncated': truncated, 'stop': stop['why'],
+                            'cut': state['cut'], 'finished': not truncated,
+                            'seconds': round(_lab_time.monotonic() - started)}, ensure_ascii=False)
 `;
 
 // Обычный запуск на входных данных — для лаборатории исправления ошибок: вывод, ошибка и номер строки.
@@ -186,7 +220,12 @@ self.onmessage = async ev => {
     pyodide.runPython(LAB_TRACE_PY);
     const run = pyodide.globals.get('_lab_run');
     try {
-      const result = JSON.parse(run(String(msg.code || '').slice(0, 30000), String(msg.stdin || '').slice(0, 10000)));
+      // Записанные шаги и ход досчёта приходят раньше конца программы.
+      const notify = text => {
+        const data = JSON.parse(text);
+        self.postMessage(data.progress != null ? { type: 'trace-progress', seconds: data.progress } : { type: 'trace-partial', result: data });
+      };
+      const result = JSON.parse(run(String(msg.code || '').slice(0, 30000), String(msg.stdin || '').slice(0, 10000), notify));
       self.postMessage({ type: 'trace', result });
     } finally { run.destroy(); }
   } catch (e) {

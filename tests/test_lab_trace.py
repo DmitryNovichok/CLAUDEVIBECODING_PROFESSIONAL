@@ -13,7 +13,7 @@ class LabTraceTest(unittest.TestCase):
         python = re.search(r'const LAB_TRACE_PY = String.raw`(.*?)`;', source, re.S).group(1)
         namespace = {}
         exec(compile(python, 'lab-worker.js', 'exec'), namespace)
-        cls.run_trace = staticmethod(lambda code, stdin='': json.loads(namespace['_lab_run'](code, stdin)))
+        cls.run_trace = staticmethod(lambda code, stdin='', **kw: json.loads(namespace['_lab_run'](code, stdin, **kw)))
 
     def test_line_means_before_execution_and_final_output_is_present(self):
         r = self.run_trace('x = 1\nx += 2\nprint(x)')
@@ -53,10 +53,34 @@ class LabTraceTest(unittest.TestCase):
         self.assertEqual(self.run_trace('print(42)')['output'], '42\n')
 
     def test_infinite_loop_is_bounded(self):
-        r = self.run_trace('while True:\n    x = 1')
+        before = sys.gettrace()
+        r = self.run_trace('while True:\n    x = 1', total_seconds=2)
         self.assertTrue(r['truncated'])
-        self.assertIn(r['stop'], ('steps', 'time'))
-        self.assertLessEqual(len(r['steps']), 200000)
+        self.assertFalse(r['finished'])
+        self.assertEqual((r['stop'], r['cut']), ('total', True))
+        self.assertEqual(len(r['steps']), 200000)
+        self.assertEqual(sys.gettrace(), before)
+
+    def test_program_longer_than_recording_is_finished_without_recording(self):
+        partial = []
+        code = 's = 0\nfor i in range(150000):\n    s += i\n    if i % 50000 == 0:\n        print(i)\nprint(s)'
+        r = self.run_trace(code, notify=partial.append)
+        self.assertFalse(r['truncated'])
+        self.assertTrue(r['finished'] and r['cut'])
+        self.assertEqual(r['error'], '')
+        self.assertEqual(r['output'], '0\n50000\n100000\n11249925000\n')
+        self.assertEqual(r['steps'], [])                     # шаги уже отправлены промежуточным сообщением
+        first = json.loads(partial[0])
+        self.assertTrue(first['pending'])
+        self.assertEqual(len(first['steps']), 200000)
+        # без канала промежуточных сообщений шаги приходят в итоговом ответе
+        r = self.run_trace(code)
+        self.assertEqual((len(r['steps']), r['output'].split()[-1]), (200000, '11249925000'))
+
+    def test_exception_after_recording_is_reported(self):
+        r = self.run_trace('for i in range(120000):\n    x = i\nprint(1 / 0)')
+        self.assertTrue(r['cut'])
+        self.assertIn('ZeroDivisionError', r['error'])
 
     def test_long_program_runs_to_the_end(self):
         r = self.run_trace('s = 0\nfor i in range(3000):\n    s += i\nprint(s)')

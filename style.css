@@ -3623,6 +3623,20 @@ body.lab-open .trainer { max-width: 1260px; }
 .lab-line > i.p { top: 6px; background: #1cb0f6; } .lab-line > i.q { top: 34px; background: #a560e8; } .lab-line > i.a { top: 62px; background: var(--good); }
 .lab-line > b { position: absolute; bottom: -5px; width: 4px; height: 10px; margin-left: -2px; border-radius: 2px; background: var(--weak); }
 .lab-ticks span { position: absolute; top: 116px; transform: translateX(-50%); font: 12px var(--mono); color: var(--muted); }
+.lx-seq { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 18px 0; font-family: var(--mono); }
+.lx-seq span { display: grid; place-items: center; min-width: 40px; height: 36px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--card); font-weight: 700; }
+.lx-seq span.div { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent); }
+.lx-seq i { font-style: normal; font-weight: 800; min-width: 14px; text-align: center; }
+.lx-seq i.ok { color: var(--good); } .lx-seq i.no { color: var(--muted); }
+.lx-chars { display: flex; flex-wrap: wrap; gap: 2px; margin: 18px 0; font-family: var(--mono); }
+.lx-chars b { display: grid; place-items: center; width: 24px; height: 34px; border-radius: 5px; border: 1px solid var(--border-strong); background: var(--card); color: var(--muted); }
+.lx-chars b.on { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent); }
+.lx-wide { display: block; margin: 0 0 6px; } .lx-wide .inp { width: 100%; font-family: var(--mono); letter-spacing: 2px; }
+.lx-disk { display: flex; height: 38px; margin: 6px 0 4px; border: 2px solid var(--border-strong); border-radius: 10px; overflow: hidden; background: var(--card); }
+.lx-disk i { display: grid; place-items: center; font: 800 12px var(--mono); font-style: normal; color: #fff; background: var(--accent); border-right: 2px solid var(--card); min-width: 0; overflow: hidden; }
+.lx-plot { display: block; width: 100%; max-width: 520px; margin: 12px auto 6px; }
+.lx-plot line { stroke: var(--border); stroke-width: 1; } .lx-plot text { font: 600 12px var(--mono); fill: var(--muted); text-anchor: middle; }
+.lx-plot circle { stroke: var(--card); stroke-width: 1.5; } .lx-plot circle.cen { fill: none; stroke-width: 3; }
 .lab-graph { display: block; width: 100%; max-width: 760px; margin: 12px auto 6px; color: var(--muted); }
 .lab-graph .e line { stroke: currentColor; stroke-width: 2; } .lab-graph .e text { font: 700 13px var(--mono); fill: var(--muted); text-anchor: middle; }
 .lab-graph .e.on { color: var(--good); } .lab-graph .e.on line { stroke-width: 3.5; } .lab-graph .e.dim { opacity: .25; }

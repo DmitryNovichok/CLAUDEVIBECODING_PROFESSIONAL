@@ -17,16 +17,16 @@
       "source": "5a64bc435988c0053992b8e0e17face2e998974b7637c353e197c4cf0a4874f5"
     },
     "app-learning.js": {
-      "min": "981ce5d634bab36c5c83918ec597b3ec7a4448fa0e289eb4a63c87a074b14f82",
-      "source": "eecdf81229b15c0e3333d33897ceb7803e9a9699b603980449ac10d6f622937f"
+      "min": "00fd9f2ffa7f402200de5de39042b93da5e409bbbe601fd9ed21e53d8f2905c7",
+      "source": "cacf110cb8849e777f28ff4a5c3b55e98906c83368c1608df2c1e37e958a9b81"
     },
     "app.js": {
       "min": "875190f640af90b0393c1c151a0276fbf5e7c726298a90f8bc74e22ae28c7b60",
       "source": "9c16fec2138d703509dcb3967809822c14d00cfb8a082dc752bc6f78954f4863"
     },
     "changelog-loader.js": {
-      "min": "7954041cd6152f7d7b8b7da0f7b7e9d2a47f22cf56a4021fe831f8a3a41669fc",
-      "source": "7ae766962b53c111b13f69e32be1d03438f3030ec47a1166d5b8081afa36943a"
+      "min": "becb32317becd3bf696392437b13ef0b3f35303eead83fda95a206d220086c5b",
+      "source": "c82ebc70f0f13c14de570414c236739971b1941f788f36a200792918f89c7a1b"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -49,8 +49,8 @@
       "source": "b36e1d9e82c8ec5a9287bba2472f6b15d1b6dcaafc231ae9dc141807a9b91b83"
     },
     "python-sandbox.js": {
-      "min": "db55af6690ce35c0e4cf1441aff714ecdbe48e97adcab14955b8e1d10d53a9ac",
-      "source": "d16004d9797a49a187e20bf59aa2df6fddec05e8fde19a9df8468858b65ccace"
+      "min": "6a99986787c6a3479e582ede5acc5a08886cf52ac04eff844588d5d8b644e80c",
+      "source": "47593fe5714fdf764693cc2e47dc70cb0bbcc3cd4f8ca4cd2ecbb83d4bc46b62"
     },
     "skill-coverage.css": {
       "min": "eeaf39fc8fce536439f6ba5a3216d582b6a6f043166409524c5b034e21046954",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "deea138ef646ac86b0bfd1264732a847f3a5aa2bdff73fb3c8374bdd57214744",
-      "source": "f4adea374d3c3c25e20f705a73e83eb1d47242b1d51bb7068377b03e16554817"
+      "min": "d6fb0aefe7df6e9a1d63c395083be609dea74f1ab53d266804cc4728a7548ca0",
+      "source": "ff0325bb75302403aa3581dd82ef0352ba9b39a9bbae45b04c0ea482c126e226"
     },
     "teacher-gate.css": {
       "min": "6c5fc2585c5c22ff9f11e5f23bfeee929e47c97c5ae4cbcf823c7023d5ebe9bf",

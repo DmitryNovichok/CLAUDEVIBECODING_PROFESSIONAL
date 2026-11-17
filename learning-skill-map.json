@@ -492,7 +492,9 @@
           "tasks_scope": "level_inventory"
         }
       ],
-      "labs": [],
+      "labs": [
+        "alg"
+      ],
       "note": ""
     },
     {
@@ -2956,7 +2958,9 @@
           "tasks_scope": "level_inventory"
         }
       ],
-      "labs": [],
+      "labs": [
+        "pairs"
+      ],
       "note": ""
     },
     {
@@ -3943,7 +3947,9 @@
           "tasks_scope": "level_inventory"
         }
       ],
-      "labs": [],
+      "labs": [
+        "str"
+      ],
       "note": "Это широкий тип: счётчик, разбиение строки, окно, позиции и регулярные выражения показаны отдельными навыками."
     },
     {
@@ -4317,7 +4323,9 @@
           "tasks_scope": "level_inventory"
         }
       ],
-      "labs": [],
+      "labs": [
+        "mask"
+      ],
       "note": ""
     },
     {
@@ -4389,7 +4397,9 @@
           "tasks_scope": "level_inventory"
         }
       ],
-      "labs": [],
+      "labs": [
+        "mask"
+      ],
       "note": ""
     },
     {
@@ -4470,7 +4480,9 @@
           "tasks_scope": "level_inventory"
         }
       ],
-      "labs": [],
+      "labs": [
+        "sort"
+      ],
       "note": ""
     },
     {
@@ -4770,7 +4782,9 @@
           "tasks_scope": "level_inventory"
         }
       ],
-      "labs": [],
+      "labs": [
+        "clust"
+      ],
       "note": ""
     },
     {

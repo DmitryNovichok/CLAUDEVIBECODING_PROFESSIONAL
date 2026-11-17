@@ -73,11 +73,13 @@
         });
         return { type: 'turtle', ops };
       }
-      case 'trace': {
+      case 'trace-progress': return { type: 'trace-progress', seconds: Math.max(0, number(m.seconds)) };
+      case 'trace': case 'trace-partial': {
         if (!Array.isArray(m.result?.steps)) return null;
         const r = m.result;
-        return { type: 'trace', result: { output: text(r.output, 20000), error: text(r.error),
+        return { type: m.type, result: { output: text(r.output, 20000), error: text(r.error),
           outputTruncated: r.outputTruncated === true, truncated: r.truncated === true, stop: text(r.stop, 20),
+          cut: r.cut === true, finished: r.finished === true, pending: r.pending === true, seconds: Math.max(0, number(r.seconds)),
           steps: r.steps.slice(0, 200000).filter(s => s && typeof s === 'object').map(s => ({
             event: text(s.event, 20), line: number(s.line), function: text(s.function, 200), out: number(s.out),
             exception: text(s.exception, 200), returnValue: text(s.returnValue, 1000),
