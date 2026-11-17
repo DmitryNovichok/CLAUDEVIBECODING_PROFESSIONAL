@@ -13,7 +13,7 @@ TOPICS = (
     {'n': 2, 'title': 'Таблица истинности', 'lesson_n': 2, 'archive': False, 'label': '2', 'model': None},
     {'n': 3, 'title': 'Базы данных', 'lesson_n': 3, 'archive': False, 'label': '3', 'model': None},
     {'n': 4, 'title': 'Кодирование и условие Фано', 'lesson_n': 4, 'archive': False, 'label': '4', 'model': None},
-    {'n': 5, 'title': 'Алгоритмы преобразования числа', 'lesson_n': 5, 'archive': False, 'label': '5', 'model': None},
+    {'n': 5, 'title': 'Алгоритмы преобразования числа', 'lesson_n': 5, 'archive': False, 'label': '5', 'model': 'alg'},
     {'n': 6, 'title': 'Черепаха', 'lesson_n': 6, 'archive': False, 'label': '6', 'model': None},
     {'n': 7, 'title': 'Изображения и звук', 'lesson_n': 7, 'archive': False, 'label': '7', 'model': 'image'},
     {'n': 8, 'title': 'Комбинаторика слов', 'lesson_n': 8, 'archive': False, 'label': '8', 'model': None},
@@ -25,17 +25,17 @@ TOPICS = (
     {'n': 14, 'title': 'Системы счисления', 'lesson_n': 14, 'archive': False, 'label': '14', 'model': None},
     {'n': 15, 'title': 'Логические выражения', 'lesson_n': 15, 'archive': False, 'label': '15', 'model': 'logic'},
     {'n': 16, 'title': 'Рекурсия', 'lesson_n': 16, 'archive': False, 'label': '16', 'model': None},
-    {'n': 17, 'title': 'Последовательности и пары', 'lesson_n': 17, 'archive': False, 'label': '17', 'model': None},
+    {'n': 17, 'title': 'Последовательности и пары', 'lesson_n': 17, 'archive': False, 'label': '17', 'model': 'pairs'},
     {'n': 18, 'title': 'Робот и динамическое программирование', 'lesson_n': 18, 'archive': False, 'label': '18', 'model': None},
     {'n': 19, 'title': 'Игры: позиции и стратегии', 'lesson_n': 19, 'archive': False, 'label': '19', 'model': 'game'},
     {'n': 20, 'title': 'Игры: позиции и стратегии', 'lesson_n': 19, 'archive': False, 'label': '20', 'model': 'game'},
     {'n': 21, 'title': 'Игры: позиции и стратегии', 'lesson_n': 19, 'archive': False, 'label': '21', 'model': 'game'},
     {'n': 22, 'title': 'Параллельные процессы', 'lesson_n': 22, 'archive': False, 'label': '22', 'model': None},
     {'n': 23, 'title': 'Исполнитель: траектории программ', 'lesson_n': 23, 'archive': False, 'label': '23', 'model': None},
-    {'n': 24, 'title': 'Обработка строк', 'lesson_n': 24, 'archive': False, 'label': '24', 'model': None},
-    {'n': 25, 'title': 'Делители и маски', 'lesson_n': 25, 'archive': False, 'label': '25', 'model': None},
-    {'n': 26, 'title': 'Сортировка и моделирование', 'lesson_n': 26, 'archive': False, 'label': '26', 'model': None},
-    {'n': 27, 'title': 'Анализ данных и кластеризация', 'lesson_n': 27, 'archive': False, 'label': '27', 'model': None},
+    {'n': 24, 'title': 'Обработка строк', 'lesson_n': 24, 'archive': False, 'label': '24', 'model': 'str'},
+    {'n': 25, 'title': 'Делители и маски', 'lesson_n': 25, 'archive': False, 'label': '25', 'model': 'mask'},
+    {'n': 26, 'title': 'Сортировка и моделирование', 'lesson_n': 26, 'archive': False, 'label': '26', 'model': 'sort'},
+    {'n': 27, 'title': 'Анализ данных и кластеризация', 'lesson_n': 27, 'archive': False, 'label': '27', 'model': 'clust'},
     {'n': 28, 'title': 'Архив 23_old · пути в графе', 'lesson_n': 28, 'archive': True, 'label': '23_old', 'model': 'graph'},
 )
 
@@ -67,7 +67,9 @@ PYTHON_TOPICS = {
 }
 
 LAB_MODELS = {
-    "image": "Изображения", "net": "IP-сети", "logic": "Логика", "game": "Игры", "graph": "Графы",
+    "alg": "Алгоритмы", "image": "Изображения", "net": "IP-сети", "logic": "Логика", "pairs": "Пары",
+    "game": "Игры", "str": "Строки", "mask": "Маски и делители", "sort": "Сортировка", "clust": "Кластеры",
+    "graph": "Графы",
 }
 
 

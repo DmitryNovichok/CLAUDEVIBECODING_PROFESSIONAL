@@ -192,7 +192,7 @@
       ${view ? '<button type="button" class="link-btn lab-back" data-lab-view="">← Все лаборатории</button>' : ''}
       <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>${title}</h1><p>${sub}</p></div></header>
       ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : view === 'bugs' ? bugLabHtml() : `<div class="lab-cards">
-        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">${courseCoverage?.labs ? '№ ' + courseCoverage.labs.filter(m => !m.archive).map(m => esc(m.label)).join(' · ') : 'Модели заданий'}</span><h2>По заданиям ЕГЭ</h2><p>Границы подсети, объём изображения, логика и ходы в игре — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
+        <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">${courseCoverage?.labs ? '№ ' + courseCoverage.labs.filter(m => !m.archive).map(m => esc(m.label)).join(' · ') : 'Модели заданий'}</span><h2>По заданиям ЕГЭ</h2><p>Алгоритмы над числами, изображения, подсети, логика, пары, игры, строки, маски, сортировка и кластеры — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
         <button type="button" class="lab-entry" data-lab-view="code"><span class="lab-kicker">Python</span><h2>Программирование</h2><p>Смотри, какая строка выполняется, как меняются переменные и что выводит программа.</p><b>Открыть лабораторию →</b></button>
         ${SERVER ? '<button type="button" class="lab-entry" data-lab-view="bugs"><span class="lab-kicker">Python · поиск ошибок</span><h2>Исправление ошибок</h2><p>Задача и чужое решение: в нём ошибки, пропуск или оно слишком медленное. Почини код так, чтобы он прошёл все тесты.</p><b>Искать ошибки →</b></button>' : ''}</div>
         <p class="lab-note">Здесь можно пробовать и ошибаться: эксперименты не меняют оценки и награды за задания.</p>`}
@@ -203,14 +203,171 @@
     window.scrollTo(0, 0);
   }
   function labTasksHtml() {
-    const models = courseCoverage?.labs || ['image', 'net', 'logic', 'game', 'graph'].map((id, i) => ({id, title: ['Изображения', 'IP-сети', 'Логика', 'Игры', 'Графы'][i]}));
+    const models = courseCoverage?.labs || [['alg', 'Алгоритмы'], ['image', 'Изображения'], ['net', 'IP-сети'], ['logic', 'Логика'], ['pairs', 'Пары'], ['game', 'Игры'], ['str', 'Строки'], ['mask', 'Маски и делители'], ['sort', 'Сортировка'], ['clust', 'Кластеры'], ['graph', 'Графы']].map(([id, title]) => ({id, title}));
     return `<nav class="lab-tabs" aria-label="Эксперименты">${models.map(m => `<button type="button" class="btn${LAB.mode === m.id ? ' primary' : ''}" data-lab-model="${esc(m.id)}" aria-pressed="${LAB.mode === m.id}">${m.label ? `${m.archive ? 'Архив · ' : '№ '}${esc(m.label)} · ` : ''}${esc(m.title)}</button>`).join('')}</nav><p class="lab-note">${courseCoverage?.edition ? esc(courseCoverage.edition.label) + '. Архивные модели помечены отдельно.' : 'Справочник номеров сейчас недоступен; модели можно использовать без номера экзамена.'} Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
   }
   function labPrediction(question) {
     return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" aria-describedby="labFeedback" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
   }
+  // ---------- Модели №5, 17, 24, 25, 26, 27. Каждая: html() — разметка, update() — пересчёт, answer() — ответ на «Проверь предположение».
+  const lxRand = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const lxVal = id => $('#' + id)?.value ?? '';
+  const lxNum = (id, lo, hi, def) => { const v = Math.round(+lxVal(id)); const ok = lxVal(id) !== '' && Number.isFinite(v) && v >= lo && v <= hi; $('#' + id)?.toggleAttribute('aria-invalid', !ok); return ok ? v : def; };
+  const lxSel = (id, opts, cur) => `<select class="inp" id="${id}" data-lx>${opts.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
+  const LX_RULES5 = {
+    ones: { name: 'Чётность единиц', text: 'Строится двоичная запись N. Дважды: справа дописывается остаток от деления количества единиц на 2. Результат R переводится в десятичную систему.',
+      run(n) { let b = n.toString(2); const parts = [[b, '']]; for (let i = 0; i < 2; i++) { const d = String([...b].filter(c => c === '1').length % 2); b += d; parts.push([b, d]); } return { bits: b, steps: parts.slice(1).map(([s, d], i) => `${i + 1}) единиц в ${s.slice(0, -1)}: ${[...s.slice(0, -1)].filter(c => c === '1').length} → дописываем ${d}`) }; } },
+    parity: { name: 'Чётное / нечётное N', text: 'Строится двоичная запись N. Если N чётное — слева дописывается 10; если нечётное — слева 1 и справа 01. Результат R переводится в десятичную систему.',
+      run(n) { const b = n.toString(2); return n % 2 === 0 ? { bits: '10' + b, steps: [`N = ${n} чётное → 10 + ${b}`] } : { bits: '1' + b + '01', steps: [`N = ${n} нечётное → 1 + ${b} + 01`] }; } },
+    mod3: { name: 'Остаток от деления на 3', text: 'Строится двоичная запись N. Если N делится на 3 — справа дописываются три последние двоичные цифры; иначе — остаток от деления на 3, умноженный на 3, в двоичной записи.',
+      run(n) { const b = n.toString(2); if (n % 3 === 0) return { bits: b + b.slice(-3), steps: [`N = ${n} делится на 3 → дописываем ${b.slice(-3)}`] }; const t = ((n % 3) * 3).toString(2); return { bits: b + t, steps: [`N = ${n}: остаток ${n % 3}, ${n % 3} × 3 = ${(n % 3) * 3} = ${t}₂ → дописываем`] }; } },
+  };
+  const LX_KINDS17 = { one: 'хотя бы одно делится на K', exactly: 'ровно одно делится на K', both: 'оба делятся на K' };
+  const LX_TASKS24 = { same: 'Самая длинная цепочка одинаковых символов', alt: 'Самая длинная цепочка без двух одинаковых соседей', only: 'Самая длинная цепочка только из X и Y' };
+  function lxLongest(s, kind) {
+    let best = [0, 0], start = 0;
+    for (let i = 0; i < s.length; i++) {
+      const ok = kind === 'same' ? i > start && s[i] === s[i - 1] || i === start : kind === 'alt' ? i === start || s[i] !== s[i - 1] : /[XY]/.test(s[i]);
+      if (!ok) start = kind === 'only' ? i + 1 : i;
+      if (kind !== 'only' || ok) { const len = i - start + 1; if (len > best[1] - best[0]) best = [start, i + 1]; }
+    }
+    return best;
+  }
+  function lxMask(mask, d, limit) {
+    // ? — ровно одна цифра, * — любая последовательность цифр, в том числе пустая. Перебор кандидатов по маске, затем проверка делимости.
+    if (!/^[\d?*]{1,12}$/.test(mask) || (mask.match(/\*/g) || []).length > 1) throw Error('Маска: цифры, знаки ? и не больше одной *, до 12 символов.');
+    const q = (mask.match(/\?/g) || []).length, star = mask.includes('*'), free = 10 - mask.replace(/[?*]/g, '').length - q;
+    if (q > 4 || (star && q > 2)) throw Error('Слишком широкая маска для модели: не больше 4 знаков ? (с * — не больше 2).');
+    const out = [], fill = (s, i) => {
+      if (i === s.length) { if (s[0] !== '0' || s === '0') { const n = +s; if (n <= limit && n % d === 0) out.push(n); } return; }
+      if (s[i] === '?') { for (let c = 0; c < 10; c++) fill(s.slice(0, i) + c + s.slice(i + 1), i + 1); return; }
+      if (s[i] === '*') { for (let len = 0; len <= Math.min(q >= 2 ? 3 : 4, Math.max(0, free)); len++) for (let k = 0; k < 10 ** len; k++) fill(s.slice(0, i) + (len ? String(k).padStart(len, '0') : '') + s.slice(i + 1), i + (len ? len : 0)); return; }
+      fill(s, i + 1);
+    };
+    fill(mask, 0);
+    return [...new Set(out)].sort((a, b) => a - b);
+  }
+  function lxClusters(pts, eps) {
+    const id = pts.map(() => -1); let k = 0;
+    pts.forEach((_, s) => { if (id[s] >= 0) return; const st = [s]; id[s] = k;
+      while (st.length) { const a = st.pop(); pts.forEach((p, b) => { if (id[b] < 0 && Math.hypot(p[0] - pts[a][0], p[1] - pts[a][1]) <= eps) { id[b] = k; st.push(b); } }); } k++; });
+    const groups = Array.from({ length: k }, (_, c) => pts.filter((_, i) => id[i] === c));
+    const centers = groups.map(g => g.reduce((best, p) => { const s = g.reduce((t, q) => t + Math.hypot(p[0] - q[0], p[1] - q[1]), 0); return s < best[1] ? [p, s] : best; }, [g[0], Infinity])[0]);
+    return { id, groups, centers };
+  }
+  const LAB_EXTRA = {
+    alg: {
+      state: { rule: 'ones', n: 13, t: 100 },
+      html() { const s = this.state; return `<section class="lab-panel"><h2>Как алгоритм превращает N в R?</h2>
+        <div class="lab-tabs lab-subtabs">${Object.entries(LX_RULES5).map(([k, r]) => `<button type="button" class="btn${k === s.rule ? ' primary' : ''}" data-lx-act="rule" data-v="${k}">${r.name}</button>`).join('')}</div>
+        <p class="lab-expr">${LX_RULES5[s.rule].text}</p>
+        <div class="lab-fields"><label>N = <span id="lxNLabel">${s.n}</span><input type="range" id="lxN" data-lx min="1" max="128" value="${s.n}"></label><label>Порог для вопроса: R &gt;<input class="inp" type="number" id="lxT" data-lx min="1" max="100000" value="${s.t}"></label></div>
+        <div id="lxOut" aria-live="polite"></div>${labPrediction('Какое наименьшее N даёт R больше порога?')}</section>`; },
+      update() { const s = this.state; s.n = lxNum('lxN', 1, 128, s.n); s.t = lxNum('lxT', 1, 100000, s.t); $('#lxNLabel').textContent = s.n;
+        const r = LX_RULES5[s.rule].run(s.n), b0 = s.n.toString(2);
+        $('#lxOut').innerHTML = `<div class="lab-bits"><span class="lab-octet">${[...r.bits].map((c, i) => `<b class="${s.rule === 'parity' && s.n % 2 === 0 ? (i < 2 ? 'network' : 'host') : s.rule === 'parity' ? (i === 0 || i >= r.bits.length - 2 ? 'network' : 'host') : (i < b0.length ? 'host' : 'network')}">${c}</b>`).join('')}</span></div>
+          <p class="lab-path">${r.steps.join('<br>')}</p>
+          <dl class="lab-facts"><div><dt>N в двоичной</dt><dd>${s.n} = ${b0}₂</dd></div><div><dt>Результат R</dt><dd>${r.bits}₂ = ${parseInt(r.bits, 2)}</dd></div></dl>
+          <p class="lab-note">Голубые цифры дописаны алгоритмом. В задании ЕГЭ обычно спрашивают наименьшее N, при котором R больше заданного числа: программа перебирает N подряд.</p>`; },
+      answer() { const s = this.state; for (let n = 1; n < 1e6; n++) if (parseInt(LX_RULES5[s.rule].run(n).bits, 2) > s.t) return { expected: n, why: `При N = ${n}: R = ${parseInt(LX_RULES5[s.rule].run(n).bits, 2)} > ${s.t}, а при меньших N результат не больше порога.` }; return { expected: null, why: 'Подходящего N не нашлось.' }; },
+    },
+    pairs: {
+      state: { seed: 17, kind: 'one', k: 3 },
+      nums() { const r = lxRand(this.state.seed); return Array.from({ length: 14 }, () => 1 + Math.floor(r() * 99)); },
+      html() { const s = this.state; return `<section class="lab-panel"><h2>Пары соседних чисел</h2>
+        <p class="lab-note">Пара — два элемента, стоящие рядом. В файле ЕГЭ чисел тысячи, условие то же: перебрать i от 0 до n − 2 и проверить a[i], a[i + 1].</p>
+        <div class="lab-fields"><label>Условие${lxSel('lxKind', Object.entries(LX_KINDS17), s.kind)}</label><label>K =<input class="inp" type="number" id="lxK" data-lx min="2" max="20" value="${s.k}"></label><button class="btn ghost" type="button" data-lx-act="new">Новые числа</button></div>
+        <div id="lxOut" aria-live="polite"></div>${labPrediction('Сколько пар удовлетворяют условию?')}</section>`; },
+      calc() { const s = this.state, a = this.nums(), d = x => x % s.k === 0;
+        const ok = a.slice(1).map((y, i) => { const c = d(a[i]) + d(y); return s.kind === 'one' ? c >= 1 : s.kind === 'exactly' ? c === 1 : c === 2; }); return { a, ok }; },
+      update() { const s = this.state; s.kind = lxVal('lxKind') || s.kind; s.k = lxNum('lxK', 2, 20, s.k);
+        const { a, ok } = this.calc(), sums = a.slice(1).map((y, i) => a[i] + y).filter((_, i) => ok[i]);
+        $('#lxOut').innerHTML = `<div class="lx-seq">${a.map((x, i) => `<span class="${x % s.k === 0 ? 'div' : ''}">${x}</span>${i < a.length - 1 ? `<i class="${ok[i] ? 'ok' : 'no'}" title="пара ${x} и ${a[i + 1]}">${ok[i] ? '✓' : '·'}</i>` : ''}`).join('')}</div>
+          <dl class="lab-facts"><div><dt>Числа, кратные ${s.k}</dt><dd>${a.filter(x => x % s.k === 0).join(', ') || 'нет'}</dd></div><div><dt>Наибольшая сумма подходящей пары</dt><dd>${sums.length ? Math.max(...sums) : '—'}</dd></div></dl>
+          <p class="lab-note">Выделены числа, кратные K. Галочка между числами — пара подходит.</p>`; },
+      answer() { const { ok } = this.calc(), n = ok.filter(Boolean).length; return { expected: n, why: `Подходящих пар: ${n} из ${ok.length}. Всего пар на одну меньше, чем чисел.` }; },
+    },
+    str: {
+      state: { task: 'same', s: 'XYZZZYXYXYYXZZZZYXYZYXXYXYXYZZYX' },
+      html() { const st = this.state; return `<section class="lab-panel"><h2>Самая длинная подходящая цепочка</h2>
+        <div class="lab-fields"><label>Что ищем${lxSel('lxTask', Object.entries(LX_TASKS24), st.task)}</label><button class="btn ghost" type="button" data-lx-act="new">Случайная строка</button></div>
+        <label class="lx-wide">Строка из букв X, Y, Z<input class="inp" id="lxS" data-lx maxlength="80" spellcheck="false" value="${esc(st.s)}"></label>
+        <div id="lxOut" aria-live="polite"></div>${labPrediction('Какова длина самой длинной подходящей цепочки?')}</section>`; },
+      update() { const st = this.state; st.task = lxVal('lxTask') || st.task; const raw = lxVal('lxS').toUpperCase().replace(/[^XYZ]/g, ''); st.s = raw || st.s;
+        $('#lxS').toggleAttribute('aria-invalid', !raw);
+        const [a, b] = lxLongest(st.s, st.task);
+        $('#lxOut').innerHTML = `<div class="lx-chars">${[...st.s].map((c, i) => `<b class="${i >= a && i < b ? 'on' : ''}">${c}</b>`).join('')}</div>
+          <dl class="lab-facts"><div><dt>Найденная цепочка</dt><dd>${st.s.slice(a, b) || '—'}</dd></div><div><dt>Длина</dt><dd>${b - a}</dd></div></dl>
+          <p class="lab-note">Один проход слева направо: держим длину текущей цепочки и обнуляем её, когда условие нарушено; максимум запоминаем. Так решают и для строки в миллион символов.</p>`; },
+      answer() { const [a, b] = lxLongest(this.state.s, this.state.task); return { expected: b - a, why: `Цепочка ${this.state.s.slice(a, b)} начинается с позиции ${a + 1}.` }; },
+    },
+    mask: {
+      state: { sub: 'mask', mask: '12??36*1', d: 317, n: 360 },
+      html() { const st = this.state; return `<section class="lab-panel"><h2>${st.sub === 'mask' ? 'Числа по маске, кратные D' : 'Делители числа: перебор до корня'}</h2>
+        <div class="lab-tabs lab-subtabs"><button type="button" class="btn${st.sub === 'mask' ? ' primary' : ''}" data-lx-act="sub" data-v="mask">Маска</button><button type="button" class="btn${st.sub === 'div' ? ' primary' : ''}" data-lx-act="sub" data-v="div">Делители</button></div>
+        ${st.sub === 'mask' ? `<p class="lab-note">? — ровно одна цифра; * — любая последовательность цифр, возможно пустая. Числа не больше 10<sup>10</sup>, без ведущего нуля.</p>
+          <div class="lab-fields"><label>Маска<input class="inp" id="lxM" data-lx maxlength="12" spellcheck="false" value="${esc(st.mask)}"></label><label>D =<input class="inp" type="number" id="lxD" data-lx min="2" max="100000" value="${st.d}"></label></div>`
+        : `<p class="lab-note">Делители идут парами: d и N / d. Достаточно проверить d до √N — вторую половину даёт деление.</p>
+          <div class="lab-fields"><label>N =<input class="inp" type="number" id="lxDN" data-lx min="2" max="1000000" value="${st.n}"></label></div>`}
+        <div id="lxOut" aria-live="polite"></div>${labPrediction(st.sub === 'mask' ? 'Сколько чисел подходят под маску и делятся на D?' : 'Сколько делителей у числа N (включая 1 и N)?')}</section>`; },
+      update() { const st = this.state;
+        if (st.sub === 'div') { st.n = lxNum('lxDN', 2, 1000000, st.n); const r = Math.floor(Math.sqrt(st.n)), pairs = [];
+          for (let d = 1; d <= r; d++) if (st.n % d === 0) pairs.push(d * d === st.n ? [d] : [d, st.n / d]);
+          $('#lxOut').innerHTML = `<div class="lx-seq">${pairs.map(p => `<span class="div">${p.join(' · ')}</span>`).join('')}</div>
+            <dl class="lab-facts"><div><dt>Проверено кандидатов</dt><dd>${r} (до √${st.n} ≈ ${Math.sqrt(st.n).toFixed(2)}) вместо ${st.n}</dd></div><div><dt>Все делители по возрастанию</dt><dd>${pairs.flatMap(p => [p[0]]).concat(pairs.slice().reverse().filter(p => p[1]).map(p => p[1])).join(', ')}</dd></div></dl>`; return; }
+        st.mask = lxVal('lxM').trim() || st.mask; st.d = lxNum('lxD', 2, 100000, st.d); $('#lxM').removeAttribute('aria-invalid');
+        try { const r = lxMask(st.mask, st.d, 1e10);
+          $('#lxOut').innerHTML = `<div class="lx-chars">${[...st.mask].map(c => `<b class="${c === '?' || c === '*' ? 'on' : ''}">${c}</b>`).join('')}</div>
+            <dl class="lab-facts"><div><dt>Найдено чисел</dt><dd>${r.length}</dd></div><div><dt>Первые числа и частные</dt><dd>${r.slice(0, 6).map(n => `${n} (${n / st.d})`).join('<br>') || 'нет'}${r.length > 6 ? '<br>…' : ''}</dd></div></dl>`;
+        } catch (e) { $('#lxM').setAttribute('aria-invalid', 'true'); $('#lxOut').textContent = e.message; } },
+      answer() { const st = this.state; if (st.sub === 'div') { let c = 0; for (let d = 1; d * d <= st.n; d++) if (st.n % d === 0) c += d * d === st.n ? 1 : 2; return { expected: c, why: 'Каждый делитель d ≤ √N даёт пару N / d; квадратный корень считается один раз.' }; }
+        const r = lxMask(st.mask, st.d, 1e10); return { expected: r.length, why: r.length ? `Наименьшее: ${r[0]} = ${st.d} × ${r[0] / st.d}.` : 'Подходящих чисел нет.' }; },
+    },
+    sort: {
+      state: { seed: 26, cap: 100 },
+      sizes() { const r = lxRand(this.state.seed); return Array.from({ length: 12 }, () => 5 + Math.floor(r() * 40)); },
+      solve() { const cap = this.state.cap, a = this.sizes().slice().sort((x, y) => x - y), take = []; let used = 0;
+        for (const x of a) { if (used + x > cap) break; take.push(x); used += x; }
+        // улучшаем: самый большой файл, который можно поставить вместо последнего взятого
+        let big = take.length ? take[take.length - 1] : 0;
+        if (take.length) { const rest = used - big, cand = a.filter((x, i) => i >= take.length - 1 && rest + x <= cap); big = Math.max(...cand); }
+        return { a, take, used, count: take.length, big, total: take.length ? used - take[take.length - 1] + big : 0 }; },
+      html() { const st = this.state; return `<section class="lab-panel"><h2>Сколько файлов поместится на диск?</h2>
+        <p class="lab-note">Жадный приём из №26: чтобы файлов было больше всего, берём самые маленькие. Потом последний взятый файл заменяем самым большим, который ещё помещается, — так находят наибольший возможный размер файла при максимальном количестве.</p>
+        <div class="lab-fields"><label>Объём диска: <span id="lxCapLabel">${st.cap}</span><input type="range" id="lxCap" data-lx min="20" max="250" value="${st.cap}"></label><button class="btn ghost" type="button" data-lx-act="new">Другие файлы</button></div>
+        <div id="lxOut" aria-live="polite"></div>${labPrediction('Какое наибольшее количество файлов поместится на диск?')}</section>`; },
+      update() { const st = this.state; st.cap = lxNum('lxCap', 20, 250, st.cap); $('#lxCapLabel').textContent = st.cap; const r = this.solve();
+        const pct = x => (x / st.cap * 100).toFixed(2) + '%';
+        $('#lxOut').innerHTML = `<div class="lx-seq">${r.a.map((x, i) => `<span class="${i < r.count ? 'div' : ''}">${x}</span>`).join('')}</div>
+          <div class="lx-disk" role="img" aria-label="Занято ${r.used} из ${st.cap}">${r.take.map(x => `<i style="width:${pct(x)}">${x}</i>`).join('')}</div>
+          <dl class="lab-facts"><div><dt>Файлов поместилось</dt><dd>${r.count} (занято ${r.used} из ${st.cap})</dd></div><div><dt>Наибольший возможный файл при этом</dt><dd>${r.count ? `${r.big}: замена ${r.take[r.count - 1]} → ${r.big}, итого ${r.total}` : '—'}</dd></div></dl>`; },
+      answer() { const r = this.solve(); return { expected: r.count, why: `После сортировки по возрастанию помещаются ${r.take.join(' + ') || '0'} = ${r.used}; следующий файл уже не влезает.` }; },
+    },
+    clust: {
+      state: { seed: 27, eps: 1.2 },
+      points() { const r = lxRand(this.state.seed), c = [[2.5, 2.5], [7, 3], [4.5, 7.2]], pts = [];
+        c.forEach(([x, y], k) => { for (let i = 0; i < 9 + k * 2; i++) pts.push([+(x + (r() - .5) * 2.6).toFixed(2), +(y + (r() - .5) * 2.4).toFixed(2)]); });
+        return pts; },
+      html() { const st = this.state; return `<section class="lab-panel"><h2>Кластеры и центроиды</h2>
+        <p class="lab-note">Точки одного кластера соединены цепочкой соседей на расстоянии не больше R. Центроид — точка кластера с наименьшей суммой расстояний до остальных его точек (как в №27).</p>
+        <div class="lab-fields"><label>R = <span id="lxEpsLabel">${st.eps}</span><input type="range" id="lxEps" data-lx min="0.3" max="4" step="0.1" value="${st.eps}"></label><button class="btn ghost" type="button" data-lx-act="new">Другие точки</button></div>
+        <div id="lxOut" aria-live="polite"></div>${labPrediction('Сколько кластеров получится при этом R?')}</section>`; },
+      update() { const st = this.state; st.eps = Math.max(.3, Math.min(4, +lxVal('lxEps') || st.eps)); $('#lxEpsLabel').textContent = st.eps.toFixed(1);
+        const pts = this.points(), c = lxClusters(pts, st.eps), X = x => 20 + x * 46, Y = y => 470 - y * 46, col = i => `hsl(${(i * 137) % 360} 70% 45%)`;
+        const avg = c.centers.length ? c.centers.reduce((s, p) => s + p[0], 0) / c.centers.length : 0;
+        $('#lxOut').innerHTML = `<svg class="lx-plot" viewBox="0 0 500 490" role="img" aria-label="Точки на плоскости: ${c.groups.length} кластеров">
+            ${[0, 2, 4, 6, 8, 10].map(t => `<line x1="${X(t)}" y1="${Y(0)}" x2="${X(t)}" y2="${Y(10)}"/><line x1="${X(0)}" y1="${Y(t)}" x2="${X(10)}" y2="${Y(t)}"/><text x="${X(t)}" y="${Y(0) + 16}">${t}</text>${t ? `<text x="${X(0) - 10}" y="${Y(t) + 4}">${t}</text>` : ''}`).join('')}
+            ${pts.map((p, i) => `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="6" fill="${col(c.id[i])}"><title>(${p[0]}; ${p[1]})</title></circle>`).join('')}
+            ${c.centers.map((p, i) => `<circle class="cen" cx="${X(p[0])}" cy="${Y(p[1])}" r="12" style="stroke:${col(i)}"/>`).join('')}</svg>
+          <dl class="lab-facts"><div><dt>Кластеров</dt><dd>${c.groups.length}</dd></div><div><dt>Центроиды</dt><dd>${c.centers.map((p, i) => `(${p[0]}; ${p[1]}) — ${c.groups[i].length} точ.`).join('<br>')}</dd></div>
+            <div><dt>Среднее X центроидов × 10000, целая часть</dt><dd>${Math.trunc(avg * 10000)}</dd></div></dl>
+          <p class="lab-note">Маленький R дробит кластеры, большой — сливает их. В задании расстояние подбирают так, чтобы группы разделились так, как видно на графике.</p>`; },
+      answer() { const n = lxClusters(this.points(), this.state.eps).groups.length; return { expected: n, why: `При R = ${this.state.eps.toFixed(1)} точки распадаются на ${n} групп${n === 1 ? 'у' : n < 5 ? 'ы' : ''}.` }; },
+    },
+  };
   function labRenderModel() {
     const box = $('#labModel'); if (!box) return;
+    if (LAB_EXTRA[LAB.mode]) { box.innerHTML = LAB_EXTRA[LAB.mode].html(); LAB_EXTRA[LAB.mode].update(); return; }
     if (LAB.mode === 'net') {
       box.innerHTML = `<section class="lab-panel"><h2>Где заканчивается сеть и начинается адрес узла?</h2>
         <div class="lab-fields"><label>IPv4-адрес<input class="inp" id="labIp" aria-describedby="labNetResult" value="${esc(LAB.net.ip)}" spellcheck="false" maxlength="15"></label><label>Маска /<span id="labPrefixLabel">${LAB.net.prefix}</span><input type="range" id="labPrefix" min="0" max="32" value="${LAB.net.prefix}"></label></div>
@@ -354,7 +511,7 @@
     return `<div class="lab-code-tools"><label>Готовый пример<select class="inp" id="labExample"><option value="">Выбрать пример…</option>${Object.entries(LAB_EXAMPLES).map(([id, [name]]) => `<option value="${id}">${name}</option>`).join('')}</select></label>
       <button type="button" class="btn primary" id="labRun" data-lab-action="run">Разобрать по шагам</button><button type="button" class="btn" id="labStop" data-lab-action="stop" hidden>Остановить</button>
       <button type="button" class="btn ghost" data-lab-action="edit" id="labEdit" ${LAB.result ? '' : 'hidden'}>Редактировать код</button></div>
-      <p class="lab-note">Код выполняется в браузере, затем запись можно листать вперёд и назад. Подсвеченная строка ещё не выполнена; переменные показаны перед ней. Запись идёт до конца программы.</p>
+      <p class="lab-note">Код выполняется в браузере, затем запись можно листать вперёд и назад. Подсвеченная строка ещё не выполнена; переменные показаны перед ней. Пошагово записываются первые 200 000 шагов, а программа досчитывается до конца — до 5 минут.</p>
       <p class="lab-status" id="labStatus" role="status">${LAB.result ? 'Запись выполнения готова.' : 'Вставь свой код или выбери пример. Ctrl+Enter — разобрать.'}</p>
       <div class="lab-controls" id="labControls" ${LAB.result && LAB.result.steps.length ? '' : 'hidden'}>
         <button type="button" class="btn" data-lab-action="prev" id="labPrev" title="Шаг назад (F7)">← Назад</button><button type="button" class="btn primary" data-lab-action="next" id="labNext" title="Следующий шаг (F8)">Следующий шаг →</button><button type="button" class="btn" data-lab-action="resume" id="labResume" title="До следующей точки останова (F9)">До точки останова ▶▶</button><button type="button" class="btn" data-lab-action="play" id="labPlay">Воспроизвести</button><button type="button" class="btn" data-lab-action="end" id="labEnd">В конец ⇥</button>
@@ -395,8 +552,29 @@
         if (m.type === 'tracing') {
           clearTimeout(LAB.timeout); LAB.timeout = setTimeout(() => fail('Выполнение остановлено через минуту. Уменьши входные данные или проверь цикл.'), 60000);
           labSetStatus('Записываю выполнение…');
+        } else if (m.type === 'trace-partial') {
+          // Первые 200 000 шагов записаны — их можно листать, пока программа досчитывается без записи.
+          clearTimeout(LAB.timeout);
+          LAB.timeout = setTimeout(() => {
+            if (LAB.worker !== worker) return;
+            labStop(); labSetBusy(false);
+            if (LAB.result) { LAB.result.pending = false; LAB.result.timedOut = true; labRenderStep(); }
+          }, 330000);
+          LAB.result = m.result; LAB.result.progress = 0; LAB.index = 0; labIndexSteps();
+          $('#labEd').hidden = true; $('#labTraceCode').hidden = false; $('#labEdit').hidden = false; $('#labStdin').disabled = true; $('#labIdeMode').textContent = 'Отладка';
+          labRenderStep();
+        } else if (m.type === 'trace-progress') {
+          if (LAB.result?.pending) { LAB.result.progress = m.seconds; labRenderStatus(); }
         } else if (m.type === 'trace') {
-          labStop(); labSetBusy(false); LAB.result = m.result; LAB.index = 0; labIndexSteps();
+          const recorded = LAB.result?.pending ? LAB.result : null;
+          clearTimeout(LAB.timeout); LAB.timeout = null; worker.terminate(); LAB.worker = null; labSetBusy(false);
+          if (recorded) {                                    // досчитали: шаги — прежние, вывод и итог — полные
+            Object.assign(recorded, { output: m.result.output, error: m.result.error, outputTruncated: m.result.outputTruncated,
+              truncated: m.result.truncated, stop: m.result.stop, finished: m.result.finished, seconds: m.result.seconds, pending: false });
+            labRenderStep();
+            return;
+          }
+          LAB.result = m.result; LAB.index = 0; labIndexSteps();
           $('#labEd').hidden = true; $('#labTraceCode').hidden = false; $('#labEdit').hidden = false; $('#labStdin').disabled = true; $('#labIdeMode').textContent = 'Отладка';
           labRenderStep();
         } else if (m.type === 'trace-error') fail(m.text);
@@ -406,14 +584,24 @@
       worker.postMessage({ type: 'trace', code: LAB.code, stdin: LAB.stdin, files: LAB.context?.files || [] });
     } catch (e) { labStop(); labSetBusy(false); labSetStatus('Браузер не смог запустить Python. Попробуй современную версию браузера.'); }
   }
+  function labRenderStatus() {
+    const r = LAB.result;
+    if (!r) return;
+    const n = r.steps.length.toLocaleString('ru-RU'), cut = ' Пошагово записаны первые ' + n + ' шагов — их можно листать.';
+    const tail = r.outputTruncated ? ' Вывод сокращён до 20000 символов.' : '';
+    if (r.pending) labSetStatus(`Шагов больше ${n}.${cut} Программа продолжает считаться без записи, чтобы получить полный вывод${r.progress ? ` — идёт ${r.progress} с` : ''}… Можно остановить кнопкой «Остановить».`);
+    else if (r.userStopped) labSetStatus(`Досчёт остановлен вручную.${cut} Вывод — только до места остановки.`);
+    else if (r.timedOut || (r.cut && r.stop === 'total')) labSetStatus(`Программа не закончилась за 5 минут — похоже на бесконечный цикл или слишком долгий расчёт.${cut} Проверь условие цикла.`);
+    else if (r.error) labSetStatus('Программа завершилась с ошибкой: ' + r.error + (r.cut ? cut : ''));
+    else if (r.truncated) labSetStatus('Программа выполнялась дольше 25 секунд ещё до первых 200 000 шагов — запись остановлена. Похоже на бесконечный цикл или слишком большие данные.');
+    else if (r.cut) labSetStatus(`Программа выполнена до конца${r.seconds ? ` за ${r.seconds} с` : ''}: шагов больше ${n}.${cut} Полный вывод программы — на последнем шаге («В конец»).` + tail);
+    else labSetStatus(`Программа выполнена до конца: ${n} ${plural(r.steps.length, 'шаг', 'шага', 'шагов')}. Листай шаги и наблюдай за переменными.` + tail);
+  }
   function labRenderStep() {
     if (!labActive() || LAB.view !== 'code' || !LAB.result) return;
     const r = LAB.result, s = r.steps[LAB.index], previous = r.steps[LAB.index - 1];
     $('#labControls').hidden = !r.steps.length;
-    if (r.error) labSetStatus('Программа завершилась с ошибкой: ' + r.error);
-    else if (r.truncated) labSetStatus(r.stop === 'time' ? 'Программа выполнялась дольше 25 секунд — запись остановлена. Похоже на бесконечный цикл или слишком большие данные.'
-      : `Запись остановлена на ${r.steps.length.toLocaleString('ru-RU')} шагах — похоже, программа не заканчивается. Проверь условие цикла или уменьши данные.`);
-    else labSetStatus(`Программа выполнена до конца: ${r.steps.length.toLocaleString('ru-RU')} ${plural(r.steps.length, 'шаг', 'шага', 'шагов')}. Листай шаги и наблюдай за переменными.` + (r.outputTruncated ? ' Вывод сокращён до 20000 символов.' : ''));
+    labRenderStatus();
     const vals = new Map((s ? s.variables : []).map(v => [v.name, v]));
     $('#labTraceCode').innerHTML = LAB.code.split('\n').map((line, i) => {
       const n = i + 1, cur = s && s.line === n, bp = LAB.bps.has(n);
@@ -434,7 +622,9 @@
       const kind = v.type === 'str' ? 'str' : ['int', 'float', 'complex'].includes(v.type) ? 'num' : ['bool', 'NoneType'].includes(v.type) ? 'kw' : '';
       return `<div class="lab-var${changed ? ' changed' : ''}"><div class="ide-var-row"><i class="ide-var-ic ${kind || 'obj'}" aria-hidden="true"></i><b>${esc(v.name)}</b><span class="ide-eq">=</span><small>{${esc(v.type)}}</small>${v.length != null ? `<small>len ${v.length}</small>` : ''}<code class="${kind ? 'hl-' + kind : ''}">${esc(v.value)}</code>${changed ? '<span class="ide-chg" title="Значение изменилось на этом шаге">изменилось</span>' : ''}</div>${v.items ? `<div class="lab-array">${v.items.map((x, i) => `<span><small>${i}</small><code>${esc(x)}</code></span>`).join('')}${v.length > v.items.length ? '<span>…</span>' : ''}</div>` : ''}</div>`;
     }).join('')}</div>` : '<p class="lab-note">Пока нет переменных.</p>';
-    $('#labOutput').textContent = s.out != null ? r.output.slice(0, s.out) : (s.output || '');
+    // После досчёта на последнем записанном шаге показываем весь вывод программы.
+    const whole = r.cut && !r.pending && LAB.index >= r.steps.length - 1;
+    $('#labOutput').textContent = whole ? r.output : s.out != null ? r.output.slice(0, s.out) : (s.output || '');
     $('#labStep').max = r.steps.length - 1; $('#labStep').value = LAB.index;
     $('#labStepLabel').textContent = `${LAB.index + 1} из ${r.steps.length}`;
     $('#labPrev').disabled = LAB.index === 0; $('#labNext').disabled = $('#labEnd').disabled = LAB.index >= r.steps.length - 1;
@@ -501,7 +691,11 @@
     if (move) { const g = LAB.game, m = labGamePositionMoves(g.path[g.path.length - 1], g.target, g.add, g.factor)[+move.dataset.labMove]; if (m) { g.path.push(m.value); labUpdateGame(); } return; }
     const a = e.target.closest('[data-lab-action]')?.dataset.labAction;
     if (a === 'run') labRun();
-    if (a === 'stop') { labStop(); labSetBusy(false); labSetStatus('Остановлено. Код сохранён в этом браузере.'); }
+    if (a === 'stop') {
+      labStop(); labSetBusy(false);
+      if (LAB.result?.pending) { LAB.result.pending = false; LAB.result.userStopped = true; labRenderStep(); }
+      else labSetStatus('Остановлено. Код сохранён в этом браузере.');
+    }
     if (a === 'edit') { labStop(); LAB.result = null; openLab('code').then(() => $('#labCode')?.focus()); }
     if (a === 'prev' || a === 'next') { labPause(); labStep(a === 'prev' ? -1 : 1); }
     if (a === 'end' && LAB.result) { labPause(); LAB.index = LAB.result.steps.length - 1; labRenderStep(); }
@@ -526,6 +720,13 @@
       const b = trainerEl.querySelector('[data-lab-action="graph-step"]'); if (b) b.textContent = G.shown >= n ? 'По шагам от конца' : 'Следующий шаг →';
     }
     if (a === 'graph-reset') { Object.assign(LAB.graph, { via: '', banned: new Set(), shown: 99 }); labRenderModel(); }
+    const lx = e.target.closest('[data-lx-act]');
+    if (lx && LAB_EXTRA[LAB.mode]) {             // переключатели и «новые данные» новых моделей
+      const st = LAB_EXTRA[LAB.mode].state, act = lx.dataset.lxAct;
+      if (act === 'rule') st.rule = lx.dataset.v; else if (act === 'sub') st.sub = lx.dataset.v;
+      else if (act === 'new') { if ('seed' in st) st.seed = 1 + Math.floor(Math.random() * 1e6); else st.s = Array.from({ length: 36 }, () => 'XYZ'[Math.floor(Math.random() * 3)]).join(''); }
+      labRenderModel(); return;
+    }
     const lg = e.target.closest('[data-lab-logic]');
     if (lg) { LAB.logic.kind = lg.dataset.labLogic; labRenderModel(); return; }
     const gv = e.target.closest('[data-lab-gv]');
@@ -554,9 +755,11 @@
     if (id === 'labIp' || id === 'labPrefix') labUpdateNetwork();
     if (['labWidth', 'labHeight', 'labDepth'].includes(id)) labUpdateImage();
     if (['labA', 'labSegA', 'labSegB'].includes(id)) { labResetFeedback(); labUpdateLogic(); }
+    if (e.target.matches?.('[data-lx]') && LAB_EXTRA[LAB.mode]) { labResetFeedback(); LAB_EXTRA[LAB.mode].update(); }
     if (id === 'labStep') { labPause(); LAB.index = +e.target.value; labRenderStep(); }
   });
   trainerEl.addEventListener('change', e => {
+    if (labActive() && e.target.matches?.('select[data-lx]') && LAB_EXTRA[LAB.mode]) { labResetFeedback(); LAB_EXTRA[LAB.mode].update(); return; }
     if (labActive() && ['labGKind', 'labGStart', 'labGEnd'].includes(e.target.id)) {
       const G = LAB.graph; G.shown = 99;
       if (e.target.id !== 'labGKind') { G.via = ''; G.banned.clear(); }
@@ -572,6 +775,11 @@
     e.preventDefault();
     try {
       const answer = $('#labGuess').value.trim().replace(/\s/g, '');
+      if (LAB_EXTRA[LAB.mode]) {
+        const { expected, why } = LAB_EXTRA[LAB.mode].answer(), right = /^-?\d+$/.test(answer) && expected != null && +answer === expected;
+        $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} Ответ: ${expected == null ? 'нет' : expected}. ${why}`;
+        return;
+      }
       if (LAB.mode === 'logic' || LAB.mode === 'graph') {
         let expected, why;
         if (LAB.mode === 'logic') {
