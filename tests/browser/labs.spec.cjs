@@ -8,7 +8,7 @@ async function openLab(page,context,view='tasks') {
   await seedBrowser(context,fixture);
   await page.goto(fixture.origin+'/#lab');
   await expect(page.locator('#labRoot')).toBeVisible();
-  if(view==='tasks') await expect(page.locator('[data-lab-view=tasks] .lab-kicker')).toHaveText('№ 7 · 13 · 15 · 19–21');
+  if(view==='tasks') await expect(page.locator('[data-lab-view=tasks] .lab-kicker')).toHaveText('№ 5 · 7 · 13 · 15 · 17 · 19–21 · 24 · 25 · 26 · 27');
   await page.locator('[data-lab-view="'+view+'"]').click();
 }
 for(const width of [320,375,1366]) {
@@ -62,6 +62,35 @@ for(const width of [320,375,1366]) {
     await expect(vertex).toBeFocused();await expect(vertex).toHaveAttribute('aria-label',/запрещена/);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await recordUI(page,info,'graph-'+width);
+    // новые модели: №5, 17, 24, 25, 26, 27 — отрисовка, ввод с клавиатуры и проверка ответа
+    await page.locator('[data-lab-model=alg]').click();
+    await page.locator('[data-lx-act=rule][data-v=parity]').click();
+    await page.locator('#lxT').fill('200');
+    await expect(page.locator('#lxOut')).toContainText('1110101₂ = 117');
+    await page.locator('#labGuess').fill('19');await page.locator('#labPredict button').click();
+    await expect(page.locator('#labFeedback')).toContainText('Верно!');
+    await page.locator('[data-lab-model=pairs]').click();
+    await page.locator('#lxKind').selectOption('both');
+    await expect(page.locator('#lxOut .lx-seq span')).toHaveCount(14);
+    await page.locator('[data-lab-model=str]').click();
+    await page.locator('#lxTask').selectOption('same');
+    await page.locator('#lxS').fill('XYYYZZX');
+    await page.locator('#labGuess').fill('3');await page.locator('#labPredict button').click();
+    await expect(page.locator('#labFeedback')).toContainText('Верно!');
+    await page.locator('[data-lab-model=mask]').click();
+    await page.locator('#lxM').fill('1?2139*4');await page.locator('#lxD').fill('2023');
+    await page.locator('#labGuess').fill('4');await page.locator('#labPredict button').click();
+    await expect(page.locator('#labFeedback')).toContainText('Верно!');
+    await page.locator('[data-lx-act=sub][data-v=div]').click();
+    await page.locator('#lxDN').fill('360');
+    await page.locator('#labGuess').fill('24');await page.locator('#labPredict button').click();
+    await expect(page.locator('#labFeedback')).toContainText('Верно!');
+    await page.locator('[data-lab-model=sort]').click();
+    await expect(page.locator('#lxOut .lx-disk')).toBeVisible();
+    await page.locator('[data-lab-model=clust]').click();
+    await expect(page.locator('#lxOut svg.lx-plot')).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await recordUI(page,info,'new-models-'+width);
   });
 }
 test('actual debugger executes local Python and supports breakpoint and step keys',async({page,context},info)=>{
