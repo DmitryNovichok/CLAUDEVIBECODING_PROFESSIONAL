@@ -2294,6 +2294,12 @@ details.td-row summary { display: flex; flex-wrap: wrap; align-items: center; ga
 .elo-d.down { color: var(--weak); font-weight: 700; }
 .tour-about[hidden] { display: none; }
 .dq { align-items: flex-start; }
+.dq-bets { flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 2px dashed var(--border); }
+.dq-bet-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.dq-bet { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 92px; padding: 6px 10px 8px; border-radius: 12px; border: 2px solid var(--border-strong); background: var(--card); color: var(--text); font: inherit; cursor: pointer; }
+.dq-bet small { font-size: 11px; color: var(--muted); } .dq-bet small.hot { color: var(--good); font-weight: 800; }
+.dq-bet b { font-size: 15px; } .dq-bet.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.dq-bet:disabled { opacity: .45; cursor: not-allowed; }
 .dq-why { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, #ff9600 12%, var(--card)); border: 1px solid color-mix(in srgb, #ff9600 45%, var(--border)); font-size: 13px; }
 .dq-why p { margin: 2px 0; }
 .dq-nums { flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 2px dashed var(--border); }

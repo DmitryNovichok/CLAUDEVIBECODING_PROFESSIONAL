@@ -57,6 +57,20 @@ class SnapshotTest(unittest.TestCase):
             self.assertEqual(db.execute('SELECT answer FROM results').fetchone()[0], 'saved before backup')
         self.assertEqual(self.archive.stat().st_mode & 0o777, 0o600)
 
+    def test_quick_snapshot_has_database_and_pupil_files_but_no_release_assets(self):
+        create(self.data / 'trainer.db', self.archive, assets=False)
+        restored = self.root / 'restored'
+        manifest = verify(self.archive, restored)
+        self.assertEqual((manifest['scope'], manifest['banks']), ('quick', []))
+        for name, content in self.files.items():
+            if name.startswith('server_data/'):
+                self.assertEqual((restored / name).read_text(), content)
+            else:
+                self.assertFalse((restored / name).exists(), name)       # банки и материалы — только в полной копии
+        self.assertFalse((restored / 'banks').exists())
+        with sqlite3.connect(restored / 'server_data/trainer.db') as db:
+            self.assertEqual(db.execute('SELECT answer FROM results').fetchone()[0], 'saved before backup')
+
     def test_restore_refuses_nonempty_destination(self):
         create(self.data / 'trainer.db', self.archive)
         with self.assertRaisesRegex(ValueError, 'empty'):

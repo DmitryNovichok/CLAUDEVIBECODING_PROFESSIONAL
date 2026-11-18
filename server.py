@@ -2158,6 +2158,8 @@ class DB(Transactional):
                     ("duels", "rematch_of", "INTEGER"),               # реванш за дуэль
                     ("duel_queue", "elo", "REAL"),
                     ("duel_queue", "nums", "TEXT"),                   # номера заданий, по которым ученик готов играть
+                    ("duel_queue", "bet", "INTEGER NOT NULL DEFAULT 0"),  # ставка ₿ на свою победу — сводим только равные
+                    ("duels", "bet", "INTEGER NOT NULL DEFAULT 0"),       # ставка каждого; победитель забирает обе
                     ("tournaments", "theme", "TEXT"),                 # тематический турнир: python, sprint
                     ("tour_matches", "admin", "TEXT"),                # что сделал учитель вручную
                     ("duels", "surrender", "INTEGER"),                # кто сдался — проиграл сразу
@@ -5112,7 +5114,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                              ORDER BY id DESC LIMIT 20""", (s["id"], s["id"], time.time() - 7 * 86400)):
                 me, op = ("a", "b") if d["a"] == s["id"] else ("b", "a")
                 opr = db.q("SELECT name FROM students WHERE id=?", (d[op],), one=True)
-                item = {"id": d["id"], "status": d["status"], "mine": me == "a", "opponent": short_name(opr["name"] if opr else "?"),
+                item = {"id": d["id"], "status": d["status"], "mine": me == "a", "opponent": short_name(opr["name"] if opr else "?"), "bet": d["bet"] or 0,
                         "started": bool(d[me + "_start"]), "done": bool(d[me + "_done"]), "op_done": bool(d[op + "_done"]),
                         "ends": (d["accepted"] or d["created"]) + DUEL_HOURS * 3600, "quick": bool(d["quick"])}
                 if d["status"] == "active" and d[me + "_start"]:
@@ -5138,9 +5140,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             lv = lambda sid: levels.get(sid, 1)
             q = db.q("SELECT since FROM duel_queue WHERE student_id=? AND seen>?", (s["id"], time.time() - DUEL_QUEUE_TTL), one=True)
             return self.send_json({"duels": out, "searching": bool(q), "search_since": q["since"] if q else None,
-                                   "today": duels_today(db, s["id"]), "per_day": DUEL_PER_DAY,
-                                   "full_per_day": DUEL_FULL_PER_DAY, "stake_late": DUEL_STAKE_LATE,
-                                   "win_btc": DUEL_WIN_BTC, "play_xp": DUEL_PLAY_XP, "play_btc": DUEL_PLAY_BTC,
+                                   "full_per_day": DUEL_FULL_PER_DAY, "stake_late": DUEL_STAKE_LATE, "play_xp": DUEL_PLAY_XP,
+                                   "bets": DUEL_BETS, "bet_seekers": duel_bet_seekers(db, tid, s["id"]),
+                                   "coins": 0 if s["is_teacher"] else game_summary(db, s["id"])["coins"],
                                    "duel_nums": DUEL_NUMS, "min_nums": DUEL_MIN_NUMS,
                                    "my_elo": round(elo_of(db, s["id"])), "streak": duel_streak(db, s["id"]),
                                    "seekers": duel_seekers(db, tid, s["id"]), "stake": DUEL_STAKE, "tasks": DUEL_TASKS, "hours": DUEL_HOURS,
@@ -5160,6 +5162,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             my_nums = sorted({n for n in (to_int(x) for x in (raw or DUEL_NUMS)[:40]) if n in DUEL_NUMS})
             if len(my_nums) < DUEL_MIN_NUMS:
                 return self.err(400, f"Выбери хотя бы {DUEL_MIN_NUMS} номера заданий")
+            bet = to_int(data.get("bet")) or 0
+            if bet not in DUEL_BETS:
+                return self.err(400, "Такой ставки нет")
+            if bet and game_summary(db, s["id"])["coins"] < bet:
+                db.x("DELETE FROM duel_queue WHERE student_id=?", (s["id"],))
+                return self.err(400, f"Не хватает монет на ставку {bet} ₿ — выбери ставку меньше")
             now = time.time()
             with _COMP_LOCK:
                 # пока ждали, нас подобрал другой ищущий — дуэль уже создана
@@ -5171,9 +5179,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         (s["id"], s["id"]), one=True)["c"] >= DUEL_MAX_OPEN:
                     db.x("DELETE FROM duel_queue WHERE student_id=?", (s["id"],))
                     return self.err(429, f"Не больше {DUEL_MAX_OPEN} дуэлей одновременно — закончи начатые")
-                if duels_today(db, s["id"]) >= DUEL_PER_DAY:
-                    db.x("DELETE FROM duel_queue WHERE student_id=?", (s["id"],))
-                    return self.err(429, f"Сегодня уже {DUEL_PER_DAY} дуэлей — это максимум. Новые — завтра!")
                 me_lv = game_summary(db, s["id"], brief=True)["level"]
                 me_elo = elo_of(db, s["id"])
                 db.x("DELETE FROM duel_queue WHERE seen<?", (now - DUEL_QUEUE_TTL,))
@@ -5186,19 +5191,21 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 common = lambda r: set(my_nums) & set(json.loads(r["nums"]) if r["nums"] else DUEL_NUMS)
                 cands = [r for r in db.q("SELECT * FROM duel_queue WHERE teacher_id=? AND student_id!=? ORDER BY since",
                                          (tid, s["id"])) if r["student_id"] in mates and r["student_id"] not in busy
-                         and len(common(r)) >= DUEL_MIN_NUMS]
+                         and len(common(r)) >= DUEL_MIN_NUMS and (r["bet"] or 0) == bet
+                         and (not bet or game_summary(db, r["student_id"])["coins"] >= bet)]
                 if cands:
                     op = min(cands, key=lambda r: (abs((r["elo"] if r["elo"] is not None else ELO_START) - me_elo), r["since"]))
                     tasks = duel_tasks(common(op))                # только номера, которые выбрали оба
                     if not tasks:
                         return self.err(503, "нет подходящих заданий")
                     db.x("DELETE FROM duel_queue WHERE student_id IN (?,?)", (s["id"], op["student_id"]))
-                    did = db.x("""INSERT INTO duels(a, b, tasks, tasks_b, created, status, accepted, quick)
-                                  VALUES(?,?,?,?,?, 'active', ?, 1)""",
-                               (op["student_id"], s["id"], json.dumps(tasks), json.dumps(twin_tasks(tasks)), now, now))
+                    did = db.x("""INSERT INTO duels(a, b, tasks, tasks_b, created, status, accepted, quick, bet)
+                                  VALUES(?,?,?,?,?, 'active', ?, 1, ?)""",
+                               (op["student_id"], s["id"], json.dumps(tasks), json.dumps(twin_tasks(tasks)), now, now, bet))
+                    duel_escrow(db, {"id": did, "a": op["student_id"], "b": s["id"]}, bet)
                     return self.send_json({"matched": did})
                 # Почему ищущих не свели: ученик видит причину, а не просто «в поиске 1 человек».
-                blocked = {"running": 0, "played": 0, "nums": 0, "common": []}
+                blocked = {"running": 0, "played": 0, "nums": 0, "bet": 0, "common": []}
                 for r in db.q("SELECT * FROM duel_queue WHERE teacher_id=? AND student_id!=?", (tid, s["id"])):
                     if r["student_id"] not in mates:
                         continue
@@ -5206,16 +5213,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         blocked["running"] += 1
                     elif r["student_id"] in busy:
                         blocked["played"] += 1
+                    elif (r["bet"] or 0) != bet:
+                        blocked["bet"] += 1
                     else:
                         blocked["nums"] += 1
                         if len(common(r)) > len(blocked["common"]):
                             blocked["common"] = sorted(common(r))
-                db.x("""INSERT INTO duel_queue(student_id, teacher_id, level, since, seen, elo, nums) VALUES(?,?,?,?,?,?,?)
+                db.x("""INSERT INTO duel_queue(student_id, teacher_id, level, since, seen, elo, nums, bet) VALUES(?,?,?,?,?,?,?,?)
                         ON CONFLICT(student_id) DO UPDATE SET seen=excluded.seen, level=excluded.level, elo=excluded.elo,
-                        nums=excluded.nums""", (s["id"], tid, me_lv, now, now, me_elo, json.dumps(my_nums)))
+                        nums=excluded.nums, bet=excluded.bet""", (s["id"], tid, me_lv, now, now, me_elo, json.dumps(my_nums), bet))
             q = db.q("SELECT since FROM duel_queue WHERE student_id=?", (s["id"],), one=True)
             return self.send_json({"searching": True, "since": q["since"], "seekers": duel_seekers(db, tid, s["id"]),
-                                   "blocked": blocked})
+                                   "blocked": blocked, "bet_seekers": duel_bet_seekers(db, tid, s["id"])})
         if path == "/api/duel/create":
             return self.err(410, "Вызов на дуэль убран — нажми «Найти соперника»")
         if path == "/api/duel/rematch":
@@ -5227,12 +5236,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(409, "Реванш можно попросить в течение суток после дуэли")
             if db.q("SELECT 1 FROM duels WHERE rematch_of=?", (d["id"],), one=True):
                 return self.err(409, "Реванш за эту дуэль уже был")
-            if duels_today(db, s["id"]) >= DUEL_PER_DAY:
-                return self.err(429, f"Сегодня уже {DUEL_PER_DAY} дуэлей — это максимум. Новые — завтра!")
             op = d["winner"]
+            if d["bet"] and game_summary(db, s["id"])["coins"] < d["bet"]:
+                return self.err(400, f"Для реванша нужна та же ставка {d['bet']} ₿ — монет не хватает")
             tasks = duel_tasks({APP.bank.tasks[x]["n"] for x in json.loads(d["tasks"] or "[]") if x in APP.bank.tasks})
-            did = db.x("""INSERT INTO duels(a, b, tasks, tasks_b, created, status, rematch_of) VALUES(?,?,?,?,?, 'pending', ?)""",
-                       (s["id"], op, json.dumps(tasks), json.dumps(twin_tasks(tasks)), time.time(), d["id"]))
+            did = db.x("""INSERT INTO duels(a, b, tasks, tasks_b, created, status, rematch_of, bet) VALUES(?,?,?,?,?, 'pending', ?, ?)""",
+                       (s["id"], op, json.dumps(tasks), json.dumps(twin_tasks(tasks)), time.time(), d["id"], d["bet"] or 0))
             return self.send_json({"ok": True, "id": did})
         d = db.q("SELECT * FROM duels WHERE id=? AND (a=? OR b=?)", (to_int(data.get("id")), s["id"], s["id"]), one=True)
         if not d:
@@ -5242,7 +5251,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if d["status"] != "pending" or me != "b":
                 return self.err(409, "Вызов уже не ждёт ответа")
             if data.get("accept"):
-                db.x("UPDATE duels SET status='active', accepted=? WHERE id=?", (time.time(), d["id"]))
+                bet = d["bet"] or 0
+                for side in ("a", "b"):
+                    if bet and game_summary(db, d[side])["coins"] < bet:
+                        return self.err(400, f"Ставка {bet} ₿: у {'тебя' if d[side] == s['id'] else 'соперника'} не хватает монет")
+                if db.xn("UPDATE duels SET status='active', accepted=? WHERE id=? AND status='pending'", (time.time(), d["id"])):
+                    duel_escrow(db, d, bet)
             else:
                 db.x("UPDATE duels SET status='declined', finished=? WHERE id=?", (time.time(), d["id"]))
             return self.send_json({"ok": True})
@@ -9425,14 +9439,12 @@ DUEL_TASK_SEC = {n: (30 if n >= 24 else 10) * 60 for n in range(1, 28)}   # вр
 DUEL_MIN_NUMS = 3          # меньше общих номеров у двоих ищущих — их не сводим
 # Награды дуэли — точными суммами: опыт за дуэль монеты не «намайнивает», монеты начисляются отдельно (coins, reason='duel')
 DUEL_STAKE = 300           # опыт победителю (у проигравшего не отнимается)
-DUEL_WIN_BTC = 50          # монеты победителю
+DUEL_BETS = [0, 10, 25, 50, 100, 250]   # ставка ₿ на свою победу (у обоих одинаковая); 0 — без ставки
 DUEL_PLAY_XP = 50          # за участие (сыграл и не победил: проигрыш или ничья) — опыт…
-DUEL_PLAY_BTC = 1          # …и монеты
 DUEL_FULL_PER_DAY = 3      # полная награда за победу — за первые 3 победы в сутки, дальше победа — как участие
 DUEL_STAKE_LATE = DUEL_PLAY_XP
 DUEL_HOURS = 24
 DUEL_MAX_OPEN = 3
-DUEL_PER_DAY = 10          # дуэлей в сутки на одного ученика
 _COMP_LOCK = STATE_LOCK
 _DAILY_CACHE = {}
 
@@ -9739,9 +9751,23 @@ def comp_flags(db, row, side):
     return sorted(out)
 
 
-def duels_today(db, sid):
-    return db.q("""SELECT COUNT(*) AS c FROM duels WHERE (a=? OR b=?) AND created>=? AND status NOT IN ('declined','expired')""",
-                (sid, sid, day_start()), one=True)["c"]
+def duel_bet_seekers(db, tid, sid):
+    """Сколько одноклассников сейчас ищут соперника — по каждой ставке."""
+    out = {str(b): 0 for b in DUEL_BETS}
+    for r in db.q("SELECT bet, COUNT(*) AS c FROM duel_queue WHERE teacher_id=? AND student_id!=? AND seen>? GROUP BY bet",
+                  (tid, sid, time.time() - DUEL_QUEUE_TTL)):
+        if str(r["bet"] or 0) in out:
+            out[str(r["bet"] or 0)] = r["c"]
+    return out
+
+
+def duel_escrow(db, d, bet):
+    """Ставка уходит из кошелька обоих в момент старта дуэли. Удаление этих строк (отмена учителем) — возврат."""
+    if bet:
+        now = time.time()
+        for side in ("a", "b"):
+            db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'duel', ?, 1)",
+                 (d[side], now, -bet, f"duel:{d['id']}"))
 
 
 def duel_seekers(db, tid, sid):
@@ -10343,16 +10369,16 @@ def duel_settle(db, d):
         return                                     # итог уже подвёл параллельный запрос
     if stake:
         db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[win], now, stake, f"dwin:{d['id']}"))
-        btc = DUEL_WIN_BTC if stake >= DUEL_STAKE else DUEL_PLAY_BTC
-        db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'duel', ?, 0)",
-             (d[win], now, btc, f"duel:{d['id']}"))
+    bet = d["bet"] or 0
+    if bet:                                        # победитель забирает обе ставки, ничья — каждому своя
+        for side in ((win,) if win else ("a", "b")):
+            db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'duel', ?, 0)",
+                 (d[side], now, bet * (2 if win else 1), f"duel:{d['id']}"))
     for side, solved in (("a", sa), ("b", sb)):
         # за участие: начал дуэль и не победил; сдался, ничего не решив, — без награды (против накрутки)
         if side == win or not d[side + "_start"] or (d["surrender"] == d[side] and solved <= 0):
             continue
         db.x("INSERT INTO xp_adjust(student_id, ts, delta, reason) VALUES(?,?,?,?)", (d[side], now, DUEL_PLAY_XP, f"duelp:{d['id']}"))
-        db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'duel', ?, 0)",
-             (d[side], now, DUEL_PLAY_BTC, f"duel:{d['id']}"))
     if d["a_start"] or d["b_start"]:               # рейтинг Эло: никто не начал — дуэль не в счёт
         da, db_ = elo_apply(db, d["a"], d["b"], 1.0 if win == "a" else 0.0 if win == "b" else 0.5)
         db.x("UPDATE duels SET a_elo=?, b_elo=? WHERE id=?", (da, db_, d["id"]))

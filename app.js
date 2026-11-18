@@ -6367,6 +6367,8 @@
     const sig = JSON.stringify([T2, D2 && { ...D2, seekers: 0 }]);
     if (quiet && sig === LIVE_SIG) return;
     LIVE_SIG = sig;
+    // ставка списана или выигрыш пришёл — обновим монеты в шапке
+    if (prevD && D2 && prevD.coins !== D2.coins) api('me').then(me => { if (me.game) onGame(me.game); }).catch(() => {});
     TOUR = T2; DUELS = D2;
     if (prevT || prevD) liveNews(prevT, prevD);
     // начатые матчи и дуэли решаются как подборка: задания по порядку
@@ -6726,7 +6728,7 @@
       } else if (d.status === 'finished') {
         const [c, w0] = RES[d.result] || ['d', d.result];
         const w = d.surrender === 'me' ? `${w0} — ты сдался` : d.surrender === 'op' ? `${w0} — соперник сдался` : w0;
-        const got = d.got_xp != null ? (d.got_xp || d.got_btc ? ` <small>+${d.got_xp} XP · +${d.got_btc} ₿</small>` : '')
+        const got = d.got_xp != null ? (d.got_xp || d.got_btc ? ` <small>+${d.got_xp} XP${d.got_btc ? ` · ${d.got_btc > 0 ? '+' : '−'}${Math.abs(d.got_btc)} ₿` : ''}</small>` : '')
           : d.stake && d.result === 'win' ? ` <small>+${d.stake} XP</small>` : '';
         st = `<b class="tm-res ${c}">${w} ${d.my_solved}:${d.op_solved}</b>${got}`
           + (d.elo != null ? ` <small class="elo-d ${d.elo >= 0 ? 'up' : 'down'}">${d.elo >= 0 ? '+' : '−'}${Math.abs(d.elo)} Эло</small>` : '')
@@ -6734,24 +6736,24 @@
         if (d.can_rematch) btn = `<button type="button" class="btn ghost" data-duel-rematch="${d.id}">🔁 Реванш</button>`;
       } else st = d.status === 'declined' ? 'вызов отклонён' : d.status === 'void' ? 'отменена учителем' : 'вызов не принят вовремя';
       return `<div class="tm-row${d.status === 'active' && !d.done || (d.status === 'pending' && !d.mine) ? ' live' : ''}"><div><span class="ap-kind">Дуэль</span>
-        <b>ты — ${esc(d.opponent)}</b><div class="fm-muted">${st}</div></div><div class="tm-btns">${btn}</div></div>`;
+        <b>ты — ${esc(d.opponent)}</b>${d.bet ? ` <span class="chip">ставка ${d.bet} ₿</span>` : ''}<div class="fm-muted">${st}</div></div><div class="tm-btns">${btn}</div></div>`;
     }).join('');
     const search = DSEARCH.on
       ? `<div class="dq on"><div class="dq-spin" aria-hidden="true">⚔️</div><div><b>Ищем соперника… <span id="dqTime">${dqTime()}</span></b>
-          <div class="fm-muted">${DSEARCH.seekers ? `Сейчас ищут ещё ${DSEARCH.seekers}` : 'Как только кто-то из класса тоже нажмёт «Найти», дуэль начнётся'}. Не закрывай страницу.</div>${duelBlockedHtml()}</div>
+          <div class="fm-muted">Твоя ставка: <b>${duelBet() ? duelBet() + ' ₿' : 'без ставки'}</b>. ${DSEARCH.seekers ? `Сейчас ищут ещё ${DSEARCH.seekers}` : 'Как только кто-то из класса тоже нажмёт «Найти», дуэль начнётся'}. Не закрывай страницу.</div>${duelBlockedHtml()}</div>
           <button type="button" class="btn ghost" id="dqCancel">Отмена</button></div>`
-      : D.today >= D.per_day ? `<div class="dq"><b>Сегодня сыграно ${D.today} дуэлей — это максимум.</b><div class="fm-muted">Новые дуэли — завтра.</div></div>`
-      : `<div class="dq"><button type="button" class="btn primary dq-go" id="dqFind"${duelNums().length < D.min_nums ? ' disabled' : ''}>🔍 Найти соперника</button>
-          <div class="fm-muted">Подберём того, кто тоже ищет дуэль прямо сейчас, — с рейтингом Эло поближе к твоему.${D.seekers ? ` <b>Сейчас ищут: ${D.seekers}</b>` : ''}</div>
-          ${duelNumsHtml(D)}</div>`;
+      : `<div class="dq"><button type="button" class="btn primary dq-go" id="dqFind"${duelNums().length < D.min_nums || duelBet() > D.coins ? ' disabled' : ''}>🔍 Найти соперника</button>
+          <div class="fm-muted">Подберём того, кто тоже ищет дуэль прямо сейчас с такой же ставкой, — с рейтингом Эло поближе к твоему.${D.seekers ? ` <b>Сейчас ищут: ${D.seekers}</b>` : ''}</div>
+          ${duelBetHtml(D)}${duelNumsHtml(D)}</div>`;
     const tab = (D.tournament && D.tournament.table || []).filter(r => r.games);
     return `<h3 class="ap-h" id="duelsH">⚔️ Дуэли</h3>
       <div class="duel-me"><span class="chip accent">Твой Эло: <b>${D.my_elo}</b></span>${D.streak >= 2 ? `<span class="chip hot">🔥 ${D.streak} ${plural(D.streak, 'победа', 'победы', 'побед')} подряд</span>` : ''}
         <small class="fm-muted">Эло меняется после каждой дуэли. Отдельно: 3 победы подряд и больше — бонус опыта (XP) 🔥</small></div>
       <p class="fm-muted">Нажми «Найти соперника» — подберём одноклассника с близким рейтингом, который тоже ищет дуэль. По ${D.tasks} заданий каждому (разные, но одного типа и сложности). Время с нажатия «Играть»: <b>№1–23 — 10 минут</b> на задание, <b>№24–27 — 30 минут</b>; начать дуэль нужно в течение ${D.hours} ч. Больше решил — победа, поровну — быстрее.
-        Победителю — <b>+${D.stake} XP и +${D.win_btc} ₿</b> (за первые ${D.full_per_day} победы за день, дальше — как за участие).
-        За участие — <b>+${D.play_xp} XP и +${D.play_btc} ₿</b> (проиграл или ничья — всё равно награда; сдался, ничего не решив, — без неё;
-        если соперник сдался, а ты не решил ни одного задания — победа без награды). С одним соперником — одна дуэль в неделю, всего — до ${D.per_day} в день (сегодня ${D.today}).</p>
+        <b>Ставка:</b> перед поиском выбери, сколько своих ₿ ставишь на свою победу. Соперник подбирается только с такой же ставкой; ставки списываются у обоих, когда дуэль начинается.
+        Победитель забирает обе, при ничьей каждый получает свою обратно, если учитель отменит дуэль — ставки вернутся.
+        Опыт: победителю <b>+${D.stake} XP</b> (за первые ${D.full_per_day} победы за день, дальше — +${D.stake_late} XP), за участие <b>+${D.play_xp} XP</b>
+        (сдался, ничего не решив, — без опыта). С одним соперником — одна дуэль в неделю, дуэлей в день — сколько хочешь.</p>
       ${search}
       ${rows ? `<div class="tm-list">${rows}</div>` : ''}
       ${tab.length ? `<h4 class="dm-h">Таблица дуэлей недели</h4><table class="lb dm-tab"><tr><th></th><th>Игрок</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>О</th></tr>
@@ -6784,6 +6786,23 @@
     try { off = JSON.parse(localStorage.getItem(duelNumsKey()) || '[]'); } catch (e) { off = []; }
     return all.filter(n => !off.includes(n));
   }
+  const duelBetKey = () => `egeTrainer.duelBet.${student ? student.sid : ''}`;
+  function duelBet() {
+    let b = 0;
+    try { b = +(localStorage.getItem(duelBetKey()) || 0); } catch (e) { b = 0; }
+    return DUELS && (DUELS.bets || []).includes(b) ? b : 0;
+  }
+  // Ставка на свою победу: над каждой — сколько одноклассников ищут дуэль с ней прямо сейчас.
+  function duelBetHtml(D) {
+    const cur = duelBet(), seek = D.bet_seekers || {};
+    return `<div class="dq-bets"><div class="dq-nums-h">Ставка на свою победу <small class="fm-muted">— у тебя ${D.coins} ₿; соперник ставит столько же</small></div>
+      <div class="dq-bet-list" role="radiogroup" aria-label="Ставка">${(D.bets || [0]).map(b => {
+        const n = seek[b] || 0, off = b > D.coins;
+        return `<button type="button" class="dq-bet${b === cur ? ' on' : ''}" data-dbet="${b}" role="radio" aria-checked="${b === cur}"${off ? ' disabled title="Не хватает монет"' : ''}>
+          <small class="${n ? 'hot' : ''}">${n ? `ищут: ${n}` : 'никого'}</small><b>${b ? b + ' ₿' : 'Без ставки'}</b></button>`;
+      }).join('')}</div>
+      ${cur > D.coins ? '<small class="lab-bad">Не хватает монет на эту ставку — выбери меньше.</small>' : ''}</div>`;
+  }
   function duelNumsHtml(D) {
     const on = new Set(duelNums());
     return `<div class="dq-nums"><div class="dq-nums-h">Номера заданий: <b>${on.size}</b> из ${D.duel_nums.length}
@@ -6810,16 +6829,18 @@
     const out = [];
     if (b.running) out.push(`${who(b.running)} уже ${b.running === 1 ? 'играет' : 'играют'} с тобой дуэль — сначала закончите её.`);
     if (b.played) out.push(`С ${b.played === 1 ? 'одноклассником, который сейчас ищет,' : `${b.played} из ищущих`} ты уже играл(а) дуэль на этой неделе. С одним и тем же соперником — одна дуэль в неделю, поэтому ждём другого одноклассника.`);
+    if (b.bet) out.push(`${who(b.bet)} ${b.bet === 1 ? 'выбрал' : 'выбрали'} другую ставку — сводим только с равной. Посмотри, где ищут люди, нажми «Отмена» и выбери ту же ставку.`);
     if (b.nums) out.push(`${who(b.nums)} выбрал${b.nums === 1 ? '' : 'и'} другие номера: общих ${b.common.length ? `только ${b.common.join(', ')}` : 'нет'}, а нужно хотя бы ${(DUELS && DUELS.min_nums) || 3}. Нажми «Отмена», добавь номера (например, «выбрать все») и снова ищи.`);
     return out.length ? `<div class="dq-why" role="status">${out.map(t => `<p>⚠️ ${t}</p>`).join('')}</div>` : '';
   }
   const dqTime = () => { const sec = Math.max(0, Math.round(Date.now() / 1000 - DSEARCH.since)); return `${Math.floor(sec / 60)}:${pad2(sec % 60)}`; };
   async function duelFind() {
     let r;
-    try { r = await api('duel/find', { nums: duelNums() }); } catch (e) { duelSearchStop(); toast(e.message || 'Не получилось', 3500); return; }
+    try { r = await api('duel/find', { nums: duelNums(), bet: duelBet() }); } catch (e) { duelSearchStop(); toast(e.message || 'Не получилось', 3500); return; }
     if (r.matched) {
       duelSearchStop();
       toast('⚔️ Соперник найден — дуэль началась!', 4000);
+      if (duelBet()) api('me').then(me => { if (me.game) onGame(me.game); }).catch(() => {});
       if (courseShown && pageKind === 'tour') return startDuel(r.matched);
       await loadDuels();
       return;
@@ -6935,6 +6956,8 @@
     if (t.closest('#dqFind')) return duelFind();
     const dn = t.closest('[data-dn]');
     if (dn) return duelNumToggle(+dn.dataset.dn);
+    const db_ = t.closest('[data-dbet]');
+    if (db_ && !db_.disabled) { try { localStorage.setItem(duelBetKey(), db_.dataset.dbet); } catch (e) { /* */ } return renderTourPage(); }
     if (t.closest('#dqAll')) { try { localStorage.removeItem(duelNumsKey()); } catch (e) { /* */ } return renderTourPage(); }
     if (t.closest('#dqCancel')) { duelSearchStop(); api('duel/cancel', {}).catch(() => {}); return; }
     if (da) return tourAction('duel/respond', { id: +da.dataset.duelAccept, accept: true }, 'Вызов принят! Жми «Играть», когда будешь готов.');

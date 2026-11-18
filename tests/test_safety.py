@@ -181,8 +181,14 @@ class StorageSafetyTest(unittest.TestCase):
                 db.execute('PRAGMA journal_mode=WAL')
                 db.execute('CREATE TABLE example(value INTEGER)')
                 db.execute('INSERT INTO example VALUES(42)'); db.commit()
-                subprocess.run(['sh', str(Path(__file__).resolve().parents[1]/'deploy/backup.sh'), str(src), str(root/'copies')], check=True, capture_output=True)
-                archive = next((root/'copies').glob('*.tar.gz'))
+                script = str(Path(__file__).resolve().parents[1]/'deploy/backup.sh')
+                subprocess.run(['sh', script, str(src), str(root/'copies')], check=True, capture_output=True)
+                subprocess.run(['sh', script, '--full', str(src), str(root/'copies')], check=True, capture_output=True)
+                names = sorted(p.name for p in (root/'copies').glob('*.tar.gz'))
+                self.assertEqual([n.startswith('trainer-full-') for n in names], [False, True])    # быстрая и полная копии
+                self.assertEqual(verify(root/'copies'/names[1])['scope'], 'full')
+                archive = root/'copies'/names[0]
+                self.assertEqual(verify(archive)['scope'], 'quick')
                 verify(archive, root / 'restore')
                 restored = root / 'restore/server_data/trainer.db'
                 with sqlite3.connect(restored) as copy:

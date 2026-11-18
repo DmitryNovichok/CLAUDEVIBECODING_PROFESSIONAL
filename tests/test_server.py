@@ -1485,6 +1485,58 @@ class ServerTest(unittest.TestCase):
         self.req("POST", "/api/duel/cancel", {}, tc)
         self.assertFalse(self.req("GET", "/api/duels", token=tc)[1]["searching"])
 
+    def test_duel_bets(self):
+        # ставка ₿ на свою победу: сводим только равные ставки, списываем у обоих при старте, победитель забирает обе
+        db = server.APP.db
+        db.x("DELETE FROM duel_queue")
+        ta, tb, tc = self.login("Ставкин Антон"), self.login("Ставкин Борис"), self.login("Ставкин Виктор")
+        sa, sb, sc = (self.req("GET", "/api/me", token=t)[1]["sid"] for t in (ta, tb, tc))
+        for x, amount in ((sa, 100), (sb, 100), (sc, 5)):
+            db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'grant', 'test', 1)", (x, time.time(), amount))
+        coins = lambda x: server.game_summary(db, x)["coins"]
+        start = {x: coins(x) for x in (sa, sb, sc)}
+        self.assertEqual(self.req("POST", "/api/duel/find", {"bet": 7}, ta)[0], 400)            # таких ставок нет
+        st, d = self.req("POST", "/api/duel/find", {"bet": 10_000}, tc)
+        self.assertEqual(st, 400)                                                               # ставка не по карману
+        st, d = self.req("POST", "/api/duel/find", {"bet": 25}, ta)
+        self.assertTrue(d.get("searching"))
+        D = self.req("GET", "/api/duels", token=tb)[1]
+        self.assertEqual((D["bet_seekers"]["25"], D["bet_seekers"]["0"], D["bets"]), (1, 0, server.DUEL_BETS))
+        st, d = self.req("POST", "/api/duel/find", {"bet": 10}, tb)                             # другая ставка — не сводим
+        self.assertEqual((d.get("searching"), d["blocked"]["bet"]), (True, 1))
+        st, d = self.req("POST", "/api/duel/find", {"bet": 25}, tb)
+        did = d["matched"]
+        row = db.q("SELECT * FROM duels WHERE id=?", (did,), one=True)
+        self.assertEqual(row["bet"], 25)
+        self.assertEqual((coins(sa), coins(sb)), (start[sa] - 25, start[sb] - 25))              # ставки заморожены
+        # победил Борис: забирает обе ставки
+        task = json.loads(row["tasks_b"] or row["tasks"])[0]
+        now = time.time()
+        db.x("UPDATE duels SET a_start=?, b_start=?, a_done=?, b_done=? WHERE id=?", (now - 50, now - 50, now - 5, now - 5, did))
+        db.x("INSERT INTO attempts(student_id,ts,task_id,n,answers,correct,score) VALUES(?,?,?,?,?,?,?)",
+             (sb, now - 20, task, server.APP.bank.tasks[task]["n"], "[]", "1", 1.0))
+        server.duel_settle(db, db.q("SELECT * FROM duels WHERE id=?", (did,), one=True))
+        duel_coins = lambda x: db.q("SELECT COALESCE(SUM(delta), 0) s FROM coins WHERE student_id=? AND reason='duel' AND note=?",
+                                    (x, f"duel:{did}"), one=True)["s"]
+        self.assertEqual((duel_coins(sa), duel_coins(sb)), (-25, 25))       # плюс обычные ₿ за само решённое задание
+        x = next(y for y in self.req("GET", "/api/duels", token=tb)[1]["duels"] if y["id"] == did)
+        self.assertEqual((x["result"], x["got_btc"], x["bet"]), ("win", 25, 25))
+        # учитель отменил дуэль — все монеты на месте
+        self.assertEqual(self.admin("POST", "/api/admin/duel/cancel", {"id": did})[0], 200)
+        self.assertEqual((duel_coins(sa), duel_coins(sb)), (0, 0))
+        db.x("DELETE FROM attempts WHERE student_id=?", (sb,))
+        self.assertEqual((coins(sa), coins(sb)), (start[sa], start[sb]))
+        # ничья (никто не решил) — ставки возвращаются
+        did2 = db.x("""INSERT INTO duels(a, b, tasks, created, status, accepted, a_start, b_start, a_done, b_done, bet)
+                       VALUES(?,?,?,?, 'active', ?, ?, ?, ?, ?, 50)""", (sa, sb, json.dumps([task]), now, now, now - 50, now - 50, now - 5, now - 5))
+        server.duel_escrow(db, {"id": did2, "a": sa, "b": sb}, 50)
+        self.assertEqual((coins(sa), coins(sb)), (start[sa] - 50, start[sb] - 50))
+        server.duel_settle(db, db.q("SELECT * FROM duels WHERE id=?", (did2,), one=True))
+        self.assertEqual((coins(sa), coins(sb)), (start[sa], start[sb]))
+        db.x("DELETE FROM duel_queue")
+        db.x("DELETE FROM duel_elo WHERE student_id IN (?,?)", (sa, sb))           # не влиять на таблицы Эло других тестов
+        db.x("DELETE FROM duels WHERE id IN (?,?)", (did, did2))
+
     def test_duel_elo_streak_rematch_twins_cancel(self):
         db = server.APP.db
         ta, tb = self.login("Эловский Антон"), self.login("Эловский Борис")
@@ -1777,11 +1829,12 @@ class ServerTest(unittest.TestCase):
         db.x("DELETE FROM tournaments WHERE size=4 AND status='reg'")
         lob = {l["size"]: l for l in self.req("GET", "/api/tour", token=toks[0])[1]["lobbies"] if not l["theme"]}[4]
         self.assertIsNone(lob["id"])
-        # дуэлей — не больше 10 в сутки
-        for _ in range(10):
+        # дуэлей в сутки — сколько угодно
+        for _ in range(12):
             db.x("INSERT INTO duels(a, b, tasks, created, status) VALUES(?,?,?,?, 'finished')", (sids[2], sids[3], "[]", time.time()))
-        self.assertEqual(self.req("POST", "/api/duel/find", {}, toks[2])[0], 429)
-        self.assertEqual(self.req("GET", "/api/duels", token=toks[2])[1]["today"], 10)
+        st, d = self.req("POST", "/api/duel/find", {}, toks[2])
+        self.assertEqual((st, d.get("searching")), (200, True), d)
+        self.req("POST", "/api/duel/cancel", {}, toks[2])
 
     def test_tournament_12_groups_thirds_bracket(self):
         server.APP.db.x("DELETE FROM tournaments")
@@ -4951,7 +5004,7 @@ class ServerTest(unittest.TestCase):
         st, d = self.req("GET", "/api/tour", token=tok)
         self.assertEqual((st, d["lobbies"], d["tours"]), (200, [], False))
         self.assertEqual(self.req("POST", "/api/tour/join", {"id": 1}, tok)[0], 410)
-        # дуэль: победителю ровно +300 XP и +50 ₿, проигравшему за участие +50 XP и +1 ₿ (опыт дуэли ₿ не «добывает»)
+        # дуэль без ставки: победителю +300 XP, проигравшему за участие +50 XP; монеты дуэль не печатает (опыт дуэли ₿ не «добывает»)
         db = server.APP.db
         ta, tb = self.login("Наградов Алексей"), self.login("Наградов Борис")
         sa, sb = (self.req("GET", "/api/me", token=t)[1]["sid"] for t in (ta, tb))
@@ -4965,12 +5018,12 @@ class ServerTest(unittest.TestCase):
         after = {x: (server.game_summary(db, x)["coins"], server.game_summary(db, x)["xp"]) for x in (sa, sb)}
         wa = after[sa][1] - before[sa][1]
         self.assertGreaterEqual(wa, server.DUEL_STAKE)                         # + опыт за само решённое задание
-        self.assertEqual(db.q("SELECT SUM(delta) s FROM coins WHERE student_id=? AND reason='duel'", (sa,), one=True)["s"], server.DUEL_WIN_BTC)
+        self.assertIsNone(db.q("SELECT SUM(delta) s FROM coins WHERE student_id=? AND reason='duel'", (sa,), one=True)["s"])
         self.assertEqual(after[sb][1] - before[sb][1], server.DUEL_PLAY_XP)
-        self.assertEqual(after[sb][0] - before[sb][0], server.DUEL_PLAY_BTC)    # ровно 1 ₿: опыт участия ₿ не добыл
+        self.assertEqual(after[sb][0] - before[sb][0], 0)                       # опыт участия ₿ не добыл
         st, d = self.req("GET", "/api/duels", token=tb)
         x = next(y for y in d["duels"] if y["id"] == did)
-        self.assertEqual((x["result"], x["got_xp"], x["got_btc"]), ("lose", server.DUEL_PLAY_XP, server.DUEL_PLAY_BTC))
+        self.assertEqual((x["result"], x["got_xp"], x["got_btc"]), ("lose", server.DUEL_PLAY_XP, 0))
         # 🎲: редкие, эпические и легендарные — вдвое реже обычного веса «1 / цена»
         sup = server.gift_supply(server.APP.db, fresh=True)
         for g in server.GIFTS:
