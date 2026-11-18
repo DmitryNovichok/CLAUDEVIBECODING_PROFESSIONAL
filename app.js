@@ -7939,16 +7939,6 @@
     }
     return `до ${x.until.slice(8, 10)}.${x.until.slice(5, 7)} включительно`;
   }
-  // «Закат VI» — баннер во всю ширину: остаток и срок живые, с сервера
-  function viBanner(x) {
-    const d = x.until_ts ? new Date(x.until_ts * 1000) : null, p = n => String(n).padStart(2, '0');
-    const until = d ? `До ${p(d.getDate())}.${p(d.getMonth() + 1)}, ${p(d.getHours())}:${p(d.getMinutes())}` : hwUntil(x);
-    return `<button type="button" class="bx-vi${x.left ? '' : ' out'}" data-bx-shop="${x.gift}" aria-label="${esc(x.t)}: осталось ${x.left} из ${x.cap}, ${until}">
-      <span class="bx-vi-txt"><small class="bx-vi-k">Лимитированная серия</small><b>${esc(x.t)}</b>
-        <span class="bx-vi-left">${x.left ? `Осталось ${num(x.left)} из ${num(x.cap)}` : 'Всё раскупили — ищи на рынке'}</span>
-        <span class="bx-vi-t"><i aria-hidden="true">🕓</i>${until}</span>
-        ${x.left ? `<span class="bx-vi-buy">Купить за ₿ ${num(x.price)}</span>` : ''}</span></button>`;
-  }
   function hwGroups(hw) {
     const m = new Map();
     for (const x of hw || []) {
@@ -7970,8 +7960,7 @@
         <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
       ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
-      ${(G.hw || []).filter(x => x.gift.startsWith('vi_')).map(viBanner).join('')}
-      ${hwGroups((G.hw || []).filter(x => !x.gift.startsWith('vi_'))).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : ''}"><div class="bx-hw-h">${esc(ev)} <small>${xs.length > 1 ? 'лимитки' : 'лимитка'} · ${hwUntil(xs[0])}</small></div>
+      ${hwGroups(G.hw).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : xs[0].gift.startsWith('vi_') ? ' vi' : ''}"><div class="bx-hw-h">${esc(ev)} <small>${xs.length > 1 ? 'лимитки' : 'лимитка'} · ${hwUntil(xs[0])}</small></div>
         ${xs.map(x => `<button type="button" class="bx-hwc${x.price > G.coins || !x.left ? ' dim' : ''}" data-bx-shop="${x.gift}"><img src="${esc(x.img)}" alt="" draggable="false">
           <b>${esc(x.t)}</b><small>${x.left ? `осталось ${num(x.left)} из ${num(x.cap)}` : 'всё раскупили — ищи на рынке'}</small><span class="bx-price">₿ ${num(x.price)}</span></button>`).join('')}</div>`).join('')}
       <div class="bx-sec">🛍 Магазин${left < 5 ? ` <small>${left ? `сегодня можно ещё ${left}` : 'на сегодня всё — завтра снова'}</small>` : ''}</div>

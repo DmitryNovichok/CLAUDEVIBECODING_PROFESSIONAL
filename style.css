@@ -3411,29 +3411,28 @@ body.no-anim .tog-inv, body.no-anim .tog-bell, body.no-anim .tog-pill { animatio
   background: var(--accent); border-color: var(--accent); }
 .bx-mine.picking .bx-card:disabled { opacity: .45; }
 
-/* 🌴 «Закат VI» — баннер: сцена справа (картинка), текст слева на сумеречном небе */
-.bx-vi { --viw: 320px; position: relative; display: flex; align-items: center; width: 100%; height: 250px; margin: 8px 0 6px; padding: 22px 26px;
-  border-radius: 22px; border: 3px solid #e8b04a; outline: 2px solid #6b2a8a; outline-offset: -8px; overflow: hidden; cursor: pointer;
-  font: inherit; text-align: left; color: #fff7e8; box-shadow: 0 14px 34px -16px rgba(90, 20, 110, .8);
-  background: url("vendor/gifts/vi_banner.webp") right center / auto 100% no-repeat, linear-gradient(100deg, #2a1240 0%, #3a1a55 45%, #27345e 100%); }
-.bx-vi::before { content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(270deg, rgba(47, 21, 74, 0) 0, rgba(47, 21, 74, 0) calc(var(--viw) - 120px), #2f154a calc(var(--viw) + 10px)); }
-.bx-vi-txt { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100% - var(--viw) + 60px); }
-.bx-vi-k { color: #ff8fa3; font: 800 12px/1 var(--font); letter-spacing: 2.5px; text-transform: uppercase; }
-.bx-vi b { font: italic 700 46px/1.05 Georgia, "Times New Roman", serif; color: #fff4dc; text-shadow: 0 2px 0 #4a1350, 0 0 18px rgba(255, 120, 170, .45); }
-.bx-vi-left { font-weight: 900; font-size: 19px; }
-.bx-vi-t { display: inline-flex; align-items: center; gap: 8px; color: #cdb6ff; font-weight: 800; font-size: 16px; }
-.bx-vi-t i { font-style: normal; }
-.bx-vi-buy { margin-top: 6px; padding: 10px 22px; border-radius: 14px; background: linear-gradient(180deg, #ffd27a, #f4a93c); color: #2b0f2e;
-  font-weight: 900; font-size: 18px; box-shadow: 0 4px 0 #b4701f; transition: transform .15s; }
-.bx-vi:hover .bx-vi-buy { transform: translateY(-2px); }
-.bx-vi:focus-visible { outline-color: #ffd27a; }
-.bx-vi.out { filter: saturate(.7); } .bx-vi.out .bx-vi-left { color: #ffc2c2; }
-@media (max-width: 640px) {
-  .bx-vi { flex-direction: column; align-items: stretch; height: auto; padding: 0 0 18px; background: linear-gradient(180deg, #27345e, #2a1240 60%); }
-  .bx-vi::before { position: static; display: block; height: 0; padding-top: 70%; background: url("vendor/gifts/vi_banner.webp") center / cover no-repeat; }
-  .bx-vi-txt { max-width: none; padding: 12px 18px 0; align-items: center; text-align: center; }
-  .bx-vi b { font-size: 38px; } .bx-vi-buy { align-self: stretch; text-align: center; }
+/* 🌴 лимитка «Закат VI»: закатное небо, солнце за подарком, море с бликами */
+.bx-hw.vi { grid-template-columns: 1fr; }
+.bx-hw.vi .bx-hwc { overflow: hidden; isolation: isolate; grid-template-columns: minmax(150px, 230px) 1fr; justify-items: start; align-items: center;
+  gap: 4px 18px; padding: 14px 20px; border-color: #ff9a3c; box-shadow: 0 10px 30px -12px rgba(255, 60, 140, .55);
+  background: linear-gradient(180deg, #1b0b3a 0%, #4a1460 34%, #b8246f 58%, #ff6a3d 74%, #ffb347 82%, #6a1b6e 83%, #2b0f4d 100%); }
+.bx-hw.vi .bx-hwc::before { content: ""; position: absolute; z-index: -1; left: 4%; top: 18%; width: 230px; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 214, 102, .95) 0 30%, rgba(255, 120, 60, .55) 46%, transparent 70%); pointer-events: none; }
+.bx-hw.vi .bx-hwc::after { content: ""; position: absolute; z-index: -1; inset: 83% 0 0; pointer-events: none;
+  background: repeating-linear-gradient(180deg, rgba(255, 190, 120, .35) 0 2px, transparent 2px 9px); }
+.bx-hw.vi .bx-hwc img { grid-row: 1 / span 3; max-width: 230px; filter: drop-shadow(0 10px 18px rgba(40, 0, 60, .65)) drop-shadow(0 0 22px rgba(255, 90, 170, .45)); }
+.bx-hw.vi .bx-hwc b { align-self: end; font-size: 26px; font-weight: 900; letter-spacing: .5px;
+  text-shadow: 0 0 12px rgba(255, 80, 180, .9), 0 2px 0 #5a0f4f; }
+.bx-hw.vi .bx-hwc small { color: #ffe1b8; font-size: 13px; }
+.bx-hw.vi .bx-hwc .bx-price { align-self: start; margin-top: 6px; background: linear-gradient(180deg, #ffcf5a, #ff8a2b); color: #3a0f1f; }
+.bx-hw.vi .bx-hwc:hover img { transform: scale(1.05) rotate(-3deg); }
+.bx-hw.vi .bx-hwc.dim img { filter: drop-shadow(0 10px 18px rgba(40, 0, 60, .65)); }
+.bx-hw.vi .bx-hwc.dim .bx-price { opacity: .75; }
+@media (max-width: 560px) {
+  .bx-hw.vi .bx-hwc { grid-template-columns: 1fr; justify-items: center; padding: 12px; }
+  .bx-hw.vi .bx-hwc img { grid-row: auto; max-width: 200px; }
+  .bx-hw.vi .bx-hwc::before { left: 50%; top: 4%; transform: translateX(-50%); width: 200px; }
+  .bx-hw.vi .bx-hwc b { font-size: 22px; } .bx-hw.vi .bx-hwc .bx-price { align-self: center; }
 }
 /* ⚔️ лимитки «Световые мечи»: звёздное небо, свечение цвета клинка */
 .bx-hw.sw .bx-hwc { overflow: hidden; }
