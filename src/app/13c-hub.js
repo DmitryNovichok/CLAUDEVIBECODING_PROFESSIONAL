@@ -233,7 +233,7 @@
     return `<button type="button" class="hub-pad" data-pad-open aria-label="Открыть страницу: за что дают монеты за помощь сайту и сколько">
       <span class="hub-pad-dev" aria-hidden="true"><i>🎁</i></span>
       <span class="hub-pad-tx"><b>Монеты за помощь сайту — от 50 до ${top} ₿</b>
-        <span>Нажми и получи монеты</span></span>
+        <span>Нажми и получи монеты. Начисление даже за самые маленькие исправления</span></span>
       <span class="hub-pad-go" aria-hidden="true">Открыть<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>`;
   }
   function renderHub(enter) {
