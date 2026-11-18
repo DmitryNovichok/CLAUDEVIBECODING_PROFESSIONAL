@@ -5061,7 +5061,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "sw_blue"}, tok)[0], 409)
 
     def test_vi_sunset_daily_limited(self):
-        # «Закат VI»: 30 штук по ₿ 2000, в магазине ровно 24 часа с первого запуска, не улучшается, в «🎲» не выпадает
+        # «GTA EGESHKA VI»: 30 штук по ₿ 2000, в магазине ровно 24 часа с первого запуска, не улучшается, в «🎲» не выпадает
         db = server.APP.db
         tok = self.login("Закатов Захар")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
@@ -5072,7 +5072,7 @@ class ServerTest(unittest.TestCase):
         G = self.req("GET", "/api/gifts", token=tok)[1]
         o = next(x for x in G["hw"] if x["gift"] == "vi_sunset")
         start = float(db.setting("lim_start:vi_sunset"))
-        self.assertEqual((o["price"], o["cap"], o["up"], o["box"], o["img"]), (2000, 30, None, False, "vendor/gifts/gift_vi.webp"))
+        self.assertEqual((o["t"], o["price"], o["cap"], o["up"], o["box"], o["img"]), ("GTA EGESHKA VI", 2000, 30, None, False, "vendor/gifts/gift_vi.webp"))
         self.assertAlmostEqual(o["until_ts"], start + 24 * 3600)
         repo = Path(__file__).resolve().parents[1]
         for f in (o["img"], o["img"].replace(".webp", "_t.webp")):                 # и картинка, и уменьшенная для плиток
