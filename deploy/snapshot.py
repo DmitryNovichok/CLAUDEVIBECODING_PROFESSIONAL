@@ -112,7 +112,9 @@ def check_references(stage):
                             raise ValueError('Missing lesson attachment; retry snapshot after lesson')
 
 
-def create(database, output, app=None):
+def create(database, output, app=None, assets=True):
+    """assets=False — быстрая копия: база, server_data и приватные настройки, без банков и учебных материалов
+    (они приходят с выпуском и меняются редко; их сохраняет еженедельная полная копия)."""
     database = Path(database).resolve()
     output = Path(output).resolve()
     app = Path(app).resolve() if app else database.parent.parent
@@ -143,15 +145,17 @@ def create(database, output, app=None):
             if not private.is_file() or private.is_symlink():
                 raise ValueError('Configured private policy is missing or is a symlink')
             shutil.copyfile(private, stage / 'server_data/private_config.json')
-        for name in ('data', 'media', 'course', 'pycourse'):
-            copy_tree(app / name, stage / name)
-        banks = bank_locations(app, target_db)
-        for name, location in banks.items():
-            copy_tree(location, stage / 'banks' / name)
+        banks = {}
+        if assets:
+            for name in ('data', 'media', 'course', 'pycourse'):
+                copy_tree(app / name, stage / name)
+            banks = bank_locations(app, target_db)
+            for name, location in banks.items():
+                copy_tree(location, stage / 'banks' / name)
         check_references(stage)
         files = {p.relative_to(stage).as_posix(): {'size': p.stat().st_size, 'sha256': digest(p)}
                  for p in sorted(stage.rglob('*')) if p.is_file()}
-        manifest = {'format': 1, 'created': time.time(), 'database': 'server_data/trainer.db',
+        manifest = {'format': 1, 'created': time.time(), 'database': 'server_data/trainer.db', 'scope': 'full' if assets else 'quick',
                     'release': release_info(app),
                     'files': files, 'banks': sorted(banks),
                     'restore_note': 'Restore alongside matching application release; configure banks_root to restored banks.'}
@@ -223,6 +227,7 @@ def main():
     p.add_argument('database')
     p.add_argument('output')
     p.add_argument('--app')
+    p.add_argument('--quick', action='store_true', help='без банков и учебных материалов — секунды вместо минут')
     p = sub.add_parser('verify')
     p.add_argument('archive')
     p = sub.add_parser('restore')
@@ -232,7 +237,8 @@ def main():
     os.umask(0o077)
     try:
         if args.command == 'create':
-            print('Verified full snapshot:', create(args.database, args.output, args.app))
+            print('Verified quick snapshot:' if args.quick else 'Verified full snapshot:',
+                  create(args.database, args.output, args.app, assets=not args.quick))
         else:
             manifest = verify(args.archive, getattr(args, 'destination', None))
             print('Verified files:', len(manifest['files']))
