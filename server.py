@@ -5182,12 +5182,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 me_lv = game_summary(db, s["id"], brief=True)["level"]
                 me_elo = elo_of(db, s["id"])
                 db.x("DELETE FROM duel_queue WHERE seen<?", (now - DUEL_QUEUE_TTL,))
-                pairs = db.q("""SELECT CASE WHEN a=? THEN b ELSE a END AS x, status FROM duels
-                                WHERE (a=? OR b=?) AND (status IN ('pending','active')
-                                     OR (status='finished' AND finished>=?))""",
-                             (s["id"], s["id"], s["id"], week_start()))
-                busy = {r["x"] for r in pairs}
-                running = {r["x"] for r in pairs if r["status"] in ('pending', 'active')}
+                # с одним и тем же соперником можно играть сколько угодно — только не две дуэли одновременно
+                running = {r["x"] for r in db.q("""SELECT CASE WHEN a=? THEN b ELSE a END AS x FROM duels
+                                                   WHERE (a=? OR b=?) AND status IN ('pending','active')""",
+                                                (s["id"], s["id"], s["id"]))}
+                busy = running
                 common = lambda r: set(my_nums) & set(json.loads(r["nums"]) if r["nums"] else DUEL_NUMS)
                 cands = [r for r in db.q("SELECT * FROM duel_queue WHERE teacher_id=? AND student_id!=? ORDER BY since",
                                          (tid, s["id"])) if r["student_id"] in mates and r["student_id"] not in busy
@@ -5205,14 +5204,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     duel_escrow(db, {"id": did, "a": op["student_id"], "b": s["id"]}, bet)
                     return self.send_json({"matched": did})
                 # Почему ищущих не свели: ученик видит причину, а не просто «в поиске 1 человек».
-                blocked = {"running": 0, "played": 0, "nums": 0, "bet": 0, "common": []}
+                blocked = {"running": 0, "nums": 0, "bet": 0, "common": []}
                 for r in db.q("SELECT * FROM duel_queue WHERE teacher_id=? AND student_id!=?", (tid, s["id"])):
                     if r["student_id"] not in mates:
                         continue
                     if r["student_id"] in running:
                         blocked["running"] += 1
-                    elif r["student_id"] in busy:
-                        blocked["played"] += 1
                     elif (r["bet"] or 0) != bet:
                         blocked["bet"] += 1
                     else:
@@ -5228,7 +5225,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/duel/create":
             return self.err(410, "Вызов на дуэль убран — нажми «Найти соперника»")
         if path == "/api/duel/rematch":
-            # реванш: проигравший зовёт победителя ещё раз (сверх правила «одна дуэль с соперником в неделю»)
+            # реванш: проигравший зовёт победителя ещё раз — вызов конкретному сопернику
             d = db.q("SELECT * FROM duels WHERE id=? AND (a=? OR b=?)", (to_int(data.get("id")), s["id"], s["id"]), one=True)
             if not d or d["status"] != "finished" or not d["winner"] or d["winner"] == s["id"]:
                 return self.err(409, "Реванш можно попросить только после проигранной дуэли")

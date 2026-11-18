@@ -21,12 +21,12 @@
       "source": "cacf110cb8849e777f28ff4a5c3b55e98906c83368c1608df2c1e37e958a9b81"
     },
     "app.js": {
-      "min": "44761499c9a9e14ac5bfabd4ce46939d77fc6f445c6e164c5ad79600e0a8c9a5",
-      "source": "65a4deca86c4306b601e4bfd2e295c3fbe76b5c4ff5bda6378c56d2029e7eeb6"
+      "min": "f74502ae54702a8673ac19aa375683a5afdd865ec845281b1c76183e2a6a500b",
+      "source": "937d8114e2a0fe5270c3a3e352b28db62c932f12fecb0dce5e7f23362b498b60"
     },
     "changelog-loader.js": {
-      "min": "7d0aa1eb101dbfff38db4b7a9f1d778ff0ac2eb48dc9722a65f582fe6479fcf2",
-      "source": "71a505d4afb17b1e53ab4b3a43ca99970906b71433fb6e80c734a95e9af32d9b"
+      "min": "6ec19ca2657a5be239d9e9b2487b4759f667031b9ac76632eb0b074b353d1360",
+      "source": "5453e4f601d5b5d281307a9fdaa932e01fa0fef31b873fa6f852dd85c40a5804"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",

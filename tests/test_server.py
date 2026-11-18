@@ -1357,19 +1357,28 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((res["status"], res["result"], res["my_solved"], res["op_solved"]), ("finished", "win", len(tasks), 0))
         self.assertEqual(res["stake"], server.DUEL_STAKE)                 # за победу — полная награда
         self.assertGreater(self.req("GET", "/api/me", token=tb)[1]["game"]["xp"], 0)   # проигравший опыт не теряет
-        # турнирная таблица недели: победа — 3 очка; второй матч той же пары за неделю — нельзя
+        # турнирная таблица недели: победа — 3 очка; в таблицу идёт первая дуэль пары за неделю
         T = self.req("GET", "/api/duels", token=ta)[1]["tournament"]
         top = {r["name"]: r for r in T["table"]}
         self.assertEqual((top["Дуэлев А."]["pts"], top["Дуэлев А."]["w"], top["Дуэлев Б."]["pts"], top["Дуэлев Б."]["l"]), (3, 1, 0, 1))
         self.assertEqual(T["table"][0]["name"], "Дуэлев А.")
         arch = self.admin("GET", "/api/admin/competitions")[1]["duels"]
         self.assertEqual(next(x for x in arch if x["id"] == did)["winner"], "Дуэлев Аркадий")      # архив дуэлей у учителя
-        self.req("POST", "/api/duel/find", {}, tb)                        # второй раз за неделю их не сведёт
+        # с тем же соперником можно сыграть снова сразу же; в таблицу недели идёт только первая дуэль пары
+        self.req("POST", "/api/duel/find", {}, tb)
         st, d = self.req("POST", "/api/duel/find", {}, ta)
-        self.assertTrue(d.get("searching"))
-        self.assertEqual((d["seekers"], d["blocked"]["played"], d["blocked"]["nums"]), (1, 1, 0))   # и объясняем почему
+        again = d.get("matched")
+        self.assertTrue(again, d)
+        # пока эта дуэль идёт, вторую одновременно с тем же соперником не начнём — и объясняем почему
+        server.APP.db.x("UPDATE duels SET accepted=accepted-120 WHERE id=?", (again,))   # уже не «только что найденная»
+        self.req("POST", "/api/duel/find", {}, tb)
+        st, d = self.req("POST", "/api/duel/find", {}, ta)
+        self.assertEqual((d.get("searching"), d["blocked"]["running"]), (True, 1))
         self.req("POST", "/api/duel/cancel", {}, ta)
         self.req("POST", "/api/duel/cancel", {}, tb)
+        T = self.req("GET", "/api/duels", token=ta)[1]["tournament"]
+        self.assertEqual({r["name"]: r["games"] for r in T["table"]}["Дуэлев А."], 1)
+        server.APP.db.x("DELETE FROM duels WHERE id=?", (again,))
 
     def test_live_events(self):
         # живые обновления: без входа — 401; соперник нашёлся — обоим приходит «comp»; учитель выдал подборку — «asg»
@@ -1462,7 +1471,7 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(self.req("POST", "/api/duel/find", {"nums": [4, 5, 6]}, te)[1].get("searching"))   # не совпали
         st, d = self.req("POST", "/api/duel/find", {"nums": [3, 5, 6, 7]}, tf)
         self.assertTrue(d.get("searching"))                                  # общих с Димой 1, с Егором 2 — мало
-        self.assertEqual((d["blocked"]["nums"], d["blocked"]["common"], d["blocked"]["played"]), (2, [5, 6], 0))
+        self.assertEqual((d["blocked"]["nums"], d["blocked"]["common"], d["blocked"]["running"]), (2, [5, 6], 0))
         self.req("POST", "/api/duel/cancel", {}, tf)
         st, d = self.req("POST", "/api/duel/find", {"nums": [1, 2, 3, 5]}, tf)
         self.assertIn("matched", d)                                          # с Димой три общих номера
