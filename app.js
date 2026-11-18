@@ -7960,7 +7960,7 @@
         <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
       ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
-      ${hwGroups(G.hw).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : ''}"><div class="bx-hw-h">${esc(ev)} <small>${xs.length > 1 ? 'лимитки' : 'лимитка'} · ${hwUntil(xs[0])}</small></div>
+      ${hwGroups(G.hw).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : xs[0].gift.startsWith('vi_') ? ' vi' : ''}"><div class="bx-hw-h">${esc(ev)} <small>${xs.length > 1 ? 'лимитки' : 'лимитка'} · ${hwUntil(xs[0])}</small></div>
         ${xs.map(x => `<button type="button" class="bx-hwc${x.price > G.coins || !x.left ? ' dim' : ''}" data-bx-shop="${x.gift}"><img src="${esc(x.img)}" alt="" draggable="false">
           <b>${esc(x.t)}</b><small>${x.left ? `осталось ${num(x.left)} из ${num(x.cap)}` : 'всё раскупили — ищи на рынке'}</small><span class="bx-price">₿ ${num(x.price)}</span></button>`).join('')}</div>`).join('')}
       <div class="bx-sec">🛍 Магазин${left < 5 ? ` <small>${left ? `сегодня можно ещё ${left}` : 'на сегодня всё — завтра снова'}</small>` : ''}</div>
