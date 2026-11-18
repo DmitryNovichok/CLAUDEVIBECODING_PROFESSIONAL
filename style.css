@@ -4364,3 +4364,49 @@ body.mkx-open { overflow: hidden; }
 }
 .im-card .im-card-a { flex-wrap: nowrap; }
 .im-card .im-card-a .btn { flex: 1 1 0; min-width: 0; padding: 7px 8px; font-size: 12px; white-space: nowrap; }
+
+/* 🎁 новость на «iPad» — монеты за помощь сайту (src/app/12d-stories.js) */
+.pad-ov { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 16px; box-sizing: border-box; overflow: hidden;
+  background: rgba(16, 10, 32, .62); backdrop-filter: blur(6px); animation: pad-in .25s ease-out; }
+@keyframes pad-in { from { opacity: 0; } }
+.pad { box-sizing: border-box; width: min(980px, 100%, calc((100dvh - 40px) * 4 / 3)); aspect-ratio: 4 / 3; padding: 16px; border-radius: 40px;
+  background: linear-gradient(145deg, #2b2b30, #0e0e11); box-shadow: 0 0 0 2px #45454c, 0 30px 80px -20px rgba(0, 0, 0, .7);
+  animation: pad-up .35s cubic-bezier(.2, .9, .3, 1.2); }
+@keyframes pad-up { from { transform: translateY(30px) scale(.96); } }
+.pad-screen { height: 100%; display: flex; flex-direction: column; border-radius: 26px; overflow: hidden;
+  background: radial-gradient(circle at 85% 0%, color-mix(in srgb, #f7931a 18%, transparent), transparent 45%), var(--bg); color: var(--text); }
+.pad-status { position: relative; display: flex; justify-content: space-between; align-items: center; padding: 8px 22px 4px; font: 700 12px var(--font); color: var(--muted); }
+.pad-cam { position: absolute; left: 50%; top: 7px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: #1b1b22; box-shadow: inset 0 0 0 2px #2c2c36; }
+.pad-ind { display: inline-flex; align-items: center; gap: 6px; }
+.pad-bat { display: inline-block; width: 22px; height: 11px; border: 1.5px solid currentColor; border-radius: 3px; padding: 1px; font-style: normal; }
+.pad-bat i { display: block; height: 100%; border-radius: 1px; background: var(--good); }
+.pad-body { flex: 1; overflow: auto; padding: 8px 32px 12px; }
+.pad-head { display: flex; gap: 16px; align-items: flex-start; margin: 6px 0 16px; }
+.pad-ico { display: grid; place-items: center; flex: 0 0 64px; height: 64px; border-radius: 18px; font-size: 34px;
+  background: linear-gradient(135deg, #ffcf5a, #f7931a); box-shadow: 0 6px 16px -6px #f7931a; }
+.pad-head small { color: #f7931a; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; font-size: 11px; }
+.pad-head h2 { margin: 2px 0 4px; font-size: 28px; }
+.pad-head p { margin: 0; color: var(--muted); }
+.pad-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pad-rw { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--border);
+  animation: pad-rw .4s both; animation-delay: calc(var(--i) * 60ms + .2s); }
+@keyframes pad-rw { from { opacity: 0; transform: translateY(8px); } }
+.pad-rw em { font-style: normal; font-size: 22px; } .pad-rw span { flex: 1; font-size: 14px; line-height: 1.3; }
+.pad-rw b { white-space: nowrap; padding: 3px 9px; border-radius: 10px; background: color-mix(in srgb, #f7931a 16%, var(--card)); color: #c8700a; }
+.pad-rw.bonus { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+.pad-rw.big { grid-column: 1 / -1; border-color: #f7931a; background: color-mix(in srgb, #f7931a 9%, var(--card)); }
+.pad-rw.big b { background: #f7931a; color: #fff; }
+.pad-how h3 { margin: 16px 0 6px; font-size: 17px; }
+.pad-how ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+.pad-rules { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
+.pad-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 10px 24px 14px; border-top: 1px solid var(--border); }
+.pad-cd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; margin-left: 6px; border-radius: 50%; background: rgba(255, 255, 255, .3); font-size: 12px; }
+@media (max-width: 760px), (max-height: 520px) {
+  .pad-ov { padding: 0; }
+  .pad { width: 100%; height: 100%; aspect-ratio: auto; padding: 0; border-radius: 0; box-shadow: none; }
+  .pad-screen { border-radius: 0; } .pad-status, .pad-cam { display: none; }
+  .pad-body { padding: 14px 16px; } .pad-grid { grid-template-columns: 1fr; } .pad-head h2 { font-size: 22px; }
+  .pad-foot { flex-direction: column-reverse; padding: 10px 16px 14px; } .pad-foot .btn { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .pad-ov, .pad, .pad-rw { animation: none; } }
+.sp-reward { padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, #f7931a 10%, var(--card)); }

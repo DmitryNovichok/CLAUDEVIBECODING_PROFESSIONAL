@@ -802,6 +802,15 @@
   /** Обращения в техподдержку от учеников: новые сверху, ответ виден ученику на сайте. */
   const SP_ST = { new: ['new', 'новое'], answered: ['ans', 'отвечено'], closed: ['closed', 'закрыто'] };
   let spF = 'all';                      // фильтр: all — всё, help — обращения, idea — 💡 пожелания учеников
+  /** Монеты за помощь сайту: кнопки наград (каждая — один раз на обращение) и своя сумма. */
+  function spRewardHtml(x, d) {
+    const R = d.support_rewards || {}, given = (d.support_given || {})[x.id] || [];
+    const got = new Set(given.map(g => g.kind)), total = given.reduce((a, g) => a + g.amount, 0);
+    return `<details class="sp-rw"${given.length ? ' open' : ''}><summary>🎁 Наградить монетами${total ? ` <b class="sp-rw-sum">начислено ${total} ₿</b>` : ''}</summary>
+      <div class="sp-rw-list">${Object.entries(R).map(([k, [ic, t, a]]) => `<button type="button" class="btn ghost sp-rw-b${got.has(k) ? ' done' : ''}" data-sp-rw="${k}" ${got.has(k) ? 'disabled' : ''} title="${esc(t)}">${ic} ${esc(t)} <b>${got.has(k) ? '✓ ' + a : '+' + a} ₿</b></button>`).join('')}</div>
+      <div class="sp-rw-own"><input class="inp" type="number" min="1" max="500" placeholder="₿" aria-label="Своя сумма" data-sp-rw-amount>
+        <input class="inp" maxlength="80" placeholder="За что (ученик увидит)" aria-label="За что" data-sp-rw-note><button type="button" class="btn ghost" data-sp-rw="custom">Начислить</button></div></details>`;
+  }
   function supportHtml(d) {
     const list = d.support || [];
     const fresh = list.filter(x => x.status === 'new').length;
@@ -815,6 +824,7 @@
       ${(x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map(m => m.who === 'teacher'
         ? `<div class="sp-a-ans"><b>Ответ учителя · ${dt(m.ts)}</b>${esc(m.text)}${spImg(m.img)}</div>`
         : `<div class="sp-a-text"><b class="sp-a-who">${esc(x.name)} · ${dt(m.ts)}</b>${esc(m.text)}${spImg(m.img)}</div>`).join('')}
+      ${spRewardHtml(x, d)}
       ${x.status === 'closed' ? `<div class="sp-a-btns"><span class="muted">Тема закрыта — ученик может только создать новое обращение.</span>
           <button type="button" class="btn ghost" data-sp-reopen>Открыть снова</button><button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div>`
         : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке» и сможет ответить в этой теме). Скриншот — Ctrl+V или 📎"></textarea>
@@ -843,6 +853,18 @@
       if (!confirm(clear ? 'Удалить все закрытые обращения? Это нельзя отменить.' : 'Удалить это обращение? Ученик его тоже больше не увидит.')) return;
       try { const r = await api('support/delete', clear ? { closed: true } : { id: +box.dataset.sp }); toast(clear ? `Удалено: ${r.deleted}` : 'Обращение удалено'); }
       catch (err) { toast(err.message); return; }
+      loadSite();
+      return;
+    }
+    const rw = e.target.closest('[data-sp-rw]');
+    if (rw) {
+      const box = e.target.closest('[data-sp]'), kind = rw.dataset.spRw;
+      const amount = kind === 'custom' ? +box.querySelector('[data-sp-rw-amount]').value : 0, note = kind === 'custom' ? box.querySelector('[data-sp-rw-note]').value.trim() : '';
+      if (kind === 'custom' && !(amount >= 1 && amount <= 500)) { toast('Сумма — от 1 до 500 ₿'); return; }
+      if (!confirm(`Начислить ${kind === 'custom' ? amount + ' ₿' : rw.textContent.trim()} ученику? Он получит уведомление и сообщение в этой теме.`)) return;
+      rw.disabled = true;
+      try { const r = await api('support/reward', { id: +box.dataset.sp, kind, amount, note }); toast(`Начислено +${r.amount} ₿`); }
+      catch (err) { rw.disabled = false; toast(err.message); return; }
       loadSite();
       return;
     }

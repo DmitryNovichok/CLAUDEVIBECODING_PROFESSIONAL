@@ -92,7 +92,7 @@ def _registry():
         admin/student/delete admin/student/fire admin/student/logout admin/student/newpw
         admin/student/norank admin/student/parent admin/student/password-reset admin/student/rename
         admin/student/role admin/student/teacher admin/student/void admin/student/void-undo
-        admin/students admin/supply admin/support/answer admin/support/delete admin/support/img
+        admin/students admin/supply admin/support/answer admin/support/delete admin/support/img admin/support/reward
         admin/task admin/task-solution admin/teacher/delete admin/teacher/extend
         admin/teacher/moderate admin/teacher/save admin/teachers admin/thermo
         admin/together/delete admin/together/end admin/together/invite admin/together/list
