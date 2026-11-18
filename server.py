@@ -2020,6 +2020,10 @@ class DB(Transactional):
             CREATE TABLE IF NOT EXISTS support_msgs(
                 id INTEGER PRIMARY KEY, support_id INTEGER NOT NULL, ts REAL NOT NULL, who TEXT NOT NULL, text TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS support_msgs_s ON support_msgs(support_id, ts);
+            -- награды за помощь сайту: идея, найденная ошибка… — начисляет главный учитель из обращения (одна награда каждого вида)
+            CREATE TABLE IF NOT EXISTS support_rewards(
+                id INTEGER PRIMARY KEY, support_id INTEGER NOT NULL, student_id INTEGER NOT NULL, kind TEXT NOT NULL,
+                amount INTEGER NOT NULL, ts REAL NOT NULL, UNIQUE(support_id, kind));
             -- курс «Программирование для ЕГЭ»: решённые задачи и попытки
             CREATE TABLE IF NOT EXISTS pyc_progress(
                 student_id INTEGER NOT NULL, task_id TEXT NOT NULL, ok INTEGER NOT NULL DEFAULT 0, tries INTEGER NOT NULL DEFAULT 0,
@@ -2365,7 +2369,7 @@ def delete_student(db, sid):
             db.x("UPDATE together SET students=? WHERE id=?", (json.dumps([x for x in members if x != sid]), row["id"]))
     for table in ("student_sessions", "attempts", "reveal_log", "exams", "activity", "solutions", "solution_history", "daily_starts", "daily_results",
                   "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue",
-                  "arduino_progress", "mcko_runs", "im_attempts", "im_trials", "learning_mistakes", "buglab", "buglab_jobs"):
+                  "arduino_progress", "mcko_runs", "im_attempts", "im_trials", "learning_mistakes", "buglab", "buglab_jobs", "support_rewards"):
         db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
     db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
     if db.q("SELECT 1 FROM sqlite_master WHERE name='lesson_readiness' AND type='table'", one=True):
@@ -3559,6 +3563,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "sounds": bool(teacher_of(s)["sounds"]) if s else True,       # рубильник звуков учителя
                 "hints": bool(teacher_of(s)["hints"]) if s else False,        # подсказки по шагам (решает учитель)
                 "py_local": (HERE / "vendor" / "pyodide" / "pyodide.js").is_file(),
+                "support_rewards": [[k, ic, t, a] for k, (ic, t, a) in SUPPORT_REWARDS.items()],    # страница «Монеты за помощь сайту»
                 "repeat_since": 0}
 
     def me_payload(self, s):
@@ -6265,6 +6270,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "duels": one("SELECT COUNT(*) c FROM duels WHERE status = 'finished'")["c"],
                 "bank": len(APP.bank.tasks) if APP.bank.ensure() else 0,
                 "series": series, "nums": nums, "by_teacher": teachers, "support_kinds": SUPPORT_KINDS,
+                "support_rewards": {k: list(v) for k, v in SUPPORT_REWARDS.items()},
+                "support_given": support_given(db),
                 "support": [dict(r, thread=support_thread(db, r)) for r in db.q("""
                     SELECT p.*, s.name, COALESCE(t.name, '') AS teacher,
                            COALESCE((SELECT MAX(ts) FROM support_msgs m WHERE m.support_id = p.id), p.ts) AS last
@@ -6314,6 +6321,38 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 db.x("UPDATE support SET status=? WHERE id=?", (status, sid))
             LIVE.send([r["student_id"]], "support")      # ответ появится у ученика сразу
             return self.send_json({"ok": True})
+
+        if path == "/api/admin/support/reward" and method == "POST":
+            # монеты за помощь сайту прямо из обращения: вид награды из SUPPORT_REWARDS (или «своя» сумма), каждый вид — один раз
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            sid = to_int(data.get("id"))
+            r = db.q("SELECT * FROM support WHERE id=?", (sid,), one=True)
+            if not r:
+                return self.err(404, "Обращение не найдено")
+            kind = str(data.get("kind") or "")
+            if kind == "custom":
+                amount, label = to_int(data.get("amount")) or 0, str(data.get("note") or "").strip()[:80] or "Помощь сайту"
+                if not 1 <= amount <= SUPPORT_REWARD_MAX:
+                    return self.err(400, f"Сумма — от 1 до {SUPPORT_REWARD_MAX} ₿")
+                kind = f"custom:{int(time.time())}"
+            elif kind in SUPPORT_REWARDS:
+                ic, label, amount = SUPPORT_REWARDS[kind]
+                label = f"{ic} {label}"
+            else:
+                return self.err(400, "Такой награды нет")
+            if db.q("SELECT 1 FROM support_rewards WHERE support_id=? AND kind=?", (sid, kind), one=True):
+                return self.err(409, "За это обращение такая награда уже начислена")
+            now = time.time()
+            db.x("INSERT INTO support_rewards(support_id, student_id, kind, amount, ts) VALUES(?,?,?,?,?)", (sid, r["student_id"], kind, amount, now))
+            db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'support', ?, 0)", (r["student_id"], now, amount, label))
+            db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,NULL)",
+                 (sid, now, "teacher", f"🎁 Начислено +{amount} ₿ — {label}. Спасибо, что помогаешь сделать Egeshka лучше!"))
+            db.x("UPDATE support SET answer=?, answered=?, status=CASE WHEN status='closed' THEN status ELSE 'answered' END, seen=0 WHERE id=?",
+                 (f"🎁 +{amount} ₿", now, sid))
+            LIVE.send([r["student_id"]], "support")
+            LIVE.send([r["student_id"]], "gift")              # монеты и уведомление — сразу
+            return self.send_json({"ok": True, "amount": amount, "given": support_given(db).get(str(sid), [])})
 
         if path == "/api/admin/visitors":
             # главный учитель видит, кто сейчас на сайте без входа (Visits); ушёл — пропал
@@ -9808,10 +9847,30 @@ def duel_tasks(nums=None):
 # Турнир «как в футболе»: жеребьёвка по корзинам → групповой этап (каждый с каждым, победа 3 очка, ничья 1) →
 # плей-офф на выбывание с матчем за 3-е место. «Счёт» матча — сколько заданий решил каждый.
 # idea — «💡 Пожелания»: своя вкладка в окне техподдержки ученика, у учителя — фильтр
-SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не работает сайт", "xp": "Опыт, рейтинг, турниры", "question": "Вопрос", "other": "Другое",
-                 "idea": "💡 Пожелание"}
+SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не работает сайт", "ux": "🎨 Дизайн и удобство", "xp": "Опыт, рейтинг, турниры",
+                 "question": "Вопрос", "other": "Другое", "idea": "💡 Пожелание"}
+# Монеты за помощь сайту: вид → (значок, за что, сколько ₿). Начисляет главный учитель из обращения; за одно обращение — каждый вид один раз.
+SUPPORT_REWARDS = {
+    "idea": ("💡", "Идея новой функции или режима", 50),
+    "ux": ("🎨", "Предложение по дизайну и удобству (UX/UI)", 50),
+    "bug": ("🐞", "Найденная ошибка в работе сайта", 50),
+    "task": ("📝", "Ошибка в задании: условие, ответ, файл", 50),
+    "typo": ("✏️", "Опечатка или неточность в уроке, разборе, подсказке", 50),
+    "content": ("🧩", "Идея задания, примера, урока или лаборатории", 50),
+    "done": ("🚀", "Твою идею внедрили на сайте — бонус сверху", 50),
+    "critical": ("🔥", "Серьёзная ошибка: теряется прогресс, не работает вход, можно обойти правила", 200),
+}
+SUPPORT_REWARD_MAX = 500                # своя сумма у главного учителя — не больше
 SUPPORT_MAX = 2000
 ACH_CLOCK = time.localtime          # часы для достижений «ночью», «в обед», «пятница 13-е»… (тесты подменяют)
+
+
+def support_given(db):
+    """Обращение → уже начисленные награды [{kind, amount, ts}] (чтобы не начислить дважды)."""
+    out = {}
+    for r in db.q("SELECT support_id, kind, amount, ts FROM support_rewards ORDER BY ts"):
+        out.setdefault(str(r["support_id"]), []).append({"kind": r["kind"], "amount": r["amount"], "ts": r["ts"]})
+    return out
 
 
 def support_thread(db, p):

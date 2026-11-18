@@ -8325,6 +8325,7 @@
       : c.reason === 'storage' ? `📦 Плата за хранение большой суммы: −${-c.delta} ₿. Монеты выгоднее тратить, чем копить`
       : c.reason === 'stipend' ? `🎓 Стипендия из банка рынка: +${c.delta} ₿ — ${c.note}`
       : c.reason === 'class' ? `🏆 Битва классов: +${c.delta} ₿ — ${c.note}`
+      : c.reason === 'support' ? `🎁 Спасибо за помощь сайту: +${c.delta} ₿ — ${c.note}`
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
   }
@@ -8628,6 +8629,94 @@
     act();
   }, true);
   document.addEventListener('visibilitychange', () => { if (ST && document.visibilityState === 'hidden') stPause(true); });
+  // ------------------------------------------------------------ новость на «iPad»: монеты за помощь сайту.
+  // Одна страница: за что и сколько ₿, как отправить. Закрыть можно не раньше чем через PAD_LOCK_S секунд (кнопка с обратным отсчётом;
+  // Esc и щелчок мимо до этого не закрывают). Один раз до PAD_UNTIL; потом — из техподдержки («за что дают монеты»).
+  const PAD_VER = 'rewards-2026-11', PAD_UNTIL = '2026-12-20', PAD_LOCK_S = 5;
+  let PAD = null;                         // { left, timer } — открыта страница
+  const padKey = () => `egeshka.pad.${PAD_VER}.${student ? student.sid : 'local'}`;
+  function openRewardsPad() {
+    closeRewardsPad(true);
+    const rw = RULES.support_rewards || [];
+    const cards = rw.map(([k, ic, t, a], i) => `<div class="pad-rw${k === 'critical' ? ' big' : k === 'done' ? ' bonus' : ''}" style="--i:${i}"><em aria-hidden="true">${ic}</em><span>${esc(t)}</span><b>+${a} ₿</b></div>`).join('');
+    const ov = document.createElement('div');
+    ov.className = 'pad-ov';
+    ov.id = 'padOv';
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-modal', 'true');
+    ov.setAttribute('aria-labelledby', 'padTitle');
+    ov.innerHTML = `<div class="pad"><div class="pad-screen">
+        <div class="pad-status"><span>${stClock()}</span><span class="pad-cam" aria-hidden="true"></span><span class="pad-ind" aria-hidden="true">Wi-Fi <i class="pad-bat"><i></i></i> 100%</span></div>
+        <div class="pad-body">
+          <div class="pad-head"><span class="pad-ico" aria-hidden="true">🎁</span><div><small>Новое на Egeshka</small>
+            <h2 id="padTitle">Монеты за помощь сайту</h2>
+            <p>Каждая полезная мелочь стоит монет: идея, найденная ошибка, предложение, как сделать удобнее или красивее. Даже самая маленькая.</p></div></div>
+          <div class="pad-grid">${cards}</div>
+          <div class="pad-how"><h3>Как получить</h3><ol>
+            <li><b>Открой «🛟 Техподдержку»</b> — внизу главной.</li>
+            <li><b>Ошибку или неудобство</b> — во вкладке «Обращения», выбери тип. <b>Идею</b> — во вкладке «💡 Пожелания».</li>
+            <li><b>Опиши подробно:</b> где это, что делал, что ожидал. Скриншот — 📎 или Ctrl+V.</li>
+            <li><b>Главный учитель проверит</b> и начислит монеты прямо в обращении — придёт уведомление.</li></ol>
+            <p class="pad-rules">Одна находка — одна награда; за одно и то же награждается тот, кто сообщил первым. Повторы и спам не награждаются. Сумму решает главный учитель.</p></div>
+        </div>
+        <div class="pad-foot"><button type="button" class="btn" data-pad="write" disabled>✍️ Написать в техподдержку</button>
+          <button type="button" class="btn primary" data-pad="close" disabled>Понятно <span class="pad-cd">${PAD_LOCK_S}</span></button></div>
+      </div></div>`;
+    document.body.appendChild(ov);
+    document.body.classList.add('pad-open');
+    PAD = { left: PAD_LOCK_S };
+    PAD.timer = setInterval(() => {
+      if (!PAD) return;
+      PAD.left -= 1;
+      const cd = ov.querySelector('.pad-cd');
+      if (PAD.left > 0) { if (cd) cd.textContent = PAD.left; return; }
+      clearInterval(PAD.timer);
+      ov.classList.add('open');
+      ov.querySelectorAll('[data-pad]').forEach(b => { b.disabled = false; });
+      if (cd) cd.remove();
+      ov.querySelector('[data-pad="close"]').focus({ preventScroll: true });
+    }, 1000);
+  }
+  /** force — закрыть сразу (например, при выходе); иначе — только когда прошли PAD_LOCK_S секунд. */
+  function closeRewardsPad(force) {
+    if (!PAD) return;
+    if (!force && PAD.left > 0) return;
+    clearInterval(PAD.timer);
+    $('#padOv')?.remove();
+    document.body.classList.remove('pad-open');
+    PAD = null;
+  }
+  /** Один раз после обновления — раньше историй и объявлений. */
+  function padAuto() {
+    if (!SERVER || !student || TEACHER || dayKey(Date.now()) >= PAD_UNTIL || !(RULES.support_rewards || []).length) return false;
+    try {
+      if (localStorage.getItem(padKey())) return false;
+      localStorage.setItem(padKey(), '1');
+    } catch (e) { return false; }
+    openRewardsPad();
+    return true;
+  }
+  document.addEventListener('click', e => {
+    if (e.target.closest('[data-pad-open]')) { openRewardsPad(); return; }
+    if (!PAD) return;
+    const b = e.target.closest('#padOv [data-pad]');
+    if (b && !b.disabled) {
+      closeRewardsPad();
+      if (b.dataset.pad === 'write') openSupport('help');
+      return;
+    }
+    if (e.target.id === 'padOv') closeRewardsPad();          // щелчок мимо iPad — только после отсчёта
+  });
+  document.addEventListener('keydown', e => {
+    if (!PAD) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeRewardsPad(); }
+    if (e.key === 'Tab') {                                    // фокус не уходит со страницы
+      const f = [...document.querySelectorAll('#padOv button:not([disabled])')];
+      if (!f.length) { e.preventDefault(); return; }
+      const i = f.indexOf(document.activeElement);
+      if (e.shiftKey ? i <= 0 : i === f.length - 1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+    }
+  }, true);
   // ═══════ src/app/12e-case.js
   // ------------------------------------------------------------ «🎲 Случайный подарок» — открытие как кейс
   // Что выпало, решает сервер: покупка уходит сразу, пока коробка трясётся и светится по шву. Дальше — только показ: крышка
@@ -10302,7 +10391,7 @@
     const fresh = !labRequested && !P.log.length && !tourSeen();
     if (fresh) { setTimeout(openTour, 400); promoNext = true; }       // новичку — коротко о том, как всё устроено (потом — акция)
     // после обновления — истории «Что нового» (один раз), иначе — объявление об акции (раз в день); сводка дня — в другой раз
-    const promo = !labRequested && !fresh && SERVER && student && (storiesAuto() || promoAuto());
+    const promo = !labRequested && !fresh && SERVER && student && (padAuto() || storiesAuto() || promoAuto());
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
       liveStart();                                                     // живые обновления: одно соединение на браузер
@@ -10365,7 +10454,7 @@
   function tourDone() {
     if (!promoNext) return;
     promoNext = false;
-    if (!storiesAuto()) promoAuto();
+    if (!padAuto() && !storiesAuto()) promoAuto();
   }
   $('#tourBtn').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openTour(); });
 
@@ -10474,13 +10563,15 @@
           : `<div class="sp-reply" data-sp-box><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
           <div class="sp-row">${SP_PICK}<button type="button" class="btn" data-sp-reply>Отправить</button></div></div>`}</div>`;
     }).join('');
-    const form = idea ? `<p class="fm-note">Есть идея, как сделать Egeshka лучше? Новый режим, задания, подарки, что-то неудобно — напиши.
+    const form = idea ? `<p class="fm-note sp-reward">🎁 За полезную идею — монеты, от 50 ₿. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>
+      <p class="fm-note">Есть идея, как сделать Egeshka лучше? Новый режим, задания, подарки, что-то неудобно — напиши.
         Учитель прочитает и ответит здесь. Можно приложить картинку: «📎 Картинка» или Ctrl+V в поле.</p>
       <form class="sp-form" id="spForm" data-sp-box>
         <input type="hidden" id="spKind" value="idea">
         <textarea class="inp" id="spText" maxlength="2000" placeholder="Моя идея: что добавить или улучшить и зачем" required></textarea>
         <div class="sp-row"><span></span>${SP_PICK}<button type="submit" class="btn primary">💡 Отправить идею</button></div>
-      </form>` : `<p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Можно приложить скриншот: кнопка «📎 Картинка» или Ctrl+V в поле. Обращение получит учитель, ответ появится здесь.</p>
+      </form>` : `<p class="fm-note sp-reward">🎁 За найденные ошибки, идеи и предложения по дизайну — монеты, от 50 ₿. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>
+      <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Можно приложить скриншот: кнопка «📎 Картинка» или Ctrl+V в поле. Обращение получит учитель, ответ появится здесь.</p>
       <form class="sp-form" id="spForm" data-sp-box>
         <select class="inp" id="spKind">${kinds}</select>
         <textarea class="inp" id="spText" maxlength="2000" placeholder="Опиши, что случилось: что делал, что ожидал и что получилось" required></textarea>

@@ -1881,6 +1881,45 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([p["place"] for p in T["podium"]], [1, 2, 3, 4])
         self.assertEqual(T["podium"][0]["xp"], 600)
 
+    def test_support_rewards(self):
+        # монеты за помощь сайту: главный учитель начисляет из обращения, каждый вид — один раз, ученик видит в теме и в уведомлении
+        db = server.APP.db
+        tok = self.login("Наградин Игорь")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        me = self.req("GET", "/api/me", token=tok)[1]
+        self.assertEqual([r[0] for r in me["rules"]["support_rewards"]], list(server.SUPPORT_REWARDS))   # страница «за что и сколько»
+        self.assertTrue(all(r[3] == 50 for r in me["rules"]["support_rewards"] if r[0] != "critical"))
+        self.assertIn("ux", server.SUPPORT_KINDS)
+        st, d = self.req("POST", "/api/support", {"kind": "ux", "text": "Кнопку «Проверить» плохо видно в тёмной теме"}, tok)
+        self.assertEqual(st, 200, d)
+        x = next(r for r in self.admin("GET", "/api/admin/site-stats")[1]["support"] if r["text"].startswith("Кнопку «Проверить»"))
+        coins = lambda: server.game_summary(db, sid)["coins"]
+        before = coins()
+        st, r = self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "ux"})
+        self.assertEqual((st, r["amount"]), (200, 50), r)
+        self.assertEqual(coins(), before + 50)
+        self.assertEqual(self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "ux"})[0], 409)    # дважды — нельзя
+        self.assertEqual(self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "nope"})[0], 400)
+        self.assertEqual(self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "custom", "amount": 501})[0], 400)
+        st, r = self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "custom", "amount": 30, "note": "Отличный скриншот"})
+        self.assertEqual(st, 200, r)
+        self.assertEqual(coins(), before + 80)
+        d = self.admin("GET", "/api/admin/site-stats")[1]
+        self.assertEqual(sum(g["amount"] for g in d["support_given"][str(x["id"])]), 80)
+        item = next(i for i in self.req("GET", "/api/support", token=tok)[1]["items"] if i["id"] == x["id"])
+        self.assertIn("🎁 Начислено +50 ₿", " ".join(m["text"] for m in item["thread"]))            # сообщение в теме
+        news = self.req("GET", "/api/me", token=tok)[1]["coin_news"]
+        self.assertEqual(sorted((c["reason"], c["delta"]) for c in news), [("support", 30), ("support", 50)])  # уведомление
+        # обычный учитель наградить не может
+        tid = db.x("""INSERT INTO teachers(name, login, pw, invite, is_main, created, email, email_ok, moderation)
+                      VALUES('Учитель Наград', 'nagrteach', 'x', 'NAGR77', 0, ?, 'n@example.ru', 1, 'approved')""", (time.time(),))
+        db.x("INSERT INTO admin_sessions(token, expires, teacher_id) VALUES('nagr-session', ?, ?)", (time.time() + 3600, tid))
+        self.assertEqual(self.teacher_req("egeadm=nagr-session", "POST", "/api/admin/support/reward", {"id": x["id"], "kind": "bug"})[0], 403)
+        db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
+        db.x("DELETE FROM teachers WHERE id=?", (tid,))
+        server.delete_student(db, sid)
+        self.assertIsNone(db.q("SELECT 1 FROM support_rewards WHERE student_id=?", (sid,), one=True))
+
     def test_support_ticket_flow(self):
         tok = self.login("Поддержкин Павел")
         self.assertEqual(self.req("POST", "/api/support", {"text": "ой"}, tok)[0], 400)            # слишком коротко

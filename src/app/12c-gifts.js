@@ -541,6 +541,7 @@
       : c.reason === 'storage' ? `📦 Плата за хранение большой суммы: −${-c.delta} ₿. Монеты выгоднее тратить, чем копить`
       : c.reason === 'stipend' ? `🎓 Стипендия из банка рынка: +${c.delta} ₿ — ${c.note}`
       : c.reason === 'class' ? `🏆 Битва классов: +${c.delta} ₿ — ${c.note}`
+      : c.reason === 'support' ? `🎁 Спасибо за помощь сайту: +${c.delta} ₿ — ${c.note}`
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
   }
