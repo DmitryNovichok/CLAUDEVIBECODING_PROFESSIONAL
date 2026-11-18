@@ -594,7 +594,7 @@
     } else {
       t = findTask(q);
     }
-    if (!t) { toast('Задание не найдено. Введите номер с kompege.ru или код задания ФИПИ.', 3500); return; }
+    if (!t) { toast('Задание не найдено. Введите номер сайта (#123), номер с kompege.ru или код задания ФИПИ.', 3500); return; }
     if (!leaveExam()) return;
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();

@@ -2511,6 +2511,24 @@ class ServerTest(unittest.TestCase):
             self.req("GET", "/api/find?q=5", token=tok)
         self.assertEqual(self.req("GET", "/api/find?q=5", token=tok)[0], 429)
 
+    def test_site_numbers(self):
+        bank = server.APP.bank
+        sn = bank.sn["b:g"]
+        self.assertTrue(sn >= 1 and len(set(bank.sn.values())) == len(bank.sn))
+        self.assertEqual(bank.site_num("b:g20"), sn)                       # часть 19–21 — номер всей игры
+        self.assertTrue(bank.snippet("b:g20").startswith(f"#{sn} · "))     # учитель видит номер рядом с условием
+        tok = self.login("Номеров Ной")
+        st, d = self.req("GET", "/api/find?q=%23" + str(sn), token=tok)
+        self.assertEqual(d["task"], bank.pid("b:g"))
+        self.assertEqual(self.req("GET", "/api/find?q=%23999999", token=tok)[0], 404)
+        self.assertEqual(bank.pubs["b:g"]["sn"], sn)
+        # номер закреплён: при перезагрузке банка выданные номера не меняются, новое задание получает следующий
+        before = dict(bank.sn)
+        got = server.site_numbers(server.APP.db, list(before) + ["zz:new-task"])
+        self.assertEqual({k: got[k] for k in before}, before)
+        self.assertEqual(got["zz:new-task"], max(before.values()) + 1)
+        server.APP.db.x("DELETE FROM site_nums WHERE task='zz:new-task'")
+
     def test_prefs_store_real_ids(self):
         tok = self.login("Избранов Иван")
         pid = server.APP.bank.pid("b:6")

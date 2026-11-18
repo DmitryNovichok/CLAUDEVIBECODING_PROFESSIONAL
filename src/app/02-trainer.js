@@ -426,6 +426,7 @@
     if (t.y && !(t.src || '').includes(String(t.y))) {
       meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
     }
+    if (t.sn) meta.push(`<span class="sn-tag" title="Номер задания на сайте: назови его — его найдут поиском «#${t.sn}»">#${t.sn}</span>`);
     let { chip, line } = reasonHtml(t, cur.why);
     if (isOutdated(t)) {
       const since = formatSince(t.n);

@@ -3801,7 +3801,7 @@
         <select class="adm-select" id="dNum">${[...Array.from({ length: 27 }, (_, i) => i + 1), 28].map(n => `<option value="${n}">№${numName(n)}${n === 28 ? ' (архив)' : ''}</option>`).join('')}</select>
         <select class="adm-select" id="dCount">${[1, 2, 3, 5, 10].map(k => `<option>${k}</option>`).join('')}</select>
         <button type="button" class="btn" id="dPick">Добавить</button>
-        <span class="adm-hint">или по номеру КомпЕГЭ / коду ФИПИ:</span>
+        <span class="adm-hint">или по номеру сайта (#123), номеру КомпЕГЭ / коду ФИПИ:</span>
         <input class="inp" id="dFind" placeholder="например 10009" style="width:150px">
         <button type="button" class="btn" id="dFindBtn">Найти</button>
       </div>

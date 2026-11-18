@@ -393,6 +393,8 @@
   function findTask(q) {
     q = String(q || '').trim().replace(/^№\s*/, '').replace(/^.*[?&]id=/, '').toLowerCase();
     if (!q) return null;
+    const sn = q.match(/^#\s*0*(\d{1,7})$/);
+    if (sn) return TASKS.find(t => t.sn === +sn[1]) || null;
     const tail = id => id.slice(id.indexOf(':') + 1).toLowerCase();
     const own = t => [t.id, ...(t.parts || []).map(p => p.id)];
     let hits = TASKS.filter(t => own(t).some(id => id.toLowerCase() === q || tail(id) === q));

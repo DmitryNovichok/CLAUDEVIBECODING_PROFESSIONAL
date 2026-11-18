@@ -73,7 +73,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
     <div class="grid" id="grid"></div>
 
     <form class="search" id="searchForm" role="search" autocomplete="off">
-      <input class="inp" id="searchInp" type="search" placeholder="№ или код ФИПИ" aria-label="Найти задание по номеру КомпЕГЭ или коду ФИПИ" maxlength="80">
+      <input class="inp" id="searchInp" type="search" placeholder="#номер, № или код ФИПИ" aria-label="Найти задание по номеру сайта (#123), номеру КомпЕГЭ или коду ФИПИ" title="#123 — номер задания на сайте; просто число — номер КомпЕГЭ; или код ФИПИ" maxlength="80">
       <button class="icon-btn" type="submit" aria-label="Найти">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       </button>
