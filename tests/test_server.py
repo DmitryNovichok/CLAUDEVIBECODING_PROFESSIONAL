@@ -1365,7 +1365,9 @@ class ServerTest(unittest.TestCase):
         arch = self.admin("GET", "/api/admin/competitions")[1]["duels"]
         self.assertEqual(next(x for x in arch if x["id"] == did)["winner"], "Дуэлев Аркадий")      # архив дуэлей у учителя
         self.req("POST", "/api/duel/find", {}, tb)                        # второй раз за неделю их не сведёт
-        self.assertTrue(self.req("POST", "/api/duel/find", {}, ta)[1].get("searching"))
+        st, d = self.req("POST", "/api/duel/find", {}, ta)
+        self.assertTrue(d.get("searching"))
+        self.assertEqual((d["seekers"], d["blocked"]["played"], d["blocked"]["nums"]), (1, 1, 0))   # и объясняем почему
         self.req("POST", "/api/duel/cancel", {}, ta)
         self.req("POST", "/api/duel/cancel", {}, tb)
 
@@ -1460,6 +1462,7 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(self.req("POST", "/api/duel/find", {"nums": [4, 5, 6]}, te)[1].get("searching"))   # не совпали
         st, d = self.req("POST", "/api/duel/find", {"nums": [3, 5, 6, 7]}, tf)
         self.assertTrue(d.get("searching"))                                  # общих с Димой 1, с Егором 2 — мало
+        self.assertEqual((d["blocked"]["nums"], d["blocked"]["common"], d["blocked"]["played"]), (2, [5, 6], 0))
         self.req("POST", "/api/duel/cancel", {}, tf)
         st, d = self.req("POST", "/api/duel/find", {"nums": [1, 2, 3, 5]}, tf)
         self.assertIn("matched", d)                                          # с Димой три общих номера

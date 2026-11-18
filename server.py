@@ -5177,10 +5177,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 me_lv = game_summary(db, s["id"], brief=True)["level"]
                 me_elo = elo_of(db, s["id"])
                 db.x("DELETE FROM duel_queue WHERE seen<?", (now - DUEL_QUEUE_TTL,))
-                busy = {r["x"] for r in db.q("""SELECT CASE WHEN a=? THEN b ELSE a END AS x FROM duels
-                                                WHERE (a=? OR b=?) AND (status IN ('pending','active')
-                                                     OR (status='finished' AND finished>=?))""",
-                                             (s["id"], s["id"], s["id"], week_start()))}
+                pairs = db.q("""SELECT CASE WHEN a=? THEN b ELSE a END AS x, status FROM duels
+                                WHERE (a=? OR b=?) AND (status IN ('pending','active')
+                                     OR (status='finished' AND finished>=?))""",
+                             (s["id"], s["id"], s["id"], week_start()))
+                busy = {r["x"] for r in pairs}
+                running = {r["x"] for r in pairs if r["status"] in ('pending', 'active')}
                 common = lambda r: set(my_nums) & set(json.loads(r["nums"]) if r["nums"] else DUEL_NUMS)
                 cands = [r for r in db.q("SELECT * FROM duel_queue WHERE teacher_id=? AND student_id!=? ORDER BY since",
                                          (tid, s["id"])) if r["student_id"] in mates and r["student_id"] not in busy
@@ -5195,11 +5197,25 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                   VALUES(?,?,?,?,?, 'active', ?, 1)""",
                                (op["student_id"], s["id"], json.dumps(tasks), json.dumps(twin_tasks(tasks)), now, now))
                     return self.send_json({"matched": did})
+                # Почему ищущих не свели: ученик видит причину, а не просто «в поиске 1 человек».
+                blocked = {"running": 0, "played": 0, "nums": 0, "common": []}
+                for r in db.q("SELECT * FROM duel_queue WHERE teacher_id=? AND student_id!=?", (tid, s["id"])):
+                    if r["student_id"] not in mates:
+                        continue
+                    if r["student_id"] in running:
+                        blocked["running"] += 1
+                    elif r["student_id"] in busy:
+                        blocked["played"] += 1
+                    else:
+                        blocked["nums"] += 1
+                        if len(common(r)) > len(blocked["common"]):
+                            blocked["common"] = sorted(common(r))
                 db.x("""INSERT INTO duel_queue(student_id, teacher_id, level, since, seen, elo, nums) VALUES(?,?,?,?,?,?,?)
                         ON CONFLICT(student_id) DO UPDATE SET seen=excluded.seen, level=excluded.level, elo=excluded.elo,
                         nums=excluded.nums""", (s["id"], tid, me_lv, now, now, me_elo, json.dumps(my_nums)))
             q = db.q("SELECT since FROM duel_queue WHERE student_id=?", (s["id"],), one=True)
-            return self.send_json({"searching": True, "since": q["since"], "seekers": duel_seekers(db, tid, s["id"])})
+            return self.send_json({"searching": True, "since": q["since"], "seekers": duel_seekers(db, tid, s["id"]),
+                                   "blocked": blocked})
         if path == "/api/duel/create":
             return self.err(410, "Вызов на дуэль убран — нажми «Найти соперника»")
         if path == "/api/duel/rematch":
