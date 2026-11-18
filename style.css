@@ -831,6 +831,8 @@ body.py-split-drag, body.py-split-drag * { cursor: ns-resize !important; user-se
 .py-status { font-size: 12.5px; color: var(--muted); min-height: 1.2em; }
 .py-status.ok { color: var(--good); }
 .py-status.bad { color: var(--weak); }
+.py-status.stale { color: var(--warn, #d97706); font-weight: 600; }
+.py-out.stale { opacity: .45; }
 .py-out { flex: 1 1 30%; min-height: 80px; margin: 0; overflow: auto; padding: 10px 12px; background: var(--input-bg);
   border: 2px solid var(--border); font: 13px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; }
 .py-out:empty::before { content: "Здесь появится вывод print()"; color: var(--faint); }

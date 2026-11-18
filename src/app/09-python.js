@@ -197,6 +197,7 @@
     if (!code.trim()) { setPyStatus('Напишите код', 'bad'); return; }
     ensureWorker();
     $('#pyOut').textContent = '';
+    pyStale(false); PY.ran = code;
     $('#pyTurtle').hidden = true;
     PY.running = true;
     $('#pyRun').hidden = true;
@@ -249,7 +250,14 @@
     $('#pyCode').value = code != null ? code : pyStarter(t);
     updateGutter();
     $('#pyOut').textContent = '';
+    pyStale(false); PY.ran = null;
     $('#pyTurtle').hidden = true;
+  }
+  /** Код поменяли после запуска — вывод ниже ещё от старого кода: приглушаем его и подсказываем перезапустить. */
+  function pyStale(on) {
+    const out = $('#pyOut'), was = out.classList.contains('stale');
+    out.classList.toggle('stale', on);
+    if (on && !was) setPyStatus('Код изменён — вывод ниже от прошлого запуска. Нажми «Запустить» (Ctrl+Enter)', 'stale');
   }
   function updateGutter() {
     const ta = $('#pyCode');
@@ -691,6 +699,7 @@
   $('#pyCode').addEventListener('keydown', editKey);
   $('#pyCode').addEventListener('input', () => {
     updateGutter();
+    if (!PY.running && PY.ran != null && $('#pyOut').textContent) pyStale($('#pyCode').value !== PY.ran);
     $('#pyAttach').textContent = 'Прикрепить решение';
     clearTimeout(PY.saveTimer);
     const t = PY.task;
