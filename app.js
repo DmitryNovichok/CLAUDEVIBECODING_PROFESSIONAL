@@ -6738,7 +6738,7 @@
     }).join('');
     const search = DSEARCH.on
       ? `<div class="dq on"><div class="dq-spin" aria-hidden="true">⚔️</div><div><b>Ищем соперника… <span id="dqTime">${dqTime()}</span></b>
-          <div class="fm-muted">${DSEARCH.seekers ? `Сейчас ищут ещё ${DSEARCH.seekers}` : 'Как только кто-то из класса тоже нажмёт «Найти», дуэль начнётся'}. Не закрывай страницу.</div></div>
+          <div class="fm-muted">${DSEARCH.seekers ? `Сейчас ищут ещё ${DSEARCH.seekers}` : 'Как только кто-то из класса тоже нажмёт «Найти», дуэль начнётся'}. Не закрывай страницу.</div>${duelBlockedHtml()}</div>
           <button type="button" class="btn ghost" id="dqCancel">Отмена</button></div>`
       : D.today >= D.per_day ? `<div class="dq"><b>Сегодня сыграно ${D.today} дуэлей — это максимум.</b><div class="fm-muted">Новые дуэли — завтра.</div></div>`
       : `<div class="dq"><button type="button" class="btn primary dq-go" id="dqFind"${duelNums().length < D.min_nums ? ' disabled' : ''}>🔍 Найти соперника</button>
@@ -6801,7 +6801,18 @@
     renderTourPage();
   }
   // подбор соперника: пока ищем, раз в 3 с спрашиваем сервер (это и «я ещё здесь»)
-  const DSEARCH = { on: false, since: 0, seekers: 0, timer: null };
+  const DSEARCH = { on: false, since: 0, seekers: 0, blocked: null, timer: null };
+  // Почему с тем, кто сейчас ищет, дуэль не начинается — сервер присылает причины.
+  function duelBlockedHtml() {
+    const b = DSEARCH.blocked;
+    if (!b) return '';
+    const who = n => n === 1 ? 'Одноклассник, который сейчас ищет,' : `${n} ${plural(n, 'одноклассник', 'одноклассника', 'одноклассников')}, которые сейчас ищут,`;
+    const out = [];
+    if (b.running) out.push(`${who(b.running)} уже ${b.running === 1 ? 'играет' : 'играют'} с тобой дуэль — сначала закончите её.`);
+    if (b.played) out.push(`С ${b.played === 1 ? 'одноклассником, который сейчас ищет,' : `${b.played} из ищущих`} ты уже играл(а) дуэль на этой неделе. С одним и тем же соперником — одна дуэль в неделю, поэтому ждём другого одноклассника.`);
+    if (b.nums) out.push(`${who(b.nums)} выбрал${b.nums === 1 ? '' : 'и'} другие номера: общих ${b.common.length ? `только ${b.common.join(', ')}` : 'нет'}, а нужно хотя бы ${(DUELS && DUELS.min_nums) || 3}. Нажми «Отмена», добавь номера (например, «выбрать все») и снова ищи.`);
+    return out.length ? `<div class="dq-why" role="status">${out.map(t => `<p>⚠️ ${t}</p>`).join('')}</div>` : '';
+  }
   const dqTime = () => { const sec = Math.max(0, Math.round(Date.now() / 1000 - DSEARCH.since)); return `${Math.floor(sec / 60)}:${pad2(sec % 60)}`; };
   async function duelFind() {
     let r;
@@ -6813,11 +6824,11 @@
       await loadDuels();
       return;
     }
-    const first = !DSEARCH.on;
-    Object.assign(DSEARCH, { on: true, since: r.since, seekers: r.seekers });
+    const first = !DSEARCH.on, changed = JSON.stringify([DSEARCH.seekers, DSEARCH.blocked]) !== JSON.stringify([r.seekers, r.blocked || null]);
+    Object.assign(DSEARCH, { on: true, since: r.since, seekers: r.seekers, blocked: r.blocked || null });
     clearTimeout(DSEARCH.timer);
     DSEARCH.timer = setTimeout(duelFind, liveOn() ? 15000 : 3000);   // есть живое соединение — о сопернике скажет сервер
-    if (first) renderTourPage();
+    if (first || changed) renderTourPage();
     else {
       const t = $('#dqTime');
       if (t) t.textContent = dqTime();
@@ -6825,7 +6836,7 @@
   }
   function duelSearchStop() {
     clearTimeout(DSEARCH.timer);
-    DSEARCH.on = false;
+    DSEARCH.on = false; DSEARCH.blocked = null;
     renderTourPage();
   }
   setInterval(() => { const t = $('#dqTime'); if (t && DSEARCH.on) t.textContent = dqTime(); }, 1000);
