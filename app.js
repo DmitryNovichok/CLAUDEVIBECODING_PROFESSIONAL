@@ -10075,6 +10075,16 @@
       <div class="hub-mail-act"><button type="button" class="btn" data-mail="resend">Отправить письмо</button>
         <button type="button" class="link-btn" data-mail="change">Изменить почту</button><button type="button" class="link-btn" data-mail="later">Позже</button></div></section>`;
   }
+  /** Длинная кнопка над планом: открывает iPad-страницу «Монеты за помощь сайту» (12d-stories.js, data-pad-open). */
+  function hubPad() {
+    if (!SERVER || !student || TEACHER || !(RULES.support_rewards || []).length) return '';
+    const top = Math.max(...RULES.support_rewards.map(r => r[3]));
+    return `<button type="button" class="hub-pad" data-pad-open aria-label="Открыть страницу: за что дают монеты за помощь сайту и сколько">
+      <span class="hub-pad-dev" aria-hidden="true"><i>🎁</i></span>
+      <span class="hub-pad-tx"><b>Монеты за помощь сайту — от 50 до ${top} ₿</b>
+        <span>Нажми — откроется страница в виде iPad: за какие идеи, найденные ошибки и предложения по дизайну дают монеты, сколько и как их получить через техподдержку</span></span>
+      <span class="hub-pad-go" aria-hidden="true">Открыть<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>`;
+  }
   function renderHub(enter) {
     if (!courseShown || pageKind !== 'hub') return;
     const plan = hubPlan(), tiles = hubTiles();
@@ -10096,7 +10106,7 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
     const html = `
       <div class="hub-hello"><div><h1>${hubHello()}</h1><p>${sub}</p></div><div class="hub-pills">${hubPills()}</div></div>
-      ${hubMail()}<section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
+      ${hubMail()}${hubPad()}<section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
         ${plan.map(stepHtml).join('')}
         <div class="hub-day"><span>День</span><i class="hub-track"><b data-bar="day" data-w="${goalN ? Math.round(doneN / goalN * 100) : 0}"></b></i>
           <span>${doneN === goalN ? 'всё сделано — так держать!' : `сделано ${doneN} из ${goalN}`}</span></div></section>
