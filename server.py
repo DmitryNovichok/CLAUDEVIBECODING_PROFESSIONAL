@@ -7281,12 +7281,16 @@ HW_GIFTS = [("hw_pumpkin", "🎃", "Тыква", "gift_pumpkin.webp"), ("hw_clow
 SW_START, SW_END = "2026-11-02", "2026-11-10"
 SW_GIFTS = [("sw_blue", "⚔️", "Синий световой меч", "vendor/sabers/saber_blue.svg"),
             ("sw_red", "⚔️", "Красный световой меч", "vendor/sabers/saber_red.svg")]
+# «Закат VI» — 30 штук по ₿ 2000, в магазине ровно 24 часа с первого запуска выпуска (см. lim_start), без улучшения и без «🎲».
+VI_GIFTS = [("vi_sunset", "🌴", "Закат VI", "vendor/gifts/gift_vi.webp")]
 IMG_LIM = {k: {"price": None, "cap": None, "start": None, "end": None, "up": True, "box": True,   # None — HW_PRICE, HW_CAP, HW_START…HW_END
                "ev": ("🎃", "Хеллоуин")} for k, _, _, _ in HW_GIFTS}
 IMG_LIM.update({k: {"price": 10000, "cap": 5, "start": SW_START, "end": SW_END, "up": False, "box": False,
                     "ev": ("⚔️", "Световые мечи")} for k, _, _, _ in SW_GIFTS})
-HW_BY = {k: (k, i, t, IMG_LIM[k]["price"] or HW_PRICE) for k, i, t, _ in HW_GIFTS + SW_GIFTS}
-HW_IMG = dict({k: HW_DIR + f for k, _, _, f in HW_GIFTS}, **{k: f for k, _, _, f in SW_GIFTS})
+IMG_LIM.update({k: {"price": 2000, "cap": 30, "start": None, "end": None, "hours": 24, "up": False, "box": False,
+                    "ev": ("🌴", "Закат VI")} for k, _, _, _ in VI_GIFTS})
+HW_BY = {k: (k, i, t, IMG_LIM[k]["price"] or HW_PRICE) for k, i, t, _ in HW_GIFTS + SW_GIFTS + VI_GIFTS}
+HW_IMG = dict({k: HW_DIR + f for k, _, _, f in HW_GIFTS}, **{k: f for k, _, _, f in SW_GIFTS + VI_GIFTS})
 HW_BOXABLE = [k for k in HW_BY if IMG_LIM[k]["box"]]
 GIFT_BY.update(HW_BY)
 HW_SKINS = [                           # вид, id, название, картинка, редкость
@@ -7500,6 +7504,9 @@ def hw_on(now=None, gid=None):
     if gid is not None:
         if gid not in IMG_LIM:
             return False
+        if IMG_LIM[gid].get("hours"):
+            a = lim_start(gid)
+            return a <= (now or time.time()) < a + IMG_LIM[gid]["hours"] * 3600
         a, b = lim_window(gid)
         return a <= day < b
     return HW_START <= day < HW_END
@@ -7513,6 +7520,16 @@ def lim_price(gid):
 def lim_cap(gid):
     x = IMG_LIM[gid]["cap"]
     return HW_CAP if x is None else x
+
+
+def lim_start(gid):
+    """Начало продажи лимитки «на N часов»: первый раз, когда сервер с ней работает (после обновления), — запоминается в базе."""
+    key = "lim_start:" + gid
+    v = APP.db.setting(key)
+    if not v:
+        v = str(time.time())
+        APP.db.setting(key, v)
+    return float(v)
 
 
 def lim_window(gid):
@@ -7551,14 +7568,16 @@ def hw_box_ev(chance):
 def hw_offers(sup):
     """Лимитки с картинкой, которые сейчас в магазине: цена, тираж, сколько осталось, до какого дня, ивент; [] — не продаются."""
     out = []
-    for k, i, t, _ in HW_GIFTS + SW_GIFTS:
+    for k, i, t, _ in HW_GIFTS + SW_GIFTS + VI_GIFTS:
         x = IMG_LIM[k]
         if not hw_on(gid=k):
             continue
-        last = (datetime.strptime(lim_window(k)[1], "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+        end_ts = lim_start(k) + x["hours"] * 3600 if x.get("hours") else None
+        last = (time.strftime("%Y-%m-%d", time.localtime(end_ts)) if end_ts
+                else (datetime.strptime(lim_window(k)[1], "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d"))
         out.append({"gift": k, "i": i, "t": t, "img": HW_IMG[k], "price": math.ceil(lim_price(k) * sup[k]["mult"]),
                     "up": HW_UP if x["up"] else None, "cap": sup[k]["cap"], "left": sup[k]["left"], "own_max": sup[k]["own_max"],
-                    "until": last, "rar": gift_rarity(k), "box": x["box"], "ev_i": x["ev"][0], "ev_t": x["ev"][1]})
+                    "until": last, "until_ts": end_ts, "rar": gift_rarity(k), "box": x["box"], "ev_i": x["ev"][0], "ev_t": x["ev"][1]})
     return out
 
 

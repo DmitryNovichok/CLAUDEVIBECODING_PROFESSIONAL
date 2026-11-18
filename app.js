@@ -7931,6 +7931,14 @@
   }
   // ---- вкладки
   /** Лимитки с картинкой в магазине — по ивентам: [[«🎃 Хеллоуин», [..]], [«⚔️ Световые мечи», [..]]]. */
+  // до какого момента лимитка в магазине: у «суточных» — точное время, у остальных — день включительно
+  function hwUntil(x) {
+    if (x.until_ts) {
+      const d = new Date(x.until_ts * 1000), p = n => String(n).padStart(2, '0');
+      return `до ${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}.${p(d.getMonth() + 1)}`;
+    }
+    return `до ${x.until.slice(8, 10)}.${x.until.slice(5, 7)} включительно`;
+  }
   function hwGroups(hw) {
     const m = new Map();
     for (const x of hw || []) {
@@ -7952,7 +7960,7 @@
         <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
       ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
-      ${hwGroups(G.hw).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : ''}"><div class="bx-hw-h">${esc(ev)} <small>лимитки · до ${xs[0].until.slice(8, 10)}.${xs[0].until.slice(5, 7)} включительно</small></div>
+      ${hwGroups(G.hw).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : ''}"><div class="bx-hw-h">${esc(ev)} <small>${xs.length > 1 ? 'лимитки' : 'лимитка'} · ${hwUntil(xs[0])}</small></div>
         ${xs.map(x => `<button type="button" class="bx-hwc${x.price > G.coins || !x.left ? ' dim' : ''}" data-bx-shop="${x.gift}"><img src="${esc(x.img)}" alt="" draggable="false">
           <b>${esc(x.t)}</b><small>${x.left ? `осталось ${num(x.left)} из ${num(x.cap)}` : 'всё раскупили — ищи на рынке'}</small><span class="bx-price">₿ ${num(x.price)}</span></button>`).join('')}</div>`).join('')}
       <div class="bx-sec">🛍 Магазин${left < 5 ? ` <small>${left ? `сегодня можно ещё ${left}` : 'на сегодня всё — завтра снова'}</small>` : ''}</div>
@@ -8068,10 +8076,10 @@
       const block = hw && !hw.left ? 'всё раскупили — ищи на рынке' : sp && !sp.left ? 'распродан — ищи на рынке' : sp && !who && mineN >= sp.own_max ? `у тебя уже ${mineN} — больше нельзя` : '';
       return `<div class="bx-sh">${box ? '<span class="bx-t s76"><span class="ug plain gf-boxt"><span class="ug-ic">🎲</span></span></span>' : gfTile(g, 76)}
           <div><b class="nm">${esc(g.t)}</b>${g.rar ? rarHtml(g) : ''}<small>${box ? 'выпадет любой из тех, что остались в магазине, — дорогие реже'
-            : hw ? `лимитка Хеллоуина · осталось ${num(hw.left)} из ${num(hw.cap)} · в магазине до ${hw.until.slice(8, 10)}.${hw.until.slice(5, 7)} включительно`
+            : hw ? `лимитка «${esc(hw.ev_t)}» · осталось ${num(hw.left)} из ${num(hw.cap)} · в магазине ${hwUntil(hw)}`
             : lim ? `осталось ${lim.left} из ${lim.cap}` : ''}</small>${box || lim ? '' : supTxt(S.id)}
           ${sp ? `<small class="bx-sup">одному ученику — не больше ${num(sp.own_max)}</small>` : ''}</div></div>
-        ${hw ? `<div class="bx-hwup"><small>✨ Улучшение за ₿ ${num(hw.up)} — случайный наряд:</small>${hwSkins(S.id)}</div>` : ''}
+        ${hw && hw.up ? `<div class="bx-hwup"><small>✨ Улучшение за ₿ ${num(hw.up)} — случайный наряд:</small>${hwSkins(S.id)}</div>` : ''}
         ${box || lim ? '' : priceBox(S.id)}
         ${G.teacher ? '' : whoHtml(G)}
         <div class="bx-acts one"><button type="button" class="bx-btn pri" data-bx-buy="${esc(S.id)}"${short || block || G.teacher ? ' disabled' : ''}>
@@ -8212,6 +8220,7 @@
         <li>⏱ Решено слишком быстро — минус 1 ₿: быстрее ${G.fine_sec} секунд, №24–27 — быстрее ${Object.entries(G.hard_min || {}).map(([n, m]) => `${m} мин (№${n})`).join(', ')}.</li>
         <li>✨ Улучшение делает подарок уникальным: номер, фон, узор, эффект и поза. Тираж — ${G.cap} штук каждого вида.</li>
         ${(G.hw || []).filter(x => x.gift.startsWith('sw_')).length ? `<li>⚔️ Световые мечи: синий и красный — по ₿ ${num(G.hw.find(x => x.gift.startsWith('sw_')).price)}, всего по ${G.hw.find(x => x.gift.startsWith('sw_')).cap} штук каждого на весь сайт, в магазине до ${G.hw.find(x => x.gift.startsWith('sw_')).until.slice(8, 10)}.${G.hw.find(x => x.gift.startsWith('sw_')).until.slice(5, 7)} включительно, потом — только на рынке. Не улучшаются.</li>` : ''}
+        ${(G.hw || []).filter(x => x.gift.startsWith('vi_')).map(x => `<li>${x.ev_i} «${esc(x.t)}» — лимитка за ₿ ${num(x.price)}, всего ${num(x.cap)} штук на весь сайт, в магазине 24 часа (${hwUntil(x)}), потом — только на рынке. Не улучшается и не выпадает в «🎲».</li>`).join('')}
         ${(G.hw || []).filter(x => x.gift.startsWith('hw_')).length ? `<li>🎃 Хеллоуин: лимитки «Тыква» и «Маска клоуна» — по ₿ ${num(G.hw.find(x => x.gift.startsWith('hw_')).price)}, тираж ограничен, в магазине до ${G.hw.find(x => x.gift.startsWith('hw_')).until.slice(8, 10)}.${G.hw.find(x => x.gift.startsWith('hw_')).until.slice(5, 7)} включительно. Улучшение за ₿ ${num(G.hw.find(x => x.gift.startsWith('hw_')).up)} — случайный наряд: чем реже наряд, тем дороже подарок. Потом — только на рынке.</li>` : ''}
         <li>💰 Продать сразу — почти за ту цену, за которую подарок тебе достался (если в магазине он подешевел — от нынешней). Подарок сгорит.</li>
         <li>🔨 Или выставь его на аукцион одноклассникам: старт — цена продажи сразу, торги — 1, 6 или 24 ч, каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше. Ставка (и небольшой сбор с покупателя) замораживается, перебьют — всё вернётся. С продавца при сделке — тоже небольшой сбор. Ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги. Подарок уйдёт тому, чья ставка выше.</li>
