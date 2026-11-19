@@ -2,7 +2,7 @@
   // Настоящий CPython (Pyodide) в отдельном потоке: math, itertools, functools, ipaddress, re, string, collections…
   // Файлы задания лежат рядом с кодом — open('17.txt') работает. Черепашка для №6 рисует на холсте.
   const PY_BTN = '<button type="button" class="icon-btn py-btn" id="pyBtn" title="Решить на Python прямо здесь">Python</button>';
-  const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null };
+  const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null, attTimer: null, sent: {} };   // sent: задание → прикреплённый код
   const pyOpen = () => !$('#pyDock').hidden;
   const pyTaskNow = () => (courseShown && pageKind === 'pyc' ? PYC_PY
     : (examShown && EX ? byId.get((EX.items[EX.cur] || {}).id) : cur && cur.task)) || null;
@@ -124,7 +124,8 @@
     clearTimeout(PY.saveTimer); PY.saveTimer = null;
     if (PY.task && $('#pyCode')) writeCode(PY.task.id, $('#pyCode').value);
     if (PY.worker) PY.worker.terminate();
-    Object.assign(PY, { worker: null, ready: false, running: false, task: null });
+    clearTimeout(PY.attTimer);
+    Object.assign(PY, { worker: null, ready: false, running: false, task: null, sent: {} });
     resetLearningSession();
     for (const id of ['pyCode', 'pyIn', 'labCode', 'labStdin']) if ($('#' + id)) $('#' + id).value = '';
     for (const id of ['pyOut', 'pyFiles', 'pyTask', 'labOutput', 'labVariables', 'labStack', 'labTraceCode', 'bugRoot'])
@@ -240,11 +241,11 @@
     $('#pyFiles').innerHTML = files.length
       ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ')
       : (t.att || []).length ? 'Файлы этого задания лежат на другом сайте — скачайте их кнопкой под условием.' : '';
-    $('#pyAttach').textContent = 'Прикрепить решение';
+    pyAttState(PY.sent[t.id] != null ? 'ok' : 'wait');
     $('#pyAttach').hidden = !SERVER || !student || !!t.pyc;     // в курсе программирования код уходит вместе с ответом
     let code = readCode(t.id);
     if (code == null && SERVER && student && !t.pyc) {
-      try { const r = await api('solution?task=' + encodeURIComponent(t.id)); if (r.code) { code = r.code; $('#pyAttach').textContent = 'Решение прикреплено ✓'; } } catch (e) { /* нет решения */ }
+      try { const r = await api('solution?task=' + encodeURIComponent(t.id)); if (r.code) { code = r.code; PY.sent[t.id] = r.code; pyAttState('ok'); } } catch (e) { /* нет решения */ }
       if (!PY.task || PY.task.id !== t.id) return;   // пока ждали, ученик ушёл на другое задание
     }
     $('#pyCode').value = code != null ? code : pyStarter(t);
@@ -700,10 +701,15 @@
   $('#pyCode').addEventListener('input', () => {
     updateGutter();
     if (!PY.running && PY.ran != null && $('#pyOut').textContent) pyStale($('#pyCode').value !== PY.ran);
-    $('#pyAttach').textContent = 'Прикрепить решение';
     clearTimeout(PY.saveTimer);
     const t = PY.task;
     PY.saveTimer = setTimeout(() => { if (t) writeCode(t.id, $('#pyCode').value); }, 500);
+    // решение уже прикреплено (ответ проверяли) — правки прикрепятся сами, когда ученик перестанет печатать
+    clearTimeout(PY.attTimer);
+    if (t && PY.sent[t.id] != null && $('#pyCode').value !== PY.sent[t.id]) {
+      pyAttState('edit');
+      PY.attTimer = setTimeout(() => { if (PY.task === t) autoAttach(t.id); }, 6000);
+    } else if (t && PY.sent[t.id] != null) pyAttState('ok');
   });
   $('#pyCode').addEventListener('scroll', syncScroll);
   // курсор переехал — пересчитать подсветку парной скобки
@@ -722,26 +728,24 @@
     $('#pyCode').value = await f.text();
     $('#pyCode').dispatchEvent(new Event('input'));
   });
-  $('#pyAttach').addEventListener('click', async () => {
-    const t = PY.task;
-    if (!t || !SERVER) return;
-    const code = $('#pyCode').value;
-    if (!code.trim()) { toast('Сначала напишите решение'); return; }
-    try {
-      await api('solution', { task: t.id, code });
-      $('#pyAttach').textContent = 'Решение прикреплено ✓';
-      toast('Решение прикреплено — учитель увидит его в журнале рядом с ответом.', 3500);
-    } catch (e) { netError(e); }
-  });
+  /** Подпись вместо кнопки «Прикрепить решение»: решение прикрепляется само при проверке ответа. */
+  function pyAttState(st) {
+    const el = $('#pyAttach');
+    if (!el) return;
+    el.className = 'py-att ' + st;
+    el.textContent = st === 'ok' ? '📎 Решение прикреплено ✓' : st === 'edit' ? '📎 Изменения прикрепятся сами…' : '📎 прикрепится при проверке';
+  }
 
   /** Код из редактора Python к этому заданию — прикрепить как решение (при «Сдать ответ»). true — прикрепили. */
   async function autoAttach(tid) {
     if (!SERVER || !student || !tid) return false;
     const code = PY.task && PY.task.id === tid ? $('#pyCode').value : readCode(tid);
     if (!code || !code.trim()) return false;
+    if (PY.sent[tid] === code) return true;               // то же самое уже прикреплено — не дублируем в истории
     try {
       await api('solution', { task: tid, code });
-      if (PY.task && PY.task.id === tid) $('#pyAttach').textContent = 'Решение прикреплено ✓';
+      PY.sent[tid] = code;
+      if (PY.task && PY.task.id === tid && $('#pyCode').value === code) pyAttState('ok');
       return true;
     } catch (e) { return false; }
   }

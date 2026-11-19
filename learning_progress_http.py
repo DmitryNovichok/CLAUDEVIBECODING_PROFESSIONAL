@@ -68,6 +68,7 @@ class LearningProgressServices:
     pyc_norm: Callable
     arduino_clean: Callable
     arduino_save: Callable
+    arduino_load: Callable
 
 
 class LearningProgressHTTPHandlers:
@@ -215,6 +216,15 @@ class LearningProgressHTTPHandlers:
                 return self.err(403, "Неверный пароль лаборатории Arduino")
             db.x("UPDATE students SET ard=1 WHERE id=?", (s["id"],))
             return self.send_json({"access": True})
+
+        if path == "/api/arduino/progress" and method == "GET":
+            # прогресс с сервера — страница Arduino подтягивает его на любом компьютере и после очистки браузера
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if s["is_teacher"] or not svc.ard_access(svc.db, s):
+                return self.send_json({"tracks": {}})
+            return self.send_json({"tracks": svc.arduino_load(svc.db, s["id"])})
 
         if path == "/api/arduino/progress" and method == "POST":
             # страница Arduino присылает сводку прогресса уроков; учитель видит её во вкладке «Arduino»

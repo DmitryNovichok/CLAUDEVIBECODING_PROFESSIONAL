@@ -2988,6 +2988,64 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.game_summary(db, sid2)["fire"], 5)
         self.assertEqual(self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 3})[1]["added"], 0)
 
+    def test_notices(self):
+        db = server.APP.db
+        tok = self.login("Уведомлялкин Ульян")
+        me = self.req("GET", "/api/me", token=tok)[1]
+        sid = me["sid"]
+        tok2 = self.login("Дарителев Денис")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        now = time.time()
+        db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, note) VALUES(?, 'teddy', ?, ?, 'Привет!')", (sid, now - 30, sid2))
+        db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'cookie', ?, ?)", (sid, now - 20, sid))      # купил себе — не уведомление
+        db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'grant', 'за олимпиаду', 0)", (sid, now - 10, 30))
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'gift')", (sid, now - 5, -10))                   # своя покупка — нет
+        pid = db.x("INSERT INTO support(student_id, ts, kind, text) VALUES(?,?, 'bug', 'Не грузится')", (sid, now - 100))
+        db.x("INSERT INTO support_msgs(support_id, ts, who, text) VALUES(?,?, 'teacher', 'Починили')", (pid, now - 1))
+        st, d = self.req("GET", "/api/notices", token=tok)
+        self.assertEqual(st, 200, d)
+        self.assertEqual([x["k"] for x in d["items"]][:3], ["support", "coins", "gift"])
+        self.assertEqual(d["items"][2]["note"], "Привет!")
+        self.assertEqual(sum(1 for x in d["items"] if x["k"] == "gift"), 1)
+        self.assertEqual(d["read"], 0)
+        self.assertEqual(self.req("POST", "/api/notices/read", {}, tok)[0], 200)
+        self.assertGreater(self.req("GET", "/api/notices", token=tok)[1]["read"], now - 5)
+        self.assertEqual(self.req("GET", "/api/notices")[0], 401)
+        # чужие уведомления не видны
+        self.assertFalse(any(x.get("note") == "Привет!" for x in self.req("GET", "/api/notices", token=tok2)[1]["items"]))
+
+    def test_profile_look(self):
+        db = server.APP.db
+        tok = self.login("Оформлялкин Остап")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        tok2 = self.login("Соседов Семён")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        prof = self.req("GET", "/api/profile", token=tok)[1]
+        bn = {b["k"]: b for b in prof["banners"]}
+        self.assertTrue(bn["sky"]["open"])
+        self.assertFalse(bn["galaxy"]["open"])                         # 12-й уровень — пока закрыт
+        self.assertEqual(prof["look"], {"banner": None, "ava": None, "show": []})
+        self.assertIsNone(self.req("GET", f"/api/profile?sid={sid}", token=tok2)[1]["banners"])   # чужим — не нужно
+        now = time.time()
+        g1 = db.x("INSERT INTO gifts(student_id, gift, ts) VALUES(?, 'teddy', ?)", (sid, now))
+        g2 = db.x("INSERT INTO gifts(student_id, gift, ts) VALUES(?, 'cookie', ?)", (sid, now))
+        alien = db.x("INSERT INTO gifts(student_id, gift, ts) VALUES(?, 'rocket', ?)", (sid2, now))
+        self.assertEqual(self.req("POST", "/api/profile/look", {"banner": "galaxy"}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/profile/look", {"ava": alien}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/profile/look", {"show": [g1, g2, g1, g2, 1, 2]}, tok)[0], 400)
+        st, r = self.req("POST", "/api/profile/look", {"banner": "sunset", "ava": g1, "show": [g2, g1]}, tok)
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r["look"], {"banner": "sunset", "ava": g1, "show": [g2, g1]})
+        other = self.req("GET", f"/api/profile?sid={sid}", token=tok2)[1]
+        self.assertEqual(other["look"]["banner"], "sunset")
+        lb = self.req("GET", "/api/leaderboard", token=tok2)[1]
+        row = next((x for t in lb.values() if isinstance(t, dict) for x in t.get("rows", []) if x.get("sid") == sid), None)
+        if row:
+            self.assertEqual(row["ava"]["i"], server.GIFT_BY["teddy"][1])
+        # подарок продан — из аватарки и витрины выпадает сам
+        db.x("UPDATE gifts SET sold=? WHERE id=?", (now, g1))
+        self.assertEqual(server.look_of(db, sid), {"banner": "sunset", "ava": None, "show": [g2]})
+
     def test_gift_note(self):
         db = server.APP.db
         tok = self.login("Записков Захар")
@@ -5659,6 +5717,19 @@ class ServerTest(unittest.TestCase):
             self.assertIsNotNone(me["last"])
             st, d = self.admin("GET", f"/api/admin/arduino/student?id={sid}")
             self.assertEqual(d["tracks"]["junior"][1], {"id": "blink", "title": "Мигание", "theory": True, "circuit": False, "run": False})
+            # новый компьютер / очищенный браузер: пустая сводка не стирает пройденное, а страница забирает его с сервера
+            empty = {"tracks": {"junior": [[x[0], x[1], 0, 0, 0] for x in junior], "senior": []}}
+            self.assertEqual(self.req("POST", "/api/arduino/progress", empty, tok)[0], 200)
+            st, got = self.req("GET", "/api/arduino/progress", token=tok)
+            self.assertEqual(got["tracks"]["junior"][:2], [["first-light", "Первый свет", 1, 1, 1], ["blink", "Мигание", 1, 0, 0]])
+            more = {"tracks": {"junior": [["blink", "Мигание", 0, 1, 0]], "senior": []}}
+            self.req("POST", "/api/arduino/progress", more, tok)
+            got = self.req("GET", "/api/arduino/progress", token=tok)[1]["tracks"]["junior"]
+            self.assertIn(["blink", "Мигание", 1, 1, 0], got)
+            self.assertIn(["first-light", "Первый свет", 1, 1, 1], got)     # урока нет в сводке — остаётся с сервера
+            self.req("POST", "/api/arduino/progress", body, tok)            # вернуть порядок уроков для проверок ниже
+            server.APP.db.x("UPDATE arduino_progress SET data=?, updated=? WHERE student_id=?",
+                            (server.json.dumps(server.arduino_merge({}, server.arduino_clean(body["tracks"])), ensure_ascii=False, separators=(",", ":")), me["last"], sid))
             # тот же прогресс ещё раз — время активности не двигается
             last = me["last"]
             time.sleep(0.01)

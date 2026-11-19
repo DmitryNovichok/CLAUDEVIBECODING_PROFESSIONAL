@@ -60,6 +60,17 @@
     return best;
   }
   const FLAME = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path class="fl-out" d="M12 1.8c.5 3.2 2.6 4.9 4.4 6.9 1.9 2.1 3.3 4.2 3.3 7.1 0 4.3-3.4 7.4-7.7 7.4S4.3 20.1 4.3 15.8c0-2.4 1-4.4 2.6-6 .3 1.6 1 2.8 2.2 3.5-.4-4.5 1-8.5 2.9-11.5z"/><path class="fl-in" d="M12.2 11.6c1.7 1.8 3.4 3.4 3.4 5.7 0 2.2-1.6 3.8-3.6 3.8s-3.6-1.6-3.6-3.8c0-1.2.5-2.2 1.3-3 .2.8.7 1.4 1.3 1.7-.2-1.6.3-3.1 1.2-4.4z"/></svg>';
+  /** Цвет огонька по длине серии: чем дольше серия, тем «реже» цвет. [с какого дня, класс, название]. */
+  const FIRE_TIERS = [[1, 'ft1', 'Искра'], [3, 'ft2', 'Пламя'], [7, 'ft3', 'Жар'], [30, 'ft4', 'Аметист'],
+    [100, 'ft5', 'Синее пламя'], [200, 'ft6', 'Изумруд'], [365, 'ft7', 'Легенда']];
+  const fireTier = days => FIRE_TIERS.filter(x => days >= x[0]).pop() || FIRE_TIERS[0];
+  const fireCls = days => ' ' + fireTier(days)[1];
+  /** Подсказка в меню серии: какой сейчас цвет и через сколько дней следующий. */
+  function fireTierHtml(days) {
+    const cur = fireTier(days), next = FIRE_TIERS.find(x => x[0] > days);
+    return `<div class="sm-tier">Цвет огонька: <b>${cur[2]}</b>${next ? ` · до «${next[2]}» ещё ${next[0] - days} ${plural(next[0] - days, 'день', 'дня', 'дней')}` : ' — самый редкий!'}
+      <div class="sm-tiers">${FIRE_TIERS.map(x => `<span class="${x[1]}${days >= x[0] ? '' : ' lock'}" title="${x[2]}: с ${x[0]}-го дня">${FLAME}${x[0]}</span>`).join('')}</div></div>`;
+  }
   const SNOW = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M11 2h2v3.6l2.3-2.3 1.4 1.4-3.7 3.7v2.9l2.5-1.5 1.3-5.1 1.9.5-.8 3.1 3.1-1.8 1 1.7-3.1 1.8 3.1.8-.5 1.9-5.1-1.3-2.5 1.5 2.5 1.5 5.1-1.3.5 1.9-3.1.8 3.1 1.8-1 1.7-3.1-1.8.8 3.1-1.9.5-1.3-5.1-2.5-1.5v2.9l3.7 3.7-1.4 1.4-2.3-2.3V22h-2v-3.6l-2.3 2.3-1.4-1.4 3.7-3.7v-2.9l-2.5 1.5-1.3 5.1-1.9-.5.8-3.1-3.1 1.8-1-1.7 3.1-1.8-3.1-.8.5-1.9 5.1 1.3 2.5-1.5-2.5-1.5-5.1 1.3-.5-1.9 3.1-.8-3.1-1.8 1-1.7 3.1 1.8-.8-3.1 1.9-.5 1.3 5.1 2.5 1.5V8.4L7.3 4.7l1.4-1.4L11 5.6z"/></svg>';
   /** Заморозки огонька: сколько в запасе и кнопка «купить» (только на сервере, не учителю). */
   function freezeHtml() {
@@ -91,6 +102,7 @@
           : days ? `Реши сегодня ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}, иначе серия сгорит`
           : `Реши ${left} ${plural(left, 'задание', 'задания', 'заданий')}, чтобы зажечь огонёк`}</div></div></div>
       <div class="sm-week">${week}</div>
+      ${days ? fireTierHtml(days) : ''}
       ${fireBonusHtml(days)}
       ${freezeHtml()}
       <div class="sm-foot">Лучшая серия: <b>${best} ${plural(best, 'день', 'дня', 'дней')}</b></div>`;
@@ -184,11 +196,11 @@
     const menuOpen = $('#streakMenu') && !$('#streakMenu').hidden;
     $('#sessionInfo').innerHTML = `
       ${SERVER && student ? rankBtnHtml() : ''}
-      <button type="button" class="fire ${todayDone ? 'on' : days ? 'wait' : 'off'}${fireBurst ? ' burst' : ''}" id="streakBtn" aria-haspopup="true"
+      <button type="button" class="fire ${todayDone ? 'on' : days ? 'wait' : 'off'}${fireBurst ? ' burst' : ''}${fireCls(days)}" id="streakBtn" aria-haspopup="true"
         title="${todayDone ? 'Огонёк на сегодня горит' : `Реши ещё ${left} ${plural(left, 'задание', 'задания', 'заданий')}, чтобы зажечь огонёк`}">
         ${FLAME}<b>${days}</b>
       </button>
-      <div class="streak-menu" id="streakMenu"${menuOpen ? '' : ' hidden'}>${streakMenuHtml(days, todayDone, left)}</div>
+      <div class="streak-menu${fireCls(days)}" id="streakMenu"${menuOpen ? '' : ' hidden'}>${streakMenuHtml(days, todayDone, left)}</div>
       ${P.log.length ? `<span class="dots" title="Последние ответы">${lastDots}</span>` : ''}
 `;
     fireBurst = false;

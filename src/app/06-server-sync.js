@@ -88,6 +88,7 @@
     $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
+    noticesLoad();
     promoUpdate(me.promo);
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);

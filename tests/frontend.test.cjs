@@ -604,7 +604,7 @@ function assignmentLoadContext() {
   const requests=[];
   const c=vm.createContext({SERVER:true,student:{sid:1},ASG:[{id:'saved'}],ASG_IN_CLASS:true,ASG_ERROR:false,asgLoadVersion:0,
     api:()=>{const r=deferred();requests.push(r);return r.promise;},
-    renderAsgCard:()=>{},renderAsgPage:()=>{},hubRefresh:()=>{},wkLive:()=>false,asgNotices:()=>{}});
+    renderAsgCard:()=>{},renderAsgPage:()=>{},hubRefresh:()=>{},wkLive:()=>false,asgNotices:()=>{},noticesLoad:()=>{}});
   vm.runInContext(sourceBetween('src/app/12-sets.js','  function resetAssignments()', '  const fmtDay'),c);
   vm.runInContext(sourceBetween('src/app/12-sets.js','  async function loadAssignments()', '  /** Напоминания'),c);
   return {c,requests};
