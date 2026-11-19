@@ -1249,6 +1249,10 @@
       toast(n ? `Добавлено случайных: ${n}` : 'Все найденные задания уже в подборке');
     }
   });
+  /** Строки ответа: у игры 19–21 ответы лежат в частях — «№19: 31», «№20: 32 37» … */
+  const ansRows = t => (t.parts || []).length
+    ? t.parts.map(p => `№${p.n}: ${String(p.ans || '').split('\n').filter(Boolean).join(' ') || '—'}`)
+    : String(t.ans || '').split('\n').filter(Boolean);
   /** Условие целиком прямо в карточке (с ответом) — без отдельного окна. */
   async function bldMore(id) {
     if (BLD.open.has(id)) { BLD.open.delete(id); renderBldList(); return; }
@@ -1259,7 +1263,7 @@
       const t = await api('task?id=' + encodeURIComponent(id));
       BLD.full[id] = `<article class="cond">${safeHtml(t.html)}</article>
         ${(t.att || []).length ? `<div class="files"><span>Файлы:</span>${t.att.map(a => `<a class="file" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.name)}</a>`).join('')}</div>` : ''}
-        <div class="bld-ans">Ответ: <b>${String(t.ans || '').split('\n').filter(Boolean).map(esc).join(' · ') || '—'}</b></div>`;
+        <div class="bld-ans">Ответ: <b>${ansRows(t).map(esc).join(' · ') || '—'}</b></div>`;
     } catch (err) { BLD.full[id] = `<span class="muted">${esc(err.message)}</span>`; }
     if (BLD.open.has(id) && BLD.res) {
       renderBldList();
@@ -4674,7 +4678,7 @@
     if (!b) return;
     try {
       const t = await api('task?id=' + encodeURIComponent(b.dataset.task));
-      const rows = String(t.ans || '').split('\n').filter(Boolean);
+      const rows = ansRows(t);
       $('#taskBody').innerHTML = `
         <div class="adm-task-meta"><span class="num-badge">${t.n}</span>${esc(BANK_NAMES[t.bank] || t.bank)} · ${esc(idOf(t.id))}${t.src ? ' · ' + esc(t.src) : ''}${t.link ? ` · <a href="${esc(t.link)}" target="_blank" rel="noopener">на сайте источника</a>` : ''}</div>
         <article class="cond">${safeHtml(t.html)}</article>

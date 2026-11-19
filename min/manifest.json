@@ -9,8 +9,8 @@
       "source": "d64fecbbafb4bba62cd6cb3448472263777bc451ef212e82fe283ccd22d82dae"
     },
     "admin.js": {
-      "min": "d8206ef3cbb6b15e901b0420d8feb966340afc8a0c53cf8f4bc8ab9b0452e318",
-      "source": "058d30bdba14969aa9dcd7a12a5161e07837dc3321ab7b1239ea6ac7c70c7a7d"
+      "min": "346ec6da2a7f7217c405a74543738bd150fc84a4d6d7ded6ab6558167694f0a3",
+      "source": "d9e1bf250e258fbb1d384056b60e8f7834fc2bc9a4eb84a1bfcdb32f82d2245c"
     },
     "app-exams.js": {
       "min": "b75d54c2a7c0f0b6ff34b50971e2e636be1bc3bbb6dc08790fb27bacae63ec82",
@@ -25,8 +25,8 @@
       "source": "a4dc636f2b94e7e818891e7c34f0d4cf6384e3b8ef2c29c1f2b0a042cf22dede"
     },
     "changelog-loader.js": {
-      "min": "465c88ef5021fc31e9635227d69ce5d1649cbbf6668c85d2852bda7971895a8d",
-      "source": "df176c7f25de10735498b9b272cbc9958e5e34d937cac4a9030d869d76057492"
+      "min": "f7745b7f226709a7304e74077f01f6f4412143d59e4d3591f9debc537e6bcf4d",
+      "source": "405f868a2e8fb88c3306fd1da317fc4285bfbb3d6f8e9a3814cecb0368e19130"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
