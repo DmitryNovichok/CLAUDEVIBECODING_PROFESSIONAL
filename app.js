@@ -832,11 +832,20 @@
     return best;
   }
 
+  // Задания одного «семейства» (то же условие с другими числами: варианты, копия в другом банке) решаются одним способом —
+  // подряд их не даём: между ними хотя бы FAM_GAP других заданий, если в выборе есть из чего выбрать.
+  const FAM_GAP = 3;
+  function recentFams(excludeId) {
+    const ids = recent.slice(-FAM_GAP).concat(excludeId ? [excludeId] : []);
+    return new Set(ids.map(id => (byId.get(id) || {}).fm).filter(Boolean));
+  }
+  /** Без заданий из недавних семейств; если других нет — как было. */
+  const noFam = (arr, fams) => { const f = arr.filter(t => !t.fm || !fams.has(t.fm)); return f.length ? f : arr; };
   /** Следующее задание; в выбранном номере — только задания этого номера, что бы ни подсказал подбор. */
   function pickNext(excludeId) {
     const r = pickNextRaw(excludeId);
     if (!r || ui.scope === 'asg' || ui.scope === 'all' || inScope(r.task)) return r;
-    const list = pool().filter(t => t.id !== excludeId);
+    const list = noFam(pool().filter(t => t.id !== excludeId), recentFams(excludeId));
     return list.length ? { task: chooseTask(list, ui.scope) || list[0], why: { type: 'new' } } : r;
   }
   function pickNextRaw(excludeId) {
@@ -851,14 +860,16 @@
       const at = excludeId ? a.tasks.indexOf(excludeId) : -1;
       const order = at >= 0 ? a.tasks.slice(at + 1).concat(a.tasks.slice(0, at)) : a.tasks;
       const left = order.filter(id => id !== excludeId && leftSet.has(id)).map(id => byId.get(id)).filter(Boolean);
-      if (left.length) return { task: left[0], why: { type: 'asg', a } };
+      // похожее на только что решённое — откладываем: берём первое нерешённое из другого семейства, оно вернётся позже
+      if (left.length) return { task: noFam(left, recentFams(excludeId))[0], why: { type: 'asg', a } };
       if (a.strict) return null;            // самостоятельная: всё сдано — экран «Завершить»
       const rest = list.filter(t => t.id !== excludeId);
       return { task: rest.length ? rest[Math.floor(Math.random() * rest.length)] : list[0], why: { type: 'asg', a } };
     }
     const recentSet = new Set(recent.slice(-CFG.recentWindow));
     if (excludeId) recentSet.add(excludeId);
-    const fresh = arr => arr.filter(t => !recentSet.has(t.id));
+    const fams = recentFams(excludeId);
+    const fresh = arr => arr.filter(t => !recentSet.has(t.id) && !(t.fm && fams.has(t.fm)));
     const nums = new Set(list.map(t => t.n));
 
     // 1) повторение типа, в котором была ошибка
@@ -868,7 +879,7 @@
     for (const r of due) {
       let c = fresh(list.filter(t => topicKey(t) === r.key));
       if (!c.length) c = fresh(list.filter(t => t.n === r.n));
-      if (!c.length) c = list.filter(t => t.n === r.n && t.id !== excludeId); // в номере мало заданий
+      if (!c.length) c = noFam(list.filter(t => t.n === r.n && t.id !== excludeId), fams); // в номере мало заданий
       const t = chooseTask(c, r.n);
       if (t) return { task: t, why: { type: 'review', r } };
     }
@@ -890,7 +901,7 @@
       cands = groups.get(k);
     }
     const t = chooseTask(fresh(cands), n) || chooseTask(fresh(inNum), n)
-      || chooseTask(inNum.filter(x => x.id !== excludeId), n) || inNum[0];
+      || chooseTask(noFam(inNum.filter(x => x.id !== excludeId), fams), n) || inNum[0];
     const ns = statsFor(n);
     let type = 'new';
     if (P.tasks[t.id]) type = 'repeat';

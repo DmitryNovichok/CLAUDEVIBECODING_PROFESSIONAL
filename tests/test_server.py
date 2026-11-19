@@ -2529,6 +2529,17 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(got["zz:new-task"], max(before.values()) + 1)
         server.APP.db.x("DELETE FROM site_nums WHERE task='zz:new-task'")
 
+    def test_task_families(self):
+        cond = "<p>Два узла, находящиеся в одной сети, имеют IP-адреса {} и {}. Сколько существует различных значений маски?</p>"
+        tasks = [{"id": "x:1", "n": 13, "html": cond.format("10.0.0.1", "10.0.0.9")},
+                 {"id": "x:2", "n": 13, "html": cond.format("172.1.2.3", "172.1.2.200")},        # те же слова, другие числа
+                 {"id": "x:3", "n": 13, "html": "<p>Определите наибольшее количество единиц в маске сети для адреса 10.0.0.1.</p>"},
+                 {"id": "x:4", "n": 14, "html": cond.format("1.1.1.1", "1.1.1.2")}]               # другой номер — не семья
+        fam = server.task_families(tasks)
+        self.assertEqual(fam["x:1"], fam["x:2"])
+        self.assertNotIn("x:3", fam)
+        self.assertNotIn("x:4", fam)
+
     def test_prefs_store_real_ids(self):
         tok = self.login("Избранов Иван")
         pid = server.APP.bank.pid("b:6")

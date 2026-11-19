@@ -1377,6 +1377,7 @@ class Bank:
         self.numberer = None       # App подставляет функцию, которая хранит номера в базе
         self.sn = {}               # настоящий id задания-страницы → номер
         self.by_sn = {}            # номер → настоящий id
+        self.fam = {}              # настоящий id → «семейство»: то же условие с другими числами (варианты, копии в разных банках)
 
     def pid(self, real):
         """Открытый код задания для страницы ученика."""
@@ -1660,6 +1661,7 @@ class Bank:
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
             self.titles = {b.get("id"): b.get("title") for b in data.get("banks", [])}
             self.assign_sn(data.get("tasks", []), [b.get("id") for b in data.get("banks", [])])
+            self.fam = task_families(data.get("tasks", []))
             for t in data.get("tasks", []):
                 if t.get("id") in ANS_FIX:
                     t["ans"] = ANS_FIX[t["id"]]
@@ -1674,6 +1676,8 @@ class Bank:
                 p["id"] = self.pid(t["id"])
                 if t["id"] in self.sn:
                     p["sn"] = self.sn[t["id"]]
+                if t["id"] in self.fam:
+                    p["fm"] = self.fam[t["id"]]
                 if t.get("att"):
                     p["att"] = self.public_att(t["att"], t.get("n"))
                 p["html"] = self.public_html(t.get("html"))
@@ -2434,6 +2438,22 @@ def teacher_of(s):
 
 
 # ================================================================ HTTP
+def task_families(tasks):
+    """Задания с одинаковым условием, если убрать числа (сгенерированные варианты, одно задание в КомпЕГЭ и ФИПИ):
+    решаются одним способом, поэтому подряд их не даём. {id: код семейства} — только для семейств из 2+ заданий."""
+    groups = {}
+    for t in tasks:
+        if not t.get("id") or not t.get("html"):
+            continue
+        txt = html_mod.unescape(re.sub(r"<[^>]+>", " ", t["html"])).lower()
+        txt = re.sub(r"\s+", " ", re.sub(r"\d+(?:[.,]\d+)?", "#", txt)).strip()
+        if len(txt) < 40:
+            continue
+        key = hashlib.md5(f"{t.get('n')}|{txt}".encode("utf-8")).hexdigest()[:8]
+        groups.setdefault(key, []).append(t["id"])
+    return {i: k for k, ids in groups.items() if len(ids) > 1 for i in ids}
+
+
 def site_numbers(db, ids):
     """Номера заданий сайта: прочитать выданные и выдать новым (по порядку ids) следующие. {id: номер}."""
     have = {r["task"]: r["n"] for r in db.q("SELECT task, n FROM site_nums")}
