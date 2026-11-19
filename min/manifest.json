@@ -9,8 +9,8 @@
       "source": "d64fecbbafb4bba62cd6cb3448472263777bc451ef212e82fe283ccd22d82dae"
     },
     "admin.js": {
-      "min": "d84dc7b518d3d55905dcc5e71415a38d73a643f19d089a876c53ce6e84059bf9",
-      "source": "e28aa3cd76b7be947bc4f9a911d694c1d611079e13463b2bcf45d3950f9d4fe1"
+      "min": "346ec6da2a7f7217c405a74543738bd150fc84a4d6d7ded6ab6558167694f0a3",
+      "source": "d9e1bf250e258fbb1d384056b60e8f7834fc2bc9a4eb84a1bfcdb32f82d2245c"
     },
     "app-exams.js": {
       "min": "b75d54c2a7c0f0b6ff34b50971e2e636be1bc3bbb6dc08790fb27bacae63ec82",
@@ -21,12 +21,12 @@
       "source": "cacf110cb8849e777f28ff4a5c3b55e98906c83368c1608df2c1e37e958a9b81"
     },
     "app.js": {
-      "min": "e3d4e7519e89e81a6c21ad9c0d0e0bf01385670570a7645cf28f6f6b2523b783",
-      "source": "f3987fbfdcbe3a4bb8755a994f3dcaf6d463d9f9fc7b8273733e33b85ae4e3f7"
+      "min": "ed23a8458c963d3c3da41872607d62807471fae934e69a8a662ae5dab59b5587",
+      "source": "049758164b27c16ebef73b1cb240200b27ca662da837f0af6caa9f1e18d3d4dd"
     },
     "changelog-loader.js": {
-      "min": "54ffe16f7441442fd01b0eac6b67fa8ef37d335ef095d69fed5775df0541bd18",
-      "source": "007c8f588349c70e7d8f162ea8f19b6b08d89af11f615b7b296501332940e19b"
+      "min": "e02128b8af8b9297b897c3d93780612e8916f9bab4844a54b0f1c118401533d2",
+      "source": "25a397a9ae9202ad8c0a1e6b2827f5fbb28d0970ebceef73bcece95d0866f91e"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "0873c2ea95c0e338acc535452b1e32da2c720188db8bd22944c8a3bdf819bcc8",
-      "source": "37aeacc2dd6470d36a2a237e54ac4be9ebbde9d57a69a37944736aab4d5697a2"
+      "min": "3f31a22430392ecfc39775bb5563034297fcce471a47368469d7bfc7d2517e2f",
+      "source": "fba737ebb395bab652b024624bbb6dc5a5f38c37fd37c7f946df73df07a70c61"
     },
     "teacher-gate.css": {
       "min": "6c5fc2585c5c22ff9f11e5f23bfeee929e47c97c5ae4cbcf823c7023d5ebe9bf",

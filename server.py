@@ -1372,6 +1372,12 @@ class Bank:
         self._snips = {}
         self.missing_dirs = []     # папки банков, на которые ссылаются картинки, но которых нет рядом
         self.titles = {}           # id банка → название («Банк ЕГЭ», «КомпЕГЭ», …)
+        # Сквозной номер задания на сайте (#1, #2, …): учитель называет его классу, ученик вбивает «#123» в поиск.
+        # Номер закрепляется за заданием навсегда (таблица site_nums); новые задания получают следующие номера.
+        self.numberer = None       # App подставляет функцию, которая хранит номера в базе
+        self.sn = {}               # настоящий id задания-страницы → номер
+        self.by_sn = {}            # номер → настоящий id
+        self.fam = {}              # настоящий id → «семейство»: то же условие с другими числами (варианты, копии в разных банках)
 
     def pid(self, real):
         """Открытый код задания для страницы ученика."""
@@ -1498,11 +1504,37 @@ class Bank:
             return m.group(1) + self.file_url(href, "file" + ext, (href, None)) + m.group(3)
         return LOCAL_REF_RE.sub(sub, h)
 
+    def assign_sn(self, tasks, bank_order):
+        """Номера сайта: уже выданные не меняются, новым заданиям — следующие по порядку (№ задания ЕГЭ, банк, место в банке)."""
+        rank = {b: i for i, b in enumerate(bank_order)}
+        order = sorted(((t.get("n") if isinstance(t.get("n"), int) else 999, rank.get(t.get("bank"), 999), i, t["id"])
+                        for i, t in enumerate(tasks) if t.get("id")))
+        ids = [x[3] for x in order]
+        if self.numberer:
+            try:
+                got = self.numberer(ids)
+            except Exception as e:             # база недоступна — сайт работает и без номеров
+                print(f"! Номера заданий сайта не выданы: {e}", flush=True)
+                got = dict(self.sn)
+        else:
+            got = {i: k + 1 for k, i in enumerate(ids)}
+        self.sn = {i: got[i] for i in ids if i in got}
+        self.by_sn = {n: i for i, n in self.sn.items()}
+
+    def site_num(self, task_id):
+        """Номер сайта задания (у частей 19–21 — номер всего задания) или None."""
+        t = self.tasks.get(task_id) or {}
+        return self.sn.get(t.get("group") or task_id)
+
     def find(self, q):
-        """Задание по номеру КомпЕГЭ (или ссылке на него), коду ФИПИ, id. Возвращает настоящий id задания-страницы."""
+        """Задание по номеру сайта (#123), номеру КомпЕГЭ (или ссылке на него), коду ФИПИ, id. Возвращает настоящий id задания-страницы."""
         q = re.sub(r"^.*[?&]id=", "", str(q or "").strip().lstrip("№").strip()).lower()
         if not q:
             return None
+        m = re.fullmatch(r"#\s*0*(\d{1,7})", q)
+        if m:
+            rid = self.by_sn.get(int(m.group(1)))
+            return rid if rid in self.tasks else None
         tail = lambda i: i.split(":", 1)[-1].lower()
         hits = [i for i in self.tasks if i.lower() == q or tail(i) == q]
         if not hits and len(q) >= 4:
@@ -1524,7 +1556,8 @@ class Bank:
         if h.lstrip().startswith('<div class="linked-task">') and '<hr class="subtask-sep">' in h:
             h = h.split('<hr class="subtask-sep">', 1)[1]
         txt = re.sub(r"\s+", " ", html_text(h)).strip()
-        snip = txt[:140]
+        sn = self.site_num(task_id)
+        snip = (f"#{sn} · " if sn else "") + txt[:140]
         self._snips[task_id] = snip
         return snip
 
@@ -1627,6 +1660,8 @@ class Bank:
                 print(f"Банк: задание {tid} перенесено из №{was} в №{now_n}", flush=True)
             clusters.annotate(data.get("tasks", []))   # тип задания внутри номера (c) и сложность 1–5 (r)
             self.titles = {b.get("id"): b.get("title") for b in data.get("banks", [])}
+            self.assign_sn(data.get("tasks", []), [b.get("id") for b in data.get("banks", [])])
+            self.fam = task_families(data.get("tasks", []))
             for t in data.get("tasks", []):
                 if t.get("id") in ANS_FIX:
                     t["ans"] = ANS_FIX[t["id"]]
@@ -1639,6 +1674,10 @@ class Bank:
                 # без ответа, решения и всего, что ведёт к ответу: ссылки на источник, видеоразбора, настоящего id
                 p = {k: v for k, v in t.items() if k not in ("ans", "sol", "parts", "link", "video")}
                 p["id"] = self.pid(t["id"])
+                if t["id"] in self.sn:
+                    p["sn"] = self.sn[t["id"]]
+                if t["id"] in self.fam:
+                    p["fm"] = self.fam[t["id"]]
                 if t.get("att"):
                     p["att"] = self.public_att(t["att"], t.get("n"))
                 p["html"] = self.public_html(t.get("html"))
@@ -2021,6 +2060,7 @@ class DB(Transactional):
                 id INTEGER PRIMARY KEY, support_id INTEGER NOT NULL, ts REAL NOT NULL, who TEXT NOT NULL, text TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS support_msgs_s ON support_msgs(support_id, ts);
             -- награды за помощь сайту: идея, найденная ошибка… — начисляет главный учитель из обращения (одна награда каждого вида)
+            CREATE TABLE IF NOT EXISTS site_nums(task TEXT PRIMARY KEY, n INTEGER NOT NULL UNIQUE);
             CREATE TABLE IF NOT EXISTS support_rewards(
                 id INTEGER PRIMARY KEY, support_id INTEGER NOT NULL, student_id INTEGER NOT NULL, kind TEXT NOT NULL,
                 amount INTEGER NOT NULL, ts REAL NOT NULL, UNIQUE(support_id, kind));
@@ -2398,6 +2438,37 @@ def teacher_of(s):
 
 
 # ================================================================ HTTP
+def task_families(tasks):
+    """Задания с одинаковым условием, если убрать числа (сгенерированные варианты, одно задание в КомпЕГЭ и ФИПИ):
+    решаются одним способом, поэтому подряд их не даём. {id: код семейства} — только для семейств из 2+ заданий."""
+    groups = {}
+    for t in tasks:
+        if not t.get("id") or not t.get("html"):
+            continue
+        txt = html_mod.unescape(re.sub(r"<[^>]+>", " ", t["html"])).lower()
+        txt = re.sub(r"\s+", " ", re.sub(r"\d+(?:[.,]\d+)?", "#", txt)).strip()
+        if len(txt) < 40:
+            continue
+        key = hashlib.md5(f"{t.get('n')}|{txt}".encode("utf-8")).hexdigest()[:8]
+        groups.setdefault(key, []).append(t["id"])
+    return {i: k for k, ids in groups.items() if len(ids) > 1 for i in ids}
+
+
+def site_numbers(db, ids):
+    """Номера заданий сайта: прочитать выданные и выдать новым (по порядку ids) следующие. {id: номер}."""
+    have = {r["task"]: r["n"] for r in db.q("SELECT task, n FROM site_nums")}
+    new = [i for i in ids if i not in have]
+    if new:
+        top = max(have.values(), default=0)
+        rows = [(i, top + k + 1) for k, i in enumerate(new)]
+        with db.lock:
+            db.conn.executemany("INSERT OR IGNORE INTO site_nums(task, n) VALUES(?, ?)", rows)
+            if not db._tx_depth:
+                db.conn.commit()
+        have.update(rows)
+    return have
+
+
 class App:
     def __init__(self):
         self.db = DB(DB_PATH)
@@ -2408,6 +2479,7 @@ class App:
             secret = secrets.token_hex(16)
             self.db.setting("id_secret", secret)
         self.bank = Bank(BANK_JS, secret)
+        self.bank.numberer = lambda ids: site_numbers(self.db, ids)
         self.bank.ensure()
 
 
@@ -4158,6 +4230,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 rcpt = s if to == s["id"] else next((m for m in mates if m["id"] == to), None)
                 if not rcpt:
                     return self.err(404, "Дарить можно только себе и ученикам своего учителя")
+                # сообщение к подарку: видит только получатель (в профиле и Forbes его нет; при перепродаже стирается)
+                note = None if rcpt["id"] == s["id"] else (
+                    re.sub(r"\s+", " ", str(data.get("note") or "")).strip()[:GIFT_NOTE_MAX] or None)
                 now = time.time()
                 with _GIFT_LOCK:
                     if lim and not (limited_now(db) or {}).get("left"):
@@ -4178,8 +4253,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         return self.err(400, f"Не хватает монет: нужно {price} ₿, у тебя {have} ₿")
                     # за сколько достался: из «🎲» — нынешняя цена выпавшего (а не коробки), иначе — заплаченное
                     paid = gift_price(g[0], e, gift_demand(db)) if box else price
-                    gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen, kind, paid) VALUES(?,?,?,?,?,?,?)",
-                               (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0, "box" if box else None, paid))
+                    gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen, kind, paid, note) VALUES(?,?,?,?,?,?,?,?)",
+                               (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0, "box" if box else None, paid, note))
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'gift', ?)", (s["id"], now, -price, gid))
                     glog(db, "issue", gid, g[0], s["id"], price, "box" if box else "limited" if lim or hw else "shop", now)
                     if box:                                       # «🎲»: вся цена — в банк рынка (не сгорает)
@@ -4768,10 +4843,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 text = str(data.get("text") or "").strip()[:SUPPORT_MAX]
                 if len(text) < 2 and not data.get("img"):
                     return self.err(400, "Напиши сообщение")
-                recent = db.q("""SELECT COUNT(*) AS c FROM support_msgs m JOIN support p ON p.id = m.support_id
-                                 WHERE p.student_id=? AND m.who='student' AND m.ts>?""", (s["id"], time.time() - 3600), one=True)["c"]
-                if recent >= SUPPORT_PER_HOUR * 4:
-                    return self.err(429, "Слишком много сообщений за час — подожди немного")
                 try:
                     img = support_img_save(data.get("img"))
                 except ValueError as e:
@@ -4791,9 +4862,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     kind = "other"
                 if len(text) < 5:
                     return self.err(400, "Опиши идею подробнее — хотя бы пару слов" if kind == "idea" else "Опиши проблему подробнее — хотя бы пару слов")
-                recent = db.q("SELECT COUNT(*) AS c FROM support WHERE student_id=? AND ts>?", (s["id"], time.time() - 3600), one=True)["c"]
-                if recent >= SUPPORT_PER_HOUR:
-                    return self.err(429, "Слишком много обращений за час — подожди немного")
                 try:
                     img = support_img_save(data.get("img"))
                 except ValueError as e:
@@ -7353,7 +7421,7 @@ HW_TIER_C = {"rare": ("#82b1ff", "#1a3a7a"), "epic": ("#b388ff", "#3a1670"), "le
 GIFT_BOX_PRICE = 60                    # «🎲 Случайный подарок»: выпадает любой, дорогие — реже (вес ∝ 1 / цена)
 GIFTS_SHOW = 5                         # сколько подарков видно у ника
 GIFTS_PER_DAY = 10 ** 9                # подарков в сутки: без ограничения (поле осталось для старых страниц)
-GIFT_NOTE_MAX = 80
+GIFT_NOTE_MAX = 120
 COINS_GRANT_MAX = 1000                 # монет за одно начисление учителем
 _GIFT_LOCK = STATE_LOCK          # проверка баланса, покупка и номер уникального подарка — одним шагом
 
@@ -8222,7 +8290,7 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
         return None
     names = {x["id"]: short_name(x["name"]) for x in db.q("SELECT id, name FROM students WHERE id IN (?, ?)", (buyer, r["student_id"]))}
     if not db.xn("""UPDATE gifts SET student_id=?, listed=NULL, listed_ts=NULL, auc_end=NULL, buy_now=NULL, bid_sid=NULL, bid_amt=NULL,
-                           bid_n=0, market_from=?, market_ts=?, first_sid=COALESCE(first_sid, ?), seen=?, paid=?
+                           bid_n=0, market_from=?, market_ts=?, first_sid=COALESCE(first_sid, ?), seen=?, paid=?, note=NULL
                     WHERE id=? AND student_id=? AND listed IS NOT NULL AND sold IS NULL""",
                  (buyer, r["student_id"], now, r["student_id"], seen, amount, r["id"], r["student_id"])):
         return None
@@ -9925,7 +9993,6 @@ def support_img_cleanup(db):
     for f in d.iterdir():
         if SUPPORT_IMG_RE.fullmatch(f.name) and f.name not in used:
             f.unlink(missing_ok=True)
-SUPPORT_PER_HOUR = 5
 
 
 TOURS_ON = False                           # турниры закрыты (новых наборов нет), остались дуэли; начатые доигрываются

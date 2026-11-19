@@ -1935,9 +1935,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/support", token=tok)[1]["unread"], 0)
         self.admin("POST", "/api/admin/support/answer", {"id": x["id"], "close": True})
         self.assertEqual(self.req("GET", "/api/support", token=tok)[1]["items"][0]["status"], "closed")
-        for i in range(4):
-            self.req("POST", "/api/support", {"text": f"ещё обращение {i}"}, tok)
-        self.assertEqual(self.req("POST", "/api/support", {"text": "шестое за час"}, tok)[0], 429)
+        for i in range(12):                                # лимита на число обращений нет
+            self.assertEqual(self.req("POST", "/api/support", {"text": f"ещё обращение {i}"}, tok)[0], 200)
         self.assertEqual(self.req("GET", "/api/support")[0], 401)
         # удаляет только главный учитель — обращение стирается из базы, ученик его тоже больше не видит
         mine = self.req("GET", "/api/support", token=tok)[1]["items"]
@@ -2511,6 +2510,35 @@ class ServerTest(unittest.TestCase):
             self.req("GET", "/api/find?q=5", token=tok)
         self.assertEqual(self.req("GET", "/api/find?q=5", token=tok)[0], 429)
 
+    def test_site_numbers(self):
+        bank = server.APP.bank
+        sn = bank.sn["b:g"]
+        self.assertTrue(sn >= 1 and len(set(bank.sn.values())) == len(bank.sn))
+        self.assertEqual(bank.site_num("b:g20"), sn)                       # часть 19–21 — номер всей игры
+        self.assertTrue(bank.snippet("b:g20").startswith(f"#{sn} · "))     # учитель видит номер рядом с условием
+        tok = self.login("Номеров Ной")
+        st, d = self.req("GET", "/api/find?q=%23" + str(sn), token=tok)
+        self.assertEqual(d["task"], bank.pid("b:g"))
+        self.assertEqual(self.req("GET", "/api/find?q=%23999999", token=tok)[0], 404)
+        self.assertEqual(bank.pubs["b:g"]["sn"], sn)
+        # номер закреплён: при перезагрузке банка выданные номера не меняются, новое задание получает следующий
+        before = dict(bank.sn)
+        got = server.site_numbers(server.APP.db, list(before) + ["zz:new-task"])
+        self.assertEqual({k: got[k] for k in before}, before)
+        self.assertEqual(got["zz:new-task"], max(before.values()) + 1)
+        server.APP.db.x("DELETE FROM site_nums WHERE task='zz:new-task'")
+
+    def test_task_families(self):
+        cond = "<p>Два узла, находящиеся в одной сети, имеют IP-адреса {} и {}. Сколько существует различных значений маски?</p>"
+        tasks = [{"id": "x:1", "n": 13, "html": cond.format("10.0.0.1", "10.0.0.9")},
+                 {"id": "x:2", "n": 13, "html": cond.format("172.1.2.3", "172.1.2.200")},        # те же слова, другие числа
+                 {"id": "x:3", "n": 13, "html": "<p>Определите наибольшее количество единиц в маске сети для адреса 10.0.0.1.</p>"},
+                 {"id": "x:4", "n": 14, "html": cond.format("1.1.1.1", "1.1.1.2")}]               # другой номер — не семья
+        fam = server.task_families(tasks)
+        self.assertEqual(fam["x:1"], fam["x:2"])
+        self.assertNotIn("x:3", fam)
+        self.assertNotIn("x:4", fam)
+
     def test_prefs_store_real_ids(self):
         tok = self.login("Избранов Иван")
         pid = server.APP.bank.pid("b:6")
@@ -2959,6 +2987,34 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((st, d["fire"], d["added"]), (200, 5, 5))
         self.assertEqual(server.game_summary(db, sid2)["fire"], 5)
         self.assertEqual(self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 3})[1]["added"], 0)
+
+    def test_gift_note(self):
+        db = server.APP.db
+        tok = self.login("Записков Захар")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        tok2 = self.login("Открывайкин Олег")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time() - 600, 3000))
+        msg = "С днём   рождения!  " + "!" * 200
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": "cookie", "to": sid2, "note": msg}, tok)
+        self.assertEqual(st, 200, r)
+        new = self.req("GET", "/api/me", token=tok2)[1]["gifts_new"]
+        note = new[0]["note"]
+        self.assertTrue(note.startswith("С днём рождения!"))           # пробелы схлопнуты
+        self.assertEqual(len(note), server.GIFT_NOTE_MAX)
+        # себе — без сообщения; в профиле получателя чужим сообщение не видно
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "cookie", "note": "себе"}, tok)[0], 200)
+        self.assertIsNone(db.q("SELECT note FROM gifts WHERE student_id=? ORDER BY id DESC LIMIT 1", (sid,), one=True)["note"])
+        gid = new[0]["id"]
+        st, prof = self.req("GET", f"/api/profile?sid={sid2}", token=tok)
+        if st == 200:
+            self.assertTrue(all("note" not in g for g in prof.get("gift_list", [])))
+        # перепродали на рынке — новый владелец сообщения не видит
+        row = db.q("SELECT * FROM gifts WHERE id=?", (gid,), one=True)
+        db.x("UPDATE gifts SET listed=10, listed_ts=? WHERE id=?", (time.time(), gid))
+        row = db.q("SELECT * FROM gifts WHERE id=?", (gid,), one=True)
+        server.auc_deal(db, row, sid, 10, time.time(), server.econ(db))
+        self.assertIsNone(db.q("SELECT note FROM gifts WHERE id=?", (gid,), one=True)["note"])
 
     def test_coins_and_gifts(self):
         db = server.APP.db

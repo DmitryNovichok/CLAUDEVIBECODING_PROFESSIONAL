@@ -55,11 +55,20 @@
     return best;
   }
 
+  // Задания одного «семейства» (то же условие с другими числами: варианты, копия в другом банке) решаются одним способом —
+  // подряд их не даём: между ними хотя бы FAM_GAP других заданий, если в выборе есть из чего выбрать.
+  const FAM_GAP = 3;
+  function recentFams(excludeId) {
+    const ids = recent.slice(-FAM_GAP).concat(excludeId ? [excludeId] : []);
+    return new Set(ids.map(id => (byId.get(id) || {}).fm).filter(Boolean));
+  }
+  /** Без заданий из недавних семейств; если других нет — как было. */
+  const noFam = (arr, fams) => { const f = arr.filter(t => !t.fm || !fams.has(t.fm)); return f.length ? f : arr; };
   /** Следующее задание; в выбранном номере — только задания этого номера, что бы ни подсказал подбор. */
   function pickNext(excludeId) {
     const r = pickNextRaw(excludeId);
     if (!r || ui.scope === 'asg' || ui.scope === 'all' || inScope(r.task)) return r;
-    const list = pool().filter(t => t.id !== excludeId);
+    const list = noFam(pool().filter(t => t.id !== excludeId), recentFams(excludeId));
     return list.length ? { task: chooseTask(list, ui.scope) || list[0], why: { type: 'new' } } : r;
   }
   function pickNextRaw(excludeId) {
@@ -74,14 +83,16 @@
       const at = excludeId ? a.tasks.indexOf(excludeId) : -1;
       const order = at >= 0 ? a.tasks.slice(at + 1).concat(a.tasks.slice(0, at)) : a.tasks;
       const left = order.filter(id => id !== excludeId && leftSet.has(id)).map(id => byId.get(id)).filter(Boolean);
-      if (left.length) return { task: left[0], why: { type: 'asg', a } };
+      // похожее на только что решённое — откладываем: берём первое нерешённое из другого семейства, оно вернётся позже
+      if (left.length) return { task: noFam(left, recentFams(excludeId))[0], why: { type: 'asg', a } };
       if (a.strict) return null;            // самостоятельная: всё сдано — экран «Завершить»
       const rest = list.filter(t => t.id !== excludeId);
       return { task: rest.length ? rest[Math.floor(Math.random() * rest.length)] : list[0], why: { type: 'asg', a } };
     }
     const recentSet = new Set(recent.slice(-CFG.recentWindow));
     if (excludeId) recentSet.add(excludeId);
-    const fresh = arr => arr.filter(t => !recentSet.has(t.id));
+    const fams = recentFams(excludeId);
+    const fresh = arr => arr.filter(t => !recentSet.has(t.id) && !(t.fm && fams.has(t.fm)));
     const nums = new Set(list.map(t => t.n));
 
     // 1) повторение типа, в котором была ошибка
@@ -91,7 +102,7 @@
     for (const r of due) {
       let c = fresh(list.filter(t => topicKey(t) === r.key));
       if (!c.length) c = fresh(list.filter(t => t.n === r.n));
-      if (!c.length) c = list.filter(t => t.n === r.n && t.id !== excludeId); // в номере мало заданий
+      if (!c.length) c = noFam(list.filter(t => t.n === r.n && t.id !== excludeId), fams); // в номере мало заданий
       const t = chooseTask(c, r.n);
       if (t) return { task: t, why: { type: 'review', r } };
     }
@@ -113,7 +124,7 @@
       cands = groups.get(k);
     }
     const t = chooseTask(fresh(cands), n) || chooseTask(fresh(inNum), n)
-      || chooseTask(inNum.filter(x => x.id !== excludeId), n) || inNum[0];
+      || chooseTask(noFam(inNum.filter(x => x.id !== excludeId), fams), n) || inNum[0];
     const ns = statsFor(n);
     let type = 'new';
     if (P.tasks[t.id]) type = 'repeat';
@@ -150,7 +161,8 @@
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
     if (again) e.ra = 1;
-    if (o.asg) e.k = 1;                 // ответ из самостоятельной учителя
+    if (o.src === 'work' || (o.asg && o.src !== 'asg')) e.k = 1;   // ответ из самостоятельной учителя — на её странице
+    if (o.src === 'asg') e.a = 1;       // из подборки учителя — в истории, вкладка «Подборки от учителей»
     if (o.exam) e.x = 1;
     if (o.tog) e.w = 1;                 // сдано самим учеником на занятии «Вместе»
     if (o.blank) e.b = 1;               // в варианте оставил без ответа: в цель дня не идёт
@@ -240,7 +252,7 @@
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', src: reason === 'asg' || reason === 'work' ? reason : undefined, tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -426,6 +438,7 @@
     if (t.y && !(t.src || '').includes(String(t.y))) {
       meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
     }
+    if (t.sn) meta.push(`<span class="sn-tag" title="Номер задания на сайте: назови его — его найдут поиском «#${t.sn}»">#${t.sn}</span>`);
     let { chip, line } = reasonHtml(t, cur.why);
     if (isOutdated(t)) {
       const since = formatSince(t.n);
@@ -1056,12 +1069,14 @@
     return `${answerView(res.answer)}${sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(sol)}</div></details>` : ''}`;
   }
 
+  /** Откуда ответ: подборка учителя ('asg'), самостоятельная ('work') или нет — для истории. */
+  const asgSrc = () => (cur && cur.why && cur.why.type === 'asg' ? (cur.why.a && cur.why.a.strict ? 'work' : 'asg') : undefined);
   function partFinal(i, score, res, gaveUp) {
     const x = cur.parts[i], box = partBox(i);
     x.final = true;
     x.score = score;
     x.res = res || {};
-    recordStats(x.p, score, Date.now(), { part: x.res.part });
+    recordStats(x.p, score, Date.now(), { part: x.res.part, src: asgSrc() });
     save();
     $$('input', box).forEach(inp => {
       inp.disabled = true;
@@ -1200,12 +1215,12 @@
         if (x.final || !x.attempt) return;
         x.final = true;
         x.score = 0;
-        recordStats(x.p, 0, now);
+        recordStats(x.p, 0, now, { src: asgSrc() });
         sendAbandon(x.p, useBeacon);
       });
       recordGroupEnd(cur.task, cur.parts.filter(x => x.final).map(x => x.score), cur.revKey, cur.revDue);
     } else {
-      record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null);
+      record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null, { src: asgSrc() });
       sendAbandon(cur.task, useBeacon);
     }
     ui.currentId = null;
@@ -1254,7 +1269,7 @@
     cur.score = score;
     const t = cur.task;
     res = res || {};
-    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp });
+    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp, src: asgSrc() });
     ui.currentId = null;
     save();
 

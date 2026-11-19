@@ -832,11 +832,20 @@
     return best;
   }
 
+  // Задания одного «семейства» (то же условие с другими числами: варианты, копия в другом банке) решаются одним способом —
+  // подряд их не даём: между ними хотя бы FAM_GAP других заданий, если в выборе есть из чего выбрать.
+  const FAM_GAP = 3;
+  function recentFams(excludeId) {
+    const ids = recent.slice(-FAM_GAP).concat(excludeId ? [excludeId] : []);
+    return new Set(ids.map(id => (byId.get(id) || {}).fm).filter(Boolean));
+  }
+  /** Без заданий из недавних семейств; если других нет — как было. */
+  const noFam = (arr, fams) => { const f = arr.filter(t => !t.fm || !fams.has(t.fm)); return f.length ? f : arr; };
   /** Следующее задание; в выбранном номере — только задания этого номера, что бы ни подсказал подбор. */
   function pickNext(excludeId) {
     const r = pickNextRaw(excludeId);
     if (!r || ui.scope === 'asg' || ui.scope === 'all' || inScope(r.task)) return r;
-    const list = pool().filter(t => t.id !== excludeId);
+    const list = noFam(pool().filter(t => t.id !== excludeId), recentFams(excludeId));
     return list.length ? { task: chooseTask(list, ui.scope) || list[0], why: { type: 'new' } } : r;
   }
   function pickNextRaw(excludeId) {
@@ -851,14 +860,16 @@
       const at = excludeId ? a.tasks.indexOf(excludeId) : -1;
       const order = at >= 0 ? a.tasks.slice(at + 1).concat(a.tasks.slice(0, at)) : a.tasks;
       const left = order.filter(id => id !== excludeId && leftSet.has(id)).map(id => byId.get(id)).filter(Boolean);
-      if (left.length) return { task: left[0], why: { type: 'asg', a } };
+      // похожее на только что решённое — откладываем: берём первое нерешённое из другого семейства, оно вернётся позже
+      if (left.length) return { task: noFam(left, recentFams(excludeId))[0], why: { type: 'asg', a } };
       if (a.strict) return null;            // самостоятельная: всё сдано — экран «Завершить»
       const rest = list.filter(t => t.id !== excludeId);
       return { task: rest.length ? rest[Math.floor(Math.random() * rest.length)] : list[0], why: { type: 'asg', a } };
     }
     const recentSet = new Set(recent.slice(-CFG.recentWindow));
     if (excludeId) recentSet.add(excludeId);
-    const fresh = arr => arr.filter(t => !recentSet.has(t.id));
+    const fams = recentFams(excludeId);
+    const fresh = arr => arr.filter(t => !recentSet.has(t.id) && !(t.fm && fams.has(t.fm)));
     const nums = new Set(list.map(t => t.n));
 
     // 1) повторение типа, в котором была ошибка
@@ -868,7 +879,7 @@
     for (const r of due) {
       let c = fresh(list.filter(t => topicKey(t) === r.key));
       if (!c.length) c = fresh(list.filter(t => t.n === r.n));
-      if (!c.length) c = list.filter(t => t.n === r.n && t.id !== excludeId); // в номере мало заданий
+      if (!c.length) c = noFam(list.filter(t => t.n === r.n && t.id !== excludeId), fams); // в номере мало заданий
       const t = chooseTask(c, r.n);
       if (t) return { task: t, why: { type: 'review', r } };
     }
@@ -890,7 +901,7 @@
       cands = groups.get(k);
     }
     const t = chooseTask(fresh(cands), n) || chooseTask(fresh(inNum), n)
-      || chooseTask(inNum.filter(x => x.id !== excludeId), n) || inNum[0];
+      || chooseTask(noFam(inNum.filter(x => x.id !== excludeId), fams), n) || inNum[0];
     const ns = statsFor(n);
     let type = 'new';
     if (P.tasks[t.id]) type = 'repeat';
@@ -927,7 +938,8 @@
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
     if (again) e.ra = 1;
-    if (o.asg) e.k = 1;                 // ответ из самостоятельной учителя
+    if (o.src === 'work' || (o.asg && o.src !== 'asg')) e.k = 1;   // ответ из самостоятельной учителя — на её странице
+    if (o.src === 'asg') e.a = 1;       // из подборки учителя — в истории, вкладка «Подборки от учителей»
     if (o.exam) e.x = 1;
     if (o.tog) e.w = 1;                 // сдано самим учеником на занятии «Вместе»
     if (o.blank) e.b = 1;               // в варианте оставил без ответа: в цель дня не идёт
@@ -1017,7 +1029,7 @@
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', src: reason === 'asg' || reason === 'work' ? reason : undefined, tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -1203,6 +1215,7 @@
     if (t.y && !(t.src || '').includes(String(t.y))) {
       meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
     }
+    if (t.sn) meta.push(`<span class="sn-tag" title="Номер задания на сайте: назови его — его найдут поиском «#${t.sn}»">#${t.sn}</span>`);
     let { chip, line } = reasonHtml(t, cur.why);
     if (isOutdated(t)) {
       const since = formatSince(t.n);
@@ -1833,12 +1846,14 @@
     return `${answerView(res.answer)}${sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(sol)}</div></details>` : ''}`;
   }
 
+  /** Откуда ответ: подборка учителя ('asg'), самостоятельная ('work') или нет — для истории. */
+  const asgSrc = () => (cur && cur.why && cur.why.type === 'asg' ? (cur.why.a && cur.why.a.strict ? 'work' : 'asg') : undefined);
   function partFinal(i, score, res, gaveUp) {
     const x = cur.parts[i], box = partBox(i);
     x.final = true;
     x.score = score;
     x.res = res || {};
-    recordStats(x.p, score, Date.now(), { part: x.res.part });
+    recordStats(x.p, score, Date.now(), { part: x.res.part, src: asgSrc() });
     save();
     $$('input', box).forEach(inp => {
       inp.disabled = true;
@@ -1977,12 +1992,12 @@
         if (x.final || !x.attempt) return;
         x.final = true;
         x.score = 0;
-        recordStats(x.p, 0, now);
+        recordStats(x.p, 0, now, { src: asgSrc() });
         sendAbandon(x.p, useBeacon);
       });
       recordGroupEnd(cur.task, cur.parts.filter(x => x.final).map(x => x.score), cur.revKey, cur.revDue);
     } else {
-      record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null);
+      record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null, { src: asgSrc() });
       sendAbandon(cur.task, useBeacon);
     }
     ui.currentId = null;
@@ -2031,7 +2046,7 @@
     cur.score = score;
     const t = cur.task;
     res = res || {};
-    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp });
+    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp, src: asgSrc() });
     ui.currentId = null;
     save();
 
@@ -3092,6 +3107,8 @@
   function findTask(q) {
     q = String(q || '').trim().replace(/^№\s*/, '').replace(/^.*[?&]id=/, '').toLowerCase();
     if (!q) return null;
+    const sn = q.match(/^#\s*0*(\d{1,7})$/);
+    if (sn) return TASKS.find(t => t.sn === +sn[1]) || null;
     const tail = id => id.slice(id.indexOf(':') + 1).toLowerCase();
     const own = t => [t.id, ...(t.parts || []).map(p => p.id)];
     let hits = TASKS.filter(t => own(t).some(id => id.toLowerCase() === q || tail(id) === q));
@@ -3106,6 +3123,7 @@
   const pad2 = x => String(x).padStart(2, '0');
   const plainCache = new Map();
   function plainText(t) {
+    if (t.html == null) return '';                           // условие ещё не догружено — не запоминаем пустое
     if (!plainCache.has(t.id)) {
       const tpl = document.createElement('template');      // template не загружает картинки
       tpl.innerHTML = t.html || '';
@@ -3196,7 +3214,8 @@
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
     const all = P.log.filter(e => !e.k);                       // самостоятельные — на странице подборок
     const list = all.slice().reverse().filter(e => histFilter === 'all'
-      || (histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime()));
+      || (histFilter === 'asg' ? e.a : histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime()));
+    const asgN = all.filter(e => e.a).length;
     const today = all.filter(e => e.t >= dayStart.getTime());
     const bad = all.filter(e => e.s < 1 && !e.b).length;
     const hm = ts => { const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -3216,7 +3235,7 @@
       return `${head}<div class="hist-row">
         <span class="hist-when">${hm(e.t)}</span>
         <span class="num-badge sm${badgeCls(e.n)}">${numLabel(e.n)}</span>
-        <span class="hist-snip">${t ? esc(plainText(t)) : '<span class="fm-muted">задание удалено из банка</span>'}</span>
+        <span class="hist-snip">${e.a && histFilter !== 'asg' ? '<span class="hist-asg" title="Из подборки учителя">📚</span> ' : ''}${t ? esc(plainText(t) || [clusterName(t) || t.topic, t.sn ? '#' + t.sn : ''].filter(Boolean).join(' · ')) : '<span class="fm-muted">задание удалено из банка</span>'}</span>
         <span class="chip ${cls}">${txt}</span>
         ${t ? `<button type="button" class="btn hist-open" data-open="${esc(e.id)}">Открыть</button>` : '<span></span>'}
       </div>`;
@@ -3229,11 +3248,11 @@
           без опыта, огонька, серии и достижений. Самостоятельные — на странице «Задания от учителя», варианты — в «Моих вариантах».</p></div>
         <div class="crs-prog"><b>${today.length}</b><span>${plural(today.length, 'ответ', 'ответа', 'ответов')} сегодня · ошибок всего ${bad}</span></div></div>
       <div class="hist-filters">
-        ${[['all', 'Все'], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
+        ${[['all', 'Все'], ['asg', `📚 Подборки от учителей${asgN ? ` · ${asgN}` : ''}`], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
           `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
         <span class="fm-muted">${list.length} ${plural(list.length, 'ответ', 'ответа', 'ответов')}</span>
       </div>
-      <div class="hist-list">${rows || '<p class="fm-note">Здесь пока пусто.</p>'}</div>
+      <div class="hist-list">${rows || `<p class="fm-note">${histFilter === 'asg' ? 'Здесь появятся задания из подборок учителя, как только ты их решишь.' : 'Здесь пока пусто.'}</p>`}</div>
       ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}
     </div>`;
   }
@@ -3843,7 +3862,7 @@
     } else {
       t = findTask(q);
     }
-    if (!t) { toast('Задание не найдено. Введите номер с kompege.ru или код задания ФИПИ.', 3500); return; }
+    if (!t) { toast('Задание не найдено. Введите номер сайта (#123), номер с kompege.ru или код задания ФИПИ.', 3500); return; }
     if (!leaveExam()) return;
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
@@ -5277,6 +5296,7 @@
     if (!code.trim()) { setPyStatus('Напишите код', 'bad'); return; }
     ensureWorker();
     $('#pyOut').textContent = '';
+    pyStale(false); PY.ran = code;
     $('#pyTurtle').hidden = true;
     PY.running = true;
     $('#pyRun').hidden = true;
@@ -5329,7 +5349,14 @@
     $('#pyCode').value = code != null ? code : pyStarter(t);
     updateGutter();
     $('#pyOut').textContent = '';
+    pyStale(false); PY.ran = null;
     $('#pyTurtle').hidden = true;
+  }
+  /** Код поменяли после запуска — вывод ниже ещё от старого кода: приглушаем его и подсказываем перезапустить. */
+  function pyStale(on) {
+    const out = $('#pyOut'), was = out.classList.contains('stale');
+    out.classList.toggle('stale', on);
+    if (on && !was) setPyStatus('Код изменён — вывод ниже от прошлого запуска. Нажми «Запустить» (Ctrl+Enter)', 'stale');
   }
   function updateGutter() {
     const ta = $('#pyCode');
@@ -5771,6 +5798,7 @@
   $('#pyCode').addEventListener('keydown', editKey);
   $('#pyCode').addEventListener('input', () => {
     updateGutter();
+    if (!PY.running && PY.ran != null && $('#pyOut').textContent) pyStale($('#pyCode').value !== PY.ran);
     $('#pyAttach').textContent = 'Прикрепить решение';
     clearTimeout(PY.saveTimer);
     const t = PY.task;
@@ -7793,6 +7821,8 @@
   // Тираж уникальных каждого вида ограничен, проданный подарок сгорает; каждые 25 решённых — подарок.
   let GF = null;                          // магазин и свои подарки с сервера
   let gfTo = '';                          // кому дарим: '' — себе, иначе sid одноклассника
+  let gfNote = '';                        // сообщение к подарку однокласснику — его увидит только получатель
+  const GF_NOTE_MAX = 120;
   let gfTab = 'shop';                     // вкладка окна: shop, market, mine, forbes, log
   const gfDate = ts => { const d = new Date(ts * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`; };
   const gfMate = sid => (GF.mates.find(m => String(m.sid) === String(sid)) || {}).name || '';
@@ -8138,6 +8168,9 @@
     const who = gfTo ? gfMate(gfTo) : '';
     return `<div class="bx-who"><span>Кому</span>${who ? `<button type="button" class="bx-chip" data-bx-to="" title="Покупать себе">🎁 ${esc(who)} <i>✕</i></button>`
       : '<span class="bx-chip me">себе</span>'}</div>
+      ${who ? `<label class="bx-note"><span>💌 Сообщение к подарку <small>увидит только ${esc(who)}</small></span>
+        <textarea class="inp" id="bxNote" rows="2" maxlength="${GF_NOTE_MAX}" placeholder="Например: «С днём рождения!» или «Спасибо, что помог с №19»">${esc(gfNote)}</textarea>
+        <small class="bx-note-n" id="bxNoteN">${gfNote.length} / ${GF_NOTE_MAX}</small></label>` : ''}
       <div class="bx-find"><input class="inp" id="bxFind" type="search" placeholder="🔍 Найти одноклассника" autocomplete="off"
         enterkeyhint="done" value="${esc(gfFind)}"><div class="bx-found" id="bxFound">${foundHtml(G)}</div></div>`;
   }
@@ -8238,10 +8271,12 @@
     const who = gfTo ? gfMate(gfTo) : '';
     if (!g) return;
     try {
-      const r = await api('gifts/buy', { gift: id, to: gfTo ? +gfTo : null });
+      const note = gfTo ? gfNote.trim() : '';
+      const r = await api('gifts/buy', { gift: id, to: gfTo ? +gfTo : null, note: note || undefined });
       if (r.game) onGame(r.game);
       const got = GF.catalog.find(x => x.id === r.got) || g;
-      toast(who ? `🎁 ${got.i} ${got.t} — подарено: ${who}` : `🎁 ${got.i} ${got.t} — теперь у тебя`, 5000);
+      if (note) gfNote = '';
+      toast(who ? `🎁 ${got.i} ${got.t} — подарено: ${who}${note ? ' · с сообщением 💌' : ''}` : `🎁 ${got.i} ${got.t} — теперь у тебя`, 5000);
       await openGifts();
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось купить'); }
   }
@@ -8307,16 +8342,6 @@
   }
   /** «40+ — 15 ₿, 60+ — 30 ₿…» — бонусы за вариант ЕГЭ от меньшего балла к большему. */
   const examBtcTxt = G => G.exam_btc.slice().reverse().map(([low, b]) => `${low}+ — ${b} ₿`).join(', ');
-  function giftToast(g) {
-    const t = document.createElement('div');
-    t.className = 'ach-toast gift-toast';
-    const from = gfFrom(g);
-    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : g.img ? giftImg(g.img) : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
-      <b>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
-    t.addEventListener('click', () => openGifts(undefined, g.id));
-    document.body.appendChild(t);
-    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 5200);
-  }
   /** Учитель начислил или снял монеты — короткое уведомление с причиной, один раз. */
   function coinNotify(list) {
     if (!list || !list.length || TEACHER) return;
@@ -8329,13 +8354,94 @@
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
   }
-  /** Новые подарки (от учителя или одноклассника) — карточкой в углу, один раз. */
+  /** Новые подарки (от учителя, одноклассника, за труд) — на весь экран коробками: открыл — подарок и сообщение к нему.
+      «Открыть всё» — все сразу. Просмотренными отмечаются, когда окно закрыли (не успел открыть — покажутся при следующем входе). */
+  let GO = null;                           // { list, open: Set(id) }
   function giftNotify(list) {
     if (!list || !list.length || TEACHER) return;
-    list.slice(0, 3).forEach((g, i) => setTimeout(() => giftToast(g), 700 + i * 1700));
-    if (list.length > 3) setTimeout(() => toast(`🎁 И ещё ${list.length - 3} — в «Монеты и подарки»`, 5000), 700 + 3 * 1700);
-    api('gifts/seen', { ids: list.map(g => g.id) }).catch(() => {});
+    if (GO) {
+      const add = list.filter(g => !GO.list.some(x => x.id === g.id));
+      if (add.length) { GO.list.push(...add); goRender(); }
+      return;
+    }
+    GO = { list: list.slice(), open: new Set() };
+    setTimeout(goRender, 500);
   }
+  const goFrom = g => { const f = gfFrom(g); return f && f !== 'купил себе' ? f : 'подарок'; };
+  function goCard(g) {
+    const one = GO.list.length === 1;
+    if (!GO.open.has(g.id)) {
+      return `<button type="button" class="go-card shut${one ? ' one' : ''}" data-go-open="${g.id}" aria-label="Открыть подарок ${esc(goFrom(g))}">
+        <span class="go-box" aria-hidden="true"><i class="go-lid"></i><i class="go-body"></i><i class="go-rib"></i><i class="go-bow">🎀</i></span>
+        <small>${esc(goFrom(g))}</small><span class="go-tap">Открыть</span></button>`;
+    }
+    return `<div class="go-card opened${one ? ' one' : ''}">
+      <span class="go-burst" aria-hidden="true">${Array.from({ length: 10 }, (_, k) => `<i style="--k:${k}"></i>`).join('')}</span>
+      <span class="go-gift">${gfTile(g, 76, 'big')}</span>
+      <b>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</b>
+      <small>${esc(goFrom(g))}</small>
+      ${g.note ? `<p class="go-msg"><span aria-hidden="true">💌</span>${esc(g.note)}</p>` : ''}</div>`;
+  }
+  function goRender() {
+    if (!GO) return;
+    let ov = $('#goOv');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'goOv';
+      ov.className = 'go-ov';
+      ov.setAttribute('role', 'dialog');
+      ov.setAttribute('aria-modal', 'true');
+      document.body.appendChild(ov);
+    }
+    const n = GO.list.length, shut = GO.list.filter(g => !GO.open.has(g.id)).length;
+    ov.setAttribute('aria-label', n > 1 ? `Тебе ${n} ${plural(n, 'подарок', 'подарка', 'подарков')}` : 'Тебе подарок');
+    ov.innerHTML = `<div class="go-wrap${n === 1 ? ' one' : ''}">
+      <h2>${n > 1 ? `🎁 Тебе ${n} ${plural(n, 'подарок', 'подарка', 'подарков')}!` : '🎁 Тебе подарок!'}</h2>
+      <p class="go-sub">${shut ? (n > 1 ? 'Нажми на коробку — или открой все сразу' : 'Нажми на коробку, чтобы открыть') : 'Все подарки — в «Монеты и подарки»'}</p>
+      <div class="go-grid">${GO.list.map(goCard).join('')}</div>
+      <div class="go-acts">${shut > 1 ? `<button type="button" class="btn primary" data-go-all>🎁 Открыть всё · ${shut}</button>` : ''}
+        ${shut === 1 && n === 1 ? '<button type="button" class="btn primary" data-go-all>🎁 Открыть</button>' : ''}
+        <button type="button" class="btn${shut ? ' ghost' : ' primary'}" data-go-close>${shut ? 'Позже' : 'Готово'}</button></div></div>`;
+    const f = ov.querySelector('[data-go-all]') || ov.querySelector('[data-go-close]');
+    if (f && !ov.contains(document.activeElement)) f.focus({ preventScroll: true });
+  }
+  /** Открыть коробки: крышка улетает, через миг — подарок и сообщение. */
+  function goOpen(ids) {
+    if (!GO) return;
+    const todo = ids.filter(id => !GO.open.has(id));
+    if (!todo.length) return;
+    todo.forEach(id => { const c = document.querySelector(`#goOv [data-go-open="${id}"]`); if (c) c.classList.add('opening'); });
+    const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setTimeout(() => { if (!GO) return; todo.forEach(id => GO.open.add(id)); goRender(); }, reduce ? 0 : 520);
+  }
+  function goClose() {
+    if (!GO) return;
+    const shut = GO.list.filter(g => !GO.open.has(g.id)).map(g => g.id);
+    const seen = GO.list.filter(g => GO.open.has(g.id)).map(g => g.id);
+    if (seen.length) api('gifts/seen', { ids: seen }).catch(() => {});
+    GO = null;
+    const ov = $('#goOv');
+    if (ov) ov.remove();
+    if (shut.length) toast(`🎁 Неоткрытые подарки (${shut.length}) — откроешь при следующем входе или в «Монеты и подарки»`, 4500);
+  }
+  document.addEventListener('click', e => {
+    if (!GO || !e.target.closest('#goOv')) return;
+    const o = e.target.closest('[data-go-open]');
+    if (o) { goOpen([+o.dataset.goOpen]); return; }
+    if (e.target.closest('[data-go-all]')) { goOpen(GO.list.map(g => g.id)); return; }
+    if (e.target.closest('[data-go-close]')) goClose();
+  });
+  document.addEventListener('keydown', e => {
+    if (!GO || !$('#goOv')) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); goClose(); return; }
+    if (e.key === 'Tab') {                            // фокус не уходит из окна
+      const f = [...document.querySelectorAll('#goOv button')];
+      if (!f.length) return;
+      const i = f.indexOf(document.activeElement);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+    }
+  }, true);
   /** Подарили или начислили монеты — уведомление и новый счёт сразу. */
   async function giftLive() {
     let me;
@@ -8457,6 +8563,7 @@
   }, true);
   document.addEventListener('input', e => {
     if (e.target.id === 'bxFind' && GF) { gfFind = e.target.value; $('#bxFound').innerHTML = foundHtml(GF); return; }
+    if (e.target.id === 'bxNote') { gfNote = e.target.value.slice(0, GF_NOTE_MAX); const n = $('#bxNoteN'); if (n) n.textContent = `${gfNote.length} / ${GF_NOTE_MAX}`; return; }
     if (!['mkPrice', 'mkBnOn'].includes(e.target.id) || !GF) return;
     const inp = $('#mkPrice'), on = ($('#mkBnOn') || {}).checked, el = $('#mkGet');
     const g = GF.mine.find(x => x.id === (gfSheet || {}).id);
@@ -10082,7 +10189,7 @@
     return `<button type="button" class="hub-pad" data-pad-open aria-label="Открыть страницу: за что дают монеты за помощь сайту и сколько">
       <span class="hub-pad-dev" aria-hidden="true"><i>🎁</i></span>
       <span class="hub-pad-tx"><b>Монеты за помощь сайту — от 50 до ${top} ₿</b>
-        <span>Нажми и получи монеты</span></span>
+        <span>Нажми и получи монеты. Начисление даже за самые маленькие исправления</span></span>
       <span class="hub-pad-go" aria-hidden="true">Открыть<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>`;
   }
   function renderHub(enter) {
