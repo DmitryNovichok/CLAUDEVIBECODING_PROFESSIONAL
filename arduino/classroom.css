@@ -578,6 +578,7 @@ body, #appShell { background: var(--bp-ground); }
 .side-collapse { display: none; }
 @media (min-width: 1101px) {
  .sidebar-panel { position: relative; }
+ .app-rail { z-index: 3; }      /* полоса с кнопками — поверх списка уроков (у него слева отступ под неё), иначе кнопки не нажимаются */
  .side-collapse { display: grid; place-items: center; position: absolute; top: 14px; right: 10px; width: 30px; height: 30px; border-radius: 9px; border: 1.5px solid var(--bp-line-2); background: #fff; color: var(--bp-ink-3); cursor: pointer; z-index: 2; }
  .side-collapse:hover { color: #17aceb; border-color: #83d9ff; }
  .side-collapse .ui-icon { width: 16px; height: 16px; }
