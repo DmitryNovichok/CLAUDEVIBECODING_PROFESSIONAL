@@ -1935,9 +1935,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/support", token=tok)[1]["unread"], 0)
         self.admin("POST", "/api/admin/support/answer", {"id": x["id"], "close": True})
         self.assertEqual(self.req("GET", "/api/support", token=tok)[1]["items"][0]["status"], "closed")
-        for i in range(4):
-            self.req("POST", "/api/support", {"text": f"ещё обращение {i}"}, tok)
-        self.assertEqual(self.req("POST", "/api/support", {"text": "шестое за час"}, tok)[0], 429)
+        for i in range(12):                                # лимита на число обращений нет
+            self.assertEqual(self.req("POST", "/api/support", {"text": f"ещё обращение {i}"}, tok)[0], 200)
         self.assertEqual(self.req("GET", "/api/support")[0], 401)
         # удаляет только главный учитель — обращение стирается из базы, ученик его тоже больше не видит
         mine = self.req("GET", "/api/support", token=tok)[1]["items"]

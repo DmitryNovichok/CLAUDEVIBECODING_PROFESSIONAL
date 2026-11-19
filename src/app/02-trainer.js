@@ -161,7 +161,8 @@
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
     if (again) e.ra = 1;
-    if (o.asg) e.k = 1;                 // ответ из самостоятельной учителя
+    if (o.src === 'work' || (o.asg && o.src !== 'asg')) e.k = 1;   // ответ из самостоятельной учителя — на её странице
+    if (o.src === 'asg') e.a = 1;       // из подборки учителя — в истории, вкладка «Подборки от учителей»
     if (o.exam) e.x = 1;
     if (o.tog) e.w = 1;                 // сдано самим учеником на занятии «Вместе»
     if (o.blank) e.b = 1;               // в варианте оставил без ответа: в цель дня не идёт
@@ -251,7 +252,7 @@
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', src: reason === 'asg' || reason === 'work' ? reason : undefined, tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -1068,12 +1069,14 @@
     return `${answerView(res.answer)}${sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(sol)}</div></details>` : ''}`;
   }
 
+  /** Откуда ответ: подборка учителя ('asg'), самостоятельная ('work') или нет — для истории. */
+  const asgSrc = () => (cur && cur.why && cur.why.type === 'asg' ? (cur.why.a && cur.why.a.strict ? 'work' : 'asg') : undefined);
   function partFinal(i, score, res, gaveUp) {
     const x = cur.parts[i], box = partBox(i);
     x.final = true;
     x.score = score;
     x.res = res || {};
-    recordStats(x.p, score, Date.now(), { part: x.res.part });
+    recordStats(x.p, score, Date.now(), { part: x.res.part, src: asgSrc() });
     save();
     $$('input', box).forEach(inp => {
       inp.disabled = true;
@@ -1212,12 +1215,12 @@
         if (x.final || !x.attempt) return;
         x.final = true;
         x.score = 0;
-        recordStats(x.p, 0, now);
+        recordStats(x.p, 0, now, { src: asgSrc() });
         sendAbandon(x.p, useBeacon);
       });
       recordGroupEnd(cur.task, cur.parts.filter(x => x.final).map(x => x.score), cur.revKey, cur.revDue);
     } else {
-      record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null);
+      record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null, { src: asgSrc() });
       sendAbandon(cur.task, useBeacon);
     }
     ui.currentId = null;
@@ -1266,7 +1269,7 @@
     cur.score = score;
     const t = cur.task;
     res = res || {};
-    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp });
+    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp, src: asgSrc() });
     ui.currentId = null;
     save();
 

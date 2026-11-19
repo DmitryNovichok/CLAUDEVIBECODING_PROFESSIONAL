@@ -4843,10 +4843,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 text = str(data.get("text") or "").strip()[:SUPPORT_MAX]
                 if len(text) < 2 and not data.get("img"):
                     return self.err(400, "Напиши сообщение")
-                recent = db.q("""SELECT COUNT(*) AS c FROM support_msgs m JOIN support p ON p.id = m.support_id
-                                 WHERE p.student_id=? AND m.who='student' AND m.ts>?""", (s["id"], time.time() - 3600), one=True)["c"]
-                if recent >= SUPPORT_PER_HOUR * 4:
-                    return self.err(429, "Слишком много сообщений за час — подожди немного")
                 try:
                     img = support_img_save(data.get("img"))
                 except ValueError as e:
@@ -4866,9 +4862,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     kind = "other"
                 if len(text) < 5:
                     return self.err(400, "Опиши идею подробнее — хотя бы пару слов" if kind == "idea" else "Опиши проблему подробнее — хотя бы пару слов")
-                recent = db.q("SELECT COUNT(*) AS c FROM support WHERE student_id=? AND ts>?", (s["id"], time.time() - 3600), one=True)["c"]
-                if recent >= SUPPORT_PER_HOUR:
-                    return self.err(429, "Слишком много обращений за час — подожди немного")
                 try:
                     img = support_img_save(data.get("img"))
                 except ValueError as e:
@@ -10000,7 +9993,6 @@ def support_img_cleanup(db):
     for f in d.iterdir():
         if SUPPORT_IMG_RE.fullmatch(f.name) and f.name not in used:
             f.unlink(missing_ok=True)
-SUPPORT_PER_HOUR = 5
 
 
 TOURS_ON = False                           # турниры закрыты (новых наборов нет), остались дуэли; начатые доигрываются

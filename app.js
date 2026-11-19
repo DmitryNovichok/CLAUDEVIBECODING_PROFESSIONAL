@@ -938,7 +938,8 @@
     if (o.part != null && o.part !== score) e.p = o.part;
     if (repeat) e.r = 1;
     if (again) e.ra = 1;
-    if (o.asg) e.k = 1;                 // ответ из самостоятельной учителя
+    if (o.src === 'work' || (o.asg && o.src !== 'asg')) e.k = 1;   // ответ из самостоятельной учителя — на её странице
+    if (o.src === 'asg') e.a = 1;       // из подборки учителя — в истории, вкладка «Подборки от учителей»
     if (o.exam) e.x = 1;
     if (o.tog) e.w = 1;                 // сдано самим учеником на занятии «Вместе»
     if (o.blank) e.b = 1;               // в варианте оставил без ответа: в цель дня не идёт
@@ -1028,7 +1029,7 @@
       lastDay = day;
       const t = byId.get(id) || { id, n, topic: '' };   // задание могло пропасть из банка после пересборки
       const sc = score === 1 ? 1 : score === 0.5 ? 0.5 : 0;
-      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
+      const o = { now: ts, part: part == null ? null : part, exam: !!exam, blank: !!blank, silent: true, asg: reason === 'asg' || reason === 'work', src: reason === 'asg' || reason === 'work' ? reason : undefined, tog: reason === 'tog', skip: !!skip, provenance: provenance || 'unknown' };
       const g = grp && byId.get(grp);
       if (g && g.parts) {
         if (pend && pend.g !== grp) endGroup();
@@ -1845,12 +1846,14 @@
     return `${answerView(res.answer)}${sol ? `<details class="solution"><summary>Решение</summary><div class="cond">${safeHtml(sol)}</div></details>` : ''}`;
   }
 
+  /** Откуда ответ: подборка учителя ('asg'), самостоятельная ('work') или нет — для истории. */
+  const asgSrc = () => (cur && cur.why && cur.why.type === 'asg' ? (cur.why.a && cur.why.a.strict ? 'work' : 'asg') : undefined);
   function partFinal(i, score, res, gaveUp) {
     const x = cur.parts[i], box = partBox(i);
     x.final = true;
     x.score = score;
     x.res = res || {};
-    recordStats(x.p, score, Date.now(), { part: x.res.part });
+    recordStats(x.p, score, Date.now(), { part: x.res.part, src: asgSrc() });
     save();
     $$('input', box).forEach(inp => {
       inp.disabled = true;
@@ -1989,12 +1992,12 @@
         if (x.final || !x.attempt) return;
         x.final = true;
         x.score = 0;
-        recordStats(x.p, 0, now);
+        recordStats(x.p, 0, now, { src: asgSrc() });
         sendAbandon(x.p, useBeacon);
       });
       recordGroupEnd(cur.task, cur.parts.filter(x => x.final).map(x => x.score), cur.revKey, cur.revDue);
     } else {
-      record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null);
+      record(cur.task, 0, cur.why.type === 'review' ? cur.why.r.key : null, { src: asgSrc() });
       sendAbandon(cur.task, useBeacon);
     }
     ui.currentId = null;
@@ -2043,7 +2046,7 @@
     cur.score = score;
     const t = cur.task;
     res = res || {};
-    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp });
+    const note = record(t, score, cur.why.type === 'review' ? cur.why.r.key : null, { part: res.part, skip: res.nocount, hinted: !!cur.hints?.length, gaveUp, src: asgSrc() });
     ui.currentId = null;
     save();
 
@@ -3120,6 +3123,7 @@
   const pad2 = x => String(x).padStart(2, '0');
   const plainCache = new Map();
   function plainText(t) {
+    if (t.html == null) return '';                           // условие ещё не догружено — не запоминаем пустое
     if (!plainCache.has(t.id)) {
       const tpl = document.createElement('template');      // template не загружает картинки
       tpl.innerHTML = t.html || '';
@@ -3210,7 +3214,8 @@
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
     const all = P.log.filter(e => !e.k);                       // самостоятельные — на странице подборок
     const list = all.slice().reverse().filter(e => histFilter === 'all'
-      || (histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime()));
+      || (histFilter === 'asg' ? e.a : histFilter === 'bad' ? e.s < 1 && !e.b : e.t >= dayStart.getTime()));
+    const asgN = all.filter(e => e.a).length;
     const today = all.filter(e => e.t >= dayStart.getTime());
     const bad = all.filter(e => e.s < 1 && !e.b).length;
     const hm = ts => { const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -3230,7 +3235,7 @@
       return `${head}<div class="hist-row">
         <span class="hist-when">${hm(e.t)}</span>
         <span class="num-badge sm${badgeCls(e.n)}">${numLabel(e.n)}</span>
-        <span class="hist-snip">${t ? esc(plainText(t)) : '<span class="fm-muted">задание удалено из банка</span>'}</span>
+        <span class="hist-snip">${e.a && histFilter !== 'asg' ? '<span class="hist-asg" title="Из подборки учителя">📚</span> ' : ''}${t ? esc(plainText(t) || [clusterName(t) || t.topic, t.sn ? '#' + t.sn : ''].filter(Boolean).join(' · ')) : '<span class="fm-muted">задание удалено из банка</span>'}</span>
         <span class="chip ${cls}">${txt}</span>
         ${t ? `<button type="button" class="btn hist-open" data-open="${esc(e.id)}">Открыть</button>` : '<span></span>'}
       </div>`;
@@ -3243,11 +3248,11 @@
           без опыта, огонька, серии и достижений. Самостоятельные — на странице «Задания от учителя», варианты — в «Моих вариантах».</p></div>
         <div class="crs-prog"><b>${today.length}</b><span>${plural(today.length, 'ответ', 'ответа', 'ответов')} сегодня · ошибок всего ${bad}</span></div></div>
       <div class="hist-filters">
-        ${[['all', 'Все'], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
+        ${[['all', 'Все'], ['asg', `📚 Подборки от учителей${asgN ? ` · ${asgN}` : ''}`], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
           `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
         <span class="fm-muted">${list.length} ${plural(list.length, 'ответ', 'ответа', 'ответов')}</span>
       </div>
-      <div class="hist-list">${rows || '<p class="fm-note">Здесь пока пусто.</p>'}</div>
+      <div class="hist-list">${rows || `<p class="fm-note">${histFilter === 'asg' ? 'Здесь появятся задания из подборок учителя, как только ты их решишь.' : 'Здесь пока пусто.'}</p>`}</div>
       ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}
     </div>`;
   }

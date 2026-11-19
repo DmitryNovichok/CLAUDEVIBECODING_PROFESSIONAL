@@ -21,12 +21,12 @@
       "source": "cacf110cb8849e777f28ff4a5c3b55e98906c83368c1608df2c1e37e958a9b81"
     },
     "app.js": {
-      "min": "337e1301ccbba642f953b504b5f04d0545fc397d250dcc4d16b82a2fd5814031",
-      "source": "40654732eae1b684b0e3acad8d5382bb8dd156e9ebf1e41bb5a45e38a2681f6f"
+      "min": "ed23a8458c963d3c3da41872607d62807471fae934e69a8a662ae5dab59b5587",
+      "source": "049758164b27c16ebef73b1cb240200b27ca662da837f0af6caa9f1e18d3d4dd"
     },
     "changelog-loader.js": {
-      "min": "4d7c88051cfe02b0f81762f321edad26bcb89824122ed842be704895fb5b5868",
-      "source": "9f138367f3b1bdaff703b9bdb2b45ec81d94f8c9f733d9a5f85f3a343faf4598"
+      "min": "e02128b8af8b9297b897c3d93780612e8916f9bab4844a54b0f1c118401533d2",
+      "source": "25a397a9ae9202ad8c0a1e6b2827f5fbb28d0970ebceef73bcece95d0866f91e"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
