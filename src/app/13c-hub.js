@@ -213,7 +213,7 @@
     if (!focus && me && me.value) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="${esc(L.name || 'Лига')} — рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Лига <b data-count="place">${me.place}</b>${L.top ? `<small>/${Math.max(L.top.length, me.place)}</small>` : ''}</button>`);
     else if (!focus && SERVER && student) out.push(`<button type="button" class="hub-pill" data-hub-go="league" title="Рейтинги: лига, день, неделя, месяц">${hubIcon('duel', 22)}Рейтинг</button>`);
     if (typeof PROMO !== 'undefined' && PROMO && !TEACHER) out.push(`<button type="button" class="hub-pill promo-pill-h" data-hub-go="promo" title="${esc(PROMO.title)}">⚡ <b>${xTxt(Math.max(PROMO.task, PROMO.exam))} ₿</b></button>`);
-    if (!focus) out.push(`<button type="button" class="hub-pill fire-pill${lit ? ' lit' : ''}" data-hub-go="fire" title="${lit ? 'Огонёк на сегодня горит' : 'Реши задания сегодня — огонёк не погаснет'}">${FLAME}<b data-count="days">${days}</b><small>${plural(days, 'день', 'дня', 'дней')}</small></button>`);
+    if (!focus) out.push(`<button type="button" class="hub-pill fire-pill${lit ? ' lit' : ''}${fireCls(days)}" data-hub-go="fire" title="${lit ? 'Огонёк на сегодня горит' : 'Реши задания сегодня — огонёк не погаснет'}">${FLAME}<b data-count="days">${days}</b><small>${plural(days, 'день', 'дня', 'дней')}</small></button>`);
     return out.join('');
   }
   /** Напоминание «подтверди почту»: аккаунт работает и без этого, но без подтверждения пароль можно не восстановить. */
@@ -246,7 +246,7 @@
       : `Сегодня ${goalN} ${plural(goalN, 'дело', 'дела', 'дел')} — начни с первого`;
     const stepHtml = (it, i) => {
       const cls = ['hub-step', it.done ? 'done' : '', i === nowIdx ? 'now' : '', it.done && prevDone && !prevDone.has(it.key) ? 'just' : ''].filter(Boolean).join(' ');
-      const ic = it.ic === 'fire' ? `<span class="hub-fire-ic">${FLAME}</span>` : hubIcon(it.ic, 30);
+      const ic = it.ic === 'fire' ? `<span class="hub-fire-ic${fireCls(dayStreak())}">${FLAME}</span>` : hubIcon(it.ic, 30);
       return `<div class="${cls}" data-step="${i}" data-step-key="${esc(it.key)}" style="--i:${i}"><span class="hub-num">${it.done ? '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>' : it.pending ? '—' : plan.slice(0, i + 1).filter(x => !x.pending).length}</span>
         <div class="hub-step-body"><b>${ic}<span class="hub-tt">${esc(it.title)}</span></b><span class="hub-meta">${it.meta.filter(Boolean).map(x => `<span>${x}</span>`).join('')}</span></div>
         <button type="button" class="btn${i === nowIdx ? ' primary' : ''}" data-step-go="${i}">${esc(it.btn)}${i === nowIdx ? ' →' : ''}</button></div>`;

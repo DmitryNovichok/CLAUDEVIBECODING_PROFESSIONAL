@@ -2988,6 +2988,38 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.game_summary(db, sid2)["fire"], 5)
         self.assertEqual(self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 3})[1]["added"], 0)
 
+    def test_profile_look(self):
+        db = server.APP.db
+        tok = self.login("Оформлялкин Остап")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        tok2 = self.login("Соседов Семён")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        prof = self.req("GET", "/api/profile", token=tok)[1]
+        bn = {b["k"]: b for b in prof["banners"]}
+        self.assertTrue(bn["sky"]["open"])
+        self.assertFalse(bn["galaxy"]["open"])                         # 12-й уровень — пока закрыт
+        self.assertEqual(prof["look"], {"banner": None, "ava": None, "show": []})
+        self.assertIsNone(self.req("GET", f"/api/profile?sid={sid}", token=tok2)[1]["banners"])   # чужим — не нужно
+        now = time.time()
+        g1 = db.x("INSERT INTO gifts(student_id, gift, ts) VALUES(?, 'teddy', ?)", (sid, now))
+        g2 = db.x("INSERT INTO gifts(student_id, gift, ts) VALUES(?, 'cookie', ?)", (sid, now))
+        alien = db.x("INSERT INTO gifts(student_id, gift, ts) VALUES(?, 'rocket', ?)", (sid2, now))
+        self.assertEqual(self.req("POST", "/api/profile/look", {"banner": "galaxy"}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/profile/look", {"ava": alien}, tok)[0], 400)
+        self.assertEqual(self.req("POST", "/api/profile/look", {"show": [g1, g2, g1, g2, 1, 2]}, tok)[0], 400)
+        st, r = self.req("POST", "/api/profile/look", {"banner": "sunset", "ava": g1, "show": [g2, g1]}, tok)
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r["look"], {"banner": "sunset", "ava": g1, "show": [g2, g1]})
+        other = self.req("GET", f"/api/profile?sid={sid}", token=tok2)[1]
+        self.assertEqual(other["look"]["banner"], "sunset")
+        lb = self.req("GET", "/api/leaderboard", token=tok2)[1]
+        row = next((x for t in lb.values() if isinstance(t, dict) for x in t.get("rows", []) if x.get("sid") == sid), None)
+        if row:
+            self.assertEqual(row["ava"]["i"], server.GIFT_BY["teddy"][1])
+        # подарок продан — из аватарки и витрины выпадает сам
+        db.x("UPDATE gifts SET sold=? WHERE id=?", (now, g1))
+        self.assertEqual(server.look_of(db, sid), {"banner": "sunset", "ava": None, "show": [g2]})
+
     def test_gift_note(self):
         db = server.APP.db
         tok = self.login("Записков Захар")

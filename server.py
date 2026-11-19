@@ -2107,6 +2107,7 @@ class DB(Transactional):
                     ("students", "course_ts", "REAL"),
                     ("students", "is_teacher", "INTEGER DEFAULT 0"),
                     ("students", "badges", "TEXT"),
+                    ("students", "look", "TEXT"),            # оформление профиля: баннер, подарок-аватарка, витрина (JSON)
                     ("assignments", "strict", "INTEGER DEFAULT 0"),   # контрольная: одна попытка, результат — после сдачи
                     ("assignments", "closed", "REAL"),                # учитель завершил контрольную для всех
                     ("assignments", "grading", "TEXT"),              # пороги оценки в процентах {"5": 85, "4": 65, "3": 45}
@@ -4627,13 +4628,39 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             mine = [tog_public(db, r, s["id"]) for r in rows]
             return self.send_json({"sessions": mine})
 
-        if path in ("/api/profile", "/api/profile/badges"):
+        if path in ("/api/profile", "/api/profile/badges", "/api/profile/look"):
             # профиль ученика: награды и достижения. Смотреть можно своих и учеников того же учителя
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
             mates = {m["id"]: m for m in teacher_students(db, teacher_of(s)["id"])}
             ids = list(set(mates) | {s["id"]})
+            if path == "/api/profile/look":
+                # своё оформление: баннер (только открытый), подарок-аватарка и витрина — только из своих подарков
+                if method != "POST":
+                    return self.err(405, "нужен POST")
+                g = game_summary(db, s["id"])
+                crowns = crown_counts(db, ids)
+                opts = banner_opts(g, league_row(db, s["id"])["league"], award_counts(db, s["id"], crowns),
+                                   sum(1 for a in g["ach"] if a["got"]))
+                banner = data.get("banner") or None
+                if banner is not None and not opts.get(banner):
+                    return self.err(400, "Этот баннер ещё не открыт")
+                ava, show = data.get("ava"), data.get("show") or []
+                if ava is not None and not isinstance(ava, int) or not isinstance(show, list) or len(show) > PROFILE_SHOW_MAX:
+                    return self.err(400, f"В витрине — не больше {PROFILE_SHOW_MAX} подарков")
+                show = list(dict.fromkeys(x for x in show if isinstance(x, int)))
+                ids_ = [x for x in [ava] + show if x is not None]
+                if ids_:
+                    own = {x["id"] for x in db.q(f"SELECT id FROM gifts WHERE student_id=? AND sold IS NULL AND id IN ({','.join('?' * len(ids_))})",
+                                                  (s["id"], *ids_))}
+                    if any(x not in own for x in ids_):
+                        return self.err(400, "Такого подарка у тебя нет")
+                db.x("UPDATE students SET look=? WHERE id=?", (json.dumps({"banner": banner, "ava": ava, "show": show}), s["id"]))
+                with _GS_LOCK:
+                    _LB_PEOPLE.pop(teacher_of(s)["id"], None)       # аватарка в рейтинге — сразу
+                _FORBES.clear()                                  # и в Forbes
+                return self.send_json({"ok": True, "look": look_of(db, s["id"])})
             if path == "/api/profile/badges":
                 if method != "POST":
                     return self.err(405, "нужен POST")
@@ -4683,7 +4710,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "gift_list": sorted(({k: v for k, v in g.items() if sid == s["id"] or k != "note"} for g in gift_rows(db, sid, limit=120)),
                                     key=lambda g: (-gift_rank(g["gift"], g["uniq"]["rar"]["k"] if g["uniq"] else None),
                                                    g["uniq"] is None, -g["ts"])),
-                "chosen": chosen, "max": BADGES_MAX})
+                "chosen": chosen, "max": BADGES_MAX,
+                "look": look_of(db, sid), "show_max": PROFILE_SHOW_MAX,
+                "banners": [{"k": k, "t": t, "how": h, "open": bo[k]} for k, t, _kind, _need, h in PROFILE_BANNERS]
+                if (bo := banner_opts(g, lg, cnt, len(ach))) and sid == s["id"] else None})
 
         if path == "/api/leaderboard":
             # рейтинги среди учеников того же учителя: лига недели, ТОП-10 за день/неделю/месяц, огонёк, классы
@@ -7326,6 +7356,7 @@ def lb_person(db, m, crown, crowns=None):
     lg = league_row(db, m["id"])["league"]
     return {"sid": m["id"], "name": short_name(m["name"]), "level": g["level"],
             "badges": nick_badges(db, m, g, lg, crown, crowns or {}), "gifts": gift_icons(db, m["id"]), "league": lg,
+            "ava": ava_icon(db, m["id"], look_of(db, m["id"])["ava"]),
             "class_id": m["class_id"], "crown": crown if m["id"] == crown else None,
             "day": g["day"], "week": g["week"], "month": g["month"], "fire": g["fire"], "wk": g["wk"],
             "rank": {k: g["rank"][k] for k in ("day", "week", "month", "wk")}}
@@ -8944,13 +8975,15 @@ def forbes_data(db, tid=None, e=None):
             continue
         gifts.sort(key=lambda g: -g["worth"])
         rarest = max(gifts, key=lambda g: (rare_score(g), (g["uniq"] or {}).get("rar", {}).get("one_in", 0)), default=None)
+        ava_id = look_of(db, m["id"])["ava"]                 # подарок-аватарка, выбранная самим учеником
+        own_ava = next((x for x in gifts if x["id"] == ava_id), None) if ava_id else None
         tiers = {}
         for g in gifts:
             tiers[gift_rk(g)] = tiers.get(gift_rk(g), 0) + 1
         value = sum(g["worth"] for g in gifts)
         rows.append({"sid": m["id"], "name": short_name(m["name"]), "wallet": wallet, "value": value, "total": wallet + value,
                      "n": len(gifts), "tops": [gift_tile(g) for g in gifts[:4]], "best": gift_tile(gifts[0]) if gifts else None,
-                     "avatar": gift_tile(rarest) if rarest and (rarest["uniq"] or rarest["gift"] in HW_BY) else None, "rarest": gift_tile(rarest) if rarest else None,
+                     "avatar": gift_tile(own_ava) if own_ava else gift_tile(rarest) if rarest and (rarest["uniq"] or rarest["gift"] in HW_BY) else None, "rarest": gift_tile(rarest) if rarest else None,
                      "score": round(sum(rare_score(g) for g in gifts), 1), "tiers": tiers,
                      "new": now - created.get(m["id"], 0) < FORBES_NEW_DAYS * 86400, "_gifts": gifts})
     # снимок сегодня и рост за неделю: от самого раннего снимка за последние 7 дней (без сегодняшнего)
@@ -9069,6 +9102,56 @@ def badge_options(db, sid, g, lg, crowns, ach=None):
         if a["got"]:
             out["a:" + a["id"]] = {"i": a["icon"], "t": a["title"], "d": a["desc"]}
     return out
+
+
+# ---------------------------------------------------------------- оформление профиля
+# Баннер шапки профиля: [ключ, название, условие (None — у всех), порог, как открыть]. Рисует style.css (.bn-<ключ>).
+PROFILE_BANNERS = [
+    ("sky", "Небо", None, 0, ""), ("sunset", "Закат", None, 0, ""), ("mint", "Мята", None, 0, ""),
+    ("forest", "Лес", "level", 3, "3-й уровень"), ("night", "Звёздная ночь", "level", 5, "5-й уровень"),
+    ("code", "Код", "level", 8, "8-й уровень"), ("galaxy", "Галактика", "level", 12, "12-й уровень"),
+    ("flame", "Пламя", "fire", 7, "огонёк 7 дней подряд"), ("aurora", "Северное сияние", "fire", 30, "огонёк 30 дней подряд"),
+    ("gold", "Золото", "league", 2, "Золотая лига"), ("diamond", "Алмаз", "league", 3, "Алмазная лига"),
+    ("arena", "Арена", "duel", 5, "5 побед в дуэлях"), ("royal", "Королевский", "crown", 3, "3 короны дня"),
+    ("collector", "Коллекционер", "ach", 15, "15 достижений"),
+]
+PROFILE_BANNER_BY = {b[0]: b for b in PROFILE_BANNERS}
+PROFILE_SHOW_MAX = 4                     # подарков в витрине профиля
+
+
+def look_of(db, sid):
+    """Оформление профиля {banner, ava, show}; подарки — только те, что ещё у ученика (проданный выпадает сам)."""
+    r = db.q("SELECT look FROM students WHERE id=?", (sid,), one=True)
+    try:
+        v = json.loads(r["look"]) if r and r["look"] else {}
+    except (ValueError, TypeError):
+        v = {}
+    v = v if isinstance(v, dict) else {}
+    ids = [i for i in [v.get("ava")] + list(v.get("show") or []) if isinstance(i, int)]
+    own = {x["id"] for x in db.q(f"SELECT id FROM gifts WHERE student_id=? AND sold IS NULL AND id IN ({','.join('?' * len(ids)) or 'NULL'})",
+                                  (sid, *ids))} if ids else set()
+    return {"banner": v.get("banner") if v.get("banner") in PROFILE_BANNER_BY else None,
+            "ava": v.get("ava") if v.get("ava") in own else None,
+            "show": [i for i in (v.get("show") or []) if i in own][:PROFILE_SHOW_MAX]}
+
+
+def banner_opts(g, lg, cnt, ach_n):
+    """Какие баннеры открыты: {ключ: True/False}."""
+    have = {"level": g["level"], "fire": g["fire"], "league": lg, "duel": cnt.get("duel", 0), "crown": cnt.get("crown", 0), "ach": ach_n}
+    return {k: kind is None or have.get(kind, 0) >= need for k, _t, kind, need, _h in PROFILE_BANNERS}
+
+
+def ava_icon(db, sid, gift_id):
+    """Подарок-аватарка в формате значка у ника (как gift_icons) или None."""
+    r = gift_id and db.q("SELECT gift, uniq FROM gifts WHERE id=? AND student_id=? AND sold IS NULL", (gift_id, sid), one=True)
+    g = r and GIFT_BY.get(r["gift"])
+    if not g:
+        return None
+    u = uniq_pub(r["uniq"]) if r["uniq"] else None
+    if u:
+        return {"i": g[1], "t": f"{g[2]} #{u['n']}", "u": {"c1": u["c1"], "c2": u["c2"], "fx": u["fx"], "pose": u["pose"], "r": u["rar"]["k"],
+                                                         **({"img": u["img"]} if u.get("img") else {})}}
+    return {"i": g[1], "t": g[2], "r": gift_rarity(g[0])["k"], **({"img": HW_IMG[g[0]]} if g[0] in HW_IMG else {})}
 
 
 def chosen_badges(m):

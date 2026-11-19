@@ -96,7 +96,7 @@
   const LEAGUE_ICONS = ['🥉', '🥈', '🥇', '💎'];
   const LEAGUE_NAMES = ['Бронзовая', 'Серебряная', 'Золотая', 'Алмазная'];
   const LEAGUE_TO = ['бронзовую', 'серебряную', 'золотую', 'алмазную'];      // «поднимутся в … лигу»
-  const lbValue = (key, v) => key === 'fire' ? `${v} ${plural(v, 'день', 'дня', 'дней')}` : `${v} ${plural(v, 'очко', 'очка', 'очков')}`;
+  const lbValue = (key, v) => key === 'fire' ? `<span class="pf-fire${fireCls(v)}" title="${fireTier(v)[2]}">${FLAME}</span>${v} ${plural(v, 'день', 'дня', 'дней')}` : `${v} ${plural(v, 'очко', 'очка', 'очков')}`;
   /** Из чего сложились очки: опыт, заработанные ₿ и доля заданий без ошибок за период. */
   const lbParts = r => (r.xp == null ? '' : `${r.xp} XP · ${r.btc} ₿ · ${r.acc}%<span class="lp-noerr"> без ошибок</span>`);
   /** Значок у ника: строка (старый формат) или {i, t, n} — у повторяемых наград маленькое число, сколько раз получена. */
@@ -117,6 +117,9 @@
   const iconRank = g => (g.u ? (g.u.img ? 100 : 0) + (GIFT_RANK[g.u.r] || 0) : g.img ? 100 : 0);
   const topGift = r => (r.gifts || []).filter(g => iconRank(g) > 0).sort((a, b) => iconRank(b) - iconRank(a))[0];
   function lbAvatar(r, size) {
+    const a = r.ava;                                  // подарок-аватарка, выбранная учеником в «Оформить профиль»
+    if (a && a.u) return `<span class="lp-av${a.u.img ? ' img' : ''} r-${a.u.r}" style="--c1:${a.u.c1};--c2:${a.u.c2};--s:${size}px" title="${esc(a.t)}">${a.u.img ? giftImg(a.u.img) : `<i class="gfx-${a.u.fx}">${esc(a.i)}</i>`}</span>`;
+    if (a) return `<span class="lp-av gift r-${esc(a.r || 'common')}${a.img ? ' img' : ''}" style="--s:${size}px" title="${esc(a.t)}">${a.img ? giftImg(a.img) : `<i>${esc(a.i)}</i>`}</span>`;
     const g = topGift(r);
     if (g && !g.u) return `<span class="lp-av img r-limited" style="--s:${size}px" title="${esc(g.t)}">${giftImg(g.img)}</span>`;   // лимитка без улучшения
     return g ? `<span class="lp-av${g.u.img ? ' img' : ''} r-${g.u.r}" style="--c1:${g.u.c1};--c2:${g.u.c2};--s:${size}px" title="${esc(g.t)}">${g.u.img ? giftImg(g.u.img) : `<i class="gfx-${g.u.fx}">${esc(g.i)}</i>`}</span>`
@@ -256,6 +259,7 @@
 
   // ------------------------------------------------------------ профиль: награды, достижения, значки у ника
   let PROF = null, profPick = null, profBack = null;
+  let profLook = null;                          // черновик оформления (баннер, аватарка, витрина) — пока ученик выбирает
   let profTab = 'gifts', profMore = false;      // вкладка профиля; показаны ли неполученные награды
   async function openProfile(sid, back) {
     profBack = back || null;
@@ -268,7 +272,46 @@
       return;
     }
     profPick = null;
+    profLook = null;
     renderProfile();
+  }
+  const lookOf = P => profLook || P.look || { banner: null, ava: null, show: [] };
+  const giftById = (P, id) => (P.gift_list || []).find(g => g.id === id);
+  /** Плитка подарка для витрины и выбора: уникальный — со своим фоном, обычный — значком. */
+  const profTile = g => (g.uniq ? uniqTile(g) : g.img ? `<span class="ug plain img r-${g.rar.k}"><span class="ug-ic">${giftImg(g.img)}</span></span>`
+    : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`);
+  const giftName = g => `${g.t}${g.uniq && g.uniq.st ? ' · ' + g.uniq.st : ''}${g.uniq ? ' #' + g.uniq.n : ''}`;
+  /** Витрина: до 4 подарков, которые ученик сам выставил напоказ. */
+  function profShowHtml(P) {
+    const list = (lookOf(P).show || []).map(id => giftById(P, id)).filter(Boolean);
+    if (!list.length) return '';
+    return `<div class="pf-show"><div class="pf-show-h">🏆 Витрина</div>
+      <div class="pf-show-g">${list.map(g => `<div class="pf-show-i" title="${esc(giftName(g))}">${profTile(g)}<small>${esc(giftName(g))}</small>${rarHtml(g)}</div>`).join('')}</div></div>`;
+  }
+  /** Редактор оформления: баннер, подарок-аватарка, витрина; шапка сверху сразу показывает, как будет. */
+  function profLookHtml(P) {
+    const L = profLook, gifts = P.gift_list || [];
+    const giftsBy = [...gifts.filter(g => giftRank(g) > 0).sort(byRank), ...gifts.filter(g => !giftRank(g))];
+    const bns = `<button type="button" class="pl-bn auto${!L.banner ? ' on' : ''}" data-pl-bn=""><span>Авто</span><small>цвет самого редкого подарка</small></button>`
+      + (P.banners || []).map(b => `<button type="button" class="pl-bn bn-${b.k}${L.banner === b.k ? ' on' : ''}${b.open ? '' : ' locked'}"
+          data-pl-bn="${b.k}"${b.open ? '' : ' disabled'} title="${esc(b.open ? b.t : 'Откроется: ' + b.how)}"><span>${esc(b.t)}</span>${b.open ? '' : `<small>🔒 ${esc(b.how)}</small>`}</button>`).join('');
+    const tile = (g, attr, on, num) => `<button type="button" class="pl-g${on ? ' on' : ''}" ${attr}="${g.id}" title="${esc(giftName(g))}" aria-pressed="${on}">
+      ${profTile(g)}${num ? `<b class="pl-num">${num}</b>` : ''}</button>`;
+    const none = gifts.length ? '' : '<p class="fm-muted">Пока нет подарков — их можно купить в магазине или получить от одноклассников.</p>';
+    return `<div class="pl-ed">
+      <div class="pl-sec"><h3>🖼 Баннер шапки</h3><div class="pl-bns">${bns}</div></div>
+      <div class="pl-sec"><h3>🎁 Аватарка <small>подарок в круге профиля, в рейтинге и Forbes</small></h3>
+        ${gifts.length ? `<div class="pl-gs"><button type="button" class="pl-g auto${L.ava ? '' : ' on'}" data-pl-ava=""><span>Авто</span></button>${giftsBy.map(g => tile(g, 'data-pl-ava', L.ava === g.id)).join('')}</div>` : none}</div>
+      <div class="pl-sec"><h3>🏆 Витрина <small>выбери до ${P.show_max} подарков — их увидят все в профиле</small></h3>
+        ${gifts.length ? `<div class="pl-gs">${giftsBy.map(g => { const i = L.show.indexOf(g.id); return tile(g, 'data-pl-show', i >= 0, i >= 0 ? i + 1 : 0); }).join('')}</div>` : none}</div>
+      <div class="pf-tools"><button type="button" class="btn primary small" id="plSave">Сохранить</button>
+        <button type="button" class="btn small ghost" id="plCancel">Отмена</button></div></div>`;
+  }
+  async function saveLook() {
+    try { await api('profile/look', profLook); } catch (e) { toast(e.message || 'Не получилось сохранить'); return; }
+    toast('🎨 Профиль оформлен', 2500);
+    await openProfile('me', profBack);
+    loadRating();
   }
   function profItem(a, kind) {
     const has = kind === 'ach' || a.n > 0 || kind === 'extra';
@@ -292,16 +335,17 @@
     const xpLine = P.need ? `<div class="ph-xp">${P.cur.toLocaleString('ru-RU')} / ${P.need.toLocaleString('ru-RU')} XP до ${P.level + 1}-го уровня</div>` : '';
     const cnt = k => (P.awards.find(a => a.k === k) || {}).n || 0;
     const stat = (v, t) => `<div class="pf-stat"><b>${v}</b><small>${t}</small></div>`;
-    const stats = `<div class="pf-stats">${stat('🔥 ' + (P.fire || 0), plural(P.fire || 0, 'день подряд', 'дня подряд', 'дней подряд'))}
+    const stats = `<div class="pf-stats">${stat(`<span class="pf-fire${fireCls(P.fire || 0)}" title="${fireTier(P.fire || 0)[2]}">${FLAME}</span> ` + (P.fire || 0), plural(P.fire || 0, 'день подряд', 'дня подряд', 'дней подряд'))}
       ${stat('👑 ' + cnt('crown'), plural(cnt('crown'), 'корона', 'короны', 'корон'))}${stat('⚔️ ' + cnt('duel'), plural(cnt('duel'), 'победа', 'победы', 'побед'))}
       ${stat('💎 ' + shortNum((P.gift_value || {}).sell || 0), '₿ подарки')}</div>`;
-    const acts = P.me ? `<button type="button" class="btn" id="profEdit">🏅 Значки у ника</button>${SERVER && !TEACHER ? '<button type="button" class="btn" data-gift-to="">🛍 Магазин</button>' : ''}`
+    const acts = P.me ? `<button type="button" class="btn" id="profLookBtn">🎨 Оформить профиль</button><button type="button" class="btn" id="profEdit">🏅 Значки у ника</button>${SERVER && !TEACHER ? '<button type="button" class="btn" data-gift-to="">🛍 Магазин</button>' : ''}`
       : !TEACHER && SERVER ? `<button type="button" class="btn primary" data-gift-to="${P.sid}">🎁 Подарить подарок</button>` : '';
     const nickLine = `<div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}
       ${P.me && !pick ? `<small class="fm-muted" title="${P.chosen ? '' : 'Автоматически: огонёк 7+, корона дня, алмазная лига'}">· ${P.chosen ? 'выбраны тобой' : 'автоматически'}</small>` : ''}</div>`;
     const earned = [...P.awards.filter(a => a.n > 0), ...P.extra];
     let body;
-    if (pick) {                      // выбор значков у ника — все полученные награды и достижения сразу
+    if (profLook) body = profLookHtml(P);
+    else if (pick) {                      // выбор значков у ника — все полученные награды и достижения сразу
       body = `<div class="pf-tools"><span class="fm-muted">Выбрано ${pick.length} из ${P.max} — нажимай на полученные награды и достижения.</span>
           <button type="button" class="btn small" id="profSave">Сохранить</button>
           <button type="button" class="btn small ghost" id="profAuto">Автоматически</button>
@@ -323,7 +367,8 @@
     $('#forecastBody').innerHTML = `${back}
       ${profHeroHtml(P, profFlyers(P), `<h2 class="fm-title">${name}</h2><span>${sub}</span>${xpLine}`)}
       ${stats}
-      ${acts ? `<div class="pf-acts">${acts}</div>` : ''}
+      ${profLook ? '' : profShowHtml(P)}
+      ${acts && !profLook ? `<div class="pf-acts">${acts}</div>` : ''}
       ${nickLine}
       ${body}`;
   }
@@ -343,7 +388,8 @@
   /** Шапка профиля: цвет и узор самого редкого улучшенного подарка (без них — цвета сайта), уровень с кольцом XP,
    *  вокруг летают уникальные подарки. */
   function profHeroHtml(P, fly, info) {
-    const u = fly.length ? fly[0].uniq || HW_HERO : null;
+    const L = lookOf(P), bn = L.banner, ava = L.ava && giftById(P, L.ava);
+    const u = bn ? null : fly.length ? fly[0].uniq || HW_HERO : null;
     const pat = u ? Array.from({ length: 12 }, (_, k) => `<i class="ph-p p${k}">${esc(u.ch || (fly[0].hw ? HW_HERO.ch : ''))}</i>`).join('') : '';
     const items = fly.map((g, k) => {
       if (!g.uniq) {                                         // лимитка без улучшения
@@ -354,8 +400,10 @@
       return `<button type="button" class="ph-fly f${k}" data-fly="${esc(tip)}" title="${esc(tip)}" aria-label="${esc(tip)}" style="--glow:${g.uniq.c1}">
         ${g.uniq.img ? giftImg(g.uniq.img) : `<span class="ug-ic gfx-${g.uniq.fx}"><i class="ugp-${pose}">${g.i}${pose === 'twin' ? g.i : ''}</i></span>`}</button>`;
     }).join('');
-    return `<div class="pf-hero${u ? '' : ' plain'}"${u ? ` style="--c1:${u.c1};--c2:${u.c2}"` : ''}>${pat}
-      <div class="ph-stage">${xpRing(P.cur || 0, P.need || 0)}<span class="ph-ava"><b>${P.level}</b><small>уровень</small></span>${items}</div>
+    const center = ava ? `<span class="ph-ava gift" title="${esc(giftName(ava))}">${profTile(ava)}<em class="ph-lv" title="Уровень">${P.level}</em></span>`
+      : `<span class="ph-ava"><b>${P.level}</b><small>уровень</small></span>`;
+    return `<div class="pf-hero${bn ? ' bn bn-' + bn : u ? '' : ' plain'}"${u ? ` style="--c1:${u.c1};--c2:${u.c2}"` : ''}>${bn ? '' : pat}
+      <div class="ph-stage">${xpRing(P.cur || 0, P.need || 0)}${center}${items}</div>
       <div class="ph-name">${info}</div></div>`;
   }
   /** Вкладка «Подарки»: оценка коллекции одной строкой и плитки — уникальные (сначала редкие), потом обычные. */
@@ -388,6 +436,25 @@
     const tb = e.target.closest('[data-ptab]');
     if (tb) { profTab = tb.dataset.ptab; profMore = false; renderProfile(); return; }
     if (e.target.closest('[data-pmore]')) { profMore = true; renderProfile(); return; }
+    const lk = e.target.closest('#profLookBtn, #plSave, #plCancel, [data-pl-bn], [data-pl-ava], [data-pl-show]');
+    if (lk) {
+      if (lk.disabled) return;
+      if (lk.id === 'profLookBtn') { const L = PROF.look || {}; profLook = { banner: L.banner || null, ava: L.ava || null, show: (L.show || []).slice() }; profPick = null; }
+      else if (lk.id === 'plCancel') profLook = null;
+      else if (lk.id === 'plSave') return saveLook();
+      else if (lk.dataset.plBn != null) profLook.banner = lk.dataset.plBn || null;
+      else if (lk.dataset.plAva != null) profLook.ava = +lk.dataset.plAva || null;
+      else {
+        const id = +lk.dataset.plShow, i = profLook.show.indexOf(id);
+        if (i >= 0) profLook.show.splice(i, 1);
+        else if (profLook.show.length < PROF.show_max) profLook.show.push(id);
+        else { toast(`В витрине — не больше ${PROF.show_max} подарков`, 2500); return; }
+      }
+      const y = $('#forecastModal').scrollTop;
+      renderProfile();
+      $('#forecastModal').scrollTop = y;
+      return;
+    }
     const t = e.target.closest('#profBack, #profEdit, #profSave, #profAuto, #profCancel, [data-pick]');
     if (!t) return;
     if (t.id === 'profBack') return profBack === 'forbes' ? openForbes() : openRating();
