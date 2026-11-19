@@ -5214,7 +5214,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "sw_blue"}, tok)[0], 409)
 
     def test_vi_sunset_daily_limited(self):
-        # «GTA EGESHKA VI»: 30 штук по ₿ 2000, в магазине ровно 24 часа с первого запуска, не улучшается, в «🎲» не выпадает
+        # «GTA EGESHKA VI»: 30 штук по ₿ 2000, в магазине 7 дней с первого запуска (24 ч + 6 дней), не улучшается, в «🎲» не выпадает
         db = server.APP.db
         tok = self.login("Закатов Захар")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
@@ -5226,7 +5226,7 @@ class ServerTest(unittest.TestCase):
         o = next(x for x in G["hw"] if x["gift"] == "vi_sunset")
         start = float(db.setting("lim_start:vi_sunset"))
         self.assertEqual((o["t"], o["price"], o["cap"], o["up"], o["box"], o["img"]), ("GTA EGESHKA VI", 2000, 30, None, False, "vendor/gifts/gift_vi.webp"))
-        self.assertAlmostEqual(o["until_ts"], start + 24 * 3600)
+        self.assertAlmostEqual(o["until_ts"], start + 7 * 24 * 3600)
         repo = Path(__file__).resolve().parents[1]
         for f in (o["img"], o["img"].replace(".webp", "_t.webp")):                 # и картинка, и уменьшенная для плиток
             self.assertTrue((repo / f).is_file(), f)
@@ -5236,7 +5236,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": g["id"]}, tok)[0], 409)
         self.assertEqual(next(x for x in self.req("GET", "/api/gifts", token=tok)[1]["hw"] if x["gift"] == "vi_sunset")["left"], 29)
         # прошли сутки — в магазине больше нет
-        db.setting("lim_start:vi_sunset", str(time.time() - 24 * 3600 - 5))
+        db.setting("lim_start:vi_sunset", str(time.time() - 7 * 24 * 3600 - 5))
         self.assertFalse(any(x["gift"] == "vi_sunset" for x in self.req("GET", "/api/gifts", token=tok)[1]["hw"]))
         self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "vi_sunset"}, tok)[0], 409)
 

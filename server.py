@@ -7433,13 +7433,13 @@ HW_GIFTS = [("hw_pumpkin", "🎃", "Тыква", "gift_pumpkin.webp"), ("hw_clow
 SW_START, SW_END = "2026-11-02", "2026-11-10"
 SW_GIFTS = [("sw_blue", "⚔️", "Синий световой меч", "vendor/sabers/saber_blue.svg"),
             ("sw_red", "⚔️", "Красный световой меч", "vendor/sabers/saber_red.svg")]
-# «GTA EGESHKA VI» — 30 штук по ₿ 2000, в магазине ровно 24 часа с первого запуска выпуска (см. lim_start), без улучшения и без «🎲».
+# «GTA EGESHKA VI» — 30 штук по ₿ 2000, в магазине 7 дней с первого запуска выпуска (24 ч + продление на 6 дней, см. lim_start), без улучшения и без «🎲».
 VI_GIFTS = [("vi_sunset", "🌴", "GTA EGESHKA VI", "vendor/gifts/gift_vi.webp")]
 IMG_LIM = {k: {"price": None, "cap": None, "start": None, "end": None, "up": True, "box": True,   # None — HW_PRICE, HW_CAP, HW_START…HW_END
                "ev": ("🎃", "Хеллоуин")} for k, _, _, _ in HW_GIFTS}
 IMG_LIM.update({k: {"price": 10000, "cap": 5, "start": SW_START, "end": SW_END, "up": False, "box": False,
                     "ev": ("⚔️", "Световые мечи")} for k, _, _, _ in SW_GIFTS})
-IMG_LIM.update({k: {"price": 2000, "cap": 30, "start": None, "end": None, "hours": 24, "up": False, "box": False,
+IMG_LIM.update({k: {"price": 2000, "cap": 30, "start": None, "end": None, "hours": 24 + 6 * 24, "up": False, "box": False,
                     "ev": ("🌴", "GTA EGESHKA VI")} for k, _, _, _ in VI_GIFTS})
 HW_BY = {k: (k, i, t, IMG_LIM[k]["price"] or HW_PRICE) for k, i, t, _ in HW_GIFTS + SW_GIFTS + VI_GIFTS}
 HW_IMG = dict({k: HW_DIR + f for k, _, _, f in HW_GIFTS}, **{k: f for k, _, _, f in SW_GIFTS + VI_GIFTS})
