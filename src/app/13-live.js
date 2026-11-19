@@ -104,10 +104,10 @@
         if (wkLive()) wkRefresh(wkLive());           // пишешь самостоятельную — вдруг учитель её завершил
       }).catch(() => {});
     }
-    else if (topic === 'support') liveSupport();
+    else if (topic === 'support') { liveSupport(); noticesLoad(); }
     else if (topic === 'together') { togCheck(true); togHistory(false); }         // учитель позвал в общий сеанс (или завершил его)
     else if (topic === 'pyc') pycLive();
-    else if (topic === 'gift') giftLive();
+    else if (topic === 'gift') { giftLive(); noticesLoad(); }
     else if (topic === 'sound') {                    // учитель переключил звуки у класса
       api('me').then(me => { if (me.rules) Object.assign(RULES, me.rules); sndRules(true); }).catch(() => {});
     }

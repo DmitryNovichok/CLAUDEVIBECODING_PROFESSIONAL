@@ -3753,7 +3753,7 @@ body.hub-on:not(.hubnav) .sidebar { display: none; }
 @media (max-width: 860px) { body.hub-on .sidebar:not(.open) { display: none; } }   /* на телефоне номера с главной — через «Ещё» */
 body.hub-on .topbar { justify-content: space-between; padding: 14px max(20px, calc((100% - 1080px) / 2)); border-bottom-color: transparent; background: transparent; backdrop-filter: none; position: static; }
 body.hub-on .topbar .forecast, body.hub-on .scope-info, body.hub-on .session-info { display: none; }
-body.hub-on .me-box > :not(.who):not(.teacher-back) { display: none; }
+body.hub-on .me-box > :not(.who):not(.teacher-back):not(.bell-btn) { display: none; }
 body.hub-on .mobile-brand { display: inline-block; font: 900 24px var(--font); color: var(--accent); }
 body.hub-on .mobile-brand b { color: var(--good); }
 body.hub-on .trainer { max-width: 1120px; padding: 4px 20px 60px; }
@@ -4573,3 +4573,36 @@ body.mkx-open { overflow: hidden; }
 .pl-num { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--on-accent, #fff);
   display: grid; place-items: center; font-size: 12px; }
 @media (max-width: 520px) { .pf-show-g { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pl-bns { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.py-att { font-size: 12.5px; color: var(--muted); font-weight: 700; white-space: nowrap; }
+.py-att.ok { color: var(--good); } .py-att.edit { color: var(--review, #ff9600); }
+
+/* 🔔 уведомления */
+.bell-btn { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 50%; border: 2px solid var(--border);
+  background: var(--card); color: var(--muted); cursor: pointer; padding: 0; }
+.bell-btn[hidden] { display: none; }
+.bell-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bell-btn:hover { color: var(--text); }
+.bell-btn.has { color: var(--accent-text, var(--accent)); border-color: var(--accent); }
+.bell-btn.has svg { animation: bellRing 1.4s ease-in-out 1s 2; transform-origin: 50% 10%; }
+@keyframes bellRing { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(14deg); } 30% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 60% { transform: rotate(-4deg); } }
+.bell-n { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px;
+  background: var(--weak); color: #fff; font-size: 11px; font-weight: 900; line-height: 18px; text-align: center; border: 2px solid var(--panel, var(--bg)); }
+.bell-n[hidden] { display: none; }
+.nt-page .nt-tabs { margin: 6px 0 4px; }
+.nt-day { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.nt-list { display: flex; flex-direction: column; gap: 6px; }
+.nt-item { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--card); }
+.nt-item:hover { border-color: var(--accent); }
+.nt-item.new { background: color-mix(in srgb, var(--accent) 8%, var(--card)); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.nt-item.nt-remind { background: color-mix(in srgb, #ff9600 12%, var(--card)); border-color: color-mix(in srgb, #ff9600 50%, var(--border)); }
+.nt-ic { font-size: 24px; line-height: 1.1; flex: none; width: 30px; text-align: center; }
+.nt-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nt-body b { font-size: 14.5px; } .nt-body > span { font-size: 13.5px; color: var(--muted); overflow-wrap: anywhere; }
+.nt-body small { font-size: 12px; color: var(--faint, var(--muted)); }
+.nt-note { margin-top: 3px; align-self: flex-start; padding: 4px 10px; border-radius: 12px 12px 12px 4px; background: #fff3c4; color: #4a3500 !important; font-weight: 700; }
+.nt-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 12px; color: var(--muted); }
+.nt-side em { font-style: normal; font-weight: 800; color: var(--accent-text, var(--accent)); white-space: nowrap; }
+@media (max-width: 520px) { .nt-side em { display: none; } .bell-btn { width: 36px; height: 36px; } }
+@media (prefers-reduced-motion: reduce) { .bell-btn.has svg { animation: none; } }

@@ -63,7 +63,7 @@ def _registry():
         lab lab/bugs lab/bugs/check lab/bugs/explain lab/bugs/verify lab/unlock
         leaderboard learning/mistake learning/mistakes
         mcko mcko/file mcko/finish mcko/run mcko/save mcko/start
-        me open password profile profile/badges profile/look progress
+        me notices notices/read open password profile profile/badges profile/look progress
         pyc pyc/check pyc/help pyc/level pyc/unlock reveal sessions sessions/end
         solution support support/img support/reply support/seen
         together/history together/mine

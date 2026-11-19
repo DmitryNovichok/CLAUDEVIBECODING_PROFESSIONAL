@@ -2988,6 +2988,32 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.game_summary(db, sid2)["fire"], 5)
         self.assertEqual(self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 3})[1]["added"], 0)
 
+    def test_notices(self):
+        db = server.APP.db
+        tok = self.login("Уведомлялкин Ульян")
+        me = self.req("GET", "/api/me", token=tok)[1]
+        sid = me["sid"]
+        tok2 = self.login("Дарителев Денис")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        now = time.time()
+        db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, note) VALUES(?, 'teddy', ?, ?, 'Привет!')", (sid, now - 30, sid2))
+        db.x("INSERT INTO gifts(student_id, gift, ts, from_sid) VALUES(?, 'cookie', ?, ?)", (sid, now - 20, sid))      # купил себе — не уведомление
+        db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'grant', 'за олимпиаду', 0)", (sid, now - 10, 30))
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'gift')", (sid, now - 5, -10))                   # своя покупка — нет
+        pid = db.x("INSERT INTO support(student_id, ts, kind, text) VALUES(?,?, 'bug', 'Не грузится')", (sid, now - 100))
+        db.x("INSERT INTO support_msgs(support_id, ts, who, text) VALUES(?,?, 'teacher', 'Починили')", (pid, now - 1))
+        st, d = self.req("GET", "/api/notices", token=tok)
+        self.assertEqual(st, 200, d)
+        self.assertEqual([x["k"] for x in d["items"]][:3], ["support", "coins", "gift"])
+        self.assertEqual(d["items"][2]["note"], "Привет!")
+        self.assertEqual(sum(1 for x in d["items"] if x["k"] == "gift"), 1)
+        self.assertEqual(d["read"], 0)
+        self.assertEqual(self.req("POST", "/api/notices/read", {}, tok)[0], 200)
+        self.assertGreater(self.req("GET", "/api/notices", token=tok)[1]["read"], now - 5)
+        self.assertEqual(self.req("GET", "/api/notices")[0], 401)
+        # чужие уведомления не видны
+        self.assertFalse(any(x.get("note") == "Привет!" for x in self.req("GET", "/api/notices", token=tok2)[1]["items"]))
+
     def test_profile_look(self):
         db = server.APP.db
         tok = self.login("Оформлялкин Остап")

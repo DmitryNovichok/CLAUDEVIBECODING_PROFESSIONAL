@@ -2107,7 +2107,8 @@ class DB(Transactional):
                     ("students", "course_ts", "REAL"),
                     ("students", "is_teacher", "INTEGER DEFAULT 0"),
                     ("students", "badges", "TEXT"),
-                    ("students", "look", "TEXT"),            # оформление профиля: баннер, подарок-аватарка, витрина (JSON)
+                    ("students", "look", "TEXT"),
+                    ("students", "notice_read", "REAL"),     # когда ученик последний раз открывал «Уведомления»            # оформление профиля: баннер, подарок-аватарка, витрина (JSON)
                     ("assignments", "strict", "INTEGER DEFAULT 0"),   # контрольная: одна попытка, результат — после сдачи
                     ("assignments", "closed", "REAL"),                # учитель завершил контрольную для всех
                     ("assignments", "grading", "TEXT"),              # пороги оценки в процентах {"5": 85, "4": 65, "3": 45}
@@ -4627,6 +4628,19 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                            ORDER BY created DESC, id DESC LIMIT 60""", (s["id"],))
             mine = [tog_public(db, r, s["id"]) for r in rows]
             return self.send_json({"sessions": mine})
+
+        if path in ("/api/notices", "/api/notices/read"):
+            # «Уведомления»: всё, что раньше только всплывало, — подарки, монеты, ответы техподдержки, новые подборки
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            if path == "/api/notices/read":
+                if method != "POST":
+                    return self.err(405, "нужен POST")
+                db.x("UPDATE students SET notice_read=? WHERE id=?", (time.time(), s["id"]))
+                return self.send_json({"ok": True})
+            read = (db.q("SELECT notice_read FROM students WHERE id=?", (s["id"],), one=True) or {})["notice_read"] or 0
+            return self.send_json({"items": notices_of(db, s), "read": read})
 
         if path in ("/api/profile", "/api/profile/badges", "/api/profile/look"):
             # профиль ученика: награды и достижения. Смотреть можно своих и учеников того же учителя
@@ -9117,6 +9131,51 @@ PROFILE_BANNERS = [
 ]
 PROFILE_BANNER_BY = {b[0]: b for b in PROFILE_BANNERS}
 PROFILE_SHOW_MAX = 4                     # подарков в витрине профиля
+
+
+NOTICE_DAYS = 60                         # «Уведомления» — за столько дней
+NOTICE_MAX = 150
+NOTICE_COIN = {"grant", "take", "support", "storage", "stipend", "bidback", "msell", "class", "duel"}
+
+
+def notices_of(db, s):
+    """Лента уведомлений ученика, новые сверху: [{k, ts, ic, title, text, go, id}]. Собирается из того, что уже хранится."""
+    sid, since, out = s["id"], time.time() - NOTICE_DAYS * 86400, []
+    for r in db.q("""SELECT g.id, g.gift, g.ts, g.note, g.from_sid, g.from_teacher, g.kind, g.uniq, st.name AS sname FROM gifts g
+                     LEFT JOIN students st ON st.id = g.from_sid
+                     WHERE g.student_id=? AND g.ts>? AND g.market_from IS NULL
+                       AND (g.from_teacher IS NOT NULL OR g.kind='work' OR COALESCE(g.from_sid, 0) != ?)""", (sid, since, sid)):
+        g = GIFT_BY.get(r["gift"])
+        if not g:
+            continue
+        who = "от учителя" if r["from_teacher"] else "за труд — 25 решённых заданий" if r["kind"] == "work" else \
+            f"от {short_name(r['sname'])}" if r["sname"] else ""
+        out.append({"k": "gift", "ts": r["ts"], "ic": g[1], "title": f"Подарок {who}".strip(), "text": g[2], "note": r["note"] or "",
+                    "go": "gift", "id": r["id"]})
+    for r in db.q("""SELECT id, ts, delta, reason, note FROM coins WHERE student_id=? AND ts>? AND reason IN (%s)"""
+                  % ",".join("?" * len(NOTICE_COIN)), (sid, since, *NOTICE_COIN)):
+        rs, d, note = r["reason"], r["delta"], r["note"] or ""
+        if rs == "duel" and d <= 0:
+            continue
+        title, ic = {"grant": ("Учитель начислил монеты", "➕"), "take": ("Учитель снял монеты", "➖"),
+                     "support": ("Спасибо за помощь сайту", "🎁"), "storage": ("Плата за хранение монет", "📦"),
+                     "stipend": ("Стипендия из банка рынка", "🎓"), "bidback": ("Ставка вернулась", "🔨"),
+                     "msell": ("Твой подарок купили на рынке", "🏪"), "class": ("Битва классов", "🏆"),
+                     "duel": ("Выигрыш в дуэли", "⚔️")}[rs]
+        out.append({"k": "coins", "ts": r["ts"], "ic": ic, "title": title,
+                    "text": f"{'+' if d > 0 else '−'}{abs(d)} ₿" + (f" — {note}" if note else ""), "go": "coins", "id": r["id"]})
+    for r in db.q("""SELECT m.id, m.ts, m.text, p.id AS pid, p.text AS q FROM support_msgs m JOIN support p ON p.id = m.support_id
+                     WHERE p.student_id=? AND m.who='teacher' AND m.ts>?""", (sid, since)):
+        out.append({"k": "support", "ts": r["ts"], "ic": "💬", "title": "Ответ техподдержки",
+                    "text": (r["text"] or "картинка")[:220], "sub": (r["q"] or "")[:80], "go": "support", "id": r["pid"]})
+    if s["class_id"]:
+        for a in db.q("""SELECT id, title, created, due, kind, strict, batch FROM assignments
+                         WHERE class_id=? AND (student_id IS NULL OR student_id=?) AND created>?""", (s["class_id"], sid, since)):
+            kind = "Самостоятельная" if a["strict"] else "Работа над ошибками" if (a["batch"] or "").startswith("fix") else "Новая подборка"
+            out.append({"k": "asg", "ts": a["created"], "ic": "📝" if a["strict"] else "📚", "title": f"{kind} от учителя",
+                        "text": f"«{a['title']}»", "due": a["due"], "go": "asg", "id": a["id"]})
+    out.sort(key=lambda x: -x["ts"])
+    return out[:NOTICE_MAX]
 
 
 def look_of(db, sid):

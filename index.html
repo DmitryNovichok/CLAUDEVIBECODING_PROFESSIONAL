@@ -115,6 +115,7 @@ addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)
         </button>
         <button type="button" class="promo-pill" id="promoBtn" hidden><span aria-hidden="true">⚡</span><b id="promoTxt"></b></button>
         <button type="button" class="coin-pill" id="coinCard" title="Монеты и подарки" hidden><span class="btc" aria-hidden="true">₿</span><b id="coinNum">0</b></button>
+        <button type="button" class="bell-btn" id="bellBtn" hidden aria-label="Уведомления" title="Уведомления: подарки, монеты, ответы техподдержки, подборки и напоминания"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3a6 6 0 0 0-6 6v3.6l-1.6 2.7A1 1 0 0 0 5.3 17h13.4a1 1 0 0 0 .9-1.7L18 12.6V9a6 6 0 0 0-6-6z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg><b class="bell-n" id="bellN" hidden></b></button>
         <div class="who" id="who" hidden>
           <button type="button" class="ava" id="avaBtn" aria-haspopup="true" aria-expanded="false" title="Профиль"><span id="avaTxt"></span></button>
           <div class="who-menu" id="whoMenu" hidden>
@@ -179,7 +180,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
       <details class="py-stdin"><summary>Ввод для input()</summary><textarea class="inp" id="pyIn" rows="3" spellcheck="false" placeholder="Каждая строка — один вызов input()"></textarea></details>
       <span class="py-links">
         <button type="button" class="link-btn" id="pyLoad">Открыть .py</button>
-        <button type="button" class="link-btn" id="pyAttach" title="Учитель увидит этот код в журнале рядом с ответом">Прикрепить решение</button>
+        <span class="py-att" id="pyAttach" role="status" title="Код из этого окна сам прикрепляется к заданию, когда ты проверяешь ответ. Учитель увидит его в журнале рядом с ответом">📎 прикрепится при проверке</span>
         <input type="file" id="pyFile" accept=".py,.txt" hidden>
       </span>
     </div>

@@ -4158,6 +4158,7 @@
     $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
+    noticesLoad();
     promoUpdate(me.promo);
     const local = readJSON(prefsKey());
     prefs = normPrefs(me.prefs || local);
@@ -5113,7 +5114,7 @@
   // Настоящий CPython (Pyodide) в отдельном потоке: math, itertools, functools, ipaddress, re, string, collections…
   // Файлы задания лежат рядом с кодом — open('17.txt') работает. Черепашка для №6 рисует на холсте.
   const PY_BTN = '<button type="button" class="icon-btn py-btn" id="pyBtn" title="Решить на Python прямо здесь">Python</button>';
-  const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null };
+  const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null, attTimer: null, sent: {} };   // sent: задание → прикреплённый код
   const pyOpen = () => !$('#pyDock').hidden;
   const pyTaskNow = () => (courseShown && pageKind === 'pyc' ? PYC_PY
     : (examShown && EX ? byId.get((EX.items[EX.cur] || {}).id) : cur && cur.task)) || null;
@@ -5235,7 +5236,8 @@
     clearTimeout(PY.saveTimer); PY.saveTimer = null;
     if (PY.task && $('#pyCode')) writeCode(PY.task.id, $('#pyCode').value);
     if (PY.worker) PY.worker.terminate();
-    Object.assign(PY, { worker: null, ready: false, running: false, task: null });
+    clearTimeout(PY.attTimer);
+    Object.assign(PY, { worker: null, ready: false, running: false, task: null, sent: {} });
     resetLearningSession();
     for (const id of ['pyCode', 'pyIn', 'labCode', 'labStdin']) if ($('#' + id)) $('#' + id).value = '';
     for (const id of ['pyOut', 'pyFiles', 'pyTask', 'labOutput', 'labVariables', 'labStack', 'labTraceCode', 'bugRoot'])
@@ -5351,11 +5353,11 @@
     $('#pyFiles').innerHTML = files.length
       ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ')
       : (t.att || []).length ? 'Файлы этого задания лежат на другом сайте — скачайте их кнопкой под условием.' : '';
-    $('#pyAttach').textContent = 'Прикрепить решение';
+    pyAttState(PY.sent[t.id] != null ? 'ok' : 'wait');
     $('#pyAttach').hidden = !SERVER || !student || !!t.pyc;     // в курсе программирования код уходит вместе с ответом
     let code = readCode(t.id);
     if (code == null && SERVER && student && !t.pyc) {
-      try { const r = await api('solution?task=' + encodeURIComponent(t.id)); if (r.code) { code = r.code; $('#pyAttach').textContent = 'Решение прикреплено ✓'; } } catch (e) { /* нет решения */ }
+      try { const r = await api('solution?task=' + encodeURIComponent(t.id)); if (r.code) { code = r.code; PY.sent[t.id] = r.code; pyAttState('ok'); } } catch (e) { /* нет решения */ }
       if (!PY.task || PY.task.id !== t.id) return;   // пока ждали, ученик ушёл на другое задание
     }
     $('#pyCode').value = code != null ? code : pyStarter(t);
@@ -5811,10 +5813,15 @@
   $('#pyCode').addEventListener('input', () => {
     updateGutter();
     if (!PY.running && PY.ran != null && $('#pyOut').textContent) pyStale($('#pyCode').value !== PY.ran);
-    $('#pyAttach').textContent = 'Прикрепить решение';
     clearTimeout(PY.saveTimer);
     const t = PY.task;
     PY.saveTimer = setTimeout(() => { if (t) writeCode(t.id, $('#pyCode').value); }, 500);
+    // решение уже прикреплено (ответ проверяли) — правки прикрепятся сами, когда ученик перестанет печатать
+    clearTimeout(PY.attTimer);
+    if (t && PY.sent[t.id] != null && $('#pyCode').value !== PY.sent[t.id]) {
+      pyAttState('edit');
+      PY.attTimer = setTimeout(() => { if (PY.task === t) autoAttach(t.id); }, 6000);
+    } else if (t && PY.sent[t.id] != null) pyAttState('ok');
   });
   $('#pyCode').addEventListener('scroll', syncScroll);
   // курсор переехал — пересчитать подсветку парной скобки
@@ -5833,26 +5840,24 @@
     $('#pyCode').value = await f.text();
     $('#pyCode').dispatchEvent(new Event('input'));
   });
-  $('#pyAttach').addEventListener('click', async () => {
-    const t = PY.task;
-    if (!t || !SERVER) return;
-    const code = $('#pyCode').value;
-    if (!code.trim()) { toast('Сначала напишите решение'); return; }
-    try {
-      await api('solution', { task: t.id, code });
-      $('#pyAttach').textContent = 'Решение прикреплено ✓';
-      toast('Решение прикреплено — учитель увидит его в журнале рядом с ответом.', 3500);
-    } catch (e) { netError(e); }
-  });
+  /** Подпись вместо кнопки «Прикрепить решение»: решение прикрепляется само при проверке ответа. */
+  function pyAttState(st) {
+    const el = $('#pyAttach');
+    if (!el) return;
+    el.className = 'py-att ' + st;
+    el.textContent = st === 'ok' ? '📎 Решение прикреплено ✓' : st === 'edit' ? '📎 Изменения прикрепятся сами…' : '📎 прикрепится при проверке';
+  }
 
   /** Код из редактора Python к этому заданию — прикрепить как решение (при «Сдать ответ»). true — прикрепили. */
   async function autoAttach(tid) {
     if (!SERVER || !student || !tid) return false;
     const code = PY.task && PY.task.id === tid ? $('#pyCode').value : readCode(tid);
     if (!code || !code.trim()) return false;
+    if (PY.sent[tid] === code) return true;               // то же самое уже прикреплено — не дублируем в истории
     try {
       await api('solution', { task: tid, code });
-      if (PY.task && PY.task.id === tid) $('#pyAttach').textContent = 'Решение прикреплено ✓';
+      PY.sent[tid] = code;
+      if (PY.task && PY.task.id === tid && $('#pyCode').value === code) pyAttState('ok');
       return true;
     } catch (e) { return false; }
   }
@@ -7188,6 +7193,7 @@
     if (wkLive()) wkWatch();
     asgNotices();
     hubRefresh();
+    noticesLoad();                        // новая подборка и напоминания о сроках — в «Уведомлениях»
   }
   /** Напоминания: срок работы — сегодня или завтра; новая личная подборка (работа над ошибками, слабые места). */
   function asgNotices() {
@@ -9819,6 +9825,119 @@
   }
   function openMcko() { return openExamSection('mcko'); }
   function openIm() { return openExamSection('im'); }
+  // ═══════ src/app/12p-notices.js
+  // ------------------------------------------------------------ 🔔 уведомления ученика
+  // Всё, что раньше только всплывало (подарки, монеты, ответы техподдержки, новые подборки), хранится здесь:
+  // кнопка-колокольчик со счётчиком новых, окно со списком — любое можно открыть в любой момент.
+  // Напоминания о сроках подборок считаются здесь же, по «Подборкам» ученика.
+  let NOTICES = null, noticeTab = 'all', noticeTimer = 0;
+  const NOTICE_TABS = [['all', 'Все'], ['remind', '⏰ Напоминания'], ['asg', '📚 Подборки'], ['gift', '🎁 Подарки'], ['coins', '₿ Монеты'], ['support', '💬 Поддержка']];
+  const remindKey = () => `egeshka.remind.${student ? student.sid : ''}`;
+  /** Напоминания: подборки со сроком в ближайшие 2 дня (или уже просрочено сегодня), где ещё есть нерешённое. */
+  function noticeReminders() {
+    if (typeof ASG === 'undefined') return [];
+    const now = Date.now() / 1000;
+    return ASG.filter(a => !a.duel && !a.course && a.due && !asgFinished(a) && a.due - now < 2 * 86400 && a.due - now > -86400)
+      .map(a => {
+        const left = asgLeft(a).length, hrs = Math.round((a.due - now) / 3600);
+        if (!left) return null;
+        const when = hrs <= 0 ? 'срок уже прошёл' : hrs < 24 ? `осталось ${hrs} ${plural(hrs, 'час', 'часа', 'часов')}` : 'срок завтра';
+        return { k: 'remind', ts: Date.now() / 1000, ic: '⏰', title: `Не забудь: «${a.title}»`, text: `${when} · нерешённых заданий: ${left}`, go: 'asg', id: a.id, due: a.due };
+      }).filter(Boolean);
+  }
+  /** Сколько новых: уведомления после последнего открытия + напоминания, которые сегодня ещё не видел. */
+  function noticeUnread() {
+    if (!NOTICES) return 0;
+    let seenDay = '';
+    try { seenDay = localStorage.getItem(remindKey()) || ''; } catch (e) { /* не страшно */ }
+    const rem = seenDay === dayKey(Date.now()) ? 0 : noticeReminders().length;
+    return NOTICES.items.filter(x => x.ts > NOTICES.read).length + rem;
+  }
+  function noticeBadge() {
+    const b = $('#bellBtn'), n = $('#bellN');
+    if (!b) return;
+    b.hidden = !SERVER || !student || TEACHER;
+    const k = noticeUnread();
+    n.hidden = !k;
+    n.textContent = k > 99 ? '99+' : String(k);
+    b.classList.toggle('has', !!k);
+    b.setAttribute('aria-label', k ? `Уведомления: новых ${k}` : 'Уведомления');
+  }
+  /** Перезапросить ленту (пачку событий подряд — одним запросом). */
+  function noticesLoad(now) {
+    if (!SERVER || !student || TEACHER) return;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(async () => {
+      try { NOTICES = await api('notices'); } catch (e) { return; }
+      noticeBadge();
+      if ($('#forecastBody .nt-page')) renderNotices();
+    }, now ? 0 : 700);
+  }
+  const ntDay = ts => {
+    const d = new Date(ts * 1000), t = new Date(); t.setHours(0, 0, 0, 0);
+    if (d >= t) return 'Сегодня';
+    if (d >= new Date(t.getTime() - 864e5)) return 'Вчера';
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  };
+  const ntTime = ts => { const d = new Date(ts * 1000); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const ntDue = due => (due ? ` · срок до ${new Date(due * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}` : '');
+  const NT_GO = { gift: 'Открыть подарок', coins: 'Монеты', support: 'Открыть переписку', asg: 'К подборке' };
+  function renderNotices() {
+    const N = NOTICES || { items: [], read: 0 };
+    const rem = noticeReminders();
+    const all = rem.concat(N.items);
+    const list = noticeTab === 'all' ? all : all.filter(x => x.k === noticeTab);
+    const cnt = k => all.filter(x => x.k === k).length;
+    let day = '';
+    const rows = list.map(x => {
+      const d = x.k === 'remind' ? 'Напоминания' : ntDay(x.ts);
+      const head = d !== day ? `<h4 class="nt-day">${d}</h4>` : '';
+      day = d;
+      const fresh = x.k === 'remind' || x.ts > (N.shownRead != null ? N.shownRead : N.read);   // пока окно открыто — новые подсвечены
+      return `${head}<button type="button" class="nt-item nt-${x.k}${fresh ? ' new' : ''}" data-nt-go="${x.go}" data-nt-id="${x.id}">
+        <span class="nt-ic" aria-hidden="true">${esc(x.ic)}</span>
+        <span class="nt-body"><b>${esc(x.title)}</b><span>${esc(x.text)}${x.k === 'asg' ? esc(ntDue(x.due)) : ''}</span>
+          ${x.note ? `<span class="nt-note">💌 ${esc(x.note)}</span>` : ''}${x.sub ? `<small>на обращение: «${esc(x.sub)}»</small>` : ''}</span>
+        <span class="nt-side">${x.k === 'remind' ? '' : `<small>${ntTime(x.ts)}</small>`}<em>${NT_GO[x.go] || ''} →</em></span></button>`;
+    }).join('');
+    $('#forecastBody').innerHTML = `<div class="nt-page">
+      <h2 class="fm-title">🔔 Уведомления</h2>
+      <p class="fm-note">Здесь хранится всё, что приходит: подарки и сообщения к ним, монеты, ответы техподдержки, новые подборки и напоминания о сроках — за последние 2 месяца.</p>
+      <div class="hist-filters nt-tabs">${NOTICE_TABS.map(([k, t]) => { const c = k === 'all' ? all.length : cnt(k); return (k === 'all' || c) ? `<button type="button" data-nt-tab="${k}" class="${noticeTab === k ? 'on' : ''}">${t}${k === 'all' ? '' : ` · ${c}`}</button>` : ''; }).join('')}</div>
+      <div class="nt-list">${rows || '<p class="fm-note">Пока ничего нет — уведомления появятся здесь.</p>'}</div></div>`;
+  }
+  async function openNotices() {
+    if (isNarrow()) setSideOpen(false);
+    noticeTab = 'all';
+    renderNotices();
+    $('#forecastModal').hidden = false;
+    if (!NOTICES) { noticesLoad(true); }
+    const was = NOTICES ? NOTICES.read : 0;
+    try { localStorage.setItem(remindKey(), dayKey(Date.now())); } catch (e) { /* не страшно */ }
+    try { await api('notices/read', {}); } catch (e) { return; }
+    // новые подсвечены, пока окно открыто; счётчик гаснет сразу
+    if (NOTICES) { NOTICES = Object.assign({}, NOTICES, { read: Date.now() / 1000, shownRead: was }); }
+    const b = $('#bellN'); if (b) b.hidden = true;
+    $('#bellBtn')?.classList.remove('has');
+  }
+  $('#bellBtn')?.addEventListener('click', openNotices);
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#forecastBody .nt-page')) return;
+    const tb = e.target.closest('[data-nt-tab]');
+    if (tb) { noticeTab = tb.dataset.ntTab; renderNotices(); return; }
+    const it = e.target.closest('[data-nt-go]');
+    if (!it) return;
+    const go = it.dataset.ntGo, id = +it.dataset.ntId;
+    closeForecast();
+    if (go === 'gift') openGifts(undefined, id, 'mine');
+    else if (go === 'coins') openGifts(undefined, undefined, 'shop');
+    else if (go === 'support') openSupport('auto');
+    else if (go === 'asg') {
+      const a = typeof ASG !== 'undefined' && ASG.find(x => x.id === id);
+      if (a && !asgFinished(a) && asgLeft(a).length && !a.strict) setScope('asg', id);
+      else openAssignments();
+    }
+  });
   // ═══════ src/app/13-live.js
   // ------------------------------------------------------------ живые обновления (SSE)
   /* Сервер сам сообщает «поменялось»: comp — дуэли и турниры, asg — подборки от учителя, support — ответ техподдержки,
@@ -9926,10 +10045,10 @@
         if (wkLive()) wkRefresh(wkLive());           // пишешь самостоятельную — вдруг учитель её завершил
       }).catch(() => {});
     }
-    else if (topic === 'support') liveSupport();
+    else if (topic === 'support') { liveSupport(); noticesLoad(); }
     else if (topic === 'together') { togCheck(true); togHistory(false); }         // учитель позвал в общий сеанс (или завершил его)
     else if (topic === 'pyc') pycLive();
-    else if (topic === 'gift') giftLive();
+    else if (topic === 'gift') { giftLive(); noticesLoad(); }
     else if (topic === 'sound') {                    // учитель переключил звуки у класса
       api('me').then(me => { if (me.rules) Object.assign(RULES, me.rules); sndRules(true); }).catch(() => {});
     }
