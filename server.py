@@ -4230,6 +4230,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 rcpt = s if to == s["id"] else next((m for m in mates if m["id"] == to), None)
                 if not rcpt:
                     return self.err(404, "Дарить можно только себе и ученикам своего учителя")
+                # сообщение к подарку: видит только получатель (в профиле и Forbes его нет; при перепродаже стирается)
+                note = None if rcpt["id"] == s["id"] else (
+                    re.sub(r"\s+", " ", str(data.get("note") or "")).strip()[:GIFT_NOTE_MAX] or None)
                 now = time.time()
                 with _GIFT_LOCK:
                     if lim and not (limited_now(db) or {}).get("left"):
@@ -4250,8 +4253,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                         return self.err(400, f"Не хватает монет: нужно {price} ₿, у тебя {have} ₿")
                     # за сколько достался: из «🎲» — нынешняя цена выпавшего (а не коробки), иначе — заплаченное
                     paid = gift_price(g[0], e, gift_demand(db)) if box else price
-                    gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen, kind, paid) VALUES(?,?,?,?,?,?,?)",
-                               (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0, "box" if box else None, paid))
+                    gid = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, seen, kind, paid, note) VALUES(?,?,?,?,?,?,?,?)",
+                               (rcpt["id"], g[0], now, s["id"], 1 if rcpt["id"] == s["id"] else 0, "box" if box else None, paid, note))
                     db.x("INSERT INTO coins(student_id, ts, delta, reason, gift_id) VALUES(?,?,?, 'gift', ?)", (s["id"], now, -price, gid))
                     glog(db, "issue", gid, g[0], s["id"], price, "box" if box else "limited" if lim or hw else "shop", now)
                     if box:                                       # «🎲»: вся цена — в банк рынка (не сгорает)
@@ -7425,7 +7428,7 @@ HW_TIER_C = {"rare": ("#82b1ff", "#1a3a7a"), "epic": ("#b388ff", "#3a1670"), "le
 GIFT_BOX_PRICE = 60                    # «🎲 Случайный подарок»: выпадает любой, дорогие — реже (вес ∝ 1 / цена)
 GIFTS_SHOW = 5                         # сколько подарков видно у ника
 GIFTS_PER_DAY = 10 ** 9                # подарков в сутки: без ограничения (поле осталось для старых страниц)
-GIFT_NOTE_MAX = 80
+GIFT_NOTE_MAX = 120
 COINS_GRANT_MAX = 1000                 # монет за одно начисление учителем
 _GIFT_LOCK = STATE_LOCK          # проверка баланса, покупка и номер уникального подарка — одним шагом
 
@@ -8294,7 +8297,7 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
         return None
     names = {x["id"]: short_name(x["name"]) for x in db.q("SELECT id, name FROM students WHERE id IN (?, ?)", (buyer, r["student_id"]))}
     if not db.xn("""UPDATE gifts SET student_id=?, listed=NULL, listed_ts=NULL, auc_end=NULL, buy_now=NULL, bid_sid=NULL, bid_amt=NULL,
-                           bid_n=0, market_from=?, market_ts=?, first_sid=COALESCE(first_sid, ?), seen=?, paid=?
+                           bid_n=0, market_from=?, market_ts=?, first_sid=COALESCE(first_sid, ?), seen=?, paid=?, note=NULL
                     WHERE id=? AND student_id=? AND listed IS NOT NULL AND sold IS NULL""",
                  (buyer, r["student_id"], now, r["student_id"], seen, amount, r["id"], r["student_id"])):
         return None

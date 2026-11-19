@@ -2989,6 +2989,34 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.game_summary(db, sid2)["fire"], 5)
         self.assertEqual(self.admin("POST", "/api/admin/student/fire", {"id": sid2, "days": 3})[1]["added"], 0)
 
+    def test_gift_note(self):
+        db = server.APP.db
+        tok = self.login("Записков Захар")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        tok2 = self.login("Открывайкин Олег")
+        sid2 = self.req("GET", "/api/me", token=tok2)[1]["sid"]
+        db.x("INSERT INTO coins(student_id, ts, delta, reason) VALUES(?,?,?, 'grant')", (sid, time.time() - 600, 3000))
+        msg = "С днём   рождения!  " + "!" * 200
+        st, r = self.req("POST", "/api/gifts/buy", {"gift": "cookie", "to": sid2, "note": msg}, tok)
+        self.assertEqual(st, 200, r)
+        new = self.req("GET", "/api/me", token=tok2)[1]["gifts_new"]
+        note = new[0]["note"]
+        self.assertTrue(note.startswith("С днём рождения!"))           # пробелы схлопнуты
+        self.assertEqual(len(note), server.GIFT_NOTE_MAX)
+        # себе — без сообщения; в профиле получателя чужим сообщение не видно
+        self.assertEqual(self.req("POST", "/api/gifts/buy", {"gift": "cookie", "note": "себе"}, tok)[0], 200)
+        self.assertIsNone(db.q("SELECT note FROM gifts WHERE student_id=? ORDER BY id DESC LIMIT 1", (sid,), one=True)["note"])
+        gid = new[0]["id"]
+        st, prof = self.req("GET", f"/api/profile?sid={sid2}", token=tok)
+        if st == 200:
+            self.assertTrue(all("note" not in g for g in prof.get("gift_list", [])))
+        # перепродали на рынке — новый владелец сообщения не видит
+        row = db.q("SELECT * FROM gifts WHERE id=?", (gid,), one=True)
+        db.x("UPDATE gifts SET listed=10, listed_ts=? WHERE id=?", (time.time(), gid))
+        row = db.q("SELECT * FROM gifts WHERE id=?", (gid,), one=True)
+        server.auc_deal(db, row, sid, 10, time.time(), server.econ(db))
+        self.assertIsNone(db.q("SELECT note FROM gifts WHERE id=?", (gid,), one=True)["note"])
+
     def test_coins_and_gifts(self):
         db = server.APP.db
         tok = self.login("Монеткин Михаил")

@@ -9,6 +9,8 @@
   // Тираж уникальных каждого вида ограничен, проданный подарок сгорает; каждые 25 решённых — подарок.
   let GF = null;                          // магазин и свои подарки с сервера
   let gfTo = '';                          // кому дарим: '' — себе, иначе sid одноклассника
+  let gfNote = '';                        // сообщение к подарку однокласснику — его увидит только получатель
+  const GF_NOTE_MAX = 120;
   let gfTab = 'shop';                     // вкладка окна: shop, market, mine, forbes, log
   const gfDate = ts => { const d = new Date(ts * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`; };
   const gfMate = sid => (GF.mates.find(m => String(m.sid) === String(sid)) || {}).name || '';
@@ -354,6 +356,9 @@
     const who = gfTo ? gfMate(gfTo) : '';
     return `<div class="bx-who"><span>Кому</span>${who ? `<button type="button" class="bx-chip" data-bx-to="" title="Покупать себе">🎁 ${esc(who)} <i>✕</i></button>`
       : '<span class="bx-chip me">себе</span>'}</div>
+      ${who ? `<label class="bx-note"><span>💌 Сообщение к подарку <small>увидит только ${esc(who)}</small></span>
+        <textarea class="inp" id="bxNote" rows="2" maxlength="${GF_NOTE_MAX}" placeholder="Например: «С днём рождения!» или «Спасибо, что помог с №19»">${esc(gfNote)}</textarea>
+        <small class="bx-note-n" id="bxNoteN">${gfNote.length} / ${GF_NOTE_MAX}</small></label>` : ''}
       <div class="bx-find"><input class="inp" id="bxFind" type="search" placeholder="🔍 Найти одноклассника" autocomplete="off"
         enterkeyhint="done" value="${esc(gfFind)}"><div class="bx-found" id="bxFound">${foundHtml(G)}</div></div>`;
   }
@@ -454,10 +459,12 @@
     const who = gfTo ? gfMate(gfTo) : '';
     if (!g) return;
     try {
-      const r = await api('gifts/buy', { gift: id, to: gfTo ? +gfTo : null });
+      const note = gfTo ? gfNote.trim() : '';
+      const r = await api('gifts/buy', { gift: id, to: gfTo ? +gfTo : null, note: note || undefined });
       if (r.game) onGame(r.game);
       const got = GF.catalog.find(x => x.id === r.got) || g;
-      toast(who ? `🎁 ${got.i} ${got.t} — подарено: ${who}` : `🎁 ${got.i} ${got.t} — теперь у тебя`, 5000);
+      if (note) gfNote = '';
+      toast(who ? `🎁 ${got.i} ${got.t} — подарено: ${who}${note ? ' · с сообщением 💌' : ''}` : `🎁 ${got.i} ${got.t} — теперь у тебя`, 5000);
       await openGifts();
     } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось купить'); }
   }
@@ -523,16 +530,6 @@
   }
   /** «40+ — 15 ₿, 60+ — 30 ₿…» — бонусы за вариант ЕГЭ от меньшего балла к большему. */
   const examBtcTxt = G => G.exam_btc.slice().reverse().map(([low, b]) => `${low}+ — ${b} ₿`).join(', ');
-  function giftToast(g) {
-    const t = document.createElement('div');
-    t.className = 'ach-toast gift-toast';
-    const from = gfFrom(g);
-    t.innerHTML = `<span class="ach-icon">${g.uniq ? uniqTile(g, 'mini') : g.img ? giftImg(g.img) : esc(g.i)}</span><span><small>Тебе подарок${from && from !== 'купил себе' ? ' ' + esc(from) : ''}</small>
-      <b>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</b>${g.note ? `<small>«${esc(g.note)}»</small>` : ''}</span>`;
-    t.addEventListener('click', () => openGifts(undefined, g.id));
-    document.body.appendChild(t);
-    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 5200);
-  }
   /** Учитель начислил или снял монеты — короткое уведомление с причиной, один раз. */
   function coinNotify(list) {
     if (!list || !list.length || TEACHER) return;
@@ -545,13 +542,94 @@
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
   }
-  /** Новые подарки (от учителя или одноклассника) — карточкой в углу, один раз. */
+  /** Новые подарки (от учителя, одноклассника, за труд) — на весь экран коробками: открыл — подарок и сообщение к нему.
+      «Открыть всё» — все сразу. Просмотренными отмечаются, когда окно закрыли (не успел открыть — покажутся при следующем входе). */
+  let GO = null;                           // { list, open: Set(id) }
   function giftNotify(list) {
     if (!list || !list.length || TEACHER) return;
-    list.slice(0, 3).forEach((g, i) => setTimeout(() => giftToast(g), 700 + i * 1700));
-    if (list.length > 3) setTimeout(() => toast(`🎁 И ещё ${list.length - 3} — в «Монеты и подарки»`, 5000), 700 + 3 * 1700);
-    api('gifts/seen', { ids: list.map(g => g.id) }).catch(() => {});
+    if (GO) {
+      const add = list.filter(g => !GO.list.some(x => x.id === g.id));
+      if (add.length) { GO.list.push(...add); goRender(); }
+      return;
+    }
+    GO = { list: list.slice(), open: new Set() };
+    setTimeout(goRender, 500);
   }
+  const goFrom = g => { const f = gfFrom(g); return f && f !== 'купил себе' ? f : 'подарок'; };
+  function goCard(g) {
+    const one = GO.list.length === 1;
+    if (!GO.open.has(g.id)) {
+      return `<button type="button" class="go-card shut${one ? ' one' : ''}" data-go-open="${g.id}" aria-label="Открыть подарок ${esc(goFrom(g))}">
+        <span class="go-box" aria-hidden="true"><i class="go-lid"></i><i class="go-body"></i><i class="go-rib"></i><i class="go-bow">🎀</i></span>
+        <small>${esc(goFrom(g))}</small><span class="go-tap">Открыть</span></button>`;
+    }
+    return `<div class="go-card opened${one ? ' one' : ''}">
+      <span class="go-burst" aria-hidden="true">${Array.from({ length: 10 }, (_, k) => `<i style="--k:${k}"></i>`).join('')}</span>
+      <span class="go-gift">${gfTile(g, 76, 'big')}</span>
+      <b>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</b>
+      <small>${esc(goFrom(g))}</small>
+      ${g.note ? `<p class="go-msg"><span aria-hidden="true">💌</span>${esc(g.note)}</p>` : ''}</div>`;
+  }
+  function goRender() {
+    if (!GO) return;
+    let ov = $('#goOv');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'goOv';
+      ov.className = 'go-ov';
+      ov.setAttribute('role', 'dialog');
+      ov.setAttribute('aria-modal', 'true');
+      document.body.appendChild(ov);
+    }
+    const n = GO.list.length, shut = GO.list.filter(g => !GO.open.has(g.id)).length;
+    ov.setAttribute('aria-label', n > 1 ? `Тебе ${n} ${plural(n, 'подарок', 'подарка', 'подарков')}` : 'Тебе подарок');
+    ov.innerHTML = `<div class="go-wrap${n === 1 ? ' one' : ''}">
+      <h2>${n > 1 ? `🎁 Тебе ${n} ${plural(n, 'подарок', 'подарка', 'подарков')}!` : '🎁 Тебе подарок!'}</h2>
+      <p class="go-sub">${shut ? (n > 1 ? 'Нажми на коробку — или открой все сразу' : 'Нажми на коробку, чтобы открыть') : 'Все подарки — в «Монеты и подарки»'}</p>
+      <div class="go-grid">${GO.list.map(goCard).join('')}</div>
+      <div class="go-acts">${shut > 1 ? `<button type="button" class="btn primary" data-go-all>🎁 Открыть всё · ${shut}</button>` : ''}
+        ${shut === 1 && n === 1 ? '<button type="button" class="btn primary" data-go-all>🎁 Открыть</button>' : ''}
+        <button type="button" class="btn${shut ? ' ghost' : ' primary'}" data-go-close>${shut ? 'Позже' : 'Готово'}</button></div></div>`;
+    const f = ov.querySelector('[data-go-all]') || ov.querySelector('[data-go-close]');
+    if (f && !ov.contains(document.activeElement)) f.focus({ preventScroll: true });
+  }
+  /** Открыть коробки: крышка улетает, через миг — подарок и сообщение. */
+  function goOpen(ids) {
+    if (!GO) return;
+    const todo = ids.filter(id => !GO.open.has(id));
+    if (!todo.length) return;
+    todo.forEach(id => { const c = document.querySelector(`#goOv [data-go-open="${id}"]`); if (c) c.classList.add('opening'); });
+    const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setTimeout(() => { if (!GO) return; todo.forEach(id => GO.open.add(id)); goRender(); }, reduce ? 0 : 520);
+  }
+  function goClose() {
+    if (!GO) return;
+    const shut = GO.list.filter(g => !GO.open.has(g.id)).map(g => g.id);
+    const seen = GO.list.filter(g => GO.open.has(g.id)).map(g => g.id);
+    if (seen.length) api('gifts/seen', { ids: seen }).catch(() => {});
+    GO = null;
+    const ov = $('#goOv');
+    if (ov) ov.remove();
+    if (shut.length) toast(`🎁 Неоткрытые подарки (${shut.length}) — откроешь при следующем входе или в «Монеты и подарки»`, 4500);
+  }
+  document.addEventListener('click', e => {
+    if (!GO || !e.target.closest('#goOv')) return;
+    const o = e.target.closest('[data-go-open]');
+    if (o) { goOpen([+o.dataset.goOpen]); return; }
+    if (e.target.closest('[data-go-all]')) { goOpen(GO.list.map(g => g.id)); return; }
+    if (e.target.closest('[data-go-close]')) goClose();
+  });
+  document.addEventListener('keydown', e => {
+    if (!GO || !$('#goOv')) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); goClose(); return; }
+    if (e.key === 'Tab') {                            // фокус не уходит из окна
+      const f = [...document.querySelectorAll('#goOv button')];
+      if (!f.length) return;
+      const i = f.indexOf(document.activeElement);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+    }
+  }, true);
   /** Подарили или начислили монеты — уведомление и новый счёт сразу. */
   async function giftLive() {
     let me;
@@ -673,6 +751,7 @@
   }, true);
   document.addEventListener('input', e => {
     if (e.target.id === 'bxFind' && GF) { gfFind = e.target.value; $('#bxFound').innerHTML = foundHtml(GF); return; }
+    if (e.target.id === 'bxNote') { gfNote = e.target.value.slice(0, GF_NOTE_MAX); const n = $('#bxNoteN'); if (n) n.textContent = `${gfNote.length} / ${GF_NOTE_MAX}`; return; }
     if (!['mkPrice', 'mkBnOn'].includes(e.target.id) || !GF) return;
     const inp = $('#mkPrice'), on = ($('#mkBnOn') || {}).checked, el = $('#mkGet');
     const g = GF.mine.find(x => x.id === (gfSheet || {}).id);

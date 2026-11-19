@@ -2808,6 +2808,10 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
   color: var(--text); font: inherit; font-weight: 900; cursor: pointer; }
 .bx-chip.me { background: var(--card-hover); cursor: default; }
 .bx-chip i { font-style: normal; color: var(--muted); }
+.bx-note { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-weight: 800; font-size: 13.5px; }
+.bx-note > span small { font-weight: 600; color: var(--muted); margin-left: 6px; }
+.bx-note textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 54px; font: inherit; font-weight: 600; }
+.bx-note-n { align-self: flex-end; font-weight: 600; color: var(--faint, var(--muted)); font-size: 12px; }
 .bx-find { margin-top: 8px; } .bx-find .inp { width: 100%; box-sizing: border-box; }
 .bx-found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .bx-found:empty { display: none; }
 .bx-found button { padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 99px; background: var(--card); color: var(--text);
@@ -4436,3 +4440,52 @@ body.mkx-open { overflow: hidden; }
 }
 @media (prefers-reduced-motion: reduce) { .pad-ov, .pad, .pad-rw { animation: none; } }
 .sp-reward { padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, #f7931a 10%, var(--card)); }
+
+/* подарки получателю: коробки на весь экран → открыть → подарок и сообщение */
+.go-ov { position: fixed; inset: 0; z-index: 1300; display: grid; place-items: center; padding: 16px; box-sizing: border-box; overflow: auto;
+  background: radial-gradient(circle at 50% 35%, rgba(124, 77, 255, .55), rgba(12, 10, 30, .82) 70%); backdrop-filter: blur(5px); animation: goIn .3s ease-out; }
+@keyframes goIn { from { opacity: 0; } }
+.go-wrap { width: min(860px, 100%); text-align: center; color: #fff; }
+.go-wrap h2 { margin: 0 0 4px; font-size: clamp(24px, 4vw, 34px); text-shadow: 0 3px 14px rgba(0, 0, 0, .35); }
+.go-sub { margin: 0 0 18px; opacity: .85; font-weight: 700; }
+.go-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+.go-card { position: relative; width: 170px; min-height: 210px; box-sizing: border-box; padding: 14px 12px; border-radius: 22px; border: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font: inherit; color: #2a2140;
+  background: rgba(255, 255, 255, .96); box-shadow: 0 12px 34px rgba(0, 0, 0, .3); }
+.go-card.one { width: min(320px, 100%); min-height: 300px; }
+.go-card small { color: #6b5f86; font-weight: 700; }
+.go-card b { font-size: 16px; line-height: 1.25; }
+.go-card.shut { cursor: pointer; background: rgba(255, 255, 255, .12); color: #fff; box-shadow: none; outline: 2px dashed rgba(255, 255, 255, .35); outline-offset: -6px; }
+.go-card.shut small { color: #fff; opacity: .9; }
+.go-card.shut:hover .go-box, .go-card.shut:focus-visible .go-box { animation-duration: .5s; }
+.go-card.shut:focus-visible { outline: 3px solid #fbbf24; }
+.go-tap { margin-top: 2px; padding: 5px 14px; border-radius: 999px; background: #fbbf24; color: #3b2600; font-weight: 900; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.go-box { position: relative; width: 96px; height: 96px; animation: goWob 1.6s ease-in-out infinite; }
+.go-card.one .go-box { width: 140px; height: 140px; }
+@keyframes goWob { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(-7deg) translateY(-3px); } 30% { transform: rotate(6deg); } 45% { transform: rotate(-3deg); } 60% { transform: rotate(0); } }
+.go-box i { position: absolute; display: block; font-style: normal; }
+.go-body { left: 8%; right: 8%; bottom: 0; height: 62%; border-radius: 8px; background: linear-gradient(135deg, #ff5f7e, #c2185b); box-shadow: inset 0 -8px 0 rgba(0, 0, 0, .12); }
+.go-lid { left: 0; right: 0; top: 18%; height: 24%; border-radius: 8px; z-index: 2; background: linear-gradient(135deg, #ff7a93, #d81b60); box-shadow: 0 4px 0 rgba(0, 0, 0, .15); transition: transform .5s cubic-bezier(.3, -.4, .6, 1), opacity .5s; }
+.go-rib { left: 44%; width: 12%; top: 18%; bottom: 0; z-index: 3; background: #ffd54f; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .06); transition: opacity .3s; }
+.go-bow { left: 50%; top: 0; z-index: 4; font-size: 34px; line-height: 1; transform: translateX(-50%); transition: transform .5s, opacity .5s; }
+.go-card.one .go-bow { font-size: 48px; }
+.go-card.opening .go-box { animation: none; }
+.go-card.opening .go-lid { transform: translateY(-120%) rotate(-28deg); opacity: 0; }
+.go-card.opening .go-bow { transform: translate(-50%, -160%) rotate(40deg); opacity: 0; }
+.go-card.opening .go-rib { opacity: 0; }
+.go-card.opened { animation: goPop .45s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes goPop { from { transform: scale(.6); opacity: 0; } }
+.go-gift { display: grid; place-items: center; animation: goRise .6s ease-out; }
+.go-card.one .go-gift .bx-t.s76 .ug { width: 120px; height: 120px; border-radius: 28px; }
+.go-card.one .go-gift .bx-t.s76 .ug-ic { font-size: 70px; }
+@keyframes goRise { from { transform: translateY(18px) scale(.8); } }
+.go-msg { margin: 6px 0 0; padding: 8px 12px; border-radius: 14px 14px 14px 4px; background: #fff3c4; color: #4a3500; font-weight: 700; font-size: 14px;
+  line-height: 1.35; text-align: left; overflow-wrap: anywhere; display: flex; gap: 6px; animation: goPop .5s .25s both; }
+.go-burst { position: absolute; left: 50%; top: 40%; width: 0; height: 0; pointer-events: none; }
+.go-burst i { position: absolute; width: 8px; height: 8px; border-radius: 2px; background: hsl(calc(var(--k) * 36), 90%, 60%);
+  animation: goBurst .9s ease-out forwards; transform: rotate(calc(var(--k) * 36deg)) translateY(0); opacity: 1; }
+@keyframes goBurst { to { transform: rotate(calc(var(--k) * 36deg)) translateY(-90px); opacity: 0; } }
+.go-acts { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+.go-acts .btn.ghost { color: #fff; border-color: rgba(255, 255, 255, .5); background: transparent; }
+@media (max-width: 520px) { .go-card { width: calc(50% - 8px); min-height: 190px; } .go-card.one { width: 100%; } .go-grid { gap: 10px; } }
+@media (prefers-reduced-motion: reduce) { .go-ov, .go-box, .go-card.opened, .go-gift, .go-msg, .go-burst i { animation: none !important; } .go-burst { display: none; } }

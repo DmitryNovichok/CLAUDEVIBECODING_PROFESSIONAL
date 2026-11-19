@@ -21,12 +21,12 @@
       "source": "cacf110cb8849e777f28ff4a5c3b55e98906c83368c1608df2c1e37e958a9b81"
     },
     "app.js": {
-      "min": "69c5db29bc6e404c848b8032a1186474188adc78e0934725eedd5c0516afbd0b",
-      "source": "125b10ac05edd4ab5fbd76c1bcabf0519ffe589adc227ee4c27795214d138f1e"
+      "min": "337e1301ccbba642f953b504b5f04d0545fc397d250dcc4d16b82a2fd5814031",
+      "source": "40654732eae1b684b0e3acad8d5382bb8dd156e9ebf1e41bb5a45e38a2681f6f"
     },
     "changelog-loader.js": {
-      "min": "94c6f9501b6a46233bdbf10a602f2ee4f2556be90f8fb06b9a2a594541e4ef94",
-      "source": "51af23e17ed909084603ccb731d092b366e9712315b84ac55b35590c85366b0e"
+      "min": "4d7c88051cfe02b0f81762f321edad26bcb89824122ed842be704895fb5b5868",
+      "source": "9f138367f3b1bdaff703b9bdb2b45ec81d94f8c9f733d9a5f85f3a343faf4598"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "996556758be5122848838a9e83b76f512bd7bcc3c74311bae55fa85773c7059a",
-      "source": "ff64c43d15b4f35b8a6c8d7e13c54d37a977ad9729cae3be9893e035c63e7f42"
+      "min": "3f31a22430392ecfc39775bb5563034297fcce471a47368469d7bfc7d2517e2f",
+      "source": "fba737ebb395bab652b024624bbb6dc5a5f38c37fd37c7f946df73df07a70c61"
     },
     "teacher-gate.css": {
       "min": "6c5fc2585c5c22ff9f11e5f23bfeee929e47c97c5ae4cbcf823c7023d5ebe9bf",
