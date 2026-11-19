@@ -47,6 +47,29 @@ export function initAcademy(api){
   },1500);
  }
  const exchange=createExchange({api,lessons:allLessons,store,onProgress(){progress=store.read();sidebar();topbar();syncProgress();}});
+ // Прогресс с сервера: на другом компьютере, в очищенном браузере или после входа с телефона уроки остаются пройденными.
+ // Отметки только добавляются (сервер тоже ничего не стирает), потом общая сводка уходит обратно.
+ function pullProgress(){
+  if(!window.EGE_ARDUINO_REQUIRE_AUTH)return;
+  fetch('/api/arduino/progress',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
+   const tracks=d&&d.tracks;if(!tracks||typeof tracks!=='object')return;
+   const known=new Set(allLessons.map(l=>l.id));let changed=false;
+   progress=store.read();
+   for(const rows of Object.values(tracks)){
+    if(!Array.isArray(rows))continue;
+    for(const x of rows){
+     if(!Array.isArray(x)||!known.has(x[0]))continue;
+     const add={},have=progress[x[0]]||{};
+     if(x[2]&&!have.theory)add.theory=true;
+     if(x[3]&&!have.circuit)add.circuit=true;
+     if(x[4]&&!have.run)add.run=true;
+     if(Object.keys(add).length){try{progress=store.patch(x[0],add);changed=true}catch{}}
+    }
+   }
+   if(changed){progress=store.read();renderRoute();}
+   syncProgress();
+  }).catch(()=>{});
+ }
  const available=(index)=>unlocked(index,progress,lessons)||exchange.assigned(lessons[index]?.id);
  let selectedPart='wokwi-arduino-uno',catalogTab='boards',search='',category='Все',onlyWorking=false,activeLesson=api.getProject().lessonId||null,route='',lastCheck=null;
  let grade=localStorage.getItem('microlab.grade')==='senior'?'senior':'junior';
@@ -169,5 +192,5 @@ export function initAcademy(api){
  document.addEventListener('microlab-rendered',()=>{if(route==='lab'){if(activeLesson!==(api.getProject().lessonId||null)){chooseGrade(api.getProject().lessonId?.startsWith('hs-')?'senior':'junior');labDock();sidebar();topbar();}api.fit()}});
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('menu-open'))$('#sidebar .rail-close')?.click()});
  window.addEventListener('storage',e=>{const key=accountStorageEventKey(e.key);if(key===null||key?.startsWith('microlab.progress.')||key==='microlab.academy.v1'){persistProgress();if(route==='lab')labDock();if(route.startsWith('course'))course();}});
- syncProgress();window.addEventListener('hashchange',renderRoute);window.addEventListener('beforeunload',e=>{if(!api.persist()){e.preventDefault();e.returnValue=''}});renderRoute();
+ syncProgress();window.addEventListener('hashchange',renderRoute);window.addEventListener('beforeunload',e=>{if(!api.persist()){e.preventDefault();e.returnValue=''}});renderRoute();pullProgress();
 }

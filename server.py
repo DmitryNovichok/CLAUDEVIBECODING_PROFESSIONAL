@@ -3684,7 +3684,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             pyc_access=pyc_access, pyc_solved=pyc_solved, pyc_index=pyc_index,
             pyc_module=pyc_module, pyc_open_levels=pyc_open_levels,
             pyc_task=pyc_task, pyc_norm=pyc_norm,
-            arduino_clean=arduino_clean, arduino_save=arduino_save)
+            arduino_clean=arduino_clean, arduino_save=arduino_save, arduino_load=arduino_load)
 
     def learning_attempt_services(self):
         return LearningAttemptServices(
@@ -11442,8 +11442,34 @@ def arduino_clean(tracks):
     return out
 
 
+def arduino_merge(old, clean):
+    """Прогресс только прибавляется: отметка урока, которая уже была на сервере, остаётся, даже если пришла пустая сводка
+    (другой компьютер, очищенный браузер). Порядок уроков и названия — из новой сводки, уроки только из старой — в конце."""
+    out = {}
+    for k in ARDUINO_TRACKS:
+        prev = {x[0]: x for x in (old or {}).get(k) or [] if isinstance(x, list) and len(x) == 5}
+        rows = [[x[0], x[1], int(bool(x[2] or (prev.get(x[0]) or [0] * 5)[2])), int(bool(x[3] or (prev.get(x[0]) or [0] * 5)[3])),
+                 int(bool(x[4] or (prev.get(x[0]) or [0] * 5)[4]))] for x in clean.get(k) or []]
+        seen = {x[0] for x in rows}
+        rows += [list(x) for i, x in prev.items() if i not in seen]
+        out[k] = rows
+    return out
+
+
+def arduino_load(db, sid):
+    """Сохранённая сводка ученика {junior: [...], senior: [...]} или {}."""
+    r = db.q("SELECT data FROM arduino_progress WHERE student_id=?", (sid,), one=True)
+    try:
+        v = json.loads(r["data"]) if r and r["data"] else {}
+    except (ValueError, TypeError):
+        v = {}
+    return v if isinstance(v, dict) else {}
+
+
 def arduino_save(db, sid, clean):
-    """Сохраняет сводку; время «последней активности» двигается, только когда прогресс изменился."""
+    """Сохраняет сводку (вместе с тем, что уже было на сервере); время «последней активности» двигается, только когда
+    прогресс изменился."""
+    clean = arduino_merge(arduino_load(db, sid), clean)
     data = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
     done = {k: sum(1 for x in clean[k] if x[2] and x[3] and x[4]) for k in ARDUINO_TRACKS}
     steps = sum(x[2] + x[3] + x[4] for k in ARDUINO_TRACKS for x in clean[k])

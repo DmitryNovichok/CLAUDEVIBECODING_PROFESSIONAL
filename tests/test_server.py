@@ -5717,6 +5717,19 @@ class ServerTest(unittest.TestCase):
             self.assertIsNotNone(me["last"])
             st, d = self.admin("GET", f"/api/admin/arduino/student?id={sid}")
             self.assertEqual(d["tracks"]["junior"][1], {"id": "blink", "title": "Мигание", "theory": True, "circuit": False, "run": False})
+            # новый компьютер / очищенный браузер: пустая сводка не стирает пройденное, а страница забирает его с сервера
+            empty = {"tracks": {"junior": [[x[0], x[1], 0, 0, 0] for x in junior], "senior": []}}
+            self.assertEqual(self.req("POST", "/api/arduino/progress", empty, tok)[0], 200)
+            st, got = self.req("GET", "/api/arduino/progress", token=tok)
+            self.assertEqual(got["tracks"]["junior"][:2], [["first-light", "Первый свет", 1, 1, 1], ["blink", "Мигание", 1, 0, 0]])
+            more = {"tracks": {"junior": [["blink", "Мигание", 0, 1, 0]], "senior": []}}
+            self.req("POST", "/api/arduino/progress", more, tok)
+            got = self.req("GET", "/api/arduino/progress", token=tok)[1]["tracks"]["junior"]
+            self.assertIn(["blink", "Мигание", 1, 1, 0], got)
+            self.assertIn(["first-light", "Первый свет", 1, 1, 1], got)     # урока нет в сводке — остаётся с сервера
+            self.req("POST", "/api/arduino/progress", body, tok)            # вернуть порядок уроков для проверок ниже
+            server.APP.db.x("UPDATE arduino_progress SET data=?, updated=? WHERE student_id=?",
+                            (server.json.dumps(server.arduino_merge({}, server.arduino_clean(body["tracks"])), ensure_ascii=False, separators=(",", ":")), me["last"], sid))
             # тот же прогресс ещё раз — время активности не двигается
             last = me["last"]
             time.sleep(0.01)
