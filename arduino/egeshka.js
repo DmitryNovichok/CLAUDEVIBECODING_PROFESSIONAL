@@ -37,7 +37,7 @@
       if (started) {
         document.getElementById('egeGate').hidden = true;
         document.getElementById('appShell').hidden = false;
-      } else launch(me.sid);
+      } else { window.EGE_ARDUINO_TEACHER = !!me.teacher; launch(me.sid); }
     } catch (e) { showError('Не удалось проверить доступ. Проверь соединение и повтори.'); }
     finally { checking = false; clearTimeout(timer); }
   };
