@@ -83,12 +83,11 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">Все задания ЕГЭ</span>';
     trainerEl.innerHTML = `<div class="course">
       <div class="crs-hero">
-        <div><div class="crs-kicker">Курс Egeshka</div><h2>ЕГЭ по информатике: от №1 до №27</h2>
-          <p>Уроки идут по плану: от простых тем к сложным. В каждой теме — разбор метода, учебный пример и практика по уровням. Начни с теории, затем проверь себя на заданиях.</p></div>
+        <div><h2>ЕГЭ по информатике: от №1 до №27</h2>
+          <p>В каждой теме — разбор метода, пример и практика по уровням. Темы — по демоверсии ФИПИ ЕГЭ-2027.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
       </div>
       ${learningFormat}
-      <p class="fm-note">${courseCoverage ? `Номеров с подробным уроком: ${courseCoverage.full_count}; с кратким разбором: ${courseCoverage.guide_count}. №19–21 используют один общий урок. Архивные темы указаны отдельно.` : 'В курсе есть подробные уроки и краткие разборы. Формат каждой темы указан в списке.'} Это карта наполнения, а не оценка знаний.</p>
       ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
         <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>${m.archive ? '' : `Модуль ${i + 1}. `}${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
@@ -97,7 +96,7 @@
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
           return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
             <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
-            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · ${courseKind(n)} · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small title="${esc(courseKind(n))}">${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'}</small></span>
             <span class="crs-go">›</span></button>`;
         }).join('')}</div></section>`).join('')}
     </div>`;
@@ -255,7 +254,7 @@
       </div>` : '<p class="fm-note">Не удалось загрузить теорию. Открой тему ещё раз; практика ниже доступна.</p>';
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
-      <div class="crs-l-head"><span class="num-badge${badgeCls(n)}">${numLabel(n)}</span><div><div class="crs-kicker">${COURSE[mod].archive ? 'Архив · нет в КИМ ЕГЭ-2027' : `Модуль ${mod + 1} · ${esc(COURSE[mod].title)}`}</div>
+      <div class="crs-l-head"><span class="num-badge${badgeCls(n)}">${numLabel(n)}</span><div>${COURSE[mod].archive ? '<div class="crs-kicker">Архив · нет в КИМ ЕГЭ-2027</div>' : ''}
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
       ${learningFormat}
       ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
@@ -302,8 +301,7 @@
     $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(a.course)}</span><span class="scope-stats">${esc(st.name || '')}</span>`;
     trainerEl.innerHTML = `<div class="course">
       <button type="button" class="link-btn crs-back" data-lesson="${a.course}">← К уроку №${numLabel(a.course)}</button>
-      <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div><div class="crs-kicker">Подборка · ${total} заданий</div>
-        <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
+      <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div>        <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
         <div class="crs-set-prog"><b>${done}</b><span>из ${total}</span><i class="xp-bar"><b style="width:${total ? pct(done / total) : 0}%"></b></i></div></div>
       <div class="crs-legend"><span class="ok">✓ верно: ${done}</span><span class="bad">✗ с ошибкой: ${nBad}</span><span>не начато: ${total - done - nBad}</span></div>
       <button type="button" class="btn primary crs-set-start" data-set-start="${esc(id)}">${done === total ? 'Решать заново' : done ? 'Продолжить с нерешённого' : 'Начать подборку'}</button>

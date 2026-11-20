@@ -517,18 +517,16 @@
       const band = bandOf(x.test);
       return `<div class="ap-card exh-card">
         <div class="ap-main">
-          <div class="ap-top"><span class="ap-ico exh-score band-${band}">${x.test}</span><div><span class="ap-kind">Вариант ЕГЭ</span>
-            <b>${apTime(x.finished).replace(/<[^>]+>/g, '')}</b><small>${x.items} заданий · время ${fmtClock(x.spent || 0)}</small></div></div>
-          <div class="ap-state">тестовый балл <b>${x.test}</b> · первичный ${x.primary} из 29 · полностью верно <b>${x.full}</b> из ${x.items}${x.blank ? ` · без ответа ${x.blank}` : ''}
-            ${x.id === bestId ? ' · <span class="chip good">лучший</span>' : ''}</div>
+          <div class="ap-top"><span class="ap-ico exh-score band-${band}">${x.test}</span><div><b>${apTime(x.finished).replace(/<[^>]+>/g, '')}</b><small>${x.items} заданий · время ${fmtClock(x.spent || 0)}</small></div></div>
+          <div class="ap-state" title="тестовый балл ${x.test}${x.blank ? ` · без ответа ${x.blank}` : ''}">первичный ${x.primary} из 29 · верно <b>${x.full}</b> из ${x.items}
+            ${bestId != null && x.id === bestId ? ' · <span class="chip good">лучший</span>' : ''}</div>
           <i class="xp-bar"><b style="width:${pct(x.primary / 29)}%"></b></i></div>
         <div class="ap-dates"><div><span>Начат</span><b>${apTime(x.started)}</b></div><div><span>Сдан</span><b>${apTime(x.finished)}</b></div></div>
         <div class="ap-btns"><button type="button" class="btn primary" data-exam-view="${x.id}">Разбор</button></div></div>`;
     };
     trainerEl.innerHTML = `<div class="course asg-page">
-      <div class="crs-hero"><div><div class="crs-kicker">Вариант ЕГЭ</div><h2>Мои варианты</h2>
-        <p>27 заданий, 3 ч 55 мин, проверка — в конце, как на экзамене. Здесь все сданные варианты: к любому можно вернуться,
-          посмотреть свои ответы и правильные (если над вариантом сидел 20+ минут) и перерешать ошибки.</p>
+      <div class="crs-hero"><div><h2>Мои варианты</h2>
+        <p>27 заданий, 3 ч 55 мин, проверка — в конце. Правильные ответы видны, если над вариантом сидел 20+ минут.</p>
         <div class="exh-go">${EX ? '<button type="button" class="btn primary" id="exhResume">Продолжить начатый вариант</button>'
           : '<button type="button" class="btn primary" id="exhNew">Начать новый вариант</button>'}</div></div>
         <div class="crs-prog">${L.length ? `<b>${L[0].test}</b><span>последний балл${best != null ? ` · лучший ${best}` : ''}</span>${examSpark(L)}` : '<b>0</b><span>вариантов пока нет</span>'}</div></div>

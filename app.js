@@ -1208,13 +1208,11 @@
     if (cl) meta.push(esc(cl));
     if (t.lv) meta.push(esc(t.lv));
     else if (t.r) meta.push(`<span title="Сложность ${t.r} из 5">${RANK_WORD[t.r]}</span>`);
-    if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
-    else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
+    // источник и год — в подсказке строки, а не отдельными фактами через «·» (unslop U6)
+    const about = [t.src ? t.src + (t.au ? ' (авторское)' : '') : BANKS.length > 1 ? bankTitle(t.bank) : '',
+      t.y && !(t.src || '').includes(String(t.y)) ? (t.dt ? 'добавлено ' + t.dt.split('-').reverse().join('.') : t.y + ' г.') : ''].filter(Boolean).join(' · ');
     const fb = (GAME && GAME.fire_bonus) || 0;      // огонёк: +1 % за день к опыту (сервер считает так же)
     if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${xpNum(t.n)} XP за №${numLabel(t.n)}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}${fb ? ` и +${fb}% за огонёк` : ''}">+${fb ? Math.floor(xpFor(t) * (100 + fb) / 100 + 0.5) : xpFor(t)} XP${fb ? ' 🔥' : ''}</span>`);
-    if (t.y && !(t.src || '').includes(String(t.y))) {
-      meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
-    }
     if (t.sn) meta.push(`<span class="sn-tag" title="Номер задания на сайте: назови его — его найдут поиском «#${t.sn}»">#${t.sn}</span>`);
     let { chip, line } = reasonHtml(t, cur.why);
     if (isOutdated(t)) {
@@ -1232,7 +1230,7 @@
         ${inCourseSet() ? '<button type="button" class="btn ghost crs-up" id="crsUpBtn" title="Вернуться к списку заданий подборки">← К подборке</button>' : ''}
         ${backStack.length && !wkLive() ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
         <span class="num-badge${badgeCls(t.n)}">${numLabel(t.n)}</span>
-        <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
+        <div class="task-meta"${about ? ` title="${esc(about)}"` : ''}>${meta.join('<span class="sep">·</span>')}</div>
         <span class="head-chips">${chip}</span>
         <span class="task-tools">
           ${PY_BTN}
@@ -2869,8 +2867,7 @@
       }
       const rv = Object.keys(P.reviews).length;
       h = `<span class="scope-title">Все задания</span>
-        <span class="scope-stats">${total} в банке · решено ${solved}${a ? ` · точность ${pct(ok / a)}%` : ''}</span>
-        <span class="chip good">освоено номеров: ${mastered} из ${present}</span>
+        <span class="scope-stats" title="${total} заданий в банке · решено ${solved} · освоено номеров: ${mastered} из ${present}">${a ? `точность ${pct(ok / a)}%` : `решено ${solved}`}</span>
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
     } else if (ui.scope === 'asg' && asgOf(ui.asg)) {
       const a = asgOf(ui.asg);
@@ -2891,7 +2888,7 @@
       const st = numStats(n);
       const rv = reviewsOf(n).length;
       h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + numLabel(n)}</span>${ARCHIVE[n] ? '<span class="scope-stats">архив · нет в КИМ ЕГЭ-2027</span>' : ''}
-        <span class="scope-stats">${counts[n]} в банке · решено ${st.solved}${st.acc != null ? ` · точность ${pct(st.acc)}%` : ''}</span>
+        <span class="scope-stats" title="${counts[n]} в банке · решено ${st.solved}">${st.acc != null ? `точность ${pct(st.acc)}%` : `решено ${st.solved}`}</span>
         <span class="chip ${st.lvl === 'none' ? '' : st.lvl}">${LEVEL_TEXT[st.lvl]}${st.s && st.s.a ? ` · ${pct(st.s.m)}%` : ''}</span>
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
     }
@@ -3255,9 +3252,8 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">История</span>';
     document.body.classList.add('asg-wide');
     trainerEl.innerHTML = `<div class="course asg-page hist-page">
-      <div class="crs-hero"><div><div class="crs-kicker">История</div><h2>Мои задания</h2>
-        <p>Все твои ответы по порядку. «Открыть» — решить задание ещё раз. Уже решённое перерешивается для тренировки:
-          без опыта, огонька, серии и достижений. Самостоятельные — на странице «Задания от учителя», варианты — в «Моих вариантах».</p></div>
+      <div class="crs-hero"><div><h2>Мои задания</h2>
+        <p>Повторное решение — для тренировки: без опыта, огонька и серии. Самостоятельные — в «От учителя», варианты — в «Мои варианты».</p></div>
         <div class="crs-prog"><b>${today.length}</b><span>${plural(today.length, 'ответ', 'ответа', 'ответов')} сегодня · ошибок всего ${bad}</span></div></div>
       <div class="hist-filters">
         ${[['all', 'Все'], ['asg', `📚 Подборки от учителей${asgN ? ` · ${asgN}` : ''}`], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
@@ -3797,18 +3793,16 @@
       const band = bandOf(x.test);
       return `<div class="ap-card exh-card">
         <div class="ap-main">
-          <div class="ap-top"><span class="ap-ico exh-score band-${band}">${x.test}</span><div><span class="ap-kind">Вариант ЕГЭ</span>
-            <b>${apTime(x.finished).replace(/<[^>]+>/g, '')}</b><small>${x.items} заданий · время ${fmtClock(x.spent || 0)}</small></div></div>
-          <div class="ap-state">тестовый балл <b>${x.test}</b> · первичный ${x.primary} из 29 · полностью верно <b>${x.full}</b> из ${x.items}${x.blank ? ` · без ответа ${x.blank}` : ''}
-            ${x.id === bestId ? ' · <span class="chip good">лучший</span>' : ''}</div>
+          <div class="ap-top"><span class="ap-ico exh-score band-${band}">${x.test}</span><div><b>${apTime(x.finished).replace(/<[^>]+>/g, '')}</b><small>${x.items} заданий · время ${fmtClock(x.spent || 0)}</small></div></div>
+          <div class="ap-state" title="тестовый балл ${x.test}${x.blank ? ` · без ответа ${x.blank}` : ''}">первичный ${x.primary} из 29 · верно <b>${x.full}</b> из ${x.items}
+            ${bestId != null && x.id === bestId ? ' · <span class="chip good">лучший</span>' : ''}</div>
           <i class="xp-bar"><b style="width:${pct(x.primary / 29)}%"></b></i></div>
         <div class="ap-dates"><div><span>Начат</span><b>${apTime(x.started)}</b></div><div><span>Сдан</span><b>${apTime(x.finished)}</b></div></div>
         <div class="ap-btns"><button type="button" class="btn primary" data-exam-view="${x.id}">Разбор</button></div></div>`;
     };
     trainerEl.innerHTML = `<div class="course asg-page">
-      <div class="crs-hero"><div><div class="crs-kicker">Вариант ЕГЭ</div><h2>Мои варианты</h2>
-        <p>27 заданий, 3 ч 55 мин, проверка — в конце, как на экзамене. Здесь все сданные варианты: к любому можно вернуться,
-          посмотреть свои ответы и правильные (если над вариантом сидел 20+ минут) и перерешать ошибки.</p>
+      <div class="crs-hero"><div><h2>Мои варианты</h2>
+        <p>27 заданий, 3 ч 55 мин, проверка — в конце. Правильные ответы видны, если над вариантом сидел 20+ минут.</p>
         <div class="exh-go">${EX ? '<button type="button" class="btn primary" id="exhResume">Продолжить начатый вариант</button>'
           : '<button type="button" class="btn primary" id="exhNew">Начать новый вариант</button>'}</div></div>
         <div class="crs-prog">${L.length ? `<b>${L[0].test}</b><span>последний балл${best != null ? ` · лучший ${best}` : ''}</span>${examSpark(L)}` : '<b>0</b><span>вариантов пока нет</span>'}</div></div>
@@ -6648,7 +6642,7 @@
       <div class="tour-top">${eloHtml()}${seasonHtml()}</div>
       <div class="tour-about-bar"><button type="button" class="btn ghost" id="tourAbout" aria-expanded="${TOUR_ABOUT}">ℹ️ О турнире</button>
         <span class="fm-muted">🏆 ${D.wins} ${plural(D.wins, 'победа', 'победы', 'побед')} в турнирах</span></div>
-      <div class="crs-hero tour-about"${TOUR_ABOUT ? '' : ' hidden'}><div><div class="crs-kicker">Турниры</div><h2>Как в футболе</h2>
+      <div class="crs-hero tour-about"${TOUR_ABOUT ? '' : ' hidden'}><div><h2>Турниры</h2>
         <p>Запишись в набор — как только наберутся все, турнир <b>начнётся сам</b>. Жеребьёвка по корзинам (по опыту) → <b>группы по 4</b>: каждый с каждым,
           победа — 3 очка, ничья — 1, «счёт» матча — сколько заданий решил каждый. Лучшие выходят в <b>плей-офф</b>: там при равном счёте проходит тот, кто решил быстрее, — как серия пенальти.
           Финал и матч за 3-е место. <b>Номера заданий выбирают участники голосованием</b> в наборе, а сложность растёт от этапа к этапу: в группах — попроще, в финале — самые трудные.
@@ -8698,7 +8692,7 @@
         text: 'Внизу главной — «Инструкция»: как устроен сайт, по шагам. А «Как работает Egeshka» подсветит разделы прямо на странице и объяснит каждый.',
         art: `<div class="sto-rec"><div class="rc-h">🧭 Внизу главной</div>
           ${row(0, 'Инструкция', 'вход, задания, курсы, вопросы', '📖')}${row(1, 'Как работает Egeshka', 'подсказки на главной', '💡')}${row(2, 'Техподдержка', 'ответ придёт туда же', '💬')}</div>` },
-      { cls: 's5', ico: '✨', head: 'Ещё', title: 'Мелочи, но приятно',
+      { cls: 's5', ico: '✨', head: 'Ещё', title: 'Что ещё изменилось',
         text: 'Окно Python: границу между кодом и выводом можно тянуть. Забыл пароль — «Забыли пароль?» пришлёт ссылку на почту. А биткоины теперь называются монетами — значок ₿ и счёт те же.',
         art: `<div class="sto-rec"><div class="rc-h">✨ Что ещё изменилось</div>
           ${row(0, 'Окно Python', 'тяни границу кода и вывода', '↕')}${row(1, 'Пароль по почте', 'если указал почту', '🔑')}${row(2, 'Монеты', 'новое имя биткоинов', '₿')}</div>`,
@@ -8842,7 +8836,7 @@
         <div class="pad-body">
           <div class="pad-head"><span class="pad-ico" aria-hidden="true">🎁</span><div><small>Новое на Egeshka</small>
             <h2 id="padTitle">Монеты за помощь сайту</h2>
-            <p>Каждая полезная мелочь стоит монет: идея, найденная ошибка, предложение, как сделать удобнее или красивее. Даже самая маленькая.</p></div></div>
+            <p>Монеты дают за идею, найденную ошибку или предложение, как сделать удобнее или красивее, — даже за маленькие.</p></div></div>
           <div class="pad-grid">${cards}</div>
           <div class="pad-how"><h3>Как получить</h3><ol>
             <li><b>Открой «🛟 Техподдержку»</b> — внизу главной.</li>
@@ -9902,7 +9896,7 @@
     }).join('');
     $('#forecastBody').innerHTML = `<div class="nt-page">
       <h2 class="fm-title">🔔 Уведомления</h2>
-      <p class="fm-note">Здесь хранится всё, что приходит: подарки и сообщения к ним, монеты, ответы техподдержки, новые подборки и напоминания о сроках — за последние 2 месяца.</p>
+      <p class="fm-note">За последние 2 месяца.</p>
       <div class="hist-filters nt-tabs">${NOTICE_TABS.map(([k, t]) => { const c = k === 'all' ? all.length : cnt(k); return (k === 'all' || c) ? `<button type="button" data-nt-tab="${k}" class="${noticeTab === k ? 'on' : ''}">${t}${k === 'all' ? '' : ` · ${c}`}</button>` : ''; }).join('')}</div>
       <div class="nt-list">${rows || '<p class="fm-note">Пока ничего нет — уведомления появятся здесь.</p>'}</div></div>`;
   }

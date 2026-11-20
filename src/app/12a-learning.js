@@ -11,7 +11,7 @@
     slides[appState.DECK.n] = appState.deckI; learningMemory({ slides });
   }
   function learningSlide(n) { const i = (learningMemory().slides || {})[n]; return Number.isInteger(i) && i >= 0 ? i : 0; }
-  const learningFormat = '<p class="learning-format">Темы по утверждённой демоверсии ФИПИ ЕГЭ-2027. Архивная практика отмечена отдельно. Краткие примеры объясняют метод; полный формат и ограничения читай в условии задания.</p>';
+  const learningFormat = '';   // служебная заметка о формате тем убрана со страниц (unslop U5); источник тем — в шапке курса
   function learningLabContext() {
     return appState.pageKind === 'pyc' && PYC_L ? { kind: 'pyc', m: PYC_L.id, l: PYC_L.l, task: PYC_FOCUS,
       label: PYC_L.title, code: '', stdin: '' } : { kind: 'course', n: appState.DECK?.n, label: appState.DECK?.label || 'Урок ЕГЭ', code: '', stdin: '' };

@@ -431,13 +431,11 @@
     if (cl) meta.push(esc(cl));
     if (t.lv) meta.push(esc(t.lv));
     else if (t.r) meta.push(`<span title="Сложность ${t.r} из 5">${RANK_WORD[t.r]}</span>`);
-    if (t.src) meta.push(esc(t.src) + (t.au ? ' (авторское)' : ''));
-    else if (BANKS.length > 1) meta.push(esc(bankTitle(t.bank)));
+    // источник и год — в подсказке строки, а не отдельными фактами через «·» (unslop U6)
+    const about = [t.src ? t.src + (t.au ? ' (авторское)' : '') : BANKS.length > 1 ? bankTitle(t.bank) : '',
+      t.y && !(t.src || '').includes(String(t.y)) ? (t.dt ? 'добавлено ' + t.dt.split('-').reverse().join('.') : t.y + ' г.') : ''].filter(Boolean).join(' · ');
     const fb = (GAME && GAME.fire_bonus) || 0;      // огонёк: +1 % за день к опыту (сервер считает так же)
     if (!(P.tasks[t.id] || {}).c) meta.push(`<span class="xp-tag" title="Столько опыта за первое верное решение: ${t.n <= 10 ? '10 XP за №1–10' : `${xpNum(t.n)} XP за №${numLabel(t.n)}`}${(t.r || 1) > 1 ? ` и +${5 * ((t.r || 1) - 1)} за сложность` : ''}${fb ? ` и +${fb}% за огонёк` : ''}">+${fb ? Math.floor(xpFor(t) * (100 + fb) / 100 + 0.5) : xpFor(t)} XP${fb ? ' 🔥' : ''}</span>`);
-    if (t.y && !(t.src || '').includes(String(t.y))) {
-      meta.push(`<span title="${t.dt ? 'Добавлено ' + esc(t.dt.split('-').reverse().join('.')) : 'Год экзамена'}">${t.y} г.</span>`);
-    }
     if (t.sn) meta.push(`<span class="sn-tag" title="Номер задания на сайте: назови его — его найдут поиском «#${t.sn}»">#${t.sn}</span>`);
     let { chip, line } = reasonHtml(t, cur.why);
     if (isOutdated(t)) {
@@ -455,7 +453,7 @@
         ${inCourseSet() ? '<button type="button" class="btn ghost crs-up" id="crsUpBtn" title="Вернуться к списку заданий подборки">← К подборке</button>' : ''}
         ${backStack.length && !wkLive() ? '<button type="button" class="icon-btn back-btn" id="backBtn" title="Вернуться к предыдущему заданию" aria-label="Предыдущее задание">←</button>' : ''}
         <span class="num-badge${badgeCls(t.n)}">${numLabel(t.n)}</span>
-        <div class="task-meta">${meta.join('<span class="sep">·</span>')}</div>
+        <div class="task-meta"${about ? ` title="${esc(about)}"` : ''}>${meta.join('<span class="sep">·</span>')}</div>
         <span class="head-chips">${chip}</span>
         <span class="task-tools">
           ${PY_BTN}

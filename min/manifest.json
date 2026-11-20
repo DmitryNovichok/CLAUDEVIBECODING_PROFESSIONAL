@@ -17,16 +17,16 @@
       "source": "5a64bc435988c0053992b8e0e17face2e998974b7637c353e197c4cf0a4874f5"
     },
     "app-learning.js": {
-      "min": "00fd9f2ffa7f402200de5de39042b93da5e409bbbe601fd9ed21e53d8f2905c7",
-      "source": "cacf110cb8849e777f28ff4a5c3b55e98906c83368c1608df2c1e37e958a9b81"
+      "min": "a98c21ae996f60536f1864c950955110cfd0be780c78dfac66f14a4eee480d0c",
+      "source": "e57bba68e653aea2cefd59e59ee2e1ddf2b7c6dde8b4ffe0a4a3279576f55775"
     },
     "app.js": {
-      "min": "43586294477ba05879b3664e811fa3b07edef577d7ed3e7a2a31d76de173c9be",
-      "source": "24a04f1fafc26f418538808a21d2b773fabc48c2a493d92da22298e56190620a"
+      "min": "9e4c0628a318b351ad7115978d19984d6e598f05117c13efa42966dca3911f2b",
+      "source": "0be8e44fd4fdbad23e544b095999d80d5211176383158aec1aeb6212721f51df"
     },
     "changelog-loader.js": {
-      "min": "8d2c7fb4e70171257be20e8547449f4f36bca926650d048483b48ee504b042cd",
-      "source": "b174fe9532e139226196551b96f70633a9d6164b9e840d95ab00800d8d7eb1a1"
+      "min": "46eb956924b6f95f2dd9d9a449816194d0ded25b83687e5fce4deef927ff6608",
+      "source": "6d1ce8f9476bf5cebc6d2eb8d8e0d22e85a6f290fb2a89ebb14402abc898aa70"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",

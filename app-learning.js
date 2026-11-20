@@ -88,12 +88,11 @@ window.EgeLearningSections = function (bridge) {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">Все задания ЕГЭ</span>';
     trainerEl.innerHTML = `<div class="course">
       <div class="crs-hero">
-        <div><div class="crs-kicker">Курс Egeshka</div><h2>ЕГЭ по информатике: от №1 до №27</h2>
-          <p>Уроки идут по плану: от простых тем к сложным. В каждой теме — разбор метода, учебный пример и практика по уровням. Начни с теории, затем проверь себя на заданиях.</p></div>
+        <div><h2>ЕГЭ по информатике: от №1 до №27</h2>
+          <p>В каждой теме — разбор метода, пример и практика по уровням. Темы — по демоверсии ФИПИ ЕГЭ-2027.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
       </div>
       ${learningFormat}
-      <p class="fm-note">${courseCoverage ? `Номеров с подробным уроком: ${courseCoverage.full_count}; с кратким разбором: ${courseCoverage.guide_count}. №19–21 используют один общий урок. Архивные темы указаны отдельно.` : 'В курсе есть подробные уроки и краткие разборы. Формат каждой темы указан в списке.'} Это карта наполнения, а не оценка знаний.</p>
       ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
         <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>${m.archive ? '' : `Модуль ${i + 1}. `}${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
@@ -102,7 +101,7 @@ window.EgeLearningSections = function (bridge) {
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
           return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
             <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
-            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · ${courseKind(n)} · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small title="${esc(courseKind(n))}">${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'}</small></span>
             <span class="crs-go">›</span></button>`;
         }).join('')}</div></section>`).join('')}
     </div>`;
@@ -260,7 +259,7 @@ window.EgeLearningSections = function (bridge) {
       </div>` : '<p class="fm-note">Не удалось загрузить теорию. Открой тему ещё раз; практика ниже доступна.</p>';
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
-      <div class="crs-l-head"><span class="num-badge${badgeCls(n)}">${numLabel(n)}</span><div><div class="crs-kicker">${COURSE[mod].archive ? 'Архив · нет в КИМ ЕГЭ-2027' : `Модуль ${mod + 1} · ${esc(COURSE[mod].title)}`}</div>
+      <div class="crs-l-head"><span class="num-badge${badgeCls(n)}">${numLabel(n)}</span><div>${COURSE[mod].archive ? '<div class="crs-kicker">Архив · нет в КИМ ЕГЭ-2027</div>' : ''}
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
       ${learningFormat}
       ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
@@ -307,8 +306,7 @@ window.EgeLearningSections = function (bridge) {
     $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(a.course)}</span><span class="scope-stats">${esc(st.name || '')}</span>`;
     trainerEl.innerHTML = `<div class="course">
       <button type="button" class="link-btn crs-back" data-lesson="${a.course}">← К уроку №${numLabel(a.course)}</button>
-      <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div><div class="crs-kicker">Подборка · ${total} заданий</div>
-        <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
+      <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div>        <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
         <div class="crs-set-prog"><b>${done}</b><span>из ${total}</span><i class="xp-bar"><b style="width:${total ? pct(done / total) : 0}%"></b></i></div></div>
       <div class="crs-legend"><span class="ok">✓ верно: ${done}</span><span class="bad">✗ с ошибкой: ${nBad}</span><span>не начато: ${total - done - nBad}</span></div>
       <button type="button" class="btn primary crs-set-start" data-set-start="${esc(id)}">${done === total ? 'Решать заново' : done ? 'Продолжить с нерешённого' : 'Начать подборку'}</button>
@@ -398,7 +396,7 @@ window.EgeLearningSections = function (bridge) {
     slides[appState.DECK.n] = appState.deckI; learningMemory({ slides });
   }
   function learningSlide(n) { const i = (learningMemory().slides || {})[n]; return Number.isInteger(i) && i >= 0 ? i : 0; }
-  const learningFormat = '<p class="learning-format">Темы по утверждённой демоверсии ФИПИ ЕГЭ-2027. Архивная практика отмечена отдельно. Краткие примеры объясняют метод; полный формат и ограничения читай в условии задания.</p>';
+  const learningFormat = '';   // служебная заметка о формате тем убрана со страниц (unslop U5); источник тем — в шапке курса
   function learningLabContext() {
     return appState.pageKind === 'pyc' && PYC_L ? { kind: 'pyc', m: PYC_L.id, l: PYC_L.l, task: PYC_FOCUS,
       label: PYC_L.title, code: '', stdin: '' } : { kind: 'course', n: appState.DECK?.n, label: appState.DECK?.label || 'Урок ЕГЭ', code: '', stdin: '' };
@@ -539,9 +537,8 @@ window.EgeLearningSections = function (bridge) {
       ['extra', 'Дополнительная практика', 'Архивные форматы: полезны для программирования, но не заменяют актуальную тему экзамена']];
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование</span><span class="scope-stats">${done} из ${all} задач</span>`;
     trainerEl.innerHTML = `<div class="course pyc">
-      <div class="crs-hero pyc-hero"><div><div class="crs-kicker">Закрытый курс Egeshka</div><h2>Программирование для ЕГЭ</h2>
-        <p>Python от первой строчки до самых сложных номеров. Каждая тема — лестница уровней: короткая теория с примерами, которые можно запустить,
-          и задачи с проверкой ответа. В модуле «Python с нуля» есть учебные тесты кода на разных входных данных.</p></div>
+      <div class="crs-hero pyc-hero"><div><h2>Программирование для ЕГЭ</h2>
+        <p>Python от первой строчки до сложных номеров: теория с примерами, которые можно запустить, и задачи с проверкой ответа.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all} задач решено</span><i class="xp-bar"><b style="width:${all ? pct(done / all) : 0}%"></b></i></div></div>
       ${learningFormat}
       ${cont ? `<button type="button" class="crs-continue" data-pyc-lv="${cont.m.id}:${cont.li}"><span>▶</span><span>
@@ -583,8 +580,7 @@ window.EgeLearningSections = function (bridge) {
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование · ${esc(pycLabel(d))}</span><span class="scope-stats">уровень ${li + 1} из ${d.levels}</span>`;
     trainerEl.innerHTML = `<div class="course lesson pyc">
       <button type="button" class="link-btn crs-back" data-pyc-home>← К плану курса</button>
-      <div class="crs-l-head"><span class="pyc-mod-ic">${d.icon}</span><div><div class="crs-kicker">${esc(pycLabel(d))} · ${esc(d.title)}</div>
-        <h2>Уровень ${li + 1}. ${esc(lv.title)}</h2><small class="pyc-goal">${esc(lv.goal)}</small></div></div>
+      <div class="crs-l-head"><span class="pyc-mod-ic">${d.icon}</span><div>        <h2>Уровень ${li + 1}. ${esc(lv.title)}</h2><small class="pyc-goal">${esc(lv.goal)}</small></div></div>
       <div class="pyc-tabs">${m.levels.map((x, i) => `<button type="button" class="${i === li ? 'on' : ''}${i >= m.open ? ' lock' : ''}" data-pyc-lv="${mid}:${i}"
         ${i >= m.open ? 'disabled' : ''}>${i >= m.open ? '🔒 ' : ''}${i + 1}. ${esc(x.title)}</button>`).join('')}</div>
       ${has ? `<div class="fm-h">1. Теория · ${lv.slides.length} ${plural(lv.slides.length, 'слайд', 'слайда', 'слайдов')}</div>

@@ -180,7 +180,7 @@
       <div class="tour-top">${eloHtml()}${seasonHtml()}</div>
       <div class="tour-about-bar"><button type="button" class="btn ghost" id="tourAbout" aria-expanded="${TOUR_ABOUT}">ℹ️ О турнире</button>
         <span class="fm-muted">🏆 ${D.wins} ${plural(D.wins, 'победа', 'победы', 'побед')} в турнирах</span></div>
-      <div class="crs-hero tour-about"${TOUR_ABOUT ? '' : ' hidden'}><div><div class="crs-kicker">Турниры</div><h2>Как в футболе</h2>
+      <div class="crs-hero tour-about"${TOUR_ABOUT ? '' : ' hidden'}><div><h2>Турниры</h2>
         <p>Запишись в набор — как только наберутся все, турнир <b>начнётся сам</b>. Жеребьёвка по корзинам (по опыту) → <b>группы по 4</b>: каждый с каждым,
           победа — 3 очка, ничья — 1, «счёт» матча — сколько заданий решил каждый. Лучшие выходят в <b>плей-офф</b>: там при равном счёте проходит тот, кто решил быстрее, — как серия пенальти.
           Финал и матч за 3-е место. <b>Номера заданий выбирают участники голосованием</b> в наборе, а сложность растёт от этапа к этапу: в группах — попроще, в финале — самые трудные.
