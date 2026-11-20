@@ -677,7 +677,7 @@
         renderTopbar();
         toast(`❄️ Заморозка куплена. В запасе: ${(GAME && GAME.freezes) || 0} из ${FREEZE_MAX}`, 3500);
       } catch (x) { toast(x.message || 'Не получилось — попробуйте ещё раз', 3500); renderTopbar(); }
-      finally { if (!$('#forecastModal').hidden && $('.hub-streak')) hubFire(); }
+      finally { const hm = $('#hubFireMenu'); if (hm && !hm.hidden) hubFire(); }
       return;
     }
     const menu = $('#goalMenu');

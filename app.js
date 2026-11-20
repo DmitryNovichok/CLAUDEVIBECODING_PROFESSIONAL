@@ -3953,7 +3953,7 @@
         renderTopbar();
         toast(`❄️ Заморозка куплена. В запасе: ${(GAME && GAME.freezes) || 0} из ${FREEZE_MAX}`, 3500);
       } catch (x) { toast(x.message || 'Не получилось — попробуйте ещё раз', 3500); renderTopbar(); }
-      finally { if (!$('#forecastModal').hidden && $('.hub-streak')) hubFire(); }
+      finally { const hm = $('#hubFireMenu'); if (hm && !hm.hidden) hubFire(); }
       return;
     }
     const menu = $('#goalMenu');
@@ -10521,22 +10521,46 @@
       else if (k === 'level') openGame();
       else if (k === 'coins') $('#coinCard').click();
       else if (k === 'league') openRating('league');
-      else if (k === 'fire') hubFire();
+      else if (k === 'fire') { const m = $('#hubFireMenu'); if (m && !m.hidden) hubFireClose(); else hubFire(p); }
       else if (k === 'promo') openPromo();
       return;
     }
     const t = e.target.closest('[data-tile]');
     if (t) { const it = HUB_ACT.tiles[+t.dataset.tile]; if (it) it.go(); }
   });
-  function hubFire() {
+  /** Огонёк на главной — компактное окошко под кнопкой (как в верхней панели), а не отдельное окно. */
+  function hubFire(anchor) {
     const days = dayStreak(), k = hubTodayCount(), need = fireNeed();
-    $('#forecastBody').innerHTML = `<h2 class="fm-title">Огонёк</h2><div class="streak-menu hub-streak">${streakMenuHtml(days, k >= need, Math.max(0, need - k))}</div>
-      <p><button type="button" class="btn primary" id="hubFireGo">Решать задания</button></p>`;
-    $('#forecastModal').hidden = false;
+    let box = $('#hubFireMenu');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'hubFireMenu';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-label', 'Огонёк');
+      document.body.appendChild(box);
+    }
+    box.className = 'streak-menu hub-fire-pop' + fireCls(days);
+    box.innerHTML = streakMenuHtml(days, k >= need, Math.max(0, need - k))
+      + '<button type="button" class="btn primary btn-block hub-fire-go" id="hubFireGo">Решать задания</button>';
+    box.hidden = false;
+    const a = anchor || $('.hub-pill.fire-pill');
+    if (a) {
+      const r = a.getBoundingClientRect(), w = box.offsetWidth;
+      box.style.top = Math.round(r.bottom + 8) + 'px';
+      box.style.maxHeight = Math.max(240, Math.round(window.innerHeight - r.bottom - 24)) + 'px';
+      box.style.left = Math.round(Math.max(16, Math.min(r.right - w, window.innerWidth - w - 16))) + 'px';
+    }
   }
-  $('#forecastModal').addEventListener('click', e => {
-    if (e.target.closest('#hubFireGo')) { closeForecast(); setScope('all'); return; }
+  function hubFireClose() { const m = $('#hubFireMenu'); if (m) m.hidden = true; }
+  document.addEventListener('click', e => {
+    const m = $('#hubFireMenu');
+    if (!m || m.hidden) return;
+    if (e.target.closest('#hubFireGo')) { hubFireClose(); setScope('all'); return; }
+    if (!e.target.closest('#hubFireMenu, .hub-pill.fire-pill')) hubFireClose();
   });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hubFireClose(); });
+  window.addEventListener('resize', hubFireClose);
+  window.addEventListener('scroll', e => { if (!(e.target.closest && e.target.closest('#hubFireMenu'))) hubFireClose(); }, true);
   trainerEl.addEventListener('keydown', e => {
     if (!courseShown || pageKind !== 'hub' || (e.key !== 'Enter' && e.key !== ' ')) return;
     const t = e.target.closest('[data-tile]');
@@ -10546,6 +10570,7 @@
   // с главной ушли к заданиям — запись в истории браузера, чтобы «Назад» вернул на главную, а не увёл с сайта
   new MutationObserver(() => {
     if (courseShown && pageKind === 'hub') return;
+    hubFireClose();
     if (!hubLeft) return;
     hubLeft = false;
     document.body.classList.remove('hub-on');
