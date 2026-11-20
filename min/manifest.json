@@ -1,16 +1,16 @@
 {
   "files": {
     "admin-theme.css": {
-      "min": "408cf55d1c5d29891888ff93c9bdfac66cacfe01b5db6fbb0fa994af5ab5983b",
-      "source": "8866c0bb99d0b4e1c7e3d1ace14891a9132cc1a2703eb3e81387588375550d26"
+      "min": "b487d7611510eb96caf7d7cb70ae10c85ed09791cb74d06a021da7927e591856",
+      "source": "a9216f434c207a546667d72ed907832a18ee34b14aaf96456ed1195ab516a392"
     },
     "admin.css": {
-      "min": "7614026d12914b8cb5a9b6ae8fc6dbfce5a86a218cc146443c7467e4a4e608bf",
-      "source": "d64fecbbafb4bba62cd6cb3448472263777bc451ef212e82fe283ccd22d82dae"
+      "min": "2b840f4d99cb194d5168b5a3b46988bad36f63098b9149c7584ed977205cd549",
+      "source": "016eec5301b0171a4ab3e146b18dc5ccc86f28574bbd44848440688bbe443ef1"
     },
     "admin.js": {
-      "min": "7e1693f6909b6dedafeb01c5d5628fe0d11cdf7a40f99feb6c5742f40623945a",
-      "source": "4e1acde0b6662268cccb099e08821d19aa40f9561d856359a09b99a5db6960fa"
+      "min": "19147d12ca41a5b332813179a97ee89b52a83b8e020d159cca306ad402334677",
+      "source": "f06bb11c391d65e9da8178fafe72956090a6b11bc5448c2892b39c792dda3952"
     },
     "app-exams.js": {
       "min": "b75d54c2a7c0f0b6ff34b50971e2e636be1bc3bbb6dc08790fb27bacae63ec82",
@@ -25,8 +25,8 @@
       "source": "d9bf6e6c0bd6e16ade17da2eb0bcbb11d600a61d568d46307f3c03b18a9bbd49"
     },
     "changelog-loader.js": {
-      "min": "b0fd741bfaba1a1f9cd38baabe7f96cf28f8a7189ae05d33010332d9f7a36dac",
-      "source": "472d109300f0bf69438c851c98fc172927d7ac4bd825cd8122b3bce43bfe08a1"
+      "min": "d3c5cfd8b40985e097806129f4276afc29bddfe2d9146362566392e5050cc753",
+      "source": "ef812c5ac41e7aee45345710f968d834c98e6d7ea5f467836412a5fe83f32863"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -65,8 +65,8 @@
       "source": "9c1346143cea55f60b197a41a6d08ecd066ce521ff59a1dc4bccbb4fe4e0d0bb"
     },
     "teacher-gate.css": {
-      "min": "6c5fc2585c5c22ff9f11e5f23bfeee929e47c97c5ae4cbcf823c7023d5ebe9bf",
-      "source": "b0df407307bc30110f29e98f544673260e724714c0970057e1fa2709cb31732a"
+      "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",
+      "source": "894bcb384213b86b7fe86889b727a450c3102c1af02a2bd933f73fc4b9a685b8"
     },
     "teacher-gate.js": {
       "min": "8b8c91bed9bdd71dfef677a47b9b8845a579a9e688dfde057787e593c29b8ae1",

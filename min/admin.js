@@ -11,7 +11,7 @@
       <p class="steps-progress">${d}</p>
       <ol class="steps-list">
         ${l(1,e.class,"Создайте класс",e.class?'<p class="muted">Готово.</p>':'<p class="muted">Например, «11 А». Класс — это журнал, сводка и подборки на всех учеников сразу.</p><button type="button" class="btn" data-step-go="classes">Создать класс</button>')}
-        ${l(2,e.students>0,"Отправьте ученикам ссылку-приглашение",`<p class="muted">${e.students?`Уже зарегистрировались: <b>${e.students}</b>. `:""}Ученик открывает ссылку, придумывает пароль — и попадает в ваш список. Новых учеников перенесите в класс на вкладке «Ученики».</p>
+        ${l(2,e.students>0,"Отправьте ученикам ссылку-приглашение",`<p class="muted">${e.students?`Зарегистрировались: ${e.students}.`:"Ученик открывает ссылку, придумывает пароль — и попадает в ваш список. Новых учеников перенесите в класс на вкладке «Ученики»."}</p>
           <div class="inv-row"><code>${r(se().replace(/^https?:\/\//,""))}</code><button type="button" class="btn sm" data-inv-copy>Скопировать</button><button type="button" class="btn sm" data-inv-qr>QR для доски</button></div>`)}
         ${l(3,e.asg,"Выдайте первую подборку",e.asg?'<p class="muted">Готово.</p>':'<p class="muted">Шаблоны в один клик: «Вариант ЕГЭ», «10 заданий на номер» или «Работа над ошибками класса».</p><button type="button" class="btn" data-step-go="build">Собрать подборку</button>')}
         ${l(4,!!s.first_result_at,"Откройте первый результат",`<p class="muted">${s.first_result_at?"Первый ученик уже завершил работу. Посмотрите ответы и выберите, что разобрать на занятии.":"Когда ученик сдаст подборку, результат появится в «Моих работах» и журнале класса. До этого шага результаты не считаются полученными."}</p><button type="button" class="btn" data-step-go="archive">Открыть работы</button>`)}
@@ -631,7 +631,7 @@ ${s(l.theory,"теория")} · ${s(l.circuit,"схема")} · ${s(l.run,"за
       ${e.behind.length?`<p class="dg-behind">Отстают: ${e.behind.map(u=>`${n(u.id,u.name)} <b class="dg-bad">${u.forecast}</b>`).join(", ")} <span class="muted">· средний по классу ${e.forecast_avg}</span></p>`:""}
       <p class="adm-hint">${N(e.from)} — ${N(e.to)} · занимались <b>${e.active}</b> из ${e.total}. Сравнение — с предыдущими 30 днями.</p>
       <div class="dg-grid">
-        ${l("😴","Не занимались за неделю",e.inactive.length?"warn":"ok",e.inactive.length?`<ul>${e.inactive.map(u=>`<li>${n(u.id,u.name)} <span class="muted">${u.last?"последний раз "+B(u.last):"ни разу"}</span></li>`).join("")}</ul>`:"","Все занимались — отлично!")}
+        ${l("😴","Не занимались за неделю",e.inactive.length?"warn":"ok",e.inactive.length?`<ul>${e.inactive.map(u=>`<li>${n(u.id,u.name)} <span class="muted">${u.last?"последний раз "+B(u.last):"ни разу"}</span></li>`).join("")}</ul>`:"","Все занимались.")}
         ${l("📉","Просели по номерам",Object.keys(o).length?"warn":"ok",Object.keys(o).length?`<ul>${Object.entries(o).map(([u,g])=>`<li>${n(u,g.name)}: ${g.list.map(k=>`<b>№${a(k.n)}</b> <span class="muted">${k.was}% → </span><b class="dg-bad">${k.now}%</b>`).join(", ")}</li>`).join("")}</ul>`:"",p?"По номерам с достаточным числом ответов спад не выявлен.":"Недостаточно данных: ученики ещё не решали задания.")}
         ${l("⌛","Не сдали в срок",e.overdue.length?"warn":"ok",e.overdue.length?d(e.overdue):"","Все работы с прошедшим сроком сданы.")}
         ${l("🏆","Молодцы недели","ok",e.top.length?`<ol>${e.top.map(u=>`<li>${n(u.id,u.name)} — решено <b>${u.solved}</b> из ${u.answers}</li>`).join("")}</ol>`:"","Пока никто не решал.")}

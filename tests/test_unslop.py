@@ -58,6 +58,15 @@ class UnslopTest(unittest.TestCase):
         for bad in ("⚡ Запустить", "🎆 Запустить", "🎲 Выдать", "🔓 Открыть все", "➖ Снять монеты", "🎁 Подарить'"):
             self.assertNotIn(bad, s, f"admin.js: эмодзи на кнопке «{bad}»")
 
+    def test_teacher_entry_screens(self):
+        gate = read(ROOT / "teacher-gate.html")
+        self.assertNotIn('class="eyebrow"', gate, "teacher-gate.html: надпись над заголовком")
+        self.assertNotRegex(gate, r">0[1-9]<", "teacher-gate.html: нумерация 01/02")
+        login = read(ROOT / "admin.html")
+        self.assertNotIn("Egeshka и тарифы", login, "admin.html: ссылка на тарифы, которых на /welcome нет")
+        for f in ("admin.css", "admin-theme.css", "teacher-gate.css"):
+            self.assertNotRegex(read(ROOT / f), r"font(-weight)?:\s*(800|900)\b", f"{f}: вес 800/900")
+
 
 if __name__ == "__main__":
     unittest.main()
