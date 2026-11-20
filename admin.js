@@ -197,7 +197,7 @@
     clearTimeout(accessTimer);
     if (a.state === 'full' || (a.state === 'paid' && !a.expired && a.left > 7 * 86400)) { bar.hidden = true; return; }
     const left = Math.max(0, (a.until || 0) - Date.now() / 1000), till = fmtDate(a.until);
-    const signup = '<a class="btn primary" href="/welcome#signup">Зарегистрироваться — бесплатно</a>';
+    const signup = '<a class="btn primary" href="/welcome#signup">Зарегистрироваться</a>';
     const other = '<button type="button" class="btn ghost" data-switch title="Выйти и войти по своей почте или логину">Войти в другой аккаунт</button>';
     const renew = '<button type="button" class="btn primary" data-renew>Продлить</button>' + other;
     let cls = 'info', txt = '', act = renew;
@@ -215,8 +215,8 @@
     } else {
       const d = Math.ceil(left / 86400);
       cls = d <= 2 ? 'warn' : 'info';
-      txt = a.state === 'trial' ? `<b>Пробный период: осталось ${d} ${daysWord(d)}</b> (до ${till}). Все возможности открыты.`
-        : `<b>Доступ оплачен до ${till}</b> — осталось ${d} ${daysWord(d)}.`;
+      if (a.state === 'trial') { bar.hidden = true; return; }
+      txt = `<b>Доступ оплачен до ${till}</b> — осталось ${d} ${daysWord(d)}.`;
     }
     bar.className = 'adm-access ' + cls;
     bar.innerHTML = `<span>${txt}</span><span class="adm-access-act">${act}</span>`;
@@ -239,9 +239,8 @@
     try { localStorage.setItem(adminTourKey(), '1'); } catch (e) { /* не страшно */ }
     if (!window.EgOnboard) return;
     const a = ME.access || {}, li = (ic, t, d) => `<li><i>${ic}</i><span>${t}${d ? `<small>${d}</small>` : ''}</span></li>`;
-    const left = Math.max(0, Math.ceil(((a.until || 0) - Date.now() / 1000) / 86400));
     const note = ME.guest ? `<p class="ob-note">Гостевой доступ: «${esc(DEMO_CLASS)}» — демо-класс с вымышленными учениками. Регистрация сохранит всё, что вы создадите.</p>`
-      : a.state === 'trial' && !a.expired ? `<p class="ob-note">Пробный период — ${left} ${daysWord(left)}, до ${fmtDate(a.until)}. Все возможности открыты, оплата и карта не нужны.</p>` : '';
+      : '';
     window.EgOnboard.slides([
       { color: 'g', kicker: 'Добро пожаловать', title: 'Панель учителя Egeshka',
         emoji: [['🏫', 'Создайте класс'], ['🔗', 'Позовите учеников'], ['⚡', 'Выдайте подборку'], ['📊', 'Смотрите результаты']],
@@ -351,7 +350,7 @@
     const done = [st.class, st.students > 0, st.asg, !!j.first_result_at];
     const current = done.findIndex(ok => !ok);
     const step = (k, ok, title, body) => `<li class="${ok ? 'ok' : current === k - 1 ? 'current' : ''}"${current === k - 1 ? ' aria-current="step"' : ''}><span class="st-mark">${ok ? '✓' : k}</span><div><b>${title}</b>${body}</div></li>`;
-    const progress = j.first_assignment_at ? `Завершили работу: ${Number(j.finished_students || 0)} учеников.${j.admitted_at != null ? ` В первые 7 дней после подтверждения почты и одобрения — ${Number(j.week_results || 0)} из 5 для знакомства с результатами класса.` : ''}` : 'Четыре шага до первого результата ученика. Статус обновляется по данным сервера.';
+    const progress = j.first_assignment_at ? `Завершили работу: ${Number(j.finished_students || 0)} учеников.` : 'Четыре шага до первого результата ученика. Статус обновляется по данным сервера.';
     box.innerHTML = `<div class="steps-head"><h3>Первый результат класса</h3><span class="muted">${done.filter(Boolean).length} из 4</span>
         <button type="button" class="link-btn" data-steps-off>скрыть</button></div>
       <p class="steps-progress">${progress}</p>

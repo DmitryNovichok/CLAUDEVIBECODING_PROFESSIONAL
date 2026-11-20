@@ -83,6 +83,7 @@ test('teacher invitation and assignment reach a new pupil, survive reload and pr
         if (window !== window.top) return;
         localStorage.setItem('egeshka.tour.v1.' + sid, '1');
         localStorage.setItem('egeshka.stories.labs-lessons-2026-11.' + sid, '1');
+        localStorage.setItem('egeshka.pad.rewards-2026-11.'+sid,'1');
         const d = new Date();
         localStorage.setItem('egeTrainer.lbShown.' + sid,
           `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);

@@ -37,14 +37,14 @@ for (const width of [320, 375, 1366]) {
     const login = await page.locator('#admLogin').evaluate(el => {
       const s=getComputedStyle(el); return {font:s.fontFamily,radius:s.borderRadius,color:s.color};
     });
-    await expect(page.locator('.adm-login-new')).toContainText('Пробные 7 дней начнутся после подтверждения почты и одобрения');
+    await expect(page.locator('.adm-login-new')).toContainText('Доступ — после подтверждения почты и одобрения');
     const teacher=fixture.teachers.find(t=>!t.email_ok&&t.moderation==='pending');
     await context.addCookies([{name:'egeadm',value:teacher.cookie,url:fixture.origin,httpOnly:true,sameSite:'Strict'}]);
     await page.goto(fixture.origin+'/admin');
     await expect(page.locator('#emailBadge')).toHaveText('Нужно подтвердить');
     await expect(page.locator('.brand')).toHaveAccessibleName('Egeshka by Malevin');
     await expect(page.locator('.brand img')).toHaveAttribute('src','/favicon.svg');
-    await expect(page.locator('main')).toContainText('Пробный период нового аккаунта начнётся после обеих проверок');
+    await expect(page.locator('main')).toContainText('Пройдите модерацию');
     await page.locator('#editEmail').click();
     const email=page.getByLabel('Адрес почты (станет логином)',{exact:true});
     await expect(email).toBeFocused();
@@ -86,6 +86,7 @@ test('pupil opens first task, downloads its protected file and saves a correct a
   await page.addInitScript(sid=>{
     localStorage.setItem('egeshka.tour.v1.'+sid,'1');
     localStorage.setItem('egeshka.stories.labs-lessons-2026-11.'+sid,'1');
+    localStorage.setItem('egeshka.pad.rewards-2026-11.'+sid,'1');
     const d=new Date(),day=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     localStorage.setItem('egeTrainer.lbShown.'+sid,day);
   },fixture.student.sid);

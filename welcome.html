@@ -77,7 +77,7 @@
         <label for="demoTopic">Тема первой подборки</label><select id="demoTopic"><option value="8">№ 8 · Перебор слов</option><option value="13">№ 13 · Маски сети</option><option value="17">№ 17 · Обработка файла</option></select>
         <button type="button" class="w-btn green" id="demoAssign">Выдать демо-подборку</button>
         <button type="button" class="w-link" id="demoReset" hidden>Начать пример заново</button>
-        <p class="w-note">В настоящем кабинете сначала нужны подтверждение почты и одобрение главным учителем. Пробные 7 дней начнутся после обеих проверок.</p>
+        <p class="w-note">В настоящем кабинете сначала нужны подтверждение почты и одобрение главным учителем.</p>
       </div>
       <div class="w-demo-result" id="demoResult" aria-live="polite"><h3>Здесь появится журнал</h3><p>Выберите тему и выдайте пример. Затем откройте результат ученика, чтобы выбрать следующий шаг.</p></div>
     </div>
@@ -191,7 +191,7 @@
         <span>Контрольные на весь экран — уходы со вкладки видны</span><span>Итоги недели на почту</span><span>Ссылка для родителей</span><span>Приглашение ссылкой или QR-кодом</span>
       </div>
       <div class="w-cta" data-reveal><button type="button" class="w-btn blue lg" data-signup>Зарегистрироваться как учитель</button><a class="w-btn white lg" href="/admin">Войти в кабинет</a></div>
-      <p class="w-note">Подтвердите почту и дождитесь одобрения главным учителем. Пробные 7 дней начнутся после обеих проверок; ожидание их не расходует.</p>
+      <p class="w-note">Подтвердите почту и дождитесь одобрения главным учителем.</p>
     </div>
   </section>
 
@@ -213,7 +213,7 @@
   <section class="w-start" id="start">
     <div class="w-wrap w-start-in" data-stagger>
       <div class="w-scard st"><h3>Ученику</h3><ol><li>Зарегистрируйся: ФИО, логин и пароль. Если учитель дал код — ты сразу в классе.</li><li>Открой план на сегодня — сайт подберёт номера, где больше всего ошибок.</li></ol><a class="w-btn white" href="/?login=1">Я ученик</a></div>
-      <div class="w-scard te"><h3>Учителю</h3><ol><li>Зарегистрируйтесь: ФИО, почта и пароль.</li><li>Подтвердите почту и дождитесь одобрения главным учителем. После обеих проверок начнутся пробные 7 дней.</li><li>Создайте класс, пригласите учеников и выдайте первую подборку. Первые результаты появятся в журнале.</li></ol><button type="button" class="w-btn white" data-signup>Я учитель</button></div>
+      <div class="w-scard te"><h3>Учителю</h3><ol><li>Зарегистрируйтесь: ФИО, почта и пароль.</li><li>Подтвердите почту и дождитесь одобрения главным учителем.</li><li>Создайте класс, пригласите учеников и выдайте первую подборку. Первые результаты появятся в журнале.</li></ol><button type="button" class="w-btn white" data-signup>Я учитель</button></div>
     </div>
     <div class="w-wrap" id="contacts" hidden><div class="w-contact-box" data-reveal><div><b>Связаться</b><span>Подключение школы, вопросы и предложения</span></div><div class="w-contacts" id="contacts-list"></div></div></div>
   </section>
@@ -236,7 +236,7 @@
   <form class="w-dialog" id="signupForm" role="dialog" aria-modal="true" aria-labelledby="signupTitle" aria-describedby="signupNote" tabindex="-1" autocomplete="on">
     <button type="button" class="w-x" data-close aria-label="Закрыть">×</button>
     <h2 id="signupTitle">Регистрация учителя</h2>
-    <p class="w-note" id="signupNote">После регистрации подтвердите почту и дождитесь одобрения главным учителем. До обеих проверок все функции закрыты. Пробные 7 дней начнутся после обеих проверок; ожидание их не расходует.</p>
+    <p class="w-note" id="signupNote">После регистрации подтвердите почту и дождитесь одобрения главным учителем. До обеих проверок все функции закрыты.</p>
     <label>Фамилия, имя и отчество<input id="suName" aria-describedby="suErr" name="name" autocomplete="name" maxlength="80" required placeholder="Иванова Мария Сергеевна"></label>
     <label>Почта <small>— для входа и отчётов</small><input id="suEmail" aria-describedby="suErr" name="email" type="email" autocomplete="email" maxlength="120" required placeholder="you@school.ru"></label>
     <label>Пароль <small>— не короче 8 символов</small><input id="suPass" aria-describedby="suErr" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="200" required></label>
