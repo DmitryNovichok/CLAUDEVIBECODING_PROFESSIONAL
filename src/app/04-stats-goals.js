@@ -548,7 +548,7 @@
           `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
         <span class="fm-muted">${list.length} ${plural(list.length, 'ответ', 'ответа', 'ответов')}</span>
       </div>
-      <div class="hist-list">${rows || `<p class="fm-note">${histFilter === 'asg' ? 'Здесь появятся задания из подборок учителя, как только ты их решишь.' : 'Здесь пока пусто.'}</p>`}</div>
+      <div class="hist-list">${rows || `<p class="fm-note">${histFilter === 'asg' ? 'Здесь появятся задания из подборок учителя, как только ты их решишь.' : (histFilter === 'bad' ? 'Ошибок нет.' : histFilter === 'today' ? 'Сегодня ответов ещё нет — реши задание, и оно появится здесь.' : 'Здесь появятся решённые задания.')}</p>`}</div>
       ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}
     </div>`;
   }

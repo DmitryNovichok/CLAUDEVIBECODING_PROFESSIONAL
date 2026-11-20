@@ -1262,7 +1262,7 @@
 
   function finish(score, gaveUp, res) {
     if (!cur || cur.done) return;
-    if (res && res.daily_fast) toast('⚠ Задание дня решено слишком быстро — так его не прочитать. Результат в рейтинг не засчитан.', 6000);
+    if (res && res.daily_fast) toast('Задание дня решено слишком быстро — в рейтинг не засчитано.', 6000);
     cur.done = true;
     cur.score = score;
     const t = cur.task;

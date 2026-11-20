@@ -261,7 +261,7 @@
       if (t && $('#spTask') && $('#spTask').checked) body.task = t.id;
       btn.disabled = true;                              // двойной клик — одно обращение
       try { await api('support', body); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); btn.disabled = false; return; }
-      toast(idea ? '💡 Спасибо! Пожелание отправлено учителю — ответ появится здесь' : 'Обращение отправлено — ответ появится в «Техподдержке»', 3500);
+      toast(idea ? 'Пожелание отправлено учителю — ответ появится здесь' : 'Обращение отправлено — ответ появится в «Техподдержке»', 3500);
       $('#spText').value = ''; $('#spForm').spImg = null;
       openSupport();
     });

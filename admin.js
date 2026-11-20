@@ -380,7 +380,7 @@
   $('#sndSwitch').addEventListener('click', async () => {
     try { ME.sounds = (await api('sounds', { on: !ME.sounds })).on; } catch (e) { toast(e.message || 'Не получилось'); return; }
     sndSwitch();
-    toast(ME.sounds ? '🔊 Звуки у учеников снова включены' : '🔇 Звуки у учеников выключены — на уроке тишина', 3500);
+    toast(ME.sounds ? 'Звуки у учеников включены' : 'Звуки у учеников выключены', 3500);
   });
   // новая редакция документов: учитель тоже подтверждает согласие, иначе панель не открывается
   function askConsent() {
@@ -806,7 +806,7 @@
   function spRewardHtml(x, d) {
     const R = d.support_rewards || {}, given = (d.support_given || {})[x.id] || [];
     const got = new Set(given.map(g => g.kind)), total = given.reduce((a, g) => a + g.amount, 0);
-    return `<details class="sp-rw"${given.length ? ' open' : ''}><summary>🎁 Наградить монетами${total ? ` <b class="sp-rw-sum">начислено ${total} ₿</b>` : ''}</summary>
+    return `<details class="sp-rw"${given.length ? ' open' : ''}><summary>Наградить монетами${total ? ` <b class="sp-rw-sum">начислено ${total} ₿</b>` : ''}</summary>
       <div class="sp-rw-list">${Object.entries(R).map(([k, [ic, t, a]]) => `<button type="button" class="btn ghost sp-rw-b${got.has(k) ? ' done' : ''}" data-sp-rw="${k}" ${got.has(k) ? 'disabled' : ''} title="${esc(t)}">${ic} ${esc(t)} <b>${got.has(k) ? '✓ ' + a : '+' + a} ₿</b></button>`).join('')}</div>
       <div class="sp-rw-own"><input class="inp" type="number" min="1" max="500" placeholder="₿" aria-label="Своя сумма" data-sp-rw-amount>
         <input class="inp" maxlength="80" placeholder="За что (ученик увидит)" aria-label="За что" data-sp-rw-note><button type="button" class="btn ghost" data-sp-rw="custom">Начислить</button></div></details>`;
@@ -1458,11 +1458,11 @@
     const E = GFA.econ, card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="s">${sub}</div></div>`;
     $('#giftEcon').innerHTML = card('Цены и заработок', `×${String(E.idx).replace('.', ',')} · ×${String(E.earn).replace('.', ',')}`,
         `термостат: среднее состояние (кошелёк + подарки) ${E.avg} ₿ при норме ${E.target} ₿ — подробно во вкладке «Экономика»`)
-      + card('🏦 Банк рынка', E.bank + ' ₿', 'ваши начисления — из банка, снятое — в банк')
+      + card('Банк рынка', E.bank + ' ₿', 'ваши начисления — из банка, снятое — в банк')
       + card('Монет у учеников', E.total, `у ${E.active} ${pluralRu(E.active, 'активного', 'активных', 'активных')} за 30 дней`)
       + card('Уникальных выпущено', GFA.uniq_total, `тираж — ${GFA.cap} на каждый вид подарка`)
       + card('За труд', '1 ₿ / ' + GFA.coin_xp + ' XP', `и подарок за каждые ${GFA.work_every} решённых`)
-      + card('🎲 Случайный подарок', GFA.box.now + ' ₿', GFA.box.set ? 'цену задал главный учитель' : `${GFA.box.default} ₿ × индекс цен`);
+      + card('Случайный подарок', GFA.box.now + ' ₿', GFA.box.set ? 'цену задал главный учитель' : `${GFA.box.default} ₿ × индекс цен`);
     renderGiftBox();
     $('#giftRecent').innerHTML = GFA.recent.length
       ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Когда</th><th>Кому</th><th>Подарок</th><th>Подпись</th></tr></thead><tbody>${GFA.recent.map(r =>
@@ -1493,7 +1493,7 @@
     $('#giftBoxMsg').textContent = '';
     try {
       const r = await api('gifts/box', body);
-      toast(r.set ? `🎲 Случайный подарок теперь стоит ${r.now} ₿` : `🎲 Цена снова стандартная: ${r.now} ₿`);
+      toast(r.set ? `Случайный подарок теперь стоит ${r.now} ₿` : `Цена снова стандартная: ${r.now} ₿`);
       loadGifts();
     } catch (err) { if (err.status !== 401) $('#giftBoxMsg').textContent = err.message; }
   }
@@ -1776,7 +1776,7 @@
       + card('Заработок', '×' + xfmt(E.earn), `монеты за опыт, задания и варианты${toGoal(E.earn, G && G.earn, v => '×' + xfmt(Math.round(v * 100) / 100))}`)
       + card('Комиссия рынка', pctFmt(E.fee), `с каждой сделки — в банк${toGoal(E.fee, G && G.fee, pctFmt)}; с покупок и улучшений — ${pctFmt(E.op_fee)}, с продаж сразу — 10%`)
       + card('Плата за хранение', E.tax ? pctFmt(E.tax) + ' в неделю' : 'нет', `с суммы больше ${E.tax_from} ₿ — в банк, по понедельникам`)
-      + card('🏦 Банк рынка', `${numFmt(E.bank)} ₿`, `пришло ${numFmt(inSum)} ₿ (от заработка ${numFmt(S.labor || 0)}, рынок ${numFmt(S.fee || 0)}, с подарков ${numFmt(S.ops || 0)}, 🎲 ${numFmt(S.box || 0)}, хранение ${numFmt(S.storage || 0)}), ушло ${numFmt(outSum)} ₿`)
+      + card('Банк рынка', `${numFmt(E.bank)} ₿`, `пришло ${numFmt(inSum)} ₿ (от заработка ${numFmt(S.labor || 0)}, рынок ${numFmt(S.fee || 0)}, с подарков ${numFmt(S.ops || 0)}, 🎲 ${numFmt(S.box || 0)}, хранение ${numFmt(S.storage || 0)}), ушло ${numFmt(outSum)} ₿`)
       + card('Лимитка недели', L ? `${L.i} ${esc(L.t)}` : '—', L ? `${L.price} ₿ · осталось ${L.left} из ${L.cap} · до ${day(L.stop)}`
         : `выйдет, когда среднее состояние больше ${xfmt(R.limited_r)} нормы, или запустите сами`);
     const how = `<p class="fm-note">${auto ? '🌡 <b>Авто.</b>' : '✋ <b>Ручной режим</b> — рычаги стоят, как вы их поставили. В авто:'}
@@ -1792,8 +1792,8 @@
       Прошлые начисления смена рычагов не трогает. Ученики комиссий и процентов не видят — только итоговые суммы.</p>`;
     const ctl = !T.is_main ? '<p class="fm-note">Рычаги, норму и банк меняет главный учитель.</p>' : `
       <form class="th-form" id="thermoForm">
-        <label>Режим<select class="inp" id="thMode"><option value="auto"${auto ? ' selected' : ''}>🌡 Авто — термостат</option>
-          <option value="manual"${auto ? '' : ' selected'}>✋ Ручной — ставлю сам</option></select></label>
+        <label>Режим<select class="inp" id="thMode"><option value="auto"${auto ? ' selected' : ''}>Авто — термостат</option>
+          <option value="manual"${auto ? '' : ' selected'}>Ручной — ставлю сам</option></select></label>
         <label>Норма состояния, ₿<input class="inp" id="thTarget" type="number" min="${T.set.target[0]}" max="${T.set.target[1]}" value="${E.target}"></label>
         <label>Цены ×<input class="inp th-lv"${auto ? ' disabled' : ''} id="thIdx" type="number" step="0.05" min="${T.set.idx[0]}" max="${T.set.idx[1]}" value="${E.idx}"></label>
         <label>Заработок ×<input class="inp th-lv"${auto ? ' disabled' : ''} id="thEarn" type="number" step="0.05" min="${T.set.earn[0]}" max="${T.set.earn[1]}" value="${E.earn}"></label>
@@ -1802,7 +1802,7 @@
         <button class="btn primary" type="submit">Сохранить</button>
       </form>
       <div class="th-form th-acts">
-        <button type="button" class="btn" id="thLimited" data-lim="${L ? 'stop' : 'start'}">${L ? '⏹ Остановить лимитку' : '🎆 Запустить лимитку недели'}</button>
+        <button type="button" class="btn" id="thLimited" data-lim="${L ? 'stop' : 'start'}">${L ? 'Остановить лимитку' : 'Запустить лимитку недели'}</button>
         <label>Банк, ₿<input class="inp" id="bankSum" type="number" min="1" max="100000" placeholder="1000"></label>
         <label class="th-note">Причина<input class="inp" id="bankNote" maxlength="80" placeholder="Например: призовой фонд турнира"></label>
         <button type="button" class="btn" data-bank="1">Пополнить банк</button>
@@ -1829,7 +1829,7 @@
         <label>Задания ×<input class="inp" id="prTask" type="number" step="0.1" min="1" max="${T.promo_max}" value="${PS ? PS.task : 1.5}"></label>
         <label>Варианты ×<input class="inp" id="prExam" type="number" step="0.1" min="1" max="${T.promo_max}" value="${PS ? PS.exam : 2}"></label>
         <label>До (включительно)<input class="inp" id="prTo" type="date" value="${PS ? iso(PS.to) : ''}"></label>
-        <button class="btn primary" type="submit">${PN ? 'Сохранить' : '⚡ Запустить'}</button>
+        <button class="btn primary" type="submit">${PN ? 'Сохранить' : 'Запустить'}</button>
         ${PN ? '<button class="btn ghost" type="button" id="promoStop">⏹ Закончить сейчас</button>' : ''}</form>`
         : '<p class="fm-note">Акции запускает главный учитель.</p>'}</div>`;
     return `${promo}<div class="adm-box th-box"><h3 class="adm-h3">Термостат экономики и банк рынка</h3>
@@ -1961,7 +1961,7 @@
     const lim = e.target.closest('#thLimited');
     if (lim) {
       if (lim.dataset.lim === 'stop' && !confirm('Остановить лимитку? Нераскупленные больше не продадутся.')) return;
-      thermoSend('thermo', { limited: lim.dataset.lim }, lim.dataset.lim === 'stop' ? 'Лимитка остановлена' : '🎆 Лимитка недели в магазине');
+      thermoSend('thermo', { limited: lim.dataset.lim }, lim.dataset.lim === 'stop' ? 'Лимитка остановлена' : 'Лимитка недели в магазине');
       return;
     }
     const b = e.target.closest('[data-bank]');
@@ -1969,20 +1969,20 @@
       const sum = Math.round(+$('#bankSum').value || 0), sign = +b.dataset.bank;
       if (sum <= 0) { $('#thMsg').textContent = 'Сколько монет?'; return; }
       if (sign < 0 && !confirm(`Изъять ${sum} ₿ из банка? Они уйдут из экономики.`)) return;
-      thermoSend('bank', { delta: sign * sum, note: $('#bankNote').value }, sign > 0 ? `🏦 Банк пополнен на ${sum} ₿` : `🔥 Из банка изъято ${sum} ₿`);
+      thermoSend('bank', { delta: sign * sum, note: $('#bankNote').value }, sign > 0 ? `Банк пополнен на ${sum} ₿` : `Из банка изъято ${sum} ₿`);
     }
   });
   $('#econBody').addEventListener('submit', e => {
     if (e.target.id === 'promoForm') {
       e.preventDefault();
-      thermoSend('promo', { title: $('#prTitle').value, task: +$('#prTask').value, exam: +$('#prExam').value, to: $('#prTo').value }, '⚡ Акция сохранена');
+      thermoSend('promo', { title: $('#prTitle').value, task: +$('#prTask').value, exam: +$('#prExam').value, to: $('#prTo').value }, 'Акция сохранена');
       return;
     }
     if (e.target.id !== 'thermoForm') return;
     e.preventDefault();
     const manual = $('#thMode').value === 'manual', body = { mode: $('#thMode').value, target: +$('#thTarget').value };
     if (manual) Object.assign(body, { idx: +$('#thIdx').value, earn: +$('#thEarn').value, fee: +$('#thFee').value / 100, tax: +$('#thTax').value / 100 });
-    thermoSend('thermo', body, manual ? '✋ Рычаги сохранены — ручной режим' : '🌡 Термостат работает сам');
+    thermoSend('thermo', body, manual ? 'Рычаги сохранены — ручной режим' : 'Термостат работает сам');
   });
   /** Имя в экономике — кошелёк, подарки и история ученика (вкладка «Подарки»). */
   document.addEventListener('click', e => {
@@ -2024,7 +2024,7 @@
     const take = $('#giftCoinMode').value === 'take';
     $('#giftKind').disabled = take;
     $('#giftUniq').disabled = take;
-    $('#giftSubmit').textContent = take ? '➖ Снять монеты' : '🎁 Подарить';
+    $('#giftSubmit').textContent = take ? 'Снять монеты' : 'Подарить';
     $('#giftSubmit').classList.toggle('danger', take);
   });
   $('#giftOwned').addEventListener('click', async e => {
@@ -2212,7 +2212,7 @@
     const x = PYA.detail[sid], st = PYA.d.students.find(s => s.id === sid);
     if (!x) return '<p class="adm-hint">Загружаю…</p>';
     const free = st && st.free;
-    return `<div class="pyc-det"><div class="pyc-free-row"><button type="button" class="btn ${free ? 'ghost' : 'primary'}" data-pya-free="${sid}" data-on="${free ? 0 : 1}">${free ? '🔒 Вернуть замки уровней' : '🔓 Открыть все уровни'}</button>
+    return `<div class="pyc-det"><div class="pyc-free-row"><button type="button" class="btn ${free ? 'ghost' : 'primary'}" data-pya-free="${sid}" data-on="${free ? 0 : 1}">${free ? 'Вернуть замки уровней' : 'Открыть все уровни'}</button>
       <span class="adm-hint">${free ? 'Все уровни всех тем открыты сразу — без нормы решённых задач.' : 'Сейчас следующий уровень темы открывается, когда решено указанное в уроке число задач предыдущего уровня.'}</span></div>${x.modules.map(m => `<div class="cp-lesson"><b>${m.icon} ${esc(pycLbl(m))} · ${esc(m.title)}</b>
       <div class="cp-sets">${m.levels.map((lv, i) => `<div class="cp-set"><div class="cp-set-h"><b>${i + 1}. ${esc(lv.title)}</b>
         <span>${lv.tasks.filter(t => t.ok).length}/${lv.tasks.length}</span></div>
@@ -2400,8 +2400,8 @@
       ${verLoading ? '<p role="status" class="adm-hint">Загружаю предыдущие версии…</p>' : ''}${verError ? `<p role="alert">${esc(verError)} <button type="button" class="link-btn" data-ver-retry>Повторить</button></p>` : ''}
       <div class="ver-list">${list.map(([v, d, added, changed], i) => `<section class="ver-item">
         <h3><b>${esc(v)}</b> <span class="muted">${esc(d)}</span>${i === 0 ? ' <span class="ver-now">сейчас</span>' : ''}</h3>
-        ${(added || []).length ? `<div class="ver-k ver-add">✨ Добавлено</div>${ul(added)}` : ''}
-        ${(changed || []).length ? `<div class="ver-k ver-chg">🔧 Изменено</div>${ul(changed)}` : ''}</section>`).join('')}</div>`;
+        ${(added || []).length ? `<div class="ver-k ver-add">Добавлено</div>${ul(added)}` : ''}
+        ${(changed || []).length ? `<div class="ver-k ver-chg">Изменено</div>${ul(changed)}` : ''}</section>`).join('')}</div>`;
   }
   async function loadVersionHistory() {
     verLoading = !!window.EgeLoadChangelog; verError = '';
@@ -2522,7 +2522,7 @@
       <div class="adm-box mk-new">
         <h3 class="adm-h3">Выдать работу классу</h3>
         ${cls.length ? `<div class="mk-quick"><label>Класс<select class="inp" id="mkClass">${opts}</select></label>
-          <button type="button" class="btn primary" data-mk="random">🎲 Выдать случайный вариант</button>
+          <button type="button" class="btn primary" data-mk="random">Выдать случайный вариант</button>
           <span class="adm-hint">каждому ученику — свой: по случайному заданию на каждый номер, 60 минут, одна попытка</span></div>
         <details class="mk-more"><summary>Другие настройки работы</summary>
           <div class="mk-form">
@@ -4259,7 +4259,7 @@
     }
     if (e.target.closest('#voidGo') && voidPrev) {
       if (!confirm(`Отменить ${voidPrev.n} ${pluralRu(voidPrev.n, 'ответ', 'ответа', 'ответов')} у «${st.student.name}»?\n\nОни уберутся из журнала, статистика пересчитается. Вернуть можно здесь же.`)) return;
-      try { const r = await api('student/void', { id: sid, from: voidPrev.from, to: voidPrev.to }); toast(`🧹 Отменено: ${r.voided}`); }
+      try { const r = await api('student/void', { id: sid, from: voidPrev.from, to: voidPrev.to }); toast(`Отменено: ${r.voided}`); }
       catch (err) { if (err.status !== 401) toast(err.message); return; }
       if (!studentCurrent(s)) return;
       voidOpen = false; voidPrev = null;

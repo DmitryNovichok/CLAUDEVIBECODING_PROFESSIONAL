@@ -248,7 +248,7 @@
     if (r.ok) {
       t.ok = true;
       t.ans = r.ans;
-      toast(r.opened ? '🔓 Верно! Открыт следующий уровень' : '✅ Верно!', r.opened ? 4000 : 2000);
+      toast(r.opened ? 'Верно. Открыт следующий уровень' : '✅ Верно!', r.opened ? 4000 : 2000);
       if (r.opened) { await pycLoad().catch(() => {}); }
       if (!current() || !PYC_L) return;
       openPycLevel(PYC_L.id, PYC_L.l, true);

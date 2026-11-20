@@ -271,7 +271,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
       <button class="btn primary btn-block" type="submit">Войти</button>
       <p class="fm-note login-hint"><button type="button" class="link-btn" id="forgotOpen">Забыли пароль?</button></p>
       <div class="forgot-box" id="forgotBox" hidden>
-        <p class="fm-note">Введите логин, почту или ФИО — пришлём на почту ссылку, чтобы задать новый пароль. Почты нет — попросите учителя сбросить пароль.</p>
+        <p class="fm-note">Пришлём на почту ссылку для нового пароля. Почты нет — попросите учителя сбросить пароль.</p>
         <input class="inp" id="forgotWho" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="логин, почта или ФИО">
         <button class="btn btn-block" type="button" id="forgotSend">Прислать ссылку</button>
       </div>
@@ -282,8 +282,8 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
       <label class="login-field">Фамилия и имя <span class="login-sub">полностью — так учитель увидит ваши результаты</span>
         <input class="inp" id="regName" autocomplete="off" placeholder="Иванов Иван Иванович" maxlength="80" required>
       </label>
-      <label class="login-field">Логин <span class="login-sub">латиницей, для входа: например ivanov2008</span>
-        <input class="inp" id="regLogin" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" placeholder="ivanov" required>
+      <label class="login-field">Логин <span class="login-sub">латиницей</span>
+        <input class="inp" id="regLogin" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" placeholder="ivanov2008" required>
       </label>
       <label class="login-field">Почта <span class="login-sub" id="regEmailSub">чтобы восстановить пароль, если забудете</span>
         <input class="inp" id="regEmail" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="ivanov@mail.ru">
@@ -304,8 +304,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
       <button class="btn primary btn-block" type="submit">Зарегистрироваться</button>
     </form>
     <label class="login-temp"><input type="checkbox" id="loginTemp"> Чужой компьютер — не запоминать вход</label>
-    <p class="login-school" id="loginSchool" hidden>🏫 Похоже, это компьютер в классе: вход продлится только до закрытия браузера,
-      а пароль браузер не запомнит. Закончил — нажми «Выйти».</p>
+    <p class="login-school" id="loginSchool" hidden>Компьютер в классе: вход до закрытия браузера, пароль не запоминается.</p>
     <div class="login-err" id="loginErr" role="alert"></div>
     <p class="login-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика обработки данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></p>
   </div>

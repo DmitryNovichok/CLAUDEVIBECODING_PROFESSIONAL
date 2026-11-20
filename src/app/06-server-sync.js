@@ -175,18 +175,18 @@
     schoolLast = Date.now();
     let told = false;
     try { told = sessionStorage.getItem('egeTrainer.schoolTold') === '1'; sessionStorage.setItem('egeTrainer.schoolTold', '1'); } catch (e) { /* нет доступа */ }
-    if (!told) setTimeout(() => toast('🏫 Компьютер в классе: вход — до закрытия браузера. Уходишь — нажми «Выйти» в меню с твоим именем', 7000), 1500);
+    if (!told) setTimeout(() => toast('Компьютер в классе: вход до закрытия браузера. Уходя, нажми «Выйти» в меню с именем', 7000), 1500);
     schoolTimer = setInterval(() => {
       if (!student || EX) { schoolLast = Date.now(); return; }
       const idle = Date.now() - schoolLast;
       if (idle >= SCHOOL_IDLE) {
         clearInterval(schoolTimer);
         schoolTimer = null;
-        toast('🏫 Долго ничего не происходило — вышли из аккаунта, чтобы за этим компьютером никто не зашёл под тобой', 9000);
+        toast('Долго не было действий — вышли из аккаунта', 9000);
         logout();
       } else if (idle >= SCHOOL_IDLE - 5 * 60000 && !schoolWarned) {
         schoolWarned = true;
-        toast('🏫 Ты здесь? Через 5 минут без действий выйдем из аккаунта', 8000);
+        toast('Через 5 минут без действий выйдем из аккаунта', 8000);
       }
     }, 20000);
   }
