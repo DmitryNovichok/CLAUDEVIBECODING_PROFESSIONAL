@@ -62,9 +62,9 @@ h1 .g { color: #368501; } h1 .b { color: #087bae; } h1 .v { color: var(--violet)
 .w-in { opacity: 0; transform: translateY(18px); animation: wIn .8s var(--ease) forwards; animation-delay: calc(var(--d) * 90ms + 80ms); }
 @keyframes wIn { to { opacity: 1; transform: none; } }
 .w-stage { position: relative; height: 560px; perspective: 1400px; }
-.w-blob { position: absolute; inset: 20px 0 0 30px; border-radius: 48px; overflow: hidden; background: linear-gradient(145deg, #7ee02a 0%, #58cc02 45%, #3fae00 100%);
+.w-blob { position: absolute; inset: 20px 0 0 30px; border-radius: 48px; overflow: hidden; background: #58cc02;
   opacity: 0; transform: scale(.94); animation: wIn 1s var(--ease) .15s forwards; }
-.w-blob::before, .w-blob::after { content: ""; position: absolute; border-radius: 50%; background: rgba(255, 255, 255, .14); animation: drift 14s ease-in-out infinite; }
+.w-blob::before, .w-blob::after { display: none; }   /* плавающие круги на подложке убраны (unslop U17/U20) */
 .w-blob::before { width: 340px; height: 340px; right: -90px; top: -110px; } .w-blob::after { width: 220px; height: 220px; left: -60px; bottom: -80px; animation-delay: -7s; }
 @keyframes drift { 50% { transform: translate(-30px, 24px) scale(1.08); } }
 .w-frame { margin: 0; border-radius: 16px; overflow: hidden; background: #fff; box-shadow: 0 30px 60px rgba(20, 40, 0, .22); }
@@ -331,3 +331,9 @@ h2 { font-size: 40px; line-height: 1.1; font-weight: 1000; letter-spacing: -.015
 .w-coverage tbody th { min-width: 190px; }
 .w-coverage tbody th span { display: block; font-weight: 600; }
 .w-coverage-archive { background: #f6f4ed; }
+
+/* unslop U20: без наклона и 3D-поворота скриншотов за мышкой и без «прыгающих» значков при наведении — скриншоты стоят ровно */
+.w-hub { transform: none !important; }
+.w-art .w-frame, .w-art.b .w-frame { rotate: none; }
+[data-reveal="left"], [data-reveal="right"] { rotate: none; }
+.w-ft:hover .fi, .w-dgrid > div:hover .e { transform: none; }

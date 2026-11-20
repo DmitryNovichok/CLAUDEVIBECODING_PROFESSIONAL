@@ -25,8 +25,8 @@
       "source": "0be8e44fd4fdbad23e544b095999d80d5211176383158aec1aeb6212721f51df"
     },
     "changelog-loader.js": {
-      "min": "46eb956924b6f95f2dd9d9a449816194d0ded25b83687e5fce4deef927ff6608",
-      "source": "6d1ce8f9476bf5cebc6d2eb8d8e0d22e85a6f290fb2a89ebb14402abc898aa70"
+      "min": "b164ee3a59bdef5f74b1467a0450ab1af85846215bb05d237d179b27940c792a",
+      "source": "826838c0b16a97c79d105cddc21a2264e9885601816924f700bb8ba98d3c8c92"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -81,8 +81,8 @@
       "source": "c15a80b2e7894c2f63ef12eab080746b313be3c6aef8f2af2ee91cb062cfdaa9"
     },
     "welcome.css": {
-      "min": "1b675501886e24cacafd04a935469d4e3e427a45ddd51561097b98bb2e36a020",
-      "source": "1d20897b8011c415afb547206eb3883b7d5dee2851cbf72a375f4811efd3d3a1"
+      "min": "e0ea715344df66cc925e7064113f5c4781ba3d1182bc7acc07360dbf2ec8b102",
+      "source": "e364ca7585899fd65270cdffba46d761fe1900aab8b997d89e125d5f3b8717f9"
     },
     "welcome.js": {
       "min": "82c6a373a2795806395fbd264346e794386881687cc0aeef227fe33cf3389657",
