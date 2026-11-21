@@ -18,8 +18,8 @@ var k=m+'|'+s;if(sent[k])return;sent[k]=1;n++;var v='',h={'Content-Type':'applic
 fetch('api/jserr',{method:'POST',keepalive:true,headers:h,body:JSON.stringify({app:'admin',msg:m,src:s,stack:String(st||'').slice(0,2000),page:location.pathname+location.hash,ver:v})}).catch(function(){});}catch(e){}}
 addEventListener('error',function(e){if(e.target&&e.target!==window)return;var f=String(e.filename||'');if(f&&(f.indexOf(location.origin+'/')!==0||(f.split('#')[0]===location.href.split('#')[0]&&e.lineno<=1)))return;rep(e.message,e.filename?e.filename+':'+e.lineno+':'+e.colno:'',e.error&&e.error.stack);},true);
 addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)return;rep('Promise: '+(r&&r.message||r),'',r&&r.stack);});})();</script>
-<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;
-var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dataset.admTheme=u;}catch(e){}</script>
+<script>(function(){try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;
+var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dataset.admTheme=u;}catch(e){}})();</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
@@ -37,7 +37,6 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
   <form class="modal-panel adm-login-panel" id="admLoginForm">
     <a class="adm-login-brand" href="/welcome"><img src="/favicon.svg" alt="" width="36" height="36"><span>Egeshka <small>by Malevin</small></span></a>
     <h1 class="fm-title">Панель учителя</h1>
-    <p class="fm-note">Войдите по почте (или логину) и паролю.</p>
     <div class="login-form login-stack">
       <label class="adm-login-label" for="admLogin">Почта или логин</label>
       <input class="inp" id="admLogin" aria-describedby="admLoginErr" name="username" placeholder="you@school.ru" autocomplete="username" autocapitalize="off" spellcheck="false">
@@ -52,9 +51,9 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
     <p class="fm-note adm-already" id="admAlready" hidden></p>
     <p class="fm-note" style="margin:6px 0 0"><button type="button" class="link-btn" id="admForgot">Забыли пароль?</button></p>
     <div class="adm-login-new">
-      <a class="btn btn-block" href="/welcome#signup">Зарегистрироваться — 7 дней бесплатно</a>
-      <p class="fm-note">Пробные 7 дней начнутся после подтверждения почты и одобрения главным учителем.</p>
-      <a class="link-btn" href="/welcome">Что такое Egeshka и тарифы</a>
+      <a class="btn btn-block" href="/welcome#signup">Зарегистрироваться</a>
+      <p class="fm-note">Доступ — после подтверждения почты и одобрения главным учителем.</p>
+      <a class="link-btn" href="/welcome">Что такое Egeshka</a>
       <a class="link-btn" href="/welcome#demo">Попробовать на вымышленном классе</a>
     </div>
     <p class="login-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика персональных данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></p>

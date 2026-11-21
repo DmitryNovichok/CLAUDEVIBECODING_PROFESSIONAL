@@ -977,6 +977,8 @@ body.tt-big .py-dock { z-index: 80; }
 .fz-note { font-size: 12px; color: var(--muted); line-height: 1.35; margin-top: 6px; }
 .sm-foot { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 10px; }
 .sm-foot b { color: var(--text); }
+.hub-fire-pop { position: fixed; right: auto; z-index: 120; width: min(300px, calc(100vw - 32px)); max-height: calc(100vh - 96px); overflow-y: auto; }
+.hub-fire-pop .hub-fire-go { margin-top: 10px; }
 @media (max-width: 640px) { .streak-menu { right: auto; left: 0; width: min(300px, calc(100vw - 32px)); } }
 
 /* верхняя панель: заголовок не сжимается в узкую колонку — правая часть переносится на новую строку */
@@ -3971,7 +3973,6 @@ body.hubnav.hub-on .me-box { order: 3; }
 .hub-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
 .hub-foot .link-btn { font-size: 13px; }
 .hub-docs { margin-left: auto; } .hub-docs a { color: var(--muted); }
-.hub-streak { position: static; display: block; box-shadow: none; border: 0; padding: 0; background: none; width: auto; max-width: 420px; }
 .promo-pill-h { border-color: #ff9600; color: #ff9600; }
 @media (max-width: 560px) { .hub-docs { margin-left: 0; } }
 
@@ -4606,3 +4607,501 @@ body.mkx-open { overflow: hidden; }
 .nt-side em { font-style: normal; font-weight: 800; color: var(--accent-text, var(--accent)); white-space: nowrap; }
 @media (max-width: 520px) { .nt-side em { display: none; } .bell-btn { width: 36px; height: 36px; } }
 @media (prefers-reduced-motion: reduce) { .bell-btn.has svg { animation: none; } }
+
+/* >>> calm-work-zone: сгенерировано tools/calm_css.py — не править руками */
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .brand-title { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .brand-title b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .scope-title,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .num-card .n,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .num-badge,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fc-value,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lvl-badge,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ach-icon,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lvlup-title,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .xp-pop,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gm-level { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .mode-title { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .chip { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .answer-label { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lvl-badge { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lvl-title { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .xp-pop { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lvlup-title { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gm-level { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .py-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .py-title { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tour-ico { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fire { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sm-num { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cl-num { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .brand-by b { font-weight: 600; background-image: none; background-color: #1cb0f6; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lb-tabs button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lb-place { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .rank-btn b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cl-row .num { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .comp-card.alert .mode-sub { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-av { background-image: none; background-color: var(--c1); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-av.r-legend { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-legend); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-av.r-myth { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-av.r-limited { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--r-limited); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-av.plain { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-pd.lp-p1 { background-image: none; background-color: var(--mid); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-pd .lp-nm { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-pd .lp-val { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-place { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-who .lp-nm { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-row .lp-val b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-ic sup { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-ic.lp-txt { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-ic.lp-ug { background-image: none; background-color: var(--c1); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-ic.lp-ug.r-legend { box-shadow: 0 0 0 1.5px var(--r-legend); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-ic.lp-ug.r-myth { box-shadow: 0 0 0 1.5px var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-more { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lp-zone { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .r-tip b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lvl-txt { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lvl-txt b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lvl-pill small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ava { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .who-menu > b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .forecast .fc-value { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tp-n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tp-main b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tp-gain { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .th-name b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .vw-row b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .vw-seg button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ach-xp { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-kicker { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-hero { background-image: none; background-color: rgba(91, 124, 250, .22); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-hero h2 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-prog > b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-continue { background-image: none; background-color: #1cb0f6; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-mod-h b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-mod-n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-ring .n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-l-txt b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-l-head h2 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-slide { background-image: none; background-color: rgba(91, 124, 250, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-slide-body h3 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-soon { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-set-txt b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-lock h2 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-title { background-image: none; background-color: rgba(91, 124, 250, .45); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-title h3 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-chips span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-ans { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-flow span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-flow i { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-tab th { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-ansbox summary { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-ansbox b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-bad li::marker { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-count { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-k { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-section { background-image: none; background-color: #1b2130; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-section h3 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-dark { background-image: none; background-color: #1b2130; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-cond-h,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-src2 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-stats b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-steps i { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-steps b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-card > i { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-cards.nums em { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-cards.answers .sl-card > b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-zoom .icon-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-zoom .link-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-set-head h2 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-set-prog > b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-task-n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .crs-task-st { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bd-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bd-title { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bd-swap { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bd-sheet canvas[data-bg="grid"] { background-image: none; background-color: var(--bd-line); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bd-sheet canvas[data-bg="lines"] { background-image: none; background-color: var(--bd-line); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bd-fs .bd-size { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bd-fs b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-nuance .nk { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-ansbox .sl-ok { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-graph text { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) table.sl-adj th { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-degs sub { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) table.sl-db caption { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-ent b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-ent .pk { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-ent .fk { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-link { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lg-switch button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-sol > summary { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bdg sup { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-check { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .xp-tag { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .asg-page .ap-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ap-card.done .ap-ico { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ap-kind { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .xp-log summary { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .xp-plus { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .xp-minus { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ap-dates span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tb-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tb-p.me .tb-name { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tb-p.won .tb-name { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tb-seed { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tg-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tg-t th { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tg-t td:first-child { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tg-t tr.me td { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tb-lbl { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .support-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sp-tabs button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sp-prev-x { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .exh-score { font-weight: 600 !important; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hist-day { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .adm-tag { font-weight: 600; background-image: none; background-color: #ffe27a; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .all-nums { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .td-places li.me { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tt-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .dq-bet small.hot { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pers-tag { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cl-kind { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .calc-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .calc-bar b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .calc-out { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .calc-k { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-hero { background-image: none; background-color: rgba(61, 123, 214, .14); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-mod-h b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-num { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-step i { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-tabs button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-th b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-tn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-more summary { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-outbox summary { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .coin-pill { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .promo-pill { font-weight: 600; background-image: none; background-color: #ff9600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .promo-hero { background-image: none; background-color: rgba(255, 255, 255, .25); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .promo-hero p { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .promo-tile small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-promo { background-image: none; background-color: #ff9600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-promo span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .coin-pill b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .btc { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gf-coin { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gf-to label { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gf-item small,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gf-own small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gf-box { background-image: none; background-color: var(--card); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug-num { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug { background-image: none; background-color: var(--c1); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug-s { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.plain { background-image: none; background-color: var(--card); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.plain.r-uncommon { background-image: none; background-color: #f1ffe4; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.plain.r-rare { background-image: none; background-color: #eef7ff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.plain.r-epic { background-image: none; background-color: #f8efff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.plain.r-legend { background-image: none; background-color: #fff6e5; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.plain.r-limited { background-image: none; background-color: #fff3e0; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ugb { background-image: none; background-color: var(--c1); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-hero { background-image: none; background-color: var(--c1); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-p { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-ava b { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-ava small { font-weight: 600; text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-fly::before,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-fly::after { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-name h2.fm-title { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-name > span { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-xp { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-stat small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-tab { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-more { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .rar { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .rar.r-myth { background-image: none; background-color: var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.r-legend { box-shadow: 0 0 0 2px var(--r-legend); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.r-myth { box-shadow: 0 0 0 2px var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.big.r-legend { box-shadow: 0 0 0 3px var(--r-legend); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.big.r-myth { box-shadow: 0 0 0 3px var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.big.r-epic { box-shadow: 0 0 0 3px var(--r-epic); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ugb.r-legend { box-shadow: 0 0 0 1.5px var(--r-legend); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ugb.r-myth { box-shadow: 0 0 0 1.5px var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .rar.r-limited { background-image: none; background-color: #ff6f00; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.plain.r-limited { box-shadow: 0 0 0 2px var(--r-limited); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug.big.r-limited { box-shadow: 0 0 0 3px var(--r-limited); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gv-top small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .mk-sell label { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-pill { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-q { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-sec { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-sec small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-more { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .gf-boxt { background-image: none !important; background-color: #fff6e8 !important; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-it small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-it.box { background-image: none; background-color: rgba(247, 147, 26, .12); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-price { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-sup { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-auc small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-worth small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-card small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-sum span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-sh small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-props span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-btn small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-mkrow label { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-who { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-chip { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-note { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-found button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-pc-h small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-tabs button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-title { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-subs button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-hero { background-image: none; background-color: #7e57c2; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-pl { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-dl { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-tag { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-av { background-image: none; background-color: var(--c1); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-av.r-legend { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--r-legend); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-av.r-myth { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-av.r-limited { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--r-limited); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-av.plain { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-tier { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-tier.r-myth { background-image: none; background-color: var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-tier.r-limited { background-image: none; background-color: #ff6f00; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .fb-gap { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-nav { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-phone { background-image: none; background-color: #a3a6ac; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-phone::before,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-phone::after { background-image: none; background-color: #6d7075; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-island i { background-image: none; background-color: #34405e; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-isl { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-top b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-ttl { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-tap { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-go { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.s1 { background-image: none; background-color: rgba(255, 255, 255, .25); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.s2 { background-image: none; background-color: rgba(255, 255, 255, .28); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.s3 { background-image: none; background-color: rgba(255, 255, 255, .3); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.s4 { background-image: none; background-color: rgba(255, 255, 255, .3); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.s5 { background-image: none; background-color: rgba(255, 215, 90, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.s6 { background-image: none; background-color: rgba(255, 255, 255, .28); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.n1 { background-image: none; background-color: rgba(64, 160, 255, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.n2 { background-image: none; background-color: rgba(255, 255, 255, .28); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.n3 { background-image: none; background-color: rgba(255, 255, 255, .28); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.n4 { background-image: none; background-color: rgba(255, 215, 90, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-sw .sw-tag,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-tg .tg-ok { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-sw .sw-have { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-tg .cur { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-rec .rc-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-rec .rc-i span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-bug .bg-code { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-bug .bg-tests span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-bug .bg-tests b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-dbg kbd { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-les .ls-nums b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-les .ls-tag { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-duel .dl-vs b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-duel .dl-pr small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-duel .dl-pr b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.h1 { background-image: none; background-color: rgba(255, 255, 255, .28); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.h2 { background-image: none; background-color: rgba(255, 236, 179, .45); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.h3 { background-image: none; background-color: rgba(255, 167, 38, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.h4 { background-image: none; background-color: rgba(255, 82, 82, .28); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.h5 { background-image: none; background-color: rgba(255, 215, 90, .4); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-cong .card span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-cong .card small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-duo .date b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-duo .date small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-one .arr { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-soon { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-scr.h6 { background-image: none; background-color: rgba(255, 236, 179, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-themes .tw-side { background-image: none; background-color: #1a0f2b; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-themes .tw-d .tw-side { background-image: none; background-color: #fff6ec; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-themes .tw-side b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-themes .tw-pane { background-image: none; background-color: rgba(255, 145, 0, .2); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-themes .tw-d .tw-pane { background-image: none; background-color: #fdf0e1; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-themes .tw-lbl { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-save .coin { font-weight: 600; background-image: none; background-color: #ffe082; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-save b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-hw-save > small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-mini .pl { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-mini .pl.p { background-image: none; background-color: #ff9600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-mini .ok span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-mini .ok em { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-earn .c small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-earn .pop { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-shop .t { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-to span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-up .ar { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-up .uq { background-image: none; background-color: #cfe9ff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-up .n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-up .lb { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-rar { background-image: none; background-color: #ff4b4b; font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-up .pr span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-fb .h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-fb .hs { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-fb .r { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-fb .n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-fb .av { background-image: none; background-color: var(--c1); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-fb .v { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-lot { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-lot .uq { background-image: none; background-color: #ffe2cc; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-lot .p { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-bonus .t small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-launch { background-image: none; background-color: #1cb0f6; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sto-launch small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-ov { background-image: none; background-color: rgba(40, 30, 70, .7); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-box { background-image: none; background-color: #1f1d2b; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-body { background-image: none; background-color: #ffcf40; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-lid { background-image: none; background-color: #ffdc6b; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-tease small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-flash { background-image: none; background-color: #fff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-strip::before { background-image: none; background-color: var(--hc); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-it { background-image: none; background-color: var(--rc); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-it.win { box-shadow: 0 0 0 3px var(--rc); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-mark { box-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-now { font-weight: 600; text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-it.mini { box-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-it.hero { box-shadow: 0 0 0 3px var(--rc); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-ov.is-big .cr-got .nm { background-image: none; background-color: #fff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .cr-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .snd-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug-sk span:hover img { transform: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug-sk span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug-sk span.r-epic img { box-shadow: 0 0 0 2px var(--r-epic); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug-sk span.r-legend img { box-shadow: 0 0 0 2px var(--r-legend); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ug-sk span.r-myth img { box-shadow: 0 0 0 2px var(--r-myth); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hwc { background-image: none; background-color: rgba(255, 145, 0, .28); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hwc:hover img { transform: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hwc small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hwup > small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-fly img { box-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tog-inv-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tog-pill { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-selbar small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-mine.picking .bx-card.sel::after { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.vi .bx-hwc { background-image: none; background-color: #1b0b3a; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.vi .bx-hwc::before { background-image: none; background-color: rgba(255, 214, 102, .95); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.vi .bx-hwc b { font-weight: 600; text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.vi .bx-hwc .bx-price { background-image: none; background-color: #ffcf5a; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.vi .bx-hwc:hover img { transform: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.sw .bx-hwc::before { background-image: none; background-color: #fff8; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.sw .bx-hwc[data-bx-shop="sw_blue"] { background-image: none; background-color: rgba(47, 139, 255, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.sw .bx-hwc[data-bx-shop="sw_red"] { background-image: none; background-color: rgba(255, 35, 35, .33); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bx-hw.sw .bx-hwc:hover img { transform: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) :is(.ug, .lp-av, .fb-av, .cr-it, .ph-av):has(img[src*="vendor/sabers/"]) { background-image: none !important; background-color: #1b2a5c !important; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) :is(.ug, .lp-av, .fb-av, .cr-it, .ph-av):has(img[src*="saber_red"]) { background-image: none !important; background-color: #4a0d10 !important; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .tgh-live { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .teacher-back { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ap-heading h2 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ap-tabs button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ap-due-badge { font-weight: 600; }
+@media (max-width: 860px) {
+  body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .mobile-nav button { font-weight: 600; }
+  body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .mobile-brand { font-weight: 600; }
+}
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lab-position b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lab-line > i { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lx-seq i { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lx-disk i { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lab-graph .v text { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .lab-graph .v .val { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-hello h1 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-pill { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-pill b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-pill .btc { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-pad { background-image: none; background-color: #6d4aff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-pad-dev i { background-image: none; background-color: #fde68a; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-pad-go { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-plan h2 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-plan h2 small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-num { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-step-body b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-due { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-late { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-day { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-h2 { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-tile { background-image: none; background-color: var(--sec); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-tile:hover > .hub-ic { transform: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-tile > b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-badge { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-n:hover { transform: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-back { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .hub-by b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-prog > b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-filter button { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-card b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-formula { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-samples span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-gutter span.ch { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-own summary { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-win b,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-fail b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-table th { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-table tr.ok td:first-child { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bug-table tr.bad td:first-child { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ide-pyico { background-image: none; background-color: #3d7ab3; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-x { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .c-g .ob-vis { background-image: none; background-color: #7ee02a; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .c-b .ob-vis { background-image: none; background-color: #5fd0ff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .c-v .ob-vis { background-image: none; background-color: #b69bff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .c-o .ob-vis { background-image: none; background-color: #ffbe5c; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .c-r .ob-vis { background-image: none; background-color: #ff8d8d; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .c-n .ob-vis { background-image: none; background-color: #2c4372; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-emo b { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-kick { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-txt li { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-txt a { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-back,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-skip { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-btn { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-hole { box-shadow: 0 0 0 200vmax rgba(12, 18, 34, .62), 0 0 0 3px #58cc02; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-step { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-ov .ob-emo b,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ob-ov .ob-txt li span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .mk-st { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .im-logo { font-weight: 600; background-image: none; background-color: #be185d; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .im-hero { background-image: none; background-color: #be185d; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .im-num { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .im-ok { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .im-bad { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .im-got { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pad { background-image: none; background-color: #2b2b30; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pad-screen { background-image: none; background-color: #f7931a; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pad-ico { background-image: none; background-color: #ffcf5a; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pad-head small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .go-ov { background-image: none; background-color: rgba(124, 77, 255, .55); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .go-wrap h2 { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .go-tap { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .go-body { background-image: none; background-color: #ff5f7e; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .go-lid { background-image: none; background-color: #ff7a93; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sm-tiers span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-sky { background-image: none; background-color: #4fc3ff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-sunset { background-image: none; background-color: #2b1055; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-mint { background-image: none; background-color: #0f9b8e; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-forest { background-image: none; background-color: #1b5e20; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-night { background-image: none; background-color: #fff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-code { background-image: none; background-color: rgba(0, 255, 120, .14); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-galaxy { background-image: none; background-color: rgba(255, 120, 220, .55); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-flame { background-image: none; background-color: #ffe082; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-aurora { background-image: none; background-color: rgba(80, 255, 180, .55); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-gold { background-image: none; background-color: rgba(255, 255, 255, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-royal { background-image: none; background-color: rgba(255, 215, 0, .35); }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bn-collector { background-image: none; background-color: #ff5f7e; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-hero.bn-sky .ph-name,
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-hero.bn-mint .ph-name { text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .ph-lv { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-show-h { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pf-show-i small { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pl-bn { font-weight: 600; text-shadow: none; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pl-bn.auto { background-image: none; background-color: #6fd0ff; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pl-g.auto span { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .bell-n { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .nt-side em { font-weight: 600; }
+/* <<< calm-work-zone */

@@ -330,7 +330,7 @@
       setTimeout(bdRedraw, 30);
     } else if (id === 'bdImg') {
       const imgs = $$('#cond img').filter(i => i.complete && i.naturalWidth);
-      if (!imgs.length) { toast('В условии этого задания нет картинок. Любую картинку можно скопировать и вставить на доску (Ctrl+V) или перетащить мышью.', 5000); return; }
+      if (!imgs.length) { toast('В условии нет картинок. Свою можно вставить на доску через Ctrl+V или перетащить.', 5000); return; }
       bdInsert(imgs.map(i => i.currentSrc || i.src));
     } else if (id === 'bdLonger') {
       const sh = $('#bdSheet');

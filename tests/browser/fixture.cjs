@@ -66,6 +66,7 @@ async function seedBrowser(context, fixture, role = 'pupil', account) {
       if (window !== window.top) return;
       localStorage.setItem('egeshka.tour.v1.' + sid, '1');
       localStorage.setItem('egeshka.stories.labs-lessons-2026-11.' + sid, '1');
+      localStorage.setItem('egeshka.pad.rewards-2026-11.' + sid, '1');   // новость «Монеты за помощь сайту»
       const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       localStorage.setItem('egeTrainer.lbShown.' + sid, day);
     }, pupil.sid);

@@ -238,7 +238,7 @@
     if (a && !a.strict && !a.course && !a.duel && SERVER) loadAssignments().then(() => renderTopbar()).catch(() => {});
     if (a && !asgLeft(a).length && !asgCelebrated.has(a.id)) {
       asgCelebrated.add(a.id);
-      toast(`Подборка «${a.title}» решена полностью!`, 4000);
+      toast(`Подборка «${a.title}» решена полностью`, 4000);
     }
   }
 

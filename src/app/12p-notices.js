@@ -74,7 +74,7 @@
     }).join('');
     $('#forecastBody').innerHTML = `<div class="nt-page">
       <h2 class="fm-title">🔔 Уведомления</h2>
-      <p class="fm-note">Здесь хранится всё, что приходит: подарки и сообщения к ним, монеты, ответы техподдержки, новые подборки и напоминания о сроках — за последние 2 месяца.</p>
+      <p class="fm-note">За последние 2 месяца.</p>
       <div class="hist-filters nt-tabs">${NOTICE_TABS.map(([k, t]) => { const c = k === 'all' ? all.length : cnt(k); return (k === 'all' || c) ? `<button type="button" data-nt-tab="${k}" class="${noticeTab === k ? 'on' : ''}">${t}${k === 'all' ? '' : ` · ${c}`}</button>` : ''; }).join('')}</div>
       <div class="nt-list">${rows || '<p class="fm-note">Пока ничего нет — уведомления появятся здесь.</p>'}</div></div>`;
   }

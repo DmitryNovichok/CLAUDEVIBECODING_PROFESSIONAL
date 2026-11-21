@@ -103,9 +103,8 @@
       ['extra', 'Дополнительная практика', 'Архивные форматы: полезны для программирования, но не заменяют актуальную тему экзамена']];
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование</span><span class="scope-stats">${done} из ${all} задач</span>`;
     trainerEl.innerHTML = `<div class="course pyc">
-      <div class="crs-hero pyc-hero"><div><div class="crs-kicker">Закрытый курс Egeshka</div><h2>Программирование для ЕГЭ</h2>
-        <p>Python от первой строчки до самых сложных номеров. Каждая тема — лестница уровней: короткая теория с примерами, которые можно запустить,
-          и задачи с проверкой ответа. В модуле «Python с нуля» есть учебные тесты кода на разных входных данных.</p></div>
+      <div class="crs-hero pyc-hero"><div><h2>Программирование для ЕГЭ</h2>
+        <p>Python от первой строчки до сложных номеров: теория с примерами, которые можно запустить, и задачи с проверкой ответа.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all} задач решено</span><i class="xp-bar"><b style="width:${all ? pct(done / all) : 0}%"></b></i></div></div>
       ${learningFormat}
       ${cont ? `<button type="button" class="crs-continue" data-pyc-lv="${cont.m.id}:${cont.li}"><span>▶</span><span>
@@ -147,8 +146,7 @@
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование · ${esc(pycLabel(d))}</span><span class="scope-stats">уровень ${li + 1} из ${d.levels}</span>`;
     trainerEl.innerHTML = `<div class="course lesson pyc">
       <button type="button" class="link-btn crs-back" data-pyc-home>← К плану курса</button>
-      <div class="crs-l-head"><span class="pyc-mod-ic">${d.icon}</span><div><div class="crs-kicker">${esc(pycLabel(d))} · ${esc(d.title)}</div>
-        <h2>Уровень ${li + 1}. ${esc(lv.title)}</h2><small class="pyc-goal">${esc(lv.goal)}</small></div></div>
+      <div class="crs-l-head"><span class="pyc-mod-ic">${d.icon}</span><div>        <h2>Уровень ${li + 1}. ${esc(lv.title)}</h2><small class="pyc-goal">${esc(lv.goal)}</small></div></div>
       <div class="pyc-tabs">${m.levels.map((x, i) => `<button type="button" class="${i === li ? 'on' : ''}${i >= m.open ? ' lock' : ''}" data-pyc-lv="${mid}:${i}"
         ${i >= m.open ? 'disabled' : ''}>${i >= m.open ? '🔒 ' : ''}${i + 1}. ${esc(x.title)}</button>`).join('')}</div>
       ${has ? `<div class="fm-h">1. Теория · ${lv.slides.length} ${plural(lv.slides.length, 'слайд', 'слайда', 'слайдов')}</div>
@@ -250,7 +248,7 @@
     if (r.ok) {
       t.ok = true;
       t.ans = r.ans;
-      toast(r.opened ? '🔓 Верно! Открыт следующий уровень' : '✅ Верно!', r.opened ? 4000 : 2000);
+      toast(r.opened ? 'Верно. Открыт следующий уровень' : '✅ Верно!', r.opened ? 4000 : 2000);
       if (r.opened) { await pycLoad().catch(() => {}); }
       if (!current() || !PYC_L) return;
       openPycLevel(PYC_L.id, PYC_L.l, true);

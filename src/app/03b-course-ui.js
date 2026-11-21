@@ -83,12 +83,11 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span><span class="scope-stats">Все задания ЕГЭ</span>';
     trainerEl.innerHTML = `<div class="course">
       <div class="crs-hero">
-        <div><div class="crs-kicker">Курс Egeshka</div><h2>ЕГЭ по информатике: от №1 до №27</h2>
-          <p>Уроки идут по плану: от простых тем к сложным. В каждой теме — разбор метода, учебный пример и практика по уровням. Начни с теории, затем проверь себя на заданиях.</p></div>
+        <div><h2>ЕГЭ по информатике: от №1 до №27</h2>
+          <p>В каждой теме — разбор метода, пример и практика по уровням. Темы — по демоверсии ФИПИ ЕГЭ-2027.</p></div>
         <div class="crs-prog"><b>${done}</b><span>из ${all.length} тем освоено</span><i class="xp-bar"><b style="width:${pct(done / all.length)}%"></b></i></div>
       </div>
       ${learningFormat}
-      <p class="fm-note">${courseCoverage ? `Номеров с подробным уроком: ${courseCoverage.full_count}; с кратким разбором: ${courseCoverage.guide_count}. №19–21 используют один общий урок. Архивные темы указаны отдельно.` : 'В курсе есть подробные уроки и краткие разборы. Формат каждой темы указан в списке.'} Это карта наполнения, а не оценка знаний.</p>
       ${nextN ? `<button type="button" class="crs-continue" data-lesson="${nextN}"><span>▶</span><span><b>Продолжить: №${numLabel(nextN)} · ${esc(NUM_TOPIC[nextN])}</b><small>последняя открытая тема или следующий шаг по плану</small></span></button>` : ''}
       ${COURSE.map((m, i) => `<section class="crs-mod">
         <div class="crs-mod-h"><span class="crs-mod-ic">${m.icon}</span><div><b>${m.archive ? '' : `Модуль ${i + 1}. `}${esc(m.title)}</b><small>${esc(m.sub)}</small></div>
@@ -97,7 +96,7 @@
           const stt = lessonState(n), p = numStats(n).s && numStats(n).s.a ? pct(numStats(n).s.m) : 0;
           return `<button type="button" class="crs-lesson ${stt}" data-lesson="${n}">
             <span class="ring crs-ring${numLabel(n).length > 2 ? ' wide' : ''}" style="--p:${p}"><span class="n">${numLabel(n)}</span></span>
-            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small>${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'} · ${courseKind(n)} · ${COURSE_SETS.length} подборок</small></span>
+            <span class="crs-l-txt"><b>${esc(NUM_TOPIC[n])}</b><small title="${esc(courseKind(n))}">${stt === 'done' ? '✓ освоено' : stt === 'go' ? `в процессе · ${p}%` : 'не начато'}</small></span>
             <span class="crs-go">›</span></button>`;
         }).join('')}</div></section>`).join('')}
     </div>`;
@@ -106,7 +105,7 @@
   function slideHtml(sl, i) {
     const kick = sl.k ? `<div class="sl-k ${sl.kc || ''}">${esc(sl.k)}</div>` : '';
     const runBtn = (k, ans, out) => `<div class="sl-btns"><button type="button" class="btn primary" data-py-slide="${i}:${k}">▶ Открыть в Python</button><button type="button" class="btn" data-learning-slide="${i}:${k}">По шагам в лаборатории</button>
-        ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(ans)}</b></span></details>` : ''}
+        ${ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(ans)}</b></span></details>` : ''}
         ${out ? `<details class="sl-ansbox sl-outbox"><summary>Что выведет программа</summary><pre class="sl-out">${esc(out)}</pre></details>` : ''}</div>`;
     const codeBox = (code, k, ans, out) => `<div class="sl-codecol"><pre class="sl-code">${highlightPy(code)}</pre>${runBtn(k, ans, out)}</div>`;
     if (sl.t === 'title') {
@@ -121,15 +120,15 @@
     if (sl.t === 'code' && sl.cond != null) {
       return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-split${sl.wide ? ' wide' : ''}${sl.stack ? ' stack' : ''}">
         <div class="sl-left"><div class="sl-cond"><div class="sl-cond-h">${esc(sl.ch || 'Условие')}</div>${safeHtml(sl.cond)}</div>
-          ${sl.note ? `<div class="sl-nuance ${sl.kc || ''} ${sl.nk ? 'nk-' + sl.nk : ''}">${sl.nk === 'warn' ? '<b class="nk">⚠ Осторожно!</b> ' : sl.nk === 'secret' ? '<b class="nk">💡 Секрет.</b> ' : ''}${safeHtml(sl.note)}</div>` : ''}</div>
+          ${sl.note ? `<div class="sl-nuance ${sl.kc || ''} ${sl.nk ? 'nk-' + sl.nk : ''}">${sl.nk === 'warn' ? '<b class="nk">⚠ Осторожно.</b> ' : sl.nk === 'secret' ? '<b class="nk">💡 Секрет.</b> ' : ''}${safeHtml(sl.note)}</div>` : ''}</div>
         ${codeBox(sl.code, 0, sl.ans, sl.out)}</div></div>`;
     }
     if (sl.t === 'solve') {
       // задача без программы: условие → «Показать решение» (шаги) → «Показать ответ»
-      const ans = sl.ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Отлично! Ответ: <b>${esc(sl.ans)}</b></span></details>` : '';
+      const ans = sl.ans ? `<details class="sl-ansbox"><summary>Показать ответ</summary><span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(sl.ans)}</b></span></details>` : '';
       return `<div class="sl">${kick}<h3 class="sl-h">${esc(sl.h)}</h3><div class="sl-split${sl.stack ? ' stack' : ''}">
         <div class="sl-left"><div class="sl-cond"><div class="sl-cond-h">${esc(sl.ch || 'Задание')}</div>${safeHtml(sl.cond)}</div>
-          ${sl.note ? `<div class="sl-nuance ${sl.kc || ''} ${sl.nk ? 'nk-' + sl.nk : ''}">${sl.nk === 'warn' ? '<b class="nk">⚠ Осторожно!</b> ' : sl.nk === 'secret' ? '<b class="nk">💡 Секрет.</b> ' : ''}${safeHtml(sl.note)}</div>` : ''}</div>
+          ${sl.note ? `<div class="sl-nuance ${sl.kc || ''} ${sl.nk ? 'nk-' + sl.nk : ''}">${sl.nk === 'warn' ? '<b class="nk">⚠ Осторожно.</b> ' : sl.nk === 'secret' ? '<b class="nk">💡 Секрет.</b> ' : ''}${safeHtml(sl.note)}</div>` : ''}</div>
         <div class="sl-solcol"><details class="sl-sol"${sl.open ? ' open' : ''}><summary>Показать решение</summary><div class="sl-sol-body">${safeHtml(sl.sol)}</div></details>${ans}</div></div></div>`;
     }
     if (sl.t === 'codes') {
@@ -255,7 +254,7 @@
       </div>` : '<p class="fm-note">Не удалось загрузить теорию. Открой тему ещё раз; практика ниже доступна.</p>';
     trainerEl.innerHTML = `<div class="course lesson">
       <button type="button" class="link-btn crs-back" data-course-back>← К плану курса</button>
-      <div class="crs-l-head"><span class="num-badge${badgeCls(n)}">${numLabel(n)}</span><div><div class="crs-kicker">${COURSE[mod].archive ? 'Архив · нет в КИМ ЕГЭ-2027' : `Модуль ${mod + 1} · ${esc(COURSE[mod].title)}`}</div>
+      <div class="crs-l-head"><span class="num-badge${badgeCls(n)}">${numLabel(n)}</span><div>${COURSE[mod].archive ? '<div class="crs-kicker">Архив · нет в КИМ ЕГЭ-2027</div>' : ''}
         <h2>№${numLabel(n)}. ${esc(NUM_TOPIC[n])}</h2></div></div>
       ${learningFormat}
       ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
@@ -302,8 +301,7 @@
     $('#scopeInfo').innerHTML = `<span class="scope-title">Курс · №${numLabel(a.course)}</span><span class="scope-stats">${esc(st.name || '')}</span>`;
     trainerEl.innerHTML = `<div class="course">
       <button type="button" class="link-btn crs-back" data-lesson="${a.course}">← К уроку №${numLabel(a.course)}</button>
-      <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div><div class="crs-kicker">Подборка · ${total} заданий</div>
-        <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
+      <div class="crs-set-head"><span class="crs-set-ic big">${st.icon || '📘'}</span><div>        <h2>${esc(a.title)}</h2><small>${esc((COURSE_SET_NOTES[a.course] || {})[st.key] || st.note || '')}</small></div>
         <div class="crs-set-prog"><b>${done}</b><span>из ${total}</span><i class="xp-bar"><b style="width:${total ? pct(done / total) : 0}%"></b></i></div></div>
       <div class="crs-legend"><span class="ok">✓ верно: ${done}</span><span class="bad">✗ с ошибкой: ${nBad}</span><span>не начато: ${total - done - nBad}</span></div>
       <button type="button" class="btn primary crs-set-start" data-set-start="${esc(id)}">${done === total ? 'Решать заново' : done ? 'Продолжить с нерешённого' : 'Начать подборку'}</button>

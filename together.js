@@ -11,6 +11,10 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const Q = new URLSearchParams(location.search);
   const SID = parseInt(Q.get('id'), 10) || 0;
+  // задания подборки, из которой учитель выбрал задание: стрелки рядом с «Сменить задание» листают их по порядку
+  const SEQ_KEY = `egeshka.tg.seq.${SID}`;
+  let SEQ = null;                                     // { title, ids: [id задания, …] }
+  try { SEQ = JSON.parse(sessionStorage.getItem(SEQ_KEY) || 'null'); } catch (e) { SEQ = null; }
   const AS_T = Q.get('as') === 't';
   const BW = 1000;                                  // ширина листа доски
   const NARROW = () => innerWidth <= 760;
@@ -286,6 +290,7 @@
     $('#tgLead').hidden = !S.follow || S.ro || S.ended;
     $('#tgRoBan').hidden = S.teacher || !S.ro || S.ended;
     $('#tgPick').hidden = !S.teacher || S.expired;
+    renderSeq();
     const ro = S.expired || (!S.teacher && S.ro);
     $('#tgTa').readOnly = ro || S.ended;
     $('#tgAnsIn').readOnly = ro || S.ended;
@@ -493,6 +498,7 @@
   function renderTask() {
     const t = S.task;
     $('#tgNum').textContent = t ? t.label : 'Без задания';
+    renderSeq();
     renderPName();
     const cond = $('#tgCond');
     if (!t) {
@@ -841,7 +847,7 @@
   $('#tgCond').addEventListener('dragstart', e => { if (!S.teacher) e.preventDefault(); });
 
   // ---------- выбор задания (учитель)
-  let pickKind = 'recent', pickT = 0, pickAsg = 0, pickVersion = 0;
+  let pickKind = 'recent', pickT = 0, pickAsg = 0, pickVersion = 0, pickSetTitle = '';
   function trapModalTab(modal, event) {
     if (event.key !== 'Tab' || !modal.open) return;
     // Native modal inertness protects the page; wrap at the dialog edges as well,
@@ -909,6 +915,7 @@
         const d = await adminGet(`together/tasks?id=${SID}&kind=sets&asg=${asg || ''}&q=${encodeURIComponent(asg ? '' : q)}`);
         if (!current()) return;
         if (asg) {
+          pickSetTitle = d.title || '';
           L.innerHTML = `<li class="back" data-back="1"><span class="tx">← Все подборки · <b>${esc(d.title || '')}</b></span></li>`
             + (d.tasks.map(t => `<li role="button" tabindex="0" data-task="${esc(t.id)}"><span class="tg-num">${esc(t.label)}</span><span class="tx">${esc(t.snip)}</span><span class="mk">${esc(t.mark || '')}</span></li>`).join('')
               || '<li class="empty">В подборке нет заданий из банка.</li>');
@@ -937,9 +944,33 @@
     if (e.target.closest('li[data-back]')) { pickAsg = 0; loadPick(); return; }
     const li = e.target.closest('li[data-task], li[data-key]');
     if (!li) return;
+    if (li.dataset.task && pickKind === 'sets' && pickAsg) {
+      SEQ = { title: pickSetTitle, ids: [...document.querySelectorAll('#tgPickL li[data-task]')].map(x => x.dataset.task) };
+      try { sessionStorage.setItem(SEQ_KEY, JSON.stringify(SEQ)); } catch (x) { /* стрелки — до перезагрузки */ }
+    }
     send(li.dataset.key ? { t: 'task', key: li.dataset.key } : { t: 'task', task: li.dataset.task });
     closeModal($('#tgPickM'));
   });
+  function renderSeq() {
+    const ids = (SEQ && SEQ.ids) || [], i = S.task && S.task.id ? ids.indexOf(S.task.id) : -1;
+    const show = !!S.teacher && !S.expired && !S.ended && i >= 0 && ids.length > 1;
+    const prev = $('#tgPrev'), next = $('#tgNext');
+    prev.hidden = next.hidden = !show;
+    if (!show) return;
+    prev.disabled = i === 0;
+    next.disabled = i === ids.length - 1;
+    const where = `${SEQ.title ? `«${SEQ.title}», ` : ''}${i + 1} из ${ids.length}`;
+    prev.title = `Предыдущее задание подборки (${where})`;
+    next.title = `Следующее задание подборки (${where})`;
+  }
+  function seqGo(step) {
+    const ids = (SEQ && SEQ.ids) || [], i = S.task && S.task.id ? ids.indexOf(S.task.id) : -1;
+    const to = ids[i + step];
+    if (i < 0 || !to) return;
+    send({ t: 'task', task: to });
+  }
+  $('#tgPrev').onclick = () => seqGo(-1);
+  $('#tgNext').onclick = () => seqGo(1);
   // ---------- позвать ещё (учитель)
   const INV = { list: [], pick: new Set(), inside: new Set() };
   $('#tgInvite').onclick = async () => {

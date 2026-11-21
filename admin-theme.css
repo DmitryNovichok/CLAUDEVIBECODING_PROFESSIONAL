@@ -292,7 +292,7 @@ body.admin .bld-panel .bld-bar-act .btn { white-space: normal; min-height: 38px;
 /* 2.30: обзор класса и компактный конструктор. Цвета наследуются от темы. */
 .ov-head, .ov-actions, .ov-section-head, .ov-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ov-head { margin-bottom: 22px; }
-.ov-kicker { display: block; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+.ov-kicker { display: block; color: var(--muted); font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 body.admin #ovClass { font-size: 26px; font-weight: 700; max-width: min(480px, 100%); height: auto; padding: 8px 38px 8px 12px; }
 .ov-head .adm-hint { margin: 8px 0 0; }
 .ov-notice { padding: 13px 18px; border: 1px solid var(--sel-border); background: var(--accent-soft); border-radius: 10px; margin-bottom: 18px; }
@@ -407,13 +407,13 @@ body.admin .adm-login {
   --font: "Nunito", system-ui, sans-serif; background: var(--bg); color: var(--text); color-scheme: light;
 }
 body.admin .adm-login-panel { width: 100%; padding: 30px; border-radius: 24px; border: 2px solid var(--border); font-family: var(--font); }
-body.admin .adm-login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; color: #286b0a; text-decoration: none; font-size: 25px; font-weight: 900; }
+body.admin .adm-login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; color: #286b0a; text-decoration: none; font-size: 25px; font-weight: 600; }
 body.admin .adm-login-brand small { display: block; color: #5f6878; font-size: 12px; }
 body.admin .adm-login .fm-title { font-family: var(--font); font-size: 25px; }
 body.admin .adm-login .login-stack { gap: 9px; }
-body.admin .adm-login-label { font-weight: 800; font-size: 14px; margin-top: 6px; }
+body.admin .adm-login-label { font-weight: 600; font-size: 14px; margin-top: 6px; }
 body.admin .adm-login .inp { min-height: 46px; border-radius: 12px; font-family: var(--font); }
-body.admin .adm-login .btn { border-radius: 12px; min-height: 46px; font-family: var(--font); font-weight: 800; }
+body.admin .adm-login .btn { border-radius: 12px; min-height: 46px; font-family: var(--font); font-weight: 600; }
 body.admin .adm-login .btn.primary { width: 100%; margin-top: 10px; color: #17350b; box-shadow: 0 4px 0 #46a302; }
 body.admin .adm-login :where(a,button,input):focus-visible { outline: 3px solid #134da3; outline-offset: 3px; }
 body.admin .adm-login .link-btn { color: #286b0a; }

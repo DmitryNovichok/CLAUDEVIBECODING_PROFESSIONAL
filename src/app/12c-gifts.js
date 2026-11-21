@@ -234,7 +234,7 @@
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts).slice(0, 5)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (['mbuy', 'msell', 'bid', 'bidback'].includes(r.reason) ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
       <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${num(Math.abs(r.delta))}</td></tr>`).join('');
     return `${sum.length ? `<div class="bx-sum">${sum.map(x => `<span>${x}</span>`).join('')}</div>` : ''}
-      ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Пока пусто</b><small>Монеты за опыт приходят сами — их здесь нет</small></div>'}`;
+      ${rows ? `<table class="fm-table bx-log">${rows}</table>` : '<div class="bx-empty"><span>📜</span><b>Операций пока нет</b><small>Здесь появятся покупки, подарки и начисления от учителя</small></div>'}`;
   }
   // ---- Forbes (общий на весь сайт): обложка журнала, список и вкладки
   const fbAv = (r, s) => (r.avatar && !r.avatar.uniq ? `<span class="fb-av img r-limited" style="--s:${s}px">${giftImg(r.avatar.img)}</span>`   // лимитка без улучшения
@@ -271,7 +271,7 @@
         `<span class="fb-tiers">${tiers(r) || '<small>обычные подарки</small>'}</span>`)).join('')}</div>`;
     }
     const L = FB.rich;
-    if (!L.length) return head + '<div class="bx-empty"><span>💰</span><b>Пока пусто</b><small>Решай задания — монеты приходят сами</small></div>';
+    if (!L.length) return head + '<div class="bx-empty"><span>💰</span><b>Начислений пока нет</b><small>Монеты приходят за решённые задания</small></div>';
     const h = L[0];
     const hero = `<button type="button" class="fb-hero" data-prof="${h.sid}" data-fb-prof><span class="crown">👑</span>${fbAv(h, 64)}
       <span class="fb-hm"><b class="nm">${esc(h.name)} ${fbTags(h)}</b><b class="big"><span>₿</span> ${num(h.total)}</b>

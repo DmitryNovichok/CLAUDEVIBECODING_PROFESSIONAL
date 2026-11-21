@@ -13,13 +13,12 @@
 <body>
   <header><a class="brand" href="/welcome"><img src="/favicon.svg" alt="" width="36" height="36"><span>Egeshka <small>by Malevin</small></span></a><button id="logout" class="quiet" type="button">Выйти</button></header>
   <main id="teacherGateRoot">
-    <div class="eyebrow">КАБИНЕТ УЧИТЕЛЯ</div>
     <h1>Осталось пройти<br>две проверки</h1>
     <p class="intro">Аккаунт создан. Все функции откроются после подтверждения почты и одобрения главным учителем.</p>
     <p id="account" class="account">Проверяем статус…</p>
     <section class="checks" aria-label="Условия доступа">
       <article id="emailCard" class="card">
-        <div class="card-head"><span class="number" aria-hidden="true">01</span><span id="emailBadge" class="badge">Проверяем</span></div>
+        <div class="card-head"><span class="number" aria-hidden="true">1</span><span id="emailBadge" class="badge">Проверяем</span></div>
         <h2>Подтвердите почту</h2>
         <p id="emailDetail">Откройте ссылку из письма от Egeshka.</p>
         <div id="emailActions" hidden>
@@ -34,7 +33,7 @@
         </div>
       </article>
       <article id="moderationCard" class="card">
-        <div class="card-head"><span class="number" aria-hidden="true">02</span><span id="moderationBadge" class="badge">Проверяем</span></div>
+        <div class="card-head"><span class="number" aria-hidden="true">2</span><span id="moderationBadge" class="badge">Проверяем</span></div>
         <h2>Пройдите модерацию</h2>
         <p id="moderationDetail">Заявка уже направлена главному учителю. Повторно регистрироваться не нужно.</p>
         <p id="reviewNote" class="review-note" hidden></p>
@@ -43,9 +42,8 @@
     <p id="legacyGuest" class="notice" hidden>Для доступа необходимо <a href="/welcome">зарегистрироваться как учитель</a>.</p>
     <div class="footer-row"><button id="refresh" class="secondary" type="button">Проверить статус</button><span>Статус обновляется автоматически</span></div>
     <p id="message" class="message" role="status" aria-live="polite"></p>
-    <p class="footnote"><a href="/welcome#demo">Посмотреть пример работы на вымышленном классе</a>. Демо не открывает доступ к кабинету и данным учеников.</p>
-    <p class="footnote">Пробный период нового аккаунта начнётся после обеих проверок.</p>
+    <p class="footnote"><a href="/welcome#demo">Посмотреть пример работы на вымышленном классе</a></p>
   </main>
-  <footer>Egeshka · Пространство для обучения</footer>
+  <footer>Egeshka</footer>
 </body>
 </html>

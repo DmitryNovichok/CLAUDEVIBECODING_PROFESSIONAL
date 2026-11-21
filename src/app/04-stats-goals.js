@@ -155,8 +155,7 @@
       }
       const rv = Object.keys(P.reviews).length;
       h = `<span class="scope-title">Все задания</span>
-        <span class="scope-stats">${total} в банке · решено ${solved}${a ? ` · точность ${pct(ok / a)}%` : ''}</span>
-        <span class="chip good">освоено номеров: ${mastered} из ${present}</span>
+        <span class="scope-stats" title="${total} заданий в банке · решено ${solved} · освоено номеров: ${mastered} из ${present}">${a ? `точность ${pct(ok / a)}%` : `решено ${solved}`}</span>
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
     } else if (ui.scope === 'asg' && asgOf(ui.asg)) {
       const a = asgOf(ui.asg);
@@ -177,7 +176,7 @@
       const st = numStats(n);
       const rv = reviewsOf(n).length;
       h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + numLabel(n)}</span>${ARCHIVE[n] ? '<span class="scope-stats">архив · нет в КИМ ЕГЭ-2027</span>' : ''}
-        <span class="scope-stats">${counts[n]} в банке · решено ${st.solved}${st.acc != null ? ` · точность ${pct(st.acc)}%` : ''}</span>
+        <span class="scope-stats" title="${counts[n]} в банке · решено ${st.solved}">${st.acc != null ? `точность ${pct(st.acc)}%` : `решено ${st.solved}`}</span>
         <span class="chip ${st.lvl === 'none' ? '' : st.lvl}">${LEVEL_TEXT[st.lvl]}${st.s && st.s.a ? ` · ${pct(st.s.m)}%` : ''}</span>
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
     }
@@ -541,16 +540,15 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">История</span>';
     document.body.classList.add('asg-wide');
     trainerEl.innerHTML = `<div class="course asg-page hist-page">
-      <div class="crs-hero"><div><div class="crs-kicker">История</div><h2>Мои задания</h2>
-        <p>Все твои ответы по порядку. «Открыть» — решить задание ещё раз. Уже решённое перерешивается для тренировки:
-          без опыта, огонька, серии и достижений. Самостоятельные — на странице «Задания от учителя», варианты — в «Моих вариантах».</p></div>
+      <div class="crs-hero"><div><h2>Мои задания</h2>
+        <p>Повторное решение — для тренировки: без опыта, огонька и серии. Самостоятельные — в «От учителя», варианты — в «Мои варианты».</p></div>
         <div class="crs-prog"><b>${today.length}</b><span>${plural(today.length, 'ответ', 'ответа', 'ответов')} сегодня · ошибок всего ${bad}</span></div></div>
       <div class="hist-filters">
         ${[['all', 'Все'], ['asg', `📚 Подборки от учителей${asgN ? ` · ${asgN}` : ''}`], ['bad', 'Ошибки'], ['today', 'Сегодня']].map(([k, l]) =>
           `<button type="button" data-hf="${k}" class="${histFilter === k ? 'on' : ''}">${l}</button>`).join('')}
         <span class="fm-muted">${list.length} ${plural(list.length, 'ответ', 'ответа', 'ответов')}</span>
       </div>
-      <div class="hist-list">${rows || `<p class="fm-note">${histFilter === 'asg' ? 'Здесь появятся задания из подборок учителя, как только ты их решишь.' : 'Здесь пока пусто.'}</p>`}</div>
+      <div class="hist-list">${rows || `<p class="fm-note">${histFilter === 'asg' ? 'Здесь появятся задания из подборок учителя, как только ты их решишь.' : (histFilter === 'bad' ? 'Ошибок нет.' : histFilter === 'today' ? 'Сегодня ответов ещё нет — реши задание, и оно появится здесь.' : 'Здесь появятся решённые задания.')}</p>`}</div>
       ${list.length > histLimit ? '<button type="button" class="btn hist-more" data-hmore>Показать ещё</button>' : ''}
     </div>`;
   }

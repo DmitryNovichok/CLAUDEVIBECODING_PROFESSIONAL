@@ -50,7 +50,7 @@ for(const role of ['pupil','teacher']) {
     const writes=new Map(),mainWindow={};mainWindow.top=mainWindow;
     vm.runInNewContext(source,{window:mainWindow,__seedArg:arg,localStorage:{setItem:(key,value)=>writes.set(key,value)}});
     assert.equal(writes.get(role==='teacher'?'egeshka.atour.v1.9':'egeshka.tour.v1.7'),'1');
-    if(role==='pupil') {assert.equal(writes.get('egeshka.stories.labs-lessons-2026-11.7'),'1');assert.ok(writes.has('egeTrainer.lbShown.7'));}
-    assert.equal(writes.size,role==='teacher'?1:3);
+    if(role==='pupil') {assert.equal(writes.get('egeshka.stories.labs-lessons-2026-11.7'),'1');assert.ok(writes.has('egeTrainer.lbShown.7'));assert.equal(writes.get('egeshka.pad.rewards-2026-11.7'),'1');}
+    assert.equal(writes.size,role==='teacher'?1:4);
   });
 }

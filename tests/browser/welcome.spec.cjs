@@ -51,7 +51,7 @@ test('signup keeps keyboard focus, makes background inert and restores its trigg
   const trigger = page.getByRole('button', {name:'Я учитель', exact:true}).first();
   await trigger.click();
   await expect(page.getByLabel('Фамилия, имя и отчество')).toBeFocused();
-  await expect(page.locator('#signupNote')).toContainText('Пробные 7 дней начнутся после обеих проверок');
+  await expect(page.locator('#signupNote')).toContainText('До обеих проверок все функции закрыты');
   expect(await page.locator('main').evaluate(el => el.inert)).toBe(true);
   for (let i=0;i<14;i++) {
     await page.keyboard.press(i<3 ? 'Shift+Tab' : 'Tab');

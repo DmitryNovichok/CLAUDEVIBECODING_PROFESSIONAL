@@ -18,7 +18,7 @@ var k=m+'|'+s;if(sent[k])return;sent[k]=1;n++;var v='',h={'Content-Type':'applic
 fetch('api/jserr',{method:'POST',keepalive:true,headers:h,body:JSON.stringify({app:'site',msg:m,src:s,stack:String(st||'').slice(0,2000),page:location.pathname+location.hash,ver:v})}).catch(function(){});}catch(e){}}
 addEventListener('error',function(e){if(e.target&&e.target!==window)return;var f=String(e.filename||'');if(f&&(f.indexOf(location.origin+'/')!==0||(f.split('#')[0]===location.href.split('#')[0]&&e.lineno<=1)))return;rep(e.message,e.filename?e.filename+':'+e.lineno+':'+e.colno:'',e.error&&e.error.stack);},true);
 addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)return;rep('Promise: '+(r&&r.message||r),'',r&&r.stack);});})();</script>
-<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;var c=localStorage.getItem('egeTrainer.themeCss');if(c&&/^[^<]*$/.test(c)){var st=document.createElement('style');st.id='themeVars';st.textContent=c;document.head.appendChild(st);}}catch(e){}</script>
+<script>(function(){try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;var c=localStorage.getItem('egeTrainer.themeCss');if(c&&/^[^<]*$/.test(c)){var st=document.createElement('style');st.id='themeVars';st.textContent=c;document.head.appendChild(st);}}catch(e){}})();</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
@@ -271,7 +271,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
       <button class="btn primary btn-block" type="submit">Войти</button>
       <p class="fm-note login-hint"><button type="button" class="link-btn" id="forgotOpen">Забыли пароль?</button></p>
       <div class="forgot-box" id="forgotBox" hidden>
-        <p class="fm-note">Введите логин, почту или ФИО — пришлём на почту ссылку, чтобы задать новый пароль. Почты нет — попросите учителя сбросить пароль.</p>
+        <p class="fm-note">Пришлём на почту ссылку для нового пароля. Почты нет — попросите учителя сбросить пароль.</p>
         <input class="inp" id="forgotWho" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="логин, почта или ФИО">
         <button class="btn btn-block" type="button" id="forgotSend">Прислать ссылку</button>
       </div>
@@ -282,8 +282,8 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
       <label class="login-field">Фамилия и имя <span class="login-sub">полностью — так учитель увидит ваши результаты</span>
         <input class="inp" id="regName" autocomplete="off" placeholder="Иванов Иван Иванович" maxlength="80" required>
       </label>
-      <label class="login-field">Логин <span class="login-sub">латиницей, для входа: например ivanov2008</span>
-        <input class="inp" id="regLogin" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" placeholder="ivanov" required>
+      <label class="login-field">Логин <span class="login-sub">латиницей</span>
+        <input class="inp" id="regLogin" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" placeholder="ivanov2008" required>
       </label>
       <label class="login-field">Почта <span class="login-sub" id="regEmailSub">чтобы восстановить пароль, если забудете</span>
         <input class="inp" id="regEmail" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="ivanov@mail.ru">
@@ -304,8 +304,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
       <button class="btn primary btn-block" type="submit">Зарегистрироваться</button>
     </form>
     <label class="login-temp"><input type="checkbox" id="loginTemp"> Чужой компьютер — не запоминать вход</label>
-    <p class="login-school" id="loginSchool" hidden>🏫 Похоже, это компьютер в классе: вход продлится только до закрытия браузера,
-      а пароль браузер не запомнит. Закончил — нажми «Выйти».</p>
+    <p class="login-school" id="loginSchool" hidden>Компьютер в классе: вход до закрытия браузера, пароль не запоминается.</p>
     <div class="login-err" id="loginErr" role="alert"></div>
     <p class="login-docs"><a href="terms.html" target="_blank" rel="noopener">Соглашение</a> · <a href="privacy.html" target="_blank" rel="noopener">Политика обработки данных</a> · <a href="consent.html" target="_blank" rel="noopener">Согласие</a></p>
   </div>
