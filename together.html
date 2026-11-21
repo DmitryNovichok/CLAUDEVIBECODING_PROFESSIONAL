@@ -8,7 +8,7 @@
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<script>try{if(/[?&]as=t\b/.test(location.search)){var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dataset.admTheme=u;}var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;var c=localStorage.getItem('egeTrainer.themeCss');if(c&&/^[^<]*$/.test(c)){var st=document.createElement('style');st.id='themeVars';st.textContent=c;document.head.appendChild(st);}}catch(e){}</script>
+<script>(function(){try{if(/[?&]as=t\b/.test(location.search)){var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dataset.admTheme=u;}var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;var c=localStorage.getItem('egeTrainer.themeCss');if(c&&/^[^<]*$/.test(c)){var st=document.createElement('style');st.id='themeVars';st.textContent=c;document.head.appendChild(st);}}catch(e){}})();</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
@@ -29,6 +29,9 @@ body.tgp [hidden] { display: none !important; }
 .tg-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
 .tg-btn.red { color: var(--weak); }
 .tg-btn.sm { padding: 3px 8px; font-size: 12.5px; }
+.tg-btn.tg-seq { padding: 3px 4px; min-width: 26px; justify-content: center; }
+.tg-btn.tg-seq:disabled { opacity: .35; cursor: default; }
+.tg-task-h:has(#tgPrev:not([hidden])) #tgCPen span { display: none; }   /* со стрелками подборки «Рисовать» — только карандаш */
 
 /* верхняя строка */
 .tg-top { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--topbar-bg); flex-wrap: wrap; }
@@ -467,7 +470,9 @@ dialog.tg-modal::backdrop { background: transparent; }
         <button type="button" class="tg-btn sm" id="tgCErase" hidden title="Ластик: проведите по пометке" aria-label="Ластик"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4-4a2 2 0 0 1 0-2.8L13.2 4a2 2 0 0 1 2.8 0l4 4a2 2 0 0 1 0 2.8L11 20"/><path d="M7 21h13"/><path d="m9 9 6 6"/></svg></button>
         <button type="button" class="tg-btn sm" id="tgCClear" hidden title="Стереть все пометки на условии" aria-label="Стереть пометки"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg></button>
       </span>
+      <button type="button" class="tg-btn sm tg-seq" id="tgPrev" hidden aria-label="Предыдущее задание подборки"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
       <button type="button" class="tg-btn sm" id="tgPick" hidden>Сменить задание</button>
+      <button type="button" class="tg-btn sm tg-seq" id="tgNext" hidden aria-label="Следующее задание подборки"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
       <button type="button" class="tg-btn sm tg-hide-narrow" id="tgMin" title="Спрятать задание — коду и доске больше места"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg> Скрыть</button>
     </div>
     <div class="tg-task-b">

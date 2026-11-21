@@ -18,8 +18,8 @@ var k=m+'|'+s;if(sent[k])return;sent[k]=1;n++;var v='',h={'Content-Type':'applic
 fetch('api/jserr',{method:'POST',keepalive:true,headers:h,body:JSON.stringify({app:'admin',msg:m,src:s,stack:String(st||'').slice(0,2000),page:location.pathname+location.hash,ver:v})}).catch(function(){});}catch(e){}}
 addEventListener('error',function(e){if(e.target&&e.target!==window)return;var f=String(e.filename||'');if(f&&(f.indexOf(location.origin+'/')!==0||(f.split('#')[0]===location.href.split('#')[0]&&e.lineno<=1)))return;rep(e.message,e.filename?e.filename+':'+e.lineno+':'+e.colno:'',e.error&&e.error.stack);},true);
 addEventListener('unhandledrejection',function(e){var r=e.reason;if(r&&r.status)return;rep('Promise: '+(r&&r.message||r),'',r&&r.stack);});})();</script>
-<script>try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;
-var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dataset.admTheme=u;}catch(e){}</script>
+<script>(function(){try{var t=localStorage.getItem('egeTrainer.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;
+var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dataset.admTheme=u;}catch(e){}})();</script>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="style.css">
