@@ -29,6 +29,24 @@ class TaskTypesTest(unittest.TestCase):
         self.assertEqual(kind(9, head + "в которых медиана больше 50"), "mean")
         self.assertEqual(kind(9, head + "в которых сумма наибольшего и наименьшего больше 100"), "stat")
 
+    def test_24_string_tasks(self):
+        head = "текстовый файл состоит не более чем из 10^6 символов. "
+        self.assertEqual(kind(24, head + "определите максимальное количество символов в непрерывной последовательности, которая является корректным арифметическим выражением"), "expr")
+        self.assertEqual(kind(24, head + "сколько раз в файле встречается последовательность символов xxxx?"), "count")
+        self.assertEqual(kind(24, head + "определите максимальное количество идущих подряд пар символов вида гласная + согласная"), "pairs")
+        self.assertEqual(kind(24, head + "определите максимальное количество идущих подряд символов, среди которых не более 5 букв y"), "limit")
+        self.assertEqual(kind(24, head + "определите максимальное количество идущих подряд цифр, расположенных в порядке возрастания"), "digits")
+        self.assertEqual(kind(24, head + "определите максимальное количество идущих подряд символов, среди которых нет символов p, стоящих рядом"), "same")
+        self.assertEqual(kind(24, head + "найдите длину самой длинной подцепочки, состоящей из символов a, b, e"), "longest")
+
+    def test_27_cluster_tasks(self):
+        head = "звёзды на карте звёздного неба образуют кластеры. для каждого файла определите координаты центра каждого кластера, "
+        self.assertEqual(kind(27, head + "затем вычислите среднее арифметическое абсцисс центров"), "clusters")
+        self.assertEqual(kind(27, head + "в файле есть аномалии — точки, не относящиеся ни к одному кластеру"), "anomaly")
+        self.assertEqual(kind(27, head + "затем найдите наименьшее расстояние от оранжевого субкарлика до центра кластера"), "spectral")
+        self.assertEqual(kind(27, head + "затем найдите наибольшее евклидово расстояние между звездами одного кластера"), "dist")
+        self.assertEqual(kind(27, "для каждого файла определите координаты новых филиалов для всех городов"), "apps")
+
     def test_every_type_key_is_unique_within_number(self):
         for n, rules in clusters.RULES.items():
             keys = [k for k, _, _ in rules] + [clusters.OTHER[0]]

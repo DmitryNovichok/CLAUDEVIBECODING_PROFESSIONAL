@@ -21,12 +21,12 @@
       "source": "ce8d429b88c87525d4e05f634530bedc5bc9fbf79b7ab3d266df6c9a1677f90f"
     },
     "app.js": {
-      "min": "d2491b05dcd9dce34b7071e5d578208994bb7fc9d1b1b58b49d1be80c17e3369",
-      "source": "e489565b8a3b6caa357f4508fee4ebeabcad0f2997587e00ae9bc22437486106"
+      "min": "1df9481911417612bd26c5a78a568147f39c8fed19878afb8449cf16a8292b55",
+      "source": "f8fa940a4710437a3c258dfb39988a595c14e3c7f64693c13d0f3598ac43c954"
     },
     "changelog-loader.js": {
-      "min": "6a2a3dac9388ef1866ec56fcf15a518e798680d9bca9d38cd76a5c49c6b26868",
-      "source": "4b18541dc21dbeb1d57a055cb15e3c021896e8edd2ca1284ddec8a5a8c0c7009"
+      "min": "c0108b9b3252947e3ea9ec2acc6c287135bae8f4349cfc19ad416e65f1421425",
+      "source": "74884b08866f5a6fff41aa2380fc4b608148d86b3777074c9e01f6d072cedd44"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "8a9d2560bf2a78fe62ba6e95f4dccfa05210d2604cf7c09d9d8d38085cbaab5d",
-      "source": "83831436feace2ca9887411b7fddf6c438ef72d6a43a32829ae3b98e0c2a8174"
+      "min": "46db0f12edbe61cacc3b51f1fe527a041443e66ef9e3cccddcbcfde368f2904a",
+      "source": "de43ad4e6935a2058849e76ec837ef1401af7daec4178b247a2cffb2ff1a4ca6"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",
@@ -73,8 +73,8 @@
       "source": "99563a8c25bd3457cafc24add900ea7f2526cbd19a22eb5d447685beaecd55aa"
     },
     "together.js": {
-      "min": "51fb06113b29f38073996ae5e3f1d9278984a79749e88246583aad7cd3ef5dfb",
-      "source": "03f0929c62eed8467dc092ab20df287b076f887f3c09ed858b613ec2180d39bf"
+      "min": "8e5f6e906da6b12d2dd9a952236d68d8e4e9fe3fc0e58e4638a03954fcf2a31f",
+      "source": "20c47e3f3e74c50b45930af821644fa04e3039c87773b70c1f85a992cbf4966f"
     },
     "visit.js": {
       "min": "68866dd9d984e9fdef9715ff70f5fe86fbd85c69583a471db13530cc62bba9f8",

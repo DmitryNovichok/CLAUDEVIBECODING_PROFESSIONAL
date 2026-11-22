@@ -5354,6 +5354,40 @@ class ServerTest(unittest.TestCase):
         self.admin("POST", "/api/admin/together/delete", {"id": sid})
         self.assertFalse(server.tog_files_dir(sid).exists())
 
+    def test_together_board_images(self):
+        """Картинки на доске «Вместе»: вставляют участники занятия, только PNG/JPEG/GIF/WebP по сигнатуре, отдаются участникам."""
+        a, stranger = self.login("Картинкин Карп"), self.login("Некартинкин Нил")
+        ida = server.APP.db.q("SELECT id FROM students WHERE name LIKE 'Картинкин К%'", one=True)["id"]
+        sid = self.admin("POST", "/api/admin/together/new", {"students": [ida], "mode": "both"})[1]["id"]
+        server.APP.db.x("INSERT OR IGNORE INTO admin_sessions(token, expires) VALUES('admtest', ?)", (time.time() + 3600,))
+        adm = {"Cookie": "egeadm=admtest"}
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+        up = lambda body, h, q="": self.rawreq("POST", f"/api/together/image/upload?s={sid}{q}", body,
+                                               dict(h, **{"Content-Type": "image/png"}))
+        self.assertEqual(up(png, {"X-Token": stranger})[0], 403)
+        self.assertEqual(up(b"<svg xmlns='http://www.w3.org/2000/svg'><script>1</script></svg>", adm, "&as=t")[0], 415)
+        with mock.patch.object(server, "TOG_IMG_MAX", 20):
+            self.assertEqual(up(png, adm, "&as=t")[0], 413)
+        st, d, _ = up(png, {"X-Token": a})                       # ученик занятия тоже вставляет
+        self.assertEqual(st, 200, d)
+        src = json.loads(d)["src"]
+        self.assertRegex(src, r"^[0-9a-f]{16}\.png$")
+        st, body, r = self.rawreq("GET", f"/api/together/image?s={sid}&i={src}&as=t", headers=adm)
+        self.assertEqual((st, body, r.getheader("Content-Type"), r.getheader("X-Content-Type-Options")),
+                         (200, png, "image/png", "nosniff"))
+        self.assertEqual(self.rawreq("GET", f"/api/together/image?s={sid}&i={src}", headers={"X-Token": a})[0], 200)
+        self.assertEqual(self.rawreq("GET", f"/api/together/image?s={sid}&i={src}", headers={"X-Token": stranger})[0], 403)
+        self.assertEqual(self.rawreq("GET", f"/api/together/image?s={sid}&i=..%2F..%2Ftrainer.db&as=t", headers=adm)[0], 404)
+        # объект на доске: только картинка, выданная сервером, и рамка не меньше 16 точек
+        st = server.together._stroke({"id": "i1", "k": "i", "src": src, "p": [[10, 10], [210, 110]], "txt": "x"})
+        self.assertEqual((st["k"], st["src"], st["p"]), ("i", src, [[10, 10], [210, 110]]))
+        self.assertNotIn("txt", st)
+        self.assertIsNone(server.together._stroke({"id": "i2", "k": "i", "src": "../a.png", "p": [[0, 0], [50, 50]]}))
+        self.assertIsNone(server.together._stroke({"id": "i3", "k": "i", "src": src, "p": [[0, 0], [5, 5]]}))
+        self.assertIsNone(server.together._stroke({"id": "i4", "k": "i", "src": src, "p": [[0, 0], [50, 50]], "L": "c"}))
+        # удалили занятие — картинки удалены с диска
+        self.assertTrue(server.tog_images_dir(sid).is_dir())
+
     def test_together_session(self):
         a, b = self.login("Совместов Сава"), self.login("Совместова Света")
         stranger = self.login("Чужаков Чип")

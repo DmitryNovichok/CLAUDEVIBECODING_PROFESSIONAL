@@ -166,6 +166,7 @@ body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resi
 .tg-sheet { position: relative; width: 100%; touch-action: none; background-color: var(--panel);
   background-image: linear-gradient(var(--subtle) 1px, transparent 1px), linear-gradient(90deg, var(--subtle) 1px, transparent 1px); }
 .tg-sheet canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.tg-sheet.img { cursor: copy; } .tg-sheet.drop { outline: 3px dashed var(--accent); outline-offset: -6px; }
 .tg-sheet.pen { cursor: crosshair; } .tg-sheet.txt { cursor: text; } .tg-sheet.erase { cursor: cell; } .tg-sheet.ro { cursor: default; }
 .tg-tools { position: absolute; left: 10px; top: 10px; z-index: 5; display: flex; flex-direction: column; gap: 3px; background: var(--card);
   border: 1px solid var(--border); border-radius: 12px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
@@ -182,6 +183,11 @@ body.tg-dragging.v { cursor: col-resize; } body.tg-dragging.h { cursor: row-resi
 .tg-ptr span { position: absolute; left: 14px; top: 15px; font: 600 10.5px/14px var(--font); color: #fff; padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
 .tg-tin { position: absolute; z-index: 6; background: var(--card); border: 1px dashed var(--accent); color: var(--text); font-family: var(--font); padding: 0 4px; outline: none; min-width: 120px; }
 /* выделенный текст: рамка (тянуть — подвинуть) и уголок (тянуть — размер) */
+.tg-isel { position: absolute; z-index: 5; border: 2px solid var(--accent); border-radius: 3px; cursor: move; touch-action: none; }
+.tg-isel .h { position: absolute; right: -8px; bottom: -8px; width: 16px; height: 16px; border-radius: 4px; background: var(--card); border: 2px solid var(--accent); cursor: nwse-resize; }
+.tg-isel .x { position: absolute; right: -10px; top: -10px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--weak); color: #fff;
+  font: 600 14px/22px var(--font); cursor: pointer; padding: 0; }
+@media (pointer: coarse) { .tg-isel .h { width: 24px; height: 24px; right: -12px; bottom: -12px; } }
 .tg-tsel { position: absolute; z-index: 5; border: 1.5px dashed var(--accent); border-radius: 4px; cursor: move; touch-action: none; }
 .tg-tsel .h { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px; border-radius: 3px; background: var(--card);
   border: 2px solid var(--accent); cursor: nwse-resize; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
@@ -526,6 +532,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
         <button type="button" data-tool="line" title="Прямая (L)" aria-label="Прямая"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"/><circle cx="5" cy="19" r="1.5"/><circle cx="19" cy="5" r="1.5"/></svg></button>
         <button type="button" data-tool="text" title="Текст (T)" aria-label="Текст"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7V5h14v2"/><path d="M12 5v14"/><path d="M9 19h6"/></svg></button>
         <button type="button" data-tool="erase" title="Ластик (E)" aria-label="Ластик"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4-4a2 2 0 0 1 0-2.8L13.2 4a2 2 0 0 1 2.8 0l4 4a2 2 0 0 1 0 2.8L11 20"/><path d="M7 21h13"/><path d="m9 9 6 6"/></svg></button>
+        <button type="button" data-tool="img" title="Картинка (I): вставить, подвинуть, растянуть за уголок. Ещё — Ctrl+V или перетащить файл на доску" aria-label="Картинка"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5L5 20"/></svg></button>
         <hr>
         <button type="button" id="tgColor" title="Цвет"><i class="cl" id="tgColorI"></i></button>
         <button type="button" id="tgWidth" title="Толщина"><i class="wd" id="tgWidthI" style="height:3px"></i></button>
@@ -535,6 +542,7 @@ Ctrl+N и Ctrl+W браузер не отдаёт: вместо них стре�
         <button type="button" id="tgClear" title="Очистить доску" aria-label="Очистить доску"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg></button>
         <div class="tg-cols" id="tgCols" hidden></div>
       </div>
+      <input type="file" id="tgImgIn" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
       <div class="tg-bscroll" id="tgBs"><div class="tg-sheet pen" id="tgSheet"><canvas id="tgCv"></canvas><canvas id="tgCv2"></canvas></div></div>
       <div class="tg-note" id="tgBNote" hidden></div>
     </section>

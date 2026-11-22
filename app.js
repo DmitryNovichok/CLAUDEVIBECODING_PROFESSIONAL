@@ -10362,7 +10362,6 @@
     const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(asgPending);
     const ownLeft = ownOpen.reduce((s, a) => s + asgLeft(a).length, 0);
     const T = [];
-    T.push({ k: 'trainer', name: 'Тренажёр', sub: `номера 1–27 · освоено ${hubMastered()}`, big: true, extra: hubMap(), btn: 'Решать подряд', go: () => setScope('all') });
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
     if (SERVER && student) T.push({ k: 'daily', name: 'Задание дня', sub: !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
       : DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
@@ -10388,6 +10387,18 @@
         sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
     if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
     return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
+  }
+  /** Тренажёр — главное на сайте: отдельный блок над планом на сегодня, номера крупно. */
+  function hubTrain() {
+    const total = kimTotal(countByNum());
+    return `<section class="hub-train" aria-label="Тренажёр" style="--sec:${hubColor('trainer')}">
+      <div class="ht-head">${hubIcon('trainer', 48)}<div class="ht-tt"><h2>Тренажёр</h2>
+        <p>Номера 1–27 · освоено ${hubMastered()} · ${total.toLocaleString('ru-RU')} ${plural(total, 'задание', 'задания', 'заданий')} в банке</p></div>
+        <div class="ht-acts"><button type="button" class="btn primary" data-train-go="all">Решать подряд →</button>
+          <button type="button" class="btn" data-hub-link="sideToggle">Все номера</button></div></div>
+      ${hubMap().replace('class="hub-map"', 'class="hub-map ht-map"')}
+      <div class="ht-legend">${['none', 'weak', 'mid', 'good'].map(l => `<span><i class="lvl-${l}"></i>${LEVEL_TEXT[l]}</span>`).join('')}</div>
+    </section>`;
   }
   function hubMastered() {
     const counts = countByNum();
@@ -10509,7 +10520,7 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
     const html = `
       <div class="hub-hello"><div><h1>${hubHello()}</h1><p>${sub}</p></div><div class="hub-pills">${hubPills()}</div></div>
-      ${hubMail()}${hubPad()}<section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
+      ${hubMail()}${hubTrain()}${hubPad()}<section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
         ${plan.map(stepHtml).join('')}
         <div class="hub-day"><span>День</span><i class="hub-track"><b data-bar="day" data-w="${goalN ? Math.round(doneN / goalN * 100) : 0}"></b></i>
           <span>${doneN === goalN ? 'всё сделано — так держать!' : `сделано ${doneN} из ${goalN}`}</span></div></section>
@@ -10602,6 +10613,7 @@
     if (!courseShown || pageKind !== 'hub') return;
     const n = e.target.closest('[data-hub-n]');
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
+    if (e.target.closest('[data-train-go]')) { setScope('all'); return; }
     const hl = e.target.closest('[data-hub-link]');
     if (hl) { $('#' + hl.dataset.hubLink)?.click(); return; }
     const ml = e.target.closest('[data-mail]');
