@@ -3654,6 +3654,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 prefs["fav"] = [conv(i) for i in prefs["fav"] if isinstance(i, str)]
             if isinstance(prefs.get("notes"), dict):
                 prefs["notes"] = {conv(k): v for k, v in prefs["notes"].items()}
+            if isinstance(prefs.get("skip"), dict):         # пропущенные задания: {id: когда}
+                prefs["skip"] = {conv(k): v for k, v in prefs["skip"].items()}
         return {"sid": s["id"], "name": s["name"], "token": getattr(self, "tok", None) or s["token"], "prefs": prefs,
                 "shared": bool(getattr(self, "sess", None) and self.sess["shared"]),
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
@@ -4509,6 +4511,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     prefs["fav"] = [back(i) for i in prefs["fav"] if isinstance(i, str)][:2000]
                 if isinstance(prefs.get("notes"), dict):
                     prefs["notes"] = {back(k): v for k, v in prefs["notes"].items()}
+                if isinstance(prefs.get("skip"), dict):
+                    prefs["skip"] = {back(k): v for k, v in list(prefs["skip"].items())[:2000]
+                                     if isinstance(k, str) and isinstance(v, (int, float))}
                 raw = json.dumps(prefs, ensure_ascii=False, separators=(",", ":"))
                 if len(raw) > 300_000:
                     return self.err(413, "Слишком много заметок")

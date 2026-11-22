@@ -68,8 +68,17 @@
   function pickNext(excludeId) {
     const r = pickNextRaw(excludeId);
     if (!r || ui.scope === 'asg' || ui.scope === 'all' || inScope(r.task)) return r;
-    const list = noFam(pool().filter(t => t.id !== excludeId), recentFams(excludeId));
+    const list = notSkipped(noFam(pool().filter(t => t.id !== excludeId), recentFams(excludeId)));
     return list.length ? { task: chooseTask(list, ui.scope) || list[0], why: { type: 'new' } } : r;
+  }
+  /** Задание пропущено кнопкой «Пропустить →» (не раньше CFG.skipDays дней назад). */
+  const isSkipped = t => !!(prefs.skip && prefs.skip[t.id]);
+  /** Без пропущенных; если остались только они — давно пропущенное раньше только что пропущенного. */
+  function notSkipped(arr) {
+    const ok = arr.filter(t => !isSkipped(t));
+    if (ok.length) return ok;
+    const first = Math.min(...arr.map(t => prefs.skip[t.id]));
+    return arr.filter(t => prefs.skip[t.id] === first);
   }
   function pickNextRaw(excludeId) {
     const now = Date.now();
@@ -92,7 +101,7 @@
     const recentSet = new Set(recent.slice(-CFG.recentWindow));
     if (excludeId) recentSet.add(excludeId);
     const fams = recentFams(excludeId);
-    const fresh = arr => arr.filter(t => !recentSet.has(t.id) && !(t.fm && fams.has(t.fm)));
+    const fresh = arr => arr.filter(t => !recentSet.has(t.id) && !isSkipped(t) && !(t.fm && fams.has(t.fm)));
     const nums = new Set(list.map(t => t.n));
 
     // 1) повторение типа, в котором была ошибка
@@ -102,7 +111,7 @@
     for (const r of due) {
       let c = fresh(list.filter(t => topicKey(t) === r.key));
       if (!c.length) c = fresh(list.filter(t => t.n === r.n));
-      if (!c.length) c = noFam(list.filter(t => t.n === r.n && t.id !== excludeId), fams); // в номере мало заданий
+      if (!c.length) c = notSkipped(noFam(list.filter(t => t.n === r.n && t.id !== excludeId), fams)); // в номере мало заданий
       const t = chooseTask(c, r.n);
       if (t) return { task: t, why: { type: 'review', r } };
     }
@@ -124,7 +133,7 @@
       cands = groups.get(k);
     }
     const t = chooseTask(fresh(cands), n) || chooseTask(fresh(inNum), n)
-      || chooseTask(noFam(inNum.filter(x => x.id !== excludeId), fams), n) || inNum[0];
+      || chooseTask(notSkipped(noFam(inNum.filter(x => x.id !== excludeId), fams)), n) || inNum[0];
     const ns = statsFor(n);
     let type = 'new';
     if (P.tasks[t.id]) type = 'repeat';
@@ -749,7 +758,11 @@
     $('#giveUpBtn').addEventListener('click', giveUp);
     if ($('#hintBtn')) $('#hintBtn').addEventListener('click', getHint);
     const sk = $('#skipBtn');
-    if (sk) sk.addEventListener('click', next);
+    if (sk) sk.addEventListener('click', () => {
+      const id = cur && cur.task && cur.task.id;
+      if (id && !(cur.why && cur.why.type === 'asg')) { prefs.skip[id] = Date.now(); savePrefs(); }   // подборка учителя — свой порядок
+      next();
+    });
     // «Показать ответ» доступна не сразу: сначала нужно попробовать решить
     const tick = () => {
       const b = $('#giveUpBtn');
@@ -1262,6 +1275,7 @@
 
   function finish(score, gaveUp, res) {
     if (!cur || cur.done) return;
+    if (prefs.skip[cur.task.id]) { delete prefs.skip[cur.task.id]; savePrefs(); }   // вернулся к пропущенному и решил
     if (res && res.daily_fast) toast('Задание дня решено слишком быстро — в рейтинг не засчитано.', 6000);
     cur.done = true;
     cur.score = score;
