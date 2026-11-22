@@ -33,7 +33,7 @@ window.EgeExamSections=function(ht){"use strict";const{$:p,$$:_,api:b,esc:m,plur
           <span class="mkx-status" id="mkxSaved" role="status">${j(c)?"Ответ сохранён":""}</span>
           <span class="mkx-sp"></span>
           <button type="button" class="mkx-btn" data-mkx-step="-1" ${n.i?"":"disabled"}>← предыдущее</button>
-          <button type="button" class="mkx-btn" data-mkx-step="1" ${n.i<t.tasks.length-1?"":"disabled"}>следующее →</button></div></section>`}else if(e==="confirm"){const c=t.tasks.filter(d=>!j(d));r=`<section class="mkx-box mkx-confirm"><h2>${c.length?"Вы ответили не на все задания!":"Вы ответили на все задания."}</h2>
+          <button type="button" class="mkx-btn" data-mkx-step="1" ${n.i<t.tasks.length-1?"":"disabled"}>следующее →</button></div></section>`}else if(e==="confirm"){const c=t.tasks.filter(d=>!j(d));r=`<section class="mkx-box mkx-confirm"><h2>${c.length?"Вы ответили не на все задания.":"Вы ответили на все задания."}</h2>
         ${c.length?`<p>Без сохранённого ответа: ${c.map(d=>`<button type="button" class="mkx-link" data-mkx-go="${d.n-1}">№${d.n}</button>`).join(", ")}.</p>`:""}
         <p><button type="button" class="mkx-btn" data-mkx-go="${n.i}">продолжить отвечать</button> или <button type="button" class="mkx-btn mkx-primary" data-mkx-finish>закончить тестирование *</button></p>
         <p class="mkx-note">* после завершения тестирования вернуться к заданиям будет нельзя</p></section>`}else{const c=new Date((t.finished||Date.now()/1e3)*1e3).toLocaleDateString("ru-RU",{day:"numeric",month:"long",year:"numeric"}).replace(" г.",""),d=t.rows||[];r=`<section class="mkx-box mkx-proto"><h2>Протокол тренировочной работы</h2><h3>${m(t.title)}</h3>
