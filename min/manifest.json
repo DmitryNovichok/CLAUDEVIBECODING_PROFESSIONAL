@@ -21,12 +21,12 @@
       "source": "ce8d429b88c87525d4e05f634530bedc5bc9fbf79b7ab3d266df6c9a1677f90f"
     },
     "app.js": {
-      "min": "f1e675fc996335eea175d3a2456cc2cab6bdbdad87fe8e2acf5ec0d6acdf258e",
-      "source": "e47c69a2861940a286489fc56f55b339a0806bae0bcd847a8a4bafc88a4e1a3e"
+      "min": "371fc6c31e5f0179c7164297c35bc09970bc2444cec43e0910bfcb36cac616da",
+      "source": "e60454741c2314d467bee3a97bc73822c675316234e305aff59e5b14719db71b"
     },
     "changelog-loader.js": {
-      "min": "a4f11f94a68955c9ad6429f2ad994c1e53aca09f7559c4fe98ffefcca2b6db9a",
-      "source": "183d9bc14203636f81bec0ea5aa3dd82cf8b2670eb3dc2303875da5bb50ccf4f"
+      "min": "61d931c0cd3237a0abd13ebf6924b5b03bc7676cf4aa6e5d620c5e562c32480f",
+      "source": "2293f2d11f25a58403f69df7adbb7e9cc29f78cefbccd18a5227757923fdfd7d"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "2cd4000616c6e70298020f3da978c29b21fa394018f6c0608946df5a4c316782",
-      "source": "6c0ff0e47fad1de6d0adc2299bf8acccd48d9b44f77b69d8d18663731ee3661a"
+      "min": "8a9d2560bf2a78fe62ba6e95f4dccfa05210d2604cf7c09d9d8d38085cbaab5d",
+      "source": "83831436feace2ca9887411b7fddf6c438ef72d6a43a32829ae3b98e0c2a8174"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",

@@ -981,6 +981,23 @@ body.tt-big .py-dock { z-index: 80; }
 .hub-fire-pop .hub-fire-go { margin-top: 10px; }
 @media (max-width: 640px) { .streak-menu { right: auto; left: 0; width: min(300px, calc(100vw - 32px)); } }
 
+/* тип задания внутри номера: кнопка в шапке и окно выбора */
+.type-chip { cursor: pointer; font: inherit; font-size: 12.5px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.type-chip b { font-weight: 600; }
+.type-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.tp-all { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; margin: 4px 0 12px; padding: 10px 14px; text-align: left;
+  border: 2px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); font: inherit; cursor: pointer; }
+.tp-all small, .tp-head small { color: var(--muted); font-size: 12.5px; }
+.tp-all.on, .tp-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.tp-list { display: flex; flex-direction: column; gap: 8px; }
+.tp-row { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; padding: 10px 14px; border: 2px solid var(--border); border-radius: 12px; background: var(--card); }
+.tp-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tp-act { display: flex; gap: 6px; }
+.tp-ex { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 10px; }
+.tp-cond { max-height: 340px; overflow: auto; font-size: 14px; }
+.tp-ex-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 12.5px; }
+@media (max-width: 520px) { .tp-row { grid-template-columns: 1fr; } .tp-act .btn { flex: 1; } }
+
 /* верхняя панель: заголовок не сжимается в узкую колонку — правая часть переносится на новую строку */
 .scope-info { flex: 1 1 300px; }
 .scope-title { white-space: nowrap; }
