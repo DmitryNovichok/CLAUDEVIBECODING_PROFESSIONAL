@@ -18,6 +18,7 @@
     reviewIntervalsDays: [1, 3, 7], // затем повторить через 1, 3 и 7 дней
     retryTaskDays: { 0: 2, 0.5: 4 }, // само ошибочное задание вернуть через N дней
     recentWindow: 6,            // не показывать последние N заданий снова
+    skipDays: 30,               // пропущенное задание («Пропустить →») не предлагать N дней
     // актуальность: с какого года действует нынешний тип задания (документы ФИПИ об изменениях КИМ)
     firstKegeYear: 2021,        // первый компьютерный ЕГЭ — более ранние задания другого формата
     formatSince: { 6: 2023, 22: 2023, 23: 2024, 27: 2025 },   // нумерация КИМ-2027
@@ -693,6 +694,10 @@
     if (!Array.isArray(p.fav)) p.fav = [];
     if (!p.notes || typeof p.notes !== 'object') p.notes = {};
     if (!(p.goal >= 0 && p.goal <= 500)) p.goal = CFG.goal;
+    // пропущенные задания: { id: когда пропущено }; старше CFG.skipDays — забываем, храним не больше 1500 последних
+    const since = Date.now() - CFG.skipDays * 86400000;
+    const skip = p.skip && typeof p.skip === 'object' && !Array.isArray(p.skip) ? p.skip : {};
+    p.skip = Object.fromEntries(Object.entries(skip).filter(([, ts]) => +ts > since).sort((a, b) => b[1] - a[1]).slice(0, 1500));
     return p;
   }
   let prefs = normPrefs(readJSON(PREFS_STORE));
@@ -727,14 +732,19 @@
     : ui.period === 'actual' ? !isOutdated(t)
     : !isOutdated(t) && !!t.y && t.y >= +ui.period;
   const visible = t => inBank(t) && inPeriod(t);
+  // выбранный учеником тип внутри номера: ui.cl = { n, c } (действует, только пока открыт этот номер)
+  const typeOn = () => !!(ui.cl && ui.cl.n === ui.scope);
+  const typeOk = t => !typeOn() || t.c === ui.cl.c;
   function pool() {
     if (ui.scope === 'fav') { const f = favSet(); return TASKS.filter(t => f.has(t.id)); }
     if (ui.scope === 'asg') { const a = asgOf(ui.asg); return a ? a.tasks.map(id => byId.get(id)).filter(Boolean) : []; }
-    return TASKS.filter(t => visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope));
+    const list = TASKS.filter(t => visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope) && typeOk(t));
+    if (!list.length && typeOn()) { ui.cl = null; return pool(); }      // в выбранном типе не осталось заданий (сменили банк или период)
+    return list;
   }
   const inScope = t => (ui.scope === 'fav' ? favSet().has(t.id)
     : ui.scope === 'asg' ? !!asgOf(ui.asg) && asgOf(ui.asg).tasks.includes(t.id)
-    : visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope));
+    : visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope) && typeOk(t));
   // «Тема» для подбора и повторения — тип задания внутри номера (кластер c считает сервер по тексту условия),
   // у банков без кластеров — тема из банка
   const topicKey = t => t.n + '|' + (t.c || t.topic || '');
@@ -845,8 +855,17 @@
   function pickNext(excludeId) {
     const r = pickNextRaw(excludeId);
     if (!r || ui.scope === 'asg' || ui.scope === 'all' || inScope(r.task)) return r;
-    const list = noFam(pool().filter(t => t.id !== excludeId), recentFams(excludeId));
+    const list = notSkipped(noFam(pool().filter(t => t.id !== excludeId), recentFams(excludeId)));
     return list.length ? { task: chooseTask(list, ui.scope) || list[0], why: { type: 'new' } } : r;
+  }
+  /** Задание пропущено кнопкой «Пропустить →» (не раньше CFG.skipDays дней назад). */
+  const isSkipped = t => !!(prefs.skip && prefs.skip[t.id]);
+  /** Без пропущенных; если остались только они — давно пропущенное раньше только что пропущенного. */
+  function notSkipped(arr) {
+    const ok = arr.filter(t => !isSkipped(t));
+    if (ok.length) return ok;
+    const first = Math.min(...arr.map(t => prefs.skip[t.id]));
+    return arr.filter(t => prefs.skip[t.id] === first);
   }
   function pickNextRaw(excludeId) {
     const now = Date.now();
@@ -869,7 +888,7 @@
     const recentSet = new Set(recent.slice(-CFG.recentWindow));
     if (excludeId) recentSet.add(excludeId);
     const fams = recentFams(excludeId);
-    const fresh = arr => arr.filter(t => !recentSet.has(t.id) && !(t.fm && fams.has(t.fm)));
+    const fresh = arr => arr.filter(t => !recentSet.has(t.id) && !isSkipped(t) && !(t.fm && fams.has(t.fm)));
     const nums = new Set(list.map(t => t.n));
 
     // 1) повторение типа, в котором была ошибка
@@ -879,7 +898,7 @@
     for (const r of due) {
       let c = fresh(list.filter(t => topicKey(t) === r.key));
       if (!c.length) c = fresh(list.filter(t => t.n === r.n));
-      if (!c.length) c = noFam(list.filter(t => t.n === r.n && t.id !== excludeId), fams); // в номере мало заданий
+      if (!c.length) c = notSkipped(noFam(list.filter(t => t.n === r.n && t.id !== excludeId), fams)); // в номере мало заданий
       const t = chooseTask(c, r.n);
       if (t) return { task: t, why: { type: 'review', r } };
     }
@@ -901,7 +920,7 @@
       cands = groups.get(k);
     }
     const t = chooseTask(fresh(cands), n) || chooseTask(fresh(inNum), n)
-      || chooseTask(noFam(inNum.filter(x => x.id !== excludeId), fams), n) || inNum[0];
+      || chooseTask(notSkipped(noFam(inNum.filter(x => x.id !== excludeId), fams)), n) || inNum[0];
     const ns = statsFor(n);
     let type = 'new';
     if (P.tasks[t.id]) type = 'repeat';
@@ -1526,7 +1545,11 @@
     $('#giveUpBtn').addEventListener('click', giveUp);
     if ($('#hintBtn')) $('#hintBtn').addEventListener('click', getHint);
     const sk = $('#skipBtn');
-    if (sk) sk.addEventListener('click', next);
+    if (sk) sk.addEventListener('click', () => {
+      const id = cur && cur.task && cur.task.id;
+      if (id && !(cur.why && cur.why.type === 'asg')) { prefs.skip[id] = Date.now(); savePrefs(); }   // подборка учителя — свой порядок
+      next();
+    });
     // «Показать ответ» доступна не сразу: сначала нужно попробовать решить
     const tick = () => {
       const b = $('#giveUpBtn');
@@ -2039,6 +2062,7 @@
 
   function finish(score, gaveUp, res) {
     if (!cur || cur.done) return;
+    if (prefs.skip[cur.task.id]) { delete prefs.skip[cur.task.id]; savePrefs(); }   // вернулся к пропущенному и решил
     if (res && res.daily_fast) toast('Задание дня решено слишком быстро — в рейтинг не засчитано.', 6000);
     cur.done = true;
     cur.score = score;
@@ -2890,6 +2914,7 @@
       h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + numLabel(n)}</span>${ARCHIVE[n] ? '<span class="scope-stats">архив · нет в КИМ ЕГЭ-2027</span>' : ''}
         <span class="scope-stats" title="${counts[n]} в банке · решено ${st.solved}">${st.acc != null ? `точность ${pct(st.acc)}%` : `решено ${st.solved}`}</span>
         <span class="chip ${st.lvl === 'none' ? '' : st.lvl}">${LEVEL_TEXT[st.lvl]}${st.s && st.s.a ? ` · ${pct(st.s.m)}%` : ''}</span>
+        ${typeChipHtml(n)}
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
     }
     $('#scopeInfo').innerHTML = h;
@@ -3035,12 +3060,91 @@
     const wasExam = examShown, wasPage = courseShown;       // открыта страница (курс, турниры, подборки) — уходим с неё к заданиям
     if (!leaveExam()) return;
     if (ui.scope === s && !wasExam && !wasPage) return;
+    if (ui.scope !== s) ui.cl = null;                  // тип выбирается заново в каждом номере
     ui.scope = s;
     save();
     renderSidebar();
     if (!wasExam && !wasPage && cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg') { renderTopbar(); return; }
     next();
   }
+
+  // ------------------------------------------------------------ тип задания внутри номера
+  /** Типы номера, в которых сейчас есть задания: [{ c, name, list }] в порядке справочника, «Другие формулировки» — в конце. */
+  function typesOf(n) {
+    const by = new Map();
+    for (const t of TASKS) if (t.n === n && visible(t)) { const k = t.c || ''; if (!by.has(k)) by.set(k, []); by.get(k).push(t); }
+    const order = (CLUSTERS[n] || []).map(x => x[0]);
+    return [...by.keys()].sort((a, b) => ((order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)))
+      .map(c => ({ c, name: ((CLUSTERS[n] || []).find(x => x[0] === c) || [])[1] || 'Без типа', list: by.get(c) }));
+  }
+  function typeChipHtml(n) {
+    if (ARCHIVE[n] || typesOf(n).length < 2) return '';
+    const on = typeOn() && typesOf(n).find(x => x.c === ui.cl.c);
+    return `<button type="button" class="chip type-chip${on ? ' on' : ''}" id="typeBtn" title="Выбрать тип задания внутри номера">Тип: <b>${on ? esc(on.name) : 'все вперемешку'}</b> ▾</button>`;
+  }
+  /** Пример типа — «среднее» по сложности задание; i — какой по счёту (кнопка «Другой пример»). */
+  function typeExample(list, i) {
+    const sorted = list.slice().sort((a, b) => (Math.abs((a.r || 3) - 3) - Math.abs((b.r || 3) - 3)) || (a.id < b.id ? -1 : 1));
+    return sorted[i % sorted.length];
+  }
+  function openTypes() {
+    const n = ui.scope;
+    if (typeof n !== 'number') return;
+    const types = typesOf(n), all = types.reduce((s, x) => s + x.list.length, 0);
+    const accOf = c => { const s = P.topics[n + '|' + c]; return s && s.a ? `точность ${pct(s.ok / s.a)}%` : ''; };
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">Задание ${numLabel(n)}: тип</h2>
+      <button type="button" class="tp-all${typeOn() ? '' : ' on'}" data-tp=""><b>Все типы вперемешку</b><small>случайные задания всего номера · ${all}</small></button>
+      <div class="tp-list">${types.map(x => {
+        const on = typeOn() && ui.cl.c === x.c, acc = accOf(x.c);
+        return `<div class="tp-row${on ? ' on' : ''}" data-tp-row="${esc(x.c)}">
+          <div class="tp-head"><b>${esc(x.name)}</b><small>${x.list.length} ${plural(x.list.length, 'задание', 'задания', 'заданий')}${acc ? ' · ' + acc : ''}</small></div>
+          <div class="tp-act"><button type="button" class="btn ghost small" data-tp-ex="${esc(x.c)}" aria-expanded="false">Пример</button>
+            <button type="button" class="btn primary small" data-tp="${esc(x.c)}">${on ? 'Решаю' : 'Решать'}</button></div>
+          <div class="tp-ex" hidden></div></div>`;
+      }).join('')}</div>`;
+    $('#forecastModal').hidden = false;
+  }
+  function showTypeExample(c, i) {
+    const n = ui.scope, row = $(`#forecastBody [data-tp-row="${CSS.escape(c)}"]`);
+    const x = typesOf(n).find(y => y.c === c);
+    if (!row || !x) return;
+    const box = row.querySelector('.tp-ex'), btn = row.querySelector('[data-tp-ex]');
+    box.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    btn.textContent = 'Скрыть пример';
+    const t = typeExample(x.list, i);
+    box.dataset.i = String(i);
+    box.innerHTML = '<p class="fm-muted">Загружаю условие…</p>';
+    loadHtml([t]).then(() => {
+      if (box.dataset.i !== String(i) || box.hidden) return;
+      box.innerHTML = `<article class="cond tp-cond">${safeHtml(t.html)}</article>
+        <div class="tp-ex-foot"><span class="fm-muted">#${t.sn || ''} · ${RANK_WORD[t.r] || ''}</span>
+        ${x.list.length > 1 ? `<button type="button" class="link-btn" data-tp-more="${esc(c)}">Другой пример</button>` : ''}</div>`;
+      renderMath(box);
+    }, e => { box.innerHTML = `<p class="fm-muted">Условие не загрузилось: ${esc(e.message)}.</p>`; });
+  }
+  document.addEventListener('click', e => {
+    if (e.target.closest('#typeBtn')) { openTypes(); return; }
+    if (!e.target.closest('#forecastBody')) return;
+    const ex = e.target.closest('[data-tp-ex]');
+    if (ex) {
+      const box = ex.closest('.tp-row').querySelector('.tp-ex');
+      if (!box.hidden) { box.hidden = true; box.innerHTML = ''; ex.textContent = 'Пример'; ex.setAttribute('aria-expanded', 'false'); return; }
+      showTypeExample(ex.dataset.tpEx, 0);
+      return;
+    }
+    const more = e.target.closest('[data-tp-more]');
+    if (more) { const box = more.closest('.tp-ex'); showTypeExample(more.dataset.tpMore, (+box.dataset.i || 0) + 1); return; }
+    const pick = e.target.closest('[data-tp]');
+    if (!pick) return;
+    const c = pick.dataset.tp;
+    ui.cl = c ? { n: ui.scope, c } : null;
+    save();
+    closeForecast();
+    renderTopbar();
+    if (cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg' && !c) return;   // «вперемешку» — текущее задание остаётся
+    next();
+  });
 
   let periodMemo = null;              // список «Задания: актуальные / с 2024 г. / все» — пересобирается, только когда сменился банк
   function renderPeriod() {
@@ -10258,7 +10362,6 @@
     const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(asgPending);
     const ownLeft = ownOpen.reduce((s, a) => s + asgLeft(a).length, 0);
     const T = [];
-    T.push({ k: 'trainer', name: 'Тренажёр', sub: `номера 1–27 · освоено ${hubMastered()}`, big: true, extra: hubMap(), btn: 'Решать подряд', go: () => setScope('all') });
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
     if (SERVER && student) T.push({ k: 'daily', name: 'Задание дня', sub: !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
       : DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
@@ -10284,6 +10387,18 @@
         sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
     if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
     return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
+  }
+  /** Тренажёр — главное на сайте: отдельный блок над планом на сегодня, номера крупно. */
+  function hubTrain() {
+    const total = kimTotal(countByNum());
+    return `<section class="hub-train" aria-label="Тренажёр" style="--sec:${hubColor('trainer')}">
+      <div class="ht-head">${hubIcon('trainer', 48)}<div class="ht-tt"><h2>Тренажёр</h2>
+        <p>Номера 1–27 · освоено ${hubMastered()} · ${total.toLocaleString('ru-RU')} ${plural(total, 'задание', 'задания', 'заданий')} в банке</p></div>
+        <div class="ht-acts"><button type="button" class="btn primary" data-train-go="all">Решать подряд →</button>
+          <button type="button" class="btn" data-hub-link="sideToggle">Все номера</button></div></div>
+      ${hubMap().replace('class="hub-map"', 'class="hub-map ht-map"')}
+      <div class="ht-legend">${['none', 'weak', 'mid', 'good'].map(l => `<span><i class="lvl-${l}"></i>${LEVEL_TEXT[l]}</span>`).join('')}</div>
+    </section>`;
   }
   function hubMastered() {
     const counts = countByNum();
@@ -10405,7 +10520,7 @@
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
     const html = `
       <div class="hub-hello"><div><h1>${hubHello()}</h1><p>${sub}</p></div><div class="hub-pills">${hubPills()}</div></div>
-      ${hubMail()}${hubPad()}<section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
+      ${hubMail()}${hubTrain()}${hubPad()}<section class="hub-plan" aria-label="План на сегодня"><h2>План на сегодня <small>${doneN} из ${goalN} сделано</small></h2>
         ${plan.map(stepHtml).join('')}
         <div class="hub-day"><span>День</span><i class="hub-track"><b data-bar="day" data-w="${goalN ? Math.round(doneN / goalN * 100) : 0}"></b></i>
           <span>${doneN === goalN ? 'всё сделано — так держать!' : `сделано ${doneN} из ${goalN}`}</span></div></section>
@@ -10498,6 +10613,7 @@
     if (!courseShown || pageKind !== 'hub') return;
     const n = e.target.closest('[data-hub-n]');
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
+    if (e.target.closest('[data-train-go]')) { setScope('all'); return; }
     const hl = e.target.closest('[data-hub-link]');
     if (hl) { $('#' + hl.dataset.hubLink)?.click(); return; }
     const ml = e.target.closest('[data-mail]');

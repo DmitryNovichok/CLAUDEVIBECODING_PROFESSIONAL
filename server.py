@@ -2700,6 +2700,26 @@ def tog_files_dir(sid):
     return DB_PATH.parent / "together_files" / str(int(sid))
 
 
+TOG_IMG_MAX = 8 * 1024 * 1024       # картинка на доске «Вместе»: браузер сжимает до 1600 точек, обычно 0,1–1 МБ
+TOG_IMG_TOTAL = 150 * 1024 * 1024   # картинок на один сеанс
+TOG_IMG_KINDS = ((b"\x89PNG\r\n\x1a\n", "png"), (b"\xff\xd8\xff", "jpg"), (b"GIF87a", "gif"), (b"GIF89a", "gif"))
+TOG_IMG_TYPES = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+
+
+def tog_images_dir(sid):
+    return DB_PATH.parent / "together_images" / str(int(sid))
+
+
+def tog_image_kind(head):
+    """Тип картинки по первым байтам файла (не по имени и не по заголовку запроса); SVG и прочее — None."""
+    for magic, ext in TOG_IMG_KINDS:
+        if head.startswith(magic):
+            return ext
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
 def tog_file_name(v):
     """Имя файла для ученика и для open() в Python: без папок и опасных символов."""
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", str(v or "").strip()).strip(" .")[:100]
@@ -2989,6 +3009,49 @@ class Handler(LearningProgressHTTPHandlers, TeacherStudentsHandlers, TeacherWork
             if f.name not in alive and not f.name.endswith(".part"):
                 f.unlink(missing_ok=True)
         return self.send_json({"ok": True, "file": entry})
+
+    def together_image_upload(self, qs):
+        """Участник занятия вставляет картинку на доску: тело запроса — сама картинка (PNG, JPEG, GIF, WebP)."""
+        sid = to_int(qs.get("s"))
+        who = self.together_who(sid, qs.get("as") == "t") if sid else None
+        if not who:
+            self.close_connection = True
+            return self.err(403, "Вставлять картинки могут участники этого занятия")
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n <= 12 or n > TOG_IMG_MAX:
+            self.close_connection = True
+            return self.err(413, f"Картинка пустая или больше {TOG_IMG_MAX // 1024 // 1024} МБ")
+        r = APP.db.q("SELECT ended FROM together WHERE id=?", (sid,), one=True)
+        if not r or r["ended"]:
+            self.close_connection = True
+            return self.err(409, "Занятие уже завершено")
+        d = tog_images_dir(sid)
+        used = sum(f.stat().st_size for f in d.iterdir() if f.is_file()) if d.is_dir() else 0
+        if used + n > TOG_IMG_TOTAL:
+            self.close_connection = True
+            return self.err(413, "В этом занятии уже слишком много картинок")
+        body = self.rfile.read(n)
+        if len(body) != n:
+            return self.err(400, "Картинка пришла не полностью — попробуйте ещё раз")
+        ext = tog_image_kind(body[:16])
+        if not ext:
+            return self.err(415, "Можно вставить только картинку PNG, JPEG, GIF или WebP")
+        name = secrets.token_hex(8) + "." + ext
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = d / (name + ".part")
+        tmp.write_bytes(body)
+        os.replace(tmp, d / name)
+        return self.send_json({"ok": True, "src": name})
+
+    def do_POST_image(self, qs):
+        try:
+            return self.together_image_upload(qs)
+        except Exception as e:
+            self.log_error_safe(e)
+            self.err(500, "ошибка сервера")
 
     def do_POST_upload(self, path, qs):
         try:
@@ -3654,6 +3717,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 prefs["fav"] = [conv(i) for i in prefs["fav"] if isinstance(i, str)]
             if isinstance(prefs.get("notes"), dict):
                 prefs["notes"] = {conv(k): v for k, v in prefs["notes"].items()}
+            if isinstance(prefs.get("skip"), dict):         # пропущенные задания: {id: когда}
+                prefs["skip"] = {conv(k): v for k, v in prefs["skip"].items()}
         return {"sid": s["id"], "name": s["name"], "token": getattr(self, "tok", None) or s["token"], "prefs": prefs,
                 "shared": bool(getattr(self, "sess", None) and self.sess["shared"]),
                 "fc": load(s["fc"], []), "rules": self.rules(s), "has_password": bool(s["pw"]),
@@ -4509,6 +4574,9 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     prefs["fav"] = [back(i) for i in prefs["fav"] if isinstance(i, str)][:2000]
                 if isinstance(prefs.get("notes"), dict):
                     prefs["notes"] = {back(k): v for k, v in prefs["notes"].items()}
+                if isinstance(prefs.get("skip"), dict):
+                    prefs["skip"] = {back(k): v for k, v in list(prefs["skip"].items())[:2000]
+                                     if isinstance(k, str) and isinstance(v, (int, float))}
                 raw = json.dumps(prefs, ensure_ascii=False, separators=(",", ":"))
                 if len(raw) > 300_000:
                     return self.err(413, "Слишком много заметок")
@@ -4573,6 +4641,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.send_json({"ok": True})
             r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid), one=True)
             return self.send_json({"code": r["code"] if r else "", "ts": r["ts"] if r else None})
+
+        if path == "/api/together/image":
+            # картинка с доски занятия — участникам этого занятия; имя выдал сервер при загрузке
+            sid, name = to_int(qs.get("s")), str(qs.get("i") or "")
+            m = re.fullmatch(r"[0-9a-f]{16}\.(png|jpg|gif|webp)", name)
+            f = tog_images_dir(sid) / name if (sid and m) else None
+            if not f or not f.is_file():
+                return self.err(404, "Картинка удалена")
+            return self.send_bytes(200, f.read_bytes(), TOG_IMG_TYPES[m.group(1)],
+                                   {"Cache-Control": "private, max-age=86400", "Content-Disposition": "inline"})
 
         if path == "/api/together/file":
             # файл учителя к странице занятия — только учителю этого занятия и приглашённым ученикам
@@ -6654,6 +6732,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 TOG.flush()
                 db.x("DELETE FROM together WHERE id=?", (tid,))
                 shutil.rmtree(tog_files_dir(tid), ignore_errors=True)
+                shutil.rmtree(tog_images_dir(tid), ignore_errors=True)
             else:
                 db.x("UPDATE together SET ended=? WHERE id=? AND ended IS NULL", (now, tid))
                 TOG.forget(tid)

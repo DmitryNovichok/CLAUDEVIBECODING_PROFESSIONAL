@@ -203,13 +203,14 @@
       case 's~': { const st = S.strokes.get(m.id); if (st) {
         st.p = m.p;
         if (m.fs) st.fs = m.fs;
-        if (st.k === 't') { S.live.add(m.id); liveAt.set(m.id, Date.now()); redraw(); }   // текст двигают — снять со старого места
+        if (st.k === 't' || st.k === 'i') { S.live.add(m.id); liveAt.set(m.id, Date.now()); redraw(); }   // текст или картинку двигают — снять со старого места
         else liveTouch(m.id);
         if (TS.id === m.id) placeSel();
+        if (IS.id === m.id) placeImgSel();
       }
       return; }
       case 's-': return commitLive(m.id);
-      case 'del': m.ids.forEach(i => { S.strokes.delete(i); S.live.delete(i); }); redraw(); return condDraw();
+      case 'del': m.ids.forEach(i => { S.strokes.delete(i); S.live.delete(i); }); redraw(); if (m.why === 'images') toast('На доске уже 40 картинок — удалите лишние'); return condDraw();
       case 'clr': {
         const cond = m.L === 'c';
         S.strokes.forEach((x, id) => { if (isC(x) === cond) { S.strokes.delete(id); S.live.delete(id); } });
@@ -1541,6 +1542,12 @@
   function drawStroke(x, s, from = 0) {
     const p = s.p;
     if (!p.length) return;
+    if (s.k === 'i') {
+      const im = imgOf(s.src), [a, b] = p;
+      if (im.complete && im.naturalWidth) x.drawImage(im, a[0], a[1], b[0] - a[0], b[1] - a[1]);
+      else { x.save(); x.strokeStyle = '#9aa3b2'; x.setLineDash([6, 4]); x.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]); x.restore(); }
+      return;
+    }
     if (s.k === 't') {
       x.fillStyle = colorOf(s.c);
       x.font = `${s.fs || 20}px ${getComputedStyle(document.body).fontFamily}`;
@@ -1566,9 +1573,12 @@
   }
   function redraw() {
     placeSel();
+    placeImgSel();
     const x = ctxOf(cv);
     x.clearRect(0, 0, BW, H);
-    S.strokes.forEach(s => { if (!S.live.has(s.id) && !isC(s)) drawStroke(x, s); });
+    // сначала картинки, поверх — штрихи и текст: по картинке можно писать
+    S.strokes.forEach(s => { if (s.k === 'i' && !S.live.has(s.id) && !isC(s)) drawStroke(x, s); });
+    S.strokes.forEach(s => { if (s.k !== 'i' && !S.live.has(s.id) && !isC(s)) drawStroke(x, s); });
     drawLive();
   }
   /* Штрих, который сейчас рисуют (свой или чужой), каждый кадр перерисовывается целиком на верхнем слое — так он
@@ -1592,7 +1602,8 @@
     liveAt.delete(id);
     const s = S.strokes.get(id);
     if (isC(s)) { condDraw(); return; }
-    if (s) { drawStroke(ctxOf(cv), s); grow(Math.max(...s.p.map(p => p[1]))); }
+    if (s && s.k === 'i') { redraw(); grow(s.p[1][1]); }      // картинка ложится под штрихи — доску перерисовать целиком
+    else if (s) { drawStroke(ctxOf(cv), s); grow(Math.max(...s.p.map(p => p[1]))); }
     if (!liveRaf) liveRaf = requestAnimationFrame(drawLive);
   }
   // чужой штрих оборвался (связь пропала посреди линии) — через 4 с без новых точек он просто ложится на доску
@@ -1604,6 +1615,7 @@
     if (!s || !s.id) return;
     S.strokes.set(s.id, s);
     if (isC(s)) { condDraw(); return; }
+    if (s.k === 'i') { redraw(); grow(s.p[1][1]); return; }
     if (remote && s.k !== 't') { liveTouch(s.id); return; }        // рисуют прямо сейчас — до «s-» на верхнем слое
     drawStroke(ctxOf(cv), s);
     grow(Math.max(...s.p.map(p => p[1])));
@@ -1622,7 +1634,9 @@
     sheet.classList.toggle('pen', S.tool === 'pen' || S.tool === 'line');
     sheet.classList.toggle('txt', S.tool === 'text');
     sheet.classList.toggle('erase', S.tool === 'erase');
+    sheet.classList.toggle('img', S.tool === 'img');
     placeSel();
+    placeImgSel();
   }
   $('#tgTools').addEventListener('click', e => {
     const b = e.target.closest('button');
@@ -1661,7 +1675,7 @@
     if (!s) return;
     S.strokes.set(s.id, s);
     S.undo.push(s.id);
-    if (isC(s)) condDraw(); else drawStroke(ctxOf(cv), s);
+    if (isC(s)) condDraw(); else if (s.k === 'i') redraw(); else drawStroke(ctxOf(cv), s);
     send({ t: 's!', page: S.page, s });
   }
   document.addEventListener('keydown', e => {
@@ -1670,7 +1684,7 @@
     if ((e.ctrlKey || e.metaKey) && (kk === 'z' || kk === 'я')) { e.preventDefault(); e.shiftKey ? redoIt() : undo(); }
     else if ((e.ctrlKey || e.metaKey) && (kk === 'y' || kk === 'н')) { e.preventDefault(); redoIt(); }
     else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-      const t = { p: 'pen', з: 'pen', l: 'line', д: 'line', t: 'text', е: 'text', e: 'erase', у: 'erase' }[kk];
+      const t = { p: 'pen', з: 'pen', l: 'line', д: 'line', t: 'text', е: 'text', e: 'erase', у: 'erase', i: 'img', ш: 'img' }[kk];
       if (t) { S.tool = t; renderTools(); }
     }
   });
@@ -1686,6 +1700,15 @@
   }
   sheet.addEventListener('pointerdown', e => {
     if (!canWrite() || e.button > 0) return;
+    if (S.tool === 'img') {
+      e.preventDefault();
+      const hit = imgHit(pt(e));
+      if (hit) { selectImg(hit.id); imgDragStart(e); return; }
+      if (IS.id) { selectImg(null); return; }                // щелчок мимо — снять выделение
+      IMGIN.at = pt(e);
+      $('#tgImgIn').click();                                 // пустое место — выбрать картинку с компьютера
+      return;
+    }
     if (S.tool === 'text') {
       e.preventDefault();
       const hit = textHit(pt(e));
@@ -1750,7 +1773,7 @@
     const r = 10 / Math.min(k, 1);
     let hit = false;
     S.strokes.forEach((s, id) => {
-      if (D.erase.has(id) || isC(s)) return;
+      if (D.erase.has(id) || isC(s) || s.k === 'i') return;      // картинку ластиком не стереть — только Delete или ×
       const b = s.k === 't' && textBox(s);
       const near = b
         ? p[0] >= b.x - r && p[0] <= b.x + b.w + r && p[1] >= b.y - r && p[1] <= b.y + b.h + r
@@ -1919,6 +1942,185 @@
   }
   function placePtr(p) { p.el.style.left = p.x * k + 'px'; p.el.style.top = p.y * k + 'px'; }
   function dropPtr(cid) { const p = S.ptrs.get(cid); if (p) { p.el.remove(); S.ptrs.delete(cid); } }
+
+  // ---------- картинки на доске: вставить (Ctrl+V, перетащить файл, инструмент «Картинка»), подвинуть, растянуть, удалить
+  const IMG = new Map();                                     // src → <img>
+  const imgUrl = src => `api/together/image?s=${SID}&i=${encodeURIComponent(src)}${S.teacher ? '&as=t' : ''}`;
+  function imgOf(src) {
+    let im = IMG.get(src);
+    if (!im) {
+      im = new Image();
+      im.onload = () => redraw();
+      im.src = imgUrl(src);
+      IMG.set(src, im);
+    }
+    return im;
+  }
+  const IS = { id: null, el: null, drag: null };
+  const IMGIN = { at: null };
+  const imgBox = s => ({ x: s.p[0][0], y: s.p[0][1], w: s.p[1][0] - s.p[0][0], h: s.p[1][1] - s.p[0][1] });
+  function imgHit(p) {
+    let hit = null;
+    S.strokes.forEach(s => {
+      if (s.k !== 'i' || isC(s)) return;
+      const b = imgBox(s);
+      if (p[0] >= b.x && p[0] <= b.x + b.w && p[1] >= b.y && p[1] <= b.y + b.h) hit = s;     // сверху — последняя
+    });
+    return hit;
+  }
+  function selectImg(id) {
+    const dragged = IS.drag && IS.id;
+    IS.drag = null;
+    IS.id = id && canWrite() ? id : null;
+    if (dragged) commitLive(dragged);
+    if (!IS.id) { if (IS.el) IS.el.hidden = true; return; }
+    if (!IS.el) {
+      IS.el = document.createElement('div');
+      IS.el.className = 'tg-isel';
+      IS.el.innerHTML = '<button type="button" class="x" title="Удалить картинку (Delete)" aria-label="Удалить картинку">×</button><i class="h" title="Потяните — больше или меньше"></i>';
+      sheet.appendChild(IS.el);
+      IS.el.addEventListener('pointerdown', e => { if (!e.target.closest('.x')) imgDragStart(e); });
+      IS.el.addEventListener('pointermove', imgDragMove);
+      IS.el.addEventListener('pointerup', imgDragEnd);
+      IS.el.addEventListener('pointercancel', imgDragEnd);
+      IS.el.querySelector('.x').addEventListener('click', e => { e.stopPropagation(); deleteImg(); });
+    }
+    IS.el.hidden = false;
+    placeImgSel();
+  }
+  function placeImgSel() {
+    if (!IS.id || !IS.el) return;
+    const s = S.strokes.get(IS.id);
+    if (!s || S.tool !== 'img' || !canWrite()) { selectImg(null); return; }
+    const b = imgBox(s);
+    Object.assign(IS.el.style, { left: b.x * k + 'px', top: b.y * k + 'px', width: b.w * k + 'px', height: b.h * k + 'px' });
+  }
+  function imgDragStart(e) {
+    const s = S.strokes.get(IS.id);
+    if (!s || e.button > 0 || !canWrite()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    IS.el.setPointerCapture(e.pointerId);
+    const b = imgBox(s);
+    IS.drag = { resize: !!e.target.closest('.h'), p0: pt(e), ...b };
+    S.live.add(s.id);                                       // пока тянем — картинка на верхнем слое
+    redraw();
+  }
+  const sendImg = throttle(() => {
+    const s = S.strokes.get(IS.id);
+    if (s && IS.drag && canWrite()) send({ t: 's~', page: S.page, id: s.id, p: s.p });
+  }, 40);
+  function imgDragMove(e) {
+    const d = IS.drag, s = d && S.strokes.get(IS.id);
+    if (!s || !canWrite()) return;
+    const p = pt(e), r = 10;
+    if (d.resize) {                                          // за уголок — пропорции сохраняются
+      const w = Math.max(24, Math.min(BW - d.x, d.w * Math.max((p[0] - d.x) / d.w, (p[1] - d.y) / d.h)));
+      const h = w * d.h / d.w;
+      s.p = [[d.x, d.y], [Math.round((d.x + w) * r) / r, Math.round((d.y + h) * r) / r]];
+    } else {
+      const x = Math.max(-d.w + 40, Math.min(BW - 40, d.x + p[0] - d.p0[0])), y = Math.max(0, d.y + p[1] - d.p0[1]);
+      s.p = [[Math.round(x * r) / r, Math.round(y * r) / r], [Math.round((x + d.w) * r) / r, Math.round((y + d.h) * r) / r]];
+    }
+    liveTouch(s.id);
+    placeImgSel();
+    sendImg();
+  }
+  function imgDragEnd() {
+    if (!IS.drag) return;
+    IS.drag = null;
+    const s = S.strokes.get(IS.id);
+    if (!s || !canWrite()) return;
+    send({ t: 's~', page: S.page, id: s.id, p: s.p });
+    commitLive(s.id);
+    send({ t: 's-', page: S.page, id: s.id });
+  }
+  function deleteImg() {
+    const id = IS.id;
+    if (!id || !canWrite()) return;
+    selectImg(null);
+    S.strokes.delete(id);
+    S.live.delete(id);
+    redraw();
+    send({ t: 'del', page: S.page, ids: [id] });
+  }
+  document.addEventListener('keydown', e => {                // Delete — удалить выделенную картинку, Esc — снять рамку
+    if (!IS.id || !canWrite() || (e.target.closest && e.target.closest('input, textarea, [contenteditable]'))) return;
+    if (e.key === 'Escape') selectImg(null);
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteImg(); }
+  });
+  /** Картинку уменьшаем в браузере (до 1600 точек по большей стороне) и отправляем на сервер; на доске — не больше 600×600. */
+  async function insertImage(file, at) {
+    if (!canWrite()) { toast('Сейчас доска только для просмотра'); return; }
+    if (!file || !/^image\/(png|jpeg|gif|webp)$/.test(file.type)) { toast('Можно вставить картинку PNG, JPEG, GIF или WebP'); return; }
+    let blob = file, w, h;
+    try {
+      const bmp = await createImageBitmap(file);
+      w = bmp.width; h = bmp.height;
+      const sc = Math.min(1, 1600 / Math.max(w, h));
+      if (sc < 1 || file.size > 1500000) {
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * sc)); c.height = Math.max(1, Math.round(h * sc));
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        blob = await new Promise(res => c.toBlob(res, type, 0.88));
+        w = c.width; h = c.height;
+      }
+      if (bmp.close) bmp.close();
+    } catch (x) { toast('Не получилось прочитать картинку'); return; }
+    if (!blob) { toast('Не получилось подготовить картинку'); return; }
+    toast('Загружаю картинку…', 2000);
+    let d = {}, r;
+    try {
+      r = await fetch(`api/together/image/upload?s=${SID}${S.teacher ? '&as=t' : ''}`, {
+        method: 'POST', body: blob, credentials: 'same-origin', headers: { 'Content-Type': blob.type || 'application/octet-stream' } });
+      d = await r.json().catch(() => ({}));
+    } catch (x) { toast('Нет связи — картинка не загрузилась'); return; }
+    if (!r.ok || !d.src) { toast(d.error || 'Картинка не загрузилась'); return; }
+    if (!canWrite()) return;
+    const sc = Math.min(1, 600 / w, 600 / h), bw = Math.round(w * sc), bh = Math.round(h * sc);
+    const top = bs.scrollTop / (k || 1);
+    const x = at ? Math.max(0, Math.min(BW - bw, at[0] - bw / 2)) : Math.round((BW - bw) / 2);
+    const y = at ? Math.max(0, at[1] - bh / 2) : Math.round(top + 40);
+    const s = { id: uid(), k: 'i', src: d.src, c: 'ink', w: 1, p: [[x, y], [x + bw, y + bh]] };
+    S.strokes.set(s.id, s);
+    imgOf(s.src);
+    send({ t: 's+', page: S.page, s });
+    send({ t: 's-', page: S.page, id: s.id });
+    S.undo.push(s.id);
+    S.redo = [];
+    S.tool = 'img';
+    renderTools();
+    redraw();
+    grow(y + bh);
+    selectImg(s.id);
+  }
+  $('#tgImgIn').addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) insertImage(f, IMGIN.at);
+    IMGIN.at = null;
+  });
+  document.addEventListener('paste', e => {
+    if (e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;   // в код и ответ вставляется текст
+    const f = [...((e.clipboardData && e.clipboardData.files) || [])].find(x => /^image\//.test(x.type));
+    if (!f) return;
+    e.preventDefault();
+    insertImage(f, null);
+  });
+  sheet.addEventListener('dragover', e => {
+    if (![...(e.dataTransfer && e.dataTransfer.types) || []].includes('Files')) return;
+    e.preventDefault();
+    sheet.classList.add('drop');
+  });
+  sheet.addEventListener('dragleave', () => sheet.classList.remove('drop'));
+  sheet.addEventListener('drop', e => {
+    sheet.classList.remove('drop');
+    const f = [...((e.dataTransfer && e.dataTransfer.files) || [])].find(x => /^image\//.test(x.type));
+    if (!f) return;
+    e.preventDefault();
+    insertImage(f, pt(e));
+  });
 
   // ================================================================ размеры панелей: условие, код | доска, вывод — тянутся границей
   const SZ_KEY = 'egeshka.tgSizes2';                // 2: задание слева, код над доской — старые размеры не подходят

@@ -15,6 +15,7 @@ import base64
 import hashlib
 import json
 import queue
+import re
 import socket
 import struct
 import threading
@@ -27,6 +28,8 @@ BOARD_H_MAX = 12000              # лист растёт вниз до стол�
 CODE_MAX = 50_000                # символов в общем коде
 STROKES_MAX = 4000               # штрихов на одной доске
 POINTS_MAX = 4000                # точек в одном штрихе
+IMAGES_MAX = 40                  # картинок на одной доске
+IMAGE_SRC = re.compile(r"[0-9a-f]{16}\.(png|jpg|gif|webp)")   # имя картинки, которую выдал сервер (/api/together/image/upload)
 OUT_MAX = 300_000                # символов вывода программы, который видят все (и сохраняется со страницей)
 HIST_KEEP = 400                  # сколько последних правок кода помнить для сдвига «опоздавших» правок
 ANS_MAX = 200
@@ -290,10 +293,12 @@ def _stroke(d):
     c = str(d.get("c") or "")
     if not (c == "ink" or (len(c) == 7 and c[0] == "#" and all(ch in "0123456789abcdefABCDEF" for ch in c[1:]))):
         c = "ink"
-    k = d.get("k") if d.get("k") in ("p", "l", "t") else "p"
+    k = d.get("k") if d.get("k") in ("p", "l", "t", "i") else "p"
     st = {"id": sid, "c": c, "w": _num(d.get("w"), 1, 30) or 2, "k": k, "p": _points(d.get("p"))}
     if d.get("L") == "c":                    # слой «на условии задания» (лист условия — COND_W точек шириной у всех)
         st["L"] = "c"
+    if k == "i":                              # картинка: src — файл занятия, p — левый верхний и правый нижний углы
+        return _image(st, d)
     if k == "t":
         st["txt"] = str(d.get("txt") or "")[:500]
         st["fs"] = _num(d.get("fs"), 8, TEXT_FS_MAX) or 20
@@ -302,6 +307,27 @@ def _stroke(d):
     if not st["p"]:
         return None
     return st
+
+
+def _image(st, d):
+    src = str(d.get("src") or "")
+    if st.get("L") or not IMAGE_SRC.fullmatch(src):
+        return None
+    p = _image_box(st["p"])
+    if not p:
+        return None
+    st.update(src=src, p=p, c="ink", w=1)
+    return st
+
+
+def _image_box(p):
+    """Рамка картинки: два угла, не меньше 16 точек по каждой стороне."""
+    if len(p) < 2:
+        return None
+    (x1, y1), (x2, y2) = p[0], p[1]
+    if x2 - x1 < 16 or y2 - y1 < 16:
+        return None
+    return [[x1, y1], [x2, y2]]
 
 
 class Page:
@@ -629,6 +655,9 @@ class Hub:
                 st = _stroke(m.get("s") or {})
                 if not st or (st["id"] not in p.strokes and len(p.strokes) >= STROKES_MAX):
                     return
+                if st["k"] == "i" and st["id"] not in p.strokes and sum(1 for x in p.strokes.values() if x.get("k") == "i") >= IMAGES_MAX:
+                    c.send({"t": "del", "ids": [st["id"]], "why": "images"})
+                    return
                 st["by"] = f"{c.who[0]}{c.who[1]}"
                 p.strokes[st["id"]] = st
                 s.dirty = True
@@ -639,6 +668,16 @@ class Hub:
                 st = p.strokes.get(str(m.get("id") or ""))
                 pts = _points(m.get("p"))
                 if not st or not pts:
+                    return
+                if t == "s~" and st.get("k") == "i":
+                    box = _image_box(pts)
+                    if not box:
+                        return
+                    st["p"] = box
+                    s.dirty = True
+                    self._bcast(s, {"t": t, "id": st["id"], "p": box}, skip=c)
+                    return
+                if t == "s." and st.get("k") == "i":
                     return
                 if t == "s~":
                     st["p"] = pts

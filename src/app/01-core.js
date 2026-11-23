@@ -17,6 +17,7 @@
     reviewIntervalsDays: [1, 3, 7], // затем повторить через 1, 3 и 7 дней
     retryTaskDays: { 0: 2, 0.5: 4 }, // само ошибочное задание вернуть через N дней
     recentWindow: 6,            // не показывать последние N заданий снова
+    skipDays: 30,               // пропущенное задание («Пропустить →») не предлагать N дней
     // актуальность: с какого года действует нынешний тип задания (документы ФИПИ об изменениях КИМ)
     firstKegeYear: 2021,        // первый компьютерный ЕГЭ — более ранние задания другого формата
     formatSince: { 6: 2023, 22: 2023, 23: 2024, 27: 2025 },   // нумерация КИМ-2027
@@ -692,6 +693,10 @@
     if (!Array.isArray(p.fav)) p.fav = [];
     if (!p.notes || typeof p.notes !== 'object') p.notes = {};
     if (!(p.goal >= 0 && p.goal <= 500)) p.goal = CFG.goal;
+    // пропущенные задания: { id: когда пропущено }; старше CFG.skipDays — забываем, храним не больше 1500 последних
+    const since = Date.now() - CFG.skipDays * 86400000;
+    const skip = p.skip && typeof p.skip === 'object' && !Array.isArray(p.skip) ? p.skip : {};
+    p.skip = Object.fromEntries(Object.entries(skip).filter(([, ts]) => +ts > since).sort((a, b) => b[1] - a[1]).slice(0, 1500));
     return p;
   }
   let prefs = normPrefs(readJSON(PREFS_STORE));
@@ -726,14 +731,19 @@
     : ui.period === 'actual' ? !isOutdated(t)
     : !isOutdated(t) && !!t.y && t.y >= +ui.period;
   const visible = t => inBank(t) && inPeriod(t);
+  // выбранный учеником тип внутри номера: ui.cl = { n, c } (действует, только пока открыт этот номер)
+  const typeOn = () => !!(ui.cl && ui.cl.n === ui.scope);
+  const typeOk = t => !typeOn() || t.c === ui.cl.c;
   function pool() {
     if (ui.scope === 'fav') { const f = favSet(); return TASKS.filter(t => f.has(t.id)); }
     if (ui.scope === 'asg') { const a = asgOf(ui.asg); return a ? a.tasks.map(id => byId.get(id)).filter(Boolean) : []; }
-    return TASKS.filter(t => visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope));
+    const list = TASKS.filter(t => visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope) && typeOk(t));
+    if (!list.length && typeOn()) { ui.cl = null; return pool(); }      // в выбранном типе не осталось заданий (сменили банк или период)
+    return list;
   }
   const inScope = t => (ui.scope === 'fav' ? favSet().has(t.id)
     : ui.scope === 'asg' ? !!asgOf(ui.asg) && asgOf(ui.asg).tasks.includes(t.id)
-    : visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope));
+    : visible(t) && (ui.scope === 'all' ? !ARCHIVE[t.n] : t.n === ui.scope) && typeOk(t));
   // «Тема» для подбора и повторения — тип задания внутри номера (кластер c считает сервер по тексту условия),
   // у банков без кластеров — тема из банка
   const topicKey = t => t.n + '|' + (t.c || t.topic || '');

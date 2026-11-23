@@ -178,6 +178,7 @@
       h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + numLabel(n)}</span>${ARCHIVE[n] ? '<span class="scope-stats">архив · нет в КИМ ЕГЭ-2027</span>' : ''}
         <span class="scope-stats" title="${counts[n]} в банке · решено ${st.solved}">${st.acc != null ? `точность ${pct(st.acc)}%` : `решено ${st.solved}`}</span>
         <span class="chip ${st.lvl === 'none' ? '' : st.lvl}">${LEVEL_TEXT[st.lvl]}${st.s && st.s.a ? ` · ${pct(st.s.m)}%` : ''}</span>
+        ${typeChipHtml(n)}
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
     }
     $('#scopeInfo').innerHTML = h;
@@ -323,12 +324,91 @@
     const wasExam = examShown, wasPage = courseShown;       // открыта страница (курс, турниры, подборки) — уходим с неё к заданиям
     if (!leaveExam()) return;
     if (ui.scope === s && !wasExam && !wasPage) return;
+    if (ui.scope !== s) ui.cl = null;                  // тип выбирается заново в каждом номере
     ui.scope = s;
     save();
     renderSidebar();
     if (!wasExam && !wasPage && cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg') { renderTopbar(); return; }
     next();
   }
+
+  // ------------------------------------------------------------ тип задания внутри номера
+  /** Типы номера, в которых сейчас есть задания: [{ c, name, list }] в порядке справочника, «Другие формулировки» — в конце. */
+  function typesOf(n) {
+    const by = new Map();
+    for (const t of TASKS) if (t.n === n && visible(t)) { const k = t.c || ''; if (!by.has(k)) by.set(k, []); by.get(k).push(t); }
+    const order = (CLUSTERS[n] || []).map(x => x[0]);
+    return [...by.keys()].sort((a, b) => ((order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)))
+      .map(c => ({ c, name: ((CLUSTERS[n] || []).find(x => x[0] === c) || [])[1] || 'Без типа', list: by.get(c) }));
+  }
+  function typeChipHtml(n) {
+    if (ARCHIVE[n] || typesOf(n).length < 2) return '';
+    const on = typeOn() && typesOf(n).find(x => x.c === ui.cl.c);
+    return `<button type="button" class="chip type-chip${on ? ' on' : ''}" id="typeBtn" title="Выбрать тип задания внутри номера">Тип: <b>${on ? esc(on.name) : 'все вперемешку'}</b> ▾</button>`;
+  }
+  /** Пример типа — «среднее» по сложности задание; i — какой по счёту (кнопка «Другой пример»). */
+  function typeExample(list, i) {
+    const sorted = list.slice().sort((a, b) => (Math.abs((a.r || 3) - 3) - Math.abs((b.r || 3) - 3)) || (a.id < b.id ? -1 : 1));
+    return sorted[i % sorted.length];
+  }
+  function openTypes() {
+    const n = ui.scope;
+    if (typeof n !== 'number') return;
+    const types = typesOf(n), all = types.reduce((s, x) => s + x.list.length, 0);
+    const accOf = c => { const s = P.topics[n + '|' + c]; return s && s.a ? `точность ${pct(s.ok / s.a)}%` : ''; };
+    $('#forecastBody').innerHTML = `<h2 class="fm-title">Задание ${numLabel(n)}: тип</h2>
+      <button type="button" class="tp-all${typeOn() ? '' : ' on'}" data-tp=""><b>Все типы вперемешку</b><small>случайные задания всего номера · ${all}</small></button>
+      <div class="tp-list">${types.map(x => {
+        const on = typeOn() && ui.cl.c === x.c, acc = accOf(x.c);
+        return `<div class="tp-row${on ? ' on' : ''}" data-tp-row="${esc(x.c)}">
+          <div class="tp-head"><b>${esc(x.name)}</b><small>${x.list.length} ${plural(x.list.length, 'задание', 'задания', 'заданий')}${acc ? ' · ' + acc : ''}</small></div>
+          <div class="tp-act"><button type="button" class="btn ghost small" data-tp-ex="${esc(x.c)}" aria-expanded="false">Пример</button>
+            <button type="button" class="btn primary small" data-tp="${esc(x.c)}">${on ? 'Решаю' : 'Решать'}</button></div>
+          <div class="tp-ex" hidden></div></div>`;
+      }).join('')}</div>`;
+    $('#forecastModal').hidden = false;
+  }
+  function showTypeExample(c, i) {
+    const n = ui.scope, row = $(`#forecastBody [data-tp-row="${CSS.escape(c)}"]`);
+    const x = typesOf(n).find(y => y.c === c);
+    if (!row || !x) return;
+    const box = row.querySelector('.tp-ex'), btn = row.querySelector('[data-tp-ex]');
+    box.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    btn.textContent = 'Скрыть пример';
+    const t = typeExample(x.list, i);
+    box.dataset.i = String(i);
+    box.innerHTML = '<p class="fm-muted">Загружаю условие…</p>';
+    loadHtml([t]).then(() => {
+      if (box.dataset.i !== String(i) || box.hidden) return;
+      box.innerHTML = `<article class="cond tp-cond">${safeHtml(t.html)}</article>
+        <div class="tp-ex-foot"><span class="fm-muted">#${t.sn || ''} · ${RANK_WORD[t.r] || ''}</span>
+        ${x.list.length > 1 ? `<button type="button" class="link-btn" data-tp-more="${esc(c)}">Другой пример</button>` : ''}</div>`;
+      renderMath(box);
+    }, e => { box.innerHTML = `<p class="fm-muted">Условие не загрузилось: ${esc(e.message)}.</p>`; });
+  }
+  document.addEventListener('click', e => {
+    if (e.target.closest('#typeBtn')) { openTypes(); return; }
+    if (!e.target.closest('#forecastBody')) return;
+    const ex = e.target.closest('[data-tp-ex]');
+    if (ex) {
+      const box = ex.closest('.tp-row').querySelector('.tp-ex');
+      if (!box.hidden) { box.hidden = true; box.innerHTML = ''; ex.textContent = 'Пример'; ex.setAttribute('aria-expanded', 'false'); return; }
+      showTypeExample(ex.dataset.tpEx, 0);
+      return;
+    }
+    const more = e.target.closest('[data-tp-more]');
+    if (more) { const box = more.closest('.tp-ex'); showTypeExample(more.dataset.tpMore, (+box.dataset.i || 0) + 1); return; }
+    const pick = e.target.closest('[data-tp]');
+    if (!pick) return;
+    const c = pick.dataset.tp;
+    ui.cl = c ? { n: ui.scope, c } : null;
+    save();
+    closeForecast();
+    renderTopbar();
+    if (cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg' && !c) return;   // «вперемешку» — текущее задание остаётся
+    next();
+  });
 
   let periodMemo = null;              // список «Задания: актуальные / с 2024 г. / все» — пересобирается, только когда сменился банк
   function renderPeriod() {

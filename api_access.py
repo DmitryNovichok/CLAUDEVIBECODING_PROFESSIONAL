@@ -108,6 +108,8 @@ def _registry():
     add(Access.STUDENT, 'GET', 'html')
     add(Access.PARTICIPANT, 'GET', 'together/ws')
     add(Access.LESSON_TEACHER, 'POST', 'together/upload')
+    add(Access.PARTICIPANT, 'GET', 'together/image')
+    add(Access.PARTICIPANT, 'POST', 'together/image/upload')
     return MappingProxyType(routes)
 
 
@@ -123,6 +125,7 @@ TRANSPORTS = MappingProxyType({
     ('GET', '/api/html'): lambda h, path, qs: h.serve_task_html(qs),
     ('GET', '/api/together/ws'): lambda h, path, qs: h.together_ws(qs),
     ('POST', '/api/together/upload'): lambda h, path, qs: h.do_POST_upload(path, qs),
+    ('POST', '/api/together/image/upload'): lambda h, path, qs: h.do_POST_image(qs),
 })
 
 

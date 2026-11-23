@@ -114,7 +114,7 @@ window.EgeExamSections = function (bridge) {
           <button type="button" class="mkx-btn" data-mkx-step="1" ${MK.i < r.tasks.length - 1 ? '' : 'disabled'}>следующее →</button></div></section>`;
     } else if (page === 'confirm') {
       const missed = r.tasks.filter(t => !mkHas(t));
-      body = `<section class="mkx-box mkx-confirm"><h2>${missed.length ? 'Вы ответили не на все задания!' : 'Вы ответили на все задания.'}</h2>
+      body = `<section class="mkx-box mkx-confirm"><h2>${missed.length ? 'Вы ответили не на все задания.' : 'Вы ответили на все задания.'}</h2>
         ${missed.length ? `<p>Без сохранённого ответа: ${missed.map(t => `<button type="button" class="mkx-link" data-mkx-go="${t.n - 1}">№${t.n}</button>`).join(', ')}.</p>` : ''}
         <p><button type="button" class="mkx-btn" data-mkx-go="${MK.i}">продолжить отвечать</button> или <button type="button" class="mkx-btn mkx-primary" data-mkx-finish>закончить тестирование *</button></p>
         <p class="mkx-note">* после завершения тестирования вернуться к заданиям будет нельзя</p></section>`;

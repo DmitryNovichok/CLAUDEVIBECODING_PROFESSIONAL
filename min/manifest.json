@@ -13,20 +13,20 @@
       "source": "ba084c6faae1f98a5bfcfeda2d9fd0f2c24999a30237fd8a877a5de549795bf0"
     },
     "app-exams.js": {
-      "min": "b75d54c2a7c0f0b6ff34b50971e2e636be1bc3bbb6dc08790fb27bacae63ec82",
-      "source": "5a64bc435988c0053992b8e0e17face2e998974b7637c353e197c4cf0a4874f5"
+      "min": "0bdc05f444a5f020af77f9601690dc38c1c34e62f933aace0e304d6c61cd8184",
+      "source": "b234d63a158c95a3352c0c20c1e6c9780ef053cedf0ee28147f06ed4b7d47786"
     },
     "app-learning.js": {
       "min": "06e2a9b08eb42416ccee81afb83b364526d7a6744ca36d62b8cbb93f37b9b0da",
       "source": "ce8d429b88c87525d4e05f634530bedc5bc9fbf79b7ab3d266df6c9a1677f90f"
     },
     "app.js": {
-      "min": "f1e675fc996335eea175d3a2456cc2cab6bdbdad87fe8e2acf5ec0d6acdf258e",
-      "source": "e47c69a2861940a286489fc56f55b339a0806bae0bcd847a8a4bafc88a4e1a3e"
+      "min": "1df9481911417612bd26c5a78a568147f39c8fed19878afb8449cf16a8292b55",
+      "source": "f8fa940a4710437a3c258dfb39988a595c14e3c7f64693c13d0f3598ac43c954"
     },
     "changelog-loader.js": {
-      "min": "a4f11f94a68955c9ad6429f2ad994c1e53aca09f7559c4fe98ffefcca2b6db9a",
-      "source": "183d9bc14203636f81bec0ea5aa3dd82cf8b2670eb3dc2303875da5bb50ccf4f"
+      "min": "c0108b9b3252947e3ea9ec2acc6c287135bae8f4349cfc19ad416e65f1421425",
+      "source": "74884b08866f5a6fff41aa2380fc4b608148d86b3777074c9e01f6d072cedd44"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "2cd4000616c6e70298020f3da978c29b21fa394018f6c0608946df5a4c316782",
-      "source": "6c0ff0e47fad1de6d0adc2299bf8acccd48d9b44f77b69d8d18663731ee3661a"
+      "min": "46db0f12edbe61cacc3b51f1fe527a041443e66ef9e3cccddcbcfde368f2904a",
+      "source": "de43ad4e6935a2058849e76ec837ef1401af7daec4178b247a2cffb2ff1a4ca6"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",
@@ -73,16 +73,16 @@
       "source": "99563a8c25bd3457cafc24add900ea7f2526cbd19a22eb5d447685beaecd55aa"
     },
     "together.js": {
-      "min": "51fb06113b29f38073996ae5e3f1d9278984a79749e88246583aad7cd3ef5dfb",
-      "source": "03f0929c62eed8467dc092ab20df287b076f887f3c09ed858b613ec2180d39bf"
+      "min": "8e5f6e906da6b12d2dd9a952236d68d8e4e9fe3fc0e58e4638a03954fcf2a31f",
+      "source": "20c47e3f3e74c50b45930af821644fa04e3039c87773b70c1f85a992cbf4966f"
     },
     "visit.js": {
       "min": "68866dd9d984e9fdef9715ff70f5fe86fbd85c69583a471db13530cc62bba9f8",
       "source": "c15a80b2e7894c2f63ef12eab080746b313be3c6aef8f2af2ee91cb062cfdaa9"
     },
     "welcome.css": {
-      "min": "e0ea715344df66cc925e7064113f5c4781ba3d1182bc7acc07360dbf2ec8b102",
-      "source": "e364ca7585899fd65270cdffba46d761fe1900aab8b997d89e125d5f3b8717f9"
+      "min": "7d9277c7eb1ae4186ac683eb865cca03f57514e93d9959ebf6e877b797bbaff3",
+      "source": "b3faf486c069872f883e0945ff5ae71aa3486d2a41b03a163359813b9df7e67e"
     },
     "welcome.js": {
       "min": "82c6a373a2795806395fbd264346e794386881687cc0aeef227fe33cf3389657",
