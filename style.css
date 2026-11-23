@@ -987,7 +987,7 @@ body.tt-big .py-dock { z-index: 80; }
 }
 .type-copy { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .type-label { font-size: .8em; font-weight: 700; }
-.type-pick strong { font-size: 1em; font-weight: 800; }
+.type-pick strong { font-size: 1em; font-weight: 700; }
 .type-count { white-space: nowrap; border-radius: 8px; padding: 3px 6px; background: var(--card); font-size: .8em; }
 .type-pick svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .type-pick:hover { border-color: var(--text); }
