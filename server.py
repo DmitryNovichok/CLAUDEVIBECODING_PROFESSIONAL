@@ -6517,9 +6517,6 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not self.T["is_main"]:
                 return self.err(403, "только для главного учителя")
             sid = to_int(data.get("id"))
-            r = db.q("SELECT * FROM support WHERE id=?", (sid,), one=True)
-            if not r:
-                return self.err(404, "Обращение не найдено")
             kind = str(data.get("kind") or "")
             if kind == "custom":
                 amount, label = to_int(data.get("amount")) or 0, str(data.get("note") or "").strip()[:80] or "Помощь сайту"
@@ -6531,15 +6528,23 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 label = f"{ic} {label}"
             else:
                 return self.err(400, "Такой награды нет")
-            if db.q("SELECT 1 FROM support_rewards WHERE support_id=? AND kind=?", (sid, kind), one=True):
-                return self.err(409, "За это обращение такая награда уже начислена")
             now = time.time()
-            db.x("INSERT INTO support_rewards(support_id, student_id, kind, amount, ts) VALUES(?,?,?,?,?)", (sid, r["student_id"], kind, amount, now))
-            db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'support', ?, 0)", (r["student_id"], now, amount, label))
-            db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,NULL)",
-                 (sid, now, "teacher", f"🎁 Начислено +{amount} ₿ — {label}. Спасибо, что помогаешь сделать Egeshka лучше!"))
-            db.x("UPDATE support SET answer=?, answered=?, status=CASE WHEN status='closed' THEN status ELSE 'answered' END, seen=0 WHERE id=?",
-                 (f"🎁 +{amount} ₿", now, sid))
+            with db.transaction():
+                r = db.q("SELECT student_id FROM support WHERE id=?", (sid,), one=True)
+                awarded = r and db.xn("""INSERT INTO support_rewards(support_id, student_id, kind, amount, ts)
+                                         VALUES(?,?,?,?,?) ON CONFLICT(support_id, kind) DO NOTHING""",
+                                      (sid, r["student_id"], kind, amount, now))
+                if awarded:
+                    db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?, 'support', ?, 0)",
+                         (r["student_id"], now, amount, label))
+                    db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,NULL)",
+                         (sid, now, "teacher", f"🎁 Начислено +{amount} ₿ — {label}. Спасибо, что помогаешь сделать Egeshka лучше!"))
+                    db.x("UPDATE support SET answer=?, answered=?, status=CASE WHEN status='closed' THEN status ELSE 'answered' END, seen=0 WHERE id=?",
+                         (f"🎁 +{amount} ₿", now, sid))
+            if not r:
+                return self.err(404, "Обращение не найдено")
+            if not awarded:
+                return self.err(409, "За это обращение такая награда уже начислена")
             LIVE.send([r["student_id"]], "support")
             LIVE.send([r["student_id"]], "gift")              # монеты и уведомление — сразу
             return self.send_json({"ok": True, "amount": amount, "given": support_given(db).get(str(sid), [])})
@@ -10140,14 +10145,14 @@ SUPPORT_KINDS = {"task": "Ошибка в задании", "bug": "Не рабо
                  "question": "Вопрос", "other": "Другое", "idea": "💡 Пожелание"}
 # Монеты за помощь сайту: вид → (значок, за что, сколько ₿). Начисляет главный учитель из обращения; за одно обращение — каждый вид один раз.
 SUPPORT_REWARDS = {
-    "idea": ("💡", "Идея новой функции или режима", 50),
-    "ux": ("🎨", "Предложение по дизайну и удобству (UX/UI)", 50),
-    "bug": ("🐞", "Найденная ошибка в работе сайта", 50),
-    "task": ("📝", "Ошибка в задании: условие, ответ, файл", 50),
-    "typo": ("✏️", "Опечатка или неточность в уроке, разборе, подсказке", 50),
-    "content": ("🧩", "Идея задания, примера, урока или лаборатории", 50),
-    "done": ("🚀", "Твою идею внедрили на сайте — бонус сверху", 50),
-    "critical": ("🔥", "Серьёзная ошибка: теряется прогресс, не работает вход, можно обойти правила", 200),
+    "idea": ("💡", "Идея новой функции или режима", 250),
+    "ux": ("🎨", "Предложение по дизайну и удобству (UI/UX)", 500),
+    "bug": ("🐞", "Найденная ошибка в работе сайта", 250),
+    "task": ("📝", "Ошибка в задании: условие, ответ, файл", 250),
+    "typo": ("✏️", "Опечатка или неточность в уроке, разборе, подсказке", 250),
+    "content": ("🧩", "Идея задания, примера, урока или лаборатории", 250),
+    "done": ("🚀", "Твою идею внедрили на сайте — дополнительный бонус", 100),
+    "critical": ("🔥", "Критическая уязвимость или другая серьёзная ошибка, например потеря прогресса или сбой входа", 1000),
 }
 SUPPORT_REWARD_MAX = 500                # своя сумма у главного учителя — не больше
 SUPPORT_MAX = 2000

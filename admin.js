@@ -804,9 +804,9 @@
   /** Монеты за помощь сайту: кнопки наград (каждая — один раз на обращение) и своя сумма. */
   function spRewardHtml(x, d) {
     const R = d.support_rewards || {}, given = (d.support_given || {})[x.id] || [];
-    const got = new Set(given.map(g => g.kind)), total = given.reduce((a, g) => a + g.amount, 0);
+    const got = new Map(given.map(g => [g.kind, g.amount])), total = given.reduce((a, g) => a + g.amount, 0);
     return `<details class="sp-rw"${given.length ? ' open' : ''}><summary>Наградить монетами${total ? ` <b class="sp-rw-sum">начислено ${total} ₿</b>` : ''}</summary>
-      <div class="sp-rw-list">${Object.entries(R).map(([k, [ic, t, a]]) => `<button type="button" class="btn ghost sp-rw-b${got.has(k) ? ' done' : ''}" data-sp-rw="${k}" ${got.has(k) ? 'disabled' : ''} title="${esc(t)}">${ic} ${esc(t)} <b>${got.has(k) ? '✓ ' + a : '+' + a} ₿</b></button>`).join('')}</div>
+      <div class="sp-rw-list">${Object.entries(R).map(([k, [ic, t, a]]) => `<button type="button" class="btn ghost sp-rw-b${got.has(k) ? ' done' : ''}" data-sp-rw="${k}" ${got.has(k) ? 'disabled' : ''} title="${esc(t)}">${ic} ${esc(t)} <b>${got.has(k) ? '✓ ' + got.get(k) : '+' + a} ₿</b></button>`).join('')}</div>
       <div class="sp-rw-own"><input class="inp" type="number" min="1" max="500" placeholder="₿" aria-label="Своя сумма" data-sp-rw-amount>
         <input class="inp" maxlength="80" placeholder="За что (ученик увидит)" aria-label="За что" data-sp-rw-note><button type="button" class="btn ghost" data-sp-rw="custom">Начислить</button></div></details>`;
   }

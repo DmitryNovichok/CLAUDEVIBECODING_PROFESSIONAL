@@ -9,8 +9,8 @@
       "source": "016eec5301b0171a4ab3e146b18dc5ccc86f28574bbd44848440688bbe443ef1"
     },
     "admin.js": {
-      "min": "0dcba8fd1498a2c7924f60098b9b0e04fd3b7a593094c11f6702aaf7cd290a99",
-      "source": "ba084c6faae1f98a5bfcfeda2d9fd0f2c24999a30237fd8a877a5de549795bf0"
+      "min": "0a9ebbaee6b078c29b0ffab0c74950dfd3204e99478716e0d4d32c6c4ee3bd1d",
+      "source": "3eecb69bae1f8181215ed676307abe063b0d30022376d6118c3f10377a5ef1a2"
     },
     "app-exams.js": {
       "min": "0bdc05f444a5f020af77f9601690dc38c1c34e62f933aace0e304d6c61cd8184",
@@ -21,12 +21,12 @@
       "source": "0d49d4d66fe536530e5cc4d733aba67bd5a667e372fe0987ac8c5e2e459f1398"
     },
     "app.js": {
-      "min": "28c06481eafe2458ebcd72191fb109831c6079899ce015c40031f8e3e3ad112d",
-      "source": "27ea7b4e2bd22c9e709e14dc80a6b4e4814263be9c6d67d3578cdac794c9d8df"
+      "min": "1ec753baf59712e9d7d631319f79275a13f5bbd3c84518f6d9ce24a0eb3ed33c",
+      "source": "6635a393175a28ea0f2e55e8b291cd9be5946490d017c41eb2f379b2879413dd"
     },
     "changelog-loader.js": {
-      "min": "bebaebf5428b92a697755365f922489756b1467a962c4bf779253e4e126b5b39",
-      "source": "2c99e33db3e9e99ccb57430d55624863dc8028a3b44266509adda03aca192c94"
+      "min": "d9377efacb3b2dcbfa3a798da96dbc08a57d006d9a616f2b7b51b82ad98c199e",
+      "source": "6af3e8685baa81dea0e34ae00994a8a9c1f935dbdea8eaa12755b91c903e8b00"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",

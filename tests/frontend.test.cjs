@@ -74,6 +74,20 @@ test('2.61 release notes contain no delivery policy details', ()=>{
     assert.equal(JSON.stringify([row[2],row[3]]), '[[],["Техническое обновление"]]');
   }
 });
+test('help rewards distinguish historical payouts and implementation bonuses from base rates', () => {
+  const rates = [['idea', '💡', 'Идея', 250], ['ux', '🎨', 'Удобство интерфейса', 500],
+    ['done', '🚀', 'Бонус за реализацию', 100], ['critical', '🔥', 'Важная ошибка', 1000]];
+  const ctx = vm.createContext({SERVER: true, student: {sid: 1}, TEACHER: false, RULES: {support_rewards: rates}, esc: String});
+  vm.runInContext(sourceBetween('src/app/13c-hub.js', '  function hubPad()', '  function renderHub('), ctx);
+  assert.match(ctx.hubPad(), /от 250 до 1000 ₿/);
+  vm.runInContext(sourceBetween('admin.js', '  function spRewardHtml(', '  function supportHtml('), ctx);
+  const buttons = ctx.spRewardHtml({id: 4}, {
+    support_rewards: Object.fromEntries(rates.map(([kind, ...reward]) => [kind, reward])),
+    support_given: {4: [{kind: 'idea', amount: 50}]}
+  });
+  assert.match(buttons, /data-sp-rw="idea" disabled[^>]*>[^<]*<b>✓ 50 ₿/);
+  assert.match(buttons, /data-sp-rw="done"[^>]*>[^<]*<b>\+100 ₿/);
+});
 test('principal audit escapes account names and is never fetched for an ordinary teacher', async()=>{
   const box={innerHTML:''}; let calls=0;
   const c=vm.createContext({ME:{is_main:false}, $:()=>box, Date,

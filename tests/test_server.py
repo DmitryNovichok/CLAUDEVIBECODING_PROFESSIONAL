@@ -1888,7 +1888,10 @@ class ServerTest(unittest.TestCase):
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
         me = self.req("GET", "/api/me", token=tok)[1]
         self.assertEqual([r[0] for r in me["rules"]["support_rewards"]], list(server.SUPPORT_REWARDS))   # страница «за что и сколько»
-        self.assertTrue(all(r[3] == 50 for r in me["rules"]["support_rewards"] if r[0] != "critical"))
+        self.assertEqual({r[0]: r[3] for r in me["rules"]["support_rewards"]}, {
+            "idea": 250, "ux": 500, "bug": 250, "task": 250, "typo": 250, "content": 250,
+            "done": 100, "critical": 1000,
+        })
         self.assertIn("ux", server.SUPPORT_KINDS)
         st, d = self.req("POST", "/api/support", {"kind": "ux", "text": "Кнопку «Проверить» плохо видно в тёмной теме"}, tok)
         self.assertEqual(st, 200, d)
@@ -1896,20 +1899,20 @@ class ServerTest(unittest.TestCase):
         coins = lambda: server.game_summary(db, sid)["coins"]
         before = coins()
         st, r = self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "ux"})
-        self.assertEqual((st, r["amount"]), (200, 50), r)
-        self.assertEqual(coins(), before + 50)
+        self.assertEqual((st, r["amount"]), (200, 500), r)
+        self.assertEqual(coins(), before + 500)
         self.assertEqual(self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "ux"})[0], 409)    # дважды — нельзя
         self.assertEqual(self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "nope"})[0], 400)
         self.assertEqual(self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "custom", "amount": 501})[0], 400)
         st, r = self.admin("POST", "/api/admin/support/reward", {"id": x["id"], "kind": "custom", "amount": 30, "note": "Отличный скриншот"})
         self.assertEqual(st, 200, r)
-        self.assertEqual(coins(), before + 80)
+        self.assertEqual(coins(), before + 530)
         d = self.admin("GET", "/api/admin/site-stats")[1]
-        self.assertEqual(sum(g["amount"] for g in d["support_given"][str(x["id"])]), 80)
+        self.assertEqual(sum(g["amount"] for g in d["support_given"][str(x["id"])]), 530)
         item = next(i for i in self.req("GET", "/api/support", token=tok)[1]["items"] if i["id"] == x["id"])
-        self.assertIn("🎁 Начислено +50 ₿", " ".join(m["text"] for m in item["thread"]))            # сообщение в теме
+        self.assertIn("🎁 Начислено +500 ₿", " ".join(m["text"] for m in item["thread"]))            # сообщение в теме
         news = self.req("GET", "/api/me", token=tok)[1]["coin_news"]
-        self.assertEqual(sorted((c["reason"], c["delta"]) for c in news), [("support", 30), ("support", 50)])  # уведомление
+        self.assertEqual(sorted((c["reason"], c["delta"]) for c in news), [("support", 30), ("support", 500)])  # уведомление
         # обычный учитель наградить не может
         tid = db.x("""INSERT INTO teachers(name, login, pw, invite, is_main, created, email, email_ok, moderation)
                       VALUES('Учитель Наград', 'nagrteach', 'x', 'NAGR77', 0, ?, 'n@example.ru', 1, 'approved')""", (time.time(),))
@@ -1919,6 +1922,39 @@ class ServerTest(unittest.TestCase):
         db.x("DELETE FROM teachers WHERE id=?", (tid,))
         server.delete_student(db, sid)
         self.assertIsNone(db.q("SELECT 1 FROM support_rewards WHERE student_id=?", (sid,), one=True))
+
+    def test_support_idea_bonus_and_legacy_payout(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        tok = self.login("Идеев Николай")
+        sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
+        db = server.APP.db
+        def ticket(kind, text):
+            status, response = self.req("POST", "/api/support", {"kind": kind, "text": text}, tok)
+            self.assertEqual(status, 200, response)
+            return db.q("SELECT id FROM support WHERE student_id=? AND text=?", (sid, text), one=True)["id"]
+        def pay(ticket_id, kind):
+            return self.admin("POST", "/api/admin/support/reward", {"id": ticket_id, "kind": kind})
+
+        old = ticket("idea", "Идея, принятая до изменения тарифа")
+        idea = ticket("idea", "Сохранять выбранную тему тренировки")
+        critical = ticket("bug", "После выхода из профиля теряется прогресс")
+        before = server.game_summary(db, sid)["coins"]
+        old_rate = (*server.SUPPORT_REWARDS["idea"][:2], 50)
+        with mock.patch.dict(server.SUPPORT_REWARDS, {"idea": old_rate}):
+            self.assertEqual(pay(old, "idea")[1]["amount"], 50)
+        self.assertEqual(pay(old, "idea")[0], 409)
+        self.assertEqual(pay(old, "done")[1]["amount"], 100)
+        self.assertEqual(pay(idea, "idea")[1]["amount"], 250)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            calls = [pool.submit(pay, idea, "done") for _ in range(2)]
+        self.assertEqual(sorted(call.result()[0] for call in calls), [200, 409])
+        self.assertEqual(pay(critical, "critical")[1]["amount"], 1000)
+        self.assertEqual(server.game_summary(db, sid)["coins"] - before, 50 + 100 + 250 + 100 + 1000)
+        given = self.admin("GET", "/api/admin/site-stats")[1]["support_given"]
+        self.assertEqual({r["kind"]: r["amount"] for r in given[str(old)]}, {"idea": 50, "done": 100})
+        self.assertEqual({r["kind"]: r["amount"] for r in given[str(idea)]}, {"idea": 250, "done": 100})
+        server.delete_student(db, sid)
 
     def test_support_ticket_flow(self):
         tok = self.login("Поддержкин Павел")
