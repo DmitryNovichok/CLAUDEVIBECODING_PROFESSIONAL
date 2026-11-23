@@ -11,7 +11,7 @@
     const now = Date.now() / 1000;
     return ASG.filter(a => !a.duel && !a.course && a.due && !asgFinished(a) && a.due - now < 2 * 86400 && a.due - now > -86400)
       .map(a => {
-        const left = asgLeft(a).length, hrs = Math.round((a.due - now) / 3600);
+        const left = asgRemaining(a), hrs = Math.round((a.due - now) / 3600);
         if (!left) return null;
         const when = hrs <= 0 ? 'срок уже прошёл' : hrs < 24 ? `осталось ${hrs} ${plural(hrs, 'час', 'часа', 'часов')}` : 'срок завтра';
         return { k: 'remind', ts: Date.now() / 1000, ic: '⏰', title: `Не забудь: «${a.title}»`, text: `${when} · нерешённых заданий: ${left}`, go: 'asg', id: a.id, due: a.due };
@@ -106,7 +106,7 @@
     else if (go === 'support') openSupport('auto');
     else if (go === 'asg') {
       const a = typeof ASG !== 'undefined' && ASG.find(x => x.id === id);
-      if (a && !asgFinished(a) && asgLeft(a).length && !a.strict) setScope('asg', id);
+      if (a && !asgFinished(a) && asgRemaining(a) && !a.strict) setScope('asg', id);
       else openAssignments();
     }
   });

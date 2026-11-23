@@ -15,9 +15,11 @@
     await imLoad();
   }
   async function imLoad(view) {
+    const account = appState.student, box = imBox();
+    const active = () => account === appState.student && imActive() && box && box === imBox();
     let d;
-    try { d = await api('im'); } catch (e) { if (imActive() && imBox()) imBox().innerHTML = `<p class="fm-note">${esc(e.message || 'Нет связи с сервером')}</p>`; return; }
-    if (!imActive() || !imBox()) return;
+    try { d = await api('im'); } catch (e) { if (active()) box.innerHTML = `<p class="fm-note">${esc(e.message || 'Нет связи с сервером')}</p>`; return; }
+    if (!active()) return;
     IM.d = d; appState.imOk = !!d.access; appState.imPw = d.access || !!d.pw_set;
     if (!d.access) return imLock(!!d.pw_set);
     if (view) IM.view = view;
@@ -32,8 +34,13 @@
         : 'Учитель ещё не открыл этот раздел.'}</p>
       ${configured ? '<form id="imPasswordForm" class="login-form crs-lock-form"><input id="imPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль раздела" aria-label="Пароль раздела «Интеллектуальный мегаполис»" required><button class="btn primary">Открыть</button></form><p id="imPasswordError" role="alert"></p>' : ''}</div>`;
     $('#imPasswordForm')?.addEventListener('submit', async e => {
-      e.preventDefault(); const btn = e.currentTarget.querySelector('button'), msg = $('#imPasswordError'); btn.disabled = true;
-      try { await api('im/unlock', { password: $('#imPassword').value }); appState.imOk = true; IM.view = 'home'; await imLoad(); hubRefresh(); }
+      e.preventDefault(); const account = appState.student, form = e.currentTarget;
+      const btn = form.querySelector('button'), msg = $('#imPasswordError'); btn.disabled = true;
+      try {
+        await api('im/unlock', { password: $('#imPassword').value });
+        if (account !== appState.student || !form.isConnected) return;
+        appState.imOk = true; IM.view = 'home'; await imLoad(); hubRefresh();
+      }
       catch (err) { msg.textContent = err.message; btn.disabled = false; }
     });
   }

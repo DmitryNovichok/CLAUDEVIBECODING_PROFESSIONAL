@@ -39,6 +39,9 @@ class LearningProgressModuleTest(unittest.TestCase):
         for path in learning_progress_http.LEARNING_PROGRESS_PATHS:
             if path == '/api/course/coverage':
                 self.assertEqual(api_access.ROUTES['GET', path], api_access.Access.PUBLIC)
+            elif path == '/api/lab/activity':
+                self.assertEqual(api_access.ROUTES['POST', path], api_access.Access.STUDENT)
+                self.assertNotIn(('GET', path), api_access.ROUTES)
             else:
                 for method in ('GET', 'POST'):
                     self.assertEqual(api_access.ROUTES[method, path], api_access.Access.STUDENT)
@@ -91,6 +94,41 @@ class LearningProgressBoundaryTest(unittest.TestCase):
                         (self.sid if sid is None else sid,), one=True)
         return dict(row) if row else None
 
+    def test_teacher_learning_sections_scope_and_lab_counts(self):
+        activity = '/api/lab/activity'
+        report = '/api/admin/lab/stats'
+        self.assertEqual(self.req(activity, {'section': 'code'})[0], 403)
+        self.unlock('lab')
+        self.assertEqual(self.req(activity, {'section': 'model', 'model': []})[0], 400)
+        for model in ('net', 'net', 'logic'):
+            self.assertEqual(self.req(activity, {'section': 'model', 'model': model, 'student_id': self.other_sid})[0], 200)
+        self.assertEqual(self.req(activity, {'section': 'code'})[0], 200)
+        teacher = {'name': 'Учитель статистики', 'login': 'labstats', 'password': 'test-secret1', 'invite': 'LABSTATS'}
+        status, created = self.client.admin('POST', '/api/admin/teacher/save', teacher)
+        self.assertEqual(status, 200, created)
+        self.client.approve_fixture_teacher(created['id'])
+        status, _, cookie = self.client.teacher_req('', 'POST', '/api/admin/login', teacher)
+        self.assertEqual(status, 200)
+        self.db.x('UPDATE students SET teacher_id=? WHERE id=?', (created['id'], self.sid))
+        self.db.x('UPDATE students SET course=1,lab=1 WHERE id IN (?,?)', (self.sid, self.other_sid))
+        # Исторические самопроверки и независимая проверка имеют разное происхождение.
+        for case, verified in zip(buglab.CASES, (0, 1)):
+            self.db.x('INSERT INTO buglab(student_id,case_id,ok,verified) VALUES(?,?,1,?)',
+                      (self.sid, case['id'], verified))
+        cookie = cookie.split(';')[0]
+        def teacher_get(url):
+            status, details, _ = self.client.teacher_req(cookie, 'GET', url)
+            self.assertEqual(status, 200, details)
+            return details['students']
+        rows = teacher_get(report)
+        self.assertEqual([r['id'] for r in rows], [self.sid])
+        row = rows[0]
+        self.assertEqual((row['models'], row['bugs'], row['bugs_ok'], row['bugs_verified']), (2, 2, 2, 1))
+        self.assertGreaterEqual(row['code_last'], row['models_last'])
+        self.assertNotIn(self.sid, [r['id'] for r in self.client.admin('GET', report)[1]['students']])
+        self.assertEqual([r['id'] for r in teacher_get('/api/admin/course/progress')], [self.sid])
+        self.assertEqual(teacher_get('/api/admin/course/progress?id=' + str(self.other_sid)), [])
+
     @contextlib.contextmanager
     def fail_next_commit(self):
         db, real = self.db, self.db.conn
@@ -112,7 +150,7 @@ class LearningProgressBoundaryTest(unittest.TestCase):
         self.assertEqual(self.client.req('GET', '/api/course/coverage')[0], 200)
         for path in sorted(learning_progress_http.LEARNING_PROGRESS_PATHS - {'/api/course/coverage'}):
             with self.subTest(path=path):
-                self.assertEqual(self.client.req('GET', path)[0], 401)
+                self.assertEqual(self.client.req('GET', path)[0], 405 if path == '/api/lab/activity' else 401)
                 self.assertEqual(self.client.req('POST', path, {})[0], 401)
 
     def test_closed_course_cannot_record_progress_or_read_materials(self):
@@ -159,6 +197,52 @@ class LearningProgressBoundaryTest(unittest.TestCase):
                 self.assertEqual(self.db.q('SELECT ' + column + ' AS granted FROM students WHERE id=?',
                                           (self.other_sid,), one=True)['granted'], 0)
         self.assertEqual(self.req('/api/arduino/unlock', {'password': self.password}, self.other)[0], 403)
+
+    def test_other_devices_receive_only_their_accounts_committed_unlocks(self):
+        name = self.req('/api/me')[1]['name']
+        def login_again():
+            status, payload = self.client.req('POST', '/api/login',
+                                              {'mode': 'login', 'name': name, 'password': 'secret1'})
+            self.assertEqual(status, 200)
+            self.assertEqual(payload['sid'], self.sid)
+            return payload
+
+        already_open = login_again()['token']
+        self.assertNotEqual(already_open, self.token)
+        self.db.setting('im_pw', hash_pw('separate-im-pass'))
+        sections = [('course', 'course', self.password), ('pyc', 'pyc', self.password),
+                    ('lab', 'lab', self.password), ('arduino', 'ard', 'separate-arduino-pass'),
+                    ('im', 'im', 'separate-im-pass')]
+        columns = [column for _, column, _ in sections]
+        received = []
+        def notified(sids, topic):
+            if topic == 'pyc':
+                # A separate SQLite reader sees only durable grants.
+                with contextlib.closing(sqlite3.connect(server.DB_PATH)) as reader:
+                    grants = reader.execute('SELECT course, pyc, lab, ard, im FROM students WHERE id=?',
+                                            (self.sid,)).fetchone()
+                received.append((sids, tuple(map(bool, grants))))
+
+        with mock.patch.object(server.LIVE, 'send', side_effect=notified):
+            with self.fail_next_commit():
+                self.assertEqual(self.req('/api/lab/unlock', {'password': self.password})[0], 500)
+            self.assertFalse(self.req('/api/me', token=already_open)[1]['lab'])
+            self.assertFalse(received)
+            for i, (section, _, password) in enumerate(sections):
+                path = '/api/' + section + '/unlock'
+                self.assertEqual(self.req(path, {'password': 'wrong'})[0], 403)
+                self.assertEqual(self.req(path, {'password': password})[0], 200)
+                self.assertEqual(self.req(path, {}, already_open)[0], 200)
+                expected = tuple(j <= i for j in range(len(sections)))
+                self.assertEqual(len(received), i + 1)
+                self.assertEqual(received[-1], ([self.sid], expected))
+                me = self.req('/api/me', token=already_open)[1]
+                self.assertEqual(tuple(me[col] for col in columns), expected)
+        fresh = login_again()
+        self.assertNotIn(fresh['token'], (already_open, self.token))
+        self.assertTrue(all(fresh[col] for col in columns))
+        other = self.req('/api/me', token=self.other)[1]
+        self.assertFalse(any(other[col] for col in columns))
 
     def test_python_level_disclosure_and_repeated_completion(self):
         self.unlock('pyc')

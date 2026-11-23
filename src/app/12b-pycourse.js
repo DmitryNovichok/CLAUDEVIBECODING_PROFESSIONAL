@@ -284,8 +284,19 @@
     if (e.target.matches('.pyc-ans')) { const m = e.target.closest('.pyc-task').querySelector('.pyc-msg'); m.textContent = ''; m.className = 'pyc-msg'; }
   });
   /** Учитель задал пароль, закрыл курс всем или выключил его — замок и экран курса обновляются сразу. */
-  function refreshLearningAccess() {
-    if (appState.courseShown && appState.pageKind === 'pyc') { if (appState.PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
+  function refreshLearningAccess(changed, pythonSettings) {
+    if (!appState.courseShown) return;
+    if (appState.pageKind === null && changed.course) {
+      if (appState.COURSE_OK) openCourse();
+      else { ++courseLessonRequest; appState.DECK = null; courseLock(); }
+    }
+    if (appState.pageKind === 'lab' && changed.lab) openLab(LAB.view);
+    if (appState.pageKind === 'ardgate' && changed.arduino) openArdGate();
+    if (appState.pageKind === 'pyc' && (changed.python || pythonSettings)) {
+      if (!appState.PYC_OK) {
+        if (changed.python) { ++pycLevelRequest; PYC_L = null; pycStopTests(); pycLock(); }
+      } else if (!PYC_L || changed.python) openPyc();
+    }
   }
 
   trainerEl.addEventListener('toggle', e => {

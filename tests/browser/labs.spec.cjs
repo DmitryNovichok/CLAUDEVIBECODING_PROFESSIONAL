@@ -110,6 +110,7 @@ test('actual debugger executes local Python and supports breakpoint and step key
 test('teacher opens laboratories through the real teacher-as-pupil action',async({page,context},info)=>{
   await seedBrowser(context,fixture,'teacher');
   await page.goto(fixture.origin+'/admin');
+  await page.locator('#tabs [data-tab=learning]').click();
   const popup=page.waitForEvent('popup');await page.locator('#adminLabBtn').click();const lab=await popup;
   await expect(lab.locator('#labRoot')).toBeVisible();
   await lab.locator('[data-lab-view=tasks]').click();

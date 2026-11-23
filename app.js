@@ -2530,7 +2530,12 @@
   let COURSE_SRV = {};
   async function loadCourseSets() {
     if (!SERVER || !COURSE_OK) return;
-    try { COURSE_SRV = (await api('course/sets')).sets || {}; } catch (e) { return; }
+    const account = student;
+    try {
+      const result = await api('course/sets');
+      if (student !== account || !COURSE_OK) return;
+      COURSE_SRV = result.sets || {};
+    } catch (e) { return; }
     ASG = ASG.filter(a => !a.course);                // подборки курса пересоберутся из нового состава
   }
   function courseSetTasks(n) {
@@ -2621,7 +2626,9 @@
     try {
       if (examShown) return;
       if (st.v === 'hub') openHub();
+      else if (st.v === 'courses' || st.v === 'labs') openLearningDirectory(st.v);
       else if (st.v === 'course') openCourse();
+      else if (st.v === 'lab13') openLabAssignment(st.id);
       else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'mcko') openMcko();
@@ -3000,7 +3007,9 @@
   function setScope(s, asgId) {
     if (!SPECIAL.includes(s)) s = scopeOf(s);
     if (s === 'asg') {
-      if (!asgOf(asgId)) return;
+      const a = asgOf(asgId);
+      if (!a) return;
+      if (a.kind === 'lab13') return openLabAssignment(a.id);
       if (isNarrow()) setSideOpen(false);
       if (!leaveExam()) return;
       ui.scope = 'asg';
@@ -4131,11 +4140,11 @@
   let answerWriteSession = 0;
   if (typeof window !== 'undefined') window.addEventListener?.('egeshka:session-ended', () => { answerWriteSession++; });
   async function api(path, body, method) {
-    if (body && /^(check|reveal|asg\/(answer|finish)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
+    if (body && /^(check|reveal|asg\/(answer|finish|lab13\/answer)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
     if (isTemp()) headers['X-Temp'] = '1';
-    const writeId = body && /^(check|asg\/(answer|finish)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
+    const writeId = body && /^(check|asg\/(answer|finish|lab13\/answer)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
     const sessionAtStart = answerWriteSession;
     const notify = state => { if (writeId && sessionAtStart === answerWriteSession && typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') window.dispatchEvent(new CustomEvent('egeshka:answer-save', { detail: { id: writeId, state } })); };
     notify('pending');
@@ -4203,16 +4212,10 @@
     EMAIL_NEED = me.email_need ? me.email : '';     // почта указана, но не подтверждена — напоминание на главной
     if (me.game) GAME = me.game;
     if (GAME && GAME.froze) setTimeout(() => toast(`❄️ Ты пропустил ${GAME.froze === 1 ? 'день' : `${GAME.froze} ${plural(GAME.froze, 'день', 'дня', 'дней')}`} — заморозка спасла огонёк`, 6000), 1500);
-    COURSE_OK = !!me.course;
+    applyLearningAccess(me);
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
     document.body.classList.toggle('teacher-mode', TEACHER);
     ['#teacherBack', '#teacherBackMenu'].forEach(sel => { const el = $(sel); if (el) el.hidden = !TEACHER; });   // учитель решает как ученик — путь назад
-    $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
-    pycSetAccess(me.pyc, me.pyc_pw);
-    LAB_OK = !!me.lab;
-    ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw;
-    IM_OK = !!me.im; IM_PW = !!me.im_pw;
-    $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
     noticesLoad();
@@ -4265,7 +4268,7 @@
     const r = await loginDialog();
     applyMe(r);
     await askConsent();
-    await loadHistory();
+    await Promise.all([loadHistory(), loadCourseSets()]);
   }
   // ---- согласие на обработку персональных данных: уже зарегистрированные подтверждают при входе
   let CONSENT_NEEDED = false;
@@ -7142,7 +7145,6 @@
     if (t.closest('#sumDuels')) { closeForecast(); return tourOpen(); }
   });
   $('#dailyCard').addEventListener('click', openDaily);
-  $('#courseCard')?.addEventListener('click', openCourse);
   $('#duelCard').addEventListener('click', () => tourOpen());
 
   /** При входе (не в первый раз) — раз в день сводка: итоги недели, кто обогнал, задание дня, вызовы, лига. */
@@ -7208,8 +7210,12 @@
     }
     return a.tasks.filter(id => !done.has(id));
   }
-  function asgFinished(a) { return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final)); }
-  const asgPending = a => !asgFinished(a) && (a.strict || asgLeft(a).length > 0);
+  function asgFinished(a) {
+    if (a.kind === 'lab13') return !!(a.finished || a.closed || (a.due && a.due * 1000 <= Date.now()));
+    return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final));
+  }
+  function asgRemaining(a) { return a.kind === 'lab13' ? Number(!asgFinished(a)) : asgLeft(a).length; }
+  const asgPending = a => !asgFinished(a) && (a.strict || asgRemaining(a) > 0);
   // Срок — первый приоритет; при одинаковом сроке сначала начатая работа.
   function asgOrder(a, b) {
     const started = x => !!(x.started || x.score?.tried || x.done?.length);
@@ -7254,7 +7260,7 @@
     const say = [];
     for (const a of ASG) {
       if (a.duel || a.course || a.closed) continue;
-      const left = a.strict ? (a.finished ? 0 : a.tasks.length - (a.done || []).length) : asgLeft(a).length;
+      const left = a.strict ? (a.finished ? 0 : a.tasks.length - (a.done || []).length) : asgRemaining(a);
       if (a.personal && !seen['new' + a.id]) {
         seen['new' + a.id] = today;
         say.push(a.personal === 'fix' ? `🔧 Работа над ошибками: ${a.tasks.length} ${plural(a.tasks.length, 'похожее задание', 'похожих задания', 'похожих заданий')} на твои ошибки`
@@ -7307,8 +7313,9 @@
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = asgFinished;
     const active = list.filter(a => !isDone(a)).sort(asgOrder), done = list.filter(isDone).sort((a, b) => (b.finished || b.closed || b.created || 0) - (a.finished || a.closed || a.created || 0));
-    const left = active.reduce((n, a) => n + asgLeft(a).length, 0);
+    const left = active.reduce((n, a) => n + asgRemaining(a), 0);
     const card = a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (!a.strict) return practiceCard(a);
       const n = (a.done || []).length, total = a.tasks.length, r = a.result;
       const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
@@ -7385,11 +7392,34 @@
       ${apDates(a, null, sc.final || a.closed)}
       <div class="ap-btns"><button type="button" class="btn ${sc.final || a.closed ? '' : 'primary'}" data-asg="${a.id}">${sc.final || a.closed ? 'Потренироваться' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
   }
+  function labAssignmentCard(a) {
+    const done = asgFinished(a);
+    const status = a.finished ? (a.lab13.correct ? 'Прогноз верный' : 'В прогнозе ошибка')
+      : done ? 'Работа закрыта без ответа' : a.started ? 'Ожидает прогноза' : 'Ещё не начата';
+    const action = a.finished ? 'Посмотреть результат' : a.started ? 'Продолжить' : 'Открыть лабораторию';
+    return `<div data-assignment="${a.id}" class="ap-card${done ? ' done' : a.started ? ' going' : ''}">
+      <div class="ap-main"><div class="ap-top"><span class="ap-ico">${asgIcon(a)}</span><div>
+        <span class="ap-kind">Лаборатория №13 · Подсети IPv4</span>${asgDueBadge(a)}<b>${esc(a.title)}</b>
+        <small>Подсеть ${esc(a.lab13.ip)}/${a.lab13.prefix}</small></div></div><div class="ap-state">${status}</div></div>
+      ${apDates(a, a.finished, done)}
+      ${a.finished || !done ? `<div class="ap-btns"><button type="button" class="btn ${done ? '' : 'primary'}" data-asg="${a.id}">${action}</button></div>` : ''}</div>`;
+  }
+  function syncLabAssignment(state) {
+    const a = ASG.find(item => item.id === state.id && item.kind === 'lab13');
+    if (a && (!a.finished || state.finished)) Object.assign(a, { started: state.started, finished: state.finished, lab13: state });
+    loadAssignments().catch(() => {});
+  }
+  function returnToLabAssignments(done) {
+    asgTab = done ? 'done' : 'active';
+    openAsgPage();
+    loadAssignments().catch(() => {});
+  }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = asgFinished;
     const active = list.filter(a => !isDone(a)).sort(asgOrder), done = list.filter(isDone).sort((a, b) => (b.finished || b.closed || b.created || 0) - (a.finished || a.closed || a.created || 0));
     const doneRows = done.map(a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (!a.strict) return practiceCard(a);
       const r = a.result;
       return `<div class="asg-row done">
@@ -7398,6 +7428,7 @@
           <button type="button" class="btn" data-review="${a.id}" data-from="asg">Разбор</button>` : ''}</span></div>`;
     }).join('');
     const rows = active.map(a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (a.strict) return wkRowHtml(a);
       const left = asgLeft(a).length, total = a.tasks.length;
       const late = a.due && a.due * 1000 < Date.now() && left;
@@ -8852,7 +8883,7 @@
   document.addEventListener('pointercancel', () => { if (stDown) { clearTimeout(stDown.hold); if (stDown.held) stPause(false); stDown = null; } });
   document.addEventListener('click', e => {
     const b = e.target.closest('#storiesOv [data-st]');
-    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); }, duel: () => { closeStories(); tourOpen(); }, lab: () => { closeStories(); const c = $('#labCard'); if (c) c.click(); } })[b.dataset.st](); return; }
+    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); }, duel: () => { closeStories(); tourOpen(); }, lab: () => { closeStories(); openLearningDirectory('labs'); } })[b.dataset.st](); return; }
     if (ST && e.target.id === 'storiesOv') closeStories();          // клик мимо телефона
     if (e.target.closest('#storiesGo')) { closeForecast(); openStories(); }
   });
@@ -9697,26 +9728,56 @@
   // Course and laboratory UI share one optional script; ordinary Python and
   // permission updates stay synchronous and do not trigger a download.
   let PYC_OK = false, PYC_PW = false, PYC_PY = null;
-  let LAB_OK = false, ARD_OK = false, ARD_PW = false;
+  let LAB_OK = false, LAB_PW = false, ARD_OK = false, ARD_PW = false;
   let learningSections = null, learningSectionsPromise = null, learningOpenGeneration = 0;
   const learningSectionsSrc = document.currentScript?.dataset.learningSrc || 'app-learning.js';
   function pycSetAccess(on, pw) {
     PYC_OK = !!on;
     if (pw !== undefined) PYC_PW = !!pw;
-    $('#pycCard')?.classList.toggle('locked', !PYC_OK);
   }
-  async function pycLive() {
-    const sid = student?.sid;
-    try {
-      const me = await api('me');
-      if (student?.sid !== sid) return;
-      pycSetAccess(me.pyc, me.pyc_pw);
-      COURSE_OK = !!me.course; $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
-      LAB_OK = !!me.lab; ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw; IM_OK = !!me.im; IM_PW = !!me.im_pw;
-      $('#labCard')?.classList.toggle('locked', !LAB_OK);
-    } catch (error) { return; }
-    learningSections?.refreshLearningAccess();
+  function applyLearningAccess(me) {
+    const changed = {
+      course: COURSE_OK !== !!me.course,
+      python: PYC_OK !== !!me.pyc || PYC_PW !== !!me.pyc_pw,
+      lab: LAB_OK !== !!me.lab || LAB_PW !== !!me.lab_pw,
+      arduino: ARD_OK !== !!me.ard || ARD_PW !== !!me.ard_pw,
+      im: IM_OK !== !!me.im || IM_PW !== !!me.im_pw,
+    };
+    COURSE_OK = !!me.course;
+    pycSetAccess(me.pyc, me.pyc_pw);
+    LAB_OK = !!me.lab; LAB_PW = !!me.lab_pw;
+    ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw;
+    IM_OK = !!me.im; IM_PW = !!me.im_pw;
+    return changed;
   }
+  let accessReadId = 0, accessFocusTimer = 0;
+  async function pycLive(pythonSettings = true) {
+    const account = student, request = ++accessReadId;
+    if (!SERVER || !account) return;
+    let me;
+    try { me = await api('me'); } catch (error) { return; }
+    if (student !== account || me.sid !== account.sid || request !== accessReadId) return;
+    const changed = applyLearningAccess(me);
+    if (changed.course && COURSE_OK) loadCourseSets();
+    learningSections?.refreshLearningAccess(changed, pythonSettings);
+    if (Object.values(changed).some(Boolean)) {
+      refreshLearningDirectoryAccess();
+      if (changed.im) {
+        if (courseShown && pageKind === 'im') openIm();
+        else hubRefresh();
+      }
+    }
+  }
+  // A sleeping device can miss the live grant notification. Check the account
+  // again when its learning view becomes visible, keeping active work intact.
+  function syncVisibleLearningAccess() {
+    if (document.hidden || !SERVER || !student || !courseShown ||
+        ![null, 'courses', 'labs', 'lab', 'pyc', 'ardgate', 'im', 'hub'].includes(pageKind)) return;
+    clearTimeout(accessFocusTimer);
+    accessFocusTimer = setTimeout(() => pycLive(false), 100);
+  }
+  window.addEventListener('focus', syncVisibleLearningAccess);
+  document.addEventListener('visibilitychange', syncVisibleLearningAccess);
   function pycStopTests() { learningSections?.pycStopTests(); }
   function labStop() { learningSections?.labStop(); }
   function pycDockTools(task) {
@@ -9724,7 +9785,10 @@
     else { const tools = $('#pycDockTools'); if (tools) tools.hidden = true; }
   }
   function resetLearningSession() {
-    ++learningOpenGeneration;
+    ++learningOpenGeneration; ++accessReadId;
+    clearTimeout(accessFocusTimer);
+    applyLearningAccess({});
+    COURSE_SRV = {};
     learningSections?.resetLearningState();
     DECK = null; deckI = 0; PYC_PY = null;
   }
@@ -9741,7 +9805,7 @@
           if (typeof window.EgeLearningSections !== 'function') throw Error('Раздел не загрузился. Повторите открытие.');
           const sections = window.EgeLearningSections({ $, $$, ARCHIVE, COURSE, COURSE_SETS, COURSE_SET_NOTES, EgePythonWorker, MARK, MARK_BTN, NUM_TOPIC, PY, PY_KW, RULES, SERVER, TASKS, abandonCurrent, api, asgLeft, badgeCls, bdOpen, byId, codeKey, courseSet, esc, highlightPy, htmlWait, isNarrow, leaveExam, loadCourseSets, markAttach, navPush, needHtml, netError, numLabel, numStats, openSetTask, pct, plural, pyOpen, pySync, pycSetAccess, readCode, readJSON, renderMath, renderSidebar, safeHtml, setScope, setSideOpen, toast, toggleBoard, togglePy, trainerEl, visible, writeCode, writeJSON,
             appState: {
-              get student() { return student; }, get P() { return P; },
+              get student() { return student; }, get P() { return P; }, get teacher() { return TEACHER; },
               get courseShown() { return courseShown; }, set courseShown(value) { courseShown = value; },
               get pageKind() { return pageKind; }, set pageKind(value) { pageKind = value; },
               get cur() { return cur; }, set cur(value) { cur = value; },
@@ -9757,7 +9821,7 @@
               get IM_OK() { return IM_OK; }, set IM_OK(value) { IM_OK = value; },
               get IM_PW() { return IM_PW; }, set IM_PW(value) { IM_PW = value; },
             } });
-          for (const name of ['openCourse', 'openLesson', 'openCourseSet', 'openPyc', 'openPycLevel', 'openLab', 'openArdGate', 'pycStopTests', 'labStop', 'pycDockTools', 'resetLearningState', 'refreshLearningAccess']) {
+          for (const name of ['openCourse', 'openLesson', 'openCourseSet', 'openPyc', 'openPycLevel', 'openLab', 'openLabAssignment', 'openArdGate', 'pycStopTests', 'labStop', 'pycDockTools', 'resetLearningState', 'refreshLearningAccess']) {
             if (typeof sections?.[name] !== 'function') throw Error('Раздел загрузился не полностью. Повторите открытие.');
           }
           learningSections = sections;
@@ -9804,9 +9868,10 @@
     if (view === 'arduino') return openArdGate();
     return openLearningSection('openLab', [view, context], { v: 'lab', tab: view }, 'lab', 'Лаборатория');
   }
+  function openLabAssignment(id) {
+    return openLearningSection('openLabAssignment', [id, syncLabAssignment, returnToLabAssignments], { v: 'lab13', id }, 'lab13', 'Лаборатория №13');
+  }
   function openArdGate() { return openLearningSection('openArdGate', [], { v: 'ardgate' }, 'ardgate', 'Лаборатория Arduino'); }
-  $('#pycCard')?.addEventListener('click', () => openPyc());
-  $('#labCard')?.addEventListener('click', () => openLab());
   // ═══════ src/app/12m-exam-loader.js
   // Less frequently opened exam sections load only after an explicit navigation.
   // The server fingerprints data-exams-src independently of the main bundle.
@@ -9885,7 +9950,7 @@
     const now = Date.now() / 1000;
     return ASG.filter(a => !a.duel && !a.course && a.due && !asgFinished(a) && a.due - now < 2 * 86400 && a.due - now > -86400)
       .map(a => {
-        const left = asgLeft(a).length, hrs = Math.round((a.due - now) / 3600);
+        const left = asgRemaining(a), hrs = Math.round((a.due - now) / 3600);
         if (!left) return null;
         const when = hrs <= 0 ? 'срок уже прошёл' : hrs < 24 ? `осталось ${hrs} ${plural(hrs, 'час', 'часа', 'часов')}` : 'срок завтра';
         return { k: 'remind', ts: Date.now() / 1000, ic: '⏰', title: `Не забудь: «${a.title}»`, text: `${when} · нерешённых заданий: ${left}`, go: 'asg', id: a.id, due: a.due };
@@ -9980,7 +10045,7 @@
     else if (go === 'support') openSupport('auto');
     else if (go === 'asg') {
       const a = typeof ASG !== 'undefined' && ASG.find(x => x.id === id);
-      if (a && !asgFinished(a) && asgLeft(a).length && !a.strict) setScope('asg', id);
+      if (a && !asgFinished(a) && asgRemaining(a) && !a.strict) setScope('asg', id);
       else openAssignments();
     }
   });
@@ -10052,7 +10117,7 @@
             buf = buf.slice(i + 2);
             if (ev === 'hello') {
               got = true;
-              if (LV.was) { liveSend('comp'); liveSend('asg'); liveSend('together'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
+              if (LV.was) { liveSend('comp'); liveSend('asg'); liveSend('together'); liveSend('pyc'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
               LV.was = true;
             } else if (ev) liveSend(ev);
           }
@@ -10087,7 +10152,8 @@
       const had = new Set(ASG.map(a => a.id));
       loadAssignments().then(() => {
         const fresh = ASG.filter(a => !a.duel && !a.course && !a.personal && !a.closed && !had.has(a.id));
-        if (fresh.length) toast(fresh.length === 1 ? `📚 Учитель выдал подборку «${fresh[0].title}» — она в «Подборках»` : `📚 Учитель выдал подборки: ${fresh.length}`, 6000);
+        if (fresh.length === 1 && fresh[0].kind === 'lab13') toast(`Учитель назначил лабораторию «${fresh[0].title}». Открой её в разделе «Задания от учителя».`, 6000);
+        else if (fresh.length) toast(fresh.length === 1 ? `📚 Учитель выдал подборку «${fresh[0].title}» — она в «Подборках»` : `📚 Учитель выдал подборки: ${fresh.length}`, 6000);
         if (wkLive()) wkRefresh(wkLive());           // пишешь самостоятельную — вдруг учитель её завершил
       }).catch(() => {});
     }
@@ -10158,7 +10224,7 @@
     const nav = $('#mobileNav');
     if (!nav) return;
     nav.hidden = false;
-    const teacher = courseShown && pageKind === 'asg';
+    const teacher = courseShown && (pageKind === 'asg' || pageKind === 'lab13');
     $$('[data-mobile]', nav).forEach(b => {
       const active = b.dataset.mobile === 'teacher' ? teacher : b.dataset.mobile === 'home' ? courseShown && pageKind === 'hub'
         : b.dataset.mobile === 'tasks' && !courseShown && !examShown;
@@ -10201,6 +10267,7 @@
     // Документ не должен закрыть только что открытое окно или меню звуков.
     e.stopPropagation();
     if (button.hasAttribute('data-mobile-numbers')) openNumbers();
+    else if (button.dataset.mobileGroup) openLearningDirectory(button.dataset.mobileGroup);
     else if (button.dataset.mobileTarget) $('#' + button.dataset.mobileTarget)?.click();
   });
   // ═══════ src/app/13c-hub.js
@@ -10270,11 +10337,11 @@
     // 1. Задание от учителя с ближайшим сроком; нет его — тренировка слабых номеров
     const own = ASG.filter(a => !a.duel && !a.course && asgPending(a)).sort(asgOrder)[0];
     if (own) {
-      const left = asgLeft(own).length, total = own.tasks.length;
+      const lab = own.kind === 'lab13', left = asgRemaining(own), total = lab ? 1 : own.tasks.length;
       const late = own.due && own.due * 1000 < Date.now();
       items.push({ key: 'asg:' + own.id, ic: 'asg', title: `Задание от учителя: «${own.title}»`,
         meta: [own.due ? `<span class="${late ? 'hub-late' : 'hub-due'}">${late ? 'срок прошёл' : 'до ' + fmtDay(own.due * 1000)}</span>` : '',
-          left ? `осталось ${left} из ${total}` : 'все ответы внесены — заверши работу', left ? hubMins(left * 3) : ''],
+          lab ? 'Лаборатория №13 · прогноз для подсети' : left ? `осталось ${left} из ${total}` : 'все ответы внесены — заверши работу', left ? hubMins(left * 3) : ''],
         btn: !left && own.strict ? 'Завершить' : own.started || left < total ? 'Продолжить' : 'Начать', go: () => (own.strict ? openAsgPage() : setScope('asg', own.id)) });
     } else {
       const weak = hubWeakNums(2), need = 5, count = hubTodayCount(), done = count >= need;
@@ -10309,28 +10376,76 @@
   }
 
   // ------------------------------------------------------------ разделы
+  const HUB_LEARNING_GROUPS = {
+    courses: { name: 'Курсы', icon: 'course', sub: 'ЕГЭ по информатике и программирование на Python', entries: [
+      { key: 'course', name: 'Курс ЕГЭ', sub: 'Уроки и практика по номерам экзамена', access: () => COURSE_OK, go: openCourse },
+      { key: 'python', name: 'Курс Python', sub: 'От основ языка до решения задач ЕГЭ', access: () => PYC_OK, go: openPyc },
+    ] },
+    labs: { name: 'Лаборатории', icon: 'lab', sub: 'Модели ЕГЭ, пошаговый Python и Arduino', entries: [
+      { key: 'tasks', name: 'По заданиям ЕГЭ', sub: 'Эксперименты с моделями заданий', access: () => LAB_OK, go: () => openLab('tasks') },
+      { key: 'code', name: 'Программирование', sub: 'Выполнение Python по шагам и значения переменных', access: () => LAB_OK, go: () => openLab('code') },
+      { key: 'bugs', name: 'Исправление ошибок', sub: 'Поиск и исправление ошибок в чужом решении', visible: () => SERVER, access: () => LAB_OK, go: () => openLab('bugs') },
+      { key: 'arduino', name: 'Лаборатория Arduino', sub: 'Схемы, скетчи и симулятор', visible: () => SERVER && student, access: () => ARD_OK,
+        go: () => { if (ARD_OK) location.href = 'arduino/'; else openArdGate(); } },
+    ] },
+  };
+
+  function refreshLearningDirectoryAccess() {
+    const group = courseShown && HUB_LEARNING_GROUPS[pageKind];
+    if (!group || !SERVER) return;
+    for (const entry of group.entries) {
+      const status = trainerEl.querySelector(`[data-learning-entry="${entry.key}"] .learning-availability`);
+      if (status) status.textContent = entry.access() ? 'Доступ открыт' : 'Доступ у учителя';
+    }
+  }
+
+  function openLearningDirectory(key) {
+    const group = HUB_LEARNING_GROUPS[key];
+    if (!group || !leaveExam()) return;
+    if (pyOpen()) togglePy(false);
+    if (bdOpen()) toggleBoard(false);
+    if (isNarrow()) setSideOpen(false);
+    abandonCurrent();
+    leaveCourse();
+    courseShown = true;
+    pageKind = key;
+    cur = null;
+    navPush({ v: key });
+    renderSidebar();
+    $('#scopeInfo').textContent = '';
+    $('#sessionInfo').textContent = '';
+    const entries = group.entries.filter(entry => !entry.visible || entry.visible());
+    trainerEl.innerHTML = `<section class="learning-directory" aria-labelledby="learningGroupTitle">
+      <h1 id="learningGroupTitle" tabindex="-1">${hubIcon(group.icon, 32)}${group.name}</h1>
+      <div class="learning-entries">${entries.map(entry => `<button type="button" class="learning-entry" data-learning-entry="${entry.key}">
+        <span><strong>${entry.name}</strong><small>${entry.sub}</small></span>
+        ${SERVER ? '<span class="learning-availability"></span>' : ''}</button>`).join('')}</div></section>`;
+    refreshLearningDirectoryAccess();
+    if (SERVER && student) pycLive(false);
+    window.scrollTo(0, 0);
+    $('#learningGroupTitle').focus({ preventScroll: true });
+  }
+
   function hubTiles() {
     const vis = id => { const el = $('#' + id); return !!el && !el.hidden; };
     const allDone = [...P.log].filter(e => !e.b).length;
     const bad = P.log.filter(e => e.s < 1 && !e.b && !e.k).length;
     const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(asgPending);
-    const ownLeft = ownOpen.reduce((s, a) => s + asgLeft(a).length, 0);
+    const ownLeft = ownOpen.reduce((s, a) => s + asgRemaining(a), 0);
     const T = [];
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
     if (SERVER && student) T.push({ k: 'daily', name: 'Задание дня', sub: !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
       : DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
       badge: DAILY?.my_place || DAILY?.started ? '' : 'сегодня', btn: !DAILY?.ready || DAILY_STATE === 'error' ? DAILY_STATE === 'error' ? 'Повторить загрузку' : 'Открыть' : DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить',
       hot: !!DAILY?.ready && !DAILY.started && DAILY_STATE !== 'error', go: () => openDaily() });
-    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
+    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'работа', 'работы', 'работ')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
     if (SERVER && student && !TEACHER) T.push({ k: 'mcko', name: 'МЦКО', sub: 'тренировочные работы от учителя', btn: 'Открыть', go: () => openMcko() });
     if (SERVER && student && (IM_OK || IM_PW)) T.push({ k: 'im', name: 'Интеллектуальный мегаполис', sub: 'ИТ-класс · теория: 10 заданий, 120 минут, 60 баллов',
       btn: IM_OK ? 'Готовиться' : 'Открыть по паролю', go: () => openIm() });
-    T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
-    if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'модели заданий ЕГЭ, Python по шагам, исправление ошибок', btn: 'Открыть', go: () => $('#labCard').click() });
-    if (SERVER && student) T.push({ k: 'arduino', name: 'Лаборатория Arduino', sub: 'схемы, код и симулятор · 2 курса по 36 уроков', btn: ARD_OK ? 'Открыть' : 'Открыть по паролю',
-      go: () => { if (ARD_OK) location.href = 'arduino/'; else openArdGate(); } });
-    if (vis('pycCard')) T.push({ k: 'python', name: 'Курс Python', sub: 'программирование с нуля', btn: 'Открыть', go: () => $('#pycCard').click() });
+    for (const [key, group] of Object.entries(HUB_LEARNING_GROUPS)) {
+      T.push({ k: key, icon: group.icon, name: group.name, sub: group.sub, btn: 'Открыть', go: () => openLearningDirectory(key) });
+    }
     T.push({ k: 'history', name: 'История', sub: `${allDone} ${plural(allDone, 'ответ', 'ответа', 'ответов')}`, extra: hubWeekBars(), badge: bad ? `${bad} ${plural(bad, 'ошибка', 'ошибки', 'ошибок')}` : '',
       btn: bad ? 'Разобрать ошибки' : 'Открыть', go: () => { histFilter = bad ? 'bad' : 'all'; histLimit = 100; openHistory(); } });
     T.push({ k: 'fav', name: 'Избранное', sub: prefs.fav.length ? `${prefs.fav.length} ${plural(prefs.fav.length, 'задание', 'задания', 'заданий')}` : 'отмечай задания звёздочкой',
@@ -10469,8 +10584,8 @@
         <div class="hub-step-body"><b>${ic}<span class="hub-tt">${esc(it.title)}</span></b><span class="hub-meta">${it.meta.filter(Boolean).map(x => `<span>${x}</span>`).join('')}</span></div>
         <button type="button" class="btn${i === nowIdx ? ' primary' : ''}" data-step-go="${i}">${esc(it.btn)}${i === nowIdx ? ' →' : ''}</button></div>`;
     };
-    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" data-tile-key="${t.k}" style="--sec:${hubColor(t.k)};--i:${i}">
-      ${t.badge ? `<span class="hub-badge">${esc(t.badge)}</span>` : ''}${hubIcon(t.k, 52)}<b>${esc(t.name)}</b><span class="hub-sub">${esc(t.sub)}</span>${t.extra || ''}
+    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" data-tile-key="${t.k}" style="--sec:${hubColor(t.icon || t.k)};--i:${i}">
+      ${t.badge ? `<span class="hub-badge">${esc(t.badge)}</span>` : ''}${hubIcon(t.icon || t.k, 52)}<b>${esc(t.name)}</b><span class="hub-sub">${esc(t.sub)}</span>${t.extra || ''}
       <span class="btn hub-act${t.hot ? ' hot' : ''}">${esc(t.btn)}</span></div>`;
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
     const html = `
@@ -10565,6 +10680,13 @@
     clearTimeout(hubTimer);
   }
   trainerEl.addEventListener('click', e => {
+    const groupButton = e.target.closest('[data-open-learning-group]');
+    if (groupButton) { openLearningDirectory(groupButton.dataset.openLearningGroup); return; }
+    const entryButton = e.target.closest('[data-learning-entry]');
+    if (entryButton && courseShown) {
+      HUB_LEARNING_GROUPS[pageKind]?.entries.find(entry => entry.key === entryButton.dataset.learningEntry)?.go();
+      return;
+    }
     if (!courseShown || pageKind !== 'hub') return;
     const n = e.target.closest('[data-hub-n]');
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
@@ -10841,10 +10963,9 @@
       { color: 'o', title: 'Прогноз балла', img: 'promo/forecast.jpg', imgAlt: 'Прогноз балла ЕГЭ',
         html: `<p>По твоим ответам считается ожидаемый балл ЕГЭ — он пересчитывается после каждого задания.</p>
           <ul>${li('📈', 'Нажми «Прогноз» на главной', 'график по дням и номера, которые тянут балл вниз')}${li('⏱️', 'Вариант ЕГЭ', '27 заданий на 3 ч 55 мин, проверка в конце — как на экзамене')}</ul>` },
-      { color: 'v', title: 'Курсы, Python и лаборатории', img: 'promo/lesson.jpg', imgAlt: 'Слайд урока курса ЕГЭ',
-        html: `<p>Когда хочется разобраться в номере, а не просто решать:</p>
-          <ul>${li('🎓', 'Курс ЕГЭ', 'уроки по номерам: типы задания, решение, программа')}${li('🐍', 'Курс Python', 'программирование с нуля и темы по номерам')}${li('🧪', 'Лаборатория', 'свой код по шагам, «Исправление ошибок», Arduino')}</ul>
-          <p class="ob-note">Курсы и лаборатории открываются по паролю — его скажет учитель.</p>` },
+      { color: 'v', title: 'Курсы и лаборатории', img: 'promo/lesson.jpg', imgAlt: 'Слайд урока курса ЕГЭ',
+        html: `<ul>${li('🎓', 'Курсы', 'уроки по номерам ЕГЭ и курс программирования на Python')}${li('🧪', 'Лаборатории', 'модели ЕГЭ, разбор кода по шагам, исправление ошибок и схемы Arduino')}</ul>
+          <p class="ob-note">Введи пароль от раздела один раз. На другом устройстве войди в тот же аккаунт.</p>` },
     ];
     if (SERVER) list.push({ color: 'r', title: 'Чтобы заниматься каждый день',
       emoji: [['🔥', 'Огонёк — 3 задания за день'], ['📅', 'Задание дня на скорость'], ['⚔️', 'Дуэли с одноклассниками'], ['🏆', 'Лиги недели'], ['₿', 'Монеты и подарки'], ['⭐', 'Уровни и награды']],
@@ -10864,7 +10985,7 @@
       { sel: '.hub-plan', title: 'План на сегодня', text: 'Начинай отсюда: 3–4 дела на день. Выполненное отмечается галочкой.' },
       { sel: '.hub-pill[data-hub-go="forecast"]', title: 'Прогноз балла', text: 'Нажми — увидишь график по дням и что подтянуть, чтобы балл вырос.' },
       { sel: '.hub-pill.fire-pill', title: 'Огонёк', text: 'Реши за день 3 задания — огонёк загорится. Дни подряд копятся.' },
-      { sel: '.hub-tile[data-tile-key="trainer"]', title: 'Все разделы', text: 'Тренажёр, вариант ЕГЭ, задание дня, курсы и лаборатории — плитки на главной.' },
+      { sel: '.hub-tile[data-tile-key="courses"]', title: 'Курсы и лаборатории', text: 'Открой «Курсы», чтобы выбрать ЕГЭ или Python. Рядом находятся «Лаборатории».' },
       { sel: '#hubNums', title: 'Номера заданий', text: 'Быстрый переход к любому номеру 1–27 и поиск задания по номеру.' },
       { sel: '#supportBtn', title: 'Техподдержка', text: 'Что-то не работает или непонятно — напиши. Ответ придёт сюда же.' },
       { sel: '.hub-foot [data-hub-link="tourBtn"]', title: 'Повторить знакомство', text: 'Это обучение можно открыть снова здесь, внизу главной.' },

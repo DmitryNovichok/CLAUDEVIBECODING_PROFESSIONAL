@@ -48,6 +48,8 @@ def main():
                 shutil.copy2(source, target)
         for name in ('vendor', 'min', 'course', 'pycourse'):
             shutil.copytree(ROOT / name, tmp / name, dirs_exist_ok=True)
+        shutil.copytree(ROOT / 'arduino', tmp / 'arduino', dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns('source'))
         runtime = Path(__file__).parent / 'node_modules/pyodide'
         if (runtime / 'pyodide.js').is_file():
             shutil.copytree(runtime, tmp / 'vendor/pyodide', dirs_exist_ok=True)
@@ -73,6 +75,7 @@ def main():
         db.setting('course_pw', server.hash_pw('fixture-only-course-password'))
         db.setting('pyc_pw', server.hash_pw('fixture-only-pyc-password'))
         db.setting('lab_pw', server.hash_pw('fixture-only-lab-password'))
+        db.setting('ard_pw', server.hash_pw('fixture-only-arduino-password'))
         db.x('UPDATE students SET lab=1, course=1, pyc=1 WHERE id=?', (pupil['sid'],))
         participants = []
         ready = teachers[-1]

@@ -4,11 +4,11 @@
   let answerWriteSession = 0;
   if (typeof window !== 'undefined') window.addEventListener?.('egeshka:session-ended', () => { answerWriteSession++; });
   async function api(path, body, method) {
-    if (body && /^(check|reveal|asg\/(answer|finish)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
+    if (body && /^(check|reveal|asg\/(answer|finish|lab13\/answer)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
     if (isTemp()) headers['X-Temp'] = '1';
-    const writeId = body && /^(check|asg\/(answer|finish)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
+    const writeId = body && /^(check|asg\/(answer|finish|lab13\/answer)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
     const sessionAtStart = answerWriteSession;
     const notify = state => { if (writeId && sessionAtStart === answerWriteSession && typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') window.dispatchEvent(new CustomEvent('egeshka:answer-save', { detail: { id: writeId, state } })); };
     notify('pending');
@@ -76,16 +76,10 @@
     EMAIL_NEED = me.email_need ? me.email : '';     // почта указана, но не подтверждена — напоминание на главной
     if (me.game) GAME = me.game;
     if (GAME && GAME.froze) setTimeout(() => toast(`❄️ Ты пропустил ${GAME.froze === 1 ? 'день' : `${GAME.froze} ${plural(GAME.froze, 'день', 'дня', 'дней')}`} — заморозка спасла огонёк`, 6000), 1500);
-    COURSE_OK = !!me.course;
+    applyLearningAccess(me);
     TEACHER = !!me.teacher;                  // учитель решает как ученик: рейтинг видит, но сам в нём не участвует
     document.body.classList.toggle('teacher-mode', TEACHER);
     ['#teacherBack', '#teacherBackMenu'].forEach(sel => { const el = $(sel); if (el) el.hidden = !TEACHER; });   // учитель решает как ученик — путь назад
-    $('#courseCard')?.classList.toggle('locked', !COURSE_OK);
-    pycSetAccess(me.pyc, me.pyc_pw);
-    LAB_OK = !!me.lab;
-    ARD_OK = !!me.ard; ARD_PW = !!me.ard_pw;
-    IM_OK = !!me.im; IM_PW = !!me.im_pw;
-    $('#labCard')?.classList.toggle('locked', !LAB_OK);
     giftNotify(me.gifts_new);
     coinNotify(me.coin_news);
     noticesLoad();
@@ -138,7 +132,7 @@
     const r = await loginDialog();
     applyMe(r);
     await askConsent();
-    await loadHistory();
+    await Promise.all([loadHistory(), loadCourseSets()]);
   }
   // ---- согласие на обработку персональных данных: уже зарегистрированные подтверждают при входе
   let CONSENT_NEEDED = false;

@@ -17,6 +17,7 @@ import buglab
 import buglab_grading
 import buglab_verifier
 import kim
+from learning_catalog import LAB_MODELS
 import learning_quality
 from learning_content import course_coverage, course_guide
 
@@ -25,14 +26,14 @@ LEARNING_PROGRESS_PATHS = frozenset({
     '/api/course/seen', '/api/course/unlock',
     '/api/pyc', '/api/pyc/level', '/api/pyc/unlock', '/api/pyc/help', '/api/pyc/check',
     '/api/lab', '/api/lab/unlock', '/api/lab/bugs', '/api/lab/bugs/check',
-    '/api/lab/bugs/explain', '/api/lab/bugs/verify',
+    '/api/lab/bugs/explain', '/api/lab/bugs/verify', '/api/lab/activity',
     '/api/arduino/unlock', '/api/arduino/progress',
     '/api/learning/mistake', '/api/learning/mistakes',
 })
 LEARNING_PROGRESS_WRITES = frozenset({
     '/api/course/seen', '/api/course/unlock',
     '/api/pyc/unlock', '/api/pyc/help', '/api/pyc/check',
-    '/api/lab/unlock', '/api/lab/bugs/check', '/api/lab/bugs/explain',
+    '/api/lab/unlock', '/api/lab/bugs/check', '/api/lab/bugs/explain', '/api/lab/activity',
     '/api/arduino/unlock', '/api/arduino/progress', '/api/learning/mistake',
 })
 
@@ -74,6 +75,11 @@ class LearningProgressServices:
 class LearningProgressHTTPHandlers:
     def learning_progress_services(self):
         raise NotImplementedError
+
+    def learning_granted(self, sid, result):
+        """Refresh this student's other devices once the new grant is committed."""
+        self._new_learning_grant_sid = sid
+        return self.send_json(result)
 
     def learning_progress_route(self, method, path, qs, data):
         svc = self.learning_progress_services()
@@ -167,9 +173,9 @@ class LearningProgressHTTPHandlers:
             if not check_pw(str(data.get("password") or "")[:200], stored):
                 return self.err(403, "Неверный пароль курса")
             db.x("UPDATE students SET course=1, course_ts=? WHERE id=?", (time.time(), s["id"]))
-            return self.send_json({"ok": True})
+            return self.learning_granted(s["id"], {"ok": True})
 
-        if path in ("/api/lab", "/api/lab/unlock", "/api/lab/bugs", "/api/lab/bugs/check", "/api/lab/bugs/explain", "/api/lab/bugs/verify"):
+        if path in ("/api/lab", "/api/lab/unlock", "/api/lab/activity", "/api/lab/bugs", "/api/lab/bugs/check", "/api/lab/bugs/explain", "/api/lab/bugs/verify"):
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
@@ -187,7 +193,20 @@ class LearningProgressHTTPHandlers:
                 if not check_pw(str(data.get("password") or "")[:200], stored):
                     return self.err(403, "Неверный пароль лабораторий")
                 db.x("UPDATE students SET lab=1 WHERE id=?", (s["id"],))
-                return self.send_json({"access": True})
+                return self.learning_granted(s["id"], {"access": True})
+            if path == "/api/lab/activity":
+                if not svc.lab_access(db, s):
+                    return self.err(403, "Лаборатория закрыта")
+                section = data.get("section")
+                item = data.get("model") if section == "model" else "code"
+                if section not in ("model", "code") or (section == "model" and
+                        (not isinstance(item, str) or item not in LAB_MODELS)):
+                    return self.err(400, "Неизвестная лаборатория")
+                if not s["is_teacher"]:
+                    db.x("""INSERT INTO lab_activity(student_id, item, last_opened) VALUES(?,?,?)
+                            ON CONFLICT(student_id, item) DO UPDATE SET last_opened=excluded.last_opened""",
+                         (s["id"], item, time.time()))
+                return self.send_json({"ok": True})
             if path.startswith("/api/lab/bugs"):
                 return self.api_buglab(method, path, data, s)
             return self.send_json({"access": svc.lab_access(db, s), "pw": bool(db.setting("lab_pw"))})
@@ -215,7 +234,7 @@ class LearningProgressHTTPHandlers:
             if not check_pw(str(data.get("password") or "")[:200], stored):
                 return self.err(403, "Неверный пароль лаборатории Arduino")
             db.x("UPDATE students SET ard=1 WHERE id=?", (s["id"],))
-            return self.send_json({"access": True})
+            return self.learning_granted(s["id"], {"access": True})
 
         if path == "/api/arduino/progress" and method == "GET":
             # прогресс с сервера — страница Arduino подтягивает его на любом компьютере и после очистки браузера
@@ -266,7 +285,7 @@ class LearningProgressHTTPHandlers:
                 return self.err(403, "Неверный пароль курса")
             db.x("UPDATE students SET pyc=1, pyc_ts=? WHERE id=?", (now, s["id"]))
             svc.live_teacher(s)                       # во вкладке «Программирование» у учителя ученик появится сразу
-            return self.send_json({"ok": True})
+            return self.learning_granted(s["id"], {"ok": True})
         if not svc.pyc_access(s):
             if path == "/api/pyc":
                 return self.send_json({"access": False, "pw": bool(db.setting("pyc_pw"))})

@@ -3803,6 +3803,21 @@ body.hub-on .trainer { max-width: 1120px; padding: 4px 20px 60px; }
 .hub-track b { display: block; height: 100%; width: 0; border-radius: 99px; background: var(--good); transition: width 1s cubic-bezier(.22, 1, .36, 1); }
 
 .hub-h2 { margin: 10px 0 -2px; font-size: 22px; font-weight: 900; }
+/* Каталог курсов или лабораторий. Вся строка открывает соответствующий раздел. */
+.learning-directory { max-width: 760px; margin: 0 auto; }
+.learning-directory h1 { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; font-size: 24px; }
+.learning-entries { overflow: hidden; background: var(--card); border: 1px solid var(--border-strong); border-radius: var(--radius); }
+.learning-entry { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 14px 18px;
+  border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.learning-entry + .learning-entry { border-top: 1px solid var(--border); }
+.learning-entry strong, .learning-entry small { display: block; }
+.learning-entry small { margin-top: 3px; color: var(--muted); font-size: 14px; }
+.learning-availability { flex: 0 0 auto; color: var(--muted); font-size: 13px; }
+.learning-entry:hover { background: var(--card-hover); }
+.learning-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+@media (max-width: 500px) {
+  .learning-entry { align-items: flex-start; flex-direction: column; gap: 5px; }
+}
 .hub-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .hub-tile { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 16px 16px 14px; border-radius: 20px; border: 2px solid var(--border); cursor: pointer; text-align: left; color: var(--text);
   background: radial-gradient(120% 90% at 0 0, color-mix(in srgb, var(--sec) 9%, transparent), transparent 55%), var(--card);

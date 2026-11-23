@@ -32,7 +32,7 @@ class TeacherWorkImportTest(unittest.TestCase):
             self.assertEqual(list(Path(folder).iterdir()), [])
 
 
-class TeacherWorkBoundaryTest(unittest.TestCase):
+class TeacherWorkFixture:
     @classmethod
     def setUpClass(cls):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -108,6 +108,8 @@ class TeacherWorkBoundaryTest(unittest.TestCase):
             yield proxy
         self.assertTrue(proxy.failed, 'The request never reached its durable commit')
 
+
+class TeacherWorkBoundaryTest(TeacherWorkFixture, unittest.TestCase):
     def test_teacher_class_lists_are_scoped_for_both_read_aliases(self):
         for method in ('GET', 'POST'):
             for cookie, cid in ((self.cookie, self.cid), (self.other_cookie, self.other_cid)):

@@ -1,32 +1,32 @@
 {
   "files": {
     "admin-theme.css": {
-      "min": "b487d7611510eb96caf7d7cb70ae10c85ed09791cb74d06a021da7927e591856",
-      "source": "a9216f434c207a546667d72ed907832a18ee34b14aaf96456ed1195ab516a392"
+      "min": "0fa75ec2f8f26bdae537722acb77499a57ca188c5be3665e7b07a6fe778af51e",
+      "source": "7c37a755b9001c66fc0d869ec5f6af2733876170734425772fe400124a70c9f3"
     },
     "admin.css": {
       "min": "2b840f4d99cb194d5168b5a3b46988bad36f63098b9149c7584ed977205cd549",
       "source": "016eec5301b0171a4ab3e146b18dc5ccc86f28574bbd44848440688bbe443ef1"
     },
     "admin.js": {
-      "min": "0a9ebbaee6b078c29b0ffab0c74950dfd3204e99478716e0d4d32c6c4ee3bd1d",
-      "source": "3eecb69bae1f8181215ed676307abe063b0d30022376d6118c3f10377a5ef1a2"
+      "min": "8a7553a1315deebbcba669a56cb44f9feb1da9e87b1c4a80efe964c91fdb88e0",
+      "source": "dab94fee8c24789c5f1b8e57356eee2d35dbbc9d53df7914bb093e814fcd314f"
     },
     "app-exams.js": {
-      "min": "0bdc05f444a5f020af77f9601690dc38c1c34e62f933aace0e304d6c61cd8184",
-      "source": "b234d63a158c95a3352c0c20c1e6c9780ef053cedf0ee28147f06ed4b7d47786"
+      "min": "e2b96b0e95fcd5c9f63667e42add1d819f4b8af432866d7f92a4dfd1bc4bd279",
+      "source": "440cd260d6d4ba8e3648ebb910bc705b5b0ad1a867fe5ba516c80e4b28a4ce60"
     },
     "app-learning.js": {
-      "min": "53cd286f5d06ea5c6a6160304a5a4be1ce1b186a86e6ac31283980c2ead20737",
-      "source": "0d49d4d66fe536530e5cc4d733aba67bd5a667e372fe0987ac8c5e2e459f1398"
+      "min": "a044778673b7abbb885edb304d74db8ece7c74ab63e3c3e5bde41a15ae2fd0b6",
+      "source": "df7533477e3532a76532a50767c885df5ac71f6b66d58e82dafc7a9cc9685506"
     },
     "app.js": {
-      "min": "2ee15028aa18ab9e075a428a9571f32573892f67afeafa81e1181b5d682c846a",
-      "source": "10c536b667817e59f27f589cfa37d45fca64b126f36305c1d0c37e7d9be48baa"
+      "min": "74eede587a405781ec2d61b047a36131c7f87ad809f06870606914a6a8122066",
+      "source": "0e83f6fbcf776d365833e632d57e2fd24aa723622131dd6c2893411b621ec984"
     },
     "changelog-loader.js": {
-      "min": "a47ac16e1e457c81e1f6175c2e39dc805286b1e1e366b963a28512fb6dc02a27",
-      "source": "27ee9de21548ebc221a39635552fc0fb5bd831dc4febc07fcc4103ffb3682b35"
+      "min": "0032d427a490bdb852805786157309fb4e2ec349330d064339d62ae743acc274",
+      "source": "5e8a170e7fd38969da821c2692f0145311407fa53360bec8b8ca291c2982082f"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "e0856c2ffd3792be1869d0db3537e53bb73b0a678ba8021c81ed0afb660bfc18",
-      "source": "974ee1a0bba76be2ce44543dfabfc0cabbc7e903c184c44e6e3b8877f7500e45"
+      "min": "a1c83efd7e1eeeca12206a911b01707d35836cf50beebc24cc94a60ab8942499",
+      "source": "f65a399652d72bb2c9a11e4eb01a2d463a3a0da70beac1972b21d4fa11242d17"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",

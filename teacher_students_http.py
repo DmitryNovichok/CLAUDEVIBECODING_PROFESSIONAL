@@ -320,6 +320,11 @@ class TeacherStudentsHandlers:
                 db.x("UPDATE OR IGNORE solutions SET student_id=? WHERE student_id=?", (other["id"], sid))
                 db.x("DELETE FROM solutions WHERE student_id=?", (sid,))
                 db.x("UPDATE solution_history SET student_id=? WHERE student_id=?", (other["id"], sid))
+                db.x("""INSERT INTO lab_activity(student_id, item, last_opened)
+                        SELECT ?, item, last_opened FROM lab_activity WHERE student_id=?
+                        ON CONFLICT(student_id, item) DO UPDATE SET last_opened=MAX(last_opened, excluded.last_opened)""",
+                     (other["id"], sid))
+                db.x("DELETE FROM lab_activity WHERE student_id=?", (sid,))
                 buglab_merge.merge(db, sid, other["id"])
                 db.x("DELETE FROM student_sessions WHERE student_id=?", (sid,))
                 db.x("DELETE FROM students WHERE id=?", (sid,))

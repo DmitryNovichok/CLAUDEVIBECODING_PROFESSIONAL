@@ -145,7 +145,7 @@
   document.addEventListener('pointercancel', () => { if (stDown) { clearTimeout(stDown.hold); if (stDown.held) stPause(false); stDown = null; } });
   document.addEventListener('click', e => {
     const b = e.target.closest('#storiesOv [data-st]');
-    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); }, duel: () => { closeStories(); tourOpen(); }, lab: () => { closeStories(); const c = $('#labCard'); if (c) c.click(); } })[b.dataset.st](); return; }
+    if (b) { ({ prev: stPrev, next: stNext, close: closeStories, shop: () => { closeStories(); openGifts(undefined, undefined, 'shop'); }, duel: () => { closeStories(); tourOpen(); }, lab: () => { closeStories(); openLearningDirectory('labs'); } })[b.dataset.st](); return; }
     if (ST && e.target.id === 'storiesOv') closeStories();          // клик мимо телефона
     if (e.target.closest('#storiesGo')) { closeForecast(); openStories(); }
   });

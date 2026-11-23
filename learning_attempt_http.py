@@ -10,13 +10,15 @@ from typing import Any, Callable, Sequence
 import json
 import secrets
 import time
+import lab13
 
 
 STRICT_ASSIGNMENT_PATHS = frozenset({
     '/api/asg/state', '/api/asg/review', '/api/asg/start',
     '/api/asg/away', '/api/asg/answer', '/api/asg/finish',
 })
-LEARNING_ATTEMPT_PATHS = STRICT_ASSIGNMENT_PATHS | frozenset({
+LAB13_PATHS = frozenset({'/api/asg/lab13/start', '/api/asg/lab13/answer'})
+LEARNING_ATTEMPT_PATHS = STRICT_ASSIGNMENT_PATHS | LAB13_PATHS | frozenset({
     '/api/assignments', '/api/exam/start', '/api/exam/save',
     '/api/exam/finish', '/api/exams', '/api/exam/view',
 })
@@ -64,6 +66,10 @@ class LearningAttemptHTTPHandlers:
     def learning_attempt_route(self, method, path, qs, data):
         svc = self.learning_attempt_services()
         db = svc.db
+        if path in LAB13_PATHS:
+            if method != "POST":
+                return self.err(405, "нужен POST")
+            return self.api_lab13(svc, path, data)
         if path == "/api/assignments":
             s = self.student(data)
             if not s:
@@ -78,7 +84,12 @@ class LearningAttemptHTTPHandlers:
                     item = {"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
                             "kind": a["kind"] or "self", "tasks": [svc.bank.pid(i) for i in real],
                             "closed": a["closed"], "personal": a["batch"].split(":")[0] if a["batch"] else None}
-                    if a["strict"]:
+                    if a["kind"] == "lab13":
+                        if s["is_teacher"]:
+                            continue
+                        state = lab13.assignment_state(a, lab13.get_run(db, a["id"], s["id"]), s["id"])
+                        item.update(strict=False, started=state["started"], finished=state["finished"], lab13=state, done=[])
+                    elif a["strict"]:
                         real = svc.asg_order(real, a["id"], s["id"])      # у каждого ученика свой порядок заданий
                         item["tasks"] = [svc.bank.pid(i) for i in real]
                         item.update(svc.asg_run_public(db, a, s["id"], real))
@@ -157,6 +168,39 @@ class LearningAttemptHTTPHandlers:
 
         return self.err(404, "нет такого метода")
 
+    def api_lab13(self, svc, path, data):
+        s = self.student(data)
+        if not s:
+            return self.err(401, "нужно войти")
+        aid = data.get("id")
+        if s["is_teacher"] or type(aid) is not int or not (0 < aid < 2**63):
+            return self.err(404, "Назначение не найдено")
+        db, sid = svc.db, s["id"]
+        a = db.q("""SELECT * FROM assignments WHERE id=? AND kind='lab13' AND class_id=?
+                    AND (student_id IS NULL OR student_id=?)""", (aid, s["class_id"], sid), one=True)
+        if not a:
+            return self.err(404, "Назначение не найдено")
+        run = lab13.get_run(db, aid, sid)
+        state = lab13.assignment_state(a, run, sid)
+        if state["finished"] is not None:
+            return self.send_json(state)
+        if state["closed"]:
+            return self.err(409, "Лабораторная закрыта")
+        now = time.time()
+        if path == "/api/asg/lab13/start":
+            if run:
+                return self.send_json(state)
+            lab13.start(db, aid, sid, now)
+        else:
+            if not run:
+                return self.err(409, "Сначала откройте лабораторную")
+            prediction = data.get("prediction")
+            if type(prediction) is not int or not 0 <= prediction <= 2**32:
+                return self.err(400, "Введите целое число от 0 до 4294967296")
+            lab13.submit(db, aid, sid, state, prediction, now)
+        self._notify_lab13 = lambda: svc.live_teacher(s)
+        return self.send_json(lab13.assignment_state(a, lab13.get_run(db, aid, sid), sid))
+
     def api_exam_start(self, s):
         svc = self.learning_attempt_services()
         db = svc.db
@@ -183,7 +227,7 @@ class LearningAttemptHTTPHandlers:
         svc = self.learning_attempt_services()
         db = svc.db
         aid = svc.to_int(data.get("id") or qs.get("id"))
-        a = db.q("SELECT * FROM assignments WHERE id=? AND strict=1", (aid,), one=True)
+        a = db.q("SELECT * FROM assignments WHERE id=? AND strict=1 AND COALESCE(kind,'self') != 'lab13'", (aid,), one=True)
         if not a or a["class_id"] != s["class_id"] or (a["student_id"] and a["student_id"] != s["id"]):
             return self.err(404, "Самостоятельная не найдена")
         if a["due"] and not a["closed"] and time.time() > a["due"]:

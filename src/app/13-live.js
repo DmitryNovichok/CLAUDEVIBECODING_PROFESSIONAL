@@ -65,7 +65,7 @@
             buf = buf.slice(i + 2);
             if (ev === 'hello') {
               got = true;
-              if (LV.was) { liveSend('comp'); liveSend('asg'); liveSend('together'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
+              if (LV.was) { liveSend('comp'); liveSend('asg'); liveSend('together'); liveSend('pyc'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
               LV.was = true;
             } else if (ev) liveSend(ev);
           }
@@ -100,7 +100,8 @@
       const had = new Set(ASG.map(a => a.id));
       loadAssignments().then(() => {
         const fresh = ASG.filter(a => !a.duel && !a.course && !a.personal && !a.closed && !had.has(a.id));
-        if (fresh.length) toast(fresh.length === 1 ? `📚 Учитель выдал подборку «${fresh[0].title}» — она в «Подборках»` : `📚 Учитель выдал подборки: ${fresh.length}`, 6000);
+        if (fresh.length === 1 && fresh[0].kind === 'lab13') toast(`Учитель назначил лабораторию «${fresh[0].title}». Открой её в разделе «Задания от учителя».`, 6000);
+        else if (fresh.length) toast(fresh.length === 1 ? `📚 Учитель выдал подборку «${fresh[0].title}» — она в «Подборках»` : `📚 Учитель выдал подборки: ${fresh.length}`, 6000);
         if (wkLive()) wkRefresh(wkLive());           // пишешь самостоятельную — вдруг учитель её завершил
       }).catch(() => {});
     }

@@ -426,3 +426,24 @@ body.admin .steps-list .inv-row code { overflow-wrap: anywhere; min-width: 0; }
 body.admin .attempt-provenance { display: block; margin-top: 5px; color: var(--muted); font: 400 12px/1.4 var(--font); white-space: normal; }
 
 body.admin .adm-login input[aria-invalid="true"] { border-color: #a92525; }
+
+/* Учитель открывает статистику только нужного курса или лаборатории. */
+body.admin .learn-report {
+  min-width: 0; margin: 6px 0; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--card);
+}
+body.admin .learn-report > summary {
+  padding: 12px 14px; cursor: pointer; color: var(--text); font-weight: 600;
+}
+body.admin .learn-report > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body.admin .learn-report-body { padding: 4px 14px 14px; }
+body.admin .learn-report-body .adm-toolbar { margin-bottom: 8px; }
+body.admin .learn-report-body .inp { min-width: 0; width: min(100%, 240px); }
+body.admin .learn-lab-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+body.admin .learn-lab-heading h3 { margin: 0; }
+body.admin .lab13-assign { margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+body.admin .lab13-assign h4 { margin: 0; font-size: 15px; }
+body.admin .lab13-assign fieldset { align-items: flex-end; min-width: 0; margin-inline: 0; padding: 0; border: 0; }
+body.admin .lab13-assign label { display: grid; gap: 4px; min-width: 0; max-width: 100%; font-size: 13px; }
+body.admin .lab13-assign .inp { width: 100%; max-width: 18rem; box-sizing: border-box; }
+body.admin .lab13-assign [hidden] { display: none; }

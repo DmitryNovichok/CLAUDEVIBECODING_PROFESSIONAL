@@ -173,7 +173,9 @@
   let teachers = [];
   async function loadMe() {
     const previous = bldKey();
+    const previousTeacher = ME.id;
     ME = await api('me');
+    if (ME.id !== previousTeacher) resetLearningReports();
     if (ME.onboarding && !ME.onboarding.ready) { showMailGate(); throw Object.assign(new Error('Дождитесь обеих проверок'), { status: 401 }); }
     if (previous !== bldKey()) bldLoad();
     document.body.classList.toggle('is-main', !!ME.is_main);
@@ -464,7 +466,7 @@
       $('#admPassword').value = '';
       await loadMe();
       showApp();
-      go('overview');
+      openAdminStart();
       startFeed();
       api('info').then(showMediaWarning).catch(() => {});
     } catch (err) {
@@ -922,7 +924,7 @@
     bldSearch();
   }
   // ---- архив выданных подборок: отправить снова, PDF, во «Вместе»
-  const ARC_KIND = { self: 'самостоятельная', practice: 'практическая', home: 'домашняя' };
+  const ARC_KIND = { self: 'самостоятельная', practice: 'практическая', home: 'домашняя', lab13: 'лаборатория № 13' };
   let arcT = 0, arcVersion = 0;
   async function loadArchive() {
     const sel = $('#arcClass'), cur = sel.value, q = $('#arcQ').value.trim(), request = ++arcVersion;
@@ -942,9 +944,9 @@
           <td class="muted">${esc(ARC_KIND[x.kind] || x.kind)}${x.closed ? ' · завершена' : ''}</td>
           <td class="muted">${fmtDate(x.created)}</td><td class="muted">${x.due ? fmtDate(x.due) : '—'}</td>
           <td class="num">${x.tasks}</td>
-          <td class="arc-act"><button type="button" class="btn sm primary" data-arc-send="${x.id}">Создать копию</button>
+          <td class="arc-act">${x.kind === 'lab13' ? '' : `<button type="button" class="btn sm primary" data-arc-send="${x.id}">Создать копию</button>`}
             <a class="btn sm" href="/api/admin/asg/archive?ids=${x.ids.join(',')}" target="_blank" rel="noopener" title="Сводная таблица, КИМ и работы учеников — для печати или PDF">PDF</a>
-            <button type="button" class="btn sm" data-arc-tog="${x.id}" title="Открыть совместное занятие с заданиями этой подборки">Во «Вместе»</button></td></tr>`).join('')}</tbody></table></div>`;
+            ${x.kind === 'lab13' ? '' : `<button type="button" class="btn sm" data-arc-tog="${x.id}" title="Открыть совместное занятие с заданиями этой подборки">Во «Вместе»</button>`}</td></tr>`).join('')}</tbody></table></div>`;
     } catch (e) { if (request === arcVersion && e.status !== 401) toast(e.message); }
   }
   $('#arcQ').addEventListener('input', () => { clearTimeout(arcT); arcT = setTimeout(loadArchive, 300); });
@@ -1160,7 +1162,7 @@
     try {
       const [a, m] = await Promise.all([api('assignments?class_id=' + cid), api('students?class_id=' + cid)]);
       if (request !== bldLoadVersion || cid !== BLD.d.class_id) return;
-      BLD.asg = a.assignments || [];
+      BLD.asg = (a.assignments || []).filter(item => item.kind !== 'lab13');
       BLD.members = (m.students || []).map(x => ({ id: x.id, name: x.name })).sort((x, y) => x.name.localeCompare(y.name, 'ru'));
     } catch (e) { if (request !== bldLoadVersion || cid !== BLD.d.class_id) return; BLD.asg = []; }
     renderBldDraft();
@@ -1357,12 +1359,18 @@
   });
 
 
-  // ------------------------------------------------------------ прогресс курса (главный учитель)
+  // ------------------------------------------------------------ прогресс курса ЕГЭ
   const CP = { d: null, open: null, detail: {} };
   const CP_SETS = ['warm', 'base', 'exam', 'hard', 'test'];
   const pctColor = p => p >= 75 ? 'var(--good)' : p >= 40 ? 'var(--mid)' : p > 0 ? 'var(--weak)' : 'var(--muted)';
+  async function learningApi(path, body) {
+    const teacher = ME.id;
+    const result = await api(path, body);
+    if (teacher !== ME.id) throw Object.assign(new Error('Аккаунт изменился'), { status: 401 });
+    return result;
+  }
   async function loadCourseProgress() {
-    try { CP.d = await api('course/progress'); } catch (err) { if (err.status !== 401) $('#cpBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    try { CP.d = await learningApi('course/progress'); } catch (err) { if (err.status !== 401) $('#cpBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     CP.detail = {};
     renderCourseProgress();
   }
@@ -1401,7 +1409,7 @@
         ${card('Занимались за неделю', d.students.filter(s => (s.last_task || 0) >= week).length, 'решали задания из подборок курса')}
       </div>
       <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th><th>Открыл курс</th>${heads}<th class="num">Итог</th><th>Последнее решение</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="${4 + d.lessons.length * 6}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Курс пока никто не открыл — сообщите ученикам пароль курса (вкладка «Настройки»).'}</td></tr>`}</tbody></table></div>`;
+        <tbody>${rows || `<tr><td colspan="${4 + d.lessons.length * 6}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Курс пока никто не открыл.'}</td></tr>`}</tbody></table></div>`;
   }
   function cpDetailHtml(sid) {
     const x = CP.detail[sid];
@@ -1425,7 +1433,7 @@
     CP.open = CP.open === id ? null : id;
     renderCourseProgress();
     if (CP.open && !CP.detail[id]) {
-      try { CP.detail[id] = (await api('course/progress?id=' + id)).students[0]; } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      try { CP.detail[id] = (await learningApi('course/progress?id=' + id)).students[0]; } catch (err) { if (err.status !== 401) toast(err.message); return; }
       if (CP.open === id) renderCourseProgress();
     }
   });
@@ -2112,7 +2120,7 @@
     b.closest('[data-im-bank]').innerHTML = imBankHtml(IMT.bank[b.dataset.imLoad]);
   });
   async function loadArd() {
-    try { ARD.d = await api('arduino'); } catch (err) { if (err.status !== 401) $('#ardBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    try { ARD.d = await learningApi('arduino'); } catch (err) { if (err.status !== 401) $('#ardBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     ARD.detail = {};
     renderArd();
   }
@@ -2160,7 +2168,7 @@
     if (ARD.open === id) { ARD.open = null; renderArd(); return; }
     ARD.open = id; renderArd();
     if (!ARD.detail[id]) {
-      try { ARD.detail[id] = await api('arduino/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      try { ARD.detail[id] = await learningApi('arduino/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
       if (ARD.open === id) renderArd();
     }
   });
@@ -2170,7 +2178,7 @@
   // ------------------------------------------------------------ курс «Программирование для ЕГЭ»: доступ и прогресс
   const PYA = { d: null, open: null, detail: {} };
   async function loadPyc() {
-    try { PYA.d = await api('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    try { PYA.d = await learningApi('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     PYA.detail = {};
     renderPyc();
   }
@@ -2233,12 +2241,12 @@
     const fb = e.target.closest('[data-pya-free]');
     if (fb) {
       try {
-        await api('pyc/free', { student_id: +fb.dataset.pyaFree, on: fb.dataset.on === '1' });
+        await learningApi('pyc/free', { student_id: +fb.dataset.pyaFree, on: fb.dataset.on === '1' });
         toast(fb.dataset.on === '1' ? 'Все уровни открыты — у ученика замки пропадут сразу' : 'Замки уровней возвращены');
       } catch (err) { if (err.status !== 401) toast(err.message); }
       const open = PYA.open;
       await loadPyc();
-      if (open) { PYA.open = open; try { PYA.detail[open] = await api('pyc/student?id=' + open); } catch (err) { /* таблица уже обновлена */ } renderPyc(); }
+      if (open) { PYA.open = open; try { PYA.detail[open] = await learningApi('pyc/student?id=' + open); } catch (err) { /* таблица уже обновлена */ } renderPyc(); }
       return;
     }
     const sq = e.target.closest('[data-pya-task]');
@@ -2249,7 +2257,7 @@
     PYA.open = PYA.open === id ? null : id;
     renderPyc();
     if (PYA.open && !PYA.detail[id]) {
-      try { PYA.detail[id] = await api('pyc/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      try { PYA.detail[id] = await learningApi('pyc/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
       if (PYA.open === id) renderPyc();
     }
   });
@@ -2459,6 +2467,10 @@
       const progress = a.progress || [], total = a.tasks.length;
       const finished = progress.filter(p => p.finished || (total && p.done >= total)).length;
       const started = progress.filter(p => p.started || p.done || p.answered).length;
+      if (a.kind === 'lab13') return `<article class="ov-work${overviewToday(a) ? ' due' : ''}"><div><b>${esc(a.title)}</b>
+        <small>Лаборатория № 13 · ${a.due ? 'до ' + fmtDate(a.due) : 'без срока'}</small>
+        <span class="ov-status">Сдали прогноз: ${finished} из ${progress.length}</span></div>
+        <button type="button" class="link-btn" data-ov-results="${a.id}" aria-label="Результаты: ${esc(a.title)}">Результаты →</button></article>`;
       return `<article class="ov-work${overviewToday(a) ? ' due' : ''}"><div><b>${esc(a.title)}</b>
         <small>${esc((KINDS[a.kind] || KINDS.self).name)} · ${total} ${plural(total, 'задание', 'задания', 'заданий')} · ${a.due ? 'до ' + fmtDate(a.due) : 'без срока'}</small>
         <span class="ov-status">${overviewToday(a) ? '<span class="ov-due">Сдать сегодня</span> ' : ''}${!progress.length ? 'В классе пока нет учеников' : finished ? `Решили все задания: ${finished} из ${progress.length}` : started ? `Есть верные решения: ${started} из ${progress.length}` : 'Пока нет верных решений'}</span></div>
@@ -2637,11 +2649,176 @@
     } catch (err) { b.disabled = false; if (err.status !== 401) toast(err.message); }
   });
 
+  // Открытия моделей и отладчика, а также решения лаборатории ошибок приходят одним отчётом.
+  let labStats = null;
+  let labRequest = null;
+  const labColumns = {
+    models: ['Открыто моделей', 'Последнее открытие'],
+    trace: ['Последнее открытие отладчика'],
+    bugs: ['Начато задач', 'Решено', 'Проверено сервером'],
+  };
+  function renderLabStats(kind, data) {
+    const query = $('#' + kind + 'Find').value.trim().toLowerCase();
+    const columns = labColumns[kind];
+    const rows = data.students.filter(s => s.name.toLowerCase().includes(query)).map(s => {
+      let values;
+      if (kind === 'models') values = [s.models + ' / ' + data.model_total, s.models_last ? fmtWhen(s.models_last) : '—'];
+      else if (kind === 'trace') values = [s.code_last ? fmtWhen(s.code_last) : '—'];
+      else values = [s.bugs + ' / ' + data.bugs_total, s.bugs_ok, s.bugs_verified];
+      return `<tr><td class="name">${esc(s.name)}<small>${esc(s.class || 'без класса')}</small></td>
+        ${values.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`;
+    });
+    const empty = query ? 'Никого не найдено' : 'Пока нет учеников с доступом или записанными занятиями.';
+    $('#' + kind + 'Body').innerHTML = `<div class="adm-table-wrap"><table class="adm-table cp-table">
+      <thead><tr><th>Ученик</th>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>${rows.join('') || `<tr><td colspan="${columns.length + 1}" class="adm-empty">${empty}</td></tr>`}</tbody></table></div>`;
+  }
+  async function loadLabStats(refresh = false) {
+    if (refresh) labStats = null;
+    const reports = () => Object.keys(labColumns).filter(k => $(`[data-learning-report="${k}"]`).open);
+    if (!labStats) {
+      const request = labRequest || (labRequest = learningApi('lab/stats'));
+      try {
+        const data = await request;
+        if (labRequest !== request) return;
+        labStats = data;
+      } catch (err) {
+        if (labRequest === request && err.status !== 401) {
+          reports().forEach(k => { $('#' + k + 'Body').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; });
+        }
+        return;
+      } finally {
+        if (labRequest === request) labRequest = null;
+      }
+    }
+    reports().forEach(k => renderLabStats(k, labStats));
+  }
+  Object.keys(labColumns).forEach(k => {
+    $('#' + k + 'Find').addEventListener('input', () => { if (labStats) renderLabStats(k, labStats); });
+    $('#' + k + 'Reload').addEventListener('click', () => loadLabStats(true));
+  });
+  const learningReports = {
+    course: loadCourseProgress, pyc: loadPyc, ard: loadArd,
+    models: loadLabStats, trace: loadLabStats, bugs: loadLabStats,
+  };
+  const lab13Form = $('#lab13AssignForm'), lab13Open = $('#lab13AssignOpen');
+  const lab13Class = $('#lab13AssignClass'), lab13Due = $('#lab13AssignDue');
+  const lab13Status = $('#lab13AssignStatus'), lab13Journal = $('#lab13AssignJournal');
+  let lab13FormVersion = 0, lab13Pending = null;
+
+  function closeLab13Form() {
+    ++lab13FormVersion;
+    lab13Form.hidden = true;
+    lab13Open.disabled = false;
+    lab13Open.textContent = 'Назначить классу';
+    lab13Open.setAttribute('aria-expanded', 'false');
+    lab13Status.textContent = '';
+    lab13Journal.hidden = true;
+    $('#lab13AssignNewClass').hidden = true;
+  }
+  async function openLab13Form() {
+    closeLab13Form();
+    const version = lab13FormVersion;
+    lab13Open.setAttribute('aria-expanded', 'true');
+    lab13Open.textContent = 'Отмена';
+    lab13Form.hidden = false;
+    $('#lab13AssignFields').disabled = true;
+    lab13Class.replaceChildren();
+    lab13Due.value = '';
+    lab13Due.min = todayIso();
+    lab13Status.textContent = 'Загружаю классы…';
+    try {
+      const { classes } = await learningApi('classes');
+      if (version !== lab13FormVersion) return;
+      if (!classes.length) {
+        lab13Status.textContent = 'Для выдачи работы нужен класс.';
+        $('#lab13AssignNewClass').hidden = false;
+        if (tab === 'learning') $('#lab13AssignNewClass').focus();
+        return;
+      }
+      if (classes.length > 1) lab13Class.add(new Option('Выберите класс', ''));
+      for (const c of classes) lab13Class.add(new Option(c.name, c.id));
+      $('#lab13AssignFields').disabled = false;
+      lab13Status.textContent = '';
+      if (tab === 'learning') lab13Class.focus();
+    } catch (err) {
+      if (version !== lab13FormVersion || err.status === 401) return;
+      closeLab13Form();
+      lab13Status.textContent = err.status ? err.message : 'Не удалось загрузить классы. Проверьте соединение и попробуйте ещё раз.';
+      if (tab === 'learning') lab13Open.focus();
+    }
+  }
+  lab13Open.addEventListener('click', () => {
+    if (lab13Form.hidden) openLab13Form(); else closeLab13Form();
+  });
+  lab13Form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (lab13Form.hidden || $('#lab13AssignFields').disabled) return;
+    const version = lab13FormVersion, class_id = Number(lab13Class.value), due = dueTs(lab13Due.value);
+    const name = lab13Class.selectedOptions[0].textContent;
+    if (!lab13Pending || lab13Pending.class_id !== class_id || lab13Pending.due !== due) {
+      const request_id = Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-');
+      lab13Pending = { class_id, due, request_id };
+    }
+    $('#lab13AssignFields').disabled = lab13Open.disabled = true;
+    lab13Status.textContent = 'Выдаю работу…';
+    try {
+      await learningApi('assignment/lab13', lab13Pending);
+      if (version !== lab13FormVersion) return;
+      lab13Pending = null;
+      closeLab13Form();
+      lab13Status.textContent = `Работа выдана классу «${name}».`;
+      lab13Journal.dataset.classId = class_id;
+      lab13Journal.hidden = false;
+      if (tab === 'learning') lab13Journal.focus();
+    } catch (err) {
+      if (version !== lab13FormVersion) return;
+      $('#lab13AssignFields').disabled = lab13Open.disabled = false;
+      if (err.status !== 401) lab13Status.textContent = err.status ? err.message : 'Нет ответа от сервера. Проверьте соединение и повторите выдачу.';
+    }
+  });
+  lab13Journal.addEventListener('click', () => {
+    curClass = { id: Number(lab13Journal.dataset.classId) };
+    clsPane = 'journal';
+    go('classes');
+  });
+  $('#lab13AssignNewClass').addEventListener('click', () => { go('classes'); $('#classNewName').focus(); });
+
+  function openAdminStart() {
+    if (new URLSearchParams(location.search).get('assign') === 'lab13') {
+      go('models');
+      openLab13Form();
+    } else go('overview');
+  }
+  function resetLearningReports() {
+    labRequest = null;
+    labStats = null;
+    lab13Pending = null;
+    closeLab13Form();
+    for (const state of [CP, PYA, ARD]) {
+      state.d = null;
+      state.open = null;
+      state.detail = {};
+    }
+    $$('#view-learning [data-learning-report]').forEach(panel => {
+      panel.open = false;
+      panel.querySelector('[id$="Find"]').value = '';
+      panel.querySelector('[id$="Body"]').innerHTML = '<p class="adm-hint">Загружаю…</p>';
+    });
+  }
+  $$('#view-learning [data-learning-report]').forEach(panel => {
+    panel.addEventListener('toggle', () => {
+      if (panel.open && tab === 'learning') learningReports[panel.dataset.learningReport]();
+    });
+  });
+
   // ------------------------------------------------------------ вкладки
   let tab = 'overview';
   let backTab = 'overview';            // куда вернуться из карточки ученика
-  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'course', 'security'];
+  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'security'];
   function go(t) {
+    const report = Object.hasOwn(learningReports, t) ? t : null;
+    if (report) t = 'learning';
     if (MAIN_ONLY_TABS.includes(t) && !ME.is_main) t = 'overview';   // экономика, подарки и сервис сайта — только главный учитель
     ++studentLoadVersion;                 // ответ старой карточки не должен возвращать из другого раздела
     if (t !== 'student') studentLoadId = null;
@@ -2650,15 +2827,19 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard', 'security', 'im'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'learning', 'comp', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'security', 'im'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     document.body.classList.toggle('builder-open', t === 'build');
     if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
     if (t === 'security') loadSecurity();
-    if (t === 'course') loadCourseProgress();
-    if (t === 'pyc') loadPyc();
-    if (t === 'ard') loadArd();
+    if (t === 'learning' && report) {
+      $(`[data-learning-report="${report}"]`).open = true;
+    } else if (t !== 'learning') {
+      labStats = null;
+      labRequest = null;
+      $$('#view-learning details[open]').forEach(panel => { panel.open = false; });
+    }
     if (t === 'gifts') loadGifts();
     if (t === 'econ') loadEcon();
     if (t === 'supply') loadSupply();
@@ -3205,7 +3386,7 @@
           <label>с <input class="inp" type="datetime-local" id="csFrom"></label>
           <label>по <input class="inp" type="datetime-local" id="csTo"></label>
           <select class="adm-select" id="csAsg"><option value="">Все задания</option>
-            ${c.assignments.map(a => `<option value="${a.id}">Подборка «${esc(a.title)}» (${a.tasks.length})</option>`).join('')}</select>
+            ${c.assignments.filter(a => a.kind !== 'lab13').map(a => `<option value="${a.id}">Подборка «${esc(a.title)}» (${a.tasks.length})</option>`).join('')}</select>
           <button type="button" class="btn primary" id="csShow">Показать</button>
           <button type="button" class="btn ghost" id="csCsv">Скачать для Excel</button>
         </div>
@@ -3353,15 +3534,17 @@
     if (clsPane === 'journal') loadGradebook();
     refreshClassAsg();
   }
-  let gradebook = null;
+  let gradebook = null, gradebookVersion = 0;
   async function loadGradebook() {
-    const id = curClass && curClass.id;
-    try { gradebook = await api('class/journal?class_id=' + id); } catch (e) { if (e.status !== 401) toast(e.message); return; }
-    if (!curClass || curClass.id !== id) return;
+    const id = curClass && curClass.id, version = ++gradebookVersion;
+    let data;
+    try { data = await api('class/journal?class_id=' + id); } catch (e) { if (e.status !== 401) toast(e.message); return; }
+    if (!curClass || curClass.id !== id || version !== gradebookVersion) return;
+    gradebook = data;
     renderGradebook();
     renderNumsHeat();
   }
-  const KIND_ICO = { self: '📝', practice: '🛠', home: '🏠' };
+  const KIND_ICO = { self: '📝', practice: '🛠', home: '🏠', lab13: '🔬' };
   /** Прогноз балла: сейчас, изменение за месяц и мини-график по дням. */
   function fcCell(f) {
     if (!f || f.now == null) return '<td class="jr-c none" title="прогноза пока нет — мало решённых заданий">—</td>';
@@ -3378,6 +3561,11 @@
   }
   function journalCell(c, a) {
     if (!c && a.personal) return '<td class="jr-c none" title="этому ученику не выдавалась">—</td>';
+    if (c && c.lab13) {
+      const lab = c.lab13;
+      const detail = lab.finished ? `<small>Прогноз ${esc(lab.prediction)} · Модель ${esc(lab.expected)}</small>` : '';
+      return `<td class="jr-c jr-lab ${c.st}" title="${esc(lab.ip)}/${esc(lab.prefix)}">${esc(c.label)}${detail}</td>`;
+    }
     if (!c || c.st === 'none') return '<td class="jr-c none" title="не начинал">·</td>';
     if (c.st === 'miss') return '<td class="jr-c miss" title="срок прошёл — не сделал">н/с</td>';
     if (c.st === 'work') return `<td class="jr-c work" title="${a.kind === 'self' ? 'пишет' : `решает: сделано ${c.tried || 0} из ${a.total}, сейчас ${c.pct || 0}%`}">${c.grade ? `<b class="g${c.grade} soft">${c.grade}</b>` : '…'}</td>`;
@@ -3543,6 +3731,12 @@
   let liveTimer = null, liveId = null;
   function strictAsgHtml(a) {
     const total = a.tasks.length;
+    if (a.kind === 'lab13') return `<div class="adm-asg" data-live-box="${a.id}">
+      <div class="adm-asg-head"><b>🔬 ${esc(a.title)}</b>
+        <span class="adm-hint">Лаборатория № 13 · выдана ${fmtDate(a.created)}${a.due ? ' · срок ' + fmtDate(a.due) : ''}${a.closed ? ' · закрыта' : ''}</span>
+        <span class="adm-actions"><button type="button" class="btn" data-live="${a.id}" aria-expanded="${liveId === a.id}">${liveId === a.id ? 'Скрыть результаты' : 'Результаты'}</button>
+        <button type="button" class="btn ghost danger" data-asg-del="${a.id}" data-lab13>Удалить</button></span></div>
+      <div class="adm-live" id="live-${a.id}">${liveId === a.id ? '<p class="adm-hint">Загружаю…</p>' : ''}</div></div>`;
     return `<div class="adm-asg strict" data-live-box="${a.id}">
       <div class="adm-asg-head"><b>${(KINDS[a.kind] || KINDS.self).ico} ${esc(a.title)}</b>
         <span class="adm-hint">${(KINDS[a.kind] || KINDS.self).name.toLowerCase()} · ${total} ${plural(total, 'задание', 'задания', 'заданий')} · выдано ${fmtDate(a.created)}${a.closed ? ` · <b style="color:var(--weak)">завершена ${fmtWhen(a.closed)}</b>` : ''}</span>
@@ -3559,6 +3753,20 @@
     if (!box) { clearInterval(liveTimer); liveId = null; return; }
     let d;
     try { d = await api('asg/live?id=' + liveId); } catch (e) { if (e.status !== 401) box.innerHTML = `<p class="adm-hint">${esc(e.message)}</p>`; return; }
+    if (d.kind === 'lab13') {
+      const rows = d.rows.map(r => {
+        const lab = r.lab13;
+        return `<tr><td class="name"><button type="button" class="task-link" data-open-st="${r.id}">${esc(r.name)}</button></td>
+          <td>${esc(lab.ip)}/${esc(lab.prefix)}</td><td>${esc(r.label)}</td>
+          <td>${lab.finished ? esc(lab.prediction) : '—'}</td><td>${lab.finished ? esc(lab.expected) : '—'}</td>
+          <td>${lab.finished ? fmtWhen(lab.finished) : '—'}</td></tr>`;
+      }).join('');
+      box.innerHTML = `<div class="adm-live-bar"><span>Сдали прогноз: ${d.rows.filter(r => r.status === 'done').length} из ${d.rows.length}</span>
+        ${d.closed ? `<button type="button" class="btn ghost" data-reopen="${d.id}">Открыть снова</button>` : `<button type="button" class="btn ghost" data-close="${d.id}" data-lab13>Закрыть лабораторию</button>`}</div>
+        <div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>Ученик</th><th>Узел / префикс</th><th>Статус</th><th>Первый прогноз</th><th>Результат модели</th><th>Проверено</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" class="adm-hint">В классе нет учеников.</td></tr>'}</tbody></table></div>`;
+      return;
+    }
     const st = d.strict ? { none: 'не начинал', work: 'пишет', done: 'сдал' } : { none: 'не начинал', work: 'решает', done: 'сделал все' };
     const rows = d.rows.map(r => `<tr class="${r.status === 'work' ? 'live-work' : ''}">
       <td class="name"><button type="button" class="task-link" data-open-st="${r.id}">${esc(r.name)}</button></td>
@@ -3595,7 +3803,7 @@
     }
     const cl = e.target.closest('[data-close]');
     if (cl) {
-      if (!confirm('Завершить работу для всех? Оценка ставится по уже сданным ответам. Начать её больше будет нельзя.')) return;
+      if (!confirm(cl.hasAttribute('data-lab13') ? 'Закрыть лабораторию для класса? Ученики больше не смогут сдать прогноз.' : 'Завершить работу для всех? Оценка ставится по уже сданным ответам. Начать её больше будет нельзя.')) return;
       try { const r = await api('asg/close', { id: +cl.dataset.close }); toast(`Работа завершена${r.finished ? ` · сдано за учеников: ${r.finished}` : ''}`); }
       catch (err) { toast(err.message); return; }
       await refreshClassAsg(); liveLoad();
@@ -3774,7 +3982,7 @@
     if (ed) { editAssignment(c.assignments.find(a => a.id === +ed.dataset.asgEdit)); return; }
     const del = t.closest('[data-asg-del]');
     if (del) {
-      if (!confirm('Удалить подборку? Решённые задания останутся в журнале.')) return;
+      if (!confirm(del.hasAttribute('data-lab13') ? 'Удалить назначение лаборатории и результаты учеников из журнала?' : 'Удалить подборку? Решённые задания останутся в журнале.')) return;
       try { await api('assignment/delete', { id: +del.dataset.asgDel }); openClass(c.id); } catch (err) { toast(err.message); }
     }
   });
@@ -4534,16 +4742,22 @@
   }
 
   /** Вместе с лентой — то, что открыто сейчас: онлайн-сводка работы и журнал класса (не чаще раза в 10 с). */
-  let jrAt = 0;
+  let jrAt = 0, jrTimer = null;
   function feedSide() {
     if (liveId && $('#live-' + liveId)) liveLoad();
     if (batchOpen && batchBox()) batchLoad();
     const jr = tab === 'classes' && curClass && (clsPane === 'journal' || clsPane === 'nums');
-    if (jr && Date.now() - jrAt > 10000) { jrAt = Date.now(); loadGradebook(); }
-    if (tab === 'pyc' && PYA.d && Date.now() - pyaAt > 10000) {          // ученик решил задачу курса — обновить таблицу
+    if (jr && !jrTimer) jrTimer = setTimeout(() => {
+      jrTimer = null;
+      if (tab === 'classes' && curClass && (clsPane === 'journal' || clsPane === 'nums')) {
+        jrAt = Date.now();
+        loadGradebook();
+      }
+    }, Math.max(0, jrAt + 10000 - Date.now()));
+    if (tab === 'learning' && $('[data-learning-report="pyc"]').open && PYA.d && Date.now() - pyaAt > 10000) {
       pyaAt = Date.now();
       const open = PYA.open;
-      loadPyc().then(() => { if (open && PYA.open === open) api('pyc/student?id=' + open).then(r => { PYA.detail[open] = r; renderPyc(); }).catch(() => {}); });
+      loadPyc().then(() => { if (open && PYA.open === open) learningApi('pyc/student?id=' + open).then(r => { PYA.detail[open] = r; renderPyc(); }).catch(() => {}); });
     }
   }
   let pyaAt = 0;
@@ -4925,9 +5139,9 @@
       showMediaWarning(await api('info'));
       await loadMe();
       showApp();
-      go('overview');       // обзор последнего класса, для гостя — демо-класса
+      openAdminStart();
       startFeed();
-      maybeAdminTour();
+      if (tab === 'overview') maybeAdminTour();
       if (ME.guest && window.EgVisit) EgVisit.start('guest', 'panel');   // главный учитель видит гостя, пока панель открыта
     } catch (e) {
       if (e.status !== 401) {
