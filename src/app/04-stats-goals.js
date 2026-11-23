@@ -313,26 +313,24 @@
     return [...by.keys()].sort((a, b) => ((order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)))
       .map(c => ({ c, name: ((CLUSTERS[n] || []).find(x => x[0] === c) || [])[1] || 'Без типа', list: by.get(c) }));
   }
-  /** Строка над условием: какой тип решаем сейчас, кнопка — выбрать другой. Только в отдельном номере. */
-  function typeControlsHtml() {
+  function updateTypeButton() {
+    const button = $('#typeBtn');
+    if (!button) return;
     const n = ui.scope;
-    if (typeof n !== 'number' || ARCHIVE[n]) return '';
-    const types = typesOf(n);
-    if (types.length < 2) return '';
-    const on = typeOn() && types.find(x => x.c === ui.cl.c);
-    const cnt = on ? on.list.length : types.reduce((s, x) => s + x.list.length, 0);
-    return `<button type="button" class="type-pick" id="typeBtn" aria-haspopup="dialog" aria-controls="forecastModal">
-      <span class="type-copy"><span class="type-label">Выбрать тип задания</span>
-        <strong>${on ? esc(on.name) : 'Все типы вперемешку'}</strong></span>
-      <span class="type-count" title="Заданий в выбранном режиме">${cnt} ${plural(cnt, 'задание', 'задания', 'заданий')}</span>
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5"/></svg></button>
-      ${on ? '<button type="button" class="link-btn" data-tp="">Сбросить тип</button>' : ''}`;
+    const types = typeof n === 'number' && !ARCHIVE[n] ? typesOf(n) : [];
+    button.hidden = types.length < 2;
+    if (button.hidden) return;
+    const selected = typeOn() && types.find(type => type.c === ui.cl.c);
+    const count = selected ? selected.list.length : types.reduce((sum, type) => sum + type.list.length, 0);
+    const mode = selected ? selected.name : 'Все типы вперемешку';
+    button.title = `${mode} · ${count} ${plural(count, 'задание', 'задания', 'заданий')}`;
+    button.setAttribute('aria-label', `Тип задания. ${button.title}. Выбрать тип`);
+    button.classList.toggle('on', !!selected);
   }
   // Банк, период или номер могут смениться, пока ученик вводит ответ на то же задание.
   function refreshTaskScope() {
     renderTopbar();
-    const row = $('#taskTypeRow');
-    if (row) row.innerHTML = typeControlsHtml();
+    updateTypeButton();
   }
   /** Пример типа — «среднее» по сложности задание; i — какой по счёту (кнопка «Другой пример»). */
   function typeExample(list, i) {
@@ -377,7 +375,7 @@
   }
   document.addEventListener('click', e => {
     if (e.target.closest('#typeBtn')) { openTypes(); return; }
-    if (!e.target.closest('#forecastBody, .type-row')) return;
+    if (!e.target.closest('#forecastBody')) return;
     const ex = e.target.closest('[data-tp-ex]');
     if (ex) {
       const box = ex.closest('.tp-row').querySelector('.tp-ex');

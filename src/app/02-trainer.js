@@ -470,10 +470,14 @@
           ${CALC_BTN}
           ${MARK_BTN}
           <button type="button" class="icon-btn fav-btn${fav ? ' on' : ''}" id="favBtn" aria-pressed="${fav}" title="${fav ? 'Убрать из избранного' : 'В избранное'}">${fav ? '★' : '☆'}</button>
-          <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
+          <span class="note-type-tools">
+            <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
+            <button type="button" class="icon-btn type-pick" id="typeBtn" aria-haspopup="dialog" aria-controls="forecastModal" hidden>
+              Тип задания<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4"/></svg>
+            </button>
+          </span>
         </span>
       </div>
-      <div class="type-row" id="taskTypeRow">${typeControlsHtml()}</div>
       ${line ? `<p class="reason">${line}</p>` : ''}
       ${cur.group ? '<div class="gq-list" id="cond"></div>' : `<article class="cond" id="cond">${safeHtml(t.html)}</article>`}
       ${files}
@@ -492,6 +496,7 @@
         <textarea class="inp" id="noteText" maxlength="2000" rows="3" placeholder="Идея решения, где ошиблись, что повторить…">${esc(note)}</textarea>
       </div>`;
 
+    updateTypeButton();
     if (cur.group) buildGroupLayout(t);
     dropDuplicateFileLinks($('#cond'), t.att || []);
     decorateCondition($('#cond'), cur.task);
