@@ -10279,6 +10279,8 @@
   // Иконки разделов: основа — цветом текста, смысловая деталь — цветом раздела. Слои: m — основа, a — акцент,
   // d — приглушённая основа, k — вырез (цвет карточки), s/sa/ks — линии. Сетка 48×48.
   const HUB_IC = {
+    models: ['#b99bff', '#8862dd', '<path class="s" d="M16 13h13M12 17v13m4 3 16-16m-14 18h12" stroke-width="3"/><rect class="a" x="5" y="6" width="14" height="14" rx="4.5"/><circle class="m" cx="36" cy="13" r="6"/><circle class="m" cx="12" cy="36" r="6"/><rect class="a" x="29" y="29" width="14" height="14" rx="4.5"/>'],
+    bugs: ['#ffc87b', '#db883d', '<path class="s" d="m18 13-3-5m15 5 3-5M15 21l-6-3m6 9H7m9 6-6 4m23-16 6-3m-6 9h8m-9 6 6 4" stroke-width="3"/><circle class="m" cx="24" cy="17" r="7"/><rect class="a" x="14" y="17" width="20" height="24" rx="9"/><path class="ks" d="M24 24v11" stroke-width="2.5"/>'],
     arduino: ['#3fd3d6', '#00868b', '<rect class="d" x="5" y="13" width="6" height="3.4" rx="1.7"/><rect class="d" x="5" y="22.3" width="6" height="3.4" rx="1.7"/><rect class="d" x="5" y="31.6" width="6" height="3.4" rx="1.7"/><rect class="d" x="37" y="13" width="6" height="3.4" rx="1.7"/><rect class="d" x="37" y="22.3" width="6" height="3.4" rx="1.7"/><rect class="d" x="37" y="31.6" width="6" height="3.4" rx="1.7"/><rect class="m" x="10" y="6" width="28" height="36" rx="6"/><rect class="a" x="15.5" y="12" width="17" height="13" rx="3"/><circle class="k" cx="17.5" cy="33.5" r="2.4"/><circle class="a" cx="30" cy="33.5" r="3.2"/><path class="ks" d="M19.5 18.5h3.2M26 18.5h3.2M27.6 16.9v3.2" stroke-width="1.9"/>'],
     trainer: ['#5cc8ff', '#1f7ae0', '<rect class="a" x="6" y="6" width="10" height="10" rx="3"/><rect class="a" x="19" y="6" width="10" height="10" rx="3"/><rect class="a" x="32" y="6" width="10" height="10" rx="3"/><rect class="a" x="6" y="19" width="10" height="10" rx="3"/><rect class="a" x="19" y="19" width="10" height="10" rx="3"/><rect class="d" x="32" y="19" width="10" height="10" rx="3"/><rect class="a" x="6" y="32" width="10" height="10" rx="3"/><rect class="d" x="19" y="32" width="10" height="10" rx="3"/><rect class="m" x="32" y="32" width="10" height="10" rx="3"/><path class="ks" d="m34.6 37 1.9 1.9 3.3-3.6" stroke-width="2"/>'],
     exam: ['#c39bff', '#7c3aed', '<rect class="m" x="7" y="5" width="26" height="36" rx="5"/><rect class="k" x="12" y="12" width="12" height="3" rx="1.5"/><rect class="k" x="12" y="19" width="16" height="3" rx="1.5"/><rect class="k" x="12" y="26" width="9" height="3" rx="1.5"/><circle class="ks" cx="33.5" cy="33.5" r="10.5" stroke-width="3"/><circle class="a" cx="33.5" cy="33.5" r="9.5"/><rect class="a" x="31" y="20" width="5" height="3.5" rx="1.2"/><path class="ks" d="M33.5 28.5v5.2l3.2 2" stroke-width="2.4"/>'],
@@ -10378,14 +10380,14 @@
   // ------------------------------------------------------------ разделы
   const HUB_LEARNING_GROUPS = {
     courses: { name: 'Курсы', icon: 'course', sub: 'ЕГЭ по информатике и программирование на Python', entries: [
-      { key: 'course', name: 'Курс ЕГЭ', sub: 'Уроки и практика по номерам экзамена', access: () => COURSE_OK, go: openCourse },
-      { key: 'python', name: 'Курс Python', sub: 'От основ языка до решения задач ЕГЭ', access: () => PYC_OK, go: openPyc },
+      { key: 'course', icon: 'course', name: 'Курс ЕГЭ', sub: 'Уроки и практика по номерам экзамена.', access: () => COURSE_OK, go: openCourse },
+      { key: 'python', icon: 'python', name: 'Курс Python', sub: 'От основ языка до решения задач ЕГЭ.', access: () => PYC_OK, go: openPyc },
     ] },
     labs: { name: 'Лаборатории', icon: 'lab', sub: 'Модели ЕГЭ, пошаговый Python и Arduino', entries: [
-      { key: 'tasks', name: 'По заданиям ЕГЭ', sub: 'Эксперименты с моделями заданий', access: () => LAB_OK, go: () => openLab('tasks') },
-      { key: 'code', name: 'Программирование', sub: 'Выполнение Python по шагам и значения переменных', access: () => LAB_OK, go: () => openLab('code') },
-      { key: 'bugs', name: 'Исправление ошибок', sub: 'Поиск и исправление ошибок в чужом решении', visible: () => SERVER, access: () => LAB_OK, go: () => openLab('bugs') },
-      { key: 'arduino', name: 'Лаборатория Arduino', sub: 'Схемы, скетчи и симулятор', visible: () => SERVER && student, access: () => ARD_OK,
+      { key: 'tasks', icon: 'models', name: 'Модели заданий ЕГЭ', sub: 'Исследуй IP-сети, изображения и алгоритмы.', access: () => LAB_OK, go: () => openLab('tasks') },
+      { key: 'code', icon: 'python', name: 'Пошаговый Python', sub: 'Выполняй код по строкам и следи за переменными.', access: () => LAB_OK, go: () => openLab('code') },
+      { key: 'bugs', icon: 'bugs', name: 'Исправление ошибок', sub: 'Найди ошибку в чужом коде и проверь решение.', visible: () => SERVER, access: () => LAB_OK, go: () => openLab('bugs') },
+      { key: 'arduino', icon: 'arduino', name: 'Лаборатория Arduino', sub: 'Собери схему и запусти свой скетч.', visible: () => SERVER && student, access: () => ARD_OK,
         go: () => { if (ARD_OK) location.href = 'arduino/'; else openArdGate(); } },
     ] },
   };
@@ -10393,9 +10395,19 @@
   function refreshLearningDirectoryAccess() {
     const group = courseShown && HUB_LEARNING_GROUPS[pageKind];
     if (!group || !SERVER) return;
-    for (const entry of group.entries) {
-      const status = trainerEl.querySelector(`[data-learning-entry="${entry.key}"] .learning-availability`);
-      if (status) status.textContent = entry.access() ? 'Доступ открыт' : 'Доступ у учителя';
+    const summary = trainerEl.querySelector('.learning-summary');
+    if (!summary) return;
+    const entries = group.entries.filter(entry => !entry.visible || entry.visible());
+    const available = entries.filter(entry => entry.access()).length;
+    const allOpen = available === entries.length;
+    const text = allOpen ? (pageKind === 'labs' ? 'Все лаборатории доступны' : 'Все курсы доступны')
+      : available ? `Доступно ${available} из ${entries.length}` : 'Доступ у учителя';
+    if (summary.textContent !== text) summary.textContent = text;
+    summary.classList.toggle('all-open', allOpen);
+    for (const entry of entries) {
+      const label = trainerEl.querySelector(`[data-learning-entry="${entry.key}"] .learning-availability`);
+      const hint = available > 0 && !entry.access() ? 'Доступ у учителя' : '';
+      if (label && label.textContent !== hint) label.textContent = hint;
     }
   }
 
@@ -10416,10 +10428,16 @@
     $('#sessionInfo').textContent = '';
     const entries = group.entries.filter(entry => !entry.visible || entry.visible());
     trainerEl.innerHTML = `<section class="learning-directory" aria-labelledby="learningGroupTitle">
-      <h1 id="learningGroupTitle" tabindex="-1">${hubIcon(group.icon, 32)}${group.name}</h1>
-      <div class="learning-entries">${entries.map(entry => `<button type="button" class="learning-entry" data-learning-entry="${entry.key}">
-        <span><strong>${entry.name}</strong><small>${entry.sub}</small></span>
-        ${SERVER ? '<span class="learning-availability"></span>' : ''}</button>`).join('')}</div></section>`;
+      <header class="learning-heading">
+        <h1 id="learningGroupTitle" tabindex="-1"${SERVER ? ' aria-describedby="learningAccessSummary"' : ''}>${group.name}</h1>
+        ${SERVER ? '<span class="learning-summary" id="learningAccessSummary"></span>' : ''}
+      </header>
+      <div class="learning-entries">${entries.map(entry => `<button type="button" class="learning-entry" data-learning-entry="${entry.key}"
+          style="--entry-color:${hubColor(entry.icon)}" aria-labelledby="learning-name-${entry.key}" aria-describedby="learning-info-${entry.key}">
+        <span class="learning-art" aria-hidden="true">${hubIcon(entry.icon, 56)}</span>
+        <span class="learning-copy"><strong id="learning-name-${entry.key}">${entry.name}</strong>
+          <span id="learning-info-${entry.key}"><span class="learning-description">${entry.sub}</span>${SERVER ? '<span class="learning-availability"></span>' : ''}</span>
+        </span></button>`).join('')}</div></section>`;
     refreshLearningDirectoryAccess();
     if (SERVER && student) pycLive(false);
     window.scrollTo(0, 0);

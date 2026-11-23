@@ -56,6 +56,10 @@ test('course and laboratory passwords unlock their sections on another device of
       await expect(mobile.locator(section.passwordField)).toHaveCount(0);
     }
     await mobile.goto(fixture.origin + '/');
+    await mobile.locator('[data-tile-key="labs"]').click();
+    await expect(mobile.locator('.learning-summary')).toHaveText('Все лаборатории доступны');
+    await expect(mobile.locator('.learning-availability:visible')).toHaveCount(0);
+    await mobile.locator('#hubBack').click();
     await openEntry(mobile, 'courses', 'course');
     await expect(mobile.locator('[data-lesson="7"]')).toBeVisible();
     await mobile.locator('[data-lesson="7"]').click();
@@ -66,7 +70,10 @@ test('course and laboratory passwords unlock their sections on another device of
     await seedBrowser(otherPupil, fixture, 'pupil', otherLogin);
     const otherPage = await otherPupil.newPage();
     await otherPage.goto(fixture.origin + '/');
-    await openEntry(otherPage, 'courses', 'course');
+    await otherPage.locator('[data-tile-key="courses"]').click();
+    await expect(otherPage.locator('.learning-summary')).toHaveText('Доступ у учителя');
+    await expect(otherPage.locator('.learning-availability:visible')).toHaveCount(0);
+    await otherPage.locator('[data-learning-entry="course"]').click();
     await expect(otherPage.locator('#coursePw')).toBeVisible();
     expect((await otherPupil.request.get(fixture.origin + '/api/course/lesson?n=7')).status()).toBe(403);
   } finally {
@@ -98,8 +105,24 @@ for (const width of [375, 1366]) {
       } else {
         await tile.press('Enter');
       }
-      await expect(page.getByRole('heading', {name: title, exact: true})).toBeVisible();
+      const heading = page.getByRole('heading', {name: title, exact: true});
+      await expect(heading).toBeFocused();
+      await expect(heading).toHaveCSS('box-shadow', 'none');
       for (const entry of entries) await expect(page.locator('[data-learning-entry="' + entry + '"]')).toBeVisible();
+      const buttons = page.locator('[data-learning-entry]');
+      const first = await buttons.nth(0).boundingBox(), next = await buttons.nth(1).boundingBox();
+      if (width === 375) expect(next.y).toBeGreaterThanOrEqual(first.y + first.height);
+      else {
+        expect(next.y).toBeCloseTo(first.y, 0);
+        expect(next.x).toBeGreaterThanOrEqual(first.x + first.width);
+      }
+      await page.keyboard.press('Tab');
+      await expect(buttons.first()).toBeFocused();
+      await expect(buttons.first()).toHaveCSS('outline-style', 'solid');
+      const locked = group === 'labs' ? 'arduino' : 'python';
+      await expect(page.locator('.learning-summary')).toHaveText(group === 'labs' ? 'Доступно 3 из 4' : 'Доступно 1 из 2');
+      await expect(page.locator('.learning-availability:visible')).toHaveCount(1);
+      await expect(page.locator('[data-learning-entry="' + locked + '"]')).toHaveAccessibleDescription(/Доступ у учителя/);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       if (group === 'labs') {
         const recorded = page.waitForResponse(r => new URL(r.url()).pathname === '/api/lab/activity');
