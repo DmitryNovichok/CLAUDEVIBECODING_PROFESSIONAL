@@ -52,7 +52,6 @@ test('course and laboratory passwords unlock their sections on another device of
       await expect(page.locator(section.opened)).toBeVisible();
 
       await mobile.bringToFront();
-      await mobile.evaluate(() => window.dispatchEvent(new Event('focus')));
       await expect(mobile.locator(section.opened)).toBeVisible();
       await expect(mobile.locator(section.passwordField)).toHaveCount(0);
     }
