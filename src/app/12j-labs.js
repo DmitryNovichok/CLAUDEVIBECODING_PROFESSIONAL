@@ -1,5 +1,5 @@
   // ------------------------------------------------------------ лаборатории
-  // Модели не обращаются к API ответов: эксперименты не влияют на журнал и экономику.
+  // Свободные эксперименты не влияют на журнал. В назначенной работе сохраняется первый прогноз.
   function labNetwork(address, prefix) {
     const parts = String(address).trim().split('.');
     if (parts.length !== 4 || parts.some(x => !/^\d{1,3}$/.test(x) || +x > 255) || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) throw Error('Введите IPv4 из четырёх чисел 0–255 и маску от /0 до /32.');
@@ -374,6 +374,7 @@
     if (LAB_EXTRA[LAB.mode]) { box.innerHTML = LAB_EXTRA[LAB.mode].html(); LAB_EXTRA[LAB.mode].update(); return; }
     if (LAB.mode === 'net') {
       box.innerHTML = `<section class="lab-panel"><h2>Где заканчивается сеть и начинается адрес узла?</h2>
+        ${appState.teacher ? '<p><a class="btn" href="/admin?assign=lab13">Назначить классу</a></p>' : ''}
         <div class="lab-fields"><label>IPv4-адрес<input class="inp" id="labIp" aria-describedby="labNetResult" value="${esc(LAB.net.ip)}" spellcheck="false" maxlength="15"></label><label>Маска /<span id="labPrefixLabel">${LAB.net.prefix}</span><input type="range" id="labPrefix" min="0" max="32" value="${LAB.net.prefix}"></label></div>
         <p class="lab-note">Голубые биты задают сеть, остальные — адрес внутри неё. Все адреса считаются вместе с адресом сети и широковещательным адресом.</p>
         <div id="labNetResult" aria-live="polite"></div>
@@ -471,15 +472,111 @@
       ${!allShown ? `<p class="lab-note">Шаг ${G.shown} из ${t.steps.length}: считаем вершину <b>${cur}</b>. Порядок — от конца к началу, чтобы у соседей ответ уже был.</p>` : ''}`;
   }
   function labResetFeedback() { if ($('#labFeedback')) $('#labFeedback').textContent = ''; }
+  function labNetworkFacts(n) {
+    return `<div class="lab-bits" aria-label="Двоичная запись адреса">${[0, 8, 16, 24].map(start => `<span class="lab-octet">${n.bits.slice(start, start + 8).split('').map((bit, i) => `<b class="${start + i < n.prefix ? 'network' : 'host'}">${bit}</b>`).join('')}</span>`).join('')}</div>
+        <dl class="lab-facts"><div><dt>Маска</dt><dd>${n.mask}</dd></div><div><dt>Первый адрес</dt><dd>${n.network}</dd></div><div><dt>Последний адрес</dt><dd>${n.last}</dd></div><div><dt>Битов для адреса внутри сети</dt><dd>32 − ${n.prefix} = ${32 - n.prefix}</dd></div></dl>`;
+  }
   function labUpdateNetwork() {
     LAB.net.ip = $('#labIp').value; LAB.net.prefix = +$('#labPrefix').value;
     $('#labPrefixLabel').textContent = LAB.net.prefix; labResetFeedback();
     $('#labIp').removeAttribute('aria-invalid');
     try {
       const n = labNetwork(LAB.net.ip, LAB.net.prefix);
-      $('#labNetResult').innerHTML = `<div class="lab-bits" aria-label="Двоичная запись адреса">${[0, 8, 16, 24].map(start => `<span class="lab-octet">${n.bits.slice(start, start + 8).split('').map((bit, i) => `<b class="${start + i < n.prefix ? 'network' : 'host'}">${bit}</b>`).join('')}</span>`).join('')}</div>
-        <dl class="lab-facts"><div><dt>Маска</dt><dd>${n.mask}</dd></div><div><dt>Первый адрес</dt><dd>${n.network}</dd></div><div><dt>Последний адрес</dt><dd>${n.last}</dd></div><div><dt>Битов для адреса внутри сети</dt><dd>32 − ${n.prefix} = ${32 - n.prefix}</dd></div></dl>`;
+      $('#labNetResult').innerHTML = labNetworkFacts(n);
     } catch (e) { $('#labIp').setAttribute('aria-invalid', 'true'); $('#labNetResult').textContent = e.message; }
+  }
+  async function openLabAssignment(id, sync, back) {
+    if (!leaveExam()) return;
+    if (isNarrow()) setSideOpen(false);
+    if (pyOpen()) togglePy(false);
+    if (bdOpen()) toggleBoard(false);
+    labStop(); abandonCurrent();
+    appState.cur = null; appState.courseShown = true; appState.pageKind = 'lab13';
+    document.body.classList.remove('asg-wide', 'hub-on', 'lab-open');
+    navPush({ v: 'lab13', id }); renderSidebar();
+    $('#scopeInfo').innerHTML = '<span class="scope-title">Лаборатория №13</span>';
+    $('#sessionInfo').textContent = '';
+    trainerEl.innerHTML = `<article class="lab" id="labAsgRoot"><button type="button" class="link-btn lab-back" data-lab-asg-back>← Задания от учителя</button>
+      <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>Лаборатория №13</h1><p>Подсети IPv4</p></div></header>
+      <section class="lab-panel" id="labAsgWork" aria-busy="true"><p role="status">Открываем назначение…</p></section></article>`;
+    window.scrollTo(0, 0);
+    const root = $('#labAsgRoot'), panel = $('#labAsgWork'), session = learningSessionGuard();
+    const active = () => session() && root.isConnected && appState.courseShown && appState.pageKind === 'lab13';
+    let done = false;
+    root.querySelector('[data-lab-asg-back]').onclick = () => back(done);
+    const start = async () => {
+      panel.setAttribute('aria-busy', 'true');
+      panel.innerHTML = '<p role="status">Открываем назначение…</p>';
+      try {
+        const state = await api('asg/lab13/start', { id });
+        if (!active()) return;
+        if (state.id !== id || !state.ip || !Number.isInteger(state.prefix)) throw Error('Сервер не подтвердил открытие назначения.');
+        done = !!state.finished;
+        sync(state);
+        render(state);
+      } catch (err) {
+        if (!active()) return;
+        const blocked = err.status === 403 || err.status === 404 || err.status === 409;
+        done = err.status === 409;
+        panel.innerHTML = `<p role="alert">${blocked ? esc(err.message) : 'Не удалось загрузить назначение. Проверь соединение и попробуй снова.'}</p>
+          ${blocked ? '' : '<button class="btn" type="button" id="labAsgRetry">Повторить загрузку</button>'}`;
+        if (!blocked) $('#labAsgRetry').onclick = start;
+      } finally { if (active()) panel.removeAttribute('aria-busy'); }
+    };
+    function render(state) {
+      const title = `<h2>${esc(state.title)}</h2><p>IPv4-адрес и префикс из задания <strong id="labAsgSubnet">${esc(state.ip)}/${state.prefix}</strong></p>`;
+      if (state.finished) {
+        panel.innerHTML = title + `<div id="labAsgFeedback" role="status" tabindex="-1"><h3>${state.correct ? 'Прогноз верный' : 'В прогнозе ошибка'}</h3>
+          <dl class="lab-facts"><div><dt>Твой прогноз</dt><dd>${labFmt(state.prediction)}</dd></div>
+          <div><dt>Адресов в подсети</dt><dd>${labFmt(state.expected)}</dd></div></dl>
+          <p>Первый прогноз сохранён в журнале.</p></div>
+          <section id="labAsgModel"><h3>Проверка на модели</h3><p class="lab-note">Меняй адрес и префикс, чтобы исследовать границы подсети.</p>
+            <div class="lab-fields"><label>IPv4-адрес<input class="inp" id="labAsgIp" maxlength="15" spellcheck="false" value="${esc(state.ip)}"></label>
+            <label for="labAsgPrefix"><span>Префикс /<output for="labAsgPrefix" id="labAsgPrefixLabel">${state.prefix}</output></span><input id="labAsgPrefix" type="range" min="0" max="32" value="${state.prefix}"></label></div>
+            <div id="labAsgFacts" aria-live="polite"></div></section>`;
+        const ip = $('#labAsgIp'), prefix = $('#labAsgPrefix'), output = $('#labAsgFacts');
+        const update = () => {
+          $('#labAsgPrefixLabel').textContent = prefix.value;
+          try {
+            const n = labNetwork(ip.value, +prefix.value);
+            ip.removeAttribute('aria-invalid');
+            output.innerHTML = labNetworkFacts(n) + `<p>Адресов в подсети: 2<sup>${32 - n.prefix}</sup> = <strong id="labAsgModelCount">${labFmt(n.count)}</strong></p>`;
+          } catch (error) { ip.setAttribute('aria-invalid', 'true'); output.textContent = error.message; }
+        };
+        ip.oninput = prefix.oninput = update;
+        update(); $('#labAsgFeedback').focus({ preventScroll: true });
+        return;
+      }
+      panel.innerHTML = title + `<form id="labAsgForm" class="lab-predict"><div><strong>Сколько всего IPv4-адресов в этой подсети?</strong>
+        <p>Учитывай адрес сети и широковещательный адрес. Первый отправленный прогноз попадёт в журнал.</p></div>
+        <label>Твой прогноз<input class="inp" type="number" id="labAsgPrediction" min="0" max="4294967296" step="1" inputmode="numeric" required></label>
+        <button class="btn primary" id="labAsgCheck">Проверить в модели</button><p class="lab-feedback" id="labAsgStatus" role="status"></p></form>`;
+      const input = $('#labAsgPrediction'), button = $('#labAsgCheck'), status = $('#labAsgStatus');
+      $('#labAsgForm').onsubmit = async event => {
+        event.preventDefault();
+        if (button.disabled || !input.validity.valid) return;
+        const prediction = Number(input.value);
+        button.disabled = true; input.readOnly = true;
+        status.textContent = 'Сохраняем прогноз…';
+        try {
+          const result = await api('asg/lab13/answer', { id, prediction });
+          if (!session()) return;
+          if (result.id !== id || !result.finished || !Number.isInteger(result.prediction) || !Number.isInteger(result.expected)) throw Error('Ответ не подтверждён.');
+          sync(result);
+          if (!active()) return;
+          done = true;
+          render(result);
+        } catch (err) {
+          if (!active()) return;
+          const blocked = [403, 404, 409].includes(err.status);
+          done = err.status === 409;
+          status.textContent = blocked || err.status === 400 ? err.message : 'Не удалось получить подтверждение. Проверь соединение и отправь прогноз ещё раз.';
+          if (err.status === 400) input.readOnly = false;
+          if (!blocked) { button.disabled = false; button.textContent = 'Отправить ещё раз'; }
+        }
+      };
+    }
+    await start();
   }
   function labUpdateImage() {
     LAB.picture = { w: +$('#labWidth').value, h: +$('#labHeight').value, depth: +$('#labDepth').value };

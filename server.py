@@ -50,6 +50,7 @@ from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from runtime_http import BoundedHTTPServer
 import lesson_readiness
+import lab13
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
@@ -2117,6 +2118,8 @@ class DB(Transactional):
                     ("assignments", "grading", "TEXT"),              # пороги оценки в процентах {"5": 85, "4": 65, "3": 45}
                     ("asg_runs", "xp", "INTEGER"),
                     ("assignments", "kind", "TEXT"),
+                    ("assignments", "lab_request_key", "TEXT"),
+                    ("assignments", "lab_request_due", "REAL"),       # исходный срок для повтора запроса после переоткрытия
                     ("students", "dev", "INTEGER DEFAULT 0"),
                     ("exams", "tasks", "TEXT"),                       # задания варианта, выданные сервером
                     ("assignments", "student_id", "INTEGER"),         # личная подборка ученика; NULL — всему классу
@@ -2225,6 +2228,7 @@ class DB(Transactional):
                     ("econ_hist", "s_med", "REAL")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS asg_lab_request ON assignments(lab_request_key) WHERE lab_request_key IS NOT NULL")
             # Preserve already-used principal 2FA across the upgrade, including SMTP outages.
             if not c.execute("SELECT 1 FROM settings WHERE key='main_login_code_migrated'").fetchone():
                 if (not c.execute("SELECT 1 FROM settings WHERE key='main_login_code' AND value='0'").fetchone()
@@ -4163,8 +4167,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 # Slow failed authentication only after releasing the shared database lock.
                 self._audit_failures = []
                 self._new_learning_grant_sid = None
+                self._notify_lab13 = None
                 def after_transaction():
                     self.flush_failed_audit()
+                    if self._notify_lab13 is not None:
+                        self._notify_lab13()
                     if self._new_learning_grant_sid is not None:
                         LIVE.send([self._new_learning_grant_sid], "pyc")
                     if account_write:
@@ -6792,14 +6799,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 aid = to_int(qs.get("asg"))
                 if aid:
                     a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
-                    if not a or not self.sees_class(a["class_id"]):
+                    if not a or a["kind"] == "lab13" or not self.sees_class(a["class_id"]):
                         return self.err(404, "подборка не найдена")
                     ids = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
                     return self.send_json({"tasks": [item(i, f"{k + 1} из {len(ids)}") for k, i in enumerate(ids)],
                                            "title": batch_title(a) if a["student_id"] else a["title"]})
                 return self.send_json({"sets": [{"id": x["id"], "title": x["title"], "class_name": x["class_name"], "tasks": x["tasks"],
                                                  "created": x["created"], "personal": x["personal"]}
-                                                for x in teacher_asg_archive(db, self.T["id"], q, None, 80)]})
+                                                for x in teacher_asg_archive(db, self.T["id"], q, None, 80, bank_only=True)]})
             if q:
                 n = to_int(q)
                 if n in kim.ALL_NUMS and q.isdigit():
@@ -9289,6 +9296,8 @@ def notices_of(db, s):
         for a in db.q("""SELECT id, title, created, due, kind, strict, batch FROM assignments
                          WHERE class_id=? AND (student_id IS NULL OR student_id=?) AND created>?""", (s["class_id"], sid, since)):
             kind = "Самостоятельная" if a["strict"] else "Работа над ошибками" if (a["batch"] or "").startswith("fix") else "Новая подборка"
+            if a["kind"] == "lab13":
+                kind = "Лабораторная работа"
             out.append({"k": "asg", "ts": a["created"], "ic": "📝" if a["strict"] else "📚", "title": f"{kind} от учителя",
                         "text": f"«{a['title']}»", "due": a["due"], "go": "asg", "id": a["id"]})
     out.sort(key=lambda x: -x["ts"])
@@ -10891,11 +10900,13 @@ def _dur(ms):
     return f"{sec // 3600} ч {sec % 3600 // 60} мин {sec % 60} с" if sec >= 3600 else f"{sec // 60} мин {sec % 60} с"
 
 
-def teacher_asg_archive(db, tid, q="", class_id=None, limit=400):
+def teacher_asg_archive(db, tid, q="", class_id=None, limit=400, *, bank_only=False):
     """Все выданные подборки учителя по всем классам — новые сверху. Личные подборки одной серии — одной строкой."""
     main_id = main_teacher()["id"]
     args = [main_id, tid]
     cond = "COALESCE(c.teacher_id, ?) = ?"
+    if bank_only:
+        cond += " AND COALESCE(a.kind, '') != 'lab13'"
     if class_id:
         cond += " AND c.id = ?"
         args.append(class_id)
@@ -10926,7 +10937,7 @@ def teacher_asg_archive(db, tid, q="", class_id=None, limit=400):
                 continue
             out.append({"id": a["id"], "ids": [a["id"]], "title": title, "class_id": a["class_id"], "class_name": a["class_name"],
                         "kind": a["kind"] or "self", "created": a["created"], "due": a["due"], "closed": a["closed"],
-                        "tasks": len(tasks), "personal": False, "students": None, "strict": bool(a["strict"])})
+                        "tasks": 1 if a["kind"] == "lab13" else len(tasks), "personal": False, "students": None, "strict": bool(a["strict"])})
     return out
 
 
@@ -10956,7 +10967,7 @@ def asg_archive_html(db, teacher, asg_ids):
         return None
     cls = db.q("SELECT name FROM classes WHERE id=?", (asgs[0]["class_id"],), one=True)
     title = asgs[0]["title"]
-    kind = ASG_KINDS.get(asgs[0]["kind"] or "self", "Работа")
+    kind = "Лаборатория № 13" if asgs[0]["kind"] == "lab13" else ASG_KINDS.get(asgs[0]["kind"] or "self", "Работа")
     label = lambda t: dict(clusters.labels(t.get("n"))).get(t.get("c"), "")
     # КИМ: задания всех подборок по порядку (у личных подборок — объединение), игры 19–21 — один раз
     order, seen = [], set()
@@ -10971,12 +10982,24 @@ def asg_archive_html(db, teacher, asg_ids):
     for a in asgs:
         real = [i for i in json.loads(a["tasks"] or "[]") if i in tasks]
         items = asg_items(real)
-        studs = db.q("SELECT id, name FROM students WHERE class_id=? AND (? IS NULL OR id=?) ORDER BY name",
-                     (a["class_id"], a["student_id"], a["student_id"]))
+        studs = db.q("""SELECT id, name FROM students WHERE class_id=? AND (? IS NULL OR id=?)
+                        AND (? != 'lab13' OR COALESCE(is_teacher, 0)=0) ORDER BY name""",
+                     (a["class_id"], a["student_id"], a["student_id"], a["kind"] or "self"))
         for m in studs:
             per = []                                   # по каждому заданию: (задание, итог, ответ, мс, когда, попыток, код)
             started = finished = run = None
             status = "не начинал"
+            if a["kind"] == "lab13":
+                cell = asg_cell(db, a, m["id"], real)
+                lab = cell["lab13"]
+                people.append((m["name"], cell["label"], int(lab["correct"] or 0), 1, cell["tried"], None, cell["pct"]))
+                details = (f'<p>Первый прогноз: {E(str(lab["prediction"]))}<br>Результат модели: {E(str(lab["expected"]))}</p>'
+                           if lab["finished"] else "")
+                rows_html.append(f'<section class="st"><div class="bar"></div><h2>{E(m["name"])}</h2>'
+                                 f'<p>{E(a["title"])} · {E(cell["label"])}</p>'
+                                 f'<p>Узел и длина префикса: {E(lab["ip"])}/{lab["prefix"]}</p>{details}'
+                                 f'<p>Начало: {_hm(lab["started"])} · Проверка: {_hm(lab["finished"])}</p></section>')
+                continue
             if a["strict"]:
                 run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], m["id"]), one=True)
                 answers = json.loads(run["answers"] or "{}") if run else {}
@@ -11071,7 +11094,7 @@ pre{background:#f7f8fb;border:1px solid #e5e7eb;padding:8px 10px;white-space:pre
             f'Выдана: {_hm(asgs[0]["created"])}' + (f' · срок: {_hm(asgs[0]["due"])}' if asgs[0]["due"] else '')
             + f' · учеников: {len(people)} · сформировано: {_hm(time.time())}</p>'
             f'<table><tr><th>№</th><th>Ученик</th><th>Статус</th><th>Баллы</th><th>С ответом</th><th>%</th><th>Оценка</th></tr>{summary}</table></section>'
-            f'<section><div class="bar"></div><div class="brand">КИМ ПОДБОРКИ</div><h1>{E(title)}</h1>{"".join(kim_html)}</section>')
+            + (f'<section><div class="bar"></div><div class="brand">КИМ ПОДБОРКИ</div><h1>{E(title)}</h1>{"".join(kim_html)}</section>' if kim_html else ""))
     return (f'<!doctype html><html lang="ru"><head><meta charset="utf-8"><base href="/"><title>Архив работ — {E(title)}</title>'
             f'<link rel="stylesheet" href="vendor/katex/katex.min.css"><style>{css}</style>'
             # формулы в условиях (\( … \), $$ … $$, data-math) рисуем, как на сайте, — иначе в PDF остаётся исходный TeX
@@ -11220,6 +11243,19 @@ def exam_brief(r):
 
 def asg_cell(db, a, sid, real):
     """Клетка журнала: как ученик сделал работу. st: done | work | none | miss (срок прошёл, не сделал)."""
+    if a["kind"] == "lab13":
+        lab = lab13.assignment_state(a, lab13.get_run(db, a["id"], sid), sid)
+        if lab["finished"]:
+            status, label = "done", "Верный прогноз" if lab["correct"] else "Ошибка в прогнозе"
+        elif lab["closed"]:
+            status, label = "miss", "Не сдано"
+        elif lab["started"]:
+            status, label = "work", "В работе"
+        else:
+            status, label = "none", "Не начинал"
+        return {"st": status, "label": label, "lab13": lab, "total": 1, "tried": int(status == "done"),
+                "pct": int(lab["correct"]) * 100 if status == "done" else None}
+
     if a["strict"]:
         r = db.q("SELECT finished, grade, pct FROM asg_runs WHERE asg_id=? AND student_id=?", (a["id"], sid), one=True)
         cell = ({"st": "done", "grade": r["grade"], "pct": r["pct"]} if r and r["finished"]
@@ -11406,9 +11442,9 @@ def class_digest(db, cid):
             real = [i for i in json.loads(a["tasks"] or "[]") if i in APP.bank.tasks]
             c = asg_cell(db, a, m["id"], real)
             if c["st"] in ("miss", "work") or (c["st"] == "done" and not a["strict"] and c.get("tried", 0) < len(asg_items(real))):
-                overdue.append({"id": m["id"], "name": m["name"], "asg": a["id"], "title": a["title"], "due": a["due"],
-                                "state": "не начинал" if c["st"] == "miss" else f"сделано {c.get('tried', 0)} из {len(asg_items(real))}"
-                                if not a["strict"] else "не сдал"})
+                state = c.get("label") or ("не начинал" if c["st"] == "miss" else "не сдал" if a["strict"]
+                                           else f"сделано {c.get('tried', 0)} из {len(asg_items(real))}")
+                overdue.append({"id": m["id"], "name": m["name"], "asg": a["id"], "title": a["title"], "due": a["due"], "state": state})
     top.sort(key=lambda x: -x["solved"])
     # средний прогноз балла (сейчас и месяц назад), слабые номера класса за 30 дней, кто отстаёт от класса
     fcs = [(m, forecast_trend(m)) for m in db.q("SELECT id, name, forecast, fc FROM students WHERE class_id=? AND COALESCE(is_teacher, 0) = 0",
@@ -12074,7 +12110,7 @@ def parent_report(db, s):
             c = asg_cell(db, a, s["id"], real)
             works.append({"title": batch_title(a) if a["student_id"] else a["title"], "created": a["created"], "due": a["due"],
                           "st": c["st"], "grade": c.get("grade"), "pct": c.get("pct"), "tried": c.get("tried"),
-                          "total": len(asg_items(real))})
+                          "total": c.get("total", len(asg_items(real))), "label": c.get("label")})
     exams = [{"ts": r["finished"], "score": r["test_score"]} for r in
              db.q("""SELECT finished, test_score FROM exams WHERE student_id=? AND finished IS NOT NULL
                      ORDER BY finished DESC LIMIT 10""", (s["id"],))]

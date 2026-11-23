@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const {execFileSync} = require('node:child_process');
 const loader = fs.readFileSync('src/app/12l-learning-loader.js', 'utf8');
 const built = execFileSync('python3',['-c','from tools.build_app import build_learning; print(build_learning())'],{encoding:'utf8'});
-const methods = 'openCourse openLesson openCourseSet openPyc openPycLevel openLab openArdGate pycStopTests labStop pycDockTools resetLearningState refreshLearningAccess'.split(' ');
+const methods = 'openCourse openLesson openCourseSet openPyc openPycLevel openLab openLabAssignment openArdGate pycStopTests labStop pycDockTools resetLearningState refreshLearningAccess'.split(' ');
 function harness() {
   const scripts=[], opened=[], retries=[], timers=new Map(), nodes=new Map();let tick=0;
   const node = id => {if(!nodes.has(id)) nodes.set(id,{innerHTML:'',value:'',textContent:'',hidden:false,
@@ -131,4 +131,65 @@ test('a help response from a disposed login cannot delete a new request with the
   responses[0]({});await first;
   assert.equal(c.PYC_PENDING_HELP.get('task:hint_used'),current);assert.equal(oldTask.hint_used,undefined);assert.equal(newTask.hint_used,undefined);
   responses[1]({});await second;assert.equal(newTask.hint_used,true);assert.equal(c.PYC_PENDING_HELP.size,0);
+});
+
+
+test('an unconfirmed laboratory forecast can be retried without exposing the model or resubmitting a different value', async () => {
+  const h = harness();
+  const started = {id: 7, title: 'Подсети', ip: '10.1.2.3', prefix: 26, started: 15, finished: null};
+  const saved = {...started, prediction: 62, expected: 64, correct: false, finished: 20};
+  const synced = [], submissions = [], form = h.node('#labAsgForm'), input = h.node('#labAsgPrediction');
+  const panel = h.node('#labAsgWork'), button = h.node('#labAsgCheck');
+  Object.assign(h.node('#labAsgRoot'), {isConnected: true, querySelector: h.node});
+  Object.assign(panel, {setAttribute() {}, removeAttribute() {}});
+  Object.assign(h.node('#labAsgIp'), {value: started.ip, removeAttribute() {}});
+  h.node('#labAsgPrefix').value = String(started.prefix);
+  Object.assign(input, {value: '62', validity: {valid: true}});
+  h.c.syncLabAssignment = state => synced.push(state);
+  h.c.returnToLabAssignments = () => {};
+  h.c.api = async (path, body) => {
+    if (path === 'asg/lab13/start') return started;
+    assert.equal(path, 'asg/lab13/answer');
+    submissions.push(body.prediction);
+    if (submissions.length === 1) throw Error('connection lost after write');
+    return saved;
+  };
+  const open = h.c.openLabAssignment(started.id);
+  h.loaded(true);
+  await open;
+  const submit = () => form.onsubmit({preventDefault() {}});
+  const first = submit();
+  await submit(); // double-click while the first write is in flight
+  await first;
+  assert.equal(input.readOnly, true);
+  assert.equal(button.disabled, false);
+  assert.doesNotMatch(panel.innerHTML, /id="labAsgModel"/);
+  assert.match(h.node('#labAsgStatus').textContent, /подтверждение/);
+  await submit();
+  assert.deepEqual(submissions, [62, 62]);
+  assert.equal(synced.at(-1), saved);
+  assert.match(panel.innerHTML, /В прогнозе ошибка/);
+  assert.match(panel.innerHTML, /id="labAsgModel"/);
+  assert.equal(vm.runInContext('LAB_OK', h.c), false);
+});
+
+test('a laboratory start from a disposed login cannot paint or publish assignment state after a same-account sign-in', async () => {
+  const h = harness(), updates = [];
+  Object.assign(h.node('#labAsgRoot'), {isConnected: true, querySelector: h.node});
+  Object.assign(h.node('#labAsgWork'), {setAttribute() {}, removeAttribute() {}});
+  h.c.syncLabAssignment = state => updates.push(state);
+  h.c.returnToLabAssignments = () => {};
+  let respond;
+  h.c.api = path => path === 'me' ? Promise.resolve({sid: 5, course: false}) : new Promise(resolve => { respond = resolve; });
+  const loaded = h.c.openCourse();
+  h.loaded(true);
+  await loaded;
+  const pending = h.c.openLabAssignment(7);
+  const before = h.node('#labAsgWork').innerHTML;
+  h.c.resetLearningSession();
+  h.c.student = {sid: 5};
+  respond({id: 7, ip: '10.0.0.1', prefix: 24, started: 1, finished: null});
+  await pending;
+  assert.deepEqual(updates, []);
+  assert.equal(h.node('#labAsgWork').innerHTML, before);
 });

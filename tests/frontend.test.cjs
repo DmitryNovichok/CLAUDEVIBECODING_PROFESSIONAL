@@ -644,7 +644,7 @@ test('fully entered strict work stays pending until it is submitted',()=>{
   assert.equal(vm.runInContext('asgPending({strict:true,finished:123})',c),false);
   assert.equal(vm.runInContext('asgPending({strict:false})',c),false);
   const h=hubPlanContext();h.ASG=[{id:1,title:'Демо',strict:true,tasks:['a'],done:['a']}];
-  h.asgPending=()=>true;h.asgLeft=()=>[];
+  h.asgPending=()=>true;h.asgRemaining=()=>0;
   const item=h.hubPlan()[0];assert.equal(item.key,'asg:1');assert.equal(item.btn,'Завершить');
 });
 test('daily training has a finite goal and the plan can reach 100 percent',()=>{

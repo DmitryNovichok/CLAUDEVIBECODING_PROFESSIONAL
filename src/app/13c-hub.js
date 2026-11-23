@@ -64,11 +64,11 @@
     // 1. Задание от учителя с ближайшим сроком; нет его — тренировка слабых номеров
     const own = ASG.filter(a => !a.duel && !a.course && asgPending(a)).sort(asgOrder)[0];
     if (own) {
-      const left = asgLeft(own).length, total = own.tasks.length;
+      const lab = own.kind === 'lab13', left = asgRemaining(own), total = lab ? 1 : own.tasks.length;
       const late = own.due && own.due * 1000 < Date.now();
       items.push({ key: 'asg:' + own.id, ic: 'asg', title: `Задание от учителя: «${own.title}»`,
         meta: [own.due ? `<span class="${late ? 'hub-late' : 'hub-due'}">${late ? 'срок прошёл' : 'до ' + fmtDay(own.due * 1000)}</span>` : '',
-          left ? `осталось ${left} из ${total}` : 'все ответы внесены — заверши работу', left ? hubMins(left * 3) : ''],
+          lab ? 'Лаборатория №13 · прогноз для подсети' : left ? `осталось ${left} из ${total}` : 'все ответы внесены — заверши работу', left ? hubMins(left * 3) : ''],
         btn: !left && own.strict ? 'Завершить' : own.started || left < total ? 'Продолжить' : 'Начать', go: () => (own.strict ? openAsgPage() : setScope('asg', own.id)) });
     } else {
       const weak = hubWeakNums(2), need = 5, count = hubTodayCount(), done = count >= need;
@@ -158,14 +158,14 @@
     const allDone = [...P.log].filter(e => !e.b).length;
     const bad = P.log.filter(e => e.s < 1 && !e.b && !e.k).length;
     const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(asgPending);
-    const ownLeft = ownOpen.reduce((s, a) => s + asgLeft(a).length, 0);
+    const ownLeft = ownOpen.reduce((s, a) => s + asgRemaining(a), 0);
     const T = [];
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
     if (SERVER && student) T.push({ k: 'daily', name: 'Задание дня', sub: !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
       : DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
       badge: DAILY?.my_place || DAILY?.started ? '' : 'сегодня', btn: !DAILY?.ready || DAILY_STATE === 'error' ? DAILY_STATE === 'error' ? 'Повторить загрузку' : 'Открыть' : DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить',
       hot: !!DAILY?.ready && !DAILY.started && DAILY_STATE !== 'error', go: () => openDaily() });
-    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
+    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'работа', 'работы', 'работ')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
     if (SERVER && student && !TEACHER) T.push({ k: 'mcko', name: 'МЦКО', sub: 'тренировочные работы от учителя', btn: 'Открыть', go: () => openMcko() });
     if (SERVER && student && (IM_OK || IM_PW)) T.push({ k: 'im', name: 'Интеллектуальный мегаполис', sub: 'ИТ-класс · теория: 10 заданий, 120 минут, 60 баллов',

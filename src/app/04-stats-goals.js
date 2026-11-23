@@ -278,7 +278,9 @@
   function setScope(s, asgId) {
     if (!SPECIAL.includes(s)) s = scopeOf(s);
     if (s === 'asg') {
-      if (!asgOf(asgId)) return;
+      const a = asgOf(asgId);
+      if (!a) return;
+      if (a.kind === 'lab13') return openLabAssignment(a.id);
       if (isNarrow()) setSideOpen(false);
       if (!leaveExam()) return;
       ui.scope = 'asg';

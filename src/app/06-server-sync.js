@@ -4,11 +4,11 @@
   let answerWriteSession = 0;
   if (typeof window !== 'undefined') window.addEventListener?.('egeshka:session-ended', () => { answerWriteSession++; });
   async function api(path, body, method) {
-    if (body && /^(check|reveal|asg\/(answer|finish)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
+    if (body && /^(check|reveal|asg\/(answer|finish|lab13\/answer)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
     if (isTemp()) headers['X-Temp'] = '1';
-    const writeId = body && /^(check|asg\/(answer|finish)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
+    const writeId = body && /^(check|asg\/(answer|finish|lab13\/answer)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
     const sessionAtStart = answerWriteSession;
     const notify = state => { if (writeId && sessionAtStart === answerWriteSession && typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') window.dispatchEvent(new CustomEvent('egeshka:answer-save', { detail: { id: writeId, state } })); };
     notify('pending');
