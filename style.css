@@ -514,7 +514,7 @@ body.app-loading .sidebar, body.app-loading .topbar { display: none !important; 
 .search .inp { flex: 1; min-width: 0; font: 13px/1.2 inherit; font-family: inherit; padding: 7px 10px; }
 .search .icon-btn { height: auto; }
 
-.task-tools { display: inline-flex; gap: 6px; }
+.task-tools { display: inline-flex; flex-wrap: wrap; align-items: center; max-width: 100%; gap: 6px; }
 .head-chips + .task-tools { margin-left: 0; }
 .task-head .head-chips { margin-left: auto; }
 .fav-btn { font-size: 16px; line-height: 1; }
@@ -977,25 +977,16 @@ body.tt-big .py-dock { z-index: 80; }
 .hub-fire-pop .hub-fire-go { margin-top: 10px; }
 @media (max-width: 640px) { .streak-menu { right: auto; left: 0; width: min(300px, calc(100vw - 32px)); } }
 
-/* Выбор типа над условием задания */
-.type-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 6px 0 14px; }
-.type-row:empty { display: none; }
+/* Выбор типа рядом с заметкой в панели инструментов задания. */
+.note-type-tools { display: inline-flex; align-items: center; gap: inherit; }
 .type-pick {
-  display: inline-flex; align-items: center; gap: 12px; max-width: 100%; min-height: 48px; padding: 7px 12px;
-  border: 2px solid var(--accent-strong); border-radius: 12px; background: var(--sel); color: var(--text);
-  font: inherit; line-height: 1.25; text-align: left; cursor: pointer;
+  border-color: var(--good-strong); background: var(--good-soft); color: var(--text);
+  font-size: 12.5px; white-space: nowrap;
 }
-.type-copy { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
-.type-label { font-size: .8em; font-weight: 700; }
-.type-pick strong { font-size: 1em; font-weight: 700; }
-.type-count { white-space: nowrap; border-radius: 8px; padding: 3px 6px; background: var(--card); font-size: .8em; }
-.type-pick svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.type-pick:hover { border-color: var(--text); }
-.type-pick:focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
-@media (max-width: 480px) {
-  .type-pick { width: 100%; gap: 8px; }
-  .type-copy { flex: 1; }
-}
+.type-pick[hidden] { display: none; }
+.type-pick svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.type-pick:is(:hover, .on) { background: var(--good); border-color: var(--good-strong); color: var(--on-good); }
+.type-pick:focus-visible { box-shadow: none; outline: 2px solid var(--good-strong); outline-offset: 2px; }
 .tp-all { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; margin: 4px 0 12px; padding: 10px 14px; text-align: left;
   border: 2px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); font: inherit; cursor: pointer; }
 .tp-all small, .tp-head small { color: var(--muted); font-size: 12.5px; }

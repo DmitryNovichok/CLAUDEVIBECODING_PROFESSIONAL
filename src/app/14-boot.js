@@ -219,14 +219,20 @@
           : `<div class="sp-reply" data-sp-box><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
           <div class="sp-row">${SP_PICK}<button type="button" class="btn" data-sp-reply>Отправить</button></div></div>`}</div>`;
     }).join('');
-    const form = idea ? `<p class="fm-note sp-reward">🎁 За полезную идею — монеты, от 50 ₿. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>
+    const amounts = new Map((RULES.support_rewards || []).map(([kind, , , amount]) => [kind, amount]));
+    const rewardLabels = idea
+      ? [['idea', 'За полезную идею'], ['ux', 'За предложение по удобству интерфейса'], ['done', 'Бонус за реализацию идеи']]
+      : [['bug', 'За найденную ошибку'], ['ux', 'За предложение по удобству интерфейса'], ['critical', 'За критическую уязвимость или другую важную ошибку']];
+    const rewardText = rewardLabels.filter(([kind]) => amounts.has(kind))
+      .map(([kind, label]) => `${label} — ${amounts.get(kind)} ₿`).join('. ');
+    const form = idea ? `
       <p class="fm-note">Есть идея, как сделать Egeshka лучше? Новый режим, задания, подарки, что-то неудобно — напиши.
         Учитель прочитает и ответит здесь. Можно приложить картинку: «📎 Картинка» или Ctrl+V в поле.</p>
       <form class="sp-form" id="spForm" data-sp-box>
         <input type="hidden" id="spKind" value="idea">
         <textarea class="inp" id="spText" maxlength="2000" placeholder="Моя идея: что добавить или улучшить и зачем" required></textarea>
         <div class="sp-row"><span></span>${SP_PICK}<button type="submit" class="btn primary">💡 Отправить идею</button></div>
-      </form>` : `<p class="fm-note sp-reward">🎁 За найденные ошибки, идеи и предложения по дизайну — монеты, от 50 ₿. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>
+      </form>` : `
       <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Можно приложить скриншот: кнопка «📎 Картинка» или Ctrl+V в поле. Обращение получит учитель, ответ появится здесь.</p>
       <form class="sp-form" id="spForm" data-sp-box>
         <select class="inp" id="spKind">${kinds}</select>
@@ -239,6 +245,7 @@
         <button type="button" role="tab" aria-selected="${!idea}" class="${idea ? '' : 'on'}" data-sp-tab="help">${SUPPORT_ICON} Обращения${dot(false)}</button>
         <button type="button" role="tab" aria-selected="${idea}" class="${idea ? 'on' : ''}" data-sp-tab="idea">💡 Пожелания${dot(true)}</button>
       </div>
+      ${rewardText ? `<p class="fm-note sp-reward">🎁 ${rewardText}. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>` : ''}
       ${form}
       ${list ? `<h3 class="fm-sub">${idea ? 'Мои пожелания' : 'Мои обращения'}</h3><div class="sp-list">${list}</div>` : ''}`;
     $('#forecastModal').hidden = false;

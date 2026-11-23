@@ -1238,10 +1238,14 @@
           ${CALC_BTN}
           ${MARK_BTN}
           <button type="button" class="icon-btn fav-btn${fav ? ' on' : ''}" id="favBtn" aria-pressed="${fav}" title="${fav ? 'Убрать из избранного' : 'В избранное'}">${fav ? '★' : '☆'}</button>
-          <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
+          <span class="note-type-tools">
+            <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
+            <button type="button" class="icon-btn type-pick" id="typeBtn" aria-haspopup="dialog" aria-controls="forecastModal" hidden>
+              Тип задания<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4"/></svg>
+            </button>
+          </span>
         </span>
       </div>
-      <div class="type-row" id="taskTypeRow">${typeControlsHtml()}</div>
       ${line ? `<p class="reason">${line}</p>` : ''}
       ${cur.group ? '<div class="gq-list" id="cond"></div>' : `<article class="cond" id="cond">${safeHtml(t.html)}</article>`}
       ${files}
@@ -1260,6 +1264,7 @@
         <textarea class="inp" id="noteText" maxlength="2000" rows="3" placeholder="Идея решения, где ошиблись, что повторить…">${esc(note)}</textarea>
       </div>`;
 
+    updateTypeButton();
     if (cur.group) buildGroupLayout(t);
     dropDuplicateFileLinks($('#cond'), t.att || []);
     decorateCondition($('#cond'), cur.task);
@@ -3030,26 +3035,24 @@
     return [...by.keys()].sort((a, b) => ((order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)))
       .map(c => ({ c, name: ((CLUSTERS[n] || []).find(x => x[0] === c) || [])[1] || 'Без типа', list: by.get(c) }));
   }
-  /** Строка над условием: какой тип решаем сейчас, кнопка — выбрать другой. Только в отдельном номере. */
-  function typeControlsHtml() {
+  function updateTypeButton() {
+    const button = $('#typeBtn');
+    if (!button) return;
     const n = ui.scope;
-    if (typeof n !== 'number' || ARCHIVE[n]) return '';
-    const types = typesOf(n);
-    if (types.length < 2) return '';
-    const on = typeOn() && types.find(x => x.c === ui.cl.c);
-    const cnt = on ? on.list.length : types.reduce((s, x) => s + x.list.length, 0);
-    return `<button type="button" class="type-pick" id="typeBtn" aria-haspopup="dialog" aria-controls="forecastModal">
-      <span class="type-copy"><span class="type-label">Выбрать тип задания</span>
-        <strong>${on ? esc(on.name) : 'Все типы вперемешку'}</strong></span>
-      <span class="type-count" title="Заданий в выбранном режиме">${cnt} ${plural(cnt, 'задание', 'задания', 'заданий')}</span>
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5"/></svg></button>
-      ${on ? '<button type="button" class="link-btn" data-tp="">Сбросить тип</button>' : ''}`;
+    const types = typeof n === 'number' && !ARCHIVE[n] ? typesOf(n) : [];
+    button.hidden = types.length < 2;
+    if (button.hidden) return;
+    const selected = typeOn() && types.find(type => type.c === ui.cl.c);
+    const count = selected ? selected.list.length : types.reduce((sum, type) => sum + type.list.length, 0);
+    const mode = selected ? selected.name : 'Все типы вперемешку';
+    button.title = `${mode} · ${count} ${plural(count, 'задание', 'задания', 'заданий')}`;
+    button.setAttribute('aria-label', `Тип задания. ${button.title}. Выбрать тип`);
+    button.classList.toggle('on', !!selected);
   }
   // Банк, период или номер могут смениться, пока ученик вводит ответ на то же задание.
   function refreshTaskScope() {
     renderTopbar();
-    const row = $('#taskTypeRow');
-    if (row) row.innerHTML = typeControlsHtml();
+    updateTypeButton();
   }
   /** Пример типа — «среднее» по сложности задание; i — какой по счёту (кнопка «Другой пример»). */
   function typeExample(list, i) {
@@ -3094,7 +3097,7 @@
   }
   document.addEventListener('click', e => {
     if (e.target.closest('#typeBtn')) { openTypes(); return; }
-    if (!e.target.closest('#forecastBody, .type-row')) return;
+    if (!e.target.closest('#forecastBody')) return;
     const ex = e.target.closest('[data-tp-ex]');
     if (ex) {
       const box = ex.closest('.tp-row').querySelector('.tp-ex');
@@ -8886,14 +8889,14 @@
         <div class="pad-body">
           <div class="pad-head"><span class="pad-ico" aria-hidden="true">🎁</span><div><small>Новое на Egeshka</small>
             <h2 id="padTitle">Монеты за помощь сайту</h2>
-            <p>Монеты дают за идею, найденную ошибку или предложение, как сделать удобнее или красивее, — даже за маленькие.</p></div></div>
+            <p>Предложи идею, сообщи об ошибке или расскажи, как сделать сайт удобнее.</p></div></div>
           <div class="pad-grid">${cards}</div>
           <div class="pad-how"><h3>Как получить</h3><ol>
             <li><b>Открой «🛟 Техподдержку»</b> — внизу главной.</li>
             <li><b>Ошибку или неудобство</b> — во вкладке «Обращения», выбери тип. <b>Идею</b> — во вкладке «💡 Пожелания».</li>
             <li><b>Опиши подробно:</b> где это, что делал, что ожидал. Скриншот — 📎 или Ctrl+V.</li>
             <li><b>Главный учитель проверит</b> и начислит монеты прямо в обращении — придёт уведомление.</li></ol>
-            <p class="pad-rules">Одна находка — одна награда; за одно и то же награждается тот, кто сообщил первым. Повторы и спам не награждаются. Сумму решает главный учитель.</p></div>
+            <p class="pad-rules">Награду получает тот, кто первым сообщил о находке. За реализованную идею начисляется отдельный бонус. Главный учитель определяет сумму и отклоняет повторы и спам.</p></div>
         </div>
         <div class="pad-foot"><button type="button" class="btn" data-pad="write" disabled>✍️ Написать в техподдержку</button>
           <button type="button" class="btn primary" data-pad="close" disabled>Понятно <span class="pad-cd">${PAD_LOCK_S}</span></button></div>
@@ -10442,12 +10445,13 @@
   }
   /** Длинная кнопка над планом: открывает iPad-страницу «Монеты за помощь сайту» (12d-stories.js, data-pad-open). */
   function hubPad() {
-    if (!SERVER || !student || TEACHER || !(RULES.support_rewards || []).length) return '';
-    const top = Math.max(...RULES.support_rewards.map(r => r[3]));
+    if (!SERVER || !student || TEACHER) return '';
+    const amounts = (RULES.support_rewards || []).filter(([kind]) => kind !== 'done').map(row => row[3]);
+    if (!amounts.length) return '';
     return `<button type="button" class="hub-pad" data-pad-open aria-label="Открыть страницу: за что дают монеты за помощь сайту и сколько">
       <span class="hub-pad-dev" aria-hidden="true"><i>🎁</i></span>
-      <span class="hub-pad-tx"><b>Монеты за помощь сайту — от 50 до ${top} ₿</b>
-        <span>Нажми и получи монеты. Начисление даже за самые маленькие исправления</span></span>
+      <span class="hub-pad-tx"><b>Монеты за помощь сайту — от ${Math.min(...amounts)} до ${Math.max(...amounts)} ₿</b>
+        <span>Награды за идеи, улучшения интерфейса и найденные ошибки</span></span>
       <span class="hub-pad-go" aria-hidden="true">Открыть<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>`;
   }
   function renderHub(enter) {
@@ -10979,14 +10983,20 @@
           : `<div class="sp-reply" data-sp-box><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
           <div class="sp-row">${SP_PICK}<button type="button" class="btn" data-sp-reply>Отправить</button></div></div>`}</div>`;
     }).join('');
-    const form = idea ? `<p class="fm-note sp-reward">🎁 За полезную идею — монеты, от 50 ₿. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>
+    const amounts = new Map((RULES.support_rewards || []).map(([kind, , , amount]) => [kind, amount]));
+    const rewardLabels = idea
+      ? [['idea', 'За полезную идею'], ['ux', 'За предложение по удобству интерфейса'], ['done', 'Бонус за реализацию идеи']]
+      : [['bug', 'За найденную ошибку'], ['ux', 'За предложение по удобству интерфейса'], ['critical', 'За критическую уязвимость или другую важную ошибку']];
+    const rewardText = rewardLabels.filter(([kind]) => amounts.has(kind))
+      .map(([kind, label]) => `${label} — ${amounts.get(kind)} ₿`).join('. ');
+    const form = idea ? `
       <p class="fm-note">Есть идея, как сделать Egeshka лучше? Новый режим, задания, подарки, что-то неудобно — напиши.
         Учитель прочитает и ответит здесь. Можно приложить картинку: «📎 Картинка» или Ctrl+V в поле.</p>
       <form class="sp-form" id="spForm" data-sp-box>
         <input type="hidden" id="spKind" value="idea">
         <textarea class="inp" id="spText" maxlength="2000" placeholder="Моя идея: что добавить или улучшить и зачем" required></textarea>
         <div class="sp-row"><span></span>${SP_PICK}<button type="submit" class="btn primary">💡 Отправить идею</button></div>
-      </form>` : `<p class="fm-note sp-reward">🎁 За найденные ошибки, идеи и предложения по дизайну — монеты, от 50 ₿. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>
+      </form>` : `
       <p class="fm-note">Нашёл ошибку в задании, что-то не работает или есть вопрос — напиши. Можно приложить скриншот: кнопка «📎 Картинка» или Ctrl+V в поле. Обращение получит учитель, ответ появится здесь.</p>
       <form class="sp-form" id="spForm" data-sp-box>
         <select class="inp" id="spKind">${kinds}</select>
@@ -10999,6 +11009,7 @@
         <button type="button" role="tab" aria-selected="${!idea}" class="${idea ? '' : 'on'}" data-sp-tab="help">${SUPPORT_ICON} Обращения${dot(false)}</button>
         <button type="button" role="tab" aria-selected="${idea}" class="${idea ? 'on' : ''}" data-sp-tab="idea">💡 Пожелания${dot(true)}</button>
       </div>
+      ${rewardText ? `<p class="fm-note sp-reward">🎁 ${rewardText}. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>` : ''}
       ${form}
       ${list ? `<h3 class="fm-sub">${idea ? 'Мои пожелания' : 'Мои обращения'}</h3><div class="sp-list">${list}</div>` : ''}`;
     $('#forecastModal').hidden = false;
