@@ -59,7 +59,6 @@ window.EgeLearningSections = function (bridge) {
         appState.COURSE_OK = true;
         await loadCourseSets();
         if (!current()) return;
-        $('#courseCard')?.classList.remove('locked');
         toast('Курс открыт 🎓', 2500);
         openCourse();
       } catch (err) { if (!current()) return; msg.textContent = err.message || 'Не получилось — попробуйте ещё раз'; }
@@ -69,15 +68,33 @@ window.EgeLearningSections = function (bridge) {
     const st = numStats(n);
     return st.lvl === 'good' ? 'done' : st.lvl === 'none' ? 'new' : 'go';
   }
-  function openCourse() {
+  async function openCourse() {
     if (!leaveExam()) return;
-    ++courseLessonRequest;
+    const request = ++courseLessonRequest, current = learningSessionGuard();
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
     appState.courseShown = true;
     appState.pageKind = null;
     appState.cur = null;
     navPush({ v: 'course' });
+    if (!appState.COURSE_OK && SERVER && appState.student) {
+      const active = () => current() && request === courseLessonRequest && appState.courseShown && appState.pageKind === null;
+      $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span>';
+      trainerEl.innerHTML = '<p class="fm-note" role="status">Проверяю доступ к курсу…</p>';
+      try {
+        const me = await api('me');
+        if (!active()) return;
+        if (me.sid !== appState.student.sid) throw Error('Изменился аккаунт. Обнови страницу.');
+        appState.COURSE_OK = !!me.course;
+        if (appState.COURSE_OK) await loadCourseSets();
+        if (!active()) return;
+      } catch (err) {
+        if (!active()) return;
+        trainerEl.innerHTML = '<section class="fm-note"><p role="alert">Не удалось проверить доступ к курсу.</p><button type="button" class="btn" data-course-retry>Повторить</button></section>';
+        trainerEl.querySelector('[data-course-retry]').addEventListener('click', openCourse);
+        return;
+      }
+    }
     if (!appState.COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
     loadCourseCoverage();
     const all = COURSE.filter(m => !m.archive).flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
@@ -716,8 +733,19 @@ window.EgeLearningSections = function (bridge) {
     if (e.target.matches('.pyc-ans')) { const m = e.target.closest('.pyc-task').querySelector('.pyc-msg'); m.textContent = ''; m.className = 'pyc-msg'; }
   });
   /** Учитель задал пароль, закрыл курс всем или выключил его — замок и экран курса обновляются сразу. */
-  function refreshLearningAccess() {
-    if (appState.courseShown && appState.pageKind === 'pyc') { if (appState.PYC_OK) { if (!PYC_L) openPyc(); } else pycLock(); }
+  function refreshLearningAccess(changed, pythonSettings) {
+    if (!appState.courseShown) return;
+    if (appState.pageKind === null && changed.course) {
+      if (appState.COURSE_OK) openCourse();
+      else { ++courseLessonRequest; appState.DECK = null; courseLock(); }
+    }
+    if (appState.pageKind === 'lab' && changed.lab) openLab(LAB.view);
+    if (appState.pageKind === 'ardgate' && changed.arduino) openArdGate();
+    if (appState.pageKind === 'pyc' && (changed.python || pythonSettings)) {
+      if (!appState.PYC_OK) {
+        if (changed.python) { ++pycLevelRequest; PYC_L = null; pycStopTests(); pycLock(); }
+      } else if (!PYC_L || changed.python) openPyc();
+    }
   }
 
   trainerEl.addEventListener('toggle', e => {
@@ -914,13 +942,13 @@ window.EgeLearningSections = function (bridge) {
     try { const me = await api('me'); if (!current() || ticket !== labLoadId) return; appState.ARD_OK = !!me.ard; appState.ARD_PW = !!me.ard_pw; }
     catch (err) { if (!current() || ticket !== labLoadId) return; if (appState.pageKind === 'ardgate') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Попробуй ещё раз.</p>'; netError(err); } return; }
     if (!current() || ticket !== labLoadId || appState.pageKind !== 'ardgate' || !appState.courseShown) return;
-    if (appState.ARD_OK) { location.href = 'arduino/'; return; }
+    if (appState.ARD_OK) { location.replace('arduino/'); return; }
     trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатория Arduino — по паролю</h2>
       <p>${appState.ARD_PW ? 'Это отдельный раздел: пароль выдаёт учитель, он не совпадает с паролем лабораторий. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не открыл лабораторию Arduino.'}</p>
       ${appState.ARD_PW ? '<form id="ardPasswordForm" class="login-form crs-lock-form"><input id="ardPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лаборатории Arduino" aria-label="Пароль лаборатории Arduino" required><button class="btn primary">Открыть</button></form><p id="ardPasswordError" role="alert"></p>' : ''}</div></div>`;
     $('#ardPasswordForm')?.addEventListener('submit', async e => {
       e.preventDefault(); const btn = e.currentTarget.querySelector('button'), msg = $('#ardPasswordError'); btn.disabled = true;
-      try { await api('arduino/unlock', { password: $('#ardPassword').value }); if (!current()) return; appState.ARD_OK = true; location.href = 'arduino/'; }
+      try { await api('arduino/unlock', { password: $('#ardPassword').value }); if (!current()) return; appState.ARD_OK = true; location.replace('arduino/'); }
       catch (err) { msg.textContent = err.message; btn.disabled = false; }
     });
   }
@@ -982,7 +1010,7 @@ window.EgeLearningSections = function (bridge) {
       try {
         const access = await api('lab');
         if (!current() || ticket !== labLoadId || appState.pageKind !== 'lab' || !appState.courseShown) return;
-        appState.LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !appState.LAB_OK);
+        appState.LAB_OK = !!access.access;
         if (!appState.LAB_OK) { labLock(access.pw, view); return; }
         await loadCourseCoverage();
         if (!current() || ticket !== labLoadId || appState.pageKind !== 'lab' || !appState.courseShown) return;
@@ -1000,7 +1028,7 @@ window.EgeLearningSections = function (bridge) {
     const [title, sub] = titles[view];
     trainerEl.innerHTML = `<div class="lab" id="labRoot">
       ${LAB.context ? `<div class="learning-return"><button class="btn" type="button" data-learning-return>← Вернуться к уроку</button><span>${esc(LAB.context.label || 'Код и условие урока')}</span>${LAB.context.condition ? `<div class="cond">${safeHtml(LAB.context.condition)}</div>` : ''}</div>` : ''}
-      ${view ? '<button type="button" class="link-btn lab-back" data-lab-view="">← Все лаборатории</button>' : ''}
+      ${view ? '<button type="button" class="link-btn lab-back" data-open-learning-group="labs">← Все лаборатории</button>' : ''}
       <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>${title}</h1><p>${sub}</p></div></header>
       ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : view === 'bugs' ? bugLabHtml() : `<div class="lab-cards">
         <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">${courseCoverage?.labs ? '№ ' + courseCoverage.labs.filter(m => !m.archive).map(m => esc(m.label)).join(' · ') : 'Модели заданий'}</span><h2>По заданиям ЕГЭ</h2><p>Алгоритмы над числами, изображения, подсети, логика, пары, игры, строки, маски, сортировка и кластеры — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
@@ -1011,6 +1039,10 @@ window.EgeLearningSections = function (bridge) {
     if (view === 'tasks') labRenderModel();
     if (view === 'code') { if (LAB.result && !LAB.seen) labIndexSteps(); labPaintEditor(); labRenderStep(); }
     if (view === 'bugs') bugLabInit();
+    if (SERVER && (view === 'tasks' || view === 'code')) {
+      const activity = view === 'tasks' ? { section: 'model', model: LAB.mode } : { section: 'code' };
+      api('lab/activity', activity).catch(() => {});  // статистика просмотра не блокирует работу модели
+    }
     window.scrollTo(0, 0);
   }
   function labTasksHtml() {

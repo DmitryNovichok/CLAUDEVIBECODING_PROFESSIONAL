@@ -731,12 +731,14 @@ test('teacher student list ignores the previous filter response',async()=>{
 test('daily and duel tiles keep their slots before data arrives and after a failed refresh',()=>{
   const nodes={};const c=vm.createContext({SERVER:true,student:{sid:1},TEACHER:false,DAILY:null,DAILY_STATE:'loading',
     P:{log:[]},ASG:[],asgPending:()=>false,GAME:{coins:0},EX:null,LAB_OK:true,ARD_OK:false,IM_OK:false,IM_PW:false,TOUR:null,prefs:{fav:[]},
+    openCourse(){},openPyc(){},openArdGate(){},
     hubMastered:()=>'',hubMap:()=>'',hubWeekBars:()=>'',dailyNotice:()=> 'Загружаем задание…',
     numLabel:String,plural:()=>'',viewPrefs:()=>({focus:false}),$:id=>nodes[id]||{hidden:true,textContent:'вызови соперника'}});
-  for(const id of ['#labCard','#pycCard','#coinCard'])nodes[id]={hidden:false};
-  vm.runInContext(sourceBetween('src/app/13c-hub.js','  function hubTiles()', '  function hubMastered()'),c);
+  nodes['#coinCard']={hidden:false};
+  vm.runInContext(sourceBetween('src/app/13c-hub.js','  const HUB_LEARNING_GROUPS', '  function hubMastered()'),c);
   const initial=Array.from(c.hubTiles(),x=>x.k);
   assert.ok(initial.includes('daily'));assert.ok(initial.includes('duel'));
+  assert.deepEqual(initial.filter(key=>['courses','labs','course','python','lab','arduino'].includes(key)),['courses','labs']);
   assert.equal(c.hubTiles().find(x=>x.k==='duel').name,'Дуэли');                 // турниры выключены — плитка только про дуэли
   c.TOUR={tours:true};assert.equal(c.hubTiles().find(x=>x.k==='duel').name,'Дуэли и турниры');c.TOUR=null;
   c.DAILY={ready:true,n:5,started:null};c.DAILY_STATE='ready';

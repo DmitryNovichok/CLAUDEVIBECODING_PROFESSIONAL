@@ -65,7 +65,7 @@
             buf = buf.slice(i + 2);
             if (ev === 'hello') {
               got = true;
-              if (LV.was) { liveSend('comp'); liveSend('asg'); liveSend('together'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
+              if (LV.was) { liveSend('comp'); liveSend('asg'); liveSend('together'); liveSend('pyc'); checkVersion(); }   // переподключились (сервер перезапускали?) — догнать пропущенное и проверить версию
               LV.was = true;
             } else if (ev) liveSend(ev);
           }

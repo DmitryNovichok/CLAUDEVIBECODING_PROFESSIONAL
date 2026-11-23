@@ -621,7 +621,6 @@
     if (t.closest('#sumDuels')) { closeForecast(); return tourOpen(); }
   });
   $('#dailyCard').addEventListener('click', openDaily);
-  $('#courseCard')?.addEventListener('click', openCourse);
   $('#duelCard').addEventListener('click', () => tourOpen());
 
   /** При входе (не в первый раз) — раз в день сводка: итоги недели, кто обогнал, задание дня, вызовы, лига. */

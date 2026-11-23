@@ -54,7 +54,6 @@
         appState.COURSE_OK = true;
         await loadCourseSets();
         if (!current()) return;
-        $('#courseCard')?.classList.remove('locked');
         toast('Курс открыт 🎓', 2500);
         openCourse();
       } catch (err) { if (!current()) return; msg.textContent = err.message || 'Не получилось — попробуйте ещё раз'; }
@@ -64,15 +63,33 @@
     const st = numStats(n);
     return st.lvl === 'good' ? 'done' : st.lvl === 'none' ? 'new' : 'go';
   }
-  function openCourse() {
+  async function openCourse() {
     if (!leaveExam()) return;
-    ++courseLessonRequest;
+    const request = ++courseLessonRequest, current = learningSessionGuard();
     if (isNarrow()) setSideOpen(false);
     abandonCurrent();
     appState.courseShown = true;
     appState.pageKind = null;
     appState.cur = null;
     navPush({ v: 'course' });
+    if (!appState.COURSE_OK && SERVER && appState.student) {
+      const active = () => current() && request === courseLessonRequest && appState.courseShown && appState.pageKind === null;
+      $('#scopeInfo').innerHTML = '<span class="scope-title">Курс</span>';
+      trainerEl.innerHTML = '<p class="fm-note" role="status">Проверяю доступ к курсу…</p>';
+      try {
+        const me = await api('me');
+        if (!active()) return;
+        if (me.sid !== appState.student.sid) throw Error('Изменился аккаунт. Обнови страницу.');
+        appState.COURSE_OK = !!me.course;
+        if (appState.COURSE_OK) await loadCourseSets();
+        if (!active()) return;
+      } catch (err) {
+        if (!active()) return;
+        trainerEl.innerHTML = '<section class="fm-note"><p role="alert">Не удалось проверить доступ к курсу.</p><button type="button" class="btn" data-course-retry>Повторить</button></section>';
+        trainerEl.querySelector('[data-course-retry]').addEventListener('click', openCourse);
+        return;
+      }
+    }
     if (!appState.COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
     loadCourseCoverage();
     const all = COURSE.filter(m => !m.archive).flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;

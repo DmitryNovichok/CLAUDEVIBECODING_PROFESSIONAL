@@ -103,6 +103,8 @@ def _registry():
     add(Access.PARENT, 'GET POST', 'parent')
     add(Access.PARTICIPANT, 'GET POST', 'together/file')
     add(Access.LESSON_TEACHER, 'POST', 'together/file/delete')
+    add(Access.STUDENT, 'POST', 'lab/activity')
+    add(Access.TEACHER, 'GET', 'admin/lab/stats')
     add(Access.STUDENT, 'GET', 'live')
     add(Access.TEACHER, 'GET', 'admin/live')
     add(Access.STUDENT, 'GET', 'html')

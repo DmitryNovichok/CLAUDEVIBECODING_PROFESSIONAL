@@ -173,7 +173,9 @@
   let teachers = [];
   async function loadMe() {
     const previous = bldKey();
+    const previousTeacher = ME.id;
     ME = await api('me');
+    if (ME.id !== previousTeacher) resetLearningReports();
     if (ME.onboarding && !ME.onboarding.ready) { showMailGate(); throw Object.assign(new Error('Дождитесь обеих проверок'), { status: 401 }); }
     if (previous !== bldKey()) bldLoad();
     document.body.classList.toggle('is-main', !!ME.is_main);
@@ -1357,12 +1359,18 @@
   });
 
 
-  // ------------------------------------------------------------ прогресс курса (главный учитель)
+  // ------------------------------------------------------------ прогресс курса ЕГЭ
   const CP = { d: null, open: null, detail: {} };
   const CP_SETS = ['warm', 'base', 'exam', 'hard', 'test'];
   const pctColor = p => p >= 75 ? 'var(--good)' : p >= 40 ? 'var(--mid)' : p > 0 ? 'var(--weak)' : 'var(--muted)';
+  async function learningApi(path, body) {
+    const teacher = ME.id;
+    const result = await api(path, body);
+    if (teacher !== ME.id) throw Object.assign(new Error('Аккаунт изменился'), { status: 401 });
+    return result;
+  }
   async function loadCourseProgress() {
-    try { CP.d = await api('course/progress'); } catch (err) { if (err.status !== 401) $('#cpBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    try { CP.d = await learningApi('course/progress'); } catch (err) { if (err.status !== 401) $('#cpBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     CP.detail = {};
     renderCourseProgress();
   }
@@ -1401,7 +1409,7 @@
         ${card('Занимались за неделю', d.students.filter(s => (s.last_task || 0) >= week).length, 'решали задания из подборок курса')}
       </div>
       <div class="adm-table-wrap" style="margin-top:12px"><table class="adm-table cp-table"><thead><tr><th>Ученик</th><th>Открыл курс</th>${heads}<th class="num">Итог</th><th>Последнее решение</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="${4 + d.lessons.length * 6}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Курс пока никто не открыл — сообщите ученикам пароль курса (вкладка «Настройки»).'}</td></tr>`}</tbody></table></div>`;
+        <tbody>${rows || `<tr><td colspan="${4 + d.lessons.length * 6}" class="adm-empty">${d.students.length ? 'Никого не найдено' : 'Курс пока никто не открыл.'}</td></tr>`}</tbody></table></div>`;
   }
   function cpDetailHtml(sid) {
     const x = CP.detail[sid];
@@ -1425,7 +1433,7 @@
     CP.open = CP.open === id ? null : id;
     renderCourseProgress();
     if (CP.open && !CP.detail[id]) {
-      try { CP.detail[id] = (await api('course/progress?id=' + id)).students[0]; } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      try { CP.detail[id] = (await learningApi('course/progress?id=' + id)).students[0]; } catch (err) { if (err.status !== 401) toast(err.message); return; }
       if (CP.open === id) renderCourseProgress();
     }
   });
@@ -2112,7 +2120,7 @@
     b.closest('[data-im-bank]').innerHTML = imBankHtml(IMT.bank[b.dataset.imLoad]);
   });
   async function loadArd() {
-    try { ARD.d = await api('arduino'); } catch (err) { if (err.status !== 401) $('#ardBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    try { ARD.d = await learningApi('arduino'); } catch (err) { if (err.status !== 401) $('#ardBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     ARD.detail = {};
     renderArd();
   }
@@ -2160,7 +2168,7 @@
     if (ARD.open === id) { ARD.open = null; renderArd(); return; }
     ARD.open = id; renderArd();
     if (!ARD.detail[id]) {
-      try { ARD.detail[id] = await api('arduino/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      try { ARD.detail[id] = await learningApi('arduino/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
       if (ARD.open === id) renderArd();
     }
   });
@@ -2170,7 +2178,7 @@
   // ------------------------------------------------------------ курс «Программирование для ЕГЭ»: доступ и прогресс
   const PYA = { d: null, open: null, detail: {} };
   async function loadPyc() {
-    try { PYA.d = await api('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    try { PYA.d = await learningApi('pyc'); } catch (err) { if (err.status !== 401) $('#pycBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
     PYA.detail = {};
     renderPyc();
   }
@@ -2233,12 +2241,12 @@
     const fb = e.target.closest('[data-pya-free]');
     if (fb) {
       try {
-        await api('pyc/free', { student_id: +fb.dataset.pyaFree, on: fb.dataset.on === '1' });
+        await learningApi('pyc/free', { student_id: +fb.dataset.pyaFree, on: fb.dataset.on === '1' });
         toast(fb.dataset.on === '1' ? 'Все уровни открыты — у ученика замки пропадут сразу' : 'Замки уровней возвращены');
       } catch (err) { if (err.status !== 401) toast(err.message); }
       const open = PYA.open;
       await loadPyc();
-      if (open) { PYA.open = open; try { PYA.detail[open] = await api('pyc/student?id=' + open); } catch (err) { /* таблица уже обновлена */ } renderPyc(); }
+      if (open) { PYA.open = open; try { PYA.detail[open] = await learningApi('pyc/student?id=' + open); } catch (err) { /* таблица уже обновлена */ } renderPyc(); }
       return;
     }
     const sq = e.target.closest('[data-pya-task]');
@@ -2249,7 +2257,7 @@
     PYA.open = PYA.open === id ? null : id;
     renderPyc();
     if (PYA.open && !PYA.detail[id]) {
-      try { PYA.detail[id] = await api('pyc/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
+      try { PYA.detail[id] = await learningApi('pyc/student?id=' + id); } catch (err) { if (err.status !== 401) toast(err.message); return; }
       if (PYA.open === id) renderPyc();
     }
   });
@@ -2637,11 +2645,85 @@
     } catch (err) { b.disabled = false; if (err.status !== 401) toast(err.message); }
   });
 
+  // Открытия моделей и отладчика, а также решения лаборатории ошибок приходят одним отчётом.
+  let labStats = null;
+  let labRequest = null;
+  const labColumns = {
+    models: ['Открыто моделей', 'Последнее открытие'],
+    trace: ['Последнее открытие отладчика'],
+    bugs: ['Начато задач', 'Решено', 'Проверено сервером'],
+  };
+  function renderLabStats(kind, data) {
+    const query = $('#' + kind + 'Find').value.trim().toLowerCase();
+    const columns = labColumns[kind];
+    const rows = data.students.filter(s => s.name.toLowerCase().includes(query)).map(s => {
+      let values;
+      if (kind === 'models') values = [s.models + ' / ' + data.model_total, s.models_last ? fmtWhen(s.models_last) : '—'];
+      else if (kind === 'trace') values = [s.code_last ? fmtWhen(s.code_last) : '—'];
+      else values = [s.bugs + ' / ' + data.bugs_total, s.bugs_ok, s.bugs_verified];
+      return `<tr><td class="name">${esc(s.name)}<small>${esc(s.class || 'без класса')}</small></td>
+        ${values.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`;
+    });
+    const empty = query ? 'Никого не найдено' : 'Пока нет учеников с доступом или записанными занятиями.';
+    $('#' + kind + 'Body').innerHTML = `<div class="adm-table-wrap"><table class="adm-table cp-table">
+      <thead><tr><th>Ученик</th>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>${rows.join('') || `<tr><td colspan="${columns.length + 1}" class="adm-empty">${empty}</td></tr>`}</tbody></table></div>`;
+  }
+  async function loadLabStats(refresh = false) {
+    if (refresh) labStats = null;
+    const reports = () => Object.keys(labColumns).filter(k => $(`[data-learning-report="${k}"]`).open);
+    if (!labStats) {
+      const request = labRequest || (labRequest = learningApi('lab/stats'));
+      try {
+        const data = await request;
+        if (labRequest !== request) return;
+        labStats = data;
+      } catch (err) {
+        if (labRequest === request && err.status !== 401) {
+          reports().forEach(k => { $('#' + k + 'Body').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; });
+        }
+        return;
+      } finally {
+        if (labRequest === request) labRequest = null;
+      }
+    }
+    reports().forEach(k => renderLabStats(k, labStats));
+  }
+  Object.keys(labColumns).forEach(k => {
+    $('#' + k + 'Find').addEventListener('input', () => { if (labStats) renderLabStats(k, labStats); });
+    $('#' + k + 'Reload').addEventListener('click', () => loadLabStats(true));
+  });
+  const learningReports = {
+    course: loadCourseProgress, pyc: loadPyc, ard: loadArd,
+    models: loadLabStats, trace: loadLabStats, bugs: loadLabStats,
+  };
+  function resetLearningReports() {
+    labRequest = null;
+    labStats = null;
+    for (const state of [CP, PYA, ARD]) {
+      state.d = null;
+      state.open = null;
+      state.detail = {};
+    }
+    $$('#view-learning [data-learning-report]').forEach(panel => {
+      panel.open = false;
+      panel.querySelector('input').value = '';
+      panel.querySelector('[id$="Body"]').innerHTML = '<p class="adm-hint">Загружаю…</p>';
+    });
+  }
+  $$('#view-learning [data-learning-report]').forEach(panel => {
+    panel.addEventListener('toggle', () => {
+      if (panel.open && tab === 'learning') learningReports[panel.dataset.learningReport]();
+    });
+  });
+
   // ------------------------------------------------------------ вкладки
   let tab = 'overview';
   let backTab = 'overview';            // куда вернуться из карточки ученика
-  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'course', 'security'];
+  const MAIN_ONLY_TABS = ['gifts', 'econ', 'supply', 'teachers', 'site', 'errors', 'access', 'security'];
   function go(t) {
+    const report = Object.hasOwn(learningReports, t) ? t : null;
+    if (report) t = 'learning';
     if (MAIN_ONLY_TABS.includes(t) && !ME.is_main) t = 'overview';   // экономика, подарки и сервис сайта — только главный учитель
     ++studentLoadVersion;                 // ответ старой карточки не должен возвращать из другого раздела
     if (t !== 'student') studentLoadId = null;
@@ -2650,15 +2732,19 @@
     tab = t;
     if (['comp', 'gifts', 'econ', 'supply'].includes(t)) navMotiv(true);
     $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t || (t === 'student' && b.dataset.tab === backTab)));
-    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'course', 'comp', 'pyc', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'ard', 'security', 'im'].forEach(v => { $('#view-' + v).hidden = v !== t; });
+    ['overview', 'students', 'classes', 'teachers', 'student', 'feed', 'settings', 'site', 'build', 'learning', 'comp', 'gifts', 'econ', 'supply', 'errors', 'tog', 'archive', 'access', 'mcko', 'security', 'im'].forEach(v => { $('#view-' + v).hidden = v !== t; });
     document.body.classList.toggle('builder-open', t === 'build');
     if (t === 'overview') loadOverview();
     if (t === 'tog') loadTog();
     if (t === 'errors') loadErrors(true);
     if (t === 'security') loadSecurity();
-    if (t === 'course') loadCourseProgress();
-    if (t === 'pyc') loadPyc();
-    if (t === 'ard') loadArd();
+    if (t === 'learning' && report) {
+      $(`[data-learning-report="${report}"]`).open = true;
+    } else if (t !== 'learning') {
+      labStats = null;
+      labRequest = null;
+      $$('#view-learning details[open]').forEach(panel => { panel.open = false; });
+    }
     if (t === 'gifts') loadGifts();
     if (t === 'econ') loadEcon();
     if (t === 'supply') loadSupply();
@@ -4540,10 +4626,10 @@
     if (batchOpen && batchBox()) batchLoad();
     const jr = tab === 'classes' && curClass && (clsPane === 'journal' || clsPane === 'nums');
     if (jr && Date.now() - jrAt > 10000) { jrAt = Date.now(); loadGradebook(); }
-    if (tab === 'pyc' && PYA.d && Date.now() - pyaAt > 10000) {          // ученик решил задачу курса — обновить таблицу
+    if (tab === 'learning' && $('[data-learning-report="pyc"]').open && PYA.d && Date.now() - pyaAt > 10000) {
       pyaAt = Date.now();
       const open = PYA.open;
-      loadPyc().then(() => { if (open && PYA.open === open) api('pyc/student?id=' + open).then(r => { PYA.detail[open] = r; renderPyc(); }).catch(() => {}); });
+      loadPyc().then(() => { if (open && PYA.open === open) learningApi('pyc/student?id=' + open).then(r => { PYA.detail[open] = r; renderPyc(); }).catch(() => {}); });
     }
   }
   let pyaAt = 0;

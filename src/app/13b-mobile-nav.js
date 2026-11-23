@@ -58,5 +58,6 @@
     // Документ не должен закрыть только что открытое окно или меню звуков.
     e.stopPropagation();
     if (button.hasAttribute('data-mobile-numbers')) openNumbers();
+    else if (button.dataset.mobileGroup) openLearningDirectory(button.dataset.mobileGroup);
     else if (button.dataset.mobileTarget) $('#' + button.dataset.mobileTarget)?.click();
   });

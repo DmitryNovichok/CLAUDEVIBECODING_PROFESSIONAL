@@ -19,12 +19,12 @@ function harness() {
     setTimeout:fn=>{timers.set(++tick,fn);return tick},clearTimeout:id=>timers.delete(id),clearInterval(){},
     localStorage:{getItem:()=>null},$:node,$$:()=>[],ARCHIVE:{},COURSE:[],COURSE_SETS:[],COURSE_SET_NOTES:{},
     EgePythonWorker:class{},MARK:{},MARK_BTN:'',NUM_TOPIC:[],PY:{},PY_KW:new Set(),RULES:{},SERVER:true,TASKS:[],byId:new Map(),
-    abandonCurrent(){},api:async path=>path==='pyc'?{access:false,pw:false}:path==='course/coverage'?{topics:[]}:path==='me'?{}:{access:false,pw:false},
+    abandonCurrent(){},api:async path=>path==='pyc'?{access:false,pw:false}:path==='course/coverage'?{topics:[]}:path==='me'?{sid:5}:{access:false,pw:false},
     asgLeft:()=>[],badgeCls:()=>'',bdOpen:()=>false,codeKey:x=>x,courseSet:()=>null,esc:String,highlightPy:String,htmlWait(){},
     isNarrow:()=>false,leaveExam:()=>true,loadCourseSets(){},markAttach(){},navPush(){},needHtml:()=>false,netError(){},
     numLabel:String,numStats:()=>({lvl:'none'}),openSetTask(){},pct:x=>x,plural:()=>'',pyOpen:()=>false,pySync(){},
     readCode:()=>null,readJSON:()=>null,renderMath(){},renderSidebar(){},safeHtml:String,setScope(){},setSideOpen(){},
-    toast(){},toggleBoard(){},togglePy(){},trainerEl:trainer,visible:()=>true,writeCode(){},writeJSON(){},
+    refreshLearningDirectoryAccess(){},hubRefresh(){},toast(){},toggleBoard(){},togglePy(){},trainerEl:trainer,visible:()=>true,writeCode(){},writeJSON(){},
     courseShown:false,pageKind:'hub',cur:null,student:{sid:5},P:{log:[],tasks:{}},COURSE_OK:false,
     DECK:null,deckI:0,IM_OK:false,IM_PW:false});
   vm.runInContext(loader,c);
@@ -80,6 +80,39 @@ test('real chunk discards pending plan, lesson and lab responses when the accoun
     resolve(kind==='openPyc'?{access:true,modules:[],progress:{}}:kind==='openLesson'?{slides:[]}:{access:true});
     await pending;assert.equal(x.trainer.innerHTML,before);assert.equal(x.c.DECK,null);
   }
+});
+
+test('an open course gate picks up another device grant and an unchanged snapshot leaves the lesson alone',async()=>{
+  const h=harness();let course=false;
+  h.c.api=async path=>path==='me'?{sid:5,course}:path==='course/coverage'?{topics:[]}:{};
+  const first=h.c.openCourse();h.loaded(true);await first;
+  assert.match(h.trainer.innerHTML,/Курс доступен по паролю/);
+  course=true;
+  await h.c.pycLive(false);
+  assert.match(h.trainer.innerHTML,/ЕГЭ по информатике: от №1 до №27/);
+  h.trainer.innerHTML='<div>Урок · слайд 3</div>';
+  await h.c.pycLive(false);
+  assert.equal(h.trainer.innerHTML,'<div>Урок · слайд 3</div>');
+});
+
+test('a delayed grant cannot cross an account reset, even when the same pupil logs back in',async()=>{
+  const h=harness();let resolve;
+  h.c.api=()=>new Promise(r=>{resolve=r});
+  const pending=h.c.pycLive();
+  h.c.resetLearningSession();
+  h.c.student={sid:5};
+  resolve({sid:5,course:true,lab:true,ard:true,pyc:true,im:true});
+  await pending;
+  assert.deepEqual(Array.from(vm.runInContext('[COURSE_OK, LAB_OK, ARD_OK, PYC_OK, IM_OK]',h.c)),[false,false,false,false,false]);
+});
+
+test('a newer access snapshot takes precedence over a delayed older response',async()=>{
+  const h=harness(),replies=[];
+  h.c.api=()=>new Promise(resolve=>replies.push(resolve));
+  const old=h.c.pycLive(),current=h.c.pycLive();
+  replies[1]({sid:5,lab:true});await current;
+  replies[0]({sid:5,lab:false});await old;
+  assert.equal(vm.runInContext('LAB_OK',h.c),true);
 });
 
 test('a help response from a disposed login cannot delete a new request with the same sid and key',async()=>{

@@ -103,13 +103,13 @@
     try { const me = await api('me'); if (!current() || ticket !== labLoadId) return; appState.ARD_OK = !!me.ard; appState.ARD_PW = !!me.ard_pw; }
     catch (err) { if (!current() || ticket !== labLoadId) return; if (appState.pageKind === 'ardgate') { trainerEl.innerHTML = '<p class="fm-note">Не удалось проверить доступ. Попробуй ещё раз.</p>'; netError(err); } return; }
     if (!current() || ticket !== labLoadId || appState.pageKind !== 'ardgate' || !appState.courseShown) return;
-    if (appState.ARD_OK) { location.href = 'arduino/'; return; }
+    if (appState.ARD_OK) { location.replace('arduino/'); return; }
     trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><h2>Лаборатория Arduino — по паролю</h2>
       <p>${appState.ARD_PW ? 'Это отдельный раздел: пароль выдаёт учитель, он не совпадает с паролем лабораторий. После ввода доступ сохранится в твоём аккаунте.' : 'Учитель ещё не открыл лабораторию Arduino.'}</p>
       ${appState.ARD_PW ? '<form id="ardPasswordForm" class="login-form crs-lock-form"><input id="ardPassword" class="inp" type="password" maxlength="200" autocomplete="off" placeholder="Пароль лаборатории Arduino" aria-label="Пароль лаборатории Arduino" required><button class="btn primary">Открыть</button></form><p id="ardPasswordError" role="alert"></p>' : ''}</div></div>`;
     $('#ardPasswordForm')?.addEventListener('submit', async e => {
       e.preventDefault(); const btn = e.currentTarget.querySelector('button'), msg = $('#ardPasswordError'); btn.disabled = true;
-      try { await api('arduino/unlock', { password: $('#ardPassword').value }); if (!current()) return; appState.ARD_OK = true; location.href = 'arduino/'; }
+      try { await api('arduino/unlock', { password: $('#ardPassword').value }); if (!current()) return; appState.ARD_OK = true; location.replace('arduino/'); }
       catch (err) { msg.textContent = err.message; btn.disabled = false; }
     });
   }
@@ -171,7 +171,7 @@
       try {
         const access = await api('lab');
         if (!current() || ticket !== labLoadId || appState.pageKind !== 'lab' || !appState.courseShown) return;
-        appState.LAB_OK = !!access.access; $('#labCard')?.classList.toggle('locked', !appState.LAB_OK);
+        appState.LAB_OK = !!access.access;
         if (!appState.LAB_OK) { labLock(access.pw, view); return; }
         await loadCourseCoverage();
         if (!current() || ticket !== labLoadId || appState.pageKind !== 'lab' || !appState.courseShown) return;
@@ -189,7 +189,7 @@
     const [title, sub] = titles[view];
     trainerEl.innerHTML = `<div class="lab" id="labRoot">
       ${LAB.context ? `<div class="learning-return"><button class="btn" type="button" data-learning-return>← Вернуться к уроку</button><span>${esc(LAB.context.label || 'Код и условие урока')}</span>${LAB.context.condition ? `<div class="cond">${safeHtml(LAB.context.condition)}</div>` : ''}</div>` : ''}
-      ${view ? '<button type="button" class="link-btn lab-back" data-lab-view="">← Все лаборатории</button>' : ''}
+      ${view ? '<button type="button" class="link-btn lab-back" data-open-learning-group="labs">← Все лаборатории</button>' : ''}
       <header class="lab-header"><span class="lab-mark">${labIcon}</span><div><h1>${title}</h1><p>${sub}</p></div></header>
       ${view === 'tasks' ? labTasksHtml() : view === 'code' ? labCodeHtml() : view === 'bugs' ? bugLabHtml() : `<div class="lab-cards">
         <button type="button" class="lab-entry" data-lab-view="tasks"><span class="lab-kicker">${courseCoverage?.labs ? '№ ' + courseCoverage.labs.filter(m => !m.archive).map(m => esc(m.label)).join(' · ') : 'Модели заданий'}</span><h2>По заданиям ЕГЭ</h2><p>Алгоритмы над числами, изображения, подсети, логика, пары, игры, строки, маски, сортировка и кластеры — на наглядных моделях.</p><b>Начать эксперимент →</b></button>
@@ -200,6 +200,10 @@
     if (view === 'tasks') labRenderModel();
     if (view === 'code') { if (LAB.result && !LAB.seen) labIndexSteps(); labPaintEditor(); labRenderStep(); }
     if (view === 'bugs') bugLabInit();
+    if (SERVER && (view === 'tasks' || view === 'code')) {
+      const activity = view === 'tasks' ? { section: 'model', model: LAB.mode } : { section: 'code' };
+      api('lab/activity', activity).catch(() => {});  // статистика просмотра не блокирует работу модели
+    }
     window.scrollTo(0, 0);
   }
   function labTasksHtml() {

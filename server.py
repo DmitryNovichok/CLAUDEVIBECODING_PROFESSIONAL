@@ -77,7 +77,7 @@ import bank_delivery
 import download_delivery
 import http_security
 from learning_content import course_guide, course_coverage
-from learning_catalog import python_metadata
+from learning_catalog import LAB_MODELS, python_metadata
 from teacher_journey import teacher_journey, activation_stats
 import learning_quality
 from private_config import read_private, private_rewards, require_private
@@ -1988,6 +1988,9 @@ class DB(Transactional):
             CREATE INDEX IF NOT EXISTS xp_adjust_student ON xp_adjust(student_id);
             -- дни, засчитанные огоньку без трёх заданий: freeze — сработала заморозка, restore — восстановил учитель
             -- лаборатория исправления ошибок: что решено, с какой попытки и насколько точной правкой (star)
+            CREATE TABLE IF NOT EXISTS lab_activity(
+                student_id INTEGER NOT NULL, item TEXT NOT NULL, last_opened REAL NOT NULL,
+                PRIMARY KEY(student_id, item));
             CREATE TABLE IF NOT EXISTS buglab(
                 student_id INTEGER NOT NULL, case_id TEXT NOT NULL, ok INTEGER NOT NULL DEFAULT 0, tries INTEGER NOT NULL DEFAULT 0,
                 star INTEGER NOT NULL DEFAULT 0, seen INTEGER NOT NULL DEFAULT 0, first_ts REAL, ok_ts REAL, code TEXT,
@@ -2411,7 +2414,7 @@ def delete_student(db, sid):
             db.x("UPDATE together SET students=? WHERE id=?", (json.dumps([x for x in members if x != sid]), row["id"]))
     for table in ("student_sessions", "attempts", "reveal_log", "exams", "activity", "solutions", "solution_history", "daily_starts", "daily_results",
                   "asg_runs", "asg_events", "leagues", "course_seen", "awards", "support", "xp_adjust", "fire_cover", "tour_votes", "duel_queue",
-                  "arduino_progress", "mcko_runs", "im_attempts", "im_trials", "learning_mistakes", "buglab", "buglab_jobs", "support_rewards"):
+                  "arduino_progress", "mcko_runs", "im_attempts", "im_trials", "learning_mistakes", "lab_activity", "buglab", "buglab_jobs", "support_rewards"):
         db.x(f"DELETE FROM {table} WHERE student_id=?", (sid,))
     db.x("DELETE FROM support_msgs WHERE support_id NOT IN (SELECT id FROM support)")    # переписка и картинки техподдержки
     if db.q("SELECT 1 FROM sqlite_master WHERE name='lesson_readiness' AND type='table'", one=True):
@@ -4154,11 +4157,16 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             account_write = method == "POST" and path in ACCOUNT_WRITE_PATHS
             if account_write:
                 self._account_delay = 0
-            if path != "/api/lab/bugs/verify" and (financial_path(path) or account_write or (method == "POST" and (path in LEARNING_PROGRESS_WRITES or path == "/api/admin/student/rename"))):
+            student_write = method == "POST" and (path in LEARNING_PROGRESS_WRITES or
+                                                   path in ("/api/im/unlock", "/api/admin/student/rename"))
+            if path != "/api/lab/bugs/verify" and (financial_path(path) or account_write or student_write):
                 # Slow failed authentication only after releasing the shared database lock.
                 self._audit_failures = []
+                self._new_learning_grant_sid = None
                 def after_transaction():
                     self.flush_failed_audit()
+                    if self._new_learning_grant_sid is not None:
+                        LIVE.send([self._new_learning_grant_sid], "pyc")
                     if account_write:
                         time.sleep(self._account_delay)
                 try:
@@ -5132,7 +5140,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not check_pw(str(data.get("password") or "")[:200], stored):
                 return self.err(403, "Неверный пароль раздела «Интеллектуальный мегаполис»")
             db.x("UPDATE students SET im=1 WHERE id=?", (s["id"],))
-            return self.send_json({"access": True})
+            return self.learning_granted(s["id"], {"access": True})
         if not im_access(db, s):
             if path == "/api/im":
                 return self.send_json({"access": False, "pw_set": bool(db.setting("im_pw"))})
@@ -5517,6 +5525,29 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"tasks": [dict(im.public(t), ans=im.shown_answer(t), sol=t["sol"])
                                              for t in im.bank()["tasks"] if t["slot"] == n]})
 
+        if path == "/api/admin/lab/stats" and method == "GET":
+            where, args = self.student_scope()
+            rows = db.q(f"""WITH pupils AS (
+                              SELECT s.id, s.name, s.lab AS unlocked, c.name AS class FROM students s
+                              LEFT JOIN classes c ON s.class_id=c.id WHERE {where}
+                            ), views AS (
+                              SELECT a.student_id, SUM(a.item!='code') AS models,
+                                     MAX(CASE WHEN a.item!='code' THEN a.last_opened END) AS models_last,
+                                     MAX(CASE WHEN a.item='code' THEN a.last_opened END) AS code_last
+                              FROM pupils p JOIN lab_activity a ON a.student_id=p.id GROUP BY a.student_id
+                            ), bugs AS (
+                              SELECT b.student_id, COUNT(*) AS started, SUM(b.ok) AS ok, SUM(b.verified) AS verified
+                              FROM pupils p JOIN buglab b ON b.student_id=p.id GROUP BY b.student_id
+                            )
+                            SELECT p.*, COALESCE(v.models, 0) AS models, v.models_last, v.code_last,
+                                   COALESCE(b.started, 0) AS bugs, COALESCE(b.ok, 0) AS bugs_ok,
+                                   COALESCE(b.verified, 0) AS bugs_verified
+                            FROM pupils p LEFT JOIN views v ON p.id=v.student_id LEFT JOIN bugs b ON p.id=b.student_id
+                            WHERE p.unlocked OR v.student_id IS NOT NULL OR b.student_id IS NOT NULL
+                            ORDER BY p.name, p.id""", args)
+            return self.send_json({"students": [dict(r, unlocked=bool(r["unlocked"])) for r in rows],
+                                   "model_total": len(LAB_MODELS), "bugs_total": len(buglab.CASES)})
+
         if path == "/api/admin/arduino" and method == "GET":
             # прогресс лаборатории Arduino по ученикам этого учителя: курсы 7 класс и 10–11 классы
             where, args = self.student_scope()
@@ -5705,12 +5736,10 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             return self.send_json({"students": [{"name": r["name"], "class": r["cls"], "ts": r["course_ts"]} for r in rows]})
 
         if path == "/api/admin/course/progress":
-            # прогресс курса (главный учитель): кто открыл курс, сколько слайдов просмотрел, сколько решил в каждой подборке
-            if not self.T["is_main"]:
-                return self.err(403, "Прогресс курса видит главный учитель")
+            # Главному доступен существующий общий отчёт, преподавателю — прогресс только его учеников.
             if not APP.bank.ensure():
                 return self.err(503, "банк заданий не собран")
-            sets = course_sets_all(True)
+            sets = course_sets_all(bool(self.T["is_main"] or self.T["authored"]))
             lessons = []
             for n in kim.ALL_NUMS:
                 f = HERE / "course" / f"{n}.json"
@@ -5720,16 +5749,20 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     except ValueError:
                         slides = 0
                     lessons.append({"n": n, "slides": slides, "sets": {k: len(v) for k, v in sets.get(n, {}).items()}})
-            names = {t["id"]: t["name"] for t in db.q("SELECT id, name FROM teachers")}
+            teachers = {t["id"]: t for t in db.q("SELECT id, name, authored FROM teachers")}
             main_id = main_teacher()["id"]
-            rows = db.q("""SELECT s.id, s.name, s.course_ts, s.last_seen, s.teacher_id, c.name AS cls FROM students s
-                           LEFT JOIN classes c ON c.id = s.class_id WHERE s.course = 1 AND COALESCE(s.is_teacher, 0) = 0
-                           ORDER BY s.name""")
+            scope, args = ("COALESCE(s.is_teacher,0)=0", ()) if self.T["is_main"] else self.student_scope()
             sid = qs.get("id")
+            if sid:
+                scope += " AND s.id=?"
+                args = (*args, sid)
+            rows = db.q(f"""SELECT s.id, s.name, s.course_ts, s.last_seen, s.teacher_id, c.name AS cls FROM students s
+                            LEFT JOIN classes c ON c.id = s.class_id WHERE s.course = 1 AND {scope}
+                            ORDER BY s.name""", args)
             out = []
             for r in rows:
-                if sid and str(r["id"]) != str(sid):
-                    continue
+                teacher = teachers.get(r["teacher_id"]) or teachers[main_id]
+                student_sets = course_sets_all(bool(teacher["authored"]))
                 seen = {x["n"]: (x["slide"], x["total"]) for x in db.q("SELECT n, slide, total FROM course_seen WHERE student_id=?", (r["id"],))}
                 st = {}
                 for a in db.q("""SELECT COALESCE(grp, task_id) AS t, MAX(score > 0) AS ok, MAX(ts) AS ts FROM attempts
@@ -5738,7 +5771,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 ls, done_all, tot_all, last = {}, 0, 0, None
                 for L in lessons:
                     per = {}
-                    for k, ids in sets.get(L["n"], {}).items():
+                    for k, ids in student_sets.get(L["n"], {}).items():
                         ok = [i for i in ids if st.get(i, (0,))[0]]
                         bad = [i for i in ids if i in st and not st[i][0]]
                         per[k] = {"done": len(ok), "bad": len(bad), "total": len(ids)}
@@ -5755,7 +5788,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     ls[L["n"]] = {"sets": per, "seen": sl[0] if sl else 0, "slides": L["slides"]}
                 slides_seen = sum(v["seen"] for v in ls.values())
                 slides_all = sum(v["slides"] for v in ls.values()) or 1
-                out.append({"id": r["id"], "name": r["name"], "class": r["cls"], "teacher": names.get(r["teacher_id"] or main_id, ""),
+                out.append({"id": r["id"], "name": r["name"], "class": r["cls"], "teacher": teacher["name"],
                             "opened": r["course_ts"], "last_seen": r["last_seen"], "last_task": last, "lessons": ls,
                             "done": done_all, "total": tot_all,
                             # итог: 30% — презентации, 70% — решённые задания подборок

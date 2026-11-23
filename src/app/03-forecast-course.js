@@ -374,7 +374,12 @@
   let COURSE_SRV = {};
   async function loadCourseSets() {
     if (!SERVER || !COURSE_OK) return;
-    try { COURSE_SRV = (await api('course/sets')).sets || {}; } catch (e) { return; }
+    const account = student;
+    try {
+      const result = await api('course/sets');
+      if (student !== account || !COURSE_OK) return;
+      COURSE_SRV = result.sets || {};
+    } catch (e) { return; }
     ASG = ASG.filter(a => !a.course);                // подборки курса пересоберутся из нового состава
   }
   function courseSetTasks(n) {
@@ -465,6 +470,7 @@
     try {
       if (examShown) return;
       if (st.v === 'hub') openHub();
+      else if (st.v === 'courses' || st.v === 'labs') openLearningDirectory(st.v);
       else if (st.v === 'course') openCourse();
       else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();

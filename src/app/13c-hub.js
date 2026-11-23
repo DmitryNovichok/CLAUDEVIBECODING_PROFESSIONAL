@@ -103,6 +103,56 @@
   }
 
   // ------------------------------------------------------------ разделы
+  const HUB_LEARNING_GROUPS = {
+    courses: { name: 'Курсы', icon: 'course', sub: 'ЕГЭ по информатике и программирование на Python', entries: [
+      { key: 'course', name: 'Курс ЕГЭ', sub: 'Уроки и практика по номерам экзамена', access: () => COURSE_OK, go: openCourse },
+      { key: 'python', name: 'Курс Python', sub: 'От основ языка до решения задач ЕГЭ', access: () => PYC_OK, go: openPyc },
+    ] },
+    labs: { name: 'Лаборатории', icon: 'lab', sub: 'Модели ЕГЭ, пошаговый Python и Arduino', entries: [
+      { key: 'tasks', name: 'По заданиям ЕГЭ', sub: 'Эксперименты с моделями заданий', access: () => LAB_OK, go: () => openLab('tasks') },
+      { key: 'code', name: 'Программирование', sub: 'Выполнение Python по шагам и значения переменных', access: () => LAB_OK, go: () => openLab('code') },
+      { key: 'bugs', name: 'Исправление ошибок', sub: 'Поиск и исправление ошибок в чужом решении', visible: () => SERVER, access: () => LAB_OK, go: () => openLab('bugs') },
+      { key: 'arduino', name: 'Лаборатория Arduino', sub: 'Схемы, скетчи и симулятор', visible: () => SERVER && student, access: () => ARD_OK,
+        go: () => { if (ARD_OK) location.href = 'arduino/'; else openArdGate(); } },
+    ] },
+  };
+
+  function refreshLearningDirectoryAccess() {
+    const group = courseShown && HUB_LEARNING_GROUPS[pageKind];
+    if (!group || !SERVER) return;
+    for (const entry of group.entries) {
+      const status = trainerEl.querySelector(`[data-learning-entry="${entry.key}"] .learning-availability`);
+      if (status) status.textContent = entry.access() ? 'Доступ открыт' : 'Доступ у учителя';
+    }
+  }
+
+  function openLearningDirectory(key) {
+    const group = HUB_LEARNING_GROUPS[key];
+    if (!group || !leaveExam()) return;
+    if (pyOpen()) togglePy(false);
+    if (bdOpen()) toggleBoard(false);
+    if (isNarrow()) setSideOpen(false);
+    abandonCurrent();
+    leaveCourse();
+    courseShown = true;
+    pageKind = key;
+    cur = null;
+    navPush({ v: key });
+    renderSidebar();
+    $('#scopeInfo').textContent = '';
+    $('#sessionInfo').textContent = '';
+    const entries = group.entries.filter(entry => !entry.visible || entry.visible());
+    trainerEl.innerHTML = `<section class="learning-directory" aria-labelledby="learningGroupTitle">
+      <h1 id="learningGroupTitle" tabindex="-1">${hubIcon(group.icon, 32)}${group.name}</h1>
+      <div class="learning-entries">${entries.map(entry => `<button type="button" class="learning-entry" data-learning-entry="${entry.key}">
+        <span><strong>${entry.name}</strong><small>${entry.sub}</small></span>
+        ${SERVER ? '<span class="learning-availability"></span>' : ''}</button>`).join('')}</div></section>`;
+    refreshLearningDirectoryAccess();
+    if (SERVER && student) pycLive(false);
+    window.scrollTo(0, 0);
+    $('#learningGroupTitle').focus({ preventScroll: true });
+  }
+
   function hubTiles() {
     const vis = id => { const el = $('#' + id); return !!el && !el.hidden; };
     const allDone = [...P.log].filter(e => !e.b).length;
@@ -120,11 +170,9 @@
     if (SERVER && student && !TEACHER) T.push({ k: 'mcko', name: 'МЦКО', sub: 'тренировочные работы от учителя', btn: 'Открыть', go: () => openMcko() });
     if (SERVER && student && (IM_OK || IM_PW)) T.push({ k: 'im', name: 'Интеллектуальный мегаполис', sub: 'ИТ-класс · теория: 10 заданий, 120 минут, 60 баллов',
       btn: IM_OK ? 'Готовиться' : 'Открыть по паролю', go: () => openIm() });
-    T.push({ k: 'course', name: 'Курс ЕГЭ', sub: '27 тем по плану', btn: 'Открыть курс', go: () => $('#courseCard').click() });
-    if (vis('labCard')) T.push({ k: 'lab', name: 'Лаборатория', sub: 'модели заданий ЕГЭ, Python по шагам, исправление ошибок', btn: 'Открыть', go: () => $('#labCard').click() });
-    if (SERVER && student) T.push({ k: 'arduino', name: 'Лаборатория Arduino', sub: 'схемы, код и симулятор · 2 курса по 36 уроков', btn: ARD_OK ? 'Открыть' : 'Открыть по паролю',
-      go: () => { if (ARD_OK) location.href = 'arduino/'; else openArdGate(); } });
-    if (vis('pycCard')) T.push({ k: 'python', name: 'Курс Python', sub: 'программирование с нуля', btn: 'Открыть', go: () => $('#pycCard').click() });
+    for (const [key, group] of Object.entries(HUB_LEARNING_GROUPS)) {
+      T.push({ k: key, icon: group.icon, name: group.name, sub: group.sub, btn: 'Открыть', go: () => openLearningDirectory(key) });
+    }
     T.push({ k: 'history', name: 'История', sub: `${allDone} ${plural(allDone, 'ответ', 'ответа', 'ответов')}`, extra: hubWeekBars(), badge: bad ? `${bad} ${plural(bad, 'ошибка', 'ошибки', 'ошибок')}` : '',
       btn: bad ? 'Разобрать ошибки' : 'Открыть', go: () => { histFilter = bad ? 'bad' : 'all'; histLimit = 100; openHistory(); } });
     T.push({ k: 'fav', name: 'Избранное', sub: prefs.fav.length ? `${prefs.fav.length} ${plural(prefs.fav.length, 'задание', 'задания', 'заданий')}` : 'отмечай задания звёздочкой',
@@ -263,8 +311,8 @@
         <div class="hub-step-body"><b>${ic}<span class="hub-tt">${esc(it.title)}</span></b><span class="hub-meta">${it.meta.filter(Boolean).map(x => `<span>${x}</span>`).join('')}</span></div>
         <button type="button" class="btn${i === nowIdx ? ' primary' : ''}" data-step-go="${i}">${esc(it.btn)}${i === nowIdx ? ' →' : ''}</button></div>`;
     };
-    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" data-tile-key="${t.k}" style="--sec:${hubColor(t.k)};--i:${i}">
-      ${t.badge ? `<span class="hub-badge">${esc(t.badge)}</span>` : ''}${hubIcon(t.k, 52)}<b>${esc(t.name)}</b><span class="hub-sub">${esc(t.sub)}</span>${t.extra || ''}
+    const tileHtml = (t, i) => `<div class="hub-tile${t.big ? ' big' : ''}" role="button" tabindex="0" data-tile="${i}" data-tile-key="${t.k}" style="--sec:${hubColor(t.icon || t.k)};--i:${i}">
+      ${t.badge ? `<span class="hub-badge">${esc(t.badge)}</span>` : ''}${hubIcon(t.icon || t.k, 52)}<b>${esc(t.name)}</b><span class="hub-sub">${esc(t.sub)}</span>${t.extra || ''}
       <span class="btn hub-act${t.hot ? ' hot' : ''}">${esc(t.btn)}</span></div>`;
     $('#scopeInfo').innerHTML = '<span class="scope-title">Главная</span>';
     const html = `
@@ -359,6 +407,13 @@
     clearTimeout(hubTimer);
   }
   trainerEl.addEventListener('click', e => {
+    const groupButton = e.target.closest('[data-open-learning-group]');
+    if (groupButton) { openLearningDirectory(groupButton.dataset.openLearningGroup); return; }
+    const entryButton = e.target.closest('[data-learning-entry]');
+    if (entryButton && courseShown) {
+      HUB_LEARNING_GROUPS[pageKind]?.entries.find(entry => entry.key === entryButton.dataset.learningEntry)?.go();
+      return;
+    }
     if (!courseShown || pageKind !== 'hub') return;
     const n = e.target.closest('[data-hub-n]');
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
