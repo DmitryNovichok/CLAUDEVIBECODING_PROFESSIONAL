@@ -1241,6 +1241,7 @@
           <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
         </span>
       </div>
+      <div class="type-row" id="taskTypeRow">${typeControlsHtml()}</div>
       ${line ? `<p class="reason">${line}</p>` : ''}
       ${cur.group ? '<div class="gq-list" id="cond"></div>' : `<article class="cond" id="cond">${safeHtml(t.html)}</article>`}
       ${files}
@@ -2894,7 +2895,6 @@
       h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + numLabel(n)}</span>${ARCHIVE[n] ? '<span class="scope-stats">архив · нет в КИМ ЕГЭ-2027</span>' : ''}
         <span class="scope-stats" title="${counts[n]} в банке · решено ${st.solved}">${st.acc != null ? `точность ${pct(st.acc)}%` : `решено ${st.solved}`}</span>
         <span class="chip ${st.lvl === 'none' ? '' : st.lvl}">${LEVEL_TEXT[st.lvl]}${st.s && st.s.a ? ` · ${pct(st.s.m)}%` : ''}</span>
-        ${typeChipHtml(n)}
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
     }
     $('#scopeInfo').innerHTML = h;
@@ -3017,7 +3017,7 @@
     ui.scope = s;
     save();
     renderSidebar();
-    if (!wasExam && !wasPage && cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg') { renderTopbar(); return; }
+    if (!wasExam && !wasPage && cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg') { refreshTaskScope(); return; }
     next();
   }
 
@@ -3030,10 +3030,26 @@
     return [...by.keys()].sort((a, b) => ((order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)))
       .map(c => ({ c, name: ((CLUSTERS[n] || []).find(x => x[0] === c) || [])[1] || 'Без типа', list: by.get(c) }));
   }
-  function typeChipHtml(n) {
-    if (ARCHIVE[n] || typesOf(n).length < 2) return '';
-    const on = typeOn() && typesOf(n).find(x => x.c === ui.cl.c);
-    return `<button type="button" class="chip type-chip${on ? ' on' : ''}" id="typeBtn" title="Выбрать тип задания внутри номера">Тип: <b>${on ? esc(on.name) : 'все вперемешку'}</b> ▾</button>`;
+  /** Строка над условием: какой тип решаем сейчас, кнопка — выбрать другой. Только в отдельном номере. */
+  function typeControlsHtml() {
+    const n = ui.scope;
+    if (typeof n !== 'number' || ARCHIVE[n]) return '';
+    const types = typesOf(n);
+    if (types.length < 2) return '';
+    const on = typeOn() && types.find(x => x.c === ui.cl.c);
+    const cnt = on ? on.list.length : types.reduce((s, x) => s + x.list.length, 0);
+    return `<button type="button" class="type-pick" id="typeBtn" aria-haspopup="dialog" aria-controls="forecastModal">
+      <span class="type-copy"><span class="type-label">Выбрать тип задания</span>
+        <strong>${on ? esc(on.name) : 'Все типы вперемешку'}</strong></span>
+      <span class="type-count" title="Заданий в выбранном режиме">${cnt} ${plural(cnt, 'задание', 'задания', 'заданий')}</span>
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5"/></svg></button>
+      ${on ? '<button type="button" class="link-btn" data-tp="">Сбросить тип</button>' : ''}`;
+  }
+  // Банк, период или номер могут смениться, пока ученик вводит ответ на то же задание.
+  function refreshTaskScope() {
+    renderTopbar();
+    const row = $('#taskTypeRow');
+    if (row) row.innerHTML = typeControlsHtml();
   }
   /** Пример типа — «среднее» по сложности задание; i — какой по счёту (кнопка «Другой пример»). */
   function typeExample(list, i) {
@@ -3078,7 +3094,7 @@
   }
   document.addEventListener('click', e => {
     if (e.target.closest('#typeBtn')) { openTypes(); return; }
-    if (!e.target.closest('#forecastBody')) return;
+    if (!e.target.closest('#forecastBody, .type-row')) return;
     const ex = e.target.closest('[data-tp-ex]');
     if (ex) {
       const box = ex.closest('.tp-row').querySelector('.tp-ex');
@@ -3094,8 +3110,11 @@
     ui.cl = c ? { n: ui.scope, c } : null;
     save();
     closeForecast();
-    renderTopbar();
-    if (cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg' && !c) return;   // «вперемешку» — текущее задание остаётся
+    if (cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg' && !c) {   // «вперемешку» — текущее задание остаётся
+      refreshTaskScope();
+      $('#typeBtn')?.focus({ preventScroll: true });
+      return;
+    }
     next();
   });
 
@@ -3127,7 +3146,7 @@
     save();
     renderSidebar();
     if (examShown) return;
-    if (cur && !cur.done && inScope(cur.task)) { renderTopbar(); return; }
+    if (cur && !cur.done && inScope(cur.task)) { refreshTaskScope(); return; }
     next();
   }
 
@@ -3137,7 +3156,7 @@
     save();
     renderSidebar();
     if (examShown) return;
-    if (cur && !cur.done && inScope(cur.task)) { renderTopbar(); return; }
+    if (cur && !cur.done && inScope(cur.task)) { refreshTaskScope(); return; }
     next();
   }
 
