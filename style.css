@@ -977,10 +977,25 @@ body.tt-big .py-dock { z-index: 80; }
 .hub-fire-pop .hub-fire-go { margin-top: 10px; }
 @media (max-width: 640px) { .streak-menu { right: auto; left: 0; width: min(300px, calc(100vw - 32px)); } }
 
-/* тип задания внутри номера: кнопка в шапке и окно выбора */
-.type-chip { cursor: pointer; font: inherit; font-size: 12.5px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.type-chip b { font-weight: 600; }
-.type-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+/* Выбор типа над условием задания */
+.type-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 6px 0 14px; }
+.type-row:empty { display: none; }
+.type-pick {
+  display: inline-flex; align-items: center; gap: 12px; max-width: 100%; min-height: 48px; padding: 7px 12px;
+  border: 2px solid var(--accent-strong); border-radius: 12px; background: var(--sel); color: var(--text);
+  font: inherit; line-height: 1.25; text-align: left; cursor: pointer;
+}
+.type-copy { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.type-label { font-size: .8em; font-weight: 700; }
+.type-pick strong { font-size: 1em; font-weight: 800; }
+.type-count { white-space: nowrap; border-radius: 8px; padding: 3px 6px; background: var(--card); font-size: .8em; }
+.type-pick svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.type-pick:hover { border-color: var(--text); }
+.type-pick:focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
+@media (max-width: 480px) {
+  .type-pick { width: 100%; gap: 8px; }
+  .type-copy { flex: 1; }
+}
 .tp-all { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; margin: 4px 0 12px; padding: 10px 14px; text-align: left;
   border: 2px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); font: inherit; cursor: pointer; }
 .tp-all small, .tp-head small { color: var(--muted); font-size: 12.5px; }
