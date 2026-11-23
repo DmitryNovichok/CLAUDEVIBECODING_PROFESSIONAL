@@ -473,6 +473,7 @@
           <button type="button" class="icon-btn note-btn${note ? ' on' : ''}" id="noteBtn" aria-expanded="${!!note}" title="Заметка к заданию">✎<span>Заметка</span></button>
         </span>
       </div>
+      ${typeRowHtml()}
       ${line ? `<p class="reason">${line}</p>` : ''}
       ${cur.group ? '<div class="gq-list" id="cond"></div>' : `<article class="cond" id="cond">${safeHtml(t.html)}</article>`}
       ${files}

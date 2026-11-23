@@ -178,7 +178,6 @@
       h = `<span class="scope-title">${HAS_GROUPS && n === 19 ? 'Задания 19–21' : 'Задание ' + numLabel(n)}</span>${ARCHIVE[n] ? '<span class="scope-stats">архив · нет в КИМ ЕГЭ-2027</span>' : ''}
         <span class="scope-stats" title="${counts[n]} в банке · решено ${st.solved}">${st.acc != null ? `точность ${pct(st.acc)}%` : `решено ${st.solved}`}</span>
         <span class="chip ${st.lvl === 'none' ? '' : st.lvl}">${LEVEL_TEXT[st.lvl]}${st.s && st.s.a ? ` · ${pct(st.s.m)}%` : ''}</span>
-        ${typeChipHtml(n)}
         ${rv ? `<span class="chip review">на повторении: ${rv}</span>` : ''}`;
     }
     $('#scopeInfo').innerHTML = h;
@@ -341,10 +340,18 @@
     return [...by.keys()].sort((a, b) => ((order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)))
       .map(c => ({ c, name: ((CLUSTERS[n] || []).find(x => x[0] === c) || [])[1] || 'Без типа', list: by.get(c) }));
   }
-  function typeChipHtml(n) {
-    if (ARCHIVE[n] || typesOf(n).length < 2) return '';
-    const on = typeOn() && typesOf(n).find(x => x.c === ui.cl.c);
-    return `<button type="button" class="chip type-chip${on ? ' on' : ''}" id="typeBtn" title="Выбрать тип задания внутри номера">Тип: <b>${on ? esc(on.name) : 'все вперемешку'}</b> ▾</button>`;
+  /** Строка над условием: какой тип решаем сейчас, кнопка — выбрать другой. Только в отдельном номере. */
+  function typeRowHtml() {
+    const n = ui.scope;
+    if (typeof n !== 'number' || ARCHIVE[n]) return '';
+    const types = typesOf(n);
+    if (types.length < 2) return '';
+    const on = typeOn() && types.find(x => x.c === ui.cl.c);
+    const cnt = on ? on.list.length : types.reduce((s, x) => s + x.list.length, 0);
+    return `<div class="type-row"><span class="type-lbl">Тип задания</span>
+      <button type="button" class="type-pick${on ? ' on' : ''}" id="typeBtn" aria-haspopup="dialog" title="Выбрать тип задания внутри номера">
+        <b>${on ? esc(on.name) : 'Все типы вперемешку'}</b><small>${cnt}</small><span aria-hidden="true">▾</span></button>
+      ${on ? '<button type="button" class="link-btn" data-tp="" title="Снова все типы номера">все типы</button>' : `<span class="type-hint">${types.length} ${plural(types.length, 'тип', 'типа', 'типов')} — можно решать один</span>`}</div>`;
   }
   /** Пример типа — «среднее» по сложности задание; i — какой по счёту (кнопка «Другой пример»). */
   function typeExample(list, i) {
@@ -389,7 +396,7 @@
   }
   document.addEventListener('click', e => {
     if (e.target.closest('#typeBtn')) { openTypes(); return; }
-    if (!e.target.closest('#forecastBody')) return;
+    if (!e.target.closest('#forecastBody, .type-row')) return;
     const ex = e.target.closest('[data-tp-ex]');
     if (ex) {
       const box = ex.closest('.tp-row').querySelector('.tp-ex');
@@ -406,7 +413,11 @@
     save();
     closeForecast();
     renderTopbar();
-    if (cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg' && !c) return;   // «вперемешку» — текущее задание остаётся
+    if (cur && !cur.done && inScope(cur.task) && (cur.why || {}).type !== 'asg' && !c) {   // «вперемешку» — текущее задание остаётся
+      const row = $('#trainer .type-row');
+      if (row) row.outerHTML = typeRowHtml();
+      return;
+    }
     next();
   });
 

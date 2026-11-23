@@ -982,9 +982,15 @@ body.tt-big .py-dock { z-index: 80; }
 @media (max-width: 640px) { .streak-menu { right: auto; left: 0; width: min(300px, calc(100vw - 32px)); } }
 
 /* тип задания внутри номера: кнопка в шапке и окно выбора */
-.type-chip { cursor: pointer; font: inherit; font-size: 12.5px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.type-chip b { font-weight: 600; }
-.type-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.type-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 4px 0 12px; }
+.type-lbl { font-size: 13px; color: var(--muted); }
+.type-pick { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 7px 14px; border-radius: 12px; cursor: pointer;
+  border: 2px solid var(--accent); background: var(--accent-soft); color: var(--accent-text); font: inherit; font-size: 14.5px; }
+.type-pick b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.type-pick small { padding: 1px 7px; border-radius: 999px; background: var(--card); color: var(--muted); font-size: 12px; }
+.type-pick:hover { filter: brightness(.97); }
+.type-pick:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.type-hint { font-size: 12.5px; color: var(--muted); }
 .tp-all { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; margin: 4px 0 12px; padding: 10px 14px; text-align: left;
   border: 2px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); font: inherit; cursor: pointer; }
 .tp-all small, .tp-head small { color: var(--muted); font-size: 12.5px; }
