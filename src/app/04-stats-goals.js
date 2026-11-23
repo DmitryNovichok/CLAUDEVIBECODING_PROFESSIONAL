@@ -211,31 +211,9 @@
     renderMobileNav();
     const counts = countByNum();
     const total = kimTotal(counts);
-    $('#allCount').textContent = total;
-
-    // средний уровень по всем номерам
-    let sum = 0, present = 0, tried = 0;
-    for (let n = 1; n <= 27; n++) {
-      if (!counts[n]) continue;
-      present++;
-      const s = statsFor(n);
-      if (s && s.a) { sum += s.m; tried++; }
-    }
-    const avg = present ? sum / present : 0;
-    const all = $('#allCard');
     const inTrainer = !examShown && !courseShown;
-    all.className = 'rail-btn' + (inTrainer && ui.scope !== 'fav' && ui.scope !== 'asg' ? ' on' : '');
-    if ($('#allNums')) {                       // index.html прошлой версии мог остаться в кэше — тогда кнопки нет
-      $('#allNums').classList.toggle('on', ui.scope === 'all');
-      $('#allNumsCount').textContent = kimTotal(countByNum());
-    }
-    $('#allBar').style.width = tried ? pct(avg) + '%' : '0';
-    $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
-    $('#favCount').textContent = prefs.fav.length;
-    $('#histCount').textContent = P.log.filter(e => !e.b).length;
-    $('#examCard').classList.toggle('on', examShown || (courseShown && pageKind === 'exams'));
-    $('#histCard')?.classList.toggle('on', courseShown && pageKind === 'history');
-    $('#examSub').textContent = EX ? `идёт · ${fmtClock((EX.deadline - Date.now()) / 1000)}` : '3 ч 55 мин';
+    $('#allNums').classList.toggle('on', ui.scope === 'all');
+    $('#allNumsCount').textContent = total;
 
     const now = Date.now();
     // 1–27 — номера КИМ-2027, ниже — «Архив» (задания, которых в КИМ больше нет: 23_old)
@@ -266,15 +244,10 @@
     }).join('');
 
     renderPeriod();
-    $('#sideToggleLabel').textContent = examShown ? 'Вариант ЕГЭ' : ui.scope === 'all' ? 'Все задания' : ui.scope === 'fav' ? 'Избранное'
-      : ui.scope === 'asg' ? (asgOf(ui.asg) && asgOf(ui.asg).duel ? 'Турнир' : asgOf(ui.asg) && asgOf(ui.asg).course ? 'Курс' : 'От учителя') : `№ ${numLabel(ui.scope)}`;
-    const asgOn = inTrainer && ui.scope === 'asg' && !(asgOf(ui.asg) || {}).course;
-    $('#duelCard')?.classList.toggle('on', (courseShown && pageKind === 'tour') || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).tour));
-    $('#courseCard')?.classList.toggle('on', (courseShown && !pageKind) || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
-    $('#asgCard').classList.toggle('on', asgOn || (courseShown && pageKind === 'asg'));
-    $('#pycCard')?.classList.toggle('on', courseShown && pageKind === 'pyc');
-    $('#labCard')?.classList.toggle('on', courseShown && pageKind === 'lab');
-    $('#homeCard')?.classList.toggle('on', courseShown && pageKind === 'hub');
+    const onHome = courseShown && pageKind === 'hub';
+    const home = $('#homeCard');
+    home.classList.toggle('on', onHome);
+    if (onHome) home.setAttribute('aria-current', 'page'); else home.removeAttribute('aria-current');
     renderAsgCard();
     renderLevel();
     hubRefresh();

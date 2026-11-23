@@ -499,7 +499,6 @@
     pageKind = null;
     document.body.classList.remove('asg-wide', 'hub-on');
     renderMobileNav();
-    $('#courseCard')?.classList.remove('on');
   }
 
   const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',

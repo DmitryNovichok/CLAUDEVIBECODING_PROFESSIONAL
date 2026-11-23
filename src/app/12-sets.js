@@ -89,11 +89,6 @@
     if (!card) return;
     const own = ASG.filter(a => !a.duel && !a.course);
     card.hidden = !own.length && !ASG_IN_CLASS && !ASG_ERROR;
-    if (card.hidden) return;
-    const pending = own.filter(a => !asgFinished(a)), open = pending.filter(asgPending);
-    const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
-    card.classList.toggle('alert', !!open.length);
-    $('#asgSub').textContent = ASG_ERROR ? 'не удалось обновить' : open.length ? (left ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'нужно завершить работу') : pending.length ? 'всё решено' : 'нет активных подборок';
   }
   const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
   function asgIcon(a) {

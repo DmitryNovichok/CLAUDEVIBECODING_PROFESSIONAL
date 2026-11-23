@@ -69,7 +69,7 @@
     if (l) { TOGI.later.add(+l.dataset.togLater); togSeenSave(); togRender(false); }
   });
 
-  // ---------- записи занятий «Вместе»: слева кнопка 👥 — список уроков с учителем; у каждого задания сохранены код, доска и вывод
+  // ---------- записи занятий «Вместе»: список уроков с учителем; у каждого задания сохранены код, доска и вывод
   async function togHistory(open) {
     if (!SERVER || !student || TEACHER) return;
     let d;
@@ -79,8 +79,7 @@
     if (card) {
       card.hidden = !TOGI.hist.length;
       const live = TOGI.hist.filter(x => !x.ended).length;
-      $('#togSub').textContent = live ? 'идёт занятие — присоединиться' : `записей: ${TOGI.hist.length}`;
-      card.classList.toggle('alert', !!live);
+      card.title = live ? 'идёт занятие — присоединиться' : `записей: ${TOGI.hist.length}`;
     }
     hubRefresh();
     if (open) togHistoryOpen();

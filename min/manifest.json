@@ -17,16 +17,16 @@
       "source": "b234d63a158c95a3352c0c20c1e6c9780ef053cedf0ee28147f06ed4b7d47786"
     },
     "app-learning.js": {
-      "min": "06e2a9b08eb42416ccee81afb83b364526d7a6744ca36d62b8cbb93f37b9b0da",
-      "source": "ce8d429b88c87525d4e05f634530bedc5bc9fbf79b7ab3d266df6c9a1677f90f"
+      "min": "53cd286f5d06ea5c6a6160304a5a4be1ce1b186a86e6ac31283980c2ead20737",
+      "source": "0d49d4d66fe536530e5cc4d733aba67bd5a667e372fe0987ac8c5e2e459f1398"
     },
     "app.js": {
-      "min": "1df9481911417612bd26c5a78a568147f39c8fed19878afb8449cf16a8292b55",
-      "source": "f8fa940a4710437a3c258dfb39988a595c14e3c7f64693c13d0f3598ac43c954"
+      "min": "4016507890cea7f191ea3788face4bc941c7264dc14ad28db1a12ca4967d2193",
+      "source": "669e6c41de5af324a6b0e93f85016b26aa5476999a6a31cae2065810a678fe21"
     },
     "changelog-loader.js": {
-      "min": "c0108b9b3252947e3ea9ec2acc6c287135bae8f4349cfc19ad416e65f1421425",
-      "source": "74884b08866f5a6fff41aa2380fc4b608148d86b3777074c9e01f6d072cedd44"
+      "min": "a7f5ff87366a7da14f462a3c18e3e4565d068619ad2f411c0f17a812685f3f95",
+      "source": "bb7339c3caa50f7507ec5f76e264d24eaf8aeeab03c1daa76d91eb1d816649d1"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "46db0f12edbe61cacc3b51f1fe527a041443e66ef9e3cccddcbcfde368f2904a",
-      "source": "de43ad4e6935a2058849e76ec837ef1401af7daec4178b247a2cffb2ff1a4ca6"
+      "min": "7ac99aecb7a80e82796d8c32daac8ff865297d4bc3a48be507a121293dc8bdd7",
+      "source": "20fa8069c6bcc1d43a6ab3bc34c4d3691f03d4c76538964c5e3920db6032a57c"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",

@@ -331,27 +331,8 @@
   const isNarrow = () => window.matchMedia('(max-width: 860px)').matches;
   function setSideOpen(open) {
     $('.sidebar').classList.toggle('open', open);
-    $('#sideToggle').setAttribute('aria-expanded', String(open));
+    $('#hubNums')?.setAttribute('aria-expanded', String(open));
   }
-  $('#sideToggle').addEventListener('click', () => setSideOpen(!$('.sidebar').classList.contains('open')));
-
-  // Свёрнутое меню на компьютере: остаётся узкая полоска со значком, задание получает всю ширину
-  const SIDE_MIN_KEY = 'egeTrainer.sideMin';
-  // Сворачивает и разворачивает банк номеров синяя кнопка «Все задания» в полоске слева
-  function setSideMin(on) {
-    document.body.classList.toggle('side-min', on);
-    const b = $('#allCard');
-    if (b) {
-      b.setAttribute('aria-expanded', String(!on));
-      b.title = on ? 'Показать банк заданий' : 'Скрыть банк заданий — больше места для задания';
-    }
-    try { localStorage.setItem(SIDE_MIN_KEY, on ? '1' : '0'); } catch (e) { /* нет доступа */ }
-  }
-  try { if (localStorage.getItem(SIDE_MIN_KEY) === '1') setSideMin(true); } catch (e) { /* нет доступа */ }
-  // ?. — страница могла остаться от прошлой версии сайта (index.html не обновили): не падаем
-  $('#sideMinBtn')?.addEventListener('click', () => setSideMin(!document.body.classList.contains('side-min')));
-  // в свёрнутом виде клик по значку тоже разворачивает
-  $('.sidebar .brand-mark')?.addEventListener('click', () => { if (document.body.classList.contains('side-min')) setSideMin(false); });
 
   // ------------------------------------------------------------ вход до загрузки заданий
   async function loginRequest(body, token) {
@@ -2668,7 +2649,6 @@
     pageKind = null;
     document.body.classList.remove('asg-wide', 'hub-on');
     renderMobileNav();
-    $('#courseCard')?.classList.remove('on');
   }
 
   const NUM_TOPIC = ['', 'Графы и таблицы', 'Таблицы истинности', 'Базы данных', 'Кодирование, условие Фано', 'Алгоритмы-автоматы',
@@ -2947,31 +2927,9 @@
     renderMobileNav();
     const counts = countByNum();
     const total = kimTotal(counts);
-    $('#allCount').textContent = total;
-
-    // средний уровень по всем номерам
-    let sum = 0, present = 0, tried = 0;
-    for (let n = 1; n <= 27; n++) {
-      if (!counts[n]) continue;
-      present++;
-      const s = statsFor(n);
-      if (s && s.a) { sum += s.m; tried++; }
-    }
-    const avg = present ? sum / present : 0;
-    const all = $('#allCard');
     const inTrainer = !examShown && !courseShown;
-    all.className = 'rail-btn' + (inTrainer && ui.scope !== 'fav' && ui.scope !== 'asg' ? ' on' : '');
-    if ($('#allNums')) {                       // index.html прошлой версии мог остаться в кэше — тогда кнопки нет
-      $('#allNums').classList.toggle('on', ui.scope === 'all');
-      $('#allNumsCount').textContent = kimTotal(countByNum());
-    }
-    $('#allBar').style.width = tried ? pct(avg) + '%' : '0';
-    $('#favCard').classList.toggle('on', inTrainer && ui.scope === 'fav');
-    $('#favCount').textContent = prefs.fav.length;
-    $('#histCount').textContent = P.log.filter(e => !e.b).length;
-    $('#examCard').classList.toggle('on', examShown || (courseShown && pageKind === 'exams'));
-    $('#histCard')?.classList.toggle('on', courseShown && pageKind === 'history');
-    $('#examSub').textContent = EX ? `идёт · ${fmtClock((EX.deadline - Date.now()) / 1000)}` : '3 ч 55 мин';
+    $('#allNums').classList.toggle('on', ui.scope === 'all');
+    $('#allNumsCount').textContent = total;
 
     const now = Date.now();
     // 1–27 — номера КИМ-2027, ниже — «Архив» (задания, которых в КИМ больше нет: 23_old)
@@ -3002,15 +2960,10 @@
     }).join('');
 
     renderPeriod();
-    $('#sideToggleLabel').textContent = examShown ? 'Вариант ЕГЭ' : ui.scope === 'all' ? 'Все задания' : ui.scope === 'fav' ? 'Избранное'
-      : ui.scope === 'asg' ? (asgOf(ui.asg) && asgOf(ui.asg).duel ? 'Турнир' : asgOf(ui.asg) && asgOf(ui.asg).course ? 'Курс' : 'От учителя') : `№ ${numLabel(ui.scope)}`;
-    const asgOn = inTrainer && ui.scope === 'asg' && !(asgOf(ui.asg) || {}).course;
-    $('#duelCard')?.classList.toggle('on', (courseShown && pageKind === 'tour') || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).tour));
-    $('#courseCard')?.classList.toggle('on', (courseShown && !pageKind) || (inTrainer && ui.scope === 'asg' && !!(asgOf(ui.asg) || {}).course));
-    $('#asgCard').classList.toggle('on', asgOn || (courseShown && pageKind === 'asg'));
-    $('#pycCard')?.classList.toggle('on', courseShown && pageKind === 'pyc');
-    $('#labCard')?.classList.toggle('on', courseShown && pageKind === 'lab');
-    $('#homeCard')?.classList.toggle('on', courseShown && pageKind === 'hub');
+    const onHome = courseShown && pageKind === 'hub';
+    const home = $('#homeCard');
+    home.classList.toggle('on', onHome);
+    if (onHome) home.setAttribute('aria-current', 'page'); else home.removeAttribute('aria-current');
     renderAsgCard();
     renderLevel();
     hubRefresh();
@@ -3551,8 +3504,6 @@
       const left = (EX.deadline - Date.now()) / 1000;
       const c = $('#exClock');
       if (c) { c.textContent = fmtClock(left); c.classList.toggle('warn', left < 600); }
-      const sub = $('#examSub');
-      if (sub) sub.textContent = `идёт · ${fmtClock(left)}`;
       if (left <= 0) { toast('Время вышло — вариант завершён', 4000); finishExam(true); }
     }, 1000);
   }
@@ -3837,20 +3788,6 @@
   $('#grid').addEventListener('click', e => {
     const b = e.target.closest('.num-card');
     if (b && !b.disabled) setScope(+b.dataset.n);
-  });
-  // Синие кубики — банк заданий: сворачивают и разворачивают панель номеров. Выбранный номер НЕ сбрасывают
-  // (раньше кнопка заодно включала «Все задания», и «Пропустить» начинал выдавать любые номера).
-  $('#allCard').addEventListener('click', () => {
-    if (courseShown && !examShown) {                 // со страницы (курс, подборки, история…) — к заданиям того же номера
-      leaveCourse();
-      if (isNarrow()) setSideOpen(false); else setSideMin(false);
-      next();
-      renderSidebar();
-      return;
-    }
-    if (isNarrow()) { setSideOpen(!$('.sidebar').classList.contains('open')); return; }   // на телефоне — открыть список номеров
-    if (document.body.classList.contains('hubnav')) return;          // панель выезжает целиком — сворачивать в ней нечего
-    setSideMin(!document.body.classList.contains('side-min'));
   });
   // «Все номера» — задания всех номеров: тренажёр сам подбирает, что подтянуть
   $('#allNums')?.addEventListener('click', () => {
@@ -5079,7 +5016,7 @@
   // ------------------------------------------------------------ правые панели: ширина — тянуть левый край влево
   // Python и доска запоминают свою ширину; двойной щелчок по краю — обычная ширина. Задаче оставляем не меньше 340px.
   const DOCK_W = { pyDock: 'egeTrainer.dockW.py', bdDock: 'egeTrainer.dockW.bd' };
-  const dockMax = () => Math.max(360, window.innerWidth - (document.body.classList.contains('side-min') ? 80 : 300) - 340);
+  const dockMax = () => Math.max(360, window.innerWidth - $('.main').getBoundingClientRect().left - 340);
   function dockSetW(dock, w) {
     if (w) dock.style.flexBasis = Math.round(Math.max(320, Math.min(dockMax(), w))) + 'px';
     else dock.style.removeProperty('flex-basis');
@@ -6518,10 +6455,6 @@
     if (!card) return;
     hubRefresh();
     card.hidden = !(SERVER && student);
-    if (card.hidden) return;
-    $('#dailySub').textContent = !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
-      : DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
-    card.classList.toggle('done', !!DAILY?.my_place);
   }
   function dailyHtml() {
     if (!DAILY?.ready || DAILY_STATE === 'error') return `<p class="fm-note" role="status">${dailyNotice()}</p><button type="button" class="btn" id="dailyRetry">Повторить загрузку</button>`;
@@ -6623,9 +6556,8 @@
     const m = tourMyMatch(), T = TOUR && TOUR.mine;
     const lob = TOUR && TOUR.lobbies.find(l => l.me_in);
     const call = duelCalls().length;
-    $('#duelSub').textContent = !TOUR ? 'вызови соперника' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
+    card.title = !TOUR ? 'вызови соперника' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
       : lob ? `набор ${lob.players.length}/${lob.size}` : TOUR.tours === false ? 'вызови соперника' : 'наборы открыты';
-    card.classList.toggle('alert', !!m || !!call);
   }
   const tourLeft = sec => {
     const ms = sec * 1000 - Date.now();
@@ -7323,11 +7255,6 @@
     if (!card) return;
     const own = ASG.filter(a => !a.duel && !a.course);
     card.hidden = !own.length && !ASG_IN_CLASS && !ASG_ERROR;
-    if (card.hidden) return;
-    const pending = own.filter(a => !asgFinished(a)), open = pending.filter(asgPending);
-    const left = open.reduce((s, a) => s + asgLeft(a).length, 0);
-    card.classList.toggle('alert', !!open.length);
-    $('#asgSub').textContent = ASG_ERROR ? 'не удалось обновить' : open.length ? (left ? `${open.length} ${plural(open.length, 'подборка', 'подборки', 'подборок')} · осталось ${left}` : 'нужно завершить работу') : pending.length ? 'всё решено' : 'нет активных подборок';
   }
   const KINDS = { self: ['📝', 'Самостоятельная'], practice: ['🛠', 'Практическая'], home: ['🏠', 'Домашняя работа'] };
   function asgIcon(a) {
@@ -9717,7 +9644,7 @@
     if (l) { TOGI.later.add(+l.dataset.togLater); togSeenSave(); togRender(false); }
   });
 
-  // ---------- записи занятий «Вместе»: слева кнопка 👥 — список уроков с учителем; у каждого задания сохранены код, доска и вывод
+  // ---------- записи занятий «Вместе»: список уроков с учителем; у каждого задания сохранены код, доска и вывод
   async function togHistory(open) {
     if (!SERVER || !student || TEACHER) return;
     let d;
@@ -9727,8 +9654,7 @@
     if (card) {
       card.hidden = !TOGI.hist.length;
       const live = TOGI.hist.filter(x => !x.ended).length;
-      $('#togSub').textContent = live ? 'идёт занятие — присоединиться' : `записей: ${TOGI.hist.length}`;
-      card.classList.toggle('alert', !!live);
+      card.title = live ? 'идёт занятие — присоединиться' : `записей: ${TOGI.hist.length}`;
     }
     hubRefresh();
     if (open) togHistoryOpen();
@@ -10201,7 +10127,7 @@
     <button type="button" data-mobile="teacher">${mobileIcon('<path d="m2 9 10-5 10 5-10 5zM6 11v6c3 2 9 2 12 0v-6M22 9v7"/>')}<span>От учителя</span></button>
     <button type="button" data-mobile="progress">${mobileIcon('<path d="M5 20V12M12 20V4M19 20V8"/>')}<span>Прогресс</span></button>
     <button type="button" data-mobile="more" aria-haspopup="dialog">${mobileIcon('<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>')}<span>Ещё</span></button>
-  </nav><dialog class="mobile-more" id="mobileMore" aria-labelledby="mobileMoreTitle"><div class="mobile-more-head"><h2 id="mobileMoreTitle">Разделы Egeshka</h2><button type="button" class="icon-btn" data-mobile-close aria-label="Закрыть меню">×</button></div><div id="mobileMoreLinks"></div></dialog>`);
+  </nav>`);
   $('.topbar')?.insertAdjacentHTML('afterbegin', '<span class="mobile-brand" aria-label="Egeshka"><b>Ege</b>shka</span>');
 
   function renderMobileNav() {
@@ -10220,34 +10146,40 @@
     $('[data-mobile="teacher"]', nav).classList.toggle('has-work', ASG.some(a => !a.duel && !a.course && asgPending(a)));
   }
   function openMobileMore() {
-    const items = [
-      ['labCard', 'Лаборатория'], ['numbers', 'Номера заданий'], ['examCard', 'Вариант ЕГЭ'], ['courseCard', 'Курс'], ['pycCard', 'Курс Python'],
-      ['favCard', 'Избранное'], ['histCard', 'История заданий'], ['dailyCard', 'Задание дня'], ['duelCard', 'Дуэли'],
-      ['togCard', 'Занятия вместе'], ['coinCard', 'Монеты и подарки'], ['supportBtn', 'Техподдержка'],
-      ['themeBtn', 'Светлая / тёмная тема'], ['sndBtn', 'Звуки для занятий'], ['tourBtn', 'Как работает Egeshka']
-    ];
-    $('#mobileMoreLinks').innerHTML = items.filter(([id]) => id === 'numbers' || ($('#' + id) && !$('#' + id).hidden)).map(([id, label]) =>
-      `<button type="button" data-mobile-target="${id}">${esc(label)}<span aria-hidden="true">→</span></button>`).join('');
+    for (const button of $$('#mobileMore [data-mobile-target]')) {
+      const target = $('#' + button.dataset.mobileTarget);
+      button.hidden = !target || target.hidden;
+    }
     $('#mobileMore').showModal();
   }
   $('#mobileNav').addEventListener('click', e => {
     const b = e.target.closest('[data-mobile]');
     if (!b) return;
+    const numbersOpen = $('.sidebar').classList.contains('open');
     setSideOpen(false);
     if (b.dataset.mobile === 'home') openHub();
-    if (b.dataset.mobile === 'tasks') $('#allCard').click();
+    if (b.dataset.mobile === 'tasks') {
+      if (courseShown && !examShown) { leaveCourse(); next(); renderSidebar(); }
+      else setSideOpen(!numbersOpen);
+    }
     if (b.dataset.mobile === 'teacher') { asgTab = 'active'; openAsgPage(); }
     if (b.dataset.mobile === 'progress') $('#forecastBtn').click();
     if (b.dataset.mobile === 'more') openMobileMore();
     renderMobileNav();
   });
-  $('#mobileMore').addEventListener('click', e => {
-    const dialog = $('#mobileMore'), b = e.target.closest('[data-mobile-target]');
-    if (e.target === dialog || e.target.closest('[data-mobile-close]') || b) dialog.close();
-    if (!b) return;
-    e.stopPropagation(); // исходный щелчок меню не закрывает только что открытый раздел или звуки
-    if (b.dataset.mobileTarget === 'numbers') { setSideOpen(true); window.scrollTo(0, 0); $('#period').focus(); }
-    else $('#' + b.dataset.mobileTarget)?.click();
+  const mobileMore = $('#mobileMore');
+  mobileMore.addEventListener('click', e => {
+    if (!mobileMore.open) return;
+    const button = e.target.closest('button');
+    if (button || e.target === mobileMore) mobileMore.close();
+  }, true);
+  mobileMore.addEventListener('click', e => {
+    const button = e.target.closest('button');
+    if (!button) return;
+    // Документ не должен закрыть только что открытое окно или меню звуков.
+    e.stopPropagation();
+    if (button.hasAttribute('data-mobile-numbers')) openNumbers();
+    else if (button.dataset.mobileTarget) $('#' + button.dataset.mobileTarget)?.click();
   });
   // ═══════ src/app/13c-hub.js
   // ------------------------------------------------------------ главная-пульт ученика
@@ -10384,8 +10316,8 @@
     if (vis('coinCard')) T.push({ k: 'world', name: 'Мой мир', sub: `${(GAME && GAME.coins) || 0} ₿ · магазин и подарки`, btn: 'В магазин', go: () => $('#coinCard').click() });
     if (SERVER && student && !TEACHER) { const c = typeof duelCalls === 'function' ? duelCalls().length : 0;
       T.push({ k: 'duel', name: TOUR && TOUR.tours ? 'Дуэли и турниры' : 'Дуэли',   // турниры выключены на сервере (TOURS_ON) — только дуэли
-        sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
-    if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
+        sub: c ? 'тебя вызвали на дуэль' : $('#duelCard').title || 'вызови соперника', badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
+    if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togCard').title || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
     return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
   }
   /** Тренажёр — главное на сайте: отдельный блок над планом на сегодня, номера крупно. */
@@ -10395,7 +10327,7 @@
       <div class="ht-head">${hubIcon('trainer', 48)}<div class="ht-tt"><h2>Тренажёр</h2>
         <p>Номера 1–27 · освоено ${hubMastered()} · ${total.toLocaleString('ru-RU')} ${plural(total, 'задание', 'задания', 'заданий')} в банке</p></div>
         <div class="ht-acts"><button type="button" class="btn primary" data-train-go="all">Решать подряд →</button>
-          <button type="button" class="btn" data-hub-link="sideToggle">Все номера</button></div></div>
+          <button type="button" class="btn" data-hub-numbers>Все номера</button></div></div>
       ${hubMap().replace('class="hub-map"', 'class="hub-map ht-map"')}
       <div class="ht-legend">${['none', 'weak', 'mid', 'good'].map(l => `<span><i class="lvl-${l}"></i>${LEVEL_TEXT[l]}</span>`).join('')}</div>
     </section>`;
@@ -10614,6 +10546,7 @@
     const n = e.target.closest('[data-hub-n]');
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
     if (e.target.closest('[data-train-go]')) { setScope('all'); return; }
+    if (e.target.closest('[data-hub-numbers]')) { openNumbers(); return; }
     const hl = e.target.closest('[data-hub-link]');
     if (hl) { $('#' + hl.dataset.hubLink)?.click(); return; }
     const ml = e.target.closest('[data-mail]');
@@ -10694,7 +10627,13 @@
     const base = st && st.v === 'modal' ? st.base : st;
     if (!courseShown && base && base.v === 'hub') navPush({ v: 'main' });
   }).observe(trainerEl, { childList: true });
-  $('#homeCard')?.addEventListener('click', openHub);
+  $('#homeCard').addEventListener('click', () => {
+    openHub();
+    if (courseShown && pageKind === 'hub') {
+      const heading = $('.hub h1');
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    }
+  });
 
   // ------------------------------------------------------------ плавные переходы между страницами
   /* Новое содержимое центральной части (задание, страница раздела) мягко проявляется. Работает везде,
@@ -10713,29 +10652,37 @@
   const hubNav = () => document.body.classList.contains('hubnav');
   $('.topbar')?.insertAdjacentHTML('afterbegin', `<span class="hub-nav" id="hubNav">
     <button type="button" class="hub-back" id="hubBack" title="На главную: план на сегодня и все разделы"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Главная</button>
-    <button type="button" class="hub-back hub-nums" id="hubNums" aria-haspopup="true" aria-expanded="false" title="Номера заданий, поиск по номеру, банки и настройки"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/></svg>Номера</button></span>`);
+    <button type="button" class="hub-back hub-nums" id="hubNums" aria-controls="sideBody" aria-expanded="false" title="Номера заданий, поиск по номеру, банки и настройки"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/></svg>Номера</button></span>`);
   document.body.insertAdjacentHTML('beforeend', '<div class="nav-shade" id="navShade" hidden></div>');
   function hubDrawer(open) {
-    if (!hubNav() || isNarrow()) return;
+    if (!hubNav()) return;
     setSideOpen(open);
-    $('#navShade').hidden = !open;
-    $('#hubNums')?.setAttribute('aria-expanded', String(open));
+    $('#navShade').hidden = !open || isNarrow();
   }
   function hubNavOn() {
     document.body.classList.add('hubnav');
-    document.body.classList.remove('side-min');           // в выезжающей панели банк номеров всегда развёрнут
+  }
+  function openNumbers() {
+    if (hubNav() && !isNarrow()) hubDrawer(true);
+    else {
+      if (!hubNav() && courseShown && pageKind === 'hub') { leaveCourse(); next(); renderSidebar(); }
+      setSideOpen(true);
+      window.scrollTo(0, 0);
+    }
+    $('#period').focus({ preventScroll: true });
   }
   $('#hubBack')?.addEventListener('click', () => { hubDrawer(false); openHub(); });
   $('#hubNums')?.addEventListener('click', () => {
-    if (isNarrow()) { setSideOpen(!$('.sidebar').classList.contains('open')); window.scrollTo(0, 0); return; }
-    hubDrawer(!$('.sidebar').classList.contains('open'));
+    if ($('.sidebar').classList.contains('open')) hubDrawer(false);
+    else openNumbers();
   });
+  window.matchMedia('(max-width: 860px)').addEventListener('change', () => hubDrawer(false));
   $('#navShade').addEventListener('click', () => hubDrawer(false));
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && hubNav() && !$('#navShade').hidden) hubDrawer(false); }, true);
   // выбрали номер, раздел или нашли задание — панель сама уезжает
   $('.sidebar').addEventListener('click', e => {
     if (!hubNav() || isNarrow() || $('#navShade').hidden) return;
-    if (e.target.closest('.num-card, .rail-btn, #allNums, #supportBtn, .side-actions .link-btn, #versionBtn')) setTimeout(() => hubDrawer(false), 0);
+    if (e.target.closest('.num-card, #allNums, #supportBtn, .side-actions .link-btn:not(#sndBtn):not(#themeBtn), #versionBtn')) setTimeout(() => hubDrawer(false), 0);
   });
   $('#searchForm')?.addEventListener('submit', () => setTimeout(() => hubDrawer(false), 0));
 

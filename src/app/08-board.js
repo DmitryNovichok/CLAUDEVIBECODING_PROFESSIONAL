@@ -444,7 +444,7 @@
   // ------------------------------------------------------------ правые панели: ширина — тянуть левый край влево
   // Python и доска запоминают свою ширину; двойной щелчок по краю — обычная ширина. Задаче оставляем не меньше 340px.
   const DOCK_W = { pyDock: 'egeTrainer.dockW.py', bdDock: 'egeTrainer.dockW.bd' };
-  const dockMax = () => Math.max(360, window.innerWidth - (document.body.classList.contains('side-min') ? 80 : 300) - 340);
+  const dockMax = () => Math.max(360, window.innerWidth - $('.main').getBoundingClientRect().left - 340);
   function dockSetW(dock, w) {
     if (w) dock.style.flexBasis = Math.round(Math.max(320, Math.min(dockMax(), w))) + 'px';
     else dock.style.removeProperty('flex-basis');

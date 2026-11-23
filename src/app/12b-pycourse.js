@@ -58,8 +58,6 @@
     appState.courseShown = true;
     appState.pageKind = 'pyc';
     appState.cur = null;
-    document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
-    $('#pycCard')?.classList.add('on');
     document.body.classList.add('asg-wide');
     return true;
   }
