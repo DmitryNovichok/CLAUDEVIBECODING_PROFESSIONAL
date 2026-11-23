@@ -14,6 +14,11 @@ async function post(context, path, data) {
   return response.json();
 }
 
+function registerPupil(context, name, password = 'synthetic-account-password') {
+  const invite = fixture.teachers.find(t => t.email_ok && t.moderation === 'approved').cookie;
+  return post(context, '/api/login', {name, new_password: password, code: invite, mode: 'register', consent: true});
+}
+
 async function openEntry(page, group, entry) {
   await page.locator('[data-tile-key="' + group + '"]').click();
   await page.locator('[data-learning-entry="' + entry + '"]').click();
@@ -25,8 +30,7 @@ test('course and laboratory passwords unlock their sections on another device of
   try {
     const name = 'Синтетический Доступ';
     const password = 'synthetic-account-password';
-    const invite = fixture.teachers.find(t => t.email_ok && t.moderation === 'approved').cookie;
-    const firstLogin = await post(context, '/api/login', {name, new_password: password, code: invite, mode: 'register', consent: true});
+    const firstLogin = await registerPupil(context, name, password);
     const secondLogin = await post(second, '/api/login', {name, password});
     expect(secondLogin.sid).toBe(firstLogin.sid);
     expect(secondLogin.token).not.toBe(firstLogin.token);
@@ -85,8 +89,9 @@ test('course and laboratory passwords unlock their sections on another device of
 for (const width of [375, 1366]) {
   test('grouped learning navigation and per-section teacher reports at ' + width + 'px', async ({context, page, browser}) => {
     await page.setViewportSize({width, height: 900});
-    const participant = fixture.participants[0];
-    await seedBrowser(context, fixture, 'pupil', participant);
+    const pupil = await registerPupil(context, width === 375 ? 'Мобильный Каталог' : 'Настольный Каталог');
+    await seedBrowser(context, fixture, 'pupil', pupil);
+    await post(context, '/api/lab/unlock', {password: 'fixture-only-lab-password'});
     const me = await (await context.request.get(fixture.origin + '/api/me')).json();
     await post(context, '/api/course/unlock', {password: 'fixture-only-course-password'});
     await page.goto(fixture.origin + '/');
@@ -174,8 +179,7 @@ for (const width of [375, 1366]) {
 }
 
 test('pupil resumes saved course, model and bug work; daily task opens once from the plan', async ({page, context}) => {
-  const invite = fixture.teachers.find(t => t.email_ok && t.moderation === 'approved').cookie;
-  const account = await post(context, '/api/login', {name: 'Каталог Прогресс', new_password: 'synthetic-card-password', code: invite, mode: 'register', consent: true});
+  const account = await registerPupil(context, 'Каталог Прогресс');
   await seedBrowser(context, fixture, 'pupil', account);
   for (const section of ['course', 'pyc', 'lab', 'arduino']) {
     await post(context, '/api/' + section + '/unlock', {password: 'fixture-only-' + section + '-password'});
