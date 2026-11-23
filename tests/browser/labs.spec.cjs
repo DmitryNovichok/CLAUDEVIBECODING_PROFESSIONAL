@@ -106,6 +106,15 @@ test('actual debugger executes local Python and supports breakpoint and step key
   await page.keyboard.press('F7');await expect(page.locator('#labStep')).toHaveValue('0');
   await page.locator('#labEnd').click();await expect(page.locator('#labOutput')).toHaveText('3\n');
   await recordUI(page,info,'debugger');
+  const summary = async () => (await (await context.request.get(fixture.origin+'/api/learning/directory?group=labs')).json()).entries.code;
+  expect((await summary()).done).toBe(0);
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#labExample').selectOption('branch');
+  await expect(page.locator('#labCode')).toHaveValue(/for n in range\(1, 6\)/);
+  const recorded = page.waitForResponse(r => r.url().endsWith('/api/lab/activity') && r.request().postDataJSON()?.example === 'branch');
+  await page.locator('#labCode').press('Control+Enter');
+  expect((await recorded).status()).toBe(200);
+  expect((await summary()).done).toBe(1);
 });
 test('teacher opens laboratories through the real teacher-as-pupil action',async({page,context},info)=>{
   await seedBrowser(context,fixture,'teacher');

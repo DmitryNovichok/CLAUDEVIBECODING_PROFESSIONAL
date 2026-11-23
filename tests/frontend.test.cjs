@@ -728,7 +728,7 @@ test('teacher student list ignores the previous filter response',async()=>{
   assert.equal(c.students[0].id,2);assert.equal(draws.length,1);
 });
 
-test('daily and duel tiles keep their slots before data arrives and after a failed refresh',()=>{
+test('daily stays in the plan and the duel tile keeps its slot during refresh',()=>{
   const nodes={};const c=vm.createContext({SERVER:true,student:{sid:1},TEACHER:false,DAILY:null,DAILY_STATE:'loading',
     P:{log:[]},ASG:[],asgPending:()=>false,GAME:{coins:0},EX:null,LAB_OK:true,ARD_OK:false,IM_OK:false,IM_PW:false,TOUR:null,prefs:{fav:[]},
     openCourse(){},openPyc(){},openArdGate(){},
@@ -737,7 +737,7 @@ test('daily and duel tiles keep their slots before data arrives and after a fail
   nodes['#coinCard']={hidden:false};
   vm.runInContext(sourceBetween('src/app/13c-hub.js','  const HUB_LEARNING_GROUPS', '  function hubMastered()'),c);
   const initial=Array.from(c.hubTiles(),x=>x.k);
-  assert.ok(initial.includes('daily'));assert.ok(initial.includes('duel'));
+  assert.ok(!initial.includes('daily'));assert.ok(initial.includes('duel'));
   assert.deepEqual(initial.filter(key=>['courses','labs','course','python','lab','arduino'].includes(key)),['courses','labs']);
   assert.equal(c.hubTiles().find(x=>x.k==='duel').name,'Дуэли');                 // турниры выключены — плитка только про дуэли
   c.TOUR={tours:true};assert.equal(c.hubTiles().find(x=>x.k==='duel').name,'Дуэли и турниры');c.TOUR=null;
@@ -745,7 +745,7 @@ test('daily and duel tiles keep their slots before data arrives and after a fail
   assert.deepEqual(Array.from(c.hubTiles(),x=>x.k),initial);
   c.DAILY=null;c.DAILY_STATE='error';
   assert.deepEqual(Array.from(c.hubTiles(),x=>x.k),initial);
-  assert.equal(c.hubTiles().find(x=>x.k==='daily').btn,'Повторить загрузку');
+  assert.ok(!c.hubTiles().some(x=>x.k==='daily'));
   c.viewPrefs=()=>({focus:true});assert.ok(c.hubTiles().every(x=>!['daily','duel'].includes(x.k)));
   c.viewPrefs=()=>({focus:false});c.TEACHER=true;assert.ok(c.hubTiles().every(x=>x.k!=='duel'));
 });

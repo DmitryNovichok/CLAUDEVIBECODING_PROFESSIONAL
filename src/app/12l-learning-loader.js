@@ -24,7 +24,7 @@
     return changed;
   }
   let accessReadId = 0, accessFocusTimer = 0;
-  async function pycLive(pythonSettings = true) {
+  async function pycLive(pythonSettings = true, refreshProgress = false) {
     const account = student, request = ++accessReadId;
     if (!SERVER || !account) return;
     let me;
@@ -33,13 +33,15 @@
     const changed = applyLearningAccess(me);
     if (changed.course && COURSE_OK) loadCourseSets();
     learningSections?.refreshLearningAccess(changed, pythonSettings);
-    if (Object.values(changed).some(Boolean)) {
+    const accessChanged = Object.values(changed).some(Boolean);
+    if (accessChanged) {
       refreshLearningDirectoryAccess();
       if (changed.im) {
         if (courseShown && pageKind === 'im') openIm();
         else hubRefresh();
       }
     }
+    if ((refreshProgress || accessChanged) && courseShown && (pageKind === 'courses' || pageKind === 'labs')) loadLearningDirectoryProgress();
   }
   // A sleeping device can miss the live grant notification. Check the account
   // again when its learning view becomes visible, keeping active work intact.
@@ -47,7 +49,7 @@
     if (document.hidden || !SERVER || !student || !courseShown ||
         ![null, 'courses', 'labs', 'lab', 'pyc', 'ardgate', 'im', 'hub'].includes(pageKind)) return;
     clearTimeout(accessFocusTimer);
-    accessFocusTimer = setTimeout(() => pycLive(false), 100);
+    accessFocusTimer = setTimeout(() => pycLive(false, true), 100);
   }
   window.addEventListener('focus', syncVisibleLearningAccess);
   document.addEventListener('visibilitychange', syncVisibleLearningAccess);
@@ -133,13 +135,13 @@
     });
   }
   function openCourse() { return openLearningSection('openCourse', [], { v: 'course' }, null, 'Курс ЕГЭ'); }
-  function openLesson(n) { return openLearningSection('openLesson', [n], { v: 'lesson', n }, null, 'Курс ЕГЭ'); }
+  function openLesson(n, slide) { return openLearningSection('openLesson', [n, slide], { v: 'lesson', n }, null, 'Курс ЕГЭ'); }
   function openCourseSet(id) { return openLearningSection('openCourseSet', [id], { v: 'set', id }, null, 'Подборка курса'); }
   function openPyc() { return openLearningSection('openPyc', [], { v: 'pyc' }, 'pyc', 'Курс Python'); }
-  function openPycLevel(mid, li, keepScroll) { return openLearningSection('openPycLevel', [mid, li, keepScroll], { v: 'pycl', m: mid, l: li }, 'pyc', 'Курс Python'); }
-  function openLab(view = '', context) {
+  function openPycLevel(mid, li, keepScroll, task) { return openLearningSection('openPycLevel', [mid, li, keepScroll, task], { v: 'pycl', m: mid, l: li }, 'pyc', 'Курс Python'); }
+  function openLab(view = '', context, target) {
     if (view === 'arduino') return openArdGate();
-    return openLearningSection('openLab', [view, context], { v: 'lab', tab: view }, 'lab', 'Лаборатория');
+    return openLearningSection('openLab', [view, context, target], { v: 'lab', tab: view }, 'lab', 'Лаборатория');
   }
   function openLabAssignment(id) {
     return openLearningSection('openLabAssignment', [id, syncLabAssignment, returnToLabAssignments], { v: 'lab13', id }, 'lab13', 'Лаборатория №13');

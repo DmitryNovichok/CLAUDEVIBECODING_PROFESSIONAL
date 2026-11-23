@@ -7,10 +7,10 @@
   }
   function resetLearningState() {
     ++learningSessionEpoch; ++courseLessonRequest; ++pycLevelRequest; ++labLoadId;
-    clearTimeout(seenT); seenT = 0;
+    confirmedSlides.clear();
     pycStopTests(); labStop(); resetBugLab();
     PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); PYC_HELP = Promise.resolve();
-    Object.assign(LAB, { context: null, owner: null, result: null, code: '', stdin: '', index: 0, seen: null });
+    Object.assign(LAB, { context: null, owner: null, result: null, mode: 'net', code: '', stdin: '', index: 0, seen: null });
     appState.DECK = null; appState.deckI = 0; appState.PYC_PY = null;
   }
   let courseCoverage = null, courseCoverageLoading = null;
@@ -172,17 +172,14 @@
   }
   function deckGo(d) { appState.deckI += d; renderDeck(); }
   // докуда долистал презентацию — учитель видит в прогрессе курса (отправляем только новый максимум)
-  let seenT = 0;
+  const confirmedSlides = new Map();
   function deckSeen(k, total) {
     if (!SERVER || !appState.student || !appState.DECK || appState.DECK.pyc) return;
-    const key = `egeTrainer.seen.${appState.student.sid}.${appState.DECK.n}`;
-    let max = 0;
-    try { max = +localStorage.getItem(key) || 0; } catch (e) { /* нет доступа */ }
-    if (k <= max) return;
-    try { localStorage.setItem(key, k); } catch (e) { /* нет доступа */ }
-    const n = appState.DECK.n;
-    clearTimeout(seenT);
-    seenT = setTimeout(() => api('course/seen', { n, slide: k, total }).catch(() => {}), 800);
+    const n = appState.DECK.n, current = learningSessionGuard();
+    if (k <= (confirmedSlides.get(n) || 0)) return;
+    api('course/seen', { n, slide: k, total }).then(() => {
+      if (current()) confirmedSlides.set(n, Math.max(k, confirmedSlides.get(n) || 0));
+    }).catch(() => {});
   }
   // масштаб слайда: на весь экран — подгоняем под экран; кнопки − / + меняют размер вручную
   let DECK_SCALE = 1;
@@ -237,7 +234,7 @@
   window.addEventListener('resize', () => { if ($('#crsDeck')) fitSlide(); });
   document.fonts?.ready.then(() => { if ($('#crsDeck')) fitSlide(); });   // моноширинный шрифт догрузился — ширина кода другая
   let courseLessonRequest = 0;
-  async function openLesson(n) {
+  async function openLesson(n, slide) {
     if (!appState.COURSE_OK) return openCourse();
     abandonCurrent();
     if (!leaveExam()) return;
@@ -255,7 +252,7 @@
     try { lesson = await api('course/lesson?n=' + n); } catch (e) { if (!current() || request !== courseLessonRequest) return; if (e.status === 403) { appState.COURSE_OK = false; return openCourse(); } }
     if (!current() || !appState.courseShown || appState.pageKind !== null || request !== courseLessonRequest) return;
     const has = lesson && lesson.slides && lesson.slides.length;
-    if (has) { appState.DECK = lesson; appState.deckI = learningSlide(n); }
+    if (has) { appState.DECK = lesson; appState.deckI = Number.isInteger(slide) ? Math.max(0, Math.min(slide, has - 1)) : learningSlide(n); }
     const deck = has ? `<div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>

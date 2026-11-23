@@ -42,7 +42,7 @@ test('optional learning UI stays unloaded for ordinary Python, access updates an
 test('first opens coalesce; most recent route wins; cached navigation remains synchronous',async()=>{
   const h=harness(),a=h.c.openCourse(),b=h.c.openLab('code');
   assert.equal(h.scripts.length,1);assert.equal(h.scripts[0].src,'app-learning.js?v=fingerprint');
-  h.loaded();await Promise.all([a,b]);assert.deepEqual(h.opened,[['openLab',5,'code',undefined]]);
+  h.loaded();await Promise.all([a,b]);assert.deepEqual(h.opened,[['openLab',5,'code',undefined,undefined]]);
   assert.equal(h.c.openCourse(),'openCourse');assert.equal(h.opened.at(-1)[0],'openCourse');
   assert.equal(h.scripts.length,1);assert.equal(h.c.window.EgeLearningSections,undefined);
 });

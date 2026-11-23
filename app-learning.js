@@ -12,10 +12,10 @@ window.EgeLearningSections = function (bridge) {
   }
   function resetLearningState() {
     ++learningSessionEpoch; ++courseLessonRequest; ++pycLevelRequest; ++labLoadId;
-    clearTimeout(seenT); seenT = 0;
+    confirmedSlides.clear();
     pycStopTests(); labStop(); resetBugLab();
     PYC = null; PYC_L = null; PYC_FOCUS = null; PYC_PENDING_HELP.clear(); PYC_HELP = Promise.resolve();
-    Object.assign(LAB, { context: null, owner: null, result: null, code: '', stdin: '', index: 0, seen: null });
+    Object.assign(LAB, { context: null, owner: null, result: null, mode: 'net', code: '', stdin: '', index: 0, seen: null });
     appState.DECK = null; appState.deckI = 0; appState.PYC_PY = null;
   }
   let courseCoverage = null, courseCoverageLoading = null;
@@ -177,17 +177,14 @@ window.EgeLearningSections = function (bridge) {
   }
   function deckGo(d) { appState.deckI += d; renderDeck(); }
   // докуда долистал презентацию — учитель видит в прогрессе курса (отправляем только новый максимум)
-  let seenT = 0;
+  const confirmedSlides = new Map();
   function deckSeen(k, total) {
     if (!SERVER || !appState.student || !appState.DECK || appState.DECK.pyc) return;
-    const key = `egeTrainer.seen.${appState.student.sid}.${appState.DECK.n}`;
-    let max = 0;
-    try { max = +localStorage.getItem(key) || 0; } catch (e) { /* нет доступа */ }
-    if (k <= max) return;
-    try { localStorage.setItem(key, k); } catch (e) { /* нет доступа */ }
-    const n = appState.DECK.n;
-    clearTimeout(seenT);
-    seenT = setTimeout(() => api('course/seen', { n, slide: k, total }).catch(() => {}), 800);
+    const n = appState.DECK.n, current = learningSessionGuard();
+    if (k <= (confirmedSlides.get(n) || 0)) return;
+    api('course/seen', { n, slide: k, total }).then(() => {
+      if (current()) confirmedSlides.set(n, Math.max(k, confirmedSlides.get(n) || 0));
+    }).catch(() => {});
   }
   // масштаб слайда: на весь экран — подгоняем под экран; кнопки − / + меняют размер вручную
   let DECK_SCALE = 1;
@@ -242,7 +239,7 @@ window.EgeLearningSections = function (bridge) {
   window.addEventListener('resize', () => { if ($('#crsDeck')) fitSlide(); });
   document.fonts?.ready.then(() => { if ($('#crsDeck')) fitSlide(); });   // моноширинный шрифт догрузился — ширина кода другая
   let courseLessonRequest = 0;
-  async function openLesson(n) {
+  async function openLesson(n, slide) {
     if (!appState.COURSE_OK) return openCourse();
     abandonCurrent();
     if (!leaveExam()) return;
@@ -260,7 +257,7 @@ window.EgeLearningSections = function (bridge) {
     try { lesson = await api('course/lesson?n=' + n); } catch (e) { if (!current() || request !== courseLessonRequest) return; if (e.status === 403) { appState.COURSE_OK = false; return openCourse(); } }
     if (!current() || !appState.courseShown || appState.pageKind !== null || request !== courseLessonRequest) return;
     const has = lesson && lesson.slides && lesson.slides.length;
-    if (has) { appState.DECK = lesson; appState.deckI = learningSlide(n); }
+    if (has) { appState.DECK = lesson; appState.deckI = Number.isInteger(slide) ? Math.max(0, Math.min(slide, has - 1)) : learningSlide(n); }
     const deck = has ? `<div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
@@ -565,7 +562,7 @@ window.EgeLearningSections = function (bridge) {
   }
 
   /** Уровень: слайды (как в «Курсе») и задачи с проверкой. */
-  async function openPycLevel(mid, li, keepScroll) {
+  async function openPycLevel(mid, li, keepScroll, task) {
     if (!pycEnter()) return;
     const request = ++pycLevelRequest, current = learningSessionGuard();
     navPush({ v: 'pycl', m: mid, l: li });
@@ -587,6 +584,7 @@ window.EgeLearningSections = function (bridge) {
     appState.DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
     if (!keepScroll) appState.deckI = learningSlide(`pyc:${mid}:${li}`);
     const saved = learningMemory().pyc;
+    if (task && lv.tasks.some(t => t.id === task && !t.ok)) PYC_FOCUS = task;
     if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && saved.l === li && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
     learningMemory({ pyc: { m: mid, l: li, task: PYC_FOCUS } });
     const done = lv.tasks.filter(t => t.ok).length;
@@ -985,7 +983,7 @@ window.EgeLearningSections = function (bridge) {
     if (LAB.worker) LAB.worker.terminate();
     LAB.worker = null; LAB.running = false;
   }
-  async function openLab(view = '', context) {
+  async function openLab(view = '', context, target) {
     if (!leaveExam()) return;
     if (view === 'arduino') return openArdGate();       // у лаборатории Arduino — свой пароль
     if (!['', 'tasks', 'code', 'bugs'].includes(view)) view = '';
@@ -1019,6 +1017,7 @@ window.EgeLearningSections = function (bridge) {
     if (context) { LAB.code = context.code || ''; LAB.stdin = context.stdin || ''; LAB.result = null; LAB.index = 0; }
     else if (LAB.context) { LAB.code = LAB.context.code || ''; LAB.stdin = LAB.context.stdin || ''; }
 
+    if (view === 'tasks' && target && courseCoverage?.labs?.some(m => m.id === target)) LAB.mode = target;
     document.body.classList.add('lab-open');
     document.body.classList.remove('asg-wide');
     renderSidebar();
@@ -1038,7 +1037,7 @@ window.EgeLearningSections = function (bridge) {
       </div>`;
     if (view === 'tasks') labRenderModel();
     if (view === 'code') { if (LAB.result && !LAB.seen) labIndexSteps(); labPaintEditor(); labRenderStep(); }
-    if (view === 'bugs') bugLabInit();
+    if (view === 'bugs') bugLabInit(target);
     if (SERVER && (view === 'tasks' || view === 'code')) {
       const activity = view === 'tasks' ? { section: 'model', model: LAB.mode } : { section: 'code' };
       api('lab/activity', activity).catch(() => {});  // статистика просмотра не блокирует работу модели
@@ -1048,6 +1047,9 @@ window.EgeLearningSections = function (bridge) {
   function labTasksHtml() {
     const models = courseCoverage?.labs || [['alg', 'Алгоритмы'], ['image', 'Изображения'], ['net', 'IP-сети'], ['logic', 'Логика'], ['pairs', 'Пары'], ['game', 'Игры'], ['str', 'Строки'], ['mask', 'Маски и делители'], ['sort', 'Сортировка'], ['clust', 'Кластеры'], ['graph', 'Графы']].map(([id, title]) => ({id, title}));
     return `<nav class="lab-tabs" aria-label="Эксперименты">${models.map(m => `<button type="button" class="btn${LAB.mode === m.id ? ' primary' : ''}" data-lab-model="${esc(m.id)}" aria-pressed="${LAB.mode === m.id}">${m.label ? `${m.archive ? 'Архив · ' : '№ '}${esc(m.label)} · ` : ''}${esc(m.title)}</button>`).join('')}</nav><p class="lab-note">${courseCoverage?.edition ? esc(courseCoverage.edition.label) + '. Архивные модели помечены отдельно.' : 'Справочник номеров сейчас недоступен; модели можно использовать без номера экзамена.'} Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
+  }
+  function recordLabPrediction(right) {
+    if (right && SERVER && !appState.teacher) api('lab/activity', { section: 'model', model: LAB.mode, prediction: true }).catch(() => {});
   }
   function labPrediction(question) {
     return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" aria-describedby="labFeedback" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
@@ -1479,6 +1481,7 @@ window.EgeLearningSections = function (bridge) {
     if (LAB.running) return;
     if (!LAB.code.trim()) { labSetStatus('Сначала напиши код или выбери пример.'); return; }
     labStop(); LAB.result = null; LAB.index = 0; labSaveDraft();
+    const example = !LAB.context && Object.keys(LAB_EXAMPLES).find(id => LAB_EXAMPLES[id][1] === LAB.code);
     $('#labEd').hidden = false; $('#labTraceCode').hidden = true; $('#labControls').hidden = true; $('#labEdit').hidden = true; $('#labIdeMode').textContent = 'Редактор';
     $('#labVariables').textContent = ''; $('#labStack').textContent = ''; $('#labOutput').textContent = ''; $('#labEvent').textContent = 'Готовим запись выполнения…';
     try {
@@ -1506,6 +1509,7 @@ window.EgeLearningSections = function (bridge) {
         } else if (m.type === 'trace-progress') {
           if (LAB.result?.pending) { LAB.result.progress = m.seconds; labRenderStatus(); }
         } else if (m.type === 'trace') {
+          if (SERVER && !appState.teacher && example && m.result.finished && !m.result.error) api('lab/activity', { section: 'code', example }).catch(() => {});
           const recorded = LAB.result?.pending ? LAB.result : null;
           clearTimeout(LAB.timeout); LAB.timeout = null; worker.terminate(); LAB.worker = null; labSetBusy(false);
           if (recorded) {                                    // досчитали: шаги — прежние, вывод и итог — полные
@@ -1717,6 +1721,7 @@ window.EgeLearningSections = function (bridge) {
       const answer = $('#labGuess').value.trim().replace(/\s/g, '');
       if (LAB_EXTRA[LAB.mode]) {
         const { expected, why } = LAB_EXTRA[LAB.mode].answer(), right = /^-?\d+$/.test(answer) && expected != null && +answer === expected;
+        recordLabPrediction(right);
         $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} Ответ: ${expected == null ? 'нет' : expected}. ${why}`;
         return;
       }
@@ -1732,11 +1737,13 @@ window.EgeLearningSections = function (bridge) {
           why = expected == null ? 'Пути нет.' : G.kind === 'count' ? 'Числа на графе — сколько путей из каждой вершины.' : `Путь: ${r.path.join(' → ')}.`;
         }
         const right = /^-?\d+$/.test(answer) && expected != null && +answer === expected;
+        recordLabPrediction(right);
         $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} Ответ: ${expected == null ? 'пути нет' : expected}. ${why}`;
         return;
       }
       const expected = LAB.mode === 'net' ? labNetwork(LAB.net.ip, LAB.net.prefix).count : labImageSize(LAB.picture.w, LAB.picture.h, LAB.picture.depth).bytes;
       const right = /^\d+$/.test(answer) && +answer === expected;
+      recordLabPrediction(right);
       $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} ${LAB.mode === 'net' ? `2^(32 − ${LAB.net.prefix})` : `Округляем вверх: ${labFmt(LAB.picture.w)} × ${labFmt(LAB.picture.h)} × ${LAB.picture.depth} / 8`} = ${labFmt(expected)}${LAB.mode === 'net' ? ' адресов.' : ' байт.'}`;
     } catch (err) { $('#labFeedback').textContent = err.message; }
   });
@@ -1815,7 +1822,7 @@ window.EgeLearningSections = function (bridge) {
   }
   const bugCurrent = (c, run, sid) => bugActive() && bugCase() === c && BUG.runId === run && appState.student?.sid === sid;
   function bugLabHtml() { return '<div id="bugRoot"><p class="fm-note">Загружаю задачи…</p></div>'; }
-  async function bugLabInit() {
+  async function bugLabInit(target) {
     const sid = appState.student?.sid;
     if (BUG.owner !== sid) { resetBugLab(); BUG.owner = sid; }
     const load = ++BUG.loadId;
@@ -1830,6 +1837,7 @@ window.EgeLearningSections = function (bridge) {
       }
     }
     if (!bugActive()) return;
+    if (target && BUG.cases.some(c => c.id === target)) BUG.cur = target;
     if (bugCase()) bugRenderCase(); else bugRenderList();
   }
   const bugStatus = c => (c.my.verified ? ['good', 'есть проверенное решение'] : c.my.ok ? ['good', 'самопроверка пройдена'] : c.my.tries ? ['review', `${c.my.tries} ${plural(c.my.tries, 'попытка', 'попытки', 'попыток')}`] : ['', 'новая']);

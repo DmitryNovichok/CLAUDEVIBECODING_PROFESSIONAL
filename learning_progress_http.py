@@ -17,7 +17,8 @@ import buglab
 import buglab_grading
 import buglab_verifier
 import kim
-from learning_catalog import LAB_MODELS
+from learning_catalog import LAB_MODELS, PREDICTION_MODELS, TRACE_EXAMPLES
+from learning_directory import directory
 import learning_quality
 from learning_content import course_coverage, course_guide
 
@@ -28,7 +29,7 @@ LEARNING_PROGRESS_PATHS = frozenset({
     '/api/lab', '/api/lab/unlock', '/api/lab/bugs', '/api/lab/bugs/check',
     '/api/lab/bugs/explain', '/api/lab/bugs/verify', '/api/lab/activity',
     '/api/arduino/unlock', '/api/arduino/progress',
-    '/api/learning/mistake', '/api/learning/mistakes',
+    '/api/learning/directory', '/api/learning/mistake', '/api/learning/mistakes',
 })
 LEARNING_PROGRESS_WRITES = frozenset({
     '/api/course/seen', '/api/course/unlock',
@@ -84,6 +85,14 @@ class LearningProgressHTTPHandlers:
     def learning_progress_route(self, method, path, qs, data):
         svc = self.learning_progress_services()
         db = svc.db
+        if path == "/api/learning/directory" and method == "GET":
+            s = self.student(data)
+            if not s:
+                return self.err(401, "нужно войти")
+            group = qs.get("group")
+            if group not in ("labs", "courses"):
+                return self.err(400, "Неизвестный раздел")
+            return self.send_json(directory(svc, s, group))
         if path == "/api/course/coverage" and method == "GET":
             available = svc.bank.ensure()
             return self.send_json(course_coverage(svc.root, svc.bank.tasks if available else None,
@@ -202,6 +211,15 @@ class LearningProgressHTTPHandlers:
                 if section not in ("model", "code") or (section == "model" and
                         (not isinstance(item, str) or item not in LAB_MODELS)):
                     return self.err(400, "Неизвестная лаборатория")
+                if section == "model" and data.get("prediction") is True:
+                    if item not in PREDICTION_MODELS:
+                        return self.err(400, "У этой модели нет прогноза")
+                    item = "forecast:" + item
+                if section == "code" and "example" in data:
+                    example = data["example"]
+                    if not isinstance(example, str) or example not in TRACE_EXAMPLES:
+                        return self.err(400, "Неизвестный пример")
+                    item = "trace:" + example
                 if not s["is_teacher"]:
                     db.x("""INSERT INTO lab_activity(student_id, item, last_opened) VALUES(?,?,?)
                             ON CONFLICT(student_id, item) DO UPDATE SET last_opened=excluded.last_opened""",

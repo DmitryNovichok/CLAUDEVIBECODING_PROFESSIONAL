@@ -116,7 +116,7 @@
   }
 
   /** Уровень: слайды (как в «Курсе») и задачи с проверкой. */
-  async function openPycLevel(mid, li, keepScroll) {
+  async function openPycLevel(mid, li, keepScroll, task) {
     if (!pycEnter()) return;
     const request = ++pycLevelRequest, current = learningSessionGuard();
     navPush({ v: 'pycl', m: mid, l: li });
@@ -138,6 +138,7 @@
     appState.DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
     if (!keepScroll) appState.deckI = learningSlide(`pyc:${mid}:${li}`);
     const saved = learningMemory().pyc;
+    if (task && lv.tasks.some(t => t.id === task && !t.ok)) PYC_FOCUS = task;
     if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && saved.l === li && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
     learningMemory({ pyc: { m: mid, l: li, task: PYC_FOCUS } });
     const done = lv.tasks.filter(t => t.ok).length;
