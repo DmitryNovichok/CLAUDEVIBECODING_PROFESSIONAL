@@ -78,8 +78,6 @@ window.EgeLearningSections = function (bridge) {
     appState.pageKind = null;
     appState.cur = null;
     navPush({ v: 'course' });
-    document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
-    $('#courseCard')?.classList.add('on');
     if (!appState.COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
     loadCourseCoverage();
     const all = COURSE.filter(m => !m.archive).flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;
@@ -492,8 +490,6 @@ window.EgeLearningSections = function (bridge) {
     appState.courseShown = true;
     appState.pageKind = 'pyc';
     appState.cur = null;
-    document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
-    $('#pycCard')?.classList.add('on');
     document.body.classList.add('asg-wide');
     return true;
   }
@@ -1636,7 +1632,7 @@ window.EgeLearningSections = function (bridge) {
     if (!labActive()) {
       labStop();
       if ((appState.pageKind !== 'lab' || !appState.courseShown) && LAB.context) { labSaveDraft(); LAB.context = null; LAB.owner = null; }
-      document.body.classList.remove('lab-open'); $('#labCard')?.classList.remove('on');
+      document.body.classList.remove('lab-open');
     }
   }).observe(trainerEl, { childList: true });
   window.addEventListener('pagehide', labStop);

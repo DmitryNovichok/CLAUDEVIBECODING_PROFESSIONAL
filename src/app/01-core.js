@@ -330,27 +330,8 @@
   const isNarrow = () => window.matchMedia('(max-width: 860px)').matches;
   function setSideOpen(open) {
     $('.sidebar').classList.toggle('open', open);
-    $('#sideToggle').setAttribute('aria-expanded', String(open));
+    $('#hubNums')?.setAttribute('aria-expanded', String(open));
   }
-  $('#sideToggle').addEventListener('click', () => setSideOpen(!$('.sidebar').classList.contains('open')));
-
-  // Свёрнутое меню на компьютере: остаётся узкая полоска со значком, задание получает всю ширину
-  const SIDE_MIN_KEY = 'egeTrainer.sideMin';
-  // Сворачивает и разворачивает банк номеров синяя кнопка «Все задания» в полоске слева
-  function setSideMin(on) {
-    document.body.classList.toggle('side-min', on);
-    const b = $('#allCard');
-    if (b) {
-      b.setAttribute('aria-expanded', String(!on));
-      b.title = on ? 'Показать банк заданий' : 'Скрыть банк заданий — больше места для задания';
-    }
-    try { localStorage.setItem(SIDE_MIN_KEY, on ? '1' : '0'); } catch (e) { /* нет доступа */ }
-  }
-  try { if (localStorage.getItem(SIDE_MIN_KEY) === '1') setSideMin(true); } catch (e) { /* нет доступа */ }
-  // ?. — страница могла остаться от прошлой версии сайта (index.html не обновили): не падаем
-  $('#sideMinBtn')?.addEventListener('click', () => setSideMin(!document.body.classList.contains('side-min')));
-  // в свёрнутом виде клик по значку тоже разворачивает
-  $('.sidebar .brand-mark')?.addEventListener('click', () => { if (document.body.classList.contains('side-min')) setSideMin(false); });
 
   // ------------------------------------------------------------ вход до загрузки заданий
   async function loginRequest(body, token) {

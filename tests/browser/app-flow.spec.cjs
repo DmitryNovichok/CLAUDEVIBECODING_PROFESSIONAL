@@ -1,6 +1,6 @@
 // Real routes + shipped application assets; no mocked auth, task or grading API.
 const { test, expect } = require('@playwright/test');
-const {startFixture} = require('./fixture.cjs');
+const {startFixture, seedBrowser} = require('./fixture.cjs');
 const fs = require('node:fs/promises');
 let fixture;
 test.use({ reducedMotion: 'reduce' });
@@ -111,7 +111,7 @@ test('pupil opens first task, downloads its protected file and saves a correct a
 
 for(const width of [320,375,1366]) {
   test(`approved teacher overview and class creation stay usable at ${width}px`,async({page,context},info)=>{
-    const {seedBrowser}=require('./fixture.cjs');const {recordUI}=require('./ui-evidence.cjs');
+    const {recordUI}=require('./ui-evidence.cjs');
     await page.setViewportSize({width,height:900});await seedBrowser(context,fixture,'teacher');
     await page.goto(fixture.origin+'/admin');await expect(page.locator('#overviewBody')).toBeVisible();
     await recordUI(page,info,'teacher-overview-'+width);
@@ -128,5 +128,52 @@ for(const width of [320,375,1366]) {
     expect(profile.onboarding.ready).toBe(true);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await recordUI(page,info,'teacher-classes-'+width);
+  });
+}
+
+for (const width of [375, 1366]) {
+  test(`catalogue home button beside Egeshka returns to the dashboard at ${width}px`, async ({page, context}) => {
+    await page.setViewportSize({width, height: 900});
+    await seedBrowser(context, fixture);
+    // Existing pupils may have saved the old collapsed icon strip.
+    await context.addInitScript(() => localStorage.setItem('egeTrainer.sideMin', '1'));
+    await page.goto(fixture.origin + '/');
+    await page.locator('[data-hub-n="5"]').first().click();
+    await expect(page.locator('#cond')).toContainText('Пять');
+
+    const more = page.getByRole('button', {name: 'Ещё', exact: true});
+    const menu = page.getByRole('dialog', {name: 'Разделы Egeshka'});
+    if (width === 375) {
+      await more.click();
+      await menu.getByRole('button', {name: /Номера заданий/}).click();
+    } else {
+      await page.getByRole('button', {name: 'Номера', exact: true}).click();
+    }
+
+    const sidebar = page.locator('.sidebar');
+    const home = sidebar.locator('#homeCard');
+    const brand = sidebar.locator('.brand-title');
+    await expect(sidebar.locator('.rail')).toHaveCount(0);
+    await expect(home).toBeVisible();
+    await expect(home).toHaveAccessibleName(/главн/i);
+    await expect(brand).toHaveText('Egeshka');
+    await expect(brand).toBeVisible();
+    const icon = await home.boundingBox();
+    const title = await brand.boundingBox();
+    const gap = Math.max(icon.x - title.x - title.width, title.x - icon.x - icon.width);
+    expect(gap).toBeGreaterThanOrEqual(-1);
+    expect(gap).toBeLessThan(24);
+    expect(Math.min(icon.y + icon.height, title.y + title.height)).toBeGreaterThan(Math.max(icon.y, title.y));
+    await home.press('Enter');
+    await expect(page.getByRole('heading', {name: 'Все разделы'})).toBeVisible();
+    await expect(home).toBeHidden();
+    await expect(page.locator('#navShade')).toBeHidden();
+
+    if (width === 375) {
+      await more.click();
+      await menu.getByRole('button', {name: /Вариант ЕГЭ/}).click();
+      await expect(menu).toBeHidden();
+      await expect(page.getByRole('heading', {name: 'Мои варианты'})).toBeVisible();
+    }
   });
 }

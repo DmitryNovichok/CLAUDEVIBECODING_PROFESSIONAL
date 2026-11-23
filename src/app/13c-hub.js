@@ -132,8 +132,8 @@
     if (vis('coinCard')) T.push({ k: 'world', name: 'Мой мир', sub: `${(GAME && GAME.coins) || 0} ₿ · магазин и подарки`, btn: 'В магазин', go: () => $('#coinCard').click() });
     if (SERVER && student && !TEACHER) { const c = typeof duelCalls === 'function' ? duelCalls().length : 0;
       T.push({ k: 'duel', name: TOUR && TOUR.tours ? 'Дуэли и турниры' : 'Дуэли',   // турниры выключены на сервере (TOURS_ON) — только дуэли
-        sub: c ? 'тебя вызвали на дуэль' : $('#duelSub').textContent, badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
-    if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togSub').textContent || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
+        sub: c ? 'тебя вызвали на дуэль' : $('#duelCard').title || 'вызови соперника', badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
+    if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togCard').title || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
     return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
   }
   /** Тренажёр — главное на сайте: отдельный блок над планом на сегодня, номера крупно. */
@@ -143,7 +143,7 @@
       <div class="ht-head">${hubIcon('trainer', 48)}<div class="ht-tt"><h2>Тренажёр</h2>
         <p>Номера 1–27 · освоено ${hubMastered()} · ${total.toLocaleString('ru-RU')} ${plural(total, 'задание', 'задания', 'заданий')} в банке</p></div>
         <div class="ht-acts"><button type="button" class="btn primary" data-train-go="all">Решать подряд →</button>
-          <button type="button" class="btn" data-hub-link="sideToggle">Все номера</button></div></div>
+          <button type="button" class="btn" data-hub-numbers>Все номера</button></div></div>
       ${hubMap().replace('class="hub-map"', 'class="hub-map ht-map"')}
       <div class="ht-legend">${['none', 'weak', 'mid', 'good'].map(l => `<span><i class="lvl-${l}"></i>${LEVEL_TEXT[l]}</span>`).join('')}</div>
     </section>`;
@@ -362,6 +362,7 @@
     const n = e.target.closest('[data-hub-n]');
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
     if (e.target.closest('[data-train-go]')) { setScope('all'); return; }
+    if (e.target.closest('[data-hub-numbers]')) { openNumbers(); return; }
     const hl = e.target.closest('[data-hub-link]');
     if (hl) { $('#' + hl.dataset.hubLink)?.click(); return; }
     const ml = e.target.closest('[data-mail]');
@@ -442,7 +443,13 @@
     const base = st && st.v === 'modal' ? st.base : st;
     if (!courseShown && base && base.v === 'hub') navPush({ v: 'main' });
   }).observe(trainerEl, { childList: true });
-  $('#homeCard')?.addEventListener('click', openHub);
+  $('#homeCard').addEventListener('click', () => {
+    openHub();
+    if (courseShown && pageKind === 'hub') {
+      const heading = $('.hub h1');
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    }
+  });
 
   // ------------------------------------------------------------ плавные переходы между страницами
   /* Новое содержимое центральной части (задание, страница раздела) мягко проявляется. Работает везде,
@@ -461,29 +468,37 @@
   const hubNav = () => document.body.classList.contains('hubnav');
   $('.topbar')?.insertAdjacentHTML('afterbegin', `<span class="hub-nav" id="hubNav">
     <button type="button" class="hub-back" id="hubBack" title="На главную: план на сегодня и все разделы"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Главная</button>
-    <button type="button" class="hub-back hub-nums" id="hubNums" aria-haspopup="true" aria-expanded="false" title="Номера заданий, поиск по номеру, банки и настройки"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/></svg>Номера</button></span>`);
+    <button type="button" class="hub-back hub-nums" id="hubNums" aria-controls="sideBody" aria-expanded="false" title="Номера заданий, поиск по номеру, банки и настройки"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/></svg>Номера</button></span>`);
   document.body.insertAdjacentHTML('beforeend', '<div class="nav-shade" id="navShade" hidden></div>');
   function hubDrawer(open) {
-    if (!hubNav() || isNarrow()) return;
+    if (!hubNav()) return;
     setSideOpen(open);
-    $('#navShade').hidden = !open;
-    $('#hubNums')?.setAttribute('aria-expanded', String(open));
+    $('#navShade').hidden = !open || isNarrow();
   }
   function hubNavOn() {
     document.body.classList.add('hubnav');
-    document.body.classList.remove('side-min');           // в выезжающей панели банк номеров всегда развёрнут
+  }
+  function openNumbers() {
+    if (hubNav() && !isNarrow()) hubDrawer(true);
+    else {
+      if (!hubNav() && courseShown && pageKind === 'hub') { leaveCourse(); next(); renderSidebar(); }
+      setSideOpen(true);
+      window.scrollTo(0, 0);
+    }
+    $('#period').focus({ preventScroll: true });
   }
   $('#hubBack')?.addEventListener('click', () => { hubDrawer(false); openHub(); });
   $('#hubNums')?.addEventListener('click', () => {
-    if (isNarrow()) { setSideOpen(!$('.sidebar').classList.contains('open')); window.scrollTo(0, 0); return; }
-    hubDrawer(!$('.sidebar').classList.contains('open'));
+    if ($('.sidebar').classList.contains('open')) hubDrawer(false);
+    else openNumbers();
   });
+  window.matchMedia('(max-width: 860px)').addEventListener('change', () => hubDrawer(false));
   $('#navShade').addEventListener('click', () => hubDrawer(false));
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && hubNav() && !$('#navShade').hidden) hubDrawer(false); }, true);
   // выбрали номер, раздел или нашли задание — панель сама уезжает
   $('.sidebar').addEventListener('click', e => {
     if (!hubNav() || isNarrow() || $('#navShade').hidden) return;
-    if (e.target.closest('.num-card, .rail-btn, #allNums, #supportBtn, .side-actions .link-btn, #versionBtn')) setTimeout(() => hubDrawer(false), 0);
+    if (e.target.closest('.num-card, #allNums, #supportBtn, .side-actions .link-btn:not(#sndBtn):not(#themeBtn), #versionBtn')) setTimeout(() => hubDrawer(false), 0);
   });
   $('#searchForm')?.addEventListener('submit', () => setTimeout(() => hubDrawer(false), 0));
 

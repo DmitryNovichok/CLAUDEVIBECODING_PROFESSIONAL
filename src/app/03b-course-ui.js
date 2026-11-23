@@ -73,8 +73,6 @@
     appState.pageKind = null;
     appState.cur = null;
     navPush({ v: 'course' });
-    document.querySelectorAll('.rail-btn.on').forEach(b => b.classList.remove('on'));
-    $('#courseCard')?.classList.add('on');
     if (!appState.COURSE_OK) { courseLock(); window.scrollTo(0, 0); return; }
     loadCourseCoverage();
     const all = COURSE.filter(m => !m.archive).flatMap(m => m.lessons), done = all.filter(n => lessonState(n) === 'done').length;

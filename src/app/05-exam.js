@@ -171,8 +171,6 @@
       const left = (EX.deadline - Date.now()) / 1000;
       const c = $('#exClock');
       if (c) { c.textContent = fmtClock(left); c.classList.toggle('warn', left < 600); }
-      const sub = $('#examSub');
-      if (sub) sub.textContent = `идёт · ${fmtClock(left)}`;
       if (left <= 0) { toast('Время вышло — вариант завершён', 4000); finishExam(true); }
     }, 1000);
   }
@@ -457,20 +455,6 @@
   $('#grid').addEventListener('click', e => {
     const b = e.target.closest('.num-card');
     if (b && !b.disabled) setScope(+b.dataset.n);
-  });
-  // Синие кубики — банк заданий: сворачивают и разворачивают панель номеров. Выбранный номер НЕ сбрасывают
-  // (раньше кнопка заодно включала «Все задания», и «Пропустить» начинал выдавать любые номера).
-  $('#allCard').addEventListener('click', () => {
-    if (courseShown && !examShown) {                 // со страницы (курс, подборки, история…) — к заданиям того же номера
-      leaveCourse();
-      if (isNarrow()) setSideOpen(false); else setSideMin(false);
-      next();
-      renderSidebar();
-      return;
-    }
-    if (isNarrow()) { setSideOpen(!$('.sidebar').classList.contains('open')); return; }   // на телефоне — открыть список номеров
-    if (document.body.classList.contains('hubnav')) return;          // панель выезжает целиком — сворачивать в ней нечего
-    setSideMin(!document.body.classList.contains('side-min'));
   });
   // «Все номера» — задания всех номеров: тренажёр сам подбирает, что подтянуть
   $('#allNums')?.addEventListener('click', () => {

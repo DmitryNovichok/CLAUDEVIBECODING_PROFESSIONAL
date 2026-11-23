@@ -57,9 +57,8 @@
     const m = tourMyMatch(), T = TOUR && TOUR.mine;
     const lob = TOUR && TOUR.lobbies.find(l => l.me_in);
     const call = duelCalls().length;
-    $('#duelSub').textContent = !TOUR ? 'вызови соперника' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
+    card.title = !TOUR ? 'вызови соперника' : m ? 'твой матч!' : call ? 'тебя вызвали на дуэль!' : T && T.status === 'run' ? 'ждём соперников'
       : lob ? `набор ${lob.players.length}/${lob.size}` : TOUR.tours === false ? 'вызови соперника' : 'наборы открыты';
-    card.classList.toggle('alert', !!m || !!call);
   }
   const tourLeft = sec => {
     const ms = sec * 1000 - Date.now();

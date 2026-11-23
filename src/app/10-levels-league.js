@@ -555,10 +555,6 @@
     if (!card) return;
     hubRefresh();
     card.hidden = !(SERVER && student);
-    if (card.hidden) return;
-    $('#dailySub').textContent = !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
-      : DAILY.my_place ? `${DAILY.my_place}-е место` : DAILY.fast ? 'не засчитано' : DAILY.started ? 'уже заходили' : DAILY.count ? `решили ${DAILY.count}` : `№${DAILY.n}`;
-    card.classList.toggle('done', !!DAILY?.my_place);
   }
   function dailyHtml() {
     if (!DAILY?.ready || DAILY_STATE === 'error') return `<p class="fm-note" role="status">${dailyNotice()}</p><button type="button" class="btn" id="dailyRetry">Повторить загрузку</button>`;

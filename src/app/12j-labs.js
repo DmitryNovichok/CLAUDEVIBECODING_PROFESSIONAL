@@ -821,7 +821,7 @@
     if (!labActive()) {
       labStop();
       if ((appState.pageKind !== 'lab' || !appState.courseShown) && LAB.context) { labSaveDraft(); LAB.context = null; LAB.owner = null; }
-      document.body.classList.remove('lab-open'); $('#labCard')?.classList.remove('on');
+      document.body.classList.remove('lab-open');
     }
   }).observe(trainerEl, { childList: true });
   window.addEventListener('pagehide', labStop);
