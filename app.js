@@ -11048,20 +11048,42 @@
     navPush({ v: 'playground' });
     renderSidebar();
     $('#scopeInfo').textContent = ''; $('#sessionInfo').textContent = '';
+    const programs = Object.entries(playgroundLanguages);
+    const icon = name => `<span class="pg-icon pg-i-${name}" aria-hidden="true"></span>`;
+    const fileMark = key => `<span class="pg-file-mark pg-mark-${key}" aria-hidden="true">${key === 'cpp' ? 'C++' : 'Py'}</span>`;
     trainerEl.innerHTML = `<section class="code-playground" aria-live="off" aria-labelledby="playground-title">
       <header class="pg-heading"><button type="button" data-pg-back>Главная</button><span aria-hidden="true">/</span>
         <h1 id="playground-title" tabindex="-1">Редактор кода</h1></header>
       <div class="pg-workbench">
+       <div class="pg-shell">
+        <div class="pg-activity" role="group" aria-label="Инструменты редактора">
+          <button type="button" data-pg-side="explorer" aria-label="Проводник" aria-controls="pg-explorer" aria-expanded="false">
+            ${icon('files')}<span class="pg-activity-label">Проводник</span></button>
+          <button type="button" data-pg-side="search" aria-label="Поиск" aria-controls="pg-search" aria-expanded="false">
+            ${icon('search')}<span class="pg-activity-label">Поиск</span></button>
+        </div>
+        <aside class="pg-sidebar" aria-label="Боковая панель редактора" hidden>
+          <section id="pg-explorer" aria-labelledby="pg-explorer-title" hidden><h2 id="pg-explorer-title">Проводник</h2>
+            <details class="pg-tree" open><summary>${icon('chevron')}${icon('folder')}Egeshka</summary>
+              <nav aria-label="Исходные файлы">${programs.map(([key, lang]) => `<button type="button" data-pg-file="${key}">${fileMark(key)}${lang.file}</button>`).join('')}</nav>
+            </details></section>
+          <section id="pg-search" aria-labelledby="pg-search-title" hidden><h2 id="pg-search-title">Поиск</h2>
+            <input type="search" class="pg-query" aria-label="Поиск по коду в обоих файлах" placeholder="Найти в коде" maxlength="160" autocomplete="off" spellcheck="false">
+            <p class="pg-search-count" role="status" aria-live="polite"></p><div class="pg-matches"></div></section>
+        </aside>
+        <div class="pg-main">
         <div class="pg-toolbar">
           <div class="pg-docs" role="tablist" aria-label="Файлы программы">
-            ${Object.entries(playgroundLanguages).map(([key, lang]) => `<button type="button" role="tab" id="pg-tab-${key}" data-pg-lang="${key}"
+            ${programs.map(([key, lang]) => `<button type="button" role="tab" id="pg-tab-${key}" data-pg-lang="${key}"
               aria-label="${lang.file} (${lang.name})" aria-controls="pg-editor" aria-selected="false" tabindex="-1">
-              <span class="pg-file-mark" aria-hidden="true">${lang.name}</span>${lang.file}</button>`).join('')}
+              ${fileMark(key)}${lang.file}</button>`).join('')}
           </div>
           <div class="pg-actions"><kbd class="pg-shortcut" aria-hidden="true"></kbd>
-            <button type="button" class="pg-run" data-pg-run aria-keyshortcuts="Control+Enter Meta+Enter">Запустить</button>
-            <button type="button" class="pg-run" data-pg-stop hidden>Стоп</button></div>
+            <button type="button" class="pg-run" data-pg-run aria-keyshortcuts="Control+Enter Meta+Enter">${icon('play')}Запустить</button>
+            <button type="button" class="pg-run" data-pg-stop hidden>${icon('stop')}Стоп</button></div>
         </div>
+        <div class="pg-crumbs"><button type="button" data-pg-reveal title="Показать текущий файл в проводнике" aria-label="Показать текущий файл в проводнике">Egeshka</button>
+          ${icon('chevron')}${icon('code')}<span class="pg-current-file"></span></div>
         <div class="pg-edit" id="pg-editor" role="tabpanel" aria-labelledby="pg-tab-cpp">
           <div class="pg-active-line" aria-hidden="true"></div>
           <div class="pg-gutter" aria-hidden="true"><pre class="pg-lines"></pre></div>
@@ -11081,6 +11103,8 @@
           <div id="pg-input" role="tabpanel" aria-labelledby="pg-input-tab"><textarea id="pg-stdin" rows="3" spellcheck="false" maxlength="120000" aria-label="Входные данные" placeholder="Введите входные данные"></textarea></div>
           <div id="pg-result" role="tabpanel" aria-labelledby="pg-output-tab" hidden><pre class="pg-output" tabindex="0" aria-label="Вывод программы"></pre></div>
         </div>
+        </div>
+       </div>
         <footer class="pg-statusbar"><span class="pg-status" role="status" aria-live="polite"></span><span class="pg-position"></span><span class="pg-mode"></span></footer>
       </div></section>`;
 
@@ -11091,14 +11115,80 @@
     const runButton = find('[data-pg-run]'), stopButton = find('[data-pg-stop]');
     const editor = find('#pg-editor'), lines = find('.pg-lines'), paint = find('.pg-highlight');
     const position = find('.pg-position'), mode = find('.pg-mode'), fold = find('[data-pg-fold]');
-    const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ Enter' : 'Ctrl + Enter';
+    const shell = find('.pg-shell'), sidebar = find('.pg-sidebar'), query = find('.pg-query'), matches = find('.pg-matches');
+    const explorerButton = find('[data-pg-side="explorer"]'), searchButton = find('[data-pg-side="search"]');
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const shortcut = mac ? '⌘ Enter' : 'Ctrl + Enter';
     find('.pg-shortcut').textContent = shortcut; runButton.title = 'Запустить (' + shortcut + ')';
+    explorerButton.title = mac ? 'Проводник (⌘ B)' : 'Проводник (Ctrl+B)';
+    searchButton.title = mac ? 'Поиск в файлах (⇧ ⌘ F)' : 'Поиск в файлах (Ctrl+Shift+F)';
+    explorerButton.setAttribute('aria-keyshortcuts', 'Control+B Meta+B');
+    searchButton.setAttribute('aria-keyshortcuts', 'Control+Shift+F Meta+Shift+F');
+    fold.setAttribute('aria-keyshortcuts', 'Control+J Meta+J');
     const owner = codeKey('playground'), savedLanguage = readJSON(owner + '.language');
     let language = savedLanguage === 'python' ? 'python' : 'cpp';
     let worker = null, ready = false, busy = false, timer = 0, file = null, generation = 0;
     const draftKey = () => owner + '.' + language;
     let pane = 'input';
+    let compact, side = '', desktopSide = 'explorer', lastSide = 'explorer';
     const editorViews = new Map();
+    const pageSize = 24, searchLimits = {cpp:pageSize, python:pageSize};
+    function showMatches() {
+      if (side !== 'search') return;
+      const term = query.value, groups = [];
+      let total = 0;
+      if (term) {
+        const pattern = new RegExp(term.replace(/[.*+?^{}$()|[\]\\]/g, '\\$&'), 'giu');
+        for (const [key, lang] of programs) {
+          const saved = key === language ? null : readJSON(owner + '.' + key);
+          const source = key === language ? code.value : (typeof saved?.code === 'string' ? saved.code.replace(/\r\n?/g, '\n') : lang.example);
+          const rows = [];
+          let count = 0, offset = 0, lineNumber = 0;
+          for (const line of source.split('\n')) {
+            lineNumber++;
+            for (const hit of line.matchAll(pattern)) {
+              if (++count > searchLimits[key]) continue;
+              const from = hit.index, to = from + hit[0].length, left = Math.max(0, from - 12);
+              const snippet = (left ? '…' : '') + esc(line.slice(left, from).trimStart()) + '<mark>' + esc(hit[0]) + '</mark>' + esc(line.slice(to, to + 45));
+              rows.push('<button type="button" class="pg-match" data-pg-hit="' + key + '" data-from="' + (offset + from) + '" data-to="' + (offset + to) + '"><span class="pg-match-line">' + lineNumber + '</span><span class="pg-match-code">' + snippet + '</span></button>');
+            }
+            offset += line.length + 1;
+          }
+          if (count) {
+            total += count;
+            const more = count > rows.length ? '<button type="button" class="pg-more" data-pg-more="' + key + '">Показать ещё</button>' : '';
+            groups.push('<div class="pg-match-group"><h3>' + fileMark(key) + lang.file + '<small>' + count + '</small></h3>' + rows.join('') + more + '</div>');
+          }
+        }
+      }
+      const countLabel = find('.pg-search-count');
+      countLabel.hidden = !term;
+      countLabel.textContent = total ? total + ' ' + plural(total, 'совпадение', 'совпадения', 'совпадений') : (term ? 'Совпадений нет' : '');
+      matches.innerHTML = groups.join('');
+    }
+    function setSide(view) {
+      const hadFocus = sidebar.contains(document.activeElement), previous = side;
+      side = view;
+      if (view) lastSide = view;
+      if (!compact) desktopSide = view;
+      shell.classList.toggle('pg-side-open', !!view);
+      sidebar.hidden = !view;
+      find('#pg-explorer').hidden = view !== 'explorer'; find('#pg-search').hidden = view !== 'search';
+      explorerButton.setAttribute('aria-expanded', String(view === 'explorer'));
+      searchButton.setAttribute('aria-expanded', String(view === 'search'));
+      if (view === 'search') showMatches();
+      if (!view && hadFocus) (previous === 'search' ? searchButton : explorerButton).focus({preventScroll:true});
+    }
+    function updateWorkbenchSize() {
+      const narrow = getComputedStyle(shell).getPropertyValue('--pg-compact').trim() === '1';
+      if (narrow === compact) return;
+      compact = narrow;
+      setSide(compact ? '' : desktopSide);
+    }
+    function toggleSide(view) {
+      setSide(side === view ? '' : view);
+      if (side === 'search') query.focus({preventScroll:true});
+    }
     function selectTab(tab) {
       for (const item of tab.parentElement.querySelectorAll('[role=tab]')) {
         item.setAttribute('aria-selected', String(item === tab));
@@ -11113,8 +11203,9 @@
       find('.pg-files').hidden = !expanded || which !== 'input';
       find('#pg-dock-content').hidden = !expanded;
       fold.setAttribute('aria-expanded', String(expanded));
-      fold.title = expanded ? 'Свернуть консоль' : 'Развернуть консоль';
-      fold.setAttribute('aria-label', fold.title);
+      const label = expanded ? 'Свернуть консоль' : 'Развернуть консоль';
+      fold.setAttribute('aria-label', label);
+      fold.title = label + (mac ? ' (⌘ J)' : ' (Ctrl+J)');
       root.classList.toggle('pg-folded', !expanded);
     }
     function syncEditorScroll() {
@@ -11164,6 +11255,11 @@
       stdin.value = typeof draft?.stdin === 'string' ? draft.stdin : '3 5';
       const tab = find('[data-pg-lang="' + language + '"]');
       selectTab(tab); editor.setAttribute('aria-labelledby', tab.id);
+      find('.pg-current-file').textContent = def.file;
+      for (const item of root.querySelectorAll('[data-pg-file]')) {
+        if (item.dataset.pgFile === language) item.setAttribute('aria-current', 'true');
+        else item.removeAttribute('aria-current');
+      }
       mode.textContent = language === 'cpp' ? 'C++17' : def.name;
       code.setAttribute('aria-label', 'Исходный код ' + def.name);
       const view = editorViews.get(language);
@@ -11172,6 +11268,34 @@
       paintCode();
       output.textContent = ''; output.dataset.hint = 'Здесь появится вывод программы.';
       setStatus('Готов к запуску'); showPane('input');
+    }
+    function openProgram(key) {
+      if (key === language) return;
+      editorViews.set(language, {start:code.selectionStart, end:code.selectionEnd, direction:code.selectionDirection, top:code.scrollTop, left:code.scrollLeft});
+      saveDraft(); stop(); language = key; writeJSON(owner + '.language', language); loadDraft();
+    }
+    function openSearchHit(item) {
+      openProgram(item.dataset.pgHit);
+      if (compact) setSide('');
+      code.focus({preventScroll:true});
+      const from = Number(item.dataset.from), to = Number(item.dataset.to);
+      code.setSelectionRange(from, to);
+      updatePosition(); syncEditorScroll();
+      // Locate the matching text in the painted copy so tabs and long lines scroll to the same pixels as the input.
+      const walker = document.createTreeWalker(paint, window.NodeFilter.SHOW_TEXT), range = document.createRange();
+      let start = 0;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const end = start + node.length;
+        if (from >= start && from < end) range.setStart(node, from - start);
+        if (to > start && to <= end) {
+          range.setEnd(node, to - start);
+          const hit = range.getBoundingClientRect(), box = code.getBoundingClientRect();
+          if (hit.top < box.top || hit.bottom > box.top + code.clientHeight) code.scrollTop += hit.top - box.top - code.clientHeight / 3;
+          if (hit.left < box.left || hit.right > box.left + code.clientWidth) code.scrollLeft += hit.left - box.left - 20;
+          break;
+        }
+        start = end;
+      }
     }
     function displayFile(selected) {
       stop(); file = selected;
@@ -11228,17 +11352,38 @@
         if (generation === ticket) stop(err.message || 'Не удалось запустить программу.');
       }
     }
-    code.addEventListener('input', () => { paintCode(); saveDraft(); });
+    code.addEventListener('input', () => { paintCode(); saveDraft(); showMatches(); });
     code.addEventListener('scroll', syncEditorScroll);
     const onSelection = () => { if (document.activeElement === code) updatePosition(); };
     document.addEventListener('selectionchange', onSelection);
     stdin.addEventListener('input', saveDraft);
+    query.addEventListener('input', () => { searchLimits.cpp = searchLimits.python = pageSize; showMatches(); });
+    explorerButton.addEventListener('click', () => toggleSide('explorer'));
+    searchButton.addEventListener('click', () => toggleSide('search'));
+    find('[data-pg-reveal]').addEventListener('click', () => {
+      setSide('explorer'); find('.pg-tree').open = true;
+      find('[data-pg-file="' + language + '"]').focus({preventScroll:true});
+    });
+    sidebar.addEventListener('click', e => {
+      const item = e.target.closest('button');
+      if (!item) return;
+      if (item.dataset.pgFile) {
+        openProgram(item.dataset.pgFile);
+        if (compact) setSide('');
+        code.focus({preventScroll:true});
+      } else if (item.dataset.pgHit) openSearchHit(item);
+      else if (item.dataset.pgMore) {
+        const key = item.dataset.pgMore, oldLimit = searchLimits[key];
+        searchLimits[key] += pageSize; showMatches();
+        root.querySelectorAll('[data-pg-hit="' + key + '"]')[oldLimit]?.focus();
+      }
+    });
     root.addEventListener('click', e => {
       const lang = e.target.closest('[data-pg-lang]')?.dataset.pgLang;
       const paneTab = e.target.closest('[data-pg-pane]');
-      if (lang && lang !== language) {
-        editorViews.set(language, {start:code.selectionStart, end:code.selectionEnd, direction:code.selectionDirection, top:code.scrollTop, left:code.scrollLeft});
-        saveDraft(); stop(); language = lang; writeJSON(owner + '.language', lang); loadDraft();
+      if (lang) {
+        openProgram(lang);
+        if (compact && side) setSide('');
       } else if (paneTab) showPane(paneTab.dataset.pgPane);
       else if (e.target.closest('[data-pg-fold]')) showPane(pane, fold.getAttribute('aria-expanded') !== 'true');
       else if (e.target.closest('[data-pg-run]')) run();
@@ -11250,6 +11395,26 @@
       }
     });
     root.addEventListener('keydown', e => {
+      if (e.isComposing || e.defaultPrevented) return;
+      if (e.key === 'Escape' && side && (compact || sidebar.contains(e.target))) {
+        e.preventDefault(); setSide(''); code.focus({preventScroll:true}); return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        if (!e.shiftKey && e.code === 'KeyB') {
+          e.preventDefault(); if (!e.repeat) setSide(side ? '' : lastSide); return;
+        }
+        if (!e.shiftKey && e.code === 'KeyJ') {
+          e.preventDefault(); if (!e.repeat) {
+            const panelHadFocus = !!e.target.closest('#pg-dock-content, .pg-files');
+            showPane(pane, fold.getAttribute('aria-expanded') !== 'true');
+            if (panelHadFocus) code.focus({preventScroll:true});
+          }
+          return;
+        }
+        if (e.shiftKey && e.code === 'KeyF') {
+          e.preventDefault(); setSide('search'); query.focus({preventScroll:true}); query.select(); return;
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); return; }
       const tab = e.target.closest('[role=tab]');
       if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
@@ -11272,7 +11437,7 @@
     });
     function onHide() { stop(busy ? 'Выполнение остановлено.' : ''); }
     function dispose() {
-      stop(); observer.disconnect();
+      stop(); observer.disconnect(); sizeObserver.disconnect();
       document.removeEventListener('selectionchange', onSelection);
       window.removeEventListener('pagehide', onHide);
       window.removeEventListener('egeshka:session-ended', dispose);
@@ -11281,10 +11446,12 @@
     }
     const observer = new MutationObserver(() => { if (!root.isConnected) dispose(); });
     observer.observe(trainerEl, { childList: true });
+    const sizeObserver = new ResizeObserver(updateWorkbenchSize);
+    sizeObserver.observe(root);
     closeCodePlayground = dispose;
     window.addEventListener('pagehide', onHide);
     window.addEventListener('egeshka:session-ended', dispose);
-    loadDraft();
+    loadDraft(); updateWorkbenchSize();
     window.scrollTo(0, 0); find('#playground-title').focus({ preventScroll: true });
   }
   // ═══════ src/app/14-boot.js
