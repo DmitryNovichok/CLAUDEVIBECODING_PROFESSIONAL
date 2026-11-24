@@ -14,11 +14,14 @@
   function source(name) {
     if (!assetText.has(name)) {
       const request = fetch(new URL(name + version, base), { credentials: 'same-origin', redirect: 'error', cache: 'no-cache' })
-        .then(r => { if (!r.ok) throw Error('Не удалось загрузить среду Python.'); return r.text(); })
+        .then(r => { if (!r.ok) throw Error('Не удалось загрузить среду выполнения.'); return r.text(); })
         .catch(e => { assetText.delete(name); throw e; });
       assetText.set(name, request);
     }
     return assetText.get(name);
+  }
+  function validFileName(name) {
+    return name.length > 0 && name.length <= 240 && !/[/\\\x00-\x1f]/.test(name) && !['.', '..'].includes(name);
   }
   function fileURL(value) {
     const url = new URL(value, location.href);
@@ -60,7 +63,7 @@
       case 'status': case 'trace-error': case 'tests-error': return { type: m.type, text: text(m.text) };
       case 'ready': return { type: 'ready', version: text(m.version, 40) };
       case 'done': return { type: 'done', ok: m.ok === true, ms: Math.max(0, number(m.ms)), fatal: m.fatal === true };
-      case 'tracing': case 'tests-start': case 'tests-done': return { type: m.type };
+      case 'running': case 'tracing': case 'tests-start': case 'tests-done': return { type: m.type };
       case 'test': return { type: 'test', i: number(m.i), result: { out: text(m.result?.out, 20000),
         err: text(m.result?.err), kind: text(m.result?.kind, 100), line: number(m.result?.line) } };
       case 'turtle': {
@@ -94,37 +97,39 @@
       default: return null;
     }
   }
-  class EgePythonWorker {
+  class EgeCodeWorker {
     constructor(name) {
       const url = new URL(name, base);
-      if (url.origin !== base.origin || !['py-worker.js', 'lab-worker.js'].some(n => url.pathname === new URL(n, base).pathname))
-        throw Error('Неизвестная среда Python.');
+      const workerName = ['py-worker.js', 'lab-worker.js', 'cpp-worker.js'].find(n => url.pathname === new URL(n, base).pathname);
+      if (url.origin !== base.origin || !workerName) throw Error('Неизвестная среда выполнения.');
       this.onmessage = null; this.onerror = null;
       this.closed = false; this.port = null; this.frame = null;
       this.abort = new AbortController();
-      this.started = this.start(url.pathname.endsWith('/lab-worker.js'), url.searchParams.get('local') === '1');
+      this.started = this.start(workerName, url.searchParams.get('local') === '1');
       // A caller may only be waiting for `ready`, without posting a command yet.
       this.started.catch(() => {});
       this.queue = Promise.resolve();
     }
     emit(m) { if (!this.closed) this.onmessage?.({ data: m }); }
-    async start(lab, local) {
+    async start(name, local) {
       try {
-        const [frameText, python, trace] = await Promise.all([
-          source('python-sandbox.html'), source('py-worker.js'), lab ? source('lab-worker.js') : ''
+        const cpp = name === 'cpp-worker.js';
+        const [frameText, core, trace] = await Promise.all([
+          source('python-sandbox.html'), source(cpp ? name : 'py-worker.js'), name === 'lab-worker.js' ? source(name) : ''
         ]);
         if (this.closed) return;
-        const roots = local ? [new URL('vendor/pyodide/', base).href, CDN] : [CDN];
-        const bootstrap = 'self.EGE_PYODIDE_SOURCES=' + JSON.stringify(roots) + ';\n' + python + '\n' + trace;
+        const roots = cpp ? [new URL('vendor/clang-wasm-0.3.0/', base).href] : local ? [new URL('vendor/pyodide/', base).href, CDN] : [CDN];
+        const config = cpp ? 'self.EGE_CPP_ROOT=' + JSON.stringify(roots[0]) : 'self.EGE_PYODIDE_SOURCES=' + JSON.stringify(roots);
+        const bootstrap = config + ';\n' + core + '\n' + trace;
         const frame = document.createElement('iframe');
         this.frame = frame;
-        frame.hidden = true; frame.title = 'Изолированная среда Python';
+        frame.hidden = true; frame.title = cpp ? 'Изолированная среда C++' : 'Изолированная среда Python';
         frame.setAttribute('sandbox', 'allow-scripts');
         frame.referrerPolicy = 'no-referrer';
         frame.srcdoc = frameText.replaceAll('__EGE_RUNTIME__', roots.join(' ').replaceAll('&', '&amp;').replaceAll('"', '&quot;'));
         await new Promise((resolve, reject) => {
           this.rejectStart = reject;
-          this.startTimer = setTimeout(() => reject(Error('Среда Python не запустилась.')), 20000);
+          this.startTimer = setTimeout(() => reject(Error('Среда выполнения не запустилась.')), 20000);
           frame.onload = () => {
             if (this.closed) return;
             const channel = new MessageChannel();
@@ -135,7 +140,7 @@
                 clearTimeout(this.startTimer); this.rejectStart = null; resolve(); return;
               }
               if (event.data?.type === 'sandbox-error') {
-                const error = Error('Не удалось запустить изолированную среду Python.');
+                const error = Error('Не удалось запустить изолированную среду.');
                 reject(error); this.onerror?.(error); this.terminate(); return;
               }
               const message = output(event.data);
@@ -149,7 +154,7 @@
       } catch (e) {
         clearTimeout(this.startTimer);
         if (!this.closed) {
-          this.emit({ type: 'err', text: 'Не удалось загрузить Python: ' + e.message + '\n' });
+          this.emit({ type: 'err', text: 'Не удалось загрузить среду: ' + e.message + '\n' });
           this.emit({ type: 'done', ok: false, ms: 0 });
           this.onerror?.(e);
           this.terminate();
@@ -165,12 +170,20 @@
         inputs: Array.isArray(message.inputs) ? message.inputs.slice(0, 12).map(String) : [], files: [] };
       const files = (Array.isArray(message.files) ? message.files : []).slice(0, 40)
         .map(f => ({ name: String(f.name || ''), url: String(f.url || '') }));
+      const localFile = message.localFile;
+      const inputFile = localFile && localFile.data instanceof ArrayBuffer
+        ? { name: String(localFile.name || ''), data: localFile.data } : null;
       this.queue = this.queue.then(async () => {
         await this.started;
         if (this.closed) return;
         let total = 0;
+        if (inputFile) {
+          if (!validFileName(inputFile.name) || inputFile.data.byteLength > MAX_FILE) throw Error('Недопустимый файл для программы.');
+          command.files.push(inputFile);
+          total = inputFile.data.byteLength;
+        }
         for (const file of files) {
-          if (!file.name || file.name.length > 240 || /[/\\\x00-\x1f]/.test(file.name) || ['.', '..'].includes(file.name))
+          if (!validFileName(file.name))
             throw Error('Недопустимое имя файла.');
           try {
             const url = fileURL(file.url);
@@ -196,10 +209,11 @@
       if (this.closed) return;
       this.closed = true;
       this.abort.abort(); clearTimeout(this.startTimer);
-      this.rejectStart?.(Error('Python остановлен.')); this.rejectStart = null;
+      this.rejectStart?.(Error('Выполнение остановлено.')); this.rejectStart = null;
       this.port?.close(); this.frame?.remove();
       this.port = this.frame = null;
     }
   }
-  window.EgePythonWorker = EgePythonWorker;
+  window.EgeCodeWorker = EgeCodeWorker;
+  window.EgePythonWorker = EgeCodeWorker;
 })();

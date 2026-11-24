@@ -21,12 +21,12 @@
       "source": "d13f47c0f8636fc41c174eb3208e8701c5a0f5d37109b935cab89ab47c7ff600"
     },
     "app.js": {
-      "min": "09032c6328af2ece7be92aed76b33f1f82b32b72ba0a9d9b7232e4803e08669c",
-      "source": "aee27af9218f0eb2a3f9054832d68e2fe0f6fc70efbe96b5dbf6dd064fdff00a"
+      "min": "39daf4d3d1ecffd4ce64f6dc3649a79b0ef6b8840411824eb99497af7759ec18",
+      "source": "0340fff7614e96213559dd9206555a038cee85a355b19f18409076c70532c6d1"
     },
     "changelog-loader.js": {
-      "min": "532c45cc365c0b3d2237a7fd6f0bdb104d5aba2d3073b1b02a313bff4e149aed",
-      "source": "f69e58fdabe0012fc600748dc71c89f4385ce0e57ec3c5a49c754d8220f2fa96"
+      "min": "cb0f99dd909f44c09aaaee26e8dd54a299b920a5c8600bced4cf66dd8e4b6a9b",
+      "source": "b83a568e0439a74caa23df0e0aabdbf6cc61a4b2c548b830ded6cacd81c58cd6"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -49,8 +49,8 @@
       "source": "b36e1d9e82c8ec5a9287bba2472f6b15d1b6dcaafc231ae9dc141807a9b91b83"
     },
     "python-sandbox.js": {
-      "min": "6a99986787c6a3479e582ede5acc5a08886cf52ac04eff844588d5d8b644e80c",
-      "source": "47593fe5714fdf764693cc2e47dc70cb0bbcc3cd4f8ca4cd2ecbb83d4bc46b62"
+      "min": "aa3beb61826e7069038971d5a5f53c851884534271e02039fb109973632e852a",
+      "source": "b7c907f866a23e1034b6e5796c8f8cc5f0125d01be8c6da7469bd26cd9ff7df0"
     },
     "skill-coverage.css": {
       "min": "eeaf39fc8fce536439f6ba5a3216d582b6a6f043166409524c5b034e21046954",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "38afaafe201eea6f7963618d7a9a2c23355e05ab7f051b8bdbdc5df62fb16156",
-      "source": "d0069babf4472bc5f04b6287a0c5cda435dea2c4582d565b7f8f770531b3c759"
+      "min": "b1c36801276879f116b19db044be51182b20baefbb6aa2e27b764b6e8d04add5",
+      "source": "75cbe4090888bef4402ba3880c58ff9edd503d4f06f21707ae5d91ed4e7bc2e3"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",

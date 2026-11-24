@@ -470,6 +470,7 @@
     try {
       if (examShown) return;
       if (st.v === 'hub') openHub();
+      else if (st.v === 'playground') openCodePlayground();
       else if (st.v === 'courses' || st.v === 'labs') openLearningDirectory(st.v);
       else if (st.v === 'course') openCourse();
       else if (st.v === 'lab13') openLabAssignment(st.id);
@@ -501,6 +502,7 @@
   let DECK = null, deckI = 0;             // текущий слайд нужен маркеру обычного Python
   function leaveCourse() {
     if (!courseShown) return;
+    if (pageKind === 'playground') closeCodePlayground?.();
     if (pageKind === 'lab') { labStop(); document.body.classList.remove('lab-open'); }
     courseShown = false;
     pageKind = null;

@@ -415,6 +415,11 @@
           <span>${doneN === goalN ? 'всё сделано — так держать!' : `сделано ${doneN} из ${goalN}`}</span></div></section>
       <h2 class="hub-h2">Все разделы</h2>
       <div class="hub-tiles">${tiles.map(tileHtml).join('')}</div>
+      <button type="button" class="hub-code-banner" data-open-playground>
+        <span class="hub-code-icon" aria-hidden="true">&lt;/&gt;</span>
+        <span class="hub-code-copy"><strong>C++ / Python</strong><span>Пиши и запускай код без выбора задания.</span></span>
+        <span class="hub-code-action">Открыть редактор <span aria-hidden="true">→</span></span>
+      </button>
       <footer class="hub-foot"><button type="button" class="link-btn" data-hub-link="tourBtn">Как работает Egeshka</button>
         <button type="button" class="link-btn" data-hub-link="versionBtn">${esc(($('#versionBtn') || {}).textContent || 'Что нового')}</button>
         ${SERVER ? '' : '<button type="button" class="link-btn" data-hub-link="exportBtn">Сохранить прогресс в файл</button>'}
@@ -516,6 +521,7 @@
       return;
     }
     if (!courseShown || pageKind !== 'hub') return;
+    if (e.target.closest('[data-open-playground]')) { openCodePlayground(); return; }
     const n = e.target.closest('[data-hub-n]');
     if (n) { e.stopPropagation(); setScope(+n.dataset.hubN); return; }
     if (e.target.closest('[data-train-go]')) { setScope('all'); return; }
