@@ -104,7 +104,7 @@ EXTRA_BANK = HERE / "data" / "egeshka_bank.json"   # авторский банк
 MORE_BANKS = ("task10_bank.json",)
 
 # что можно отдавать из папки trainer
-SITE_FILES = {"index.html", "app.js", "app-exams.js", "app-learning.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "changelog.js",
+SITE_FILES = {"index.html", "app.js", "app-exams.js", "app-learning.js", "style.css", "admin.html", "admin.js", "admin.css", "py-worker.js", "lab-worker.js", "cpp-worker.js", "changelog.js",
               "changelog-loader.js",
               "python-sandbox.js", "python-sandbox.html",
               "lesson-readiness.js", "lesson-readiness.css",
@@ -120,7 +120,7 @@ SITE_DIRS = ("vendor/", "media/", "promo/", "arduino/")   # arduino/ — лаб�
 PAGE_ASSET_RE = re.compile(r'\b(src|href)="((?:app|app-exams|app-learning|skill-coverage|changelog|changelog-loader|admin|teacher-gate|together|py-worker|python-sandbox|lesson-readiness|welcome|qr|egeshka|elements|onboard|visit)\.js|(?:style|admin-theme|admin|skill-coverage|teacher-gate|lesson-readiness|legal|welcome|academy|lab|classroom|help)\.css)"')
 PAGE_ASSETS = ("app.js", "app-exams.js", "app-learning.js", "changelog.js", "admin.js", "together.js", "py-worker.js", "welcome.js", "qr.js",
                "changelog-loader.js",
-               "python-sandbox.js", "python-sandbox.html", "lesson-readiness.js", "lesson-readiness.css",
+               "python-sandbox.js", "python-sandbox.html", "cpp-worker.js", "lesson-readiness.js", "lesson-readiness.css",
                "teacher-gate.js", "teacher-gate.css", "skill-coverage.js", "skill-coverage.css",
                "style.css", "admin-theme.css", "admin.css", "legal.css", "welcome.css", "help.css",
                "egeshka.js", "elements.js", "onboard.js", "visit.js", "academy.css", "lab.css", "classroom.css")      # все имена из PAGE_ASSET_RE
@@ -3414,8 +3414,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         extra = {"ETag": etag, "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff",
                  "Vary": "Accept-Encoding"}
         runtime = (HERE / 'vendor' / 'pyodide').resolve()
-        if runtime in p.parents:
-            # Only public runtime artifacts are readable from the opaque Python frame.
+        cpp_runtime = (HERE / 'vendor' / 'clang-wasm-0.3.0').resolve()
+        if cpp_runtime in p.parents:
+            extra['Cache-Control'] = 'public, max-age=31536000, immutable'
+        if runtime in p.parents or cpp_runtime in p.parents:
+            # Only public interpreter/compiler assets are readable from an opaque code frame.
             extra['Access-Control-Allow-Origin'] = '*'
         if private:                                  # закрытый код не остаётся в общем кэше после выхода/смены ученика
             extra["Cache-Control"] = "private, no-store"
