@@ -3814,37 +3814,62 @@ body.hub-on .trainer { max-width: 1120px; padding: 4px 20px 60px; }
 .learning-summary.all-open::before { content: ''; width: .35rem; height: .65rem; margin-top: -.2rem;
   border: solid var(--good-strong); border-width: 0 2px 2px 0; transform: rotate(45deg); }
 
-.learning-entries { display: grid; gap: .875rem; }
-.learning-entry { display: grid; grid-template-columns: 4.25rem minmax(0, 1fr); align-items: stretch; min-width: 0; padding: 0;
-  color: var(--text); background: var(--card); border: 1px solid var(--border-strong); border-radius: var(--radius);
-  font: inherit; text-align: left; cursor: pointer; transition: background-color .15s, border-color .15s; }
-.learning-art { display: grid; place-items: center; border-radius: calc(var(--radius) - 1px) 0 0 calc(var(--radius) - 1px);
-  color: color-mix(in srgb, var(--entry-color) 32%, transparent);
-  background-color: color-mix(in srgb, var(--entry-color) 12%, var(--card));
-  background-image: radial-gradient(circle, currentColor .8px, transparent 1px); background-size: 12px 12px; background-position: center; }
-.learning-art .hub-ic { display: block; width: 2.625rem; height: auto; }
-.learning-copy { display: grid; align-content: center; gap: .4rem; min-width: 0; padding: 1rem; overflow-wrap: anywhere; }
-.learning-copy strong { font-size: 1.125rem; line-height: 1.23; }
-.learning-description { display: block; color: color-mix(in srgb, var(--muted) 86%, var(--text)); font-size: 1rem; line-height: 1.45; }
-.learning-availability { display: block; margin-top: .55rem; color: var(--text); font-size: .875rem; }
-.learning-availability:empty { display: none; }
+.learning-entries { display: grid; gap: 1rem; align-items: stretch; }
+.learning-card { --entry-ink: color-mix(in srgb, var(--entry-color) 48%, var(--text));
+  min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border-strong);
+  border-radius: var(--radius); border-top: 3px solid color-mix(in srgb, var(--entry-color) 64%, var(--border-strong));
+  background-color: color-mix(in srgb, var(--entry-color) 3%, var(--card)); }
+.learning-entry { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: .85rem;
+  width: 100%; min-width: 0; padding: 1.15rem; border: 0; border-radius: inherit; background: transparent; color: var(--text);
+  font: inherit; text-align: left; cursor: pointer; }
+.learning-art { display: grid; place-items: center; width: 3.25rem; height: 3.25rem; border-radius: .95rem;
+  background: color-mix(in srgb, var(--entry-color) 16%, var(--card)); }
+.learning-art .hub-ic { display: block; width: 2.5rem; height: 2.5rem; }
+.learning-copy { display: grid; gap: .3rem; min-width: 0; overflow-wrap: anywhere; }
+.learning-copy strong { color: var(--text); font-size: 1.24rem; line-height: 1.18; letter-spacing: -.012em; }
+.learning-description, .learning-stat, .learning-notice { color: color-mix(in srgb, var(--muted) 82%, var(--text)); font-size: .93rem; line-height: 1.4; }
+.learning-chevron { color: var(--muted); font: 1.6rem/1 sans-serif; }
+.learning-availability { display: block; margin-top: .35rem; color: var(--text); font-size: .875rem; }
+.learning-availability:empty, .learning-directory [hidden] { display: none; }
+.learning-details { margin-top: auto; padding: .15rem 1.15rem 1.15rem; }
+.learning-card[data-awaiting]::after { content: ''; display: block; margin: 0 1.15rem 1.15rem; height: 5.6rem;
+  border-top: .45rem solid var(--border); opacity: .55; }
+.learning-tracks { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .9rem; }
+.learning-tracks .learning-stat { flex-direction: column; align-items: start; gap: 0; }
+.learning-stat { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .25rem .6rem; }
+.learning-count { color: var(--text); font-variant-numeric: tabular-nums; font-size: 1rem; }
+.learning-details progress { display: block; appearance: none; width: 100%; height: .45rem; margin: .42rem 0 1rem;
+  overflow: hidden; border: 0; border-radius: 1rem; color: var(--entry-ink); background: var(--border); }
+.learning-details progress::-webkit-progress-bar { border-radius: 1rem; background: var(--border); }
+.learning-details progress::-webkit-progress-value { border-radius: 1rem; background: var(--entry-ink); }
+.learning-details progress::-moz-progress-bar { border-radius: 1rem; background: var(--entry-ink); }
+.learning-step { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .6rem 1rem; padding-top: .85rem; border-top: 1px solid var(--border); }
+.learning-location { flex: 1 1 10rem; display: grid; gap: .15rem; }
+.learning-extra { color: var(--muted); font-size: .8rem; }
+.learning-next { color: var(--text); font-size: .94rem; line-height: 1.35; overflow-wrap: anywhere; }
+.learning-step button { display: inline-flex; align-items: center; justify-content: center; gap: .55rem; margin-inline-start: auto;
+  padding: .48rem .85rem; min-height: 2.5rem; border-radius: .7rem; border: 1px solid color-mix(in srgb, var(--entry-color) 45%, var(--border));
+  background: color-mix(in srgb, var(--entry-color) 13%, var(--card)); color: var(--entry-ink); font: inherit; font-size: .95rem; font-weight: 700; cursor: pointer; }
+.learning-step button i { font: 1.1em/1 sans-serif; }
+.learning-notice { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-top: .8rem; }
 @media (hover: hover) {
-  .learning-entry:hover { background: var(--card-hover); border-color: color-mix(in srgb, var(--entry-color) 65%, var(--border-strong)); }
+  .learning-entry:hover { background-color: color-mix(in srgb, var(--entry-color) 6%, transparent); }
+  .learning-entry:hover .learning-copy strong { text-decoration: underline; text-underline-offset: .18em; }
+  .learning-step button:hover { background: color-mix(in srgb, var(--entry-color) 23%, var(--card)); }
 }
-.learning-entry:active { background: var(--card-hover); }
-.learning-entry:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent-text) 78%, var(--text)); outline-offset: 3px; box-shadow: none; }
-@container learning (max-width: 20rem) {
-  .learning-entry { grid-template-columns: 3rem minmax(0, 1fr); }
-  .learning-art .hub-ic { width: 2.125rem; }
-  .learning-copy { padding: .8rem; }
+.learning-directory button:focus-visible { outline: 3px solid var(--accent-text); outline-offset: 2px; box-shadow: none; }
+@container learning (max-width: 22rem) {
+  .learning-entry { gap: .6rem; padding: .9rem; }
+  .learning-art { width: 2.6rem; height: 2.6rem; }
+  .learning-art .hub-ic { width: 2rem; height: 2rem; }
+  .learning-details { padding: .15rem .9rem .9rem; }
 }
 @container learning (min-width: 44rem) {
-  .learning-heading { margin-bottom: 1.6rem; padding: 1rem 0 1.4rem; }
-  .learning-entries { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.125rem; }
-  .learning-entry { grid-template-columns: clamp(5.25rem, 10cqi, 7.5rem) minmax(0, 1fr); min-height: 10rem; }
-  .learning-art .hub-ic { width: clamp(3rem, 5cqi, 3.75rem); }
-  .learning-copy { align-content: start; gap: .6rem; padding: clamp(1.5rem, 2.9cqi, 2.2rem) clamp(1.1rem, 2cqi, 1.8rem); }
-  .learning-copy strong { font-size: 1.375rem; }
+  .learning-heading { margin-bottom: 1.4rem; padding: 1rem 0 1.4rem; }
+  .learning-entries { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 1.15rem; }
+  .learning-entry { padding: 1.4rem; gap: 1rem; }
+  .learning-copy strong { font-size: 1.4rem; }
+  .learning-details { padding: .25rem 1.4rem 1.25rem; }
 }
 .hub-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .hub-tile { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 16px 16px 14px; border-radius: 20px; border: 2px solid var(--border); cursor: pointer; text-align: left; color: var(--text);

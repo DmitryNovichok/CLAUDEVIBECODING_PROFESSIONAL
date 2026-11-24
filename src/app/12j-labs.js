@@ -146,7 +146,7 @@
     if (LAB.worker) LAB.worker.terminate();
     LAB.worker = null; LAB.running = false;
   }
-  async function openLab(view = '', context) {
+  async function openLab(view = '', context, target) {
     if (!leaveExam()) return;
     if (view === 'arduino') return openArdGate();       // у лаборатории Arduino — свой пароль
     if (!['', 'tasks', 'code', 'bugs'].includes(view)) view = '';
@@ -180,6 +180,7 @@
     if (context) { LAB.code = context.code || ''; LAB.stdin = context.stdin || ''; LAB.result = null; LAB.index = 0; }
     else if (LAB.context) { LAB.code = LAB.context.code || ''; LAB.stdin = LAB.context.stdin || ''; }
 
+    if (view === 'tasks' && target && courseCoverage?.labs?.some(m => m.id === target)) LAB.mode = target;
     document.body.classList.add('lab-open');
     document.body.classList.remove('asg-wide');
     renderSidebar();
@@ -199,7 +200,7 @@
       </div>`;
     if (view === 'tasks') labRenderModel();
     if (view === 'code') { if (LAB.result && !LAB.seen) labIndexSteps(); labPaintEditor(); labRenderStep(); }
-    if (view === 'bugs') bugLabInit();
+    if (view === 'bugs') bugLabInit(target);
     if (SERVER && (view === 'tasks' || view === 'code')) {
       const activity = view === 'tasks' ? { section: 'model', model: LAB.mode } : { section: 'code' };
       api('lab/activity', activity).catch(() => {});  // статистика просмотра не блокирует работу модели
@@ -209,6 +210,9 @@
   function labTasksHtml() {
     const models = courseCoverage?.labs || [['alg', 'Алгоритмы'], ['image', 'Изображения'], ['net', 'IP-сети'], ['logic', 'Логика'], ['pairs', 'Пары'], ['game', 'Игры'], ['str', 'Строки'], ['mask', 'Маски и делители'], ['sort', 'Сортировка'], ['clust', 'Кластеры'], ['graph', 'Графы']].map(([id, title]) => ({id, title}));
     return `<nav class="lab-tabs" aria-label="Эксперименты">${models.map(m => `<button type="button" class="btn${LAB.mode === m.id ? ' primary' : ''}" data-lab-model="${esc(m.id)}" aria-pressed="${LAB.mode === m.id}">${m.label ? `${m.archive ? 'Архив · ' : '№ '}${esc(m.label)} · ` : ''}${esc(m.title)}</button>`).join('')}</nav><p class="lab-note">${courseCoverage?.edition ? esc(courseCoverage.edition.label) + '. Архивные модели помечены отдельно.' : 'Справочник номеров сейчас недоступен; модели можно использовать без номера экзамена.'} Модели тренируют отдельные навыки, а условия экзамена могут быть сложнее.</p><div id="labModel"></div>`;
+  }
+  function recordLabPrediction(right) {
+    if (right && SERVER && !appState.teacher) api('lab/activity', { section: 'model', model: LAB.mode, prediction: true }).catch(() => {});
   }
   function labPrediction(question) {
     return `<form class="lab-predict" id="labPredict"><div><b>Проверь предположение</b><p>${question}</p></div><label>Твой ответ<input class="inp" id="labGuess" aria-describedby="labFeedback" required inputmode="numeric" autocomplete="off" maxlength="20"></label><button class="btn" type="submit">Проверить</button><p id="labFeedback" class="lab-feedback" role="status"></p></form>`;
@@ -640,6 +644,7 @@
     if (LAB.running) return;
     if (!LAB.code.trim()) { labSetStatus('Сначала напиши код или выбери пример.'); return; }
     labStop(); LAB.result = null; LAB.index = 0; labSaveDraft();
+    const example = !LAB.context && Object.keys(LAB_EXAMPLES).find(id => LAB_EXAMPLES[id][1] === LAB.code);
     $('#labEd').hidden = false; $('#labTraceCode').hidden = true; $('#labControls').hidden = true; $('#labEdit').hidden = true; $('#labIdeMode').textContent = 'Редактор';
     $('#labVariables').textContent = ''; $('#labStack').textContent = ''; $('#labOutput').textContent = ''; $('#labEvent').textContent = 'Готовим запись выполнения…';
     try {
@@ -667,6 +672,7 @@
         } else if (m.type === 'trace-progress') {
           if (LAB.result?.pending) { LAB.result.progress = m.seconds; labRenderStatus(); }
         } else if (m.type === 'trace') {
+          if (SERVER && !appState.teacher && example && m.result.finished && !m.result.error) api('lab/activity', { section: 'code', example }).catch(() => {});
           const recorded = LAB.result?.pending ? LAB.result : null;
           clearTimeout(LAB.timeout); LAB.timeout = null; worker.terminate(); LAB.worker = null; labSetBusy(false);
           if (recorded) {                                    // досчитали: шаги — прежние, вывод и итог — полные
@@ -878,6 +884,7 @@
       const answer = $('#labGuess').value.trim().replace(/\s/g, '');
       if (LAB_EXTRA[LAB.mode]) {
         const { expected, why } = LAB_EXTRA[LAB.mode].answer(), right = /^-?\d+$/.test(answer) && expected != null && +answer === expected;
+        recordLabPrediction(right);
         $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} Ответ: ${expected == null ? 'нет' : expected}. ${why}`;
         return;
       }
@@ -893,11 +900,13 @@
           why = expected == null ? 'Пути нет.' : G.kind === 'count' ? 'Числа на графе — сколько путей из каждой вершины.' : `Путь: ${r.path.join(' → ')}.`;
         }
         const right = /^-?\d+$/.test(answer) && expected != null && +answer === expected;
+        recordLabPrediction(right);
         $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} Ответ: ${expected == null ? 'пути нет' : expected}. ${why}`;
         return;
       }
       const expected = LAB.mode === 'net' ? labNetwork(LAB.net.ip, LAB.net.prefix).count : labImageSize(LAB.picture.w, LAB.picture.h, LAB.picture.depth).bytes;
       const right = /^\d+$/.test(answer) && +answer === expected;
+      recordLabPrediction(right);
       $('#labFeedback').textContent = `${right ? 'Верно!' : 'Пока не совпало.'} ${LAB.mode === 'net' ? `2^(32 − ${LAB.net.prefix})` : `Округляем вверх: ${labFmt(LAB.picture.w)} × ${labFmt(LAB.picture.h)} × ${LAB.picture.depth} / 8`} = ${labFmt(expected)}${LAB.mode === 'net' ? ' адресов.' : ' байт.'}`;
     } catch (err) { $('#labFeedback').textContent = err.message; }
   });

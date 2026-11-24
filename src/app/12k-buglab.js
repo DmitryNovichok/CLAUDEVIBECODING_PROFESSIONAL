@@ -46,7 +46,7 @@
   }
   const bugCurrent = (c, run, sid) => bugActive() && bugCase() === c && BUG.runId === run && appState.student?.sid === sid;
   function bugLabHtml() { return '<div id="bugRoot"><p class="fm-note">Загружаю задачи…</p></div>'; }
-  async function bugLabInit() {
+  async function bugLabInit(target) {
     const sid = appState.student?.sid;
     if (BUG.owner !== sid) { resetBugLab(); BUG.owner = sid; }
     const load = ++BUG.loadId;
@@ -61,6 +61,7 @@
       }
     }
     if (!bugActive()) return;
+    if (target && BUG.cases.some(c => c.id === target)) BUG.cur = target;
     if (bugCase()) bugRenderCase(); else bugRenderList();
   }
   const bugStatus = c => (c.my.verified ? ['good', 'есть проверенное решение'] : c.my.ok ? ['good', 'самопроверка пройдена'] : c.my.tries ? ['review', `${c.my.tries} ${plural(c.my.tries, 'попытка', 'попытки', 'попыток')}`] : ['', 'новая']);

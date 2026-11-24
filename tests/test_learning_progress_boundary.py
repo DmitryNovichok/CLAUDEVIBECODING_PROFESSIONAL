@@ -39,6 +39,9 @@ class LearningProgressModuleTest(unittest.TestCase):
         for path in learning_progress_http.LEARNING_PROGRESS_PATHS:
             if path == '/api/course/coverage':
                 self.assertEqual(api_access.ROUTES['GET', path], api_access.Access.PUBLIC)
+            elif path == '/api/learning/directory':
+                self.assertEqual(api_access.ROUTES['GET', path], api_access.Access.STUDENT)
+                self.assertNotIn(('POST', path), api_access.ROUTES)
             elif path == '/api/lab/activity':
                 self.assertEqual(api_access.ROUTES['POST', path], api_access.Access.STUDENT)
                 self.assertNotIn(('GET', path), api_access.ROUTES)
@@ -94,6 +97,41 @@ class LearningProgressBoundaryTest(unittest.TestCase):
                         (self.sid if sid is None else sid,), one=True)
         return dict(row) if row else None
 
+    def test_directory_counts_real_account_activity_and_suggests_reachable_material(self):
+        courses = '/api/learning/directory?group=courses'
+        labs = '/api/learning/directory?group=labs'
+        self.assertEqual(self.req('/api/learning/directory?group=all')[0], 400)
+        self.assertEqual(self.req(courses)[1]['entries'], {})
+        for section in ('course', 'pyc', 'lab', 'arduino'):
+            self.unlock(section)
+        self.req('/api/course/seen', {'n': 1, 'slide': 5, 'total': 5})
+        self.req('/api/course/seen', {'n': 13, 'slide': 3, 'total': 9})
+        self.req('/api/pyc/check', {'task': 'm01.print_sum', 'answer': '10'})
+        summary = self.req(courses)[1]
+        self.assertEqual(summary['sid'], self.sid)
+        ege, python = summary['entries']['course'], summary['entries']['python']
+        self.assertEqual((ege['done'], ege['total'], ege['target']['n'], ege['target']['slide']), (1, 25, 13, 3))
+        self.assertEqual((python['done'], python['target']['m'], python['target']['task']), (1, 'm01', 'm01.change_value'))
+        state = self.req(labs)[1]['entries']
+        self.assertEqual(state['code']['done'], 0)
+        for _ in range(2):
+            self.req('/api/lab/activity', {'section': 'model', 'model': 'image'})
+            self.req('/api/lab/activity', {'section': 'model', 'model': 'image', 'prediction': True})
+            self.req('/api/lab/activity', {'section': 'code', 'example': 'sum'})
+        self.assertEqual(self.req('/api/lab/activity', {'section': 'code', 'example': []})[0], 400)
+        self.assertEqual(self.req('/api/lab/activity', {'section': 'model', 'model': 'game', 'prediction': True})[0], 400)
+        self.req('/api/arduino/progress', {'tracks': {'junior': [
+            ['led', 'Светодиод', 1, 1, 1], ['button', 'Кнопка', 1, 0, 0]]}})
+        self.db.x('INSERT INTO buglab(student_id,case_id,ok) VALUES(?,?,1)', (self.sid, buglab.CASES[0]['id']))
+        state = self.req(labs)[1]['entries']
+        self.assertEqual((state['tasks']['done'], state['tasks']['target']['id'], state['code']['done']), (1, 'image', 1))
+        self.assertEqual((state['arduino']['done'], state['arduino']['total'], state['arduino']['target']['id']), (1, 72, 'button'))
+        self.assertEqual([(t['done'], t['total']) for t in state['arduino']['tracks']], [(1, 36), (0, 36)])
+        self.assertEqual((state['bugs']['done'], state['bugs']['target']['id']), (1, buglab.CASES[1]['id']))
+        self.assertEqual(self.req(labs + '&sid=' + str(self.sid), token=self.other)[1]['entries'], {})
+        self.db.x('UPDATE students SET lab=0 WHERE id=?', (self.sid,))
+        self.assertEqual(set(self.req(labs)[1]['entries']), {'arduino'})
+
     def test_teacher_learning_sections_scope_and_lab_counts(self):
         activity = '/api/lab/activity'
         report = '/api/admin/lab/stats'
@@ -103,6 +141,8 @@ class LearningProgressBoundaryTest(unittest.TestCase):
         for model in ('net', 'net', 'logic'):
             self.assertEqual(self.req(activity, {'section': 'model', 'model': model, 'student_id': self.other_sid})[0], 200)
         self.assertEqual(self.req(activity, {'section': 'code'})[0], 200)
+        self.req(activity, {'section': 'code', 'example': 'list'})
+        self.req(activity, {'section': 'model', 'model': 'net', 'prediction': True})
         teacher = {'name': 'Учитель статистики', 'login': 'labstats', 'password': 'test-secret1', 'invite': 'LABSTATS'}
         status, created = self.client.admin('POST', '/api/admin/teacher/save', teacher)
         self.assertEqual(status, 200, created)
@@ -151,7 +191,7 @@ class LearningProgressBoundaryTest(unittest.TestCase):
         for path in sorted(learning_progress_http.LEARNING_PROGRESS_PATHS - {'/api/course/coverage'}):
             with self.subTest(path=path):
                 self.assertEqual(self.client.req('GET', path)[0], 405 if path == '/api/lab/activity' else 401)
-                self.assertEqual(self.client.req('POST', path, {})[0], 401)
+                self.assertEqual(self.client.req('POST', path, {})[0], 405 if path == '/api/learning/directory' else 401)
 
     def test_closed_course_cannot_record_progress_or_read_materials(self):
         for path in ('/api/course/lesson?n=5', '/api/course/sets'):

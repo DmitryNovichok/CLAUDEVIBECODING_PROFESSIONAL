@@ -14,6 +14,11 @@ async function post(context, path, data) {
   return response.json();
 }
 
+function registerPupil(context, name, password = 'synthetic-account-password') {
+  const invite = fixture.teachers.find(t => t.email_ok && t.moderation === 'approved').cookie;
+  return post(context, '/api/login', {name, new_password: password, code: invite, mode: 'register', consent: true});
+}
+
 async function openEntry(page, group, entry) {
   await page.locator('[data-tile-key="' + group + '"]').click();
   await page.locator('[data-learning-entry="' + entry + '"]').click();
@@ -25,8 +30,7 @@ test('course and laboratory passwords unlock their sections on another device of
   try {
     const name = 'Синтетический Доступ';
     const password = 'synthetic-account-password';
-    const invite = fixture.teachers.find(t => t.email_ok && t.moderation === 'approved').cookie;
-    const firstLogin = await post(context, '/api/login', {name, new_password: password, code: invite, mode: 'register', consent: true});
+    const firstLogin = await registerPupil(context, name, password);
     const secondLogin = await post(second, '/api/login', {name, password});
     expect(secondLogin.sid).toBe(firstLogin.sid);
     expect(secondLogin.token).not.toBe(firstLogin.token);
@@ -85,8 +89,9 @@ test('course and laboratory passwords unlock their sections on another device of
 for (const width of [375, 1366]) {
   test('grouped learning navigation and per-section teacher reports at ' + width + 'px', async ({context, page, browser}) => {
     await page.setViewportSize({width, height: 900});
-    const participant = fixture.participants[0];
-    await seedBrowser(context, fixture, 'pupil', participant);
+    const pupil = await registerPupil(context, width === 375 ? 'Мобильный Каталог' : 'Настольный Каталог');
+    await seedBrowser(context, fixture, 'pupil', pupil);
+    await post(context, '/api/lab/unlock', {password: 'fixture-only-lab-password'});
     const me = await (await context.request.get(fixture.origin + '/api/me')).json();
     await post(context, '/api/course/unlock', {password: 'fixture-only-course-password'});
     await page.goto(fixture.origin + '/');
@@ -172,3 +177,61 @@ for (const width of [375, 1366]) {
     }
   });
 }
+
+test('pupil resumes saved course, model and bug work; daily task opens once from the plan', async ({page, context}) => {
+  const account = await registerPupil(context, 'Каталог Прогресс');
+  await seedBrowser(context, fixture, 'pupil', account);
+  for (const section of ['course', 'pyc', 'lab', 'arduino']) {
+    await post(context, '/api/' + section + '/unlock', {password: 'fixture-only-' + section + '-password'});
+  }
+  const lesson = await (await context.request.get(fixture.origin + '/api/course/lesson?n=13')).json();
+  await post(context, '/api/course/seen', {n: 13, slide: 3, total: lesson.slides.length});
+  await post(context, '/api/pyc/check', {task: 'm01.print_sum', answer: '10'});
+  await post(context, '/api/arduino/progress', {tracks: {junior: [['first-light', 'Первый свет', 1, 0, 0]]}});
+  await post(context, '/api/lab/activity', {section: 'model', model: 'image'});
+
+  await page.goto(fixture.origin + '/');
+  await expect(page.locator('[data-tile-key=daily]')).toHaveCount(0);
+  await page.locator('[data-step-key=daily] button').click();
+  await expect(page.locator('#dailyBody')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.locator('[data-tile-key=courses]').click();
+  const card = key => page.locator('[data-learning-card="' + key + '"]');
+  const resume = key => card(key).locator('[data-learning-resume]');
+  await expect(card('course').locator('.learning-next')).toContainText('слайд 3');
+  await expect(card('python').locator('progress')).toHaveAttribute('value', '1');
+  await resume('course').click();
+  await expect(page.locator('.crs-count')).toHaveText('3 / ' + lesson.slides.length);
+  await page.goBack();
+  await resume('python').click();
+  await expect(page.locator('[data-pyc-focus="m01.change_value"]')).toHaveAttribute('aria-pressed', 'true');
+
+  await page.locator('#hubBack').click();
+  let failed = true;
+  await page.route('**/api/learning/directory?group=labs', r => failed ? r.abort() : r.continue());
+  await page.locator('[data-tile-key=labs]').click();
+  await expect(page.locator('[data-directory-retry]')).toBeVisible();
+  await expect(card('tasks').locator('progress')).toBeHidden();
+  failed = false;
+  await page.locator('[data-directory-retry]').click();
+  await expect(card('tasks').locator('.learning-extra')).toContainText('1 из');
+  await expect(card('tasks').locator('progress')).toHaveAttribute('value', '0');
+  await resume('tasks').click();
+  await expect(page.locator('[data-lab-model=image]')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByLabel('Ширина, пиксели').fill('8');
+  await page.getByLabel('Высота, пиксели').fill('8');
+  await page.locator('#labDepth').press('Home');
+  const saved = page.waitForResponse(r => r.url().endsWith('/api/lab/activity') && r.request().postDataJSON()?.prediction);
+  await page.locator('#labGuess').fill('8');
+  await page.locator('#labPredict button').click();
+  expect((await saved).status()).toBe(200);
+  await page.goBack();
+  await expect(card('tasks').locator('progress')).toHaveAttribute('value', '1');
+  const caseTitle = await card('bugs').locator('.learning-next').textContent();
+  await resume('bugs').click();
+  await expect(page.locator('.bug-task h2')).toHaveText(caseTitle);
+  await page.goBack();
+  await expect(card('arduino').locator('.learning-next')).toContainText('Первый свет');
+  await resume('arduino').click();
+  await expect(page).toHaveURL(/arduino\/#\/lesson\/first-light$/);
+});

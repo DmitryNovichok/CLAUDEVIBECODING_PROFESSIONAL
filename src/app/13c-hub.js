@@ -107,17 +107,20 @@
   // ------------------------------------------------------------ разделы
   const HUB_LEARNING_GROUPS = {
     courses: { name: 'Курсы', icon: 'course', sub: 'ЕГЭ по информатике и программирование на Python', entries: [
-      { key: 'course', icon: 'course', name: 'Курс ЕГЭ', sub: 'Уроки и практика по номерам экзамена.', access: () => COURSE_OK, go: openCourse },
-      { key: 'python', icon: 'python', name: 'Курс Python', sub: 'От основ языка до решения задач ЕГЭ.', access: () => PYC_OK, go: openPyc },
+      { key: 'course', icon: 'course', name: 'Курс ЕГЭ', sub: 'Теория и практика по номерам экзамена.', metric: 'Тем просмотрено до конца', location: 'Тема курса', start: 'Начать урок', resume: t => openLesson(t.n, t.slide - 1), access: () => COURSE_OK, go: openCourse },
+      { key: 'python', icon: 'python', name: 'Курс Python', sub: 'Короткие уроки и задачи с проверкой кода.', metric: 'Задач решено', location: 'Уровень', start: 'Начать уровень', resume: t => openPycLevel(t.m, t.l, false, t.task), access: () => PYC_OK, go: openPyc },
     ] },
     labs: { name: 'Лаборатории', icon: 'lab', sub: 'Модели ЕГЭ, пошаговый Python и Arduino', entries: [
-      { key: 'tasks', icon: 'models', name: 'Модели заданий ЕГЭ', sub: 'Исследуй IP-сети, изображения и алгоритмы.', access: () => LAB_OK, go: () => openLab('tasks') },
-      { key: 'code', icon: 'python', name: 'Пошаговый Python', sub: 'Выполняй код по строкам и следи за переменными.', access: () => LAB_OK, go: () => openLab('code') },
-      { key: 'bugs', icon: 'bugs', name: 'Исправление ошибок', sub: 'Найди ошибку в чужом коде и проверь решение.', visible: () => SERVER, access: () => LAB_OK, go: () => openLab('bugs') },
-      { key: 'arduino', icon: 'arduino', name: 'Лаборатория Arduino', sub: 'Собери схему и запусти свой скетч.', visible: () => SERVER && student, access: () => ARD_OK,
+      { key: 'tasks', icon: 'models', name: 'Модели заданий ЕГЭ', sub: 'Меняй параметры и проверяй свои прогнозы.', metric: 'Моделей с верным прогнозом', start: 'Открыть модель', resume: t => openLab('tasks', null, t.id), access: () => LAB_OK, go: () => openLab('tasks') },
+      { key: 'code', icon: 'python', name: 'Пошаговый Python', sub: 'Выполняй код по строкам и следи за переменными.', metric: 'Примеров запущено', location: 'Можно попробовать', start: 'В отладчик', access: () => LAB_OK, go: () => openLab('code') },
+      { key: 'bugs', icon: 'bugs', name: 'Исправление ошибок', sub: 'Исправь чужой код и проверь его на примерах.', metric: 'Самопроверок пройдено', location: 'Следующая задача', start: 'Начать задачу', resume: t => openLab('bugs', null, t.id), visible: () => SERVER, access: () => LAB_OK, go: () => openLab('bugs') },
+      { key: 'arduino', icon: 'arduino', name: 'Лаборатория Arduino', sub: 'Собирай схемы и запускай скетчи в симуляторе.', metric: 'Уроков пройдено', location: 'Следующий урок', start: 'Выбрать курс', resume: t => { location.href = t?.id ? 'arduino/#/lesson/' + encodeURIComponent(t.id) : 'arduino/#/course'; }, visible: () => SERVER && student, access: () => ARD_OK,
         go: () => { if (ARD_OK) location.href = 'arduino/'; else openArdGate(); } },
     ] },
   };
+
+  const learningCardProgress = new WeakMap();
+  let directoryRead = 0;
 
   function refreshLearningDirectoryAccess() {
     const group = courseShown && HUB_LEARNING_GROUPS[pageKind];
@@ -135,6 +138,75 @@
       const label = trainerEl.querySelector(`[data-learning-entry="${entry.key}"] .learning-availability`);
       const hint = available > 0 && !entry.access() ? 'Доступ у учителя' : '';
       if (label && label.textContent !== hint) label.textContent = hint;
+      const card = label?.closest('.learning-card');
+      if (card && !entry.access()) {
+        learningCardProgress.delete(card);
+        card.removeAttribute('data-awaiting');
+        card.querySelector('.learning-details').hidden = true;
+      }
+    }
+  }
+
+  function showLearningMetric(card, entry, progress) {
+    card.removeAttribute('data-awaiting');
+    const details = card.querySelector('.learning-details');
+    if (!progress || !entry.access() || !progress.total) {
+      learningCardProgress.delete(card);
+      details.hidden = true;
+      return;
+    }
+    learningCardProgress.set(card, progress);
+    const { done, total, started, target } = progress;
+    const measures = details.querySelector('.learning-measures');
+    const tracks = progress.tracks;
+    const metrics = tracks || [{ label: entry.metric, done, total }];
+    measures.classList.toggle('learning-tracks', !!tracks);
+    measures.innerHTML = metrics.map(m => `<div><div class="learning-stat"><span>${esc(m.label)}</span><strong class="learning-count">${m.done} из ${m.total}</strong></div>
+      <progress aria-label="${esc([entry.name, entry.metric, ...(tracks ? [m.label] : [])].join(' · '))}" max="${m.total}" value="${m.done}"></progress></div>`).join('');
+    const last = done === total;
+    const detail = details.querySelector('.learning-extra');
+    detail.textContent = progress.detail || target?.detail || (target && entry.location) || '';
+    detail.hidden = !detail.textContent;
+    const next = details.querySelector('.learning-next');
+    next.textContent = target?.title || (entry.key === 'arduino' ? '7 класс или 10–11 классы' : '');
+    next.hidden = !next.textContent;
+    const action = details.querySelector('[data-learning-resume]');
+    const caption = entry.key === 'code' ? 'В отладчик' : last && !target ? 'Повторить' :
+      started && (target || entry.key !== 'arduino') ? 'Продолжить' : entry.start;
+    action.querySelector('span').textContent = caption;
+    action.setAttribute('aria-label', [caption, entry.name, next.textContent].filter(Boolean).join(' · '));
+    details.hidden = false;
+  }
+
+  async function loadLearningDirectoryProgress() {
+    const group = courseShown && HUB_LEARNING_GROUPS[pageKind];
+    const account = student, key = pageKind;
+    if (!group || !SERVER || !account || TEACHER) return;
+    const root = trainerEl.querySelector('.learning-directory');
+    if (!root) return;
+    for (const entry of group.entries) {
+      const card = root.querySelector(`[data-learning-card="${entry.key}"]`);
+      if (card && entry.access() && !learningCardProgress.has(card)) card.setAttribute('data-awaiting', '');
+    }
+    const request = ++directoryRead;
+    const current = () => request === directoryRead && student === account && root.isConnected;
+    const notice = root.querySelector('.learning-notice');
+    notice.querySelector('button').hidden = true;
+    notice.querySelector('[role="status"]').textContent = root.dataset.progressReady ? '' : 'Загружаем прогресс…';
+    try {
+      const data = await api('learning/directory?group=' + key);
+      if (!current() || data.sid !== account.sid || data.group !== key) return;
+      for (const entry of group.entries) {
+        const card = root.querySelector(`[data-learning-card="${entry.key}"]`);
+        if (card) showLearningMetric(card, entry, data.entries[entry.key]);
+      }
+      root.dataset.progressReady = '1';
+      notice.querySelector('[role="status"]').textContent = '';
+    } catch (err) {
+      if (!current()) return;
+      root.querySelectorAll('[data-awaiting]').forEach(card => card.removeAttribute('data-awaiting'));
+      notice.querySelector('[role="status"]').textContent = 'Не удалось обновить прогресс.';
+      notice.querySelector('button').hidden = false;
     }
   }
 
@@ -159,13 +231,19 @@
         <h1 id="learningGroupTitle" tabindex="-1"${SERVER ? ' aria-describedby="learningAccessSummary"' : ''}>${group.name}</h1>
         ${SERVER ? '<span class="learning-summary" id="learningAccessSummary"></span>' : ''}
       </header>
-      <div class="learning-entries">${entries.map(entry => `<button type="button" class="learning-entry" data-learning-entry="${entry.key}"
-          style="--entry-color:${hubColor(entry.icon)}" aria-labelledby="learning-name-${entry.key}" aria-describedby="learning-info-${entry.key}">
-        <span class="learning-art" aria-hidden="true">${hubIcon(entry.icon, 56)}</span>
-        <span class="learning-copy"><strong id="learning-name-${entry.key}">${entry.name}</strong>
-          <span id="learning-info-${entry.key}"><span class="learning-description">${entry.sub}</span>${SERVER ? '<span class="learning-availability"></span>' : ''}</span>
-        </span></button>`).join('')}</div></section>`;
+      <div class="learning-entries">${entries.map(entry => `<article class="learning-card" data-learning-card="${entry.key}" style="--entry-color:${hubColor(entry.icon)}">
+        <button type="button" class="learning-entry" data-learning-entry="${entry.key}" aria-labelledby="learning-name-${entry.key}" aria-describedby="learning-info-${entry.key}">
+          <span class="learning-art" aria-hidden="true">${hubIcon(entry.icon, 44)}</span>
+          <span class="learning-copy"><strong id="learning-name-${entry.key}">${entry.name}</strong>
+            <span id="learning-info-${entry.key}"><span class="learning-description">${entry.sub}</span>${SERVER ? '<span class="learning-availability"></span>' : ''}</span></span>
+          <span class="learning-chevron" aria-hidden="true">›</span></button>
+        <div class="learning-details" hidden>
+          <div class="learning-measures"></div>
+          <div class="learning-step"><span class="learning-location"><small class="learning-extra" hidden></small><span class="learning-next"></span></span><button type="button" data-learning-resume="${entry.key}"><span></span><i aria-hidden="true">→</i></button></div>
+        </div></article>`).join('')}</div>
+      <div class="learning-notice"><span role="status"></span><button class="link-btn" type="button" data-directory-retry hidden>Повторить загрузку</button></div></section>`;
     refreshLearningDirectoryAccess();
+    loadLearningDirectoryProgress();
     if (SERVER && student) pycLive(false);
     window.scrollTo(0, 0);
     $('#learningGroupTitle').focus({ preventScroll: true });
@@ -179,10 +257,6 @@
     const ownLeft = ownOpen.reduce((s, a) => s + asgRemaining(a), 0);
     const T = [];
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
-    if (SERVER && student) T.push({ k: 'daily', name: 'Задание дня', sub: !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
-      : DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
-      badge: DAILY?.my_place || DAILY?.started ? '' : 'сегодня', btn: !DAILY?.ready || DAILY_STATE === 'error' ? DAILY_STATE === 'error' ? 'Повторить загрузку' : 'Открыть' : DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить',
-      hot: !!DAILY?.ready && !DAILY.started && DAILY_STATE !== 'error', go: () => openDaily() });
     if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'работа', 'работы', 'работ')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
     if (SERVER && student && !TEACHER) T.push({ k: 'mcko', name: 'МЦКО', sub: 'тренировочные работы от учителя', btn: 'Открыть', go: () => openMcko() });
@@ -200,7 +274,7 @@
       T.push({ k: 'duel', name: TOUR && TOUR.tours ? 'Дуэли и турниры' : 'Дуэли',   // турниры выключены на сервере (TOURS_ON) — только дуэли
         sub: c ? 'тебя вызвали на дуэль' : $('#duelCard').title || 'вызови соперника', badge: c ? `${c} ${plural(c, 'вызов', 'вызова', 'вызовов')}` : '', btn: c ? 'Ответить' : 'Вызвать', go: () => $('#duelCard').click() }); }
     if (vis('togCard')) T.push({ k: 'together', name: 'Вместе с учителем', sub: $('#togCard').title || 'записи занятий', btn: 'Открыть записи', go: () => $('#togCard').click() });
-    return T.filter(t => !viewPrefs().focus || !['daily', 'duel'].includes(t.k));
+    return T.filter(t => !viewPrefs().focus || t.k !== 'duel');
   }
   /** Тренажёр — главное на сайте: отдельный блок над планом на сегодня, номера крупно. */
   function hubTrain() {
@@ -427,6 +501,15 @@
   trainerEl.addEventListener('click', e => {
     const groupButton = e.target.closest('[data-open-learning-group]');
     if (groupButton) { openLearningDirectory(groupButton.dataset.openLearningGroup); return; }
+    if (e.target.closest('[data-directory-retry]')) { loadLearningDirectoryProgress(); return; }
+    const resume = e.target.closest('[data-learning-resume]');
+    if (resume && courseShown) {
+      const entry = HUB_LEARNING_GROUPS[pageKind]?.entries.find(it => it.key === resume.dataset.learningResume);
+      const progress = learningCardProgress.get(resume.closest('.learning-card'));
+      if (progress && entry?.access() && entry.resume && (progress.target || entry.key === 'arduino')) entry.resume(progress.target);
+      else entry?.go();
+      return;
+    }
     const entryButton = e.target.closest('[data-learning-entry]');
     if (entryButton && courseShown) {
       HUB_LEARNING_GROUPS[pageKind]?.entries.find(entry => entry.key === entryButton.dataset.learningEntry)?.go();

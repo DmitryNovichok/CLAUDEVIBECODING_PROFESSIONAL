@@ -78,7 +78,7 @@ import bank_delivery
 import download_delivery
 import http_security
 from learning_content import course_guide, course_coverage
-from learning_catalog import LAB_MODELS, python_metadata
+from learning_catalog import ARDUINO_TOTALS, ARDUINO_TRACKS, LAB_MODELS, python_metadata
 from teacher_journey import teacher_journey, activation_stats
 import learning_quality
 from private_config import read_private, private_rewards, require_private
@@ -5538,8 +5538,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                               SELECT s.id, s.name, s.lab AS unlocked, c.name AS class FROM students s
                               LEFT JOIN classes c ON s.class_id=c.id WHERE {where}
                             ), views AS (
-                              SELECT a.student_id, SUM(a.item!='code') AS models,
-                                     MAX(CASE WHEN a.item!='code' THEN a.last_opened END) AS models_last,
+                              SELECT a.student_id, SUM(a.item!='code' AND instr(a.item, ':')=0) AS models,
+                                     MAX(CASE WHEN a.item!='code' AND instr(a.item, ':')=0 THEN a.last_opened END) AS models_last,
                                      MAX(CASE WHEN a.item='code' THEN a.last_opened END) AS code_last
                               FROM pupils p JOIN lab_activity a ON a.student_id=p.id GROUP BY a.student_id
                             ), bugs AS (
@@ -11572,8 +11572,6 @@ def mcko_run_view(db, r, w):
 
 
 # ---------- лаборатория Arduino: сводка прогресса уроков
-ARDUINO_TRACKS = {"junior": "7 класс", "senior": "10–11 классы"}
-ARDUINO_TOTALS = {"junior": 36, "senior": 36}
 _ARD_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,59}$")
 
 

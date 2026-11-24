@@ -66,11 +66,17 @@ PYTHON_TOPICS = {
     'm32': [27],
 }
 
+ARDUINO_TRACKS = {"junior": "7 класс", "senior": "10–11 классы"}
+ARDUINO_TOTALS = {"junior": 36, "senior": 36}
+TRACE_EXAMPLES = {"sum": "Сумма чисел", "branch": "Условие и цикл", "list": "Изменение списка", "function": "Вызовы функций"}
+
 LAB_MODELS = {
     "alg": "Алгоритмы", "image": "Изображения", "net": "IP-сети", "logic": "Логика", "pairs": "Пары",
     "game": "Игры", "str": "Строки", "mask": "Маски и делители", "sort": "Сортировка", "clust": "Кластеры",
     "graph": "Графы",
 }
+# The game tree is explored by playing positions. The other models include a prediction form.
+PREDICTION_MODELS = frozenset(LAB_MODELS) - {"game"}
 
 
 def python_metadata(module):
