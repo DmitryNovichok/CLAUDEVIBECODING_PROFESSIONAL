@@ -62,6 +62,7 @@ test('№24 grades Python re spans, explains a counterexample and opens the exam
   await solve('hex', '[A-F0-9]+');
   await page.locator('[data-pyc-lv="m33:1"]').first().click();
   await solve('blocks', '(AB)+');
+  await solve('bounded', 'A[0-9]{2,4}B');
   await solve('overlap', '(?=(ABA))');
   await page.locator('[data-pyc-lv="m33:2"]').first().click();
   const num = '(?:[6789][06789]*|0)';
@@ -69,7 +70,7 @@ test('№24 grades Python re spans, explains a counterexample and opens the exam
   await solve('expression', num + '(?:[-*]' + num + ')*');
   await page.locator('[data-pyc-focus="m33.file"]').click();
   const attachment = await page.locator('.pyc-files a').getAttribute('href');
-  const file = await context.request.get(new URL(attachment, fixture.origin));
+  const file = await context.request.get(new URL(attachment, fixture.origin).href);
   expect(file.ok()).toBe(true);
   expect((await file.text()).trim()).toMatch(/^[06789*-]{12000}$/);
   await page.locator('.pyc-ans').fill('80');
