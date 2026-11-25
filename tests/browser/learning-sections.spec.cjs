@@ -24,6 +24,61 @@ async function openEntry(page, group, entry) {
   await page.locator('[data-learning-entry="' + entry + '"]').click();
 }
 
+test('№24 grades Python re spans, explains a counterexample and opens the exam file', async ({page, context}) => {
+  const pupil = await registerPupil(context, 'Регулярные Выражения');
+  await seedBrowser(context, fixture, 'pupil', pupil);
+  await post(context, '/api/pyc/unlock', {password: 'fixture-only-pyc-password'});
+  await page.goto(fixture.origin + '/');
+  await openEntry(page, 'courses', 'python');
+  await page.locator('[data-pyc-lv="m24:0"]').first().click();
+  await page.getByRole('button', {name: 'Открыть тренажёр регулярных выражений'}).click();
+  const form = page.locator('[data-pyc-regex]');
+  const input = form.locator('[data-re-pattern]');
+  const result = form.locator('.pyc-msg');
+  const check = () => form.getByRole('button', {name: 'Проверить шаблон'}).click();
+  await input.fill('[');
+  await check();
+  await expect(result).toContainText('Ошибка шаблона');
+  await input.fill('[0-9]');
+  await check();
+  await expect(result).toContainText('Проверь строку 1');
+  await expect(result).toContainText('[1:4] 007');
+  await input.fill(String.raw`\d+`);
+  await form.getByText('Попробовать на своей строке').click();
+  await form.locator('[data-re-text]').fill('B😀9A12');
+  await form.getByRole('button', {name: 'Показать совпадения'}).click();
+  await expect(result).toContainText('[2:3] 9');
+  await expect(result).toContainText('[4:6] 12');
+  const progress = async () => (await (await context.request.get(fixture.origin + '/api/pyc')).json()).progress;
+  expect((await progress())['m33.digits'].tries).toBe(1);
+  async function solve(key, pattern) {
+    const target = page.locator('[data-pyc-regex="m33.' + key + '"]');
+    if (!await target.count()) await page.locator('[data-pyc-focus="m33.' + key + '"]').click();
+    await target.locator('[data-re-pattern]').fill(pattern);
+    await target.getByRole('button', {name: 'Проверить шаблон'}).click();
+    await expect(page.locator('.pyc-task.ok[data-pyc-task="m33.' + key + '"]')).toBeVisible();
+  }
+  await solve('digits', String.raw`\d+`);
+  await solve('hex', '[A-F0-9]+');
+  await page.locator('[data-pyc-lv="m33:1"]').first().click();
+  await solve('blocks', '(AB)+');
+  await solve('bounded', 'A[0-9]{2,4}B');
+  await solve('overlap', '(?=(ABA))');
+  await page.locator('[data-pyc-lv="m33:2"]').first().click();
+  const num = '(?:[6789][06789]*|0)';
+  await solve('number', num);
+  await solve('expression', num + '(?:[-*]' + num + ')*');
+  await page.locator('[data-pyc-focus="m33.file"]').click();
+  const attachment = await page.locator('.pyc-files a').getAttribute('href');
+  const file = await context.request.get(new URL(attachment, fixture.origin).href);
+  expect(file.ok()).toBe(true);
+  expect((await file.text()).trim()).toMatch(/^[06789*-]{12000}$/);
+  await page.locator('.pyc-ans').fill('80');
+  await page.locator('.pyc-form button').click();
+  await expect(page.locator('.pyc-task.ok[data-pyc-task="m33.file"]')).toBeVisible();
+  expect((await progress())['m33.file'].ok).toBe(1);
+});
+
 test('course and laboratory passwords unlock their sections on another device of the same pupil', async ({browser, context, page}) => {
   const second = await browser.newContext({viewport: {width: 375, height: 900}});
   const otherPupil = await browser.newContext();

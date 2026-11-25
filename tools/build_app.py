@@ -21,7 +21,7 @@ SRC = ROOT / "src" / "app"
 OUT = ROOT / "app.js"
 EXAMS_OUT = ROOT / "app-exams.js"
 LEARNING_OUT = ROOT / "app-learning.js"
-LEARNING_PARTS = ("03b-course-ui.js", "12a-learning.js", "12b-pycourse.js", "12j-labs.js", "12k-buglab.js")
+LEARNING_PARTS = ("03b-course-ui.js", "12a-learning.js", "12b-pycourse.js", "12c-regex.js", "12j-labs.js", "12k-buglab.js")
 EXAM_PARTS = frozenset(('12n-mcko.js', '12o-im.js'))
 BANNER = "// Собрано из src/app/*.js командой python3 tools/build_app.py — правьте модули, а не этот файл.\n"
 

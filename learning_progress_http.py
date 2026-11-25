@@ -328,7 +328,7 @@ class LearningProgressHTTPHandlers:
             tasks = []
             for t in lv["tasks"]:
                 p = prog.get(t["id"]) or {}
-                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files", "practice") if k in t}
+                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files", "practice", "regex") if k in t}
                 x.update(ok=bool(p.get("ok")), tries=p.get("tries", 0), hint_used=bool(p.get("hint_used")), solution_seen=bool(p.get("solution_seen")), independent=bool(p.get("independent")))
                 if p.get("ok") or p.get("tries", 0) >= 3 or teacher:
                     x["sol"] = t["sol"]                 # разбор — после решения или трёх неудачных попыток
@@ -362,9 +362,22 @@ class LearningProgressHTTPHandlers:
                 return self.err(404, "нет такой задачи")
             if li >= svc.pyc_open_levels(mod, prog, free):
                 return self.err(403, "Уровень ещё закрыт")
-            ans = str(data.get("answer") or "").strip()[:300]
-            if not ans:
-                return self.err(400, "Введите ответ")
+            feedback = {}
+            if "regex" in t:
+                # The browser runs Python re. Grade its spans against the build-time answer.
+                expected = json.loads(t["ans"])
+                matches = data.get("matches")
+                if not isinstance(matches, list) or len(matches) != len(expected):
+                    return self.err(400, "Проверьте шаблон на всех строках упражнения")
+                first = next((i for i, row in enumerate(expected) if matches[i] != row), None)
+                ok = first is None
+                if not ok:
+                    feedback["mismatch"] = {"index": first, "expected": expected[first]}
+            else:
+                ans = str(data.get("answer") or "").strip()[:300]
+                if not ans:
+                    return self.err(400, "Введите ответ")
+                ok = svc.pyc_norm(ans) == svc.pyc_norm(t["ans"])
             now = time.time()
             with svc.pyc_lock:
                 tries = [x for x in svc.pyc_tries.get(s["id"], []) if now - x < svc.pyc_window]
@@ -372,11 +385,10 @@ class LearningProgressHTTPHandlers:
                     return self.err(429, "Слишком много проверок подряд — подождите минуту")
                 tries.append(now)
                 svc.pyc_tries[s["id"]] = tries
-            ok = svc.pyc_norm(ans) == svc.pyc_norm(t["ans"])
             code = str(data.get("code") or "")[:20000] or None
             was = prog.get(tid) or {}
             if was.get("ok"):
-                return self.send_json({"ok": ok, "already": True, "tries": was.get("tries", 0), "ans": t["ans"], "sol": t["sol"]})
+                return self.send_json({"ok": ok, "already": True, "tries": was.get("tries", 0), "ans": t["ans"], "sol": t["sol"], **feedback})
             db.x("""INSERT INTO pyc_progress(student_id, task_id, ok, tries, first_ts, ok_ts, last_ts, code) VALUES(?,?,?,?,?,?,?,?)
                     ON CONFLICT(student_id, task_id) DO UPDATE SET ok=excluded.ok, tries=tries + 1, last_ts=excluded.last_ts,
                       ok_ts=COALESCE(ok_ts, excluded.ok_ts), code=COALESCE(excluded.code, code)""",
@@ -386,7 +398,7 @@ class LearningProgressHTTPHandlers:
                      (int(not was.get("hint_used") and not was.get("solution_seen")), s["id"], tid))
             prog = svc.pyc_solved(db, s["id"])
             n_tries = prog[tid]["tries"]
-            out = {"ok": ok, "tries": n_tries}
+            out = {"ok": ok, "tries": n_tries, **feedback}
             if ok or n_tries >= 3 or teacher:
                 out["sol"] = t["sol"]
             if ok:

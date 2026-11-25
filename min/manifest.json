@@ -17,8 +17,8 @@
       "source": "440cd260d6d4ba8e3648ebb910bc705b5b0ad1a867fe5ba516c80e4b28a4ce60"
     },
     "app-learning.js": {
-      "min": "a81534ac79771c0ac3c44483c733e358023dc83addbc8be2b448f868b00323c0",
-      "source": "d13f47c0f8636fc41c174eb3208e8701c5a0f5d37109b935cab89ab47c7ff600"
+      "min": "d6febe7703c0c0979ffb5ed25fc60c2c23fa0725c636a01667f546714415fa8a",
+      "source": "0ac9a9742b00af75b4e4d57c7713218f0affe86815a5bcec88fc0ba1373967c6"
     },
     "app.js": {
       "min": "1a6b5f7e16f7f8cebbe9a8bcbf9dd70899e16f70f4d94ac189d192895f5bb1d4",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "dfa7e26c01229f457bb719dcfe285892af75289fbb25e20a839b5e37c24ba968",
-      "source": "ed408f7ae669ebc24b9ccbae9d96bbf7d95a49978fce79a153d7c826909d38df"
+      "min": "61434439df7a346a60789e188f8e8f5b0ec4563861286389d787cdfe3f4b1c54",
+      "source": "40426e35f9a13ca4180abd70a9a665e58af7942fd4e054190faefcc5965af56a"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",

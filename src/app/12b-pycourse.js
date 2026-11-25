@@ -148,6 +148,7 @@
       <div class="crs-l-head"><span class="pyc-mod-ic">${d.icon}</span><div>        <h2>Уровень ${li + 1}. ${esc(lv.title)}</h2><small class="pyc-goal">${esc(lv.goal)}</small></div></div>
       <div class="pyc-tabs">${m.levels.map((x, i) => `<button type="button" class="${i === li ? 'on' : ''}${i >= m.open ? ' lock' : ''}" data-pyc-lv="${mid}:${i}"
         ${i >= m.open ? 'disabled' : ''}>${i >= m.open ? '🔒 ' : ''}${i + 1}. ${esc(x.title)}</button>`).join('')}</div>
+      ${mid === 'm24' ? '<button type="button" class="btn" data-pyc-lv="m33:0">Открыть тренажёр регулярных выражений</button>' : ''}
       ${has ? `<div class="fm-h">1. Теория · ${lv.slides.length} ${plural(lv.slides.length, 'слайд', 'слайда', 'слайдов')}</div>
       <div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
@@ -183,7 +184,7 @@
       <div class="cond pyc-cond">${safeHtml(t.cond)}</div>
       ${pycFilesHtml(t.files)}
       ${t.practice ? `<div class="learning-practice"><b>Программа должна работать на разных данных</b><p>Первый ввод: <code>${esc(t.practice.stdin.trim())}</code>. Напиши программу, открой Python и проверь тесты. В поле ответа отправь вывод для первого ввода.</p><pre>${esc(t.practice.cases.map((c, i) => `Пример ${i+1}: ввод ${JSON.stringify(c.input.trim())} → ${c.output}`).join('\n'))}</pre></div>` : ''}
-      <div class="pyc-act">
+      ${t.regex ? pycRegexHtml(t) : `<div class="pyc-act">
         <button type="button" class="btn" data-pyc-py="${esc(t.id)}">▶ Решать в Python</button>
         <button type="button" class="btn" data-learning-lab="task" data-task="${esc(t.id)}">По шагам в лаборатории</button>
         ${t.practice ? `<button type="button" class="btn" data-pyc-tests="${esc(t.id)}">Проверить код на ${t.practice.cases.length} примерах</button>` : ''}
@@ -192,7 +193,7 @@
           ${t.ok ? '' : '<button type="submit" class="btn primary">Проверить</button>'}
         </form>
         <span class="pyc-msg" aria-live="polite"></span>
-      </div>
+      </div>`}
       ${t.hint && !t.ok ? `<details class="pyc-more" data-pyc-help="hint" data-task="${esc(t.id)}"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
       ${t.note && t.ok ? `<div class="sl-nuance nk-secret"><b class="nk">💡 Секрет.</b> ${safeHtml(t.note)}</div>` : ''}
       ${t.sol ? pycSolHtml(t) : ''}
@@ -202,7 +203,7 @@
     return `<details class="pyc-more pyc-sol" data-pyc-help="solution" data-task="${esc(t.id)}"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
       <pre class="sl-code">${highlightPy(t.sol)}</pre>
       <div class="sl-btns"><button type="button" class="btn ghost" data-pyc-sol="${esc(t.id)}">▶ Открыть разбор в Python</button>
-        ${t.ok && t.ans ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
+        ${t.ok && t.ans && !t.regex ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
   }
   const pycTask = id => PYC_L && PYC_L.level.tasks.find(t => t.id === id);
   function pycPyTask(t, label) {
@@ -227,17 +228,30 @@
     }
   }
   async function pycCheck(id, form) {
-    const inp = form.querySelector('.pyc-ans'), box = form.closest('.pyc-task'), msg = box.querySelector('.pyc-msg');
+    const inp = form.querySelector('.pyc-ans');
     const answer = inp.value.trim();
     if (!answer) { inp.focus(); return; }
     const pid = 'pyc:' + id;
     const code = PY.task && PY.task.id === pid ? $('#pyCode').value : readCode(pid);
+    return pycSubmit(id, form, { answer, code: code || '' });
+  }
+  async function pycSubmit(id, form, data) {
+    const box = form.closest('.pyc-task'), msg = box.querySelector('.pyc-msg');
     const btn = form.querySelector('button[type=submit]');
     if (btn) btn.disabled = true;
     const current = learningSessionGuard();
     let r;
-    try { await pycFlushHelp(); if (!current()) return; r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (!current()) return; if (btn) btn.disabled = false; netError(e); return; }
-    if (!current()) return;
+    try {
+      await pycFlushHelp();
+      if (!current()) return;
+      r = await api('pyc/check', { task: id, ...data });
+    } catch (e) {
+      if (!current() || !box.isConnected) return;
+      if (btn) btn.disabled = false;
+      msg.textContent = e.message || 'Не удалось сохранить ответ. Повтори попытку.';
+      netError(e); return;
+    }
+    if (!current() || !box.isConnected) return;
     if (btn) btn.disabled = false;
     const t = pycTask(id);
     if (!t) return;
@@ -253,9 +267,12 @@
       openPycLevel(PYC_L.id, PYC_L.l, true);
       return;
     }
-    box.classList.add('bad');
-    box.querySelector('.pyc-st').textContent = `попыток: ${r.tries}`;
-    msg.textContent = 'Неверно — проверьте программу и вопрос задачи';
+    if (!t.ok) {
+      box.classList.add('bad');
+      box.querySelector('.pyc-st').textContent = `попыток: ${r.tries}`;
+    }
+    if (r.mismatch && t.regex) msg.innerHTML = pycRegexMismatch(t, data.matches, r.mismatch);
+    else msg.textContent = 'Неверно — проверьте программу и вопрос задачи';
     msg.className = 'pyc-msg bad';
     box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
     if (r.sol && !box.querySelector('.pyc-sol')) box.insertAdjacentHTML('beforeend', pycSolHtml(t));

@@ -1,0 +1,306 @@
+{
+ "id": "m33",
+ "n": 24,
+ "title": "Тренажёр регулярных выражений",
+ "icon": "re",
+ "sub": "Python re для №24. Пиши шаблоны, проверяй совпадения и переходи к задаче с файлом.",
+ "levels": [
+  {
+   "title": "Классы символов и серии",
+   "goal": "Найти все подходящие фрагменты и прочитать их границы.",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Что вернёт finditer",
+     "ch": "Пример",
+     "cond": "<p>Символ + повторяет предшествующий элемент один или несколько раз. В XAAAYAA первая серия занимает позиции 1, 2, 3. Метод span() возвращает (1, 4), как срез text[1:4]. Её длина равна 4 − 1.</p>",
+     "nk": "secret",
+     "code": "import re\ntext = 'XAAAYAA'\nfor m in re.finditer(r'A+', text):\n    print(m.group(), m.span(), len(m.group()))",
+     "out": "AAA (1, 4) 3\nAA (5, 7) 2",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m33.digits",
+     "h": "Серии цифр",
+     "cond": "<p>Найди каждую непрерывную серию цифр от 0 до 9 целиком. Нули в начале серии входят в совпадение.</p>",
+     "stars": 1,
+     "ans": "[[[1, 4], [5, 6], [7, 9]], [], [[0, 1]], [[0, 2], [3, 13]], []]",
+     "sol": "import re\nimport json\n\nregex = re.compile(r'[0-9]+')\nrows = []\nfor text in ['A007B9C42', 'ABC', '0', '12X0345678901', '']:\n    rows.append([m.span() for m in regex.finditer(text)])\nprint(json.dumps(rows))",
+     "sec": 0.03,
+     "regex": {
+      "mode": "finditer",
+      "samples": [
+       "A007B9C42",
+       "ABC",
+       "0",
+       "12X0345678901",
+       ""
+      ],
+      "example_spans": [
+       [
+        1,
+        4
+       ],
+       [
+        5,
+        6
+       ],
+       [
+        7,
+        9
+       ]
+      ]
+     },
+     "hint": "Одна цифра задаётся классом [0-9]. Как повторить весь класс один или несколько раз?"
+    },
+    {
+     "id": "m33.hex",
+     "h": "Шестнадцатеричная запись",
+     "cond": "<p>Найди все максимальные серии из цифр 0–9 и заглавных латинских букв A–F. Строчные буквы разделяют серии.</p>",
+     "stars": 1,
+     "ans": "[[[1, 5], [6, 7]], [], [[0, 1]], [[0, 1], [2, 4]], [], [[0, 16]]]",
+     "sol": "import re\nimport json\n\nregex = re.compile(r'[0-9A-F]+')\nrows = []\nfor text in ['G1A0FZ9', 'abcdef', 'F', '0aBA', 'GH', '0123456789ABCDEF']:\n    rows.append([m.span() for m in regex.finditer(text)])\nprint(json.dumps(rows))",
+     "sec": 0.03,
+     "regex": {
+      "mode": "finditer",
+      "samples": [
+       "G1A0FZ9",
+       "abcdef",
+       "F",
+       "0aBA",
+       "GH",
+       "0123456789ABCDEF"
+      ],
+      "example_spans": [
+       [
+        1,
+        5
+       ],
+       [
+        6,
+        7
+       ]
+      ]
+     },
+     "hint": "В одних квадратных скобках можно записать несколько диапазонов."
+    }
+   ]
+  },
+  {
+   "title": "Повторы и перекрытия",
+   "goal": "Повторить целую группу, ограничить длину и увидеть пересекающиеся совпадения.",
+   "need": 2,
+   "slides": [
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Повторяем блок целиком",
+     "ch": "Пример",
+     "cond": "<p>В XY+ повторяется только Y. Скобки (?:…) объединяют X и Y. Для точного числа повторов используют {2}, для диапазона от двух до четырёх — {2,4}.</p>",
+     "nk": "secret",
+     "code": "import re\ntext = 'XYXYXYY'\nfor pattern in (r'XY+', r'(?:XY)+'):\n    print(pattern, [m.group() for m in re.finditer(pattern, text)])",
+     "out": "XY+ ['XY', 'XY', 'XYY']\n(?:XY)+ ['XYXYXY']",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Как сохранить оба вхождения",
+     "ch": "Пример",
+     "cond": "<p>Просмотр вперёд (?=…) проверяет текст, оставаясь на текущей позиции. Совпадение нулевой длины, а вложенная первая группа содержит пару. В XXX получаются пары [0:2] и [1:3].</p>",
+     "nk": "secret",
+     "code": "import re\nfor m in re.finditer(r'(?=(XX))', 'XXX'):\n    print(m.span(), m.span(1), m.group(1))",
+     "out": "(0, 0) (0, 2) XX\n(1, 1) (1, 3) XX"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m33.blocks",
+     "h": "Цепочки AB",
+     "cond": "<p>Найди максимальные цепочки из одного или нескольких полных блоков AB. Отдельные A и B в цепочку не входят.</p>",
+     "stars": 1,
+     "ans": "[[[1, 5], [6, 8]], [[0, 4]], [[1, 3]], [], [[0, 6]]]",
+     "sol": "import re\nimport json\n\nregex = re.compile(r'(?:AB)+')\nrows = []\nfor text in ['XABABYAB', 'ABABA', 'AABB', 'BA', 'ABABAB']:\n    rows.append([m.span() for m in regex.finditer(text)])\nprint(json.dumps(rows))",
+     "sec": 0.02,
+     "regex": {
+      "mode": "finditer",
+      "samples": [
+       "XABABYAB",
+       "ABABA",
+       "AABB",
+       "BA",
+       "ABABAB"
+      ],
+      "example_spans": [
+       [
+        1,
+        5
+       ],
+       [
+        6,
+        8
+       ]
+      ]
+     },
+     "hint": "Сначала объедини A и B в группу, затем задай число повторений."
+    },
+    {
+     "id": "m33.bounded",
+     "h": "Метки с цифрами",
+     "cond": "<p>Найди фрагменты, которые начинаются с A, содержат от двух до четырёх цифр и заканчиваются на B.</p>",
+     "stars": 1,
+     "ans": "[[[3, 7], [7, 13]], [], [[0, 4], [4, 9]], [], []]",
+     "sol": "import re\nimport json\n\nregex = re.compile(r'A[0-9]{2,4}B')\nrows = []\nfor text in ['A1BA23BA4567B', 'A12345B', 'A00BA999B', '12B', 'A123']:\n    rows.append([m.span() for m in regex.finditer(text)])\nprint(json.dumps(rows))",
+     "sec": 0.02,
+     "regex": {
+      "mode": "finditer",
+      "samples": [
+       "A1BA23BA4567B",
+       "A12345B",
+       "A00BA999B",
+       "12B",
+       "A123"
+      ],
+      "example_spans": [
+       [
+        3,
+        7
+       ],
+       [
+        7,
+        13
+       ]
+      ]
+     },
+     "hint": "Поставь квантификатор после класса цифр. Обе крайние буквы должны войти в совпадение."
+    },
+    {
+     "id": "m33.overlap",
+     "h": "Все вхождения ABA",
+     "cond": "<p>Найди каждое ABA, включая вхождения с общей буквой. Помести найденный фрагмент в первую захватывающую группу. Тренажёр сравнит границы m.span(1).</p>",
+     "stars": 2,
+     "ans": "[[[0, 3], [2, 5]], [[0, 3], [3, 6]], [[1, 4], [3, 6]], [], []]",
+     "sol": "import re\nimport json\n\nregex = re.compile(r'(?=(ABA))')\nrows = []\nfor text in ['ABABA', 'ABAABA', 'BABABAB', 'AB', '']:\n    rows.append([m.span(1) for m in regex.finditer(text)])\nprint(json.dumps(rows))",
+     "sec": 0.03,
+     "regex": {
+      "mode": "overlap",
+      "samples": [
+       "ABABA",
+       "ABAABA",
+       "BABABAB",
+       "AB",
+       ""
+      ],
+      "example_spans": [
+       [
+        0,
+        3
+       ],
+       [
+        2,
+        5
+       ]
+      ]
+     },
+     "hint": "Помести (ABA) внутрь проверки (?=…). На следующей позиции finditer снова сможет начать поиск."
+    }
+   ]
+  },
+  {
+   "title": "От шаблона к файлу №24",
+   "goal": "Собрать арифметическое выражение и самостоятельно найти самую длинную подстроку.",
+   "need": 3,
+   "slides": [
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Проверка записи целиком",
+     "ch": "Пример",
+     "cond": "<p>fullmatch проверяет, подходит ли вся строка. Для выбора между вариантами используют |. Запись вида «число, затем несколько пар знак–число» удобно собирать из двух частей.</p>",
+     "nk": "secret",
+     "code": "import re\nfor text in ('B12', 'B12X', 'XB12'):\n    print(text, bool(re.fullmatch(r'B[0-9]+', text)))",
+     "out": "B12 True\nB12X False\nXB12 False",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m33.number",
+     "h": "Число без ведущего нуля",
+     "cond": "<p>Проверь строку целиком. Для записи числа разрешены только цифры 0, 6, 7, 8, 9. Ноль сам по себе допустим. У многозначного числа первая цифра должна быть ненулевой.</p>",
+     "stars": 2,
+     "ans": "[[], [[0, 1]], [[0, 3]], [], [[0, 2]], [], [[0, 3]], []]",
+     "sol": "import re\nimport json\n\nregex = re.compile(r'(?:0|[6-9][06-9]*)')\nrows = []\nfor text in ['067', '0', '607', '00', '69', '16', '870', '']:\n    rows.append([m.span()] if (m := regex.fullmatch(text)) else [])\nprint(json.dumps(rows))",
+     "sec": 0.02,
+     "regex": {
+      "mode": "fullmatch",
+      "samples": [
+       "067",
+       "0",
+       "607",
+       "00",
+       "69",
+       "16",
+       "870",
+       ""
+      ],
+      "example_spans": []
+     },
+     "hint": "Разбери два случая через |. После первой ненулевой цифры разрешён и ноль."
+    },
+    {
+     "id": "m33.expression",
+     "h": "Корректное выражение",
+     "cond": "<p>Проверь всю строку. Между числами из цифр 0, 6, 7, 8, 9 разрешены вычитание и умножение. У каждого числа нет ведущих нулей. Выражение может состоять из одного числа.</p>",
+     "stars": 2,
+     "ans": "[[[0, 6]], [[0, 1]], [], [], [], [], [], [], [[0, 6]], []]",
+     "sol": "import re\nimport json\n\nregex = re.compile(r'(?:0|[6-9][06-9]*)(?:[-*](?:0|[6-9][06-9]*))*')\nrows = []\nfor text in ['60-7*0', '8', '06*7', '7--8', '8*', '-6', '0-09', '4', '9-0-76', '']:\n    rows.append([m.span()] if (m := regex.fullmatch(text)) else [])\nprint(json.dumps(rows))",
+     "sec": 0.02,
+     "regex": {
+      "mode": "fullmatch",
+      "samples": [
+       "60-7*0",
+       "8",
+       "06*7",
+       "7--8",
+       "8*",
+       "-6",
+       "0-09",
+       "4",
+       "9-0-76",
+       ""
+      ],
+      "example_spans": [
+       [
+        0,
+        6
+       ]
+      ]
+     },
+     "hint": "Возьми шаблон числа, затем повторяй группу из одного знака и следующего числа. В классе [-*] оба знака читаются буквально."
+    },
+    {
+     "id": "m33.file",
+     "h": "Самостоятельно · файл 24.txt",
+     "cond": "<p>В файле <b>24.txt</b> одна строка из цифр 0, 6, 7, 8, 9 и знаков − (обычный дефис в файле) и *. Найди длину самой длинной непрерывной подстроки, которая является корректным выражением. Используй правила предыдущей задачи. В длину входят и цифры, и знаки. Введи одно число.</p>",
+     "stars": 3,
+     "ans": "80",
+     "sol": "import re\n\nwith open('24.txt') as f:\n    text = f.readline().strip()\nnumber = r'(?:0|[6-9][06-9]*)'\nexpression = re.compile(number + r'(?:[-*]' + number + r')*')\nbest = 0\nfor start in range(len(text)):\n    m = expression.match(text, start)\n    if m:\n        best = max(best, m.end() - start)\nprint(best)",
+     "sec": 0.03,
+     "hint": "У тебя уже есть шаблон выражения. Проверь возможные начала в строке. Для совпадения длина равна m.end() − m.start().",
+     "files": [
+      {
+       "name": "24.txt",
+       "url": "pyc-data/m33/file/24.txt?v=6dea9f6c",
+       "size": 12001
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
