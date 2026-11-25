@@ -2250,7 +2250,7 @@ class ServerTest(unittest.TestCase):
 
     def test_class_prizes(self):
         # битва классов: в понедельник первые три класса по опыту за прошлую неделю получают 5000 / 2500 / 1000 ₿ из банка —
-        # поровну на всех учеников класса с округлением вверх; один раз за неделю; класс без опыта — без приза
+        # поровну на всех учеников класса с округлением вниз; один раз за неделю; класс без опыта — без приза
         db = server.APP.db
         w1 = server.week_start()
         w0 = server.week_start(w1 - 3 * 86400)
@@ -2285,15 +2285,15 @@ class ServerTest(unittest.TestCase):
             if pl <= 3 and cname != "Призовой Г":
                 pool = server.CLASS_PRIZES[pl - 1]
                 n_all = prize[cname]["members"]
-                self.assertEqual(prize[cname]["each_btc"], math.ceil(pool / n_all))
-                self.assertEqual([got(x) for x in sids], [math.ceil(pool / n_all)] * len(sids))
+                self.assertEqual(prize[cname]["each_btc"], pool // n_all)
+                self.assertEqual([got(x) for x in sids], [pool // n_all] * len(sids))
             else:
                 self.assertEqual([got(x) for x in sids], [0] * len(sids))      # без опыта или ниже третьего — без приза
         self.assertLess(server.bank_balance(db), bank0)                         # приз — из банка рынка
         n_coins = db.q("SELECT COUNT(*) c FROM coins WHERE reason='class'", one=True)["c"]
         server.class_rollover(db)                                               # второй раз за неделю — ничего
         self.assertEqual(db.q("SELECT COUNT(*) c FROM coins WHERE reason='class'", one=True)["c"], n_coins)
-        self.assertEqual(math.ceil(5000 / 15), 334)
+        self.assertGreaterEqual(server.bank_balance(db), 0)
 
     def test_no_bot_detector(self):
         # детектор ботов убран: присланные счётчики игнорируются, отметок «бот» нет
@@ -3107,6 +3107,7 @@ class ServerTest(unittest.TestCase):
         row = db.q("SELECT * FROM gifts WHERE id=?", (gid,), one=True)
         db.x("UPDATE gifts SET listed=10, listed_ts=? WHERE id=?", (time.time(), gid))
         row = db.q("SELECT * FROM gifts WHERE id=?", (gid,), one=True)
+        db.x("INSERT INTO coins(student_id,ts,delta,reason,gift_id) VALUES(?,?,-10,'bid',?)", (sid, time.time(), gid))
         server.auc_deal(db, row, sid, 10, time.time(), server.econ(db))
         self.assertIsNone(db.q("SELECT note FROM gifts WHERE id=?", (gid,), one=True)["note"])
 
@@ -4602,7 +4603,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(r["game"]["coins"], coins - server.HW_PRICE)                 # без индекса цен
             G = self.req("GET", "/api/gifts", token=tok)[1]
             mine = next(g for g in G["mine"] if g["gift"] == gid)
-            self.assertEqual((mine["hw"], mine["rar"]["k"], mine["up"], mine["sell"]), (True, "limited", server.HW_UP, math.floor(server.HW_PRICE * server.SELL_SHARE)))
+            self.assertEqual((mine["hw"], mine["rar"]["k"], mine["up"], mine["sell"]), (True, "limited", server.HW_UP, (server.HW_PRICE - server.op_cut(server.HW_PRICE, server.econ(db))) * 90 // 100))
             self.assertEqual(self.req("GET", "/api/gifts/price?gift=" + gid, token=tok)[0], 404)
             # улучшение — наряд с картинкой
             st, r = self.req("POST", "/api/gifts/upgrade", {"id": mine["id"]}, tok)
@@ -4841,7 +4842,7 @@ class ServerTest(unittest.TestCase):
     def test_market_valuation(self):
         db = server.APP.db
         saved = {table: [tuple(r) for r in db.q("SELECT * FROM " + table)]
-                 for table in ("market_deals", "gift_quote_history")}
+                 for table in ("market_deals", "gift_quote_history", "gift_market_cover")}
         def restore():
             for table, rows in saved.items():
                 db.x("DELETE FROM " + table)
@@ -4901,6 +4902,12 @@ class ServerTest(unittest.TestCase):
         old_id = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, paid) VALUES(?,?,?,?,?)",
                       (sid, gid, now - 3 * 86400, sid, 40))
         new_id = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, paid) VALUES(?,?,?,?,?)", (sid, gid, now, sid, 40))
+        server.invalidate_economy()
+        unpaid = self.req("GET", "/api/gifts", token=token)[1]
+        self.assertEqual(next(g["sell"] for g in unpaid["mine"] if g["id"] == old_id), 36)
+        alive = server.gift_supply(db)[gid]["alive"]
+        db.x("INSERT INTO gift_market_cover VALUES(?,?)", (gid, 83 * alive))
+        server.invalidate_economy()
         inv = self.req("GET", "/api/gifts", token=token)[1]
         rows = {g["id"]: g for g in inv["mine"]}
         self.assertEqual((rows[old_id]["mk_typ"], rows[new_id]["mk_typ"]), (123, 123))
@@ -4910,7 +4917,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(rows[new_id]["market_payout_at"], now + 48 * 3600)
         # При перепродаже уже уникального подарка редкость не добавляется к цене покупки дважды.
         unique = {"rar": {"k": "rare"}}
-        quotes = {"prices": {gid + ":rare": 250}}
+        quotes = {"prices": {gid + ":rare": 250}, "confirmed": {gid + ":rare"}, "premium": {gid: 210}}
         for acquired, expected in ((now, 36), (now - 3 * 86400, 225)):
             self.assertEqual(server.gift_sell_price(gid, unique, {"idx": 1}, {}, {}, 40, None, quotes,
                                                    now - 60 * 86400, acquired), expected)
@@ -4922,9 +4929,15 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((st, sale_result["price"], sale_result["game"]["coins"]), (200, 110, inv["coins"] + 110))
         tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
         tomorrow_price = server.market_vals(db, tomorrow)["prices"][gid]
-        self.assertTrue(123 < tomorrow_price <= 153)
+        self.assertEqual(tomorrow_price, 123)
+        self.assertEqual(db.q("SELECT amount FROM gift_market_cover WHERE gift=?", (gid,), one=True)["amount"], 83 * (alive - 1))
+        self.assertEqual(db.q("SELECT delta FROM bank WHERE reason='redeem' ORDER BY id DESC LIMIT 1", one=True)["delta"], -83)
+        sale(151, 201, 202, 190, -1)
+        server.invalidate_economy()
+        next_quote = server.market_vals(db, tomorrow)["prices"][gid]
+        self.assertTrue(tomorrow_price < next_quote <= 153)
         later = (datetime.date.today() + datetime.timedelta(days=40)).isoformat()
-        self.assertEqual(server.market_vals(db, later)["prices"][gid], tomorrow_price)
+        self.assertEqual(server.market_vals(db, later)["prices"][gid], next_quote)
 
     def test_box_gift_market_fee(self):
         # выпавший в «🎲» подарок продаётся на рынке с той же комиссией, что и остальные: 2,5 % с продавца и 2,5 % с покупателя
@@ -4937,8 +4950,9 @@ class ServerTest(unittest.TestCase):
         price, b00 = self.req("GET", "/api/gifts", token=tokA)[1]["box"], server.bank_balance(db)
         st, r = self.req("POST", "/api/gifts/buy", {"gift": "box"}, tokA)
         self.assertEqual(st, 200, r)
-        self.assertEqual(server.bank_balance(db), b00 + price)                     # «🎲» — вся цена в банк
-        self.assertEqual(db.q("SELECT delta FROM bank WHERE reason='box' ORDER BY id DESC LIMIT 1", one=True)["delta"], price)
+        box_fee = server.op_cut(price, server.econ(db))
+        self.assertEqual(server.bank_balance(db), b00 + box_fee)
+        self.assertEqual(db.q("SELECT delta FROM bank WHERE reason='box' ORDER BY id DESC LIMIT 1", one=True)["delta"], box_fee)
         self.req("POST", "/api/gifts/buy", {"gift": "cake"}, tokA)
         G = self.req("GET", "/api/gifts", token=tokA)[1]
         box = next(g for g in G["mine"] if g["box"])

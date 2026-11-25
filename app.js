@@ -6111,7 +6111,7 @@
     const P = C.prizes || [], last = C.last || [];
     const ends = C.ends ? new Date(C.ends * 1000).toLocaleDateString('ru-RU', { weekday: 'long' }) : 'понедельник';
     const rules = P.length ? `Итоги — в ${ends}: 1-е место — ${num(P[0])} ₿ классу, 2-е — ${num(P[1])} ₿, 3-е — ${num(P[2])} ₿. Приз делится поровну
-      на всех учеников класса (с округлением вверх) и приходит сам. Считается опыт всех учеников класса с понедельника${C.min ? `; нужно хотя бы ${C.min} класса в битве` : ''}.` : '';
+      на всех учеников класса с округлением вниз. Если банку не хватает монет, призы уменьшаются пропорционально. Считается опыт всех учеников класса с понедельника${C.min ? `; нужно хотя бы ${C.min} класса в битве` : ''}.` : '';
     const prev = last.length ? `<div class="cl-last"><b>Прошлая неделя:</b> ${last.map(r => `${placeHtml(r.place)} ${esc(r.name)} — по ${num(r.each_btc)} ₿`).join(' · ')}</div>` : '';
     return `${prev}<p class="fm-muted lb-mine">${rules} Цель и награду за неё задаёт учитель.</p>`;
   }
@@ -6120,7 +6120,7 @@
     return C.list.map((c, i) => {
       const goal = c.goal ? `<div class="cl-goal"><i class="xp-bar"><b style="width:${Math.min(100, pct(c.solved / c.goal))}%"></b></i>
         <span>${c.solved} / ${c.goal} заданий${c.reward ? ` — ${esc(c.reward)}` : ''}${c.solved >= c.goal ? ' ✅' : ''}</span></div>` : '';
-      const prize = c.prize ? `<div class="cl-prize">🏆 ${num(c.prize)} ₿ классу — по <b>${num(c.each)} ₿</b> каждому</div>` : '';
+      const prize = c.prize ? `<div class="cl-prize">🏆 До ${num(c.prize)} ₿ классу · до <b>${num(c.each)} ₿</b> каждому</div>` : '';
       return `<div class="cl-row${c.mine ? ' me' : ''}"><span class="lb-place">${placeHtml(i + 1)}</span>
         <div class="cl-main"><b>${esc(c.name)}</b>${c.mine ? ' <span class="chip good">твой класс</span>' : ''}
           <span class="fm-muted"> · ${c.members} ${plural(c.members, 'ученик', 'ученика', 'учеников')}</span>${prize}${goal}</div>
@@ -8342,8 +8342,9 @@
         ${listed && g.mk_until ? `<small>🔨 на торгах: ${g.mk_bids ? `ставка ₿ ${num(g.mk_bid)} (${g.mk_bids} ${plural(g.mk_bids, 'ставка', 'ставки', 'ставок')})` : `старт ₿ ${num(g.listed)}, ставок нет`} · ⏳ ${aucSpan(g.mk_until)}${g.mk_bn ? ` · купить сразу ₿ ${num(g.mk_bn)}` : ''}</small>` : ''}</div></div>
       ${props}
       ${marketPriceBox(g)}
+      ${!listed && !g.market_payout_at && g.sell < Math.floor(g.mk_typ * 0.9) ? '<small class="bx-mkhint">Сумма выкупа учитывает вложения в экземпляр и доступные комиссии рынка. Продать другому ученику можно на аукционе.</small>' : ''}
       <div class="bx-acts">${up}${sell}${mk}</div>
-      ${g.market_payout_at && !listed ? `<small class="bx-mkhint">Сейчас выкуп ограничен стоимостью приобретения. С ${new Date(g.market_payout_at * 1000).toLocaleString('ru-RU', {day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'})} сайт выплатит 90% действующей тогда оценки.</small>` : ''}
+      ${g.market_payout_at && !listed ? `<small class="bx-mkhint">Сейчас выкуп ограничен стоимостью приобретения. С ${new Date(g.market_payout_at * 1000).toLocaleString('ru-RU', {day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'})} станет доступна доплата за рост цены в пределах комиссий рынка.</small>` : ''}
       ${gfMkOpen && !listed ? `<div class="bx-mkrow"><label><input type="checkbox" id="mkBnOn"> купить сразу за ₿ <input class="inp" id="mkPrice" type="number" min="${g.mk_start + 1}" max="${g.mk_max}" value="${suggest}" disabled></label>
         <label>торги <select class="inp" id="mkHours">${(GF.auc_hours_set || [GF.auc_hours]).map(h => `<option value="${h}"${h === GF.auc_hours ? ' selected' : ''}>${h} ч</option>`).join('')}</select></label>
         <button type="button" class="btn primary" data-bx-list="${g.id}">Выставить</button><span class="fm-muted" id="mkGet"></span></div>
@@ -8407,7 +8408,7 @@
         <details><summary>Цены по дням</summary><table><thead><tr><th>Дата</th><th>Медиана</th><th>Сделки</th></tr></thead>
         <tbody>${pts.slice().reverse().map(p => `<tr><td>${pcDay(p.d)}</td><td>${num(p.p)} ₿</td><td>${num(p.n)}</td></tr>`).join('')}</tbody></table></details>`;
     }
-    return `<p>Последняя продажа <b>${num(last.p)} ₿</b> · ${pcDay(last.d)}</p><p>Независимые продажи · ${count(data.count)}</p>${data.count < data.minimum ? `<p>${fallback} Для пересчёта нужны ${data.minimum} сделки с разными участниками.</p>` : ''}${trend}${history}`;
+    return `<p>Последняя продажа <b>${num(last.p)} ₿</b> · ${pcDay(last.d)}</p><p>Независимые продажи · ${count(data.count)}</p>${data.qualified < data.minimum ? `<p>${fallback} Для оценки подходят ${data.qualified} из необходимых ${data.minimum} сделок.</p>` : ''}${trend}${history}`;
   }
   function loadMarketSales(el) {
     if (el.dataset.loading) return;
@@ -8489,9 +8490,9 @@
         ${(G.hw || []).filter(x => x.gift.startsWith('sw_')).length ? `<li>⚔️ Световые мечи: синий и красный — по ₿ ${num(G.hw.find(x => x.gift.startsWith('sw_')).price)}, всего по ${G.hw.find(x => x.gift.startsWith('sw_')).cap} штук каждого на весь сайт, в магазине до ${G.hw.find(x => x.gift.startsWith('sw_')).until.slice(8, 10)}.${G.hw.find(x => x.gift.startsWith('sw_')).until.slice(5, 7)} включительно, потом — только на рынке. Не улучшаются.</li>` : ''}
         ${(G.hw || []).filter(x => x.gift.startsWith('vi_')).map(x => `<li>${x.ev_i} «${esc(x.t)}» — лимитка за ₿ ${num(x.price)}, всего ${num(x.cap)} штук на весь сайт, в магазине 7 дней (${hwUntil(x)}), потом — только на рынке. Не улучшается и не выпадает в «🎲».</li>`).join('')}
         ${(G.hw || []).filter(x => x.gift.startsWith('hw_')).length ? `<li>🎃 Хеллоуин: лимитки «Тыква» и «Маска клоуна» — по ₿ ${num(G.hw.find(x => x.gift.startsWith('hw_')).price)}, тираж ограничен, в магазине до ${G.hw.find(x => x.gift.startsWith('hw_')).until.slice(8, 10)}.${G.hw.find(x => x.gift.startsWith('hw_')).until.slice(5, 7)} включительно. Улучшение за ₿ ${num(G.hw.find(x => x.gift.startsWith('hw_')).up)} — случайный наряд: чем реже наряд, тем дороже подарок. Потом — только на рынке.</li>` : ''}
-        <li>💰 Быстрая продажа — 90% подтверждённой оценки с округлением вниз. В первые 48 часов после покупки и до появления котировки действует ограничение по стоимости приобретения и улучшения. Сумма к получению указана на кнопке.</li>
+        <li>💰 Быстрая продажа даёт до 90% оценки. Через 48 часов доплату за рост цены обеспечивают комиссии со сделок этого вида и свободные монеты в банке. Для доплаты нужны свежие независимые продажи. Сумма к получению указана на кнопке.</li>
         <li>🔨 Или выставь его на аукцион одноклассникам: старт — цена продажи сразу, торги — 1, 6 или 24 ч, каждая ставка — хотя бы на ${Math.round(G.auc_step * 100)}% выше. Ставка (и небольшой сбор с покупателя) замораживается, перебьют — всё вернётся. С продавца при сделке — тоже небольшой сбор. Ставка в последние ${Math.round(G.auc_snipe / 60)} минут продлевает торги. Подарок уйдёт тому, чья ставка выше.</li>
-        <li>Цена в магазине зависит от остатка тиража и не опускается ниже подтверждённой оценки. Оценку в коллекции обновляют продажи подарков одного вида и редкости. Нужны три разных экземпляра и шесть разных участников за 30 дней. Ориентир — медиана цен, дневной шаг — до 25% с округлением до монеты.</li>
+        <li>Цена в магазине зависит от остатка тиража и не опускается ниже подтверждённой оценки. Оценку в коллекции обновляют продажи подарков одного вида и редкости. Нужны три разных экземпляра и шесть разных участников за 30 дней. Ориентир — медиана цен, новые сделки меняют оценку максимум на 25% за день с округлением до монеты. Учитываются продажи от тех, кто за месяц продал больше экземпляров, чем купил, тем, кто увеличил коллекцию.</li>
         <li>В истории продаж точки показывают медиану за день. Сравнение двух недель появляется, когда в каждой есть хотя бы две независимые продажи. В коллекции и Forbes указана рыночная оценка после комиссии продавца.</li>
         <li>⏳ Купленный на рынке подарок можно снова выставить через ${G.relist_h} ч, а свой проданный — выкупить через ${G.buyback_days} дней. Ставка — не дороже трёх рыночных цен подарка.</li>
         <li>🏷 Цены и заработок меняются раз в сутки сами — по тому, сколько монет и подарков у всех. Копить очень много невыгодно.</li>
@@ -8500,32 +8501,69 @@
       <div class="bx-sum"><span>⚒ заработок <b>×${idxTxt(G.econ.earn)}</b></span><span>🏷 цены <b>×${idxTxt(G.econ.idx)}</b></span><span>🏦 банк <b>₿ ${num(G.econ.bank)}</b></span></div>`;
   }
   // ---- действия
+  let gfBuying = false;
+  const pendingGiftPurchases = new Map();
+  async function submitGiftPurchase(gift, price, note) {
+    const body = { gift, price, to: gfTo ? +gfTo : null, note: note || undefined };
+    const intent = JSON.stringify([student.sid, gift, body.to, note || '']);
+    const slot = 'egeshka.gift.purchase.' + student.sid + '.' + gift + '.' + (body.to || 0);
+    let pending = pendingGiftPurchases.get(intent);
+    if (!pending) {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(slot) || 'null');
+        if (saved?.intent === intent) pending = saved;
+      } catch (_) {}
+      if (!pending) {
+        const key = Array.from(window.crypto.getRandomValues(new Uint8Array(16)), v => v.toString(16).padStart(2, '0')).join('');
+        pending = {intent, key, price};
+      }
+      pendingGiftPurchases.set(intent, pending);
+      try { sessionStorage.setItem(slot, JSON.stringify(pending)); } catch (_) {}
+    }
+    const clear = () => {
+      pendingGiftPurchases.delete(intent);
+      try {
+        if (JSON.parse(sessionStorage.getItem(slot) || 'null')?.key === pending.key) sessionStorage.removeItem(slot);
+      } catch (_) {}
+    };
+    try {
+      const result = await api('gifts/buy', {...body, price:pending.price, request_key:pending.key});
+      if (!result.ok || !result.got) throw new Error('Сервер ещё не подтвердил покупку');
+      clear();
+      return result;
+    } catch (error) {
+      if (error.status >= 400 && error.status < 500) clear();
+      throw error;
+    }
+  }
   async function buyGift(id) {
     if (id === 'box') { rollBox(); return; }                  // «🎲» — с прокруткой ленты (12e-case.js)
     const g = hwOf(id) || (GF.limited && GF.limited.gift === id ? GF.limited : GF.catalog.find(x => x.id === id));
     const who = gfTo ? gfMate(gfTo) : '';
-    if (!g) return;
+    if (!g || gfBuying) return;
+    gfBuying = true;
     try {
       const note = gfTo ? gfNote.trim() : '';
-      const r = await api('gifts/buy', { gift: id, to: gfTo ? +gfTo : null, note: note || undefined });
+      const r = await submitGiftPurchase(id, g.price, note);
       if (r.game) onGame(r.game);
       const got = GF.catalog.find(x => x.id === r.got) || g;
       if (note) gfNote = '';
       toast(who ? `🎁 ${got.i} ${got.t} — подарено: ${who}${note ? ' · с сообщением 💌' : ''}` : `🎁 ${got.i} ${got.t} — теперь у тебя`, 5000);
       await openGifts();
-    } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось купить'); }
+    } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось купить'); if (e.status === 409) await openGifts(); }
+    finally { gfBuying = false; }
   }
   async function upgradeGift(id) {
     const g = GF.mine.find(x => x.id === id);
     if (!g || !confirm(g.hw ? `Улучшить ${g.i} ${g.t} за ${g.up} ₿? Она наденет случайный наряд — какой, решит удача.`
       : `Улучшить ${g.i} ${g.t} за ${g.up} ₿? Подарок станет уникальным.`)) return;
     try {
-      const r = await api('gifts/upgrade', { id });
+      const r = await api('gifts/upgrade', { id, price:g.up });
       if (r.game) onGame(r.game);
       gfFresh = id;
       await openGifts(undefined, id);
       setTimeout(() => { gfFresh = 0; }, 2500);
-    } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось улучшить'); }
+    } catch (e) { if (e.status !== 401) toast(e.message || 'Не получилось улучшить'); if (e.status === 409) await openGifts(undefined, id); }
   }
   async function sellGift(id) {
     const g = GF.mine.find(x => x.id === id);
@@ -9225,9 +9263,10 @@
     if (!crQuick()) crRattle(CASE_SHAKE_MS);                 // коробка дребезжит, пока трясётся
     const C = CR, shaken = new Promise(res => setTimeout(res, crQuick() ? 0 : CASE_SHAKE_MS));
     let r;
-    try { r = await api('gifts/buy', { gift: 'box', to: gfTo ? +gfTo : null }); } catch (e) {
+    try { r = await submitGiftPurchase('box', GF.box); } catch (e) {
       if (CR === C) closeCase();
       if (e.status !== 401) toast(e.message || 'Не получилось купить');
+      if (e.status === 409) await openGifts();
       return;
     }
     if (r.game) onGame(r.game);

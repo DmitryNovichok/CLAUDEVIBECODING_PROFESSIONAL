@@ -46,3 +46,39 @@ test('a pupil sees the settled gift price and uses the existing bid toward the b
   await history.screenshot({path:photo});
   await testInfo.attach('market-prices.png', {path:photo, contentType:'image/png'});
 });
+
+test('a shop receipt survives a missing acknowledgement and a page reload', async ({page, context}) => {
+  const shop = await startFixture({market:true});
+  try {
+    await seedBrowser(context, shop);
+    const wallet = async () => (await context.request.get(shop.origin + '/api/gifts')).json();
+    const before = await wallet();
+    const offer = before.catalog.find(g => g.id === 'tea');
+    const openOffer = async () => {
+      await page.goto(shop.origin + '/');
+      await page.locator('[data-hub-go="coins"]').click();
+      await page.locator('[data-bx-tab="shop"]').click();
+      await page.locator('[data-bx-shop="tea"]').click();
+    };
+    await openOffer();
+    const orders = [];
+    await page.route('**/api/gifts/buy', async route => {
+      orders.push(route.request().postDataJSON());
+      const response = await route.fetch();
+      if (orders.length === 1) await route.abort('failed');
+      else await route.fulfill({response});
+    });
+    await page.locator('[data-bx-buy="tea"]').click();
+    await expect.poll(async () => (await wallet()).coins).toBe(before.coins - offer.price);
+    await openOffer();
+    await page.locator('[data-bx-buy="tea"]').click();
+    await expect.poll(() => orders.length).toBe(2);
+    expect(orders[1]).toEqual(orders[0]);
+    await expect(page.locator('[data-bx-buy="tea"]')).toHaveCount(0);
+    const after = await wallet();
+    expect(after.mine.length).toBe(before.mine.length + 1);
+    expect(after.coins).toBe(before.coins - offer.price);
+  } finally {
+    await shop.stop();
+  }
+});

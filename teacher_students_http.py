@@ -68,6 +68,7 @@ class TeacherStudentsServices:
     leaderboard_cache: dict
     forbes_cache: dict
     restore_fire: Callable
+    merge_student_economy: Callable
     delete_student: Callable
     parent_token: Callable
     smtp_conf: Callable
@@ -326,6 +327,7 @@ class TeacherStudentsHandlers:
                      (other["id"], sid))
                 db.x("DELETE FROM lab_activity WHERE student_id=?", (sid,))
                 buglab_merge.merge(db, sid, other["id"])
+                services.merge_student_economy(db, sid, other["id"])
                 db.x("DELETE FROM student_sessions WHERE student_id=?", (sid,))
                 db.x("DELETE FROM students WHERE id=?", (sid,))
                 return self.send_json({"ok": True, "merged_into": other["id"]})
@@ -487,8 +489,8 @@ class TeacherStudentsHandlers:
                         out.append({"name": pretty, "status": "taken"})
                     continue
                 pw, login = services.new_student_pw(), services.make_login(db, pretty)
-                sid = db.x("""INSERT INTO students(name, name_key, token, created, last_seen, pw, teacher_id, class_id, login)
-                              VALUES(?,?,?,?,?,?,?,?,?)""", (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw), self.T["id"], cid, login))
+                sid = db.x("""INSERT INTO students(id,name, name_key, token, created, last_seen, pw, teacher_id, class_id, login)
+                              VALUES((SELECT last_id+1 FROM student_id_sequence WHERE singleton=1),?,?,?,?,?,?,?,?,?)""", (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw), self.T["id"], cid, login))
                 out.append({"name": pretty, "status": "new", "id": sid, "password": pw, "login": login})
             return self.send_json({"rows": out})
 
