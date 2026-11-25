@@ -18,7 +18,8 @@ class PortfolioTest(unittest.TestCase):
         self.path = Path(tmp.name) / "trainer.db"
         self.db = server.DB(self.path)
         self.addCleanup(self.db.conn.close)
-        self.now = time.time()
+        # All simulated days start at exactly the settlement instant, including the inclusive SQL time bound.
+        self.now = int(time.time())
         with self.db.conn as c:
             c.executemany("INSERT INTO students(id,name,name_key,token) VALUES(?,?,?,?)",
                           ((n, str(n), str(n), str(n)) for n in range(1, 71)))
