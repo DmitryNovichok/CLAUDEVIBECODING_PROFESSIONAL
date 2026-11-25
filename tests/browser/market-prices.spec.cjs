@@ -23,11 +23,17 @@ test('a pupil sees the settled gift price and uses the existing bid toward the b
   const owned = page.locator('[data-bx-mine="' + market.lot + '"]');
   await owned.click();
   await expect(page.getByText('Цена покупки · ' + market.price + ' ₿', {exact:true})).toBeVisible();
-  await expect(page.locator('.bx-sh .bx-mkp')).toContainText('Оценка рынка');
+  await expect(page.locator('.bx-sh .bx-mkp')).toContainText('Оценка с учётом одной сделки');
   await expect(page.getByRole('button', {name:/Продать сразу/})).toBeVisible();
+  const upgrade = page.getByRole('button', {name:/Улучшить/});
+  await expect(upgrade).toContainText('не хватает');
+  const preview = page.getByText('Сколько может стоить подарок после улучшения');
+  await preview.click();
+  await expect(page.getByRole('rowheader', {name:'Редкий', exact:true})).toBeVisible();
+  await expect(page.getByRole('rowheader', {name:'Мифический', exact:true})).toBeVisible();
   await expect(history).toContainText('Последняя продажа ' + market.price + ' ₿');
   await expect(history).toContainText('1 сделка');
-  await expect(history).not.toContainText('%');
+  await expect(history.locator('.bx-sales-change')).toHaveCount(0);
   const wallet = await (await context.request.get(origin + '/api/gifts')).json();
   expect(wallet.coins).toBe(0);
 
@@ -45,6 +51,14 @@ test('a pupil sees the settled gift price and uses the existing bid toward the b
   const photo = testInfo.outputPath('market-prices.png');
   await history.screenshot({path:photo});
   await testInfo.attach('market-prices.png', {path:photo, contentType:'image/png'});
+  await page.getByRole('button', {name:/На аукцион/}).click();
+  const gift = (await (await context.request.get(origin + '/api/gifts')).json()).mine.find(g => g.id === market.guitar);
+  const opening = page.getByRole('spinbutton', {name:'Стартовая ставка, ₿'});
+  await expect(opening).toHaveValue(String(gift.mk_suggest));
+  await opening.fill(String(gift.mk_start + 1));
+  await page.getByRole('button', {name:'Выставить', exact:true}).click();
+  await expect.poll(async () => (await (await context.request.get(origin + '/api/gifts')).json()).market.find(lot => lot.id === market.guitar)?.start)
+    .toBe(gift.mk_start + 1);
 });
 
 test('a shop receipt survives a missing acknowledgement and a page reload', async ({page, context}) => {

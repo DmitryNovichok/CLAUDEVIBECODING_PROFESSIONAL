@@ -3307,9 +3307,9 @@ class ServerTest(unittest.TestCase):
         for tier, multiplier in server.SELL_UNIQ.items():
             with self.subTest(tier=tier):
                 variant = {"rar": {"k": tier}}
-                gross = min(paid, server.gift_price("robot", e, dem)) + math.floor(server.gift_up_base("robot", e) * multiplier)
+                gross = min(paid, server.gift_price("robot", e, dem)) + math.floor(r["price"] * multiplier)
                 expected = min(basis, gross, server.market_ref("robot", variant, e, dem)) * 90 // 100
-                payout = server.gift_sell_price("robot", variant, e, {}, dem, paid, mv=server.market_vals(db), basis=basis)
+                payout = server.gift_sell_price("robot", variant, e, {}, dem, paid, mv=server.market_vals(db), basis=basis, owner_upgrade=r["price"])
                 self.assertEqual(payout, expected)
                 if tier == u["rar"]["k"]:
                     self.assertEqual(r["gift"]["sell"], expected)
@@ -3321,7 +3321,7 @@ class ServerTest(unittest.TestCase):
                 look = lambda u: (u["bg"], u["sym"], u["fx"], u.get("pose", "stand"))   # неповторимо сочетание всех четырёх: с позой
                 self.assertNotEqual(look(n), look(burned))
                 self.assertGreater(n["n"], burned["n"])
-        # тираж: кончился — улучшить нельзя; цена улучшения растёт с выпуском
+        # тираж: кончился — улучшить нельзя
         cap = server.UNIQ_CAP
         try:
             server.UNIQ_CAP = server.uniq_issued(db).get("robot", 0)
@@ -3331,19 +3331,11 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": robot2["id"]}, tok)[0], 409)
         finally:
             server.UNIQ_CAP = cap
-        # улучшение: как сам подарок по каталогу, но не меньше 100 ₿; +1 % за каждый уже выпущенный уникальный этого вида,
-        # × индекс цен, шаг 5 ₿
-        # × множитель тиража — цена улучшения меняется вместе с ценой подарка
-        for gid in ("cake", "rocket"):
-            base = max(100, server.GIFT_BY[gid][3])
-            for issued, idx, m in (({}, 1.0, 1.0), ({gid: 50}, 1.0, 1.0), ({}, 3.0, 1.0), ({}, 1.0, 1.4)):
-                want = max(5, 5 * round(base * (1 + 0.01 * issued.get(gid, 0)) * idx * m / 5))
-                with mock.patch.object(server, "up_mult", return_value=m):
-                    self.assertEqual(server.gift_up_price(gid, {"idx": idx}, issued), want)
-        with mock.patch.object(server, "up_mult", return_value=1.0):
-            self.assertEqual((server.gift_up_price("cookie", {"idx": 1.0}, {}), server.gift_up_price("castle", {"idx": 1.0}, {})), (100, 1100))
-            self.assertLess(server.gift_up_price("cookie", {"idx": 1.0}, {}), server.gift_up_price("dragon", {"idx": 1.0}, {}))
-            self.assertLess(server.gift_up_price("cake", {"idx": 1.0}, {}), server.gift_up_price("cake", {"idx": 1.0}, {"cake": 99}))
+        for gid, fee in (("cookie", 10), ("cake", 50), ("dragon", 385), ("castle", 550)):
+            for idx, issued, demand in ((1, 0, 1), (3, 8, 1.4), (2.5, 99, 4)):
+                with mock.patch.object(server, "up_mult", return_value=demand):
+                    self.assertEqual(server.gift_up_price(gid, {"idx": idx}, {gid: issued}), fee)
+            self.assertIsNone(server.gift_up_price(gid, {"idx": 1}, {gid: server.UNIQ_CAP}))
         # термостат: копят все (норма — 1 ₿) — через сутки цены выше, заработок ниже
         target = server.ECON_TARGET
         try:
@@ -3754,7 +3746,9 @@ class ServerTest(unittest.TestCase):
         cookie = next(g for g in self.req("GET", "/api/gifts", token=tokA)[1]["mine"] if g["gift"] == "cookie")
         self.assertEqual(self.req("POST", "/api/gifts/upgrade", {"id": cookie["id"]}, tokA)[0], 200)   # у Филиппа — уникальная Печенька
         today = datetime.date.today()
-        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total) VALUES(?,?,?)", ((today - datetime.timedelta(days=7)).isoformat(), sidA, 1000))
+        db.x("INSERT OR REPLACE INTO forbes_hist(day,student_id,total) VALUES(?,?,?)",
+             ((today - datetime.timedelta(days=3)).isoformat(), sidB, 400000))
+        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total, model) VALUES(?,?,?,1)", ((today - datetime.timedelta(days=7)).isoformat(), sidA, 1000))
         server._FORBES.clear()
         st, F = self.req("GET", "/api/forbes", token=tokA)
         self.assertEqual(st, 200)
@@ -3785,7 +3779,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(sc[sidA], round(sum(server.rare_score(g) for g in mine[sidA]), 1))
         castle = dict(ck, gift="castle")
         self.assertGreater(server.rare_score(castle), server.rare_score(ck) * 9)          # мифический замок весит в 10 раз больше
-        self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE day=? AND student_id=?", (today.isoformat(), sidA), one=True)["total"], A["total"])
+        self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE model=1 AND day=? AND student_id=?", (today.isoformat(), sidA), one=True)["total"], A["total"])
         self.assertEqual(self.req("GET", "/api/forbes")[0], 401)
 
     # ------------------------------------------------------------ учитель сам: регистрация, пробный период, гость
@@ -4372,8 +4366,9 @@ class ServerTest(unittest.TestCase):
         paid = {r["id"]: r["paid"] for r in db.q("SELECT id, paid FROM gifts WHERE gift='tea' AND id IN (%s)" % ",".join(str(g["id"]) for g in teas))}
         self.assertEqual(sorted(paid.values()), sorted(seen))
         for g in teas:
-            self.assertEqual(g["sell"], min(paid[g["id"]] - server.op_cut(paid[g["id"]], server.econ(db)), g["mk_typ"]) * 90 // 100)
-            self.assertEqual(g["mk_typ"], server.GIFT_BY["tea"][3])
+            self.assertEqual(g["sell"], min(paid[g["id"]] - server.op_cut(paid[g["id"]], server.econ(db)), server.GIFT_BY["tea"][3]) * 90 // 100)
+            nominal = server.GIFT_BY["tea"][3]
+            self.assertEqual(g["mk_typ"], (max(paid[g["id"]], nominal) * g["guide"] + nominal // 2) // nominal)
         self.assertLess(sum(g["sell"] for g in teas), spent)
         # куплен на рынке дёшево — продать сразу можно только от цены покупки
         low = min(teas, key=lambda g: g["mk_start"])
@@ -4724,11 +4719,19 @@ class ServerTest(unittest.TestCase):
         tl = [g for g in G["mine"] if g["gift"] == "tulip"]
         shop = server.market_ref("tulip", None, None, None)
         self.assertIsNotNone(tl[0]["mk_typ"])
-        self.assertEqual((tl[0]["mk_max"], G["auc_hours"], G["auc_hours_set"]), (3 * max(shop, tl[0]["mk_typ"]), 24, [1, 6, 24]))
-        shop = max(shop, tl[0]["mk_typ"])
+        self.assertEqual((tl[0]["mk_max"], G["auc_hours"], G["auc_hours_set"]), (3 * shop, 24, [1, 6, 24]))
         st, r = self.req("POST", "/api/gifts/list", {"id": tl[0]["id"], "price": 3 * shop + 1}, tokA)
         self.assertEqual(st, 400)
         self.assertIn(str(3 * shop), r["error"])
+        offer = tl[0]
+        for opening in (offer["mk_start"] - 1, offer["mk_max"] + 1):
+            self.assertEqual(self.req("POST", "/api/gifts/list", {"id": offer["id"], "start": opening}, tokA)[0], 400)
+        opening = offer["mk_suggest"]
+        status, lot = self.req("POST", "/api/gifts/list", {"id": offer["id"], "start": opening}, tokA)
+        self.assertEqual((status, lot["start"]), (200, opening))
+        self.assertEqual(db.q("SELECT listed FROM gifts WHERE id=?", (offer["id"],), one=True)[0], opening)
+        self.assertEqual(self.req("POST", "/api/gifts/unlist", {"id": offer["id"]}, tokA)[0], 200)
+
         for g, p in ((tl[0], 40), (tl[1], 60)):
             self.assertEqual(self.req("POST", "/api/gifts/list", {"id": g["id"], "price": p}, tokA)[0], 200)
             self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": g["id"], "price": p}, tokB)[0], 200)
@@ -5174,7 +5177,7 @@ class ServerTest(unittest.TestCase):
         d = self.req("GET", "/api/gifts", token=tok)[1]
         V, price = d["value"], {c["id"]: c["price"] for c in d["catalog"]}
         self.assertEqual((V["n"], V["sell"]), (2, sum(g["sell"] for g in d["mine"])))
-        self.assertEqual(V["shop"], price["cat"] + server.gift_up_base("cat", d["econ"]) + price["cookie"])
+        self.assertEqual(V["shop"], price["cat"] + server.upgrade_tariff("cat") + price["cookie"])
         self.assertEqual([(g["gift"], bool(g["uniq"])) for g in V["top"]], [("cat", True), ("cookie", False)])
         # та же оценка — в профиле, и своём, и у одноклассника; там же прогресс до следующего уровня (кольцо в шапке)
         me = self.req("GET", "/api/profile", token=tok)[1]
