@@ -18,6 +18,27 @@ import server
 import test_server as fixtures
 
 
+def seed_market(helper, db, buyer):
+    seller = helper.login('Рынков Продавец')
+    sid = helper.req('GET', '/api/me', token=seller)[1]['sid']
+    give = '/api/admin/gifts/give'
+    assert helper.admin('POST', give, {'student_id': sid, 'gift': 'cake'})[0] == 200
+    cake = helper.req('GET', '/api/gifts', token=seller)[1]['mine'][0]
+    price = cake['mk_start'] + 20
+    assert helper.admin('POST', give, {'student_id': buyer, 'gift': 'guitar', 'coins': price + server.buy_fee(price)})[0] == 200
+    assert helper.req('POST', '/api/gifts/list', {'id': cake['id'], 'buy_now': price}, seller)[0] == 200
+    db.x('UPDATE gifts SET seen=1 WHERE student_id=?', (buyer,))
+    db.x('UPDATE coins SET seen=1 WHERE student_id=?', (buyer,))
+    guitar = db.q("SELECT id FROM gifts WHERE student_id=? AND gift='guitar'", (buyer,), one=True)['id']
+    now = time.time()
+    for i, (days, amount) in enumerate(((10, 120), (10, 120), (1, 170), (1, 170), (0, 190), (0, 190))):
+        db.x("""INSERT INTO market_deals(gift_id, ts, gift, mkey, tier, price, signal, ref, seller, buyer, bidders)
+                VALUES(?,?,'guitar','guitar',?,?,60,120,?,?,1)""",
+             (1000 + i, now - days * 86400, server.gift_rarity('guitar')['k'], amount, 100 + i, 200 + i))
+    server._MKT_TYP['day'] = None
+    return {'lot': cake['id'], 'price': price, 'guitar': guitar}
+
+
 def main():
     # The application and its real routes run unmodified. Only its data directory,
     # content fixture and clock-dependent waiting threshold are test-specific.
@@ -71,6 +92,7 @@ def main():
         token = helper.login('Учебный Ученик')
         status, pupil = helper.req('GET', '/api/me', token=token)
         assert status == 200
+        market = seed_market(helper, db, pupil['sid']) if os.environ.get('EGE_SYNTHETIC_MARKET') == '1' else None
         # Real entitlement checks still run; this synthetic pupil can open learning UI.
         db.setting('course_pw', server.hash_pw('fixture-only-course-password'))
         db.setting('pyc_pw', server.hash_pw('fixture-only-pyc-password'))
@@ -97,7 +119,7 @@ def main():
     print(json.dumps({'origin': origin, 'teachers': teachers, 'student': {'token': token, 'sid': pupil['sid']},
                       # Teacher bank routes use canonical IDs; pupil routes expose opaque IDs.
                       'task': server.APP.bank.pid('b:5'), 'teacherTask': 'b:5', 'participants': participants,
-                      'together': {'id': lesson['id']}, 'taskCount': len(fixtures.BANK['tasks'])}), flush=True)
+                      'together': {'id': lesson['id']}, 'taskCount': len(fixtures.BANK['tasks']), 'market': market}), flush=True)
     stopped = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
     signal.signal(signal.SIGINT, lambda *_: stopped.set())

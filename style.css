@@ -2776,6 +2776,21 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .bx-pc-c { position: relative; height: 92px; margin-top: 6px; }
 .bx-pc-c svg { display: block; overflow: visible; touch-action: pan-y; }
 .bx-pc-f { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.bx-sales h3 { margin: 0 0 6px; color: var(--text); font-size: 14px; }
+.bx-sales-data { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.bx-sales-data p { margin: 3px 0; }
+.bx-sales-data b { color: var(--text); font-variant-numeric: tabular-nums; }
+.bx-sales-change { margin-left: .3em; color: var(--text); font-variant-numeric: tabular-nums; }
+.bx-sales-plot { display: block; width: 100%; height: 72px; margin-top: 8px; color: var(--accent); }
+.bx-sales-plot line { stroke: var(--border); stroke-dasharray: 2 3; }
+.bx-sales-plot text { fill: var(--muted); font: 9px var(--font); }
+.bx-sales-plot path { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.bx-sales-plot circle { fill: currentColor; }
+.bx-sales details { margin-top: 8px; }
+.bx-sales summary { cursor: pointer; color: var(--text); }
+.bx-sales table { width: 100%; margin-top: 5px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.bx-sales :is(td,th) { padding: 3px 0; text-align: right; }
+.bx-sales :is(td,th):first-child { text-align: left; }
 .bx-h { margin: 0 0 8px; font-size: 17px; }
 .bx-help { margin: 0 0 10px; padding: 0; list-style: none; display: grid; gap: 7px; font-size: 13.5px; line-height: 1.45; }
 /* вкладки снизу */

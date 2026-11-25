@@ -4814,6 +4814,29 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": mk["max"] + 1}, tB)[0], 400)
         self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": g["id"], "amount": mk["max"]}, tB)[0], 200)
 
+    def test_auction_leader_applies_held_balance_at_checkout(self):
+        db = server.APP.db
+        seller, buyer = self.login("Ценин Продавец"), self.login("Ценин Покупатель")
+        sa, sb = [self.req("GET", "/api/me", token=t)[1]["sid"] for t in (seller, buyer)]
+        self.assertEqual(self.admin("POST", "/api/admin/gifts/give", {"student_id": sa, "gift": "cake"})[0], 200)
+        gift = self.req("GET", "/api/gifts", token=seller)[1]["mine"][0]
+        gid, start = gift["id"], gift["mk_start"]
+        price = min(start + 50, gift["mk_max"])
+        total = price + server.buy_fee(price)
+        db.x("INSERT INTO coins(student_id,ts,delta,reason) VALUES(?,?,?,'grant')", (sb, time.time(), total))
+        self.assertEqual(self.req("POST", "/api/gifts/list", {"id": gid, "buy_now": price}, seller)[0], 200)
+        self.assertEqual(self.req("POST", "/api/gifts/bid", {"id": gid, "amount": start}, buyer)[0], 200)
+        wallet = self.req("GET", "/api/gifts", token=buyer)[1]
+        lot = next(m for m in wallet["market"] if m["id"] == gid)
+        self.assertEqual((lot["reserved"], wallet["coins"]), (start + server.buy_fee(start), total - start - server.buy_fee(start)))
+        self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": gid, "price": price + 1}, buyer)[0], 409)
+        status, bought = self.req("POST", "/api/gifts/mbuy", {"id": gid, "price": price}, buyer)
+        self.assertEqual((status, bought["price"], bought["game"]["coins"]), (200, price, 0))
+        payments = db.q("SELECT reason,delta FROM coins WHERE gift_id=? AND student_id=? ORDER BY id", (gid, sb))
+        self.assertEqual([tuple(r) for r in payments], [("mbuy", -total)])
+        self.assertEqual(db.q("SELECT price FROM market_deals WHERE gift_id=?", (gid,), one=True)["price"], price)
+        self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": gid, "price": price}, buyer)[0], 404)
+
     def test_market_valuation(self):
         # рыночная цена: повторы одной пары — одна сделка; торговались — цена растёт, купили по старту — падает; за сутки —
         # не больше ±25 %; вид без своих сделок — по уровню редкости (от двух сделок); «за неделю» — к цене неделю назад
@@ -4858,11 +4881,12 @@ class ServerTest(unittest.TestCase):
         self.assertGreater(mv2["r"][b], 1.25)
         self.assertLessEqual(mv2["r"][b], round(1.25 * 1.25, 4))
         self.assertLess(mv2["r"][c], 0.75)
-        # рыночная цена: вид без сделок — по уровню; неделю назад цены не было — «за неделю» от опорной
+        # Для вида без сделок возможен ориентир по редкости, для недельного сравнения нужны обе недели.
         e, dem = server.econ(db), server.gift_demand(db)
         ref_d = server.market_ref(d, None, e, dem)
         self.assertEqual(server.market_est(d, None, e, dem, None, mv2), min(3 * ref_d, round(ref_d * mv2["r"]["*rare"])))
-        self.assertEqual(server.market_chg(b, None, mv2), mv2["r"][b])
+        self.assertIsNone(server.market_chg(b, None, mv2))
+        self.assertEqual(server.market_sales_view(d, None, mv2)["source"], "rarity")
         server._MKT_TYP.update(day=None)
         # сгоревшие уникальные — дороже
         mv3 = {"r": {"x:epic": 2.0}, "burn": {"u:x": 0.5}, "chg": {}}
@@ -4872,6 +4896,42 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(server.market_fee_amt(150, 0.1, 100), 15)
         self.assertEqual(server.market_fee_amt(250, 0.1, 100), 15 + 30)
         self.assertEqual((server.buy_fee(200), server.buy_fee(201)), (5, 6))
+
+        # Используем цены исполненных сделок, в том числе старых выкупов без конкурентов.
+        token = self.login("Оценкин Ученик")
+        gid = "cake"
+        def sale(gift_id, seller, buyer, price, days, key=gid):
+            db.x("""INSERT INTO market_deals(gift_id, ts, gift, mkey, tier, price, signal, ref, seller, buyer, bidders)
+                    VALUES(?,?,?,?,?,?,10,100,?,?,1)""",
+                 (gift_id, now - days * 86400, gid, key, "u:rare" if ":" in key else server.gift_rarity(gid)["k"],
+                  price, seller, buyer))
+        url = "/api/gifts/price?market=1&gift=" + gid
+        db.x("DELETE FROM market_deals")
+        db.x("DELETE FROM market_hist")
+        server._MKT_TYP.update(day=None)
+        self.assertEqual(self.req("GET", url)[0], 401)
+        self.assertEqual(self.req("GET", url, token=token)[1]["source"], "catalog")
+        self.assertEqual(self.req("GET", url + "&tier=unknown", token=token)[0], 404)
+        self.assertEqual(self.req("GET", "/api/gifts/price?market=1&gift=" + next(iter(server.HW_BY)), token=token)[0], 200)
+        sale(11, 1, 2, 90, 31)                         # вне окна
+        sale(12, 1, 3, 900, 5)                         # эта пара потом поменялась местами
+        sale(13, 4, 5, 110, 9)
+        sale(14, 6, 7, 130, 9)
+        sale(15, 3, 1, 180, 1)
+        sale(16, 8, 9, 200, 1)
+        sale(17, 3, 1, 500, 0, gid + ":rare")         # другой вид оценки
+        server._MKT_TYP.update(day=None)
+        st, stats = self.req("GET", url, token=token)
+        self.assertEqual((st, stats["source"], stats["count"], stats["last"]["p"]), (200, "sales", 4, 200))
+        self.assertEqual([(p["p"], p["n"]) for p in stats["pts"]], [(120, 2), (190, 2)])
+        self.assertEqual(stats["week"], {"previous": 120, "current": 190})
+        self.assertEqual(self.req("GET", url + "&tier=rare", token=token)[1]["last"]["p"], 500)
+        mv = server.market_vals(db)
+        self.assertGreater(mv["r"][gid], 1)
+        self.assertEqual(server.market_chg(gid, None, mv), round(190 / 120, 4))
+        # Одиночный выброс не сдвигает медиану трёх одинаково свежих продаж.
+        prices = [({"price": p, "ref": 100}, 1) for p in (100, 100, 900)]
+        self.assertEqual(server.market_sale_ratio(prices), 1)
 
     def test_box_gift_market_fee(self):
         # выпавший в «🎲» подарок продаётся на рынке с той же комиссией, что и остальные: 2,5 % с продавца и 2,5 % с покупателя
