@@ -10,7 +10,7 @@ test('legacy upgrade shows its market quote and the same collection value in the
   await seedBrowser(context, fixture);
   await page.goto(origin + '/');
   await page.locator('[data-hub-go="coins"]').click();
-  await page.locator('[data-bx-tab="mine"]').click();
+  await page.locator('.bx-tabs [data-bx-tab="mine"]').click();
   await page.locator('[data-bx-mine="' + market.dragon + '"]').click();
   await expect(page.getByText(/Переход в Forbes завершится через 14 дней/)).toContainText('919 ₿');
   await expect(page.getByText(/В портфеле после комиссии/)).toHaveText(/3\s?869 ₿/);
