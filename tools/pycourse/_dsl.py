@@ -45,6 +45,25 @@ def task(key, h, cond, src, hint='', stars=1, files=None, ans=None, note='', std
             'files': files or {}, 'ans': ans, 'note': note, 'stdin': stdin}
 
 
+def practice(key, h, cond, src, cases, hint, starter='', graded=False):
+    t = task(key, h, cond, src, stdin=cases[0], hint=hint, stars=2 if graded else 1)
+    t['practice'] = {'starter': starter, 'stdin': cases[0], 'inputs': cases}
+    if graded:
+        t['practice']['graded'] = True
+    return t
+
+
+def field(label, tip, choices=()):
+    return {'label': label, 'tip': tip, 'choices': list(choices)}
+
+
+def worksheet(key, h, cond, headings, rows, fields, src, hint, **view):
+    """Each output line of src answers one row, in field order."""
+    t = task(key, h, p(cond), src, hint=hint)
+    t['worksheet'] = {'headings': headings, 'rows': rows, 'fields': fields, **view}
+    return t
+
+
 def level(title, goal, slides, tasks, need=None):
     """need — сколько задач уровня решить, чтобы открылся следующий (по умолчанию половина)."""
     return {'title': title, 'goal': goal, 'slides': slides, 'tasks': tasks, 'need': need}

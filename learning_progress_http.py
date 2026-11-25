@@ -17,6 +17,7 @@ import buglab
 import buglab_grading
 import buglab_verifier
 import kim
+import pycourse_grading
 from learning_catalog import LAB_MODELS, PREDICTION_MODELS, TRACE_EXAMPLES
 from learning_directory import directory
 import learning_quality
@@ -328,7 +329,9 @@ class LearningProgressHTTPHandlers:
             tasks = []
             for t in lv["tasks"]:
                 p = prog.get(t["id"]) or {}
-                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files", "practice", "regex") if k in t}
+                x = {k: t[k] for k in ("id", "h", "cond", "stars", "hint", "note", "files", "regex", "worksheet") if k in t}
+                if "practice" in t:
+                    x["practice"] = pycourse_grading.public_practice(t["practice"])
                 x.update(ok=bool(p.get("ok")), tries=p.get("tries", 0), hint_used=bool(p.get("hint_used")), solution_seen=bool(p.get("solution_seen")), independent=bool(p.get("independent")))
                 if p.get("ok") or p.get("tries", 0) >= 3 or teacher:
                     x["sol"] = t["sol"]                 # разбор — после решения или трёх неудачных попыток
@@ -362,22 +365,10 @@ class LearningProgressHTTPHandlers:
                 return self.err(404, "нет такой задачи")
             if li >= svc.pyc_open_levels(mod, prog, free):
                 return self.err(403, "Уровень ещё закрыт")
-            feedback = {}
-            if "regex" in t:
-                # The browser runs Python re. Grade its spans against the build-time answer.
-                expected = json.loads(t["ans"])
-                matches = data.get("matches")
-                if not isinstance(matches, list) or len(matches) != len(expected):
-                    return self.err(400, "Проверьте шаблон на всех строках упражнения")
-                first = next((i for i, row in enumerate(expected) if matches[i] != row), None)
-                ok = first is None
-                if not ok:
-                    feedback["mismatch"] = {"index": first, "expected": expected[first]}
-            else:
-                ans = str(data.get("answer") or "").strip()[:300]
-                if not ans:
-                    return self.err(400, "Введите ответ")
-                ok = svc.pyc_norm(ans) == svc.pyc_norm(t["ans"])
+            try:
+                ok, feedback = pycourse_grading.grade(t, data, svc.pyc_norm)
+            except ValueError as error:
+                return self.err(400, str(error))
             now = time.time()
             with svc.pyc_lock:
                 tries = [x for x in svc.pyc_tries.get(s["id"], []) if now - x < svc.pyc_window]
@@ -385,6 +376,8 @@ class LearningProgressHTTPHandlers:
                     return self.err(429, "Слишком много проверок подряд — подождите минуту")
                 tries.append(now)
                 svc.pyc_tries[s["id"]] = tries
+            if "verified_rows" in feedback:
+                return self.send_json(feedback)
             code = str(data.get("code") or "")[:20000] or None
             was = prog.get(tid) or {}
             if was.get("ok"):

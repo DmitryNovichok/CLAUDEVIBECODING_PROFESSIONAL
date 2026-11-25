@@ -79,6 +79,78 @@ test('№24 grades Python re spans, explains a counterexample and opens the exam
   expect((await progress())['m33.file'].ok).toBe(1);
 });
 
+for (const [exam, mid, name] of [[25, 'm34', 'Делители Практикум'], [26, 'm35', 'События Практикум'], [27, 'm36', 'Частицы Практикум']]) {
+  test('№' + exam + ' completes guided steps, Python tests and independent work', async ({page, context}) => {
+    const module = require('../../pycourse/' + mid + '.json');
+    const pupil = await registerPupil(context, name);
+    await seedBrowser(context, fixture, 'pupil', pupil);
+    await post(context, '/api/pyc/unlock', {password: 'fixture-only-pyc-password'});
+    await page.goto(fixture.origin + '/');
+    await openEntry(page, 'courses', 'python');
+    await expect(page.locator('[data-pyc-lv="' + mid + ':1"]').first()).toBeDisabled();
+    await page.locator('[data-pyc-lv="m' + exam + ':0"]').first().click();
+    await page.getByRole('button', {name: /Открыть тренажёр/}).click();
+    const progress = async () => (await (await context.request.get(fixture.origin + '/api/pyc')).json()).progress;
+    for (const [levelIndex, level] of module.levels.entries()) {
+      if (levelIndex) await page.locator('[data-pyc-lv="' + mid + ':' + levelIndex + '"]').first().click();
+      for (const [taskIndex, t] of level.tasks.entries()) {
+        if (taskIndex) await page.locator('[data-pyc-focus="' + t.id + '"]').click();
+        const task = page.locator('[data-pyc-task="' + t.id + '"]');
+        await expect(task).toBeVisible();
+        if (t.worksheet) {
+          const form = task.locator('[data-pyc-sheet]'), cells = form.locator('[data-cell]');
+          const rows = t.ans.split('\n').map(s => s.split(/\s+/));
+          for (const [i, row] of rows.entries()) {
+            await expect(form.locator('legend')).toHaveText('Шаг ' + (i + 1) + ' из ' + rows.length);
+            for (const [j, answer] of row.entries()) {
+              if (t.worksheet.fields[j].choices.length) await cells.nth(j).selectOption(answer);
+              else await cells.nth(j).fill(answer.replace('.', ','));
+            }
+            if (!levelIndex && !taskIndex && !i) {
+              await cells.first().fill('999');
+              await form.getByRole('button').click();
+              await expect(cells.first()).toHaveAttribute('aria-invalid', 'true');
+              await expect(task.locator('.pyc-msg')).toContainText(t.worksheet.fields[0].tip);
+              await cells.first().fill(row[0]);
+            }
+            await form.getByRole('button').click();
+            if (!i && rows.length > 1) {
+              await expect(form.locator('[data-checked]')).toHaveCount(1);
+              expect((await progress())[t.id]?.ok).toBeFalsy();
+              if (t.worksheet.meter) await expect(form.locator('meter')).toHaveAttribute('value', row[t.worksheet.meter.field]);
+              if (t.worksheet.axis) await expect(form.locator('.pyc-energy li').first()).toHaveAttribute('data-group', row[0]);
+            }
+          }
+        } else if (t.practice) {
+          await task.locator('[data-pyc-py]').click();
+          if (!taskIndex) {
+            await page.locator('#pyCode').fill('print(-1)');
+            await page.locator('#pycDockTests').click();
+            await expect(page.locator('#pycDockStatus')).toContainText('Получено: -1', {timeout: 30000});
+            expect((await progress())[t.id].ok).toBe(0);
+          }
+          await page.locator('#pyCode').fill(t.sol);
+          await page.locator('#pycDockTests').click();
+          await expect(page.locator('#pycDockStatus')).toContainText('Задача зачтена', {timeout: 30000});
+          await page.locator('#pycDockBack').click();
+        } else {
+          for (const attachment of t.files || []) {
+            const href = await task.getByRole('link', {name: new RegExp(attachment.name)}).getAttribute('href');
+            const file = await context.request.get(new URL(href, fixture.origin).href);
+            expect(file.ok()).toBe(true);
+            expect((await file.body()).length).toBe(attachment.size);
+          }
+          await task.locator('.pyc-ans').fill(t.ans.split(/\s+/).join(' '));
+          await task.locator('.pyc-form button').click();
+        }
+        await expect(task).toHaveClass(/\bok\b/);
+      }
+    }
+    const saved = await progress();
+    expect(module.levels.flatMap(l => l.tasks).every(t => saved[t.id]?.ok === 1)).toBe(true);
+  });
+}
+
 test('course and laboratory passwords unlock their sections on another device of the same pupil', async ({browser, context, page}) => {
   const second = await browser.newContext({viewport: {width: 375, height: 900}});
   const otherPupil = await browser.newContext();

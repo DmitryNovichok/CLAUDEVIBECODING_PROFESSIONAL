@@ -9,6 +9,13 @@
   const pycDone = id => !!((PYC && PYC.progress[id]) || {}).ok;
   const pycModDone = m => m.levels.reduce((a, lv) => a + lv.tasks.filter(pycDone).length, 0);
   const pycModTotal = m => m.levels.reduce((a, lv) => a + lv.tasks.length, 0);
+  const PYC_WORKSHOPS = {
+    m24: ['m33', 'Открыть тренажёр регулярных выражений'],
+    m25: ['m34', 'Открыть тренажёр поиска чисел'],
+    m26: ['m35', 'Открыть тренажёр журнала событий'],
+    m27: ['m36', 'Открыть тренажёр кластеризации по энергии'],
+    m32: ['m36', 'Открыть тренажёр кластеризации по энергии'],
+  };
   const pycLabel = m => (m.archive || ARCHIVE[m.n] ? `Архив · ${numLabel(m.n)}` : m.n ? `№${m.n === 19 ? '19–21' : m.n}` : m.id === 'm12' ? 'Архивная тема' : 'Старт');
 
   async function pycLoad() {
@@ -148,7 +155,7 @@
       <div class="crs-l-head"><span class="pyc-mod-ic">${d.icon}</span><div>        <h2>Уровень ${li + 1}. ${esc(lv.title)}</h2><small class="pyc-goal">${esc(lv.goal)}</small></div></div>
       <div class="pyc-tabs">${m.levels.map((x, i) => `<button type="button" class="${i === li ? 'on' : ''}${i >= m.open ? ' lock' : ''}" data-pyc-lv="${mid}:${i}"
         ${i >= m.open ? 'disabled' : ''}>${i >= m.open ? '🔒 ' : ''}${i + 1}. ${esc(x.title)}</button>`).join('')}</div>
-      ${mid === 'm24' ? '<button type="button" class="btn" data-pyc-lv="m33:0">Открыть тренажёр регулярных выражений</button>' : ''}
+      ${PYC_WORKSHOPS[mid] ? `<button type="button" class="btn" data-pyc-lv="${PYC_WORKSHOPS[mid][0]}:0">${PYC_WORKSHOPS[mid][1]}</button>` : ''}
       ${has ? `<div class="fm-h">1. Теория · ${lv.slides.length} ${plural(lv.slides.length, 'слайд', 'слайда', 'слайдов')}</div>
       <div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
@@ -178,20 +185,23 @@
   }
   function pycTaskHtml(t, i) {
     const st = t.ok ? 'ok' : t.tries ? 'bad' : '';
+    const graded = t.practice?.graded;
     return `<div class="pyc-task ${st}" id="pt-${esc(t.id.replace('.', '-'))}" data-pyc-task="${esc(t.id)}">
       <div class="pyc-th"><span class="pyc-tn">${t.ok ? '✓' : i + 1}</span><b>${esc(t.h)}</b><span class="pyc-stars" title="сложность">${PYC_STARS(t.stars || 1)}</span>
         <span class="pyc-st">${t.ok ? (t.independent ? 'решено самостоятельно' : t.solution_seen ? 'решено после разбора' : t.hint_used ? 'решено с подсказкой' : 'решено') : t.tries ? `попыток: ${t.tries}` : ''}</span></div>
       <div class="cond pyc-cond">${safeHtml(t.cond)}</div>
       ${pycFilesHtml(t.files)}
-      ${t.practice ? `<div class="learning-practice"><b>Программа должна работать на разных данных</b><p>Первый ввод: <code>${esc(t.practice.stdin.trim())}</code>. Напиши программу, открой Python и проверь тесты. В поле ответа отправь вывод для первого ввода.</p><pre>${esc(t.practice.cases.map((c, i) => `Пример ${i+1}: ввод ${JSON.stringify(c.input.trim())} → ${c.output}`).join('\n'))}</pre></div>` : ''}
-      ${t.regex ? pycRegexHtml(t) : `<div class="pyc-act">
+      ${graded ? `<div class="learning-practice"><b>Пример ввода</b><pre>${esc(t.practice.stdin.trim())}</pre><b>Вывод</b><pre>${esc(t.practice.cases[0].output)}</pre>
+        <p>Напиши программу в редакторе Python. Для зачёта она должна дать верный вывод на каждом наборе.</p></div>` :
+        t.practice ? `<div class="learning-practice"><b>Программа должна работать на разных данных</b><p>Первый ввод: <code>${esc(t.practice.stdin.trim())}</code>. Напиши программу, открой Python и проверь тесты. В поле ответа отправь вывод для первого ввода.</p><pre>${esc(t.practice.cases.map((c, i) => `Пример ${i+1}: ввод ${JSON.stringify(c.input.trim())} → ${c.output}`).join('\n'))}</pre></div>` : ''}
+      ${t.regex ? pycRegexHtml(t) : t.worksheet ? pycSheetHtml(t) : `<div class="pyc-act">
         <button type="button" class="btn" data-pyc-py="${esc(t.id)}">▶ Решать в Python</button>
         <button type="button" class="btn" data-learning-lab="task" data-task="${esc(t.id)}">По шагам в лаборатории</button>
         ${t.practice ? `<button type="button" class="btn" data-pyc-tests="${esc(t.id)}">Проверить код на ${t.practice.cases.length} примерах</button>` : ''}
-        <form class="pyc-form" data-pyc-form="${esc(t.id)}" autocomplete="off">
+        ${graded ? '' : `<form class="pyc-form" data-pyc-form="${esc(t.id)}" autocomplete="off">
           <input class="inp pyc-ans" maxlength="300" placeholder="${t.ok ? 'Решено ✓' : 'Ответ'}" value="${t.ok && t.ans ? esc(t.ans) : ''}"${t.ok ? ' readonly' : ''}>
           ${t.ok ? '' : '<button type="submit" class="btn primary">Проверить</button>'}
-        </form>
+        </form>`}
         <span class="pyc-msg" aria-live="polite"></span>
       </div>`}
       ${t.hint && !t.ok ? `<details class="pyc-more" data-pyc-help="hint" data-task="${esc(t.id)}"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
@@ -203,7 +213,7 @@
     return `<details class="pyc-more pyc-sol" data-pyc-help="solution" data-task="${esc(t.id)}"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
       <pre class="sl-code">${highlightPy(t.sol)}</pre>
       <div class="sl-btns"><button type="button" class="btn ghost" data-pyc-sol="${esc(t.id)}">▶ Открыть разбор в Python</button>
-        ${t.ok && t.ans && !t.regex ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
+        ${t.ok && t.ans && !t.regex && !t.worksheet && !t.practice?.graded ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
   }
   const pycTask = id => PYC_L && PYC_L.level.tasks.find(t => t.id === id);
   function pycPyTask(t, label) {
@@ -249,18 +259,26 @@
       if (!current() || !box.isConnected) return;
       if (btn) btn.disabled = false;
       msg.textContent = e.message || 'Не удалось сохранить ответ. Повтори попытку.';
+      if (data.outputs && PY.task?.id === 'pyc:' + id) $('#pycDockStatus').textContent = msg.textContent;
       netError(e); return;
     }
     if (!current() || !box.isConnected) return;
     if (btn) btn.disabled = false;
     const t = pycTask(id);
     if (!t) return;
+    if (r.verified_rows) {
+      pycSheetResult(t, form, data.rows);
+      msg.className = 'pyc-msg'; msg.textContent = `Шаг ${r.verified_rows} принят.`;
+      return;
+    }
     t.tries = r.tries;
     PYC.progress[id] = { ok: r.ok || t.ok, tries: r.tries };
     if (r.sol) t.sol = r.sol;
     if (r.ok) {
       t.ok = true;
       t.ans = r.ans;
+      if (t.worksheet) writeJSON(pycSheetKey(t), null);
+      if (t.practice?.graded && PY.task?.id === 'pyc:' + id) $('#pycDockStatus').textContent = 'Все наборы пройдены. Задача зачтена.';
       toast(r.opened ? 'Верно. Открыт следующий уровень' : '✅ Верно!', r.opened ? 4000 : 2000);
       if (r.opened) { await pycLoad().catch(() => {}); }
       if (!current() || !PYC_L) return;
@@ -271,7 +289,15 @@
       box.classList.add('bad');
       box.querySelector('.pyc-st').textContent = `попыток: ${r.tries}`;
     }
-    if (r.mismatch && t.regex) msg.innerHTML = pycRegexMismatch(t, data.matches, r.mismatch);
+    if (r.cell && t.worksheet) {
+      pycSheetResult(t, form, data.rows, r.cell);
+      const field = t.worksheet.fields[r.cell.column];
+      msg.textContent = `Шаг ${r.cell.row + 1}, поле «${field.label}». ${field.tip}`;
+    } else if (r.case_error && t.practice?.graded) {
+      const i = r.case_error.index;
+      msg.textContent = `Набор ${i + 1}. Ввод:\n${t.practice.cases[i].input.trim()}\nОжидалось: ${r.case_error.expected}\nПолучено: ${data.outputs[i].trim() || '(пусто)'}`;
+      if (PY.task?.id === 'pyc:' + id) $('#pycDockStatus').textContent = msg.textContent;
+    } else if (r.mismatch && t.regex) msg.innerHTML = pycRegexMismatch(t, data.matches, r.mismatch);
     else msg.textContent = 'Неверно — проверьте программу и вопрос задачи';
     msg.className = 'pyc-msg bad';
     box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
@@ -360,6 +386,7 @@
       if (button.isConnected) { button.disabled = false; status(text); }
     };
     PYC_TEST = { button, cancel: () => finish('Проверка остановлена.') };
+    const outputs = [];
     const norm = value => String(value).trim().replace(/\s+/g, ' ');
     const next = () => {
       if (!button.isConnected) { finish('Проверка остановлена.'); return; }
@@ -378,10 +405,14 @@
       if (m.type !== 'done') return;
       const test = task.practice.cases[index];
       if (!m.ok || error) { finish(`Пример ${index+1}: ошибка. ${error.slice(0, 700) || 'Python не загрузился или выполнение прервано.'}`); return; }
-      if (norm(output) !== norm(test.output)) { finish(`Пример ${index+1}: ожидалось «${test.output}», получено «${output.trim()}». Исправь программу.`); return; }
+      if (task.practice.graded) outputs.push(output.trim());
+      else if (norm(output) !== norm(test.output)) { finish(`Пример ${index+1}: ожидалось «${test.output}», получено «${output.trim()}». Исправь программу.`); return; }
       passed++; index++;
-      if (index === task.practice.cases.length) finish(`Учебная проверка: ${passed} из ${index} примеров пройдены. Для зачёта отправь ответ для первого ввода.`);
-      else next();
+      if (index < task.practice.cases.length) { next(); return; }
+      if (!task.practice.graded) { finish(`Учебная проверка: ${passed} из ${index} примеров пройдены. Для зачёта отправь ответ для первого ввода.`); return; }
+      finish('Сверяю ответы…');
+      button.disabled = true; $('#pycDockTests').disabled = true;
+      pycSubmit(id, box, {outputs, code}).finally(() => { button.disabled = false; $('#pycDockTests').disabled = false; });
     };
     worker.onerror = () => finish('Не удалось запустить Python. Повтори проверку.');
   }
