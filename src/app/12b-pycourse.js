@@ -227,7 +227,7 @@
       ta.dispatchEvent(new Event('input', { bubbles: true }));
     }
   }
-  function pycCheck(id, form) {
+  async function pycCheck(id, form) {
     const inp = form.querySelector('.pyc-ans');
     const answer = inp.value.trim();
     if (!answer) { inp.focus(); return; }
