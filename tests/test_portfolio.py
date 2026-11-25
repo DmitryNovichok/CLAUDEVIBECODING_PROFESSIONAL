@@ -1,9 +1,11 @@
 """Регрессии оценки коллекций на небольшом рынке Egeshka."""
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 
 import server
 from tools.portfolio_revaluation import check_snapshot
@@ -129,6 +131,121 @@ class PortfolioTest(unittest.TestCase):
                              [(0, 2345), (1, 1600)])
         finally:
             migrated.conn.close()
+
+    def dragon(self, sid, amount, book):
+        raw = json.dumps({"n": sid, "bg": "mint", "sym": "dot", "fx": "classic", "pose": "stand"})
+        gift = self.db.x("""INSERT INTO gifts(student_id,gift,ts,uniq,kind,paid,redeem_basis,upgrade_paid,appraisal_base)
+            VALUES(?,'dragon',?,?,'box',104,104,?,?)""", (sid, self.now - 20 * 86400, raw, amount, book))
+        server.glog(self.db, "upgrade", gift, "dragon", sid, amount, ts=self.now - 18 * 86400)
+        return gift
+
+    def reopen(self):
+        self.db = server.DB(self.path)
+        self.addCleanup(self.db.conn.close)
+        server.invalidate_economy()
+
+    def rare_sale(self, n, price, ts=None):
+        self.db.x("""INSERT INTO market_deals(gift_id,ts,gift,mkey,price,seller,buyer)
+            VALUES(?,?,'dragon','dragon:rare',?,?,?)""", (100+n, ts or self.now, price, n*2+5, n*2+6))
+        server.invalidate_economy()
+
+    def at_day(self, n):
+        stamp = (datetime.fromtimestamp(self.now) + timedelta(days=n)).timestamp()
+        clock = Mock(wraps=time)
+        clock.time.return_value = stamp
+        clock.strftime.side_effect = lambda fmt, t=None: time.strftime(fmt, time.localtime(stamp) if t is None else t)
+        return patch.object(server, "time", clock)
+
+    def gift_row(self, owner):
+        return server.gift_rows(self.db, owner, prices=({"idx": 1}, {}, {}))[0]
+
+    def test_legacy_transition_for_owner_only_from_first_confirmation(self):
+        legacy = self.dragon(1, 3895, 4665)
+        self.dragon(2, 385, 943)
+        self.db.x("DELETE FROM settings WHERE key='gift_appraisal_108'")
+        self.reopen()
+        self.assertEqual(self.gift_row(1)["worth"], 3869)
+        for n in (1, 2):
+            self.rare_sale(n, 943)
+            self.assertNotIn("appraisal_transition", self.gift_row(1))
+        self.rare_sale(3, 943)
+        for elapsed, worth in ((0, 3869), (7, 2394), (14, 919), (32, 919)):
+            with self.subTest(elapsed=elapsed), self.at_day(elapsed):
+                self.reopen()
+                row = self.gift_row(1)
+                self.assertEqual((row["guide"], row["mk_typ"], row["worth"]), (943, 943, worth))
+                self.assertEqual(row.get("appraisal_transition"),
+                                 {"days": 14-elapsed, "market_net": 919} if elapsed < 14 else None)
+                modern = self.gift_row(2)
+                self.assertEqual(modern["worth"], 919)
+                self.assertNotIn("appraisal_transition", modern)
+                self.assertEqual(check_snapshot(self.path)[1][3], worth)
+        with self.at_day(7):
+            self.db.x("UPDATE students SET teacher_id=1")
+            self.db.x("UPDATE gifts SET listed=943,listed_ts=?,bid_sid=3,bid_amt=943 WHERE id=?", (self.now, legacy))
+            self.db.x("INSERT INTO coins(student_id,ts,delta,reason,gift_id) VALUES(3,?,?,'bid',?)",
+                      (self.now, -943-server.buy_fee(943), legacy))
+            lot = self.db.q("SELECT * FROM gifts WHERE id=?", (legacy,), one=True)
+            self.assertEqual(server.auc_deal(self.db, lot, 3, 943, server.time.time(), {"idx": 1}), 48)
+            buyer = self.gift_row(3)
+            self.assertEqual(buyer["worth"], 919)
+            self.assertNotIn("appraisal_transition", buyer)
+            self.assertEqual(self.db.q("SELECT delta FROM coins WHERE reason='msell'", one=True)[0], 919)
+            self.assertFalse(server.gift_rows(self.db, 1))
+
+    def test_upgrade_migration_reprices_existing_quote_and_keeps_remaining_days(self):
+        self.dragon(1, 3895, 4665)
+        self.dragon(2, 385, 943)
+        first = datetime.fromtimestamp(self.now) - timedelta(days=7)
+        for n in (1, 2, 3):
+            self.rare_sale(n, 943, first.timestamp())
+        self.db.x("INSERT INTO gift_quote_history(day,mkey,price,through_id) VALUES(?,'dragon:rare',1155,3)",
+                  (first.date().isoformat(),))
+        self.db.x("DELETE FROM settings WHERE key='gift_appraisal_108'")
+        self.reopen()
+        row = self.gift_row(1)
+        self.assertEqual((row["guide"], row["worth"], row["appraisal_transition"]["days"]), (943, 1126, 7))
+        self.assertEqual(self.gift_row(2)["worth"], 919)
+        with self.at_day(7):
+            self.reopen()
+            self.assertEqual(self.gift_row(1)["worth"], 919)
+            self.assertNotIn("appraisal_transition", self.gift_row(1))
+
+    def test_auction_starts_transition_even_if_owner_first_opens_collection_a_week_later(self):
+        legacy = self.dragon(1, 3895, 4665)
+        third = self.dragon(2, 385, 943)
+        self.db.x("DELETE FROM settings WHERE key='gift_appraisal_108'")
+        self.reopen()
+        for n in (1, 2):
+            self.rare_sale(n, 943)
+        self.db.x("UPDATE students SET teacher_id=1")
+        self.db.x("UPDATE gifts SET listed=943,listed_ts=?,bid_sid=30,bid_amt=943 WHERE id=?", (self.now, third))
+        self.db.x("INSERT INTO coins(student_id,ts,delta,reason,gift_id) VALUES(30,?,-967,'bid',?)", (self.now, third))
+        lot = self.db.q("SELECT * FROM gifts WHERE id=?", (third,), one=True)
+        self.assertEqual(server.auc_deal(self.db, lot, 30, 943, self.now, {"idx": 1}), 48)
+        day = datetime.fromtimestamp(self.now).toordinal()
+        saved = self.db.q("SELECT legacy_start,legacy_end FROM gifts WHERE id=?", (legacy,), one=True)
+        self.assertEqual(tuple(saved), (day, day + 14))
+        with self.at_day(7):
+            self.reopen()
+            self.assertEqual(self.gift_row(1)["worth"], 2394)
+
+    def test_transition_uses_last_preliminary_mark_and_tracks_new_sales_without_restarting(self):
+        self.dragon(1, 3895, 4665)
+        self.db.x("DELETE FROM settings WHERE key='gift_appraisal_108'")
+        self.reopen()
+        for n in (1, 2):
+            self.rare_sale(n, 500)
+            before = self.gift_row(1)["worth"]
+        self.rare_sale(3, 943)
+        self.assertEqual(self.gift_row(1)["worth"], before)
+        with self.at_day(7):
+            for n in (4, 5, 6):
+                self.rare_sale(n, 1300, self.now + 7 * 86400)
+            row = self.gift_row(1)
+            market_net = row["appraisal_transition"]["market_net"]
+            self.assertEqual(row["appraisal_transition"]["days"], 7)
+            self.assertEqual(row["worth"], market_net + (before - market_net + 1)//2)
 
     def test_upgrading_after_an_auction_purchase(self):
         paid, fee = 100, server.upgrade_tariff("dragon")

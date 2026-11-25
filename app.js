@@ -8345,6 +8345,7 @@
         ${g.paid != null ? `<small>Цена покупки · ${num(g.paid)} ₿</small>` : ''}
         ${g.upgrade_paid != null ? `<small>Улучшение обошлось в ${num(g.upgrade_paid)} ₿</small>` : ''}
         ${g.mk_typ ? `<small class="bx-mkp">${mkPriceTxt(g.mk_typ, g.mk_source)}</small><small>В портфеле после комиссии · ${num(g.worth)} ₿</small>` : ''}${supTxt(g.gift)}
+        ${g.appraisal_transition ? `<small class="bx-mkhint">Рыночная оценка после комиссии · ${num(g.appraisal_transition.market_net)} ₿. Переход в Forbes завершится через ${g.appraisal_transition.days} ${plural(g.appraisal_transition.days, 'день', 'дня', 'дней')}.</small>` : ''}
         ${listed && g.mk_until ? `<small>🔨 на торгах: ${g.mk_bids ? `ставка ₿ ${num(g.mk_bid)} (${g.mk_bids} ${plural(g.mk_bids, 'ставка', 'ставки', 'ставок')})` : `старт ₿ ${num(g.listed)}, ставок нет`} · ⏳ ${aucSpan(g.mk_until)}${g.mk_bn ? ` · купить сразу ₿ ${num(g.mk_bn)}` : ''}</small>` : ''}</div></div>
       ${props}
       ${g.up_preview && Object.keys(g.up_preview).length ? `<details class="bx-pc bx-sales"><summary>Сколько может стоить подарок после улучшения</summary>

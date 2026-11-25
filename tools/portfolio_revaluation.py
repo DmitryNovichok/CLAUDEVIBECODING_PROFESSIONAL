@@ -40,7 +40,8 @@ def compare(db):
             burns[gid, False] = r["burned"] / r["total"]
     portfolios = {r["id"]: [0, 0, 0, 0] for r in db.q("""SELECT id FROM students
                   WHERE COALESCE(is_teacher,0)=0 AND name_key NOT LIKE 'demo:%' ORDER BY id""")}
-    for r in db.q("SELECT student_id,gift,uniq,up_base,appraisal_base FROM gifts WHERE sold IS NULL"):
+    for r in db.q("""SELECT student_id,gift,uniq,up_base,appraisal_base,legacy_worth,legacy_start,legacy_end
+                     FROM gifts WHERE sold IS NULL"""):
         sid, gid = r["student_id"], r["gift"]
         if sid not in portfolios or gid not in server.GIFT_BY:
             continue
@@ -53,7 +54,10 @@ def compare(db):
         totals = portfolios[sid]
         totals[0] += 1
         for i, (value, base) in enumerate(((legacy, legacy_ref), (previous, ref), (current, ref)), 1):
-            totals[i] += value - server.market_fee_amt(value, rate, base)
+            net = value - server.market_fee_amt(value, rate, base)
+            if i == 3:
+                net, _ = server.collection_worth(r, net, values["day"])
+            totals[i] += net
     return portfolios
 
 
@@ -82,7 +86,8 @@ def main():
         parser.exit(1, f"Ошибка чтения базы: {error}\n")
     print("Оценка подарков после комиссии, ₿. Состав во всех столбцах одинаков. Кошельки исключены.")
     print("2.104* — реконструкция по тиражу в этой базе и последним сохранённым коэффициентам старой модели.")
-    print("ID ученика | Подарков | 2.104* | 2.106 | 2.107 | Изменение 2.107 к 2.106")
+    print("ID ученика | Подарков | 2.104* | 2.106* | 2.108 | Изменение 2.108 к 2.106*")
+    print("2.106* — прежний метод на подтверждённых котировках этого снимка.")
     sums = [0, 0, 0, 0]
     for sid, vals in rows.items():
         if not vals[0]:
@@ -93,7 +98,7 @@ def main():
     print(f"Учеников: {len(rows)}. С подарками: {sum(v[0] > 0 for v in rows.values())}.")
     print("Снижение вдвое или больше при переходе 2.104* → 2.106:",
           sum(old > 0 and prev * 2 <= old for _, old, prev, _ in rows.values()))
-    print("Снижение вдвое или больше при переходе 2.106 → 2.107:",
+    print("Снижение вдвое или больше при переходе 2.106* → 2.108:",
           sum(prev > 0 and new * 2 <= prev for _, _, prev, new in rows.values()))
 
 

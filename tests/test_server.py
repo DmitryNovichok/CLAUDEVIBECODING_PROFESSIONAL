@@ -3748,7 +3748,10 @@ class ServerTest(unittest.TestCase):
         today = datetime.date.today()
         db.x("INSERT OR REPLACE INTO forbes_hist(day,student_id,total) VALUES(?,?,?)",
              ((today - datetime.timedelta(days=3)).isoformat(), sidB, 400000))
-        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total, model) VALUES(?,?,?,1)", ((today - datetime.timedelta(days=7)).isoformat(), sidA, 1000))
+        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total, model) VALUES(?,?,?,1)",
+             ((today - datetime.timedelta(days=1)).isoformat(), sidB, 310000))
+        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total, model) VALUES(?,?,?,?)",
+             ((today - datetime.timedelta(days=7)).isoformat(), sidA, 1000, server.FORBES_MODEL))
         server._FORBES.clear()
         st, F = self.req("GET", "/api/forbes", token=tokA)
         self.assertEqual(st, 200)
@@ -3779,7 +3782,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(sc[sidA], round(sum(server.rare_score(g) for g in mine[sidA]), 1))
         castle = dict(ck, gift="castle")
         self.assertGreater(server.rare_score(castle), server.rare_score(ck) * 9)          # мифический замок весит в 10 раз больше
-        self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE model=1 AND day=? AND student_id=?", (today.isoformat(), sidA), one=True)["total"], A["total"])
+        self.assertEqual(db.q("SELECT total FROM forbes_hist WHERE model=? AND day=? AND student_id=?",
+                              (server.FORBES_MODEL, today.isoformat(), sidA), one=True)["total"], A["total"])
         self.assertEqual(self.req("GET", "/api/forbes")[0], 401)
 
     # ------------------------------------------------------------ учитель сам: регистрация, пробный период, гость

@@ -5,6 +5,25 @@ let fixture;
 test.beforeAll(async () => { fixture = await startFixture({market:true}); });
 test.afterAll(async () => { await fixture?.stop(); });
 
+test('legacy upgrade shows its market quote and the same collection value in the profile and Forbes', async ({page, context}) => {
+  const {origin, market} = fixture;
+  await seedBrowser(context, fixture);
+  await page.goto(origin + '/');
+  await page.locator('[data-hub-go="coins"]').click();
+  await page.locator('[data-bx-tab="mine"]').click();
+  await page.locator('[data-bx-mine="' + market.dragon + '"]').click();
+  await expect(page.getByText(/Переход в Forbes завершится через 14 дней/)).toContainText('919 ₿');
+  await expect(page.getByText(/В портфеле после комиссии/)).toHaveText(/3\s?869 ₿/);
+  const inventory = await (await context.request.get(origin + '/api/gifts')).json();
+  const gift = inventory.mine.find(g => g.id === market.dragon);
+  expect([gift.guide, gift.worth]).toEqual([943, 3869]);
+  const forbes = await (await context.request.get(origin + '/api/forbes')).json();
+  const owner = forbes.coll.find(r => r.me);
+  const profile = await (await context.request.get(origin + '/api/profile?sid=' + owner.sid)).json();
+  expect(owner.value).toBe(inventory.value.worth);
+  expect(profile.gift_value.worth).toBe(owner.value);
+});
+
 test('a pupil sees the settled gift price and uses the existing bid toward the buyout', async ({page, context}, testInfo) => {
   const {origin, market} = fixture;
   await seedBrowser(context, fixture);

@@ -2166,6 +2166,10 @@ class DB(Transactional):
                     ("gifts", "redeem_basis", "INTEGER"),
                     ("gifts", "appraisal_base", "INTEGER"),
                     ("gifts", "upgrade_paid", "INTEGER"),
+                    ("gifts", "legacy_quote_key", "TEXT"),
+                    ("gifts", "legacy_worth", "INTEGER"),
+                    ("gifts", "legacy_start", "INTEGER"),
+                    ("gifts", "legacy_end", "INTEGER"),
                     ("gift_quote_history", "through_id", "INTEGER"),
                     ("gifts", "up_base", "INTEGER"),                  # уникальный: база улучшения (без индекса цен и тиража) — от неё оценка
                     ("coins", "note", "TEXT"),                        # причина начисления или снятия учителем
@@ -2393,6 +2397,9 @@ class DB(Transactional):
             if not c.execute("SELECT 1 FROM settings WHERE key='gift_appraisal_107'").fetchone():
                 restore_gift_appraisals(c)
                 c.execute("INSERT INTO settings(key,value) VALUES('gift_appraisal_107','1')")
+            if not c.execute("SELECT 1 FROM settings WHERE key='gift_appraisal_108'").fetchone():
+                migrate_upgrade_appraisals(self)
+                c.execute("INSERT INTO settings(key,value) VALUES('gift_appraisal_108','1')")
             # банку — половина заработка учеников: с первого запуска версии, за прошлое не начисляем
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('labor_bank_since', ?)", (str(time.time()),))
             # банк рынка монет открывается со стартовым капиталом (один раз)
@@ -7828,6 +7835,7 @@ OVER_FEE = 0.3
 # Магазин учитывает оставшийся тираж. Котировка коллекции отдельная: сопоставимые сделки разных участников.
 # До появления рыночной истории используется базовый номинал, у уникальных он зависит от редкости.
 QUOTE_MIN_SALES = 3
+LEGACY_APPRAISAL_DAYS = 14
 VAL_STEP = 0.25
 VAL_MIN = 0.3
 _MKT_TYP = {"day": None, "v": None, "db": None}
@@ -8202,8 +8210,9 @@ def econ(db, fresh=False):
              "mode": "auto" if auto else "manual", "bank": bank, "tax_from": round(TAX_FROM * target), "limited": limited_now(db, now),
              "op_fee": op_fee({"fee": lv["fee"]})}
         _ECON.update(t=now, v=v, db=db)
-        if db.setting("forbes_day") != day:          # раз в день — снимок общего Forbes (для роста за неделю)
-            db.setting("forbes_day", day)
+        snapshot_day = f"{FORBES_MODEL}/{day}"
+        if db.setting("forbes_day") != snapshot_day:
+            db.setting("forbes_day", snapshot_day)
             forbes_data(db, e=v)
         db.x("""INSERT INTO econ_hist(day, idx, avg, total, active, med, earn, fee, tax, bank, r, s_avg, s_med) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(day) DO UPDATE SET idx=excluded.idx, avg=excluded.avg, total=excluded.total, active=excluded.active,
@@ -8533,21 +8542,28 @@ def market_vals(db, day=None):
     day = day or time.strftime("%Y-%m-%d")
     with _GIFT_LOCK:
         if _MKT_TYP["db"] is not db or _MKT_TYP["day"] != day:
-            _MKT_TYP.update(db=db, day=day, v=build_market_vals(db, day))
+            with db.transaction():
+                values = build_market_vals(db, day)
+                if day == time.strftime("%Y-%m-%d"):
+                    track_legacy_appraisals(db, values)
+            _MKT_TYP.update(db=db, day=day, v=values)
         if _COVER_CACHE["db"] is not db:
             _COVER_CACHE.update(db=db, unit=market_cover_per_copy(db))
         _MKT_TYP["v"]["premium"] = _COVER_CACHE["unit"]
         return _MKT_TYP["v"]
 
 
-def build_market_vals(db, day):
-    midnight = datetime.strptime(day, "%Y-%m-%d")
-    now = time.time() if day == time.strftime("%Y-%m-%d") else math.nextafter((midnight + timedelta(days=1)).timestamp(), 0)
+def independent_market_sales(db, midnight, until, through=None):
     since = (midnight - timedelta(days=MARKET_TYP_DAYS - 1)).timestamp()
-    by_key, participants, copies = {}, {}, set()
-    deals = db.q("""SELECT id, gift_id, gift, mkey, ts, price, seller, buyer FROM market_deals
+    sql = """SELECT id, gift_id, gift, mkey, ts, price, seller, buyer FROM market_deals
                         WHERE ts >= ? AND ts <= ? AND price > 0 AND buyer IS NOT NULL AND seller IS NOT NULL
-                        AND buyer != seller ORDER BY ts DESC, id DESC""", (since, now))
+                        AND buyer != seller"""
+    args = (since, until)
+    if through is not None:
+        sql += " AND id <= ?"
+        args += (through,)
+    deals = db.q(sql + " ORDER BY ts DESC, id DESC", args)
+    by_key, participants, copies = {}, {}, set()
     net = {}
     for deal in deals:
         key = deal["mkey"]
@@ -8563,19 +8579,32 @@ def build_market_vals(db, day):
         copies.add(deal["gift_id"])
         used.update((deal["buyer"], deal["seller"]))
         by_key.setdefault(key, []).append(deal)
+    eligible = {key: [d for d in sales if net[key, d["seller"]] < 0 < net[key, d["buyer"]]]
+                for key, sales in by_key.items()}
+    return by_key, eligible
+
+
+def confirmed_market_price(base, previous, sales):
+    target = min(MARKET_CAP * base, max(1, base * VAL_MIN, _median([d["price"] for d in sales])))
+    step = max(1, math.floor(previous * VAL_STEP))
+    return round(max(previous - step, min(previous + step, target)))
+
+
+def build_market_vals(db, day, *, before_migration=False):
+    midnight = datetime.strptime(day, "%Y-%m-%d")
+    now = time.time() if day == time.strftime("%Y-%m-%d") else math.nextafter((midnight + timedelta(days=1)).timestamp(), 0)
+    by_key, eligible_by_key = independent_market_sales(db, midnight, now)
     previous = {r["mkey"]: r for r in db.q("""SELECT h.* FROM gift_quote_history h
                 JOIN (SELECT mkey, MAX(day) last FROM gift_quote_history WHERE day < ? GROUP BY mkey) p
                 ON p.mkey=h.mkey AND p.last=h.day""", (day,))}
     latest = dict(previous)
     latest.update({r["mkey"]: r for r in db.q("SELECT * FROM gift_quote_history WHERE day=?", (day,))})
     prices = {key: row["price"] for key, row in latest.items()}
-    confirmed, qualified, samples, index_sales = set(), {}, {}, []
-    for key, sales in by_key.items():
+    confirmed, qualified, samples, sample_bases, index_sales = set(), {}, {}, {}, []
+    for key, eligible in eligible_by_key.items():
         gid, _, rarity = key.partition(":")
         if gid not in GIFT_BY or (rarity and rarity not in SELL_UNIQ):
             continue
-        base = market_ref(gid, {"rar": {"k": rarity}} if rarity else None, None, None)
-        eligible = [d for d in sales if net[key, d["seller"]] < 0 < net[key, d["buyer"]]]
         qualified[key] = len(eligible)
         index_sales.extend(eligible)
         if len(eligible) < QUOTE_MIN_SALES:
@@ -8583,9 +8612,11 @@ def build_market_vals(db, day):
             last_id = latest[key]["through_id"] if key in latest else 0
             if eligible and max(d["id"] for d in eligible) > (last_id or 0):
                 samples[key] = _median([d["price"] for d in eligible])
+                if not before_migration and key in latest and latest[key]["day"] == day:
+                    unique = {"rar": {"k": rarity}} if rarity else None
+                    sample_bases[key] = previous[key]["price"] if key in previous else portfolio_nominal(gid, unique)
             continue
         confirmed.add(key)
-        target = min(MARKET_CAP * base, max(1, base * VAL_MIN, _median([d["price"] for d in eligible])))
         snapshot = latest.get(key)
         through = max(d["id"] for d in eligible)
         if snapshot:
@@ -8593,18 +8624,20 @@ def build_market_vals(db, day):
                 continue
             if snapshot["through_id"] is None and datetime.fromtimestamp(eligible[0]["ts"]).date().isoformat() <= snapshot["day"]:
                 continue
+        unique = {"rar": {"k": rarity}} if rarity else None
+        base = market_ref(gid, unique, None, None) if before_migration else portfolio_nominal(gid, unique)
         last = previous[key]["price"] if key in previous else base
-        step = max(1, math.floor(last * VAL_STEP))
-        price = round(max(last - step, min(last + step, target)))
+        price = confirmed_market_price(base, last, eligible)
         prices[key] = price
-        db.x("INSERT OR REPLACE INTO gift_quote_history(day,mkey,price,through_id) VALUES(?,?,?,?)", (day, key, price, through))
+        if not before_migration:
+            db.x("INSERT OR REPLACE INTO gift_quote_history(day,mkey,price,through_id) VALUES(?,?,?,?)", (day, key, price, through))
     exits = {}
     for row in db.q("""SELECT l.gift, l.sid, g.uniq FROM gift_log l JOIN gifts g ON g.id=l.gift_id
                     WHERE l.event='sell' AND l.price>0 AND l.sid IS NOT NULL AND l.ts>? AND l.ts<=?""", ((midnight - timedelta(days=6)).timestamp(), now)):
         u = uniq_pub(row["uniq"]) if row["uniq"] else None
         exits.setdefault(market_key(row["gift"], u), set()).add(row["sid"])
-    return {"prices": prices, "confirmed": confirmed, "qualified": qualified, "samples": samples,
-            "exits": {k: len(owners) for k, owners in exits.items()}, "index": broad_market_index(index_sales),
+    return {"day": midnight.toordinal(), "prices": prices, "confirmed": confirmed, "qualified": qualified, "samples": samples,
+            "sample_bases": sample_bases, "exits": {k: len(owners) for k, owners in exits.items()}, "index": broad_market_index(index_sales),
             "sales": {k: market_sales_stats(ds, midnight.date()) for k, ds in by_key.items()}}
 
 
@@ -8631,7 +8664,7 @@ def improved_appraisal(plain, fee, tier):
     return plain + math.floor(fee * SELL_UNIQ[tier])
 
 
-def restore_gift_appraisals(conn):
+def restore_gift_appraisals(conn, *, identify_legacy=False):
     """Восстановить оценки старых экземпляров по журналу выпуска и единственного улучшения."""
     rows = conn.execute("""SELECT g.id,g.gift,g.uniq,g.market_ts,g.kind,g.market_from,g.from_sid,g.from_teacher,g.paid,
                    (SELECT price FROM gift_log WHERE gift_id=g.id AND event='issue' AND source IN ('shop','limited') ORDER BY id LIMIT 1),
@@ -8639,10 +8672,14 @@ def restore_gift_appraisals(conn):
                    COALESCE((SELECT -delta FROM coins WHERE gift_id=g.id AND reason='upgrade' AND delta<0 ORDER BY id LIMIT 1),
                             (SELECT price FROM gift_log WHERE gift_id=g.id AND event='upgrade' AND price>0 ORDER BY id LIMIT 1)),
                    (SELECT -delta FROM coins WHERE gift_id=g.id AND reason='upgrade' AND delta<0
-                      AND student_id=g.student_id AND ts>=COALESCE(g.market_ts,0) ORDER BY id LIMIT 1)
-                   FROM gifts g WHERE g.sold IS NULL AND g.appraisal_base IS NULL""").fetchall()
-    updates = []
-    for instance, gid, raw, traded, kind, seller, sender, teacher, paid, issue, receipt, upgrade, owner_fee in rows:
+                      AND student_id=g.student_id AND ts>=COALESCE(g.market_ts,0) ORDER BY id LIMIT 1),
+                   g.appraisal_base, EXISTS(SELECT 1 FROM gift_log WHERE gift_id=g.id AND event='upgrade'
+                      AND (sid=g.student_id OR (sid IS NULL AND g.market_from IS NULL)) AND ts>=COALESCE(g.market_ts,0))
+                   FROM gifts g WHERE g.sold IS NULL AND ((?=0 AND g.appraisal_base IS NULL)
+                       OR (? AND g.uniq IS NOT NULL AND g.appraisal_base IS NOT NULL))""",
+                        (identify_legacy, identify_legacy)).fetchall()
+    updates, legacy = [], []
+    for instance, gid, raw, traded, kind, seller, sender, teacher, paid, issue, receipt, upgrade, owner_fee, book, owner_log in rows:
         if gid not in GIFT_BY:
             continue
         nominal = market_ref(gid, None, None, None)
@@ -8651,9 +8688,17 @@ def restore_gift_appraisals(conn):
         base = max(nominal, issue or 0)
         if raw:
             u = uniq_pub(raw)
+            tier, tariff = u["rar"]["k"], upgrade_tariff(gid)
+            modern = improved_appraisal(base, tariff, tier)
             base += max(market_ref(gid, u, None, None) - nominal, upgrade or owner_fee or 0)
-        updates.append((base, owner_fee if raw else None, instance))
+            # 2.107 already used the new tariff. Its upgrades and purchases of already-upgraded gifts earn no grace.
+            if identify_legacy and (owner_fee or owner_log) and (
+                    (upgrade is not None and upgrade != tariff) or (base != modern and book in (None, base))):
+                legacy.append((market_key(gid, u), instance))
+        if book is None:
+            updates.append((base, owner_fee if raw else None, instance))
     conn.executemany("UPDATE gifts SET appraisal_base=?, upgrade_paid=? WHERE id=?", updates)
+    conn.executemany("UPDATE gifts SET legacy_quote_key=? WHERE id=?", legacy)
 
 
 def portfolio_source(key, mv):
@@ -8690,6 +8735,7 @@ def market_guide(gid, u, mv):
     key = market_key(gid, u)
     base = mv["prices"].get(key) or portfolio_nominal(gid, u)
     if key in mv.get("samples", {}):
+        base = mv.get("sample_bases", {}).get(key, base)
         limit = 3 if mv["qualified"][key] == 1 else 10
         step = base * limit // 100
         price = max(base - step, min(base + step, round(mv["samples"][key])))
@@ -8709,6 +8755,71 @@ def portfolio_estimate(gid, u, book, mv):
         nominal = portfolio_nominal(gid, u)
         guide = (book * guide + nominal // 2) // nominal
     return min(guide, market_cap(gid, u, None, None, mv=mv))
+
+
+def migrate_upgrade_appraisals(db):
+    """Сохранить прежнюю оценку владельца и восстановить подтверждённые цены уникальных по журналу сделок."""
+    restore_gift_appraisals(db.conn, identify_legacy=True)
+    history = db.q("SELECT * FROM gift_quote_history WHERE instr(mkey, ':') > 0 ORDER BY day, mkey")
+    if db.q("SELECT 1 FROM gifts WHERE legacy_quote_key IS NOT NULL LIMIT 1", one=True):
+        first_days = {}
+        for row in history:
+            first_days.setdefault(row["mkey"], datetime.fromisoformat(row["day"]).toordinal())
+        old = build_market_vals(db, time.strftime("%Y-%m-%d"), before_migration=True)
+        track_legacy_appraisals(db, old, first_days)
+
+    previous, old_previous = {}, {}
+    for row in history:
+        key, price = row["mkey"], row["price"]
+        gid, _, tier = key.partition(":")
+        if gid not in GIFT_BY or tier not in SELL_UNIQ:
+            continue
+        if row["through_id"]:
+            midnight = datetime.fromisoformat(row["day"])
+            end = math.nextafter((midnight + timedelta(days=1)).timestamp(), 0)
+            _, sales = independent_market_sales(db, midnight, end, row["through_id"])
+            eligible = sales.get(key, [])
+            # Keep the recorded price as an anchor if the corresponding independent trades cannot be reconstructed.
+            if len(eligible) >= QUOTE_MIN_SALES and max(d["id"] for d in eligible) == row["through_id"]:
+                unique = {"rar": {"k": tier}}
+                old_base = market_ref(gid, unique, None, None)
+                if confirmed_market_price(old_base, old_previous.get(key, old_base), eligible) == row["price"]:
+                    base = portfolio_nominal(gid, unique)
+                    price = confirmed_market_price(base, previous.get(key, base), eligible)
+                    db.conn.execute("UPDATE gift_quote_history SET price=? WHERE mkey=? AND day=?", (price, key, row["day"]))
+        old_previous[key] = row["price"]
+        previous[key] = price
+
+
+def track_legacy_appraisals(db, mv, first_days=None):
+    """До подтверждения запоминается последняя чистая оценка. Первый подтверждённый день фиксирует её один раз."""
+    pending = db.q("""SELECT id,gift,legacy_quote_key,legacy_worth,appraisal_base FROM gifts
+                    WHERE sold IS NULL AND legacy_quote_key IS NOT NULL AND legacy_start IS NULL""")
+    updates = []
+    for row in pending:
+        key, gid, day = row["legacy_quote_key"], row["gift"], mv["day"]
+        u = {"rar": {"k": key.partition(":")[2]}}
+        worth = row["legacy_worth"]
+        if key not in mv["prices"] or worth is None:
+            gross = portfolio_estimate(gid, u, row["appraisal_base"], mv)
+            worth = gross - market_fee_amt(gross, MARKET_FEE_SELL, market_base(gid, u, None, None, mv=mv))
+        start = end = None
+        if key in mv["prices"]:
+            start = day
+            end = (first_days or {}).get(key, day) + LEGACY_APPRAISAL_DAYS
+        if start is not None or worth != row["legacy_worth"]:
+            updates.append((worth, start, end, row["id"]))
+    db.conn.executemany("UPDATE gifts SET legacy_worth=?,legacy_start=?,legacy_end=? WHERE id=?", updates)
+
+
+def collection_worth(row, market_net, day):
+    """Чистая стоимость экземпляра и число оставшихся дней перехода для карточки владельца."""
+    start, end = row["legacy_start"], row["legacy_end"]
+    if start is None or not start <= day < end or row["legacy_worth"] <= market_net:
+        return market_net, 0
+    duration, left = end - start, end - day
+    premium = ((row["legacy_worth"] - market_net) * left + duration // 2) // duration
+    return market_net + premium, left
 
 
 def market_chg(gid, u, mv):
@@ -8773,14 +8884,16 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
         LIVE.send([buyer, r["student_id"]], "gift")
         return None
     names = {x["id"]: short_name(x["name"]) for x in members}
+    u = uniq_pub(current["uniq"]) if current["uniq"] else None
+    book = portfolio_nominal(current["gift"], u) if current["legacy_quote_key"] else current["appraisal_base"]
     if not db.xn("""UPDATE gifts SET student_id=?, listed=NULL, listed_ts=NULL, auc_end=NULL, buy_now=NULL, bid_sid=NULL, bid_amt=NULL,
-                           bid_n=0, market_from=?, market_ts=?, first_sid=COALESCE(first_sid, ?), seen=?, paid=?, upgrade_paid=NULL, note=NULL
+                           bid_n=0, market_from=?, market_ts=?, first_sid=COALESCE(first_sid, ?), seen=?, paid=?, upgrade_paid=NULL, note=NULL,
+                           appraisal_base=?, legacy_quote_key=NULL, legacy_worth=NULL, legacy_start=NULL, legacy_end=NULL
                     WHERE id=? AND student_id=? AND listed IS NOT NULL AND sold IS NULL""",
-                 (buyer, r["student_id"], now, r["student_id"], seen, amount, r["id"], r["student_id"])):
+                 (buyer, r["student_id"], now, r["student_id"], seen, amount, book, r["id"], r["student_id"])):
         return None
     db.x("UPDATE coins SET reason='mbuy', note=?, ts=? WHERE id=?", (names.get(r["student_id"], ""), now, bid["id"]))
     bfee = -bid["delta"] - amount
-    u = uniq_pub(r["uniq"]) if r["uniq"] else None
     dem = gift_demand(db)
     ref = market_ref(r["gift"], u, e, dem, r["up_base"])
     fee = market_fee_amt(amount, market_fee(e, r), market_base(r["gift"], u, e, dem, r["up_base"], market_vals(db)))
@@ -8800,6 +8913,7 @@ def auc_deal(db, r, buyer, amount, now, e, seen=0):
     db.x("""INSERT INTO market_deals(gift_id, ts, gift, mkey, tier, price, signal, ref, seller, buyer, bidders)
             VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (r["id"], now, r["gift"], market_key(r["gift"], u), market_tier(r["gift"], u), amount,
                                                signal, ref, r["student_id"], buyer, len(set(top) | {buyer})))
+    market_vals(db)  # зафиксировать день подтверждения внутри сделки, даже если сегодня никто не откроет Forbes
     tid = db.q("SELECT teacher_id FROM students WHERE id=?", (buyer,), one=True)
     with _GS_LOCK:
         _LB_PEOPLE.pop((tid["teacher_id"] if tid else None) or main_teacher()["id"], None)
@@ -9339,12 +9453,14 @@ def gift_icons(db, sid):
 def gift_rows(db, sid, where="", limit=200, prices=None, preview=False):
     """Подарки ученика (непроданные) для страницы: что, от кого, когда, улучшен ли; prices=(econ, выпуск) — ещё и цены
     улучшения и продажи сейчас."""
-    rows = db.q(f"""SELECT g.id, g.gift, g.ts, g.note, g.seen, g.from_sid, g.from_teacher, g.uniq, g.kind, g.listed, g.market_from,
+    with db.lock:
+        mv = market_vals(db) if prices else None
+        rows = db.q(f"""SELECT g.id, g.gift, g.ts, g.note, g.seen, g.from_sid, g.from_teacher, g.uniq, g.kind, g.listed, g.market_from,
+                           g.legacy_worth, g.legacy_start, g.legacy_end,
                            g.market_ts, g.paid, g.redeem_basis, g.upgrade_paid, g.appraisal_base, g.up_base, g.listed_ts, g.auc_end, g.buy_now, g.bid_amt, g.bid_n, s.name AS sname, m.name AS mname
                     FROM gifts g LEFT JOIN students s ON s.id = g.from_sid LEFT JOIN students m ON m.id = g.market_from
                     WHERE g.student_id=? AND g.sold IS NULL {where} ORDER BY g.ts DESC LIMIT ?""", (sid, limit))
     out = []
-    mv = market_vals(db) if prices else None
     for r in rows:
         g = GIFT_BY.get(r["gift"])
         if not g:
@@ -9365,6 +9481,8 @@ def gift_rows(db, sid, where="", limit=200, prices=None, preview=False):
             mk_typ, rate = portfolio_estimate(g[0], u, r["appraisal_base"], mv), market_fee(e, r)
             quote = market_est(g[0], u, e, dem, r["up_base"], mv)
             base = market_base(g[0], u, e, dem, r["up_base"], mv)
+            market_net = mk_typ - market_fee_amt(mk_typ, rate, base)
+            worth, grace_days = collection_worth(r, market_net, mv["day"])
             # оценка в портфеле и Forbes: рыночная цена минус комиссия продавца
             wait = (r["market_ts"] or 0) + RELIST_H * 3600 - time.time() if r["market_from"] else 0
             market_payout_at = (r["market_ts"] or r["ts"]) + RELIST_H * 3600
@@ -9375,7 +9493,7 @@ def gift_rows(db, sid, where="", limit=200, prices=None, preview=False):
                        mk_source=portfolio_source(market_key(g[0], u), mv), guide=market_guide(g[0], u, mv),
                        market_payout_at=market_payout_at if market_key(g[0], u) in mv["confirmed"]
                        and sell < future_gross * SELL_PERCENT // 100 and market_payout_at > time.time() else None,
-                       worth=mk_typ - market_fee_amt(mk_typ, rate, base),
+                       worth=worth,
                        paid=r["paid"] if r["market_from"] or (r["from_sid"] == sid and r["kind"] != "box") else None,
                        mk_ref=base, mk_wait=wait_txt(wait) if wait > 0 else None, mk_chg=market_chg(g[0], u, mv),
                        fee=market_fee(e, r), issued=issued.get(g[0], 0), cap=UNIQ_CAP, ub=r["up_base"],
@@ -9383,6 +9501,8 @@ def gift_rows(db, sid, where="", limit=200, prices=None, preview=False):
                        mk_until=r["auc_end"] if r["listed"] is not None else None, mk_bn=r["buy_now"], mk_bid=r["bid_amt"],
                        mk_bids=r["bid_n"] or 0)
             row["mk_suggest"] = max(row["mk_start"], min(row["mk_max"] - 1, row["guide"] * SELL_PERCENT // 100))
+            if grace_days:
+                row["appraisal_transition"] = {"days": grace_days, "market_net": market_net}
             if preview and not u and up_now is not None and r["listed"] is None:
                 tiers = {skin["k"] for skin in hw_skins(g[0])} if g[0] in HW_BY else SELL_UNIQ
                 plain = r["appraisal_base"] or market_ref(g[0], None, e, dem)
@@ -9404,6 +9524,7 @@ def gift_value(rows, e, dem):
 # Forbes — общий на весь сайт: среди учеников всех учителей (кроме убранных из рейтингов). Состояние = монеты + рыночная оценка подарков за вычетом комиссии продавца;
 # вкладки — самый дорогой подарок, самая дорогая коллекция (только подарки) и самая редкая коллекция (очки редкости).
 FORBES_TOP = 10
+FORBES_MODEL = 2                        # 2.108: единая котировка и переход старых улучшений
 FORBES_NEW_DAYS = 14                    # «новичок» — в тренажёре меньше двух недель
 RARE_SCORE = {"common": 0, "uncommon": 0.5, "rare": 1, "epic": 2, "legend": 3, "limited": 8,
               "u:rare": 4, "u:epic": 10, "u:legend": 30, "u:myth": 100}
@@ -9441,7 +9562,7 @@ def forbes_data(db, tid=None, e=None):
     сегодняшний снимок записывается."""
     now = time.time()
     hit = _FORBES.get(tid)
-    if hit and hit[1] is db and now - hit[0] < 600:
+    if hit and hit[1] is db and now - hit[0] < 600 and datetime.fromtimestamp(hit[0]).date() == datetime.fromtimestamp(now).date():
         return hit[2]
     e = e or econ(db)
     issued, dem = uniq_issued(db), gift_demand(db)
@@ -9470,10 +9591,11 @@ def forbes_data(db, tid=None, e=None):
     # снимок сегодня и рост за неделю: от самого раннего снимка за последние 7 дней (без сегодняшнего)
     today = datetime.fromtimestamp(now).date()
     for r in rows:
-        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total, model) VALUES(?,?,?,1)", (today.isoformat(), r["sid"], r["total"]))
+        db.x("INSERT OR REPLACE INTO forbes_hist(day, student_id, total, model) VALUES(?,?,?,?)",
+             (today.isoformat(), r["sid"], r["total"], FORBES_MODEL))
     then = {}
-    for h in db.q("SELECT day, student_id, total FROM forbes_hist WHERE model=1 AND day >= ? AND day < ? ORDER BY day DESC",
-                  ((today - timedelta(days=7)).isoformat(), today.isoformat())):
+    for h in db.q("SELECT day, student_id, total FROM forbes_hist WHERE model=? AND day >= ? AND day < ? ORDER BY day DESC",
+                  (FORBES_MODEL, (today - timedelta(days=7)).isoformat(), today.isoformat())):
         then[h["student_id"]] = h["total"]           # по убыванию дня — останется самый ранний
     for r in rows:
         r["week"] = r["total"] - then[r["sid"]] if r["sid"] in then else None

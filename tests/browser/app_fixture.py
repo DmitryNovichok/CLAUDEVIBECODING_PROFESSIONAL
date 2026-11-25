@@ -35,8 +35,15 @@ def seed_market(helper, db, buyer):
         db.x("""INSERT INTO market_deals(gift_id, ts, gift, mkey, tier, price, signal, ref, seller, buyer, bidders)
                 VALUES(?,?,'guitar','guitar',?,?,60,120,?,?,1)""",
              (1000 + i, now - days * 86400, server.gift_rarity('guitar')['k'], amount, 100 + i, 200 + i))
+    rare = json.dumps({"n": 1, "bg": "mint", "sym": "dot", "fx": "classic", "pose": "stand"})
+    dragon = db.x("""INSERT INTO gifts(student_id,gift,ts,uniq,kind,seen,appraisal_base,upgrade_paid,
+                     legacy_quote_key,legacy_worth) VALUES(?,'dragon',?,?,'box',1,4665,3895,'dragon:rare',3869)""",
+                  (buyer, now - 86400, rare))
+    for i in range(3):
+        db.x("""INSERT INTO market_deals(gift_id,ts,gift,mkey,price,seller,buyer)
+                VALUES(?,?,'dragon','dragon:rare',943,?,?)""", (2000+i, now, 300+i, 400+i))
     server._MKT_TYP['day'] = None
-    return {'lot': cake['id'], 'price': price, 'guitar': guitar}
+    return {'lot': cake['id'], 'price': price, 'guitar': guitar, 'dragon': dragon}
 
 
 def main():
