@@ -170,8 +170,8 @@ class StudentAuthHandlers:
                     return self.err(429, "С этого адреса за час зарегистрировалось слишком много учеников. Попробуйте позже.")
                 services.reg_allowed(ip, add=True)
                 tid = teacher["id"] if teacher else services.main_teacher()["id"]
-                db.x("""INSERT INTO students(name,name_key,token,created,last_seen,pw,teacher_id,login,email,self_reg)
-                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                db.x("""INSERT INTO students(id,name,name_key,token,created,last_seen,pw,teacher_id,login,email,self_reg)
+                        VALUES((SELECT last_id+1 FROM student_id_sequence WHERE singleton=1),?,?,?,?,?,?,?,?,?,?)""",
                      (pretty, key, secrets.token_urlsafe(24), now, now, hash_pw(pw), tid, login, email or None, 0 if teacher else 1))
                 print(f"[ученик] новый: {pretty}{'' if teacher else ' (без кода)'}", flush=True)
             else:                                  # старый ученик без пароля: журнал сохраняется

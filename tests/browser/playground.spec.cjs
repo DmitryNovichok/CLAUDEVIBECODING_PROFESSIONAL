@@ -102,7 +102,7 @@ test('mobile banner, language drafts and input survive navigation within the pup
   await expect(page.locator('#pg-source')).not.toHaveValue('print("мой черновик")');
 });
 
-for (const [theme, width] of [['light', 1366], ['dark', 320]]) {
+for (const [theme, width] of [['light', 1366], ['dark', 1366], ['dark', 320]]) {
   test('editor tabs, syntax and console in ' + theme + ' theme at ' + width + 'px', async ({page,context}, testInfo) => {
     await page.setViewportSize({width,height:820});
     await seedBrowser(context, fixture);
@@ -115,6 +115,20 @@ for (const [theme, width] of [['light', 1366], ['dark', 320]]) {
     const source = root.locator('#pg-source'), paint = root.locator('.pg-highlight');
     const cpp = root.getByRole('tab', {name:'main.cpp (C++)'}), python = root.getByRole('tab', {name:'solution.py (Python)'});
     const input = root.getByRole('tab', {name:'Ввод', exact:true}), output = root.getByRole('tab', {name:'Вывод', exact:true});
+    const explorer = root.getByRole('button', {name:'Проводник', exact:true}), sidebar = root.locator('#pg-explorer');
+    await expect(explorer).toHaveAttribute('aria-expanded', String(width > 700));
+    if (width > 700) {
+      await expect(sidebar).toBeVisible();
+      await expect(sidebar.getByRole('button', {name:'main.cpp'})).toHaveAttribute('aria-current','true');
+      const files = await sidebar.boundingBox(), sourceBox = await source.boundingBox();
+      expect(files.x + files.width).toBeLessThanOrEqual(sourceBox.x);
+    } else {
+      await expect(sidebar).toBeHidden();
+    }
+    expect(await page.evaluate(async () => {
+      const faces = await document.fonts.load('16px "Egeshka Codicons"', '\ueaf0');
+      return faces.length === 1 && faces[0].status === 'loaded';
+    })).toBe(true);
     await expect(cpp).toHaveAttribute('aria-selected','true');
     await expect(paint.locator('.hl-dec')).toHaveText('#include');
     await expect(paint.locator('.hl-str').first()).toHaveText('<iostream>');
@@ -159,3 +173,58 @@ for (const [theme, width] of [['light', 1366], ['dark', 320]]) {
     await expect(root.locator('#pg-stdin')).toBeVisible();
   });
 }
+
+test('explorer, cross-file search and VS Code shortcuts use the actual drafts', async ({page,context}) => {
+  await page.setViewportSize({width:1366,height:820});
+  await seedBrowser(context, fixture);
+  await page.goto(fixture.origin + '/'); await page.locator('[data-open-playground]').click();
+  const root = page.locator('.code-playground'), code = root.locator('#pg-source'), sidebar = root.locator('.pg-sidebar');
+  const explorer = root.getByRole('button', {name:'Проводник',exact:true}), search = root.getByRole('button', {name:'Поиск',exact:true});
+  const needle = 'vec[0].x';
+  const cppCode = '// начало\n'.repeat(70) + ' '.repeat(250) + 'VEC[0].x++;\n';
+  await code.fill(cppCode);
+  await sidebar.getByRole('button', {name:'solution.py',exact:true}).click();
+  await expect(code).toBeFocused();
+  await code.fill("print('vec[0].x', 'vec[0].x')\n");
+  await expect(root.locator('.pg-current-file')).toHaveText('solution.py');
+
+  await code.press('Control+Shift+f');
+  const query = sidebar.getByRole('searchbox'), count = sidebar.locator('.pg-search-count');
+  await expect(query).toBeFocused(); await query.fill(needle);
+  await expect(count).toHaveText('3 совпадения');
+  await expect(sidebar.locator('[data-pg-hit=python]')).toHaveCount(2);
+  await sidebar.locator('[data-pg-hit=cpp]').click();
+  await expect(code).toHaveValue(cppCode);
+  await expect(code).toBeFocused();
+  expect(await code.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('VEC[0].x');
+  await expect.poll(() => code.evaluate(el => el.scrollTop > 0 && el.scrollLeft > 0)).toBe(true);
+
+  await code.press('Control+b'); await expect(sidebar).toBeHidden();
+  await code.press('Control+b'); await expect(search).toHaveAttribute('aria-expanded','true');
+  await expect(query).toHaveValue(needle);
+  await sidebar.locator('[data-pg-hit=python]').last().click();
+  expect(await code.evaluate(el => el.selectionStart === el.value.lastIndexOf('vec[0].x'))).toBe(true);
+  await query.fill('несуществующий фрагмент'); await expect(count).toHaveText('Совпадений нет');
+  await code.fill('a = 2\n'.repeat(38));
+  await query.fill('a'); await expect(count).toHaveText('38 совпадений');
+  await sidebar.getByRole('button',{name:'Показать ещё'}).click();
+  await expect(sidebar.locator('[data-pg-hit=python]')).toHaveCount(38);
+  await root.locator('[data-pg-reveal]').click();
+  await expect(explorer).toHaveAttribute('aria-expanded','true');
+  await expect(sidebar.getByRole('button',{name:'solution.py'})).toBeFocused();
+  await code.press('Control+j'); await expect(root.locator('#pg-dock-content')).toBeHidden();
+  await code.press('Control+j'); await expect(root.locator('#pg-dock-content')).toBeVisible();
+
+  await page.setViewportSize({width:320,height:820});
+  await expect(sidebar).toBeHidden(); await explorer.click();
+  await expect(sidebar).toBeVisible();
+  await sidebar.getByRole('button',{name:'main.cpp'}).click();
+  await expect(sidebar).toBeHidden(); await expect(code).toBeFocused();
+  await search.click(); await query.fill(needle); await sidebar.locator('[data-pg-hit=cpp]').click();
+  await expect(sidebar).toBeHidden();
+  expect(await code.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('VEC[0].x');
+  await search.click(); await query.press('Escape');
+  await expect(code).toBeFocused(); await expect(sidebar).toBeHidden();
+  await page.setViewportSize({width:1366,height:820});
+  await expect(explorer).toHaveAttribute('aria-expanded','true');
+});

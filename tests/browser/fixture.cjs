@@ -2,10 +2,10 @@
 const {spawn} = require('node:child_process');
 const path = require('node:path');
 
-async function startFixture({script = 'app_fixture.py', startupMs = 30000, shutdown = 'signal', taskCount} = {}) {
+async function startFixture({script = 'app_fixture.py', startupMs = 30000, shutdown = 'signal', taskCount, market = false} = {}) {
   if (!['app_fixture.py', 'readiness_fixture.py'].includes(script)) throw Error('Unknown synthetic fixture');
   if (taskCount !== undefined && (!Number.isInteger(taskCount) || taskCount < 5 || taskCount > 20000)) throw Error('Synthetic task count must be 5..20000');
-  const child = spawn(process.env.PYTHON || 'python3', [path.join(__dirname, script)], {stdio:['pipe','pipe','pipe'], env:{...process.env, ...(taskCount === undefined ? {} : {EGE_SYNTHETIC_TASKS:String(taskCount)})}});
+  const child = spawn(process.env.PYTHON || 'python3', [path.join(__dirname, script)], {stdio:['pipe','pipe','pipe'], env:{...process.env, EGE_SYNTHETIC_MARKET:market ? '1' : '0', ...(taskCount === undefined ? {} : {EGE_SYNTHETIC_TASKS:String(taskCount)})}});
   let stderr = '', stdout = '', stopped = false;
   child.stderr.on('data', chunk => {stderr = (stderr + chunk).slice(-20000);});
   // A failed startup must not leave a Python server behind.

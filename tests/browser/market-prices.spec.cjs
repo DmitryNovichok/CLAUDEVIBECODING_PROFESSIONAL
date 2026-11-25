@@ -1,0 +1,98 @@
+const {test, expect} = require('@playwright/test');
+const {startFixture, seedBrowser} = require('./fixture.cjs');
+
+let fixture;
+test.beforeAll(async () => { fixture = await startFixture({market:true}); });
+test.afterAll(async () => { await fixture?.stop(); });
+
+test('a pupil sees the settled gift price and uses the existing bid toward the buyout', async ({page, context}, testInfo) => {
+  const {origin, market} = fixture;
+  await seedBrowser(context, fixture);
+  await page.goto(origin + '/');
+  await page.locator('[data-hub-go="coins"]').click();
+  await page.locator('.bx-tabs [data-bx-tab="market"]').click();
+  await page.locator('[data-bx-mk="' + market.lot + '"]').click();
+  const history = page.getByRole('region', {name:'Продажи за 30 дней'});
+  await expect(history).toContainText('Продаж этого вида за 30 дней нет');
+  await page.getByRole('button', {name:/Сделать ставку/}).click();
+  const buy = page.getByRole('button', {name:/Купить сразу/});
+  await expect(buy).toContainText('доплатить');
+  await expect(buy).toBeEnabled();
+  page.once('dialog', dialog => dialog.accept());
+  await buy.click();
+  const owned = page.locator('[data-bx-mine="' + market.lot + '"]');
+  await owned.click();
+  await expect(page.getByText('Цена покупки · ' + market.price + ' ₿', {exact:true})).toBeVisible();
+  await expect(page.locator('.bx-sh .bx-mkp')).toContainText('Оценка с учётом одной сделки');
+  await expect(page.getByRole('button', {name:/Продать сразу/})).toBeVisible();
+  const upgrade = page.getByRole('button', {name:/Улучшить/});
+  await expect(upgrade).toContainText('не хватает');
+  const preview = page.getByText('Сколько может стоить подарок после улучшения');
+  await preview.click();
+  await expect(page.getByRole('rowheader', {name:'Редкий', exact:true})).toBeVisible();
+  await expect(page.getByRole('rowheader', {name:'Мифический', exact:true})).toBeVisible();
+  await expect(history).toContainText('Последняя продажа ' + market.price + ' ₿');
+  await expect(history).toContainText('1 сделка');
+  await expect(history.locator('.bx-sales-change')).toHaveCount(0);
+  const wallet = await (await context.request.get(origin + '/api/gifts')).json();
+  expect(wallet.coins).toBe(0);
+
+  await page.reload();
+  await page.setViewportSize({width:375,height:850});
+  await page.locator('[data-hub-go="coins"]').click();
+  await page.locator('.bx-tabs [data-bx-tab="mine"]').click();
+  await page.locator('[data-bx-mine="' + market.guitar + '"]').click();
+  await expect(history).toContainText('+50%');
+  await expect(history.locator('svg circle')).toHaveCount(3);
+  await history.getByText('Цены по дням', {exact:true}).press('Enter');
+  await expect(history.getByRole('table')).toBeVisible();
+  await expect(history.getByRole('row').nth(1)).toContainText('190 ₿');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const photo = testInfo.outputPath('market-prices.png');
+  await history.screenshot({path:photo});
+  await testInfo.attach('market-prices.png', {path:photo, contentType:'image/png'});
+  await page.getByRole('button', {name:/На аукцион/}).click();
+  const gift = (await (await context.request.get(origin + '/api/gifts')).json()).mine.find(g => g.id === market.guitar);
+  const opening = page.getByRole('spinbutton', {name:'Стартовая ставка, ₿'});
+  await expect(opening).toHaveValue(String(gift.mk_suggest));
+  await opening.fill(String(gift.mk_start + 1));
+  await page.getByRole('button', {name:'Выставить', exact:true}).click();
+  await expect.poll(async () => (await (await context.request.get(origin + '/api/gifts')).json()).market.find(lot => lot.id === market.guitar)?.start)
+    .toBe(gift.mk_start + 1);
+});
+
+test('a shop receipt survives a missing acknowledgement and a page reload', async ({page, context}) => {
+  const shop = await startFixture({market:true});
+  try {
+    await seedBrowser(context, shop);
+    const wallet = async () => (await context.request.get(shop.origin + '/api/gifts')).json();
+    const before = await wallet();
+    const offer = before.catalog.find(g => g.id === 'tea');
+    const openOffer = async () => {
+      await page.goto(shop.origin + '/');
+      await page.locator('[data-hub-go="coins"]').click();
+      await page.locator('[data-bx-tab="shop"]').click();
+      await page.locator('[data-bx-shop="tea"]').click();
+    };
+    await openOffer();
+    const orders = [];
+    await page.route('**/api/gifts/buy', async route => {
+      orders.push(route.request().postDataJSON());
+      const response = await route.fetch();
+      if (orders.length === 1) await route.abort('failed');
+      else await route.fulfill({response});
+    });
+    await page.locator('[data-bx-buy="tea"]').click();
+    await expect.poll(async () => (await wallet()).coins).toBe(before.coins - offer.price);
+    await openOffer();
+    await page.locator('[data-bx-buy="tea"]').click();
+    await expect.poll(() => orders.length).toBe(2);
+    expect(orders[1]).toEqual(orders[0]);
+    await expect(page.locator('[data-bx-buy="tea"]')).toHaveCount(0);
+    const after = await wallet();
+    expect(after.mine.length).toBe(before.mine.length + 1);
+    expect(after.coins).toBe(before.coins - offer.price);
+  } finally {
+    await shop.stop();
+  }
+});

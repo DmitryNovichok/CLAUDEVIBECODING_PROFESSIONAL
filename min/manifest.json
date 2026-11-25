@@ -9,8 +9,8 @@
       "source": "016eec5301b0171a4ab3e146b18dc5ccc86f28574bbd44848440688bbe443ef1"
     },
     "admin.js": {
-      "min": "8a7553a1315deebbcba669a56cb44f9feb1da9e87b1c4a80efe964c91fdb88e0",
-      "source": "dab94fee8c24789c5f1b8e57356eee2d35dbbc9d53df7914bb093e814fcd314f"
+      "min": "f7a538e65267a5af153b4491fbb955a0a0396128b5a2f066f152879433fe8751",
+      "source": "6bbd31155bea31073be519771564971d1d0be0c782dcca65af63c36537eccae6"
     },
     "app-exams.js": {
       "min": "e2b96b0e95fcd5c9f63667e42add1d819f4b8af432866d7f92a4dfd1bc4bd279",
@@ -21,12 +21,12 @@
       "source": "d13f47c0f8636fc41c174eb3208e8701c5a0f5d37109b935cab89ab47c7ff600"
     },
     "app.js": {
-      "min": "9009a5e56d950ea586a3258c587d9866ecda9f27e2e97678756592e01fb0884f",
-      "source": "53238308adc35157c52a70181ad57b7f33f8f3656102f8b7f88c5d2d4c72d4f3"
+      "min": "a6e2ffa819c390e5cbace01a388657fc24c41fb15779ff1963094f404027b0a6",
+      "source": "fb551424e16a02ad1535784046cb7cab4915fe7b9c752e1d0b85ad2382f1dd29"
     },
     "changelog-loader.js": {
-      "min": "0c57de43b8e95197d258bd90924ad0a9c6ed956793380fa4afc0fd389f72d863",
-      "source": "aa9d6cad86f547f7a4684e2f450a773a0f0ab93d33d06bd25f4e50ec9bf831a3"
+      "min": "650b27029972e0c3724e4fb35cf9de7e589ba9a1bf84a9c5500fab21df94444a",
+      "source": "e68017f76d2fbd0078d4085f9fd000fb7b9a9b56ef631581b98d25d713daa99f"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "d80fe106148b156ad43792c22068c3ea592d1c4e45d24829906944b866f360d0",
-      "source": "04a822ee08c0aac9a0e90a488af389e8ebeb622dc9a0048556d1b6963e59de58"
+      "min": "dfa7e26c01229f457bb719dcfe285892af75289fbb25e20a839b5e37c24ba968",
+      "source": "ed408f7ae669ebc24b9ccbae9d96bbf7d95a49978fce79a153d7c826909d38df"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",

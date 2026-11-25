@@ -343,7 +343,104 @@ class AuditRegressionTest(unittest.TestCase):
         self.assertEqual(len(self.db.q("SELECT 1 FROM coins WHERE gift_id=? AND reason='bidback'", (old_id,))), 1)
 
 
+    def test_weekly_prizes_share_the_available_bank_and_rollback_together(self):
+        db, now = self.db, time.time()
+        _, second = self.student()
+        teacher = server.main_teacher()["id"]
+        ranked = [(20, {"id":81001, "name":"Первый"}, [self.sid]), (10, {"id":81002, "name":"Второй"}, [second])]
+        with db.transaction():
+            db.setting("class_week", "test-market-week")
+            server.bank_move(db, 90 - server.bank_balance(db), "test", ts=now)
+            with mock.patch.object(server, "class_week_xp", side_effect=lambda db, tid, *args: ranked if tid == teacher else []):
+                with mock.patch.object(server, "bank_move", side_effect=RuntimeError("temporary storage failure")):
+                    with self.assertRaises(RuntimeError):
+                        server.class_rollover(db)
+                self.assertEqual(db.setting("class_week"), "test-market-week")
+                self.assertEqual(server.bank_balance(db), 90)
+                server.class_rollover(db)
+                server.class_rollover(db)
+            awards = db.q("SELECT each_btc FROM class_prizes WHERE week='test-market-week' ORDER BY place")
+            self.assertEqual([r[0] for r in awards], [60,30])
+            self.assertEqual(server.bank_balance(db), 0)
+            server.bank_move(db, server.BANK_START, "test", ts=now)
+
+    def test_shop_receipt_and_confirmed_price(self):
+        self.db.x("INSERT INTO coins(student_id,ts,delta,reason) VALUES(?,?,1000,'grant')", (self.sid, time.time()))
+        def wallet():
+            return self.c.req("GET", "/api/gifts", token=self.token)[1]
+        start = wallet()
+        price = next(x["price"] for x in start["catalog"] if x["id"] == "tea")
+        order = {"gift": "tea", "price": price, "request_key": "receipt-for-this-purchase"}
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = list(workers.map(lambda _: self.post("/api/gifts/buy", order), range(2)))
+        self.assertEqual([r["got"] for r in results], ["tea", "tea"])
+        self.assertEqual(wallet()["coins"], start["coins"] - price)
+        self.assertEqual(len(wallet()["mine"]), 1)
+        self.assertEqual(self.c.req("POST", "/api/gifts/buy", dict(order, gift="cookie"), self.token)[0], 409)
+        new_order = dict(order, price=price+100, request_key="another-ordinary-purchase")
+        self.assertEqual(self.c.req("POST", "/api/gifts/buy", new_order, self.token)[0], 409)
+        item = wallet()["mine"][0]
+        self.assertEqual(self.c.req("POST", "/api/gifts/upgrade", {"id":item["id"], "price":item["up"]+1}, self.token)[0], 409)
+        self.assertEqual(wallet()["coins"], start["coins"] - price)
+
+    def test_empty_random_pool_preserves_balance_and_work_entitlement(self):
+        self.db.x("INSERT INTO coins(student_id,ts,delta,reason) VALUES(?,?,1000,'grant')", (self.sid, time.time()))
+        before = server.game_summary(self.db, self.sid)["coins"]
+        supply = {g: dict(v, left=0) for g, v in server.gift_supply(self.db).items()}
+        with mock.patch.object(server, "gift_supply", return_value=supply):
+            self.assertIsNone(server.gift_random(db=self.db, recipient=self.sid))
+            self.assertEqual(self.c.req("POST", "/api/gifts/buy", {"gift":"box"}, self.token)[0], 409)
+            self.assertEqual(server.work_gifts(self.db, self.sid, server.WORK_GIFT_EVERY), 0)
+        self.assertEqual(server.game_summary(self.db, self.sid)["coins"], before)
+        self.assertEqual(server.work_gifts(self.db, self.sid, server.WORK_GIFT_EVERY), 1)
+        self.assertEqual(server.work_gifts(self.db, self.sid, server.WORK_GIFT_EVERY), 0)
+
+    def test_closed_transfers_do_not_set_a_new_quote(self):
+        key = "rocket:legend"
+        for n in range(6):
+            self.db.x("""INSERT INTO market_deals(gift_id,ts,gift,mkey,seller,buyer,price)
+                         VALUES(?,?,?,?,?,?,?)""", (10000+n, time.time(), "rocket", key, 20000+n, 20000+(n+1)%6, 1000))
+        server.invalidate_economy()
+        mv = server.market_vals(self.db)
+        self.assertEqual(mv["qualified"][key], 0)
+        self.assertNotIn(key, mv["prices"])
+
+    def test_old_student_number_and_escrow_are_not_reassigned(self):
+        other, holder = self.student()
+        gift = self.db.x("INSERT INTO gifts(student_id,gift,ts,listed,listed_ts,bid_sid,bid_amt) VALUES(?, 'tea',?,10,?,?,10)",
+                         (holder,time.time(),time.time()-60,self.sid))
+        self.db.x("INSERT INTO coins(student_id,ts,delta,reason,gift_id) VALUES(?,?,-11,'bid',?)", (self.sid,time.time(),gift))
+        server.delete_student(self.db, holder)
+        _, replacement = self.student()
+        self.assertGreater(replacement, holder)
+        self.assertEqual([r["delta"] for r in self.db.q("SELECT delta FROM coins WHERE gift_id=? AND reason='bidback'", (gift,))], [11])
+        item = self.db.q("SELECT sold,listed FROM gifts WHERE id=?", (gift,), one=True)
+        self.assertTrue(item["sold"])
+        self.assertIsNone(item["listed"])
+
+
 class AuditMigrationTest(unittest.TestCase):
+    def test_existing_gift_keeps_its_original_funding_after_upgrade(self):
+        from pathlib import Path
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'market.db'
+            db = server.DB(path)
+            now = time.time()
+            item = db.x("INSERT INTO gifts(student_id,gift,ts,paid,market_from) VALUES(1,'tea',?,180,2)", (now,))
+            server.glog(db, 'issue', item, 'tea', 2, 40, 'box', now)
+            server.glog(db, 'upgrade', item, 'tea', 2, 70, ts=now)
+            db.x("ALTER TABLE gifts DROP COLUMN redeem_basis")
+            db.conn.close()
+            for _ in range(2):
+                db = server.DB(path)
+                try:
+                    row = db.q("SELECT paid,redeem_basis FROM gifts WHERE id=?", (item,), one=True)
+                    self.assertEqual(tuple(row), (180, 110))
+                    self.assertEqual(db.q("SELECT COUNT(*) FROM coins", one=True)[0], 0)
+                finally:
+                    db.conn.close()
+
     def test_legacy_demo_identity_survives_rename_and_membership_changes(self):
         import tempfile
         from pathlib import Path

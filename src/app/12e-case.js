@@ -158,9 +158,10 @@
     if (!crQuick()) crRattle(CASE_SHAKE_MS);                 // коробка дребезжит, пока трясётся
     const C = CR, shaken = new Promise(res => setTimeout(res, crQuick() ? 0 : CASE_SHAKE_MS));
     let r;
-    try { r = await api('gifts/buy', { gift: 'box', to: gfTo ? +gfTo : null }); } catch (e) {
+    try { r = await submitGiftPurchase('box', GF.box); } catch (e) {
       if (CR === C) closeCase();
       if (e.status !== 401) toast(e.message || 'Не получилось купить');
+      if (e.status === 409) await openGifts();
       return;
     }
     if (r.game) onGame(r.game);
