@@ -3287,7 +3287,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(db.q("SELECT paid FROM gifts WHERE id=?", (cat["id"],), one=True)["paid"], paid)
         shop = next(c["price"] for c in self.req("GET", "/api/gifts", token=tok)[1]["catalog"] if c["id"] == "cat")
         self.assertGreaterEqual(shop, paid)
-        half = min(paid, server.GIFT_BY["cat"][3]) * 90 // 100
+        half = min(paid - server.op_cut(paid, server.econ(db)), server.GIFT_BY["cat"][3]) * 90 // 100
         self.assertEqual((cat["sell"], cat["up"]), (half, server.gift_up_price("cat", {"idx": 1.0}, server.uniq_issued(db))))
         coins = self.req("GET", "/api/gifts", token=tok)[1]["coins"]
         st, r = self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tok)
@@ -3300,11 +3300,19 @@ class ServerTest(unittest.TestCase):
         st, r = self.req("POST", "/api/gifts/upgrade", {"id": robot["id"]}, tok)
         self.assertEqual(st, 200, r)
         u = r["gift"]["uniq"]
-        k = u["rar"]["k"]
         paid = db.q("SELECT paid FROM gifts WHERE id=?", (robot["id"],), one=True)["paid"]
-        gross = (min(paid, server.gift_price("robot", {"idx": 1.0}, server.gift_demand(db)))
-                 + math.floor(server.gift_up_base("robot", {"idx": 1.0}) * server.SELL_UNIQ[k]))   # уникальная часть — от базовой цены улучшения
-        self.assertEqual(r["gift"]["sell"], min(gross, server.market_ref("robot", u, None, None)) * 90 // 100)
+        e, dem = server.econ(db), server.gift_demand(db)
+        basis = paid - server.op_cut(paid, e) + r["price"] - r["fee"]
+        self.assertEqual(db.q("SELECT redeem_basis FROM gifts WHERE id=?", (robot["id"],), one=True)[0], basis)
+        for tier, multiplier in server.SELL_UNIQ.items():
+            with self.subTest(tier=tier):
+                variant = {"rar": {"k": tier}}
+                gross = min(paid, server.gift_price("robot", e, dem)) + math.floor(server.gift_up_base("robot", e) * multiplier)
+                expected = min(basis, gross, server.market_ref("robot", variant, e, dem)) * 90 // 100
+                payout = server.gift_sell_price("robot", variant, e, {}, dem, paid, mv=server.market_vals(db), basis=basis)
+                self.assertEqual(payout, expected)
+                if tier == u["rar"]["k"]:
+                    self.assertEqual(r["gift"]["sell"], expected)
         self.req("POST", "/api/gifts/sell", {"id": robot["id"]}, tok)
         burned = json.loads(db.q("SELECT uniq FROM gifts WHERE id=?", (robot["id"],), one=True)["uniq"])
         with server._GIFT_LOCK:
@@ -4364,7 +4372,7 @@ class ServerTest(unittest.TestCase):
         paid = {r["id"]: r["paid"] for r in db.q("SELECT id, paid FROM gifts WHERE gift='tea' AND id IN (%s)" % ",".join(str(g["id"]) for g in teas))}
         self.assertEqual(sorted(paid.values()), sorted(seen))
         for g in teas:
-            self.assertEqual(g["sell"], min(paid[g["id"]], g["mk_typ"]) * 90 // 100)
+            self.assertEqual(g["sell"], min(paid[g["id"]] - server.op_cut(paid[g["id"]], server.econ(db)), g["mk_typ"]) * 90 // 100)
             self.assertEqual(g["mk_typ"], server.GIFT_BY["tea"][3])
         self.assertLess(sum(g["sell"] for g in teas), spent)
         # куплен на рынке дёшево — продать сразу можно только от цены покупки
