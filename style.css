@@ -2380,6 +2380,28 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
 .pyc-re-spans { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 14px; }
 .pyc-re-spans code { overflow-wrap: anywhere; }
 .pyc-re .pyc-msg > div:not(.pyc-re-spans) { margin-top: 8px; }
+.pyc-sheet { display: grid; gap: 14px; margin: 14px 0 8px; min-width: 0; }
+.pyc-sheet-table { overflow-x: auto; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; }
+.pyc-sheet table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.pyc-sheet th, .pyc-sheet td { padding: 7px 10px; text-align: start; }
+.pyc-sheet th { background: var(--bg); font-size: 13px; }
+.pyc-sheet tbody tr + tr { border-top: 1px solid var(--border); }
+.pyc-sheet tr[aria-current=step] { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
+.pyc-sheet tr[data-checked] [data-answer] { color: var(--good-strong); font-weight: 700; }
+.pyc-sheet fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
+.pyc-sheet legend { padding: 0; font-weight: 800; }
+.pyc-sheet fieldset p { margin: 4px 0 10px; }
+.pyc-sheet-fields { display: flex; align-items: end; flex-wrap: wrap; gap: 8px 12px; }
+.pyc-sheet-fields label, .pyc-meter { display: grid; gap: 4px; font-size: 14px; font-weight: 700; }
+.pyc-sheet-fields label { flex: 1 1 120px; max-width: 250px; min-width: 0; }
+.pyc-sheet-fields .inp { width: 100%; min-width: 0; }
+.pyc-sheet-fields [aria-invalid=true] { border-color: var(--weak); }
+.pyc-meter meter { width: min(100%, 320px); height: 16px; }
+.pyc-energy { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; list-style: none; margin: 0; padding: 0; }
+.pyc-energy li { display: grid; gap: 3px; padding: 6px 0; border-bottom: 3px solid var(--border-strong); text-align: center; }
+.pyc-energy [data-group="1"] { background: var(--accent-soft); border-color: var(--accent); }
+.pyc-energy [data-group="2"] { background: var(--good-soft); border-color: var(--good); }
+.pyc-sheet + .pyc-msg, #pycDockStatus, .learning-practice ~ .pyc-act .pyc-msg { white-space: pre-line; overflow-wrap: anywhere; }
 .pyc-sol .sl-code { margin: 8px 0; }
 .pyc-next { align-self: flex-start; }
 .sl-outbox summary { cursor: pointer; font-weight: 800; color: var(--accent-text); }
@@ -5038,6 +5060,7 @@ body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-tabs button 
 body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-th b { font-weight: 600; }
 body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-tn { font-weight: 600; }
 body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-more summary { font-weight: 600; }
+body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .pyc-sheet legend { font-weight: 600; }
 body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .sl-outbox summary { font-weight: 600; }
 body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .coin-pill { font-weight: 600; }
 body:not(.hub-on) :is(#trainer:not(:has(.tour-page)), #pyDock) .promo-pill { font-weight: 600; background-image: none; background-color: #ff9600; }

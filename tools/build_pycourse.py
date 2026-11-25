@@ -181,6 +181,14 @@ def build(only):
                     t['practice'] = tk['practice']
                 if 'regex' in tk:
                     t['regex'] = {**tk['regex'], 'example_spans': json.loads(tk['_ans'])[0]}
+                if 'worksheet' in tk:
+                    sheet = tk['worksheet']
+                    answers = tk['_ans'].splitlines()
+                    if (len(answers) != len(sheet['rows']) or
+                            any(len(row) != len(sheet['headings']) for row in sheet['rows']) or
+                            any(len(line.split()) != len(sheet['fields']) for line in answers)):
+                        raise ValueError(f'{tid}: размеры таблицы и ответов не совпадают')
+                    t['worksheet'] = sheet
                 if tk['hint']:
                     t['hint'] = tk['hint']
                 if tk['note']:

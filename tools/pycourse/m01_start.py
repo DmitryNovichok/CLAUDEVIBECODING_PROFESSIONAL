@@ -4,12 +4,6 @@ from _dsl import *
 ORDER = -10
 
 
-def practice(key, h, cond, src, cases, hint, starter=''):
-    t = task(key, h, cond, src, stdin=cases[0], hint=hint)
-    t['practice'] = {'starter': starter, 'stdin': cases[0], 'inputs': cases}
-    return t
-
-
 def lesson(title_, goal, example, tasks):
     return level(title_.split('. ', 1)[-1], goal, [txt('Что научимся делать', p(goal)),
         code('Предскажи вывод, затем запусти', example,
