@@ -179,6 +179,8 @@ def build(only):
                      'sec': tk['_sec']}
                 if tk.get('practice'):
                     t['practice'] = tk['practice']
+                if 'regex' in tk:
+                    t['regex'] = {**tk['regex'], 'example_spans': json.loads(tk['_ans'])[0]}
                 if tk['hint']:
                     t['hint'] = tk['hint']
                 if tk['note']:

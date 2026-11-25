@@ -2363,6 +2363,23 @@ input.secret[type="text"] { -webkit-text-security: disc; text-security: disc; }
 .pyc-more { margin-top: 10px; }
 .pyc-more summary { cursor: pointer; font-weight: 800; color: var(--accent-text); }
 .pyc-more > div { margin-top: 6px; padding: 10px 12px; border-radius: 10px; background: var(--bg); line-height: 1.5; }
+.pyc-re { display: grid; gap: 14px; margin-top: 14px; }
+.pyc-re fieldset, .pyc-re label { display: grid; gap: 6px; min-width: 0; }
+.pyc-re fieldset { margin: 0; padding: 0; border: 0; }
+.pyc-re label { font-weight: 700; }
+.pyc-re small, .pyc-re-spans { color: var(--muted); font-weight: 500; }
+.pyc-re label small { font-family: var(--mono); }
+.pyc-re input { width: 100%; min-width: 0; font-family: var(--mono); }
+.pyc-re-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.pyc-re .pyc-more label { margin: 10px 0; }
+.pyc-re-example, .pyc-re .pyc-msg:not(:empty) {
+  padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+}
+.pyc-re-text { display: block; margin: 6px 0; color: var(--text); font: 600 18px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.pyc-re-text mark { background: var(--accent-soft); color: var(--text); border-bottom: 2px solid var(--accent); }
+.pyc-re-spans { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 14px; }
+.pyc-re-spans code { overflow-wrap: anywhere; }
+.pyc-re .pyc-msg > div:not(.pyc-re-spans) { margin-top: 8px; }
 .pyc-sol .sl-code { margin: 8px 0; }
 .pyc-next { align-self: flex-start; }
 .sl-outbox summary { cursor: pointer; font-weight: 800; color: var(--accent-text); }

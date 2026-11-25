@@ -594,6 +594,7 @@ window.EgeLearningSections = function (bridge) {
       <div class="crs-l-head"><span class="pyc-mod-ic">${d.icon}</span><div>        <h2>Уровень ${li + 1}. ${esc(lv.title)}</h2><small class="pyc-goal">${esc(lv.goal)}</small></div></div>
       <div class="pyc-tabs">${m.levels.map((x, i) => `<button type="button" class="${i === li ? 'on' : ''}${i >= m.open ? ' lock' : ''}" data-pyc-lv="${mid}:${i}"
         ${i >= m.open ? 'disabled' : ''}>${i >= m.open ? '🔒 ' : ''}${i + 1}. ${esc(x.title)}</button>`).join('')}</div>
+      ${mid === 'm24' ? '<button type="button" class="btn" data-pyc-lv="m33:0">Открыть тренажёр регулярных выражений</button>' : ''}
       ${has ? `<div class="fm-h">1. Теория · ${lv.slides.length} ${plural(lv.slides.length, 'слайд', 'слайда', 'слайдов')}</div>
       <div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
@@ -629,7 +630,7 @@ window.EgeLearningSections = function (bridge) {
       <div class="cond pyc-cond">${safeHtml(t.cond)}</div>
       ${pycFilesHtml(t.files)}
       ${t.practice ? `<div class="learning-practice"><b>Программа должна работать на разных данных</b><p>Первый ввод: <code>${esc(t.practice.stdin.trim())}</code>. Напиши программу, открой Python и проверь тесты. В поле ответа отправь вывод для первого ввода.</p><pre>${esc(t.practice.cases.map((c, i) => `Пример ${i+1}: ввод ${JSON.stringify(c.input.trim())} → ${c.output}`).join('\n'))}</pre></div>` : ''}
-      <div class="pyc-act">
+      ${t.regex ? pycRegexHtml(t) : `<div class="pyc-act">
         <button type="button" class="btn" data-pyc-py="${esc(t.id)}">▶ Решать в Python</button>
         <button type="button" class="btn" data-learning-lab="task" data-task="${esc(t.id)}">По шагам в лаборатории</button>
         ${t.practice ? `<button type="button" class="btn" data-pyc-tests="${esc(t.id)}">Проверить код на ${t.practice.cases.length} примерах</button>` : ''}
@@ -638,7 +639,7 @@ window.EgeLearningSections = function (bridge) {
           ${t.ok ? '' : '<button type="submit" class="btn primary">Проверить</button>'}
         </form>
         <span class="pyc-msg" aria-live="polite"></span>
-      </div>
+      </div>`}
       ${t.hint && !t.ok ? `<details class="pyc-more" data-pyc-help="hint" data-task="${esc(t.id)}"><summary>💡 Подсказка</summary><div>${safeHtml(t.hint)}</div></details>` : ''}
       ${t.note && t.ok ? `<div class="sl-nuance nk-secret"><b class="nk">💡 Секрет.</b> ${safeHtml(t.note)}</div>` : ''}
       ${t.sol ? pycSolHtml(t) : ''}
@@ -648,7 +649,7 @@ window.EgeLearningSections = function (bridge) {
     return `<details class="pyc-more pyc-sol" data-pyc-help="solution" data-task="${esc(t.id)}"${t.ok ? '' : ''}><summary>${t.ok ? '📖 Эталонное решение' : '📖 Разбор (после трёх попыток)'}</summary>
       <pre class="sl-code">${highlightPy(t.sol)}</pre>
       <div class="sl-btns"><button type="button" class="btn ghost" data-pyc-sol="${esc(t.id)}">▶ Открыть разбор в Python</button>
-        ${t.ok && t.ans ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
+        ${t.ok && t.ans && !t.regex ? `<span class="sl-ok"><i aria-hidden="true">✓</i>Ответ: <b>${esc(t.ans)}</b></span>` : ''}</div></details>`;
   }
   const pycTask = id => PYC_L && PYC_L.level.tasks.find(t => t.id === id);
   function pycPyTask(t, label) {
@@ -672,18 +673,31 @@ window.EgeLearningSections = function (bridge) {
       ta.dispatchEvent(new Event('input', { bubbles: true }));
     }
   }
-  async function pycCheck(id, form) {
-    const inp = form.querySelector('.pyc-ans'), box = form.closest('.pyc-task'), msg = box.querySelector('.pyc-msg');
+  function pycCheck(id, form) {
+    const inp = form.querySelector('.pyc-ans');
     const answer = inp.value.trim();
     if (!answer) { inp.focus(); return; }
     const pid = 'pyc:' + id;
     const code = PY.task && PY.task.id === pid ? $('#pyCode').value : readCode(pid);
+    return pycSubmit(id, form, { answer, code: code || '' });
+  }
+  async function pycSubmit(id, form, data) {
+    const box = form.closest('.pyc-task'), msg = box.querySelector('.pyc-msg');
     const btn = form.querySelector('button[type=submit]');
     if (btn) btn.disabled = true;
     const current = learningSessionGuard();
     let r;
-    try { await pycFlushHelp(); if (!current()) return; r = await api('pyc/check', { task: id, answer, code: code || '' }); } catch (e) { if (!current()) return; if (btn) btn.disabled = false; netError(e); return; }
-    if (!current()) return;
+    try {
+      await pycFlushHelp();
+      if (!current()) return;
+      r = await api('pyc/check', { task: id, ...data });
+    } catch (e) {
+      if (!current() || !box.isConnected) return;
+      if (btn) btn.disabled = false;
+      msg.textContent = e.message || 'Не удалось сохранить ответ. Повтори попытку.';
+      netError(e); return;
+    }
+    if (!current() || !box.isConnected) return;
     if (btn) btn.disabled = false;
     const t = pycTask(id);
     if (!t) return;
@@ -699,9 +713,12 @@ window.EgeLearningSections = function (bridge) {
       openPycLevel(PYC_L.id, PYC_L.l, true);
       return;
     }
-    box.classList.add('bad');
-    box.querySelector('.pyc-st').textContent = `попыток: ${r.tries}`;
-    msg.textContent = 'Неверно — проверьте программу и вопрос задачи';
+    if (!t.ok) {
+      box.classList.add('bad');
+      box.querySelector('.pyc-st').textContent = `попыток: ${r.tries}`;
+    }
+    if (r.mismatch && t.regex) msg.innerHTML = pycRegexMismatch(t, data.matches, r.mismatch);
+    else msg.textContent = 'Неверно — проверьте программу и вопрос задачи';
     msg.className = 'pyc-msg bad';
     box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
     if (r.sol && !box.querySelector('.pyc-sol')) box.insertAdjacentHTML('beforeend', pycSolHtml(t));
@@ -832,6 +849,143 @@ window.EgeLearningSections = function (bridge) {
   $('#pyCode')?.addEventListener('input', () => {
     if (PYC_TEST) pycStopTests();
     if ($('#pycDockStatus')?.textContent) $('#pycDockStatus').textContent = 'Код изменён. Запусти проверку ещё раз.';
+  });
+
+  // ═══════ src/app/12c-regex.js
+  // Python runs inside the existing disposable browser worker. Only match ranges reach the course grader.
+  const PYC_REGEX_RUN = `import json, re
+data = json.loads(input())
+try:
+    regex = re.compile(data['pattern'])
+    rows = []
+    for text in data['texts']:
+        if data['mode'] == 'fullmatch':
+            m = regex.fullmatch(text)
+            spans = [m.span()] if m else []
+        elif data['mode'] == 'overlap':
+            if not regex.groups:
+                raise ValueError('Помести фрагмент в первую захватывающую группу (…).')
+            spans = [m.span(1) for m in regex.finditer(text)]
+            if any(start < 0 for start, end in spans):
+                raise ValueError('Первая группа должна захватывать фрагмент в каждом совпадении.')
+        else:
+            spans = [m.span() for m in regex.finditer(text)]
+        rows.append(spans)
+    print(json.dumps({'rows': rows}))
+except (re.error, ValueError, OverflowError, RecursionError) as exc:
+    print(json.dumps({'error': str(exc)}))`;
+
+  function pycRegexRanges(text, spans) {
+    const chars = [...text]; // Python indexes Unicode code points.
+    const cuts = [...new Set([0, chars.length, ...spans.flat()])].sort((a, b) => a - b);
+    const marked = cuts.slice(1).map((end, i) => {
+      const start = cuts[i], part = esc(chars.slice(start, end).join(''));
+      return spans.some(([a, b]) => a <= start && end <= b) ? `<mark>${part}</mark>` : part;
+    }).join('');
+    const parts = spans.slice(0, 16).map(([a, b]) =>
+      `<code>[${a}:${b}] ${a === b ? '∅' : esc(chars.slice(a, b).join(''))}</code>`);
+    if (spans.length > parts.length) parts.push(`… ещё ${spans.length - parts.length}`);
+    return `<samp class="pyc-re-text">${marked || '∅'}</samp>
+      <div class="pyc-re-spans">${parts.join(' ') || 'Совпадений нет'}</div>`;
+  }
+
+  function pycRegexHtml(t) {
+    const spec = t.regex, example = spec.samples[0];
+    const method = {finditer: 're.finditer · m.span()', overlap: 're.finditer · m.span(1)', fullmatch: 're.fullmatch'}[spec.mode];
+    return `<form class="pyc-re" data-pyc-regex="${esc(t.id)}" autocomplete="off">
+      <div class="pyc-re-example"><b>Ожидаемые совпадения</b>${pycRegexRanges(example, spec.example_spans)}</div>
+      <fieldset><label>Шаблон Python re <small>${method}</small>
+        <input class="inp" data-re-pattern maxlength="240" spellcheck="false" autocapitalize="off" required
+          aria-describedby="re-pattern-help" value="${esc(readCode('pyc-re:' + t.id) || '')}"></label>
+        <small id="re-pattern-help">Введи содержимое строки <code>r'…'</code> без кавычек.</small>
+        <div class="pyc-re-actions"><button type="submit" class="btn primary">Проверить шаблон</button>
+          <button class="btn" type="button" data-re-stop hidden>Остановить</button></div>
+        <details class="pyc-more"><summary>Попробовать на своей строке</summary>
+          <label>Строка для поиска<input class="inp" data-re-text maxlength="160" spellcheck="false" autocapitalize="off" value="${esc(example)}"></label>
+          <button class="btn" type="button" data-re-preview>Показать совпадения</button></details>
+      </fieldset>
+      <div class="pyc-msg" aria-live="polite">${t.ok ? 'Задача зачтена. Можно попробовать другой шаблон.' : ''}</div>
+    </form>`;
+  }
+
+  function pycRegexMismatch(t, actual, mismatch) {
+    const index = mismatch.index, text = t.regex.samples[index];
+    return `<b>Проверь строку ${index + 1} из ${t.regex.samples.length}</b>
+      <div>Твой шаблон</div>${pycRegexRanges(text, actual[index])}
+      <div>Ожидалось</div>${pycRegexRanges(text, mismatch.expected)}`;
+  }
+
+  function pycRunRegex(form, preview) {
+    const id = form.dataset.pycRegex, t = pycTask(id);
+    if (!t?.regex || !form.reportValidity()) return;
+    if (PYC_TEST) { toast('Дождись завершения текущей проверки.', 2500); return; }
+    const msg = form.querySelector('.pyc-msg'), pattern = form.querySelector('[data-re-pattern]').value;
+    const texts = preview ? [form.querySelector('[data-re-text]').value] : t.regex.samples;
+    const submit = form.querySelector('[type=submit]'), custom = form.querySelector('[data-re-preview]'), stop = form.querySelector('[data-re-stop]');
+    let worker;
+    try { worker = new EgePythonWorker('py-worker.js' + (RULES.py_local ? '?local=1' : '')); }
+    catch { msg.textContent = 'Не удалось открыть Python в браузере. Повтори проверку.'; return; }
+    submit.disabled = custom.disabled = true;
+    stop.hidden = false;
+    msg.className = 'pyc-msg'; msg.textContent = 'Загружаю Python…';
+    const current = learningSessionGuard();
+    let output = '', error = '', finished = false;
+    let timer = setTimeout(() => finish('Не удалось загрузить Python. Повтори попытку.'), 90000);
+    function finish(message) {
+      if (finished) return;
+      finished = true; clearTimeout(timer); worker.terminate(); PYC_TEST = null;
+      submit.disabled = custom.disabled = false; stop.hidden = true;
+      if (message) msg.textContent = message;
+    }
+    PYC_TEST = { button: submit, cancel: () => finish('Проверка остановлена.') };
+    worker.onerror = () => finish('Не удалось запустить Python. Повтори попытку.');
+    worker.onmessage = e => {
+      if (finished) return;
+      if (!form.isConnected || !current()) { finish(); return; }
+      const m = e.data;
+      if (m.type === 'ready') {
+        clearTimeout(timer);
+        timer = setTimeout(() => finish('Поиск остановлен по времени. Упрости вложенные повторы и попробуй снова.'), 5000);
+        msg.textContent = 'Проверяю совпадения…';
+        worker.postMessage({type: 'run', code: PYC_REGEX_RUN, stdin: JSON.stringify({pattern, mode: t.regex.mode, texts})});
+      } else if (m.type === 'out') output += m.text;
+      else if (m.type === 'err') error += m.text;
+      else if (m.type === 'done') {
+        finish();
+        if (!m.ok || error) { msg.textContent = error.trim().slice(0, 400) || 'Не удалось выполнить поиск.'; return; }
+        let r;
+        try { r = JSON.parse(output); } catch { msg.textContent = 'Python вернул неполный результат. Повтори проверку.'; return; }
+        if (r.error) { msg.textContent = 'Ошибка шаблона: ' + r.error; return; }
+        if (preview) {
+          const spans = r.rows[0], longest = Math.max(0, ...spans.map(([a, b]) => b - a));
+          msg.innerHTML = `<b>Совпадений: ${spans.length}. Максимальная длина: ${longest}.</b>${pycRegexRanges(texts[0], spans)}`;
+        } else {
+          const fields = form.querySelector('fieldset');
+          fields.disabled = true;
+          msg.textContent = 'Сохраняю результат…';
+          pycSubmit(id, form, { matches: r.rows, code: 'import re\npattern = re.compile(' + JSON.stringify(pattern) + ')' })
+            .finally(() => { fields.disabled = false; });
+        }
+      }
+    };
+  }
+
+  trainerEl.addEventListener('submit', e => {
+    if (!e.target.matches('[data-pyc-regex]')) return;
+    e.preventDefault(); pycRunRegex(e.target, false);
+  });
+  trainerEl.addEventListener('click', e => {
+    const form = e.target.closest('[data-pyc-regex]');
+    if (!form) return;
+    if (e.target.closest('[data-re-stop]')) pycStopTests();
+    if (e.target.closest('[data-re-preview]')) pycRunRegex(form, true);
+  });
+  trainerEl.addEventListener('input', e => {
+    const form = e.target.closest('[data-pyc-regex]');
+    if (!form) return;
+    if (form.contains(PYC_TEST?.button || null)) pycStopTests();
+    form.querySelector('.pyc-msg').textContent = '';
+    if (e.target.matches('[data-re-pattern]')) writeCode('pyc-re:' + form.dataset.pycRegex, e.target.value);
   });
 
   // ═══════ src/app/12j-labs.js
