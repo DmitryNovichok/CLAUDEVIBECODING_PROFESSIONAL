@@ -337,7 +337,7 @@
     const stat = (v, t) => `<div class="pf-stat"><b>${v}</b><small>${t}</small></div>`;
     const stats = `<div class="pf-stats">${stat(`<span class="pf-fire${fireCls(P.fire || 0)}" title="${fireTier(P.fire || 0)[2]}">${FLAME}</span> ` + (P.fire || 0), plural(P.fire || 0, 'день подряд', 'дня подряд', 'дней подряд'))}
       ${stat('👑 ' + cnt('crown'), plural(cnt('crown'), 'корона', 'короны', 'корон'))}${stat('⚔️ ' + cnt('duel'), plural(cnt('duel'), 'победа', 'победы', 'побед'))}
-      ${stat('💎 ' + shortNum((P.gift_value || {}).sell || 0), '₿ подарки')}</div>`;
+      ${stat('💎 ' + shortNum(P.gift_value?.worth ?? P.gift_value?.sell ?? 0), '₿ подарки')}</div>`;
     const acts = P.me ? `<button type="button" class="btn" id="profLookBtn">🎨 Оформить профиль</button><button type="button" class="btn" id="profEdit">🏅 Значки у ника</button>${SERVER && !TEACHER ? '<button type="button" class="btn" data-gift-to="">🛍 Магазин</button>' : ''}`
       : !TEACHER && SERVER ? `<button type="button" class="btn primary" data-gift-to="${P.sid}">🎁 Подарить подарок</button>` : '';
     const nickLine = `<div class="pf-nick">У ника: ${nick.length || (P.gifts || []).length ? `<span class="lb-badges">${nick.map(badgeHtml).join('')}</span>${giftsHtml(P)}` : '<span class="fm-muted">пока ничего</span>'}
@@ -415,8 +415,8 @@
       g.uniq ? g.uniq.props.map(p => `${p.k}: ${p.t} (${String(p.p).replace('.', ',')}%)`).join(', ') : '', from(g)].filter(Boolean).join(' · ');
     const V = P.gift_value;
     const sorted = [...list.filter(g => giftRank(g) > 0).sort(byRank), ...list.filter(g => !giftRank(g))];
-    return `${V && V.n ? `<div class="pf-value" title="Столько дадут, если продать все подарки сейчас; в магазине такие стоят ${V.shop.toLocaleString('ru-RU')} ₿">
-        <span class="fm-muted">💎 Оценка коллекции</span><b>≈ ${V.sell.toLocaleString('ru-RU')} ₿</b></div>` : ''}
+    return `${V && V.n ? `<div class="pf-value" title="Рыночная оценка за вычетом комиссии продавца. При быстрой продаже всей коллекции владелец получит ${V.sell.toLocaleString('ru-RU')} ₿.">
+        <span class="fm-muted">💎 Оценка коллекции</span><b>≈ ${(V.worth ?? V.sell).toLocaleString('ru-RU')} ₿</b></div>` : ''}
       <div class="pf-gifts">${sorted.map(g => `<div class="pf-gift${g.uniq ? ' uniq' : ''}" title="${esc(tip(g))}">${g.uniq ? uniqTile(g) : g.img ? `<span class="ug plain img r-${g.rar.k}"><span class="ug-ic">${giftImg(g.img)}</span></span>`
           : `<span class="ug plain r-${g.rar.k}"><span class="ug-ic">${g.i}</span></span>`}
         <small>${esc(g.t)}${g.uniq && g.uniq.st ? ' · ' + esc(g.uniq.st) : ''}${g.uniq ? ' #' + g.uniq.n : ''}</small>${rarHtml(g)}</div>`).join('')}</div>

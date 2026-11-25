@@ -22,6 +22,9 @@ test('a pupil sees the settled gift price and uses the existing bid toward the b
   await buy.click();
   const owned = page.locator('[data-bx-mine="' + market.lot + '"]');
   await owned.click();
+  await expect(page.getByText('Цена покупки · ' + market.price + ' ₿', {exact:true})).toBeVisible();
+  await expect(page.locator('.bx-sh .bx-mkp')).toContainText('Оценка рынка');
+  await expect(page.getByRole('button', {name:/Продать сразу/})).toBeVisible();
   await expect(history).toContainText('Последняя продажа ' + market.price + ' ₿');
   await expect(history).toContainText('1 сделка');
   await expect(history).not.toContainText('%');

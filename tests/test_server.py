@@ -3286,7 +3286,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(db.q("SELECT paid FROM gifts WHERE id=?", (cat["id"],), one=True)["paid"], paid)
         shop = next(c["price"] for c in self.req("GET", "/api/gifts", token=tok)[1]["catalog"] if c["id"] == "cat")
         self.assertGreaterEqual(shop, paid)
-        half = math.floor(paid * 0.9)
+        half = min(paid, server.GIFT_BY["cat"][3]) * 90 // 100
         self.assertEqual((cat["sell"], cat["up"]), (half, server.gift_up_price("cat", {"idx": 1.0}, server.uniq_issued(db))))
         coins = self.req("GET", "/api/gifts", token=tok)[1]["coins"]
         st, r = self.req("POST", "/api/gifts/sell", {"id": cat["id"]}, tok)
@@ -3303,7 +3303,7 @@ class ServerTest(unittest.TestCase):
         paid = db.q("SELECT paid FROM gifts WHERE id=?", (robot["id"],), one=True)["paid"]
         gross = (min(paid, server.gift_price("robot", {"idx": 1.0}, server.gift_demand(db)))
                  + math.floor(server.gift_up_base("robot", {"idx": 1.0}) * server.SELL_UNIQ[k]))   # уникальная часть — от базовой цены улучшения
-        self.assertEqual(r["gift"]["sell"], math.floor(gross * 0.9))
+        self.assertEqual(r["gift"]["sell"], min(gross, server.market_ref("robot", u, None, None)) * 90 // 100)
         self.req("POST", "/api/gifts/sell", {"id": robot["id"]}, tok)
         burned = json.loads(db.q("SELECT uniq FROM gifts WHERE id=?", (robot["id"],), one=True)["uniq"])
         with server._GIFT_LOCK:
@@ -4363,7 +4363,8 @@ class ServerTest(unittest.TestCase):
         paid = {r["id"]: r["paid"] for r in db.q("SELECT id, paid FROM gifts WHERE gift='tea' AND id IN (%s)" % ",".join(str(g["id"]) for g in teas))}
         self.assertEqual(sorted(paid.values()), sorted(seen))
         for g in teas:
-            self.assertEqual(g["sell"], math.floor(paid[g["id"]] * 0.9))
+            self.assertEqual(g["sell"], min(paid[g["id"]], g["mk_typ"]) * 90 // 100)
+            self.assertEqual(g["mk_typ"], server.GIFT_BY["tea"][3])
         self.assertLess(sum(g["sell"] for g in teas), spent)
         # куплен на рынке дёшево — продать сразу можно только от цены покупки
         low = min(teas, key=lambda g: g["mk_start"])
@@ -4712,7 +4713,7 @@ class ServerTest(unittest.TestCase):
             self.req("POST", "/api/gifts/buy", {"gift": "tulip"}, tokA)
         G = self.req("GET", "/api/gifts", token=tokA)[1]
         tl = [g for g in G["mine"] if g["gift"] == "tulip"]
-        shop = next(c["price"] for c in G["catalog"] if c["id"] == "tulip")
+        shop = server.market_ref("tulip", None, None, None)
         self.assertIsNotNone(tl[0]["mk_typ"])
         self.assertEqual((tl[0]["mk_max"], G["auc_hours"], G["auc_hours_set"]), (3 * max(shop, tl[0]["mk_typ"]), 24, [1, 6, 24]))
         shop = max(shop, tl[0]["mk_typ"])
@@ -4838,60 +4839,19 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/gifts/mbuy", {"id": gid, "price": price}, buyer)[0], 404)
 
     def test_market_valuation(self):
-        # рыночная цена: повторы одной пары — одна сделка; торговались — цена растёт, купили по старту — падает; за сутки —
-        # не больше ±25 %; вид без своих сделок — по уровню редкости (от двух сделок); «за неделю» — к цене неделю назад
         db = server.APP.db
-        saved = [tuple(r) for r in db.q("SELECT * FROM market_deals")], [tuple(r) for r in db.q("SELECT * FROM market_hist")]
+        saved = {table: [tuple(r) for r in db.q("SELECT * FROM " + table)]
+                 for table in ("market_deals", "gift_quote_history")}
         def restore():
-            db.x("DELETE FROM market_deals")
-            db.x("DELETE FROM market_hist")
-            for r in saved[0]:
-                db.x(f"INSERT INTO market_deals VALUES({','.join('?' * len(r))})", r)
-            for r in saved[1]:
-                db.x("INSERT INTO market_hist VALUES(?,?,?)", r)
-            server._MKT_TYP.update(day=None)
+            for table, rows in saved.items():
+                db.x("DELETE FROM " + table)
+                for row in rows:
+                    db.x("INSERT INTO " + table + " VALUES(" + ",".join("?" * len(row)) + ")", row)
+            server.invalidate_economy()
         self.addCleanup(restore)
-        db.x("DELETE FROM market_deals")
-        db.x("DELETE FROM market_hist")
+        for table in saved:
+            db.x("DELETE FROM " + table)
         now = time.time()
-        rare = [g[0] for g in server.GIFTS if server.gift_rarity(g[0])["k"] == "rare" and g[0] not in server.LIMITED_BY]
-        a, b, c, d = rare[:4]
-        def deal(gid, gift_id, seller, buyer, signal, ref=100, ago=3600):
-            db.x("""INSERT INTO market_deals(gift_id, ts, gift, mkey, tier, price, signal, ref, seller, buyer, bidders)
-                    VALUES(?,?,?,?, 'rare', ?,?,?,?,?, 2)""", (gift_id, now - ago, gid, gid, signal, signal, ref, seller, buyer))
-        # «туда-обратно» между двумя: 10 сделок по 3 опорных — одна сделка; цель ≈ 2, но за сутки — не больше +25 %
-        for k in range(10):
-            deal(a, 9001 + k % 2, 1, 2, 300)
-        server._MKT_TYP.update(day=None)
-        mv = server.market_vals(db)
-        self.assertEqual(mv["r"][a], 1.25)
-        self.assertNotIn("*rare", mv["r"])                                    # уровень — от двух сделок
-        # за b торговались (две пары по 1,5) — растёт; c купили по старту без соперников (0,5) — падает
-        deal(b, 9100, 3, 4, 150)
-        deal(b, 9101, 5, 6, 150)
-        for k in range(3):
-            deal(c, 9200 + k, 7 + k, 20 + k, 50)
-        server._MKT_TYP.update(day=None)
-        mv = server.market_vals(db)
-        self.assertEqual((mv["r"][b], mv["r"][c]), (1.25, 0.75))
-        self.assertIn("*rare", mv["r"])
-        # назавтра — дальше к цели, но не больше чем на 25 % от вчерашнего
-        tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-        mv2 = server.market_vals(db, tomorrow)
-        self.assertGreater(mv2["r"][b], 1.25)
-        self.assertLessEqual(mv2["r"][b], round(1.25 * 1.25, 4))
-        self.assertLess(mv2["r"][c], 0.75)
-        # Для вида без сделок возможен ориентир по редкости, для недельного сравнения нужны обе недели.
-        e, dem = server.econ(db), server.gift_demand(db)
-        ref_d = server.market_ref(d, None, e, dem)
-        self.assertEqual(server.market_est(d, None, e, dem, None, mv2), min(3 * ref_d, round(ref_d * mv2["r"]["*rare"])))
-        self.assertIsNone(server.market_chg(b, None, mv2))
-        self.assertEqual(server.market_sales_view(d, None, mv2)["source"], "rarity")
-        server._MKT_TYP.update(day=None)
-        # сгоревшие уникальные — дороже
-        mv3 = {"r": {"x:epic": 2.0}, "burn": {"u:x": 0.5}, "chg": {}}
-        with mock.patch.object(server, "market_ref", return_value=100), mock.patch.object(server, "market_key", return_value="x:epic"):
-            self.assertEqual(server.market_est("x", {"rar": {"k": "epic"}}, e, dem, None, mv3), round(100 * 2.0 * 1.1))
         # комиссия продавца с переплаты: до 1,5 рыночных цен — обычная, выше — не меньше 30 %; с покупателя — 2,5 % сверху
         self.assertEqual(server.market_fee_amt(150, 0.1, 100), 15)
         self.assertEqual(server.market_fee_amt(250, 0.1, 100), 15 + 30)
@@ -4907,7 +4867,7 @@ class ServerTest(unittest.TestCase):
                   price, seller, buyer))
         url = "/api/gifts/price?market=1&gift=" + gid
         db.x("DELETE FROM market_deals")
-        db.x("DELETE FROM market_hist")
+        db.x("DELETE FROM gift_quote_history")
         server._MKT_TYP.update(day=None)
         self.assertEqual(self.req("GET", url)[0], 401)
         self.assertEqual(self.req("GET", url, token=token)[1]["source"], "catalog")
@@ -4927,11 +4887,44 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(stats["week"], {"previous": 120, "current": 190})
         self.assertEqual(self.req("GET", url + "&tier=rare", token=token)[1]["last"]["p"], 500)
         mv = server.market_vals(db)
-        self.assertGreater(mv["r"][gid], 1)
+        self.assertEqual(mv["prices"][gid], 123)  # каталог 99, дневной шаг 24
         self.assertEqual(server.market_chg(gid, None, mv), round(190 / 120, 4))
-        # Одиночный выброс не сдвигает медиану трёх одинаково свежих продаж.
-        prices = [({"price": p, "ref": 100}, 1) for p in (100, 100, 900)]
-        self.assertEqual(server.market_sale_ratio(prices), 1)
+        # Котировка не меняется от покупок в магазине, цены объявления и покупок одного участника.
+        self.assertEqual(server.market_est(gid, None, {"idx": 3}, {gid: 4}, None, mv), 123)
+        for k in range(7):
+            sale(100 + k, 200 + k, 300, 280, 0, gid + ":epic")
+        server._MKT_TYP.update(day=None)
+        mv = server.market_vals(db)
+        self.assertNotIn(gid + ":epic", mv["prices"])
+        # Старый дешёвый экземпляр и недавняя покупка оцениваются одинаково, а защита действует при выкупе.
+        sid = self.req("GET", "/api/me", token=token)[1]["sid"]
+        old_id = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, paid) VALUES(?,?,?,?,?)",
+                      (sid, gid, now - 3 * 86400, sid, 40))
+        new_id = db.x("INSERT INTO gifts(student_id, gift, ts, from_sid, paid) VALUES(?,?,?,?,?)", (sid, gid, now, sid, 40))
+        inv = self.req("GET", "/api/gifts", token=token)[1]
+        rows = {g["id"]: g for g in inv["mine"]}
+        self.assertEqual((rows[old_id]["mk_typ"], rows[new_id]["mk_typ"]), (123, 123))
+        self.assertEqual((rows[old_id]["sell"], rows[new_id]["sell"]), (110, 36))
+        self.assertEqual(rows[old_id]["paid"], 40)
+        self.assertIsNone(rows[old_id]["market_payout_at"])
+        self.assertEqual(rows[new_id]["market_payout_at"], now + 48 * 3600)
+        # При перепродаже уже уникального подарка редкость не добавляется к цене покупки дважды.
+        unique = {"rar": {"k": "rare"}}
+        quotes = {"prices": {gid + ":rare": 250}}
+        for acquired, expected in ((now, 36), (now - 3 * 86400, 225)):
+            self.assertEqual(server.gift_sell_price(gid, unique, {"idx": 1}, {}, {}, 40, None, quotes,
+                                                   now - 60 * 86400, acquired), expected)
+        self.assertEqual(inv["value"]["worth"], rows[new_id]["worth"] * 2)
+        self.assertEqual(self.req("GET", f"/api/profile?sid={sid}", token=token)[1]["gift_value"]["worth"], inv["value"]["worth"])
+        self.assertGreaterEqual(next(g["price"] for g in inv["catalog"] if g["id"] == gid), 123)
+        self.assertEqual(self.req("POST", "/api/gifts/sell", {"id": old_id, "price": 36}, token=token)[0], 409)
+        st, sale_result = self.req("POST", "/api/gifts/sell", {"id": old_id, "price": 110}, token=token)
+        self.assertEqual((st, sale_result["price"], sale_result["game"]["coins"]), (200, 110, inv["coins"] + 110))
+        tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+        tomorrow_price = server.market_vals(db, tomorrow)["prices"][gid]
+        self.assertTrue(123 < tomorrow_price <= 153)
+        later = (datetime.date.today() + datetime.timedelta(days=40)).isoformat()
+        self.assertEqual(server.market_vals(db, later)["prices"][gid], tomorrow_price)
 
     def test_box_gift_market_fee(self):
         # выпавший в «🎲» подарок продаётся на рынке с той же комиссией, что и остальные: 2,5 % с продавца и 2,5 % с покупателя
