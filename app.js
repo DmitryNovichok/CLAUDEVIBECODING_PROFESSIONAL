@@ -2130,8 +2130,16 @@
     }
     const revKey = pick.why.type === 'review' ? pick.why.r.key : topicKey(t0);
     const rv = P.reviews[revKey];
+    const a = pick.why.type === 'asg' && pick.why.a;
+    let work = a && !a.course && !a.duel ? a : null;
+    if (work && !work.strict) {
+      const state = pkState(t0.id, pkFirst(work));
+      if (state && state[0] !== 'pend') work = null;    // новый разбор уже оценённой задачи
+    }
     cur = {
       task: t0, why: pick.why, attempt: 0, answers: [], done: false, started: Date.now(),
+      pyAssignment: work ? work.id : 0,
+      pyDraft: work ? `work:${work.id}:${work.started || work.created}:${t0.id}` : trainingDraft(t0.id, pick.resume),
       revKey, revDue: !!(rv && isDue(rv, Date.now())),
       group: !!t0.parts,
       shape: t0.parts ? null : shapeOf(t0),
@@ -5176,7 +5184,7 @@
   // Настоящий CPython (Pyodide) в отдельном потоке: math, itertools, functools, ipaddress, re, string, collections…
   // Файлы задания лежат рядом с кодом — open('17.txt') работает. Черепашка для №6 рисует на холсте.
   const PY_BTN = '<button type="button" class="icon-btn py-btn" id="pyBtn" title="Решить на Python прямо здесь">Python</button>';
-  const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null, attTimer: null, sent: {} };   // sent: задание → прикреплённый код
+  const PY = { worker: null, ready: false, running: false, task: null, draft: null, revision: 0, attTimer: null, sent: {} };
   const pyOpen = () => !$('#pyDock').hidden;
   const pyTaskNow = () => (courseShown && pageKind === 'pyc' ? PYC_PY
     : (examShown && EX ? byId.get((EX.items[EX.cur] || {}).id) : cur && cur.task)) || null;
@@ -5293,16 +5301,43 @@
   new MutationObserver(() => { if ($('#cond') && (!MARK.cond || !MARK.cond.isConnected || MARK.cond !== $('#cond'))) markAttach(); })
     .observe(trainerEl, { childList: true });
   const codeKey = id => `egeshka.code.${student ? student.sid : 'local'}.${id}`;
-  function readCode(id) { try { return localStorage.getItem(codeKey(id)); } catch (e) { return null; } }
-  function writeCode(id, code) { try { if (code.trim()) localStorage.setItem(codeKey(id), code); else localStorage.removeItem(codeKey(id)); } catch (e) { /* нет места */ } }
+  // На вкладку нужен только последний незавершённый черновик обычной тренировки.
+  function trainingDraft(tid, resume) {
+    const slot = codeKey('training'), prefix = `training:${tid}:`;
+    const key = prefix + (window.crypto?.randomUUID?.() || Date.now() + '-' + Math.random());
+    try {
+      const old = sessionStorage.getItem(slot);
+      if (resume && old?.startsWith(prefix)) return old;
+      if (old) sessionStorage.removeItem(codeKey(old));
+      sessionStorage.setItem(slot, key);
+    } catch (e) { /* редактор остаётся доступен */ }
+    return key;
+  }
+  const codeStore = id => id.startsWith('training:') ? sessionStorage : localStorage;
+  function readCode(id) { try { return id ? codeStore(id).getItem(codeKey(id)) : null; } catch (e) { return null; } }
+  function writeCode(id, code) {
+    if (!id) return;
+    try {
+      const store = codeStore(id);
+      if (code.trim() || id.startsWith('work:')) store.setItem(codeKey(id), code);
+      else store.removeItem(codeKey(id));
+    } catch (e) { /* нет места */ }
+  }
+  function pyDraftFor(t) {
+    if (!t) return null;
+    if (t.pyc) return t.id;
+    if (examShown && EX) return `exam:${EX.id}:${t.id}`;
+    return cur?.task.id === t.id ? cur.pyDraft : null;
+  }
+  const editorDraft = () => PY.task && (PY.task.pyc ? PY.task.id : PY.draft);
   // Virtual files and output belong to one signed-in pupil. Destroy all Python
   // contexts before switching accounts, including checks running in other views.
   function pyDisposeSession() {
-    clearTimeout(PY.saveTimer); PY.saveTimer = null;
-    if (PY.task && $('#pyCode')) writeCode(PY.task.id, $('#pyCode').value);
+    if (editorDraft() && $('#pyCode').value) writeCode(editorDraft(), $('#pyCode').value);
+    ++PY.revision;
     if (PY.worker) PY.worker.terminate();
     clearTimeout(PY.attTimer);
-    Object.assign(PY, { worker: null, ready: false, running: false, task: null, sent: {} });
+    Object.assign(PY, { worker: null, ready: false, running: false, task: null, draft: null, sent: {} });
     resetLearningSession();
     for (const id of ['pyCode', 'pyIn', 'labCode', 'labStdin']) if ($('#' + id)) $('#' + id).value = '';
     for (const id of ['pyOut', 'pyFiles', 'pyTask', 'labOutput', 'labVariables', 'labStack', 'labTraceCode', 'bugRoot'])
@@ -5371,7 +5406,7 @@
     if (PY.running) return;
     const t = PY.task;
     const code = $('#pyCode').value;
-    if (t) writeCode(t.id, code);
+    writeCode(editorDraft(), code);
     if (!code.trim()) { setPyStatus('Напишите код', 'bad'); return; }
     ensureWorker();
     $('#pyOut').textContent = '';
@@ -5399,9 +5434,8 @@
     $('#pyDock').hidden = !open;
     document.body.classList.toggle('py-open', open);
     $$('#pyBtn').forEach(b => b.classList.toggle('on', open));
-    if (!open) { if (PY.task) writeCode(PY.task.id, $('#pyCode').value); return; }
+    if (!open) return;
     ensureWorker();
-    PY.task = null;
     pySync();
     $('#pyCode').focus();
   }
@@ -5409,27 +5443,47 @@
     if (!pyOpen()) return;
     $$('#pyBtn').forEach(b => b.classList.add('on'));
     const t = pyTaskNow();
-    if (!t || (PY.task && PY.task.id === t.id)) return;
-    if (PY.task) writeCode(PY.task.id, $('#pyCode').value);
+    const draft = pyDraftFor(t);
+    if (PY.task?.id === t?.id && editorDraft() === draft) return;
+    clearTimeout(PY.attTimer);
+    if (PY.running) pyStop();
     PY.task = t;
+    PY.draft = draft;
+    const revision = ++PY.revision;
+    $('#pyIn').value = '';
+    $('#pyCode').value = readCode(draft) ?? pyStarter(t);
+    updateGutter();
+    $('#pyOut').textContent = '';
+    pyStale(false); PY.ran = null;
+    if (PY.ready) setPyStatus('Python готов. Ctrl+Enter — запустить.');
+    $('#pyTurtle').hidden = true;
+    if (!t) {
+      $('#pyTask').textContent = $('#pyFiles').textContent = '';
+      $('#pyAttach').hidden = true;
+      return;
+    }
     pycDockTools(t);
     const files = pyFilesOf(t);
     $('#pyTask').textContent = t.pyc ? t.label : `задание ${numLabel(t.n)}`;
     $('#pyFiles').innerHTML = files.length
       ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ')
       : (t.att || []).length ? 'Файлы этого задания лежат на другом сайте — скачайте их кнопкой под условием.' : '';
-    pyAttState(PY.sent[t.id] != null ? 'ok' : 'wait');
-    $('#pyAttach').hidden = !SERVER || !student || !!t.pyc;     // в курсе программирования код уходит вместе с ответом
-    let code = readCode(t.id);
-    if (code == null && SERVER && student && !t.pyc) {
-      try { const r = await api('solution?task=' + encodeURIComponent(t.id)); if (r.code) { code = r.code; PY.sent[t.id] = r.code; pyAttState('ok'); } } catch (e) { /* нет решения */ }
-      if (!PY.task || PY.task.id !== t.id) return;   // пока ждали, ученик ушёл на другое задание
+    pyAttState(PY.sent[draft] != null ? 'ok' : 'wait');
+    $('#pyAttach').hidden = !SERVER || !student || !!t.pyc;
+    const assignment = !t.pyc && !examShown && cur?.pyAssignment;
+    if (SERVER && student && assignment && readCode(draft) === null) {
+      // На другом устройстве доступно только решение, уже прикреплённое к этой работе.
+      try {
+        const sid = student.sid;
+        const r = await api(`solution?task=${encodeURIComponent(t.id)}&assignment=${assignment}`);
+        if (!r.code || sid !== student?.sid || revision !== PY.revision || editorDraft() !== draft) return;
+        $('#pyCode').value = r.code;
+        writeCode(draft, r.code);
+        PY.sent[draft] = r.code;
+        pyAttState('ok');
+        updateGutter();
+      } catch (e) { /* можно работать с локальным черновиком */ }
     }
-    $('#pyCode').value = code != null ? code : pyStarter(t);
-    updateGutter();
-    $('#pyOut').textContent = '';
-    pyStale(false); PY.ran = null;
-    $('#pyTurtle').hidden = true;
   }
   /** Код поменяли после запуска — вывод ниже ещё от старого кода: приглушаем его и подсказываем перезапустить. */
   function pyStale(on) {
@@ -5878,15 +5932,14 @@
   $('#pyCode').addEventListener('input', () => {
     updateGutter();
     if (!PY.running && PY.ran != null && $('#pyOut').textContent) pyStale($('#pyCode').value !== PY.ran);
-    clearTimeout(PY.saveTimer);
-    const t = PY.task;
-    PY.saveTimer = setTimeout(() => { if (t) writeCode(t.id, $('#pyCode').value); }, 500);
-    // решение уже прикреплено (ответ проверяли) — правки прикрепятся сами, когда ученик перестанет печатать
+    const t = PY.task, draft = editorDraft(), code = $('#pyCode').value;
+    ++PY.revision;
+    writeCode(draft, code);
     clearTimeout(PY.attTimer);
-    if (t && PY.sent[t.id] != null && $('#pyCode').value !== PY.sent[t.id]) {
+    if (t && PY.sent[draft] != null && code !== PY.sent[draft]) {
       pyAttState('edit');
-      PY.attTimer = setTimeout(() => { if (PY.task === t) autoAttach(t.id); }, 6000);
-    } else if (t && PY.sent[t.id] != null) pyAttState('ok');
+      PY.attTimer = setTimeout(() => { if (editorDraft() === draft) autoAttach(t.id); }, 6000);
+    } else if (t && PY.sent[draft] != null) pyAttState('ok');
   });
   $('#pyCode').addEventListener('scroll', syncScroll);
   // курсор переехал — пересчитать подсветку парной скобки
@@ -5902,7 +5955,9 @@
     e.target.value = '';
     if (!f) return;
     if (f.size > 200000) { toast('Файл слишком большой'); return; }
-    $('#pyCode').value = await f.text();
+    const revision = PY.revision, code = await f.text();
+    if (revision !== PY.revision) return;
+    $('#pyCode').value = code;
     $('#pyCode').dispatchEvent(new Event('input'));
   });
   /** Подпись вместо кнопки «Прикрепить решение»: решение прикрепляется само при проверке ответа. */
@@ -5915,15 +5970,18 @@
 
   /** Код из редактора Python к этому заданию — прикрепить как решение (при «Сдать ответ»). true — прикрепили. */
   async function autoAttach(tid) {
-    if (!SERVER || !student || !tid) return false;
-    const code = PY.task && PY.task.id === tid ? $('#pyCode').value : readCode(tid);
+    const task = pyTaskNow(), draft = pyDraftFor(task);
+    if (!SERVER || !student || !draft || task.id !== tid) return false;
+    const code = editorDraft() === draft ? $('#pyCode').value : readCode(draft);
     if (!code || !code.trim()) return false;
-    if (PY.sent[tid] === code) return true;               // то же самое уже прикреплено — не дублируем в истории
+    if (PY.sent[draft] === code) return true;
+    const sid = student.sid;
+    const assignment = (!examShown && cur?.pyAssignment) || 0;
     try {
-      await api('solution', { task: tid, code });
-      PY.sent[tid] = code;
-      if (PY.task && PY.task.id === tid && $('#pyCode').value === code) pyAttState('ok');
-      return true;
+      await api('solution', { task: tid, assignment, code });
+      if (student?.sid !== sid) return false;
+      PY.sent[draft] = code;
+      if (editorDraft() === draft && $('#pyCode').value === code) pyAttState('ok');      return true;
     } catch (e) { return false; }
   }
 
@@ -6838,35 +6896,53 @@
     // новые наборы и места: рядом с иконкой турниров
     renderDuelCard();
   }
-  // новая версия сайта: раз в 2 минуты сверяем app.js и style.css с тем, что загружено; поменялись — предлагаем обновить
-  const VER = { tags: null, shown: false };
+  // Изменение сборки даёт одно короткое уведомление в этой вкладке.
+  const VER = { tags: null, checking: false, pending: null, dismiss: null };
   async function siteTags() {
-    if (!/^https?:$/.test(location.protocol)) return null;          // открыт файл с диска: обновлений с сервера нет
+    if (!/^https?:$/.test(location.protocol)) return null;
     try {
       const rs = await Promise.all(['app.js', 'style.css', 'changelog.js'].map(f => fetch(f, { method: 'HEAD', cache: 'no-store' })));
-      return rs.map(r => r.headers.get('ETag') || r.headers.get('Last-Modified') || '').join('|');
+      const tags = rs.map(r => r.ok && (r.headers.get('ETag') || r.headers.get('Last-Modified')));
+      return tags.every(Boolean) ? JSON.stringify(tags) : null;
     } catch (e) { return null; }
   }
-  async function checkVersion() {
-    if (VER.shown) return;
-    const t = await siteTags();
-    if (!t) return;
-    if (VER.tags === null) { VER.tags = t; return; }
-    if (t === VER.tags) return;
-    VER.shown = true;
-    // вкладка давно открыта и в фоне — обновить её саму, когда к ней вернутся (если не идёт вариант или самостоятельная):
-    // старая версия сайта не остаётся работать неделями
-    const safe = () => !EX && !wkLive() && !(document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.value);
-    if (document.hidden) {
-      const go = () => { if (!document.hidden && safe()) location.reload(); };
-      document.addEventListener('visibilitychange', go);
-    }
+  function showVersionNotice(tags) {
+    if (VER.dismiss) VER.dismiss();
+    try {
+      if (sessionStorage.getItem('egeshka.update.seen') === tags) return;
+      sessionStorage.setItem('egeshka.update.seen', tags);
+    } catch (e) { /* VER.tags защищает от повтора в открытой странице */ }
     const bar = document.createElement('div');
     bar.className = 'ver-bar';
+    bar.setAttribute('role', 'status');
     bar.innerHTML = '✨ Вышла новая версия сайта <button type="button" class="btn primary">Обновить</button>';
-    bar.querySelector('button').addEventListener('click', () => location.reload());
+    const dismiss = () => { clearTimeout(timer); bar.remove(); VER.dismiss = null; };
+    const timer = setTimeout(dismiss, 2500);
+    VER.dismiss = dismiss;
+    bar.querySelector('button').addEventListener('click', () => { dismiss(); location.reload(); });
     document.body.appendChild(bar);
   }
+  async function checkVersion() {
+    if (VER.checking) return;
+    VER.checking = true;
+    let tags;
+    try { tags = await siteTags(); } finally { VER.checking = false; }
+    if (!tags || tags === VER.tags) return;
+    const initial = VER.tags === null;
+    VER.tags = tags;
+    if (initial) return;
+    if (document.hidden) VER.pending = tags;
+    else showVersionNotice(tags);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !VER.pending) return;
+    const tags = VER.pending;
+    VER.pending = null;
+    const el = document.activeElement;
+    if (courseShown && pageKind === 'hub' && !EX && !pyOpen() && $('#forecastModal').hidden
+        && !(el && /^(INPUT|TEXTAREA)$/.test(el.tagName) && el.value)) location.reload();
+    else showVersionNotice(tags);
+  });
   checkVersion();
   setInterval(checkVersion, 120000);
   /** Все матчи турнира списком (группы, плей-офф, за 3-е место). */
@@ -7152,27 +7228,31 @@
   $('#dailyCard').addEventListener('click', openDaily);
   $('#duelCard').addEventListener('click', () => tourOpen());
 
-  /** При входе (не в первый раз) — раз в день сводка: итоги недели, кто обогнал, задание дня, вызовы, лига. */
-  async function showDailyRating() {
-    if (viewPrefs().focus) return;                 // режим «Фокус» — без соревнований
-    const key = `egeTrainer.lbShown.${student ? student.sid : ''}`;
-    const today = dayKey(Date.now());
-    let shown = null;
-    try { shown = localStorage.getItem(key); } catch (e) { return; }
+  /** Автоматическая сводка на главной — один раз за неделю лиги на аккаунт. */
+  async function showWeeklyRating() {
+    const sid = student?.sid;
+    const onHub = () => sid && student?.sid === sid && courseShown && pageKind === 'hub' && $('#forecastModal').hidden;
+    if (!onHub() || viewPrefs().focus) return false;
     let d;
-    try { d = await api('leaderboard'); } catch (e) { return; }
+    try { d = await api('leaderboard'); } catch (e) { return false; }
+    if (!onHub() || d.summary_seen) return false;
+    const L = d.boards.league;
+    const key = `egeTrainer.lbShown.${sid}`;
+    // Перенести показ из прежней версии, если он пришёлся на эту же неделю лиги.
+    let oldDay;
+    try { oldDay = localStorage.getItem(key); } catch (e) { /* отметка на сервере работает и без localStorage */ }
+    const age = Date.parse(oldDay) - Date.parse(L.week);
+    try {
+      const claim = await api('leaderboard', { claim_week: L.week, already_seen: age >= 0 && age < 7 * 86400000 });
+      if (!claim.show || !onHub()) return false;
+    } catch (e) { return false; }
+    try { localStorage.setItem(key, L.week); } catch (e) { /* отметка уже сохранена в аккаунте */ }
     LB = d;
     const rb = $('#rankBtn');
     if (rb) rb.outerHTML = rankBtnHtml();
-    const L = d.boards.league;
     const note = overtakeNote(L);
     const passed = /обогнал/.test(note);
     saveLeagueSnap();
-    if (shown === today && !passed) {                         // сводку сегодня уже видел — но про обгон скажем
-      return;
-    }
-    if (!$('#forecastModal').hidden) { if (passed) toast(note.replace(/<[^>]+>/g, ''), 6000); return; }
-    try { localStorage.setItem(key, today); } catch (e) { /* не страшно */ }
     const R = L.result;
     const resKey = `egeTrainer.lgRes.${student ? student.sid : ''}`;
     const showRes = R && readJSON(resKey) !== R.week;
@@ -7190,6 +7270,7 @@
       ${boardsHtml(d, 'league')}
       <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
     $('#forecastModal').hidden = false;
+    return true;
   }
 
   // ═══════ src/app/12-sets.js
@@ -7638,7 +7719,7 @@
     if (a.result || a.closed) { abandonCurrent(); cur = null; wkDoneScreen(); return; }
     next();
     wkWatch();
-    wkPop('Ответ можно изменить один раз. <b>Прикрепляй решение</b> к каждому: Python → «Прикрепить решение».');
+    wkPop('Ответ можно изменить один раз. Код из окна Python прикрепится, когда ты сдашь ответ.');
   }
   function wkFullscreen() {
     if (!canFs() || document.fullscreenElement) return;
@@ -7812,16 +7893,16 @@
     const c = cur;
     let hasSol = await autoAttach(cur.task.id);   // код из окна Python прикрепляется сам
     if (cur !== c) return;
-    if (!hasSol) try { hasSol = !!(await api('solution?task=' + encodeURIComponent(cur.task.id))).code; } catch (e) { hasSol = true; }
+    if (!hasSol) try { hasSol = !!(await api(`solution?task=${encodeURIComponent(c.task.id)}&assignment=${a.id}`)).code; } catch (e) { /* нет подтверждения от сервера */ }
     if (cur !== c) return;
     const ans = await wkAsk(cur.changing ? (cur.group ? 'Изменить ответы?' : `Изменить ответ на «${esc(items[0].answer)}»?`)
       : cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
       (cur.changing ? 'Это единственное изменение — потом поменять будет нельзя.'
         : `Его можно будет изменить ещё <b>один раз</b>.`) + `${blank ? ` Без ответа вопросов: ${blank}.` : ''}`
-      + (hasSol ? '' : '<br><br><b class="wk-sol-warn">⚠ Решение не прикреплено.</b> Учитель хочет видеть, как ты решал: открой Python, вставь или напиши код и нажми «Прикрепить решение».'),
-      hasSol ? 'Сдать' : 'Сдать без решения', hasSol ? null : '📎 Прикрепить решение');
+      + (hasSol ? '' : '<br><br><b class="wk-sol-warn">⚠ Решение не прикреплено.</b> Учитель хочет видеть, как ты решал: открой Python и напиши код. Он прикрепится при сдаче ответа.'),
+      hasSol ? 'Сдать' : 'Сдать без решения', hasSol ? null : 'Открыть Python');
     if (cur !== c || cur.done) return;
-    if (ans === 'extra') { togglePy(true); toast('Вставь код в окно Python и нажми «Прикрепить решение», затем сдай ответ.', 5000); return; }
+    if (ans === 'extra') { togglePy(true); toast('Напиши код в Python и снова нажми «Сдать ответ».', 5000); return; }
     if (!ans) return;
     setBusy(true);
     let r = null;
@@ -11636,21 +11717,27 @@
       openHub(true);
     } else if (saved && inScope(saved)) {
       const s = P.tasks[saved.id];
-      show({ task: saved, why: { type: s ? 'repeat' : 'new' } });
+      show({ task: saved, why: { type: s ? 'repeat' : 'new' }, resume: true });
     } else {
       next();
     }
     const fresh = !labRequested && !P.log.length && !tourSeen();
     if (fresh) { setTimeout(openTour, 400); promoNext = true; }       // новичку — коротко о том, как всё устроено (потом — акция)
-    // после обновления — истории «Что нового» (один раз), иначе — объявление об акции (раз в день); сводка дня — в другой раз
-    const promo = !labRequested && !fresh && SERVER && student && (padAuto() || storiesAuto() || promoAuto());
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
-      if (!labRequested && !fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
+      if (!labRequested && !fresh) ready.then(() => setTimeout(loginSummary, 300));
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
+    }
+  }
+
+  async function loginSummary() {
+    const sid = student?.sid;
+    if (await showWeeklyRating()) return;
+    if (student?.sid === sid && courseShown && pageKind === 'hub' && $('#forecastModal').hidden) {
+      if (!padAuto() && !storiesAuto()) promoAuto();
     }
   }
 
@@ -11705,7 +11792,7 @@
   function tourDone() {
     if (!promoNext) return;
     promoNext = false;
-    if (!padAuto() && !storiesAuto()) promoAuto();
+    if (SERVER && student) loginSummary();
   }
   $('#tourBtn').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openTour(); });
 

@@ -224,3 +224,74 @@ for (const width of [375, 1366]) {
     }
   });
 }
+
+test('automatic league summary is shared across browsers; the league still opens manually', async ({browser}) => {
+  const pupil = fixture.participants[0];
+  for (const first of [true, false]) {
+    const context = await browser.newContext();
+    try {
+      await context.addCookies([{name: 'egest', value: pupil.token, url: fixture.origin}]);
+      await context.addInitScript(sid => {
+        if (window !== window.top) return;
+        for (const prefix of ['egeshka.tour.v1.', 'egeshka.pad.rewards-2026-11.', 'egeshka.stories.labs-lessons-2026-11.'])
+          localStorage.setItem(prefix + sid, '1');
+      }, pupil.sid);
+      const page = await context.newPage();
+      const ranking = page.waitForResponse(r => new URL(r.url()).pathname === '/api/leaderboard' && r.request().method() === 'GET');
+      await page.goto(fixture.origin);
+      expect((await (await ranking).json()).summary_seen).toBe(!first);
+      if (first) {
+        await expect(page.locator('#forecastBody')).toContainText('Привет! Вот что нового');
+        await page.locator('#tourGo').click();
+      } else {
+        await expect(page.locator('#forecastModal')).toBeHidden();
+        await page.locator('[data-hub-go="league"]').click();
+        await expect(page.locator('#forecastBody .fm-title')).toHaveText('Рейтинг');
+      }
+    } finally { await context.close(); }
+  }
+});
+
+test('version notice expires over Python and the update button dismisses it before reload', async ({page, context}) => {
+  await seedBrowser(context, fixture);
+  // Advance only the two-minute release check. The notice itself uses its real timeout.
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    const interval = window.setInterval;
+    window.setInterval = function(callback, ms, ...args) {
+      if (ms === 120000) window.pollRelease = callback;
+      return interval.call(this, callback, ms, ...args);
+    };
+  });
+  let build = 'one', broken = false;
+  await page.route(/\/(app\.js|style\.css|changelog\.js)(\?|$)/, route => {
+    if (route.request().method() !== 'HEAD') return route.continue();
+    return route.fulfill({status: broken ? 503 : 200, headers: broken ? {} : {ETag: '"' + build + '"'}, body: ''});
+  });
+  await page.goto(fixture.origin);
+  await page.locator('[data-hub-n="5"]').click();
+  await page.locator('#pyBtn').click();
+  await page.locator('#pyCode').fill('print(42)');
+  const poll = () => page.evaluate(() => window.pollRelease());
+  const bar = page.locator('.ver-bar');
+  broken = true;
+  await poll();
+  await expect(bar).toHaveCount(0);
+  broken = false;
+  build = 'two';
+  await poll();
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveCount(0, {timeout: 4500});
+  await expect(page.locator('#pyCode')).toHaveValue('print(42)');
+  await poll();
+  await expect(bar).toHaveCount(0);
+  build = 'three';
+  await poll();
+  await expect(bar).toBeVisible();
+  // Inspect the old document on its way out, before a new page can hide a persistent bar.
+  await page.evaluate(() => addEventListener('pagehide', () =>
+    sessionStorage.setItem('test.noticeStillPresent', String(!!document.querySelector('.ver-bar'))), {once: true}));
+  await Promise.all([page.waitForEvent('domcontentloaded'), bar.getByRole('button', {name: 'Обновить'}).click()]);
+  expect(await page.evaluate(() => sessionStorage.getItem('test.noticeStillPresent'))).toBe('false');
+  await expect(bar).toHaveCount(0);
+});

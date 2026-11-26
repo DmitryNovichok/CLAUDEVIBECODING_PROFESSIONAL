@@ -607,8 +607,16 @@ class TeacherWorkHandlers:
         item_info = [{"id": k, "n": (svc.bank.tasks.get(k) or {}).get("n")} for k in items]
         sols = {}                              # сколько решений (кода) прикреплено к заданиям работы
         if real:
-            for x in db.q(f"""SELECT student_id, COUNT(*) AS c FROM solutions WHERE task_id IN ({','.join('?' * len(real))})
-                              AND ts >= ? GROUP BY student_id""", (*real, a["created"] or 0)):
+            cutoff = svc.asg_cutoff(a)
+            for x in db.q(f"""SELECT student_id, COUNT(*) AS c FROM (
+                    SELECT h.student_id, h.code, ROW_NUMBER() OVER (
+                        PARTITION BY h.student_id, h.task_id ORDER BY h.ts DESC, h.id DESC) AS latest
+                    FROM solution_history h LEFT JOIN asg_runs r ON r.asg_id=? AND r.student_id=h.student_id
+                    WHERE h.task_id IN ({','.join('?' * len(real))}) AND (h.assignment_id=? OR h.assignment_id IS NULL)
+                      AND (NOT ? OR r.started IS NOT NULL)
+                      AND h.ts BETWEEN COALESCE(r.started, ?) AND MIN(COALESCE(r.finished, ?), ?))
+                    WHERE latest=1 AND TRIM(code) != '' GROUP BY student_id""",
+                    (aid, *real, aid, a["strict"], a["created"] or 0, cutoff, cutoff)):
                 sols[x["student_id"]] = x["c"]
         if not a["strict"]:
             rows = []
