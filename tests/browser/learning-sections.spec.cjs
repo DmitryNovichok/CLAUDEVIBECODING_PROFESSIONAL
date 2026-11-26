@@ -36,9 +36,16 @@ test('№24 grades Python re spans, explains a counterexample and opens the exam
   const input = form.locator('[data-re-pattern]');
   const result = form.locator('.pyc-msg');
   const check = () => form.getByRole('button', {name: 'Проверить шаблон'}).click();
+  // Selecting the task already on screen must keep its form and any check in progress.
+  const repeatedLevel = '**/api/pyc/level?m=m33&l=0';
+  let reloads = 0;
+  await page.route(repeatedLevel, route => { reloads++; return route.continue(); });
   await input.fill('[');
+  await page.locator('[data-pyc-focus="m33.digits"][aria-pressed="true"]').click();
   await check();
   await expect(result).toContainText('Ошибка шаблона');
+  expect(reloads).toBe(0);
+  await page.unroute(repeatedLevel);
   await input.fill('[0-9]');
   await check();
   await expect(result).toContainText('Проверь строку 1');

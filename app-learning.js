@@ -753,7 +753,13 @@ window.EgeLearningSections = function (bridge) {
   trainerEl.addEventListener('click', e => {
     if (!appState.courseShown || appState.pageKind !== 'pyc') return;
     const focus = e.target.closest('[data-pyc-focus]');
-    if (focus && PYC_L) { PYC_FOCUS = focus.dataset.pycFocus; openPycLevel(PYC_L.id, PYC_L.l, true); return; }
+    if (focus && PYC_L) {
+      if (PYC_FOCUS !== focus.dataset.pycFocus) {
+        PYC_FOCUS = focus.dataset.pycFocus;
+        openPycLevel(PYC_L.id, PYC_L.l, true);
+      }
+      return;
+    }
     const tests = e.target.closest('[data-pyc-tests]');
     if (tests) { pycTestCode(tests.dataset.pycTests, tests); return; }
     const lv = e.target.closest('[data-pyc-lv]');
