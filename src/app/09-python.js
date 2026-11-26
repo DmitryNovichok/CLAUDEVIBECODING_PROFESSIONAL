@@ -20,12 +20,12 @@
     const cv = MARK.cv, cond = MARK.cond;
     if (!cv || !cond) return;
     const w = cond.clientWidth, h = cond.scrollHeight, dpr = window.devicePixelRatio || 1;
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
-      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-      cv.style.width = w + 'px'; cv.style.height = h + 'px';
-    }
+    if (!w || !h) return;
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    if (cv.width !== Math.round(w * dpr)) cv.width = Math.round(w * dpr);
+    if (cv.height !== Math.round(h * dpr)) cv.height = Math.round(h * dpr);
     const g = cv.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.setTransform(cv.width / w, 0, 0, cv.height / h, 0, 0);
     g.clearRect(0, 0, w, h);
     g.lineCap = 'round'; g.lineJoin = 'round';
     for (const s of MARK.strokes.get(MARK.key) || []) {
@@ -59,8 +59,11 @@
     markSetOn(MARK.on);
   }
   function markPoint(e) {
-    const r = MARK.cv.getBoundingClientRect(), w = MARK.cond.clientWidth;
-    return [(e.clientX - r.left) / w, (e.clientY - r.top) / w];
+    const cv = e.currentTarget, r = cv.getBoundingClientRect();
+    // Курсор и видимые границы холста — в одной системе координат при любом масштабе.
+    // Обе координаты штриха хранятся в долях ширины, в том числе вертикальная.
+    return [(e.clientX - r.left) / r.width,
+            (e.clientY - r.top) / r.height * (cv.clientHeight / cv.clientWidth)];
   }
   function markErase(pt) {
     const list = markStrokes(), w = MARK.cond.clientWidth, R = 14 / w;
