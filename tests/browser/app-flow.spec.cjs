@@ -81,6 +81,53 @@ test('approved teacher with verified email opens the actual panel',async({page,c
   expect((await context.request.get(fixture.origin+'/api/admin/classes')).status()).toBe(200);
 });
 
+test('task marker draws and erases under the pointer at all saved interface sizes', async ({browser}) => {
+  for (const [size, dpr] of [[0, 1], [1, 2], [2, 1.25], [3, 2]]) {
+    const context = await browser.newContext({viewport: {width: 1170, height: 520}, deviceScaleFactor: dpr});
+    try {
+      await seedBrowser(context, fixture);
+      await context.addInitScript(size => {
+        if (window === window.top) localStorage.setItem('egeTrainer.view', JSON.stringify({size}));
+      }, size);
+      const page = await context.newPage();
+      await page.goto(fixture.origin + '/');
+      await page.locator('[data-hub-n="5"]').click();
+      await page.locator('#markBtn').click();
+      const canvas = page.locator('#cond .mark-canvas.active');
+      await canvas.evaluate(el => window.scrollBy(0, el.getBoundingClientRect().top - 140));
+      expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      const rect = await canvas.boundingBox();
+      const start = {x: Math.round(rect.x + rect.width * .28), y: Math.round(rect.y + rect.height * .25)};
+      const end = {x: Math.round(rect.x + rect.width * .72), y: Math.round(rect.y + rect.height * .7)};
+      const alphaAt = point => canvas.evaluate((el, p) => {
+        const r = el.getBoundingClientRect();
+        const x = Math.floor((p.x - r.left) * el.width / r.width);
+        const y = Math.floor((p.y - r.top) * el.height / r.height);
+        return el.getContext('2d').getImageData(x, y, 1, 1).data[3];
+      }, point);
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(end.x, end.y, {steps: 8});
+      await page.mouse.up();
+      for (const p of [start, {x: (start.x + end.x) / 2, y: (start.y + end.y) / 2}, end]) {
+        expect(await alphaAt(p), 'ink at pointer, size ' + size + ', DPR ' + dpr).toBeGreaterThan(32);
+      }
+
+      await page.setViewportSize({width: 1050, height: 520});
+      await page.getByRole('button', {name: 'Ластик', exact: true}).click();
+      await expect.poll(() => canvas.evaluate(el => el.clientWidth === el.parentElement.clientWidth)).toBe(true);
+      const next = await canvas.boundingBox();
+      const k = next.width / rect.width;
+      const saved = {x: next.x + (end.x - rect.x) * k, y: next.y + (end.y - rect.y) * k};
+      expect(await alphaAt(saved)).toBeGreaterThan(32);
+      await page.mouse.click(saved.x, saved.y);
+      expect(await alphaAt(saved)).toBe(0);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
 test('pupil opens first task, downloads its protected file and saves a correct answer',async({page,context})=>{
   await context.addCookies([{name:'egest',value:fixture.student.token,url:fixture.origin,httpOnly:true,sameSite:'Lax'}]);
   await page.addInitScript(sid=>{
