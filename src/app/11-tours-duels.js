@@ -309,35 +309,53 @@
     // новые наборы и места: рядом с иконкой турниров
     renderDuelCard();
   }
-  // новая версия сайта: раз в 2 минуты сверяем app.js и style.css с тем, что загружено; поменялись — предлагаем обновить
-  const VER = { tags: null, shown: false };
+  // Изменение сборки даёт одно короткое уведомление в этой вкладке.
+  const VER = { tags: null, checking: false, pending: null, dismiss: null };
   async function siteTags() {
-    if (!/^https?:$/.test(location.protocol)) return null;          // открыт файл с диска: обновлений с сервера нет
+    if (!/^https?:$/.test(location.protocol)) return null;
     try {
       const rs = await Promise.all(['app.js', 'style.css', 'changelog.js'].map(f => fetch(f, { method: 'HEAD', cache: 'no-store' })));
-      return rs.map(r => r.headers.get('ETag') || r.headers.get('Last-Modified') || '').join('|');
+      const tags = rs.map(r => r.ok && (r.headers.get('ETag') || r.headers.get('Last-Modified')));
+      return tags.every(Boolean) ? JSON.stringify(tags) : null;
     } catch (e) { return null; }
   }
-  async function checkVersion() {
-    if (VER.shown) return;
-    const t = await siteTags();
-    if (!t) return;
-    if (VER.tags === null) { VER.tags = t; return; }
-    if (t === VER.tags) return;
-    VER.shown = true;
-    // вкладка давно открыта и в фоне — обновить её саму, когда к ней вернутся (если не идёт вариант или самостоятельная):
-    // старая версия сайта не остаётся работать неделями
-    const safe = () => !EX && !wkLive() && !(document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.value);
-    if (document.hidden) {
-      const go = () => { if (!document.hidden && safe()) location.reload(); };
-      document.addEventListener('visibilitychange', go);
-    }
+  function showVersionNotice(tags) {
+    if (VER.dismiss) VER.dismiss();
+    try {
+      if (sessionStorage.getItem('egeshka.update.seen') === tags) return;
+      sessionStorage.setItem('egeshka.update.seen', tags);
+    } catch (e) { /* VER.tags защищает от повтора в открытой странице */ }
     const bar = document.createElement('div');
     bar.className = 'ver-bar';
+    bar.setAttribute('role', 'status');
     bar.innerHTML = '✨ Вышла новая версия сайта <button type="button" class="btn primary">Обновить</button>';
-    bar.querySelector('button').addEventListener('click', () => location.reload());
+    const dismiss = () => { clearTimeout(timer); bar.remove(); VER.dismiss = null; };
+    const timer = setTimeout(dismiss, 2500);
+    VER.dismiss = dismiss;
+    bar.querySelector('button').addEventListener('click', () => { dismiss(); location.reload(); });
     document.body.appendChild(bar);
   }
+  async function checkVersion() {
+    if (VER.checking) return;
+    VER.checking = true;
+    let tags;
+    try { tags = await siteTags(); } finally { VER.checking = false; }
+    if (!tags || tags === VER.tags) return;
+    const initial = VER.tags === null;
+    VER.tags = tags;
+    if (initial) return;
+    if (document.hidden) VER.pending = tags;
+    else showVersionNotice(tags);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !VER.pending) return;
+    const tags = VER.pending;
+    VER.pending = null;
+    const el = document.activeElement;
+    if (courseShown && pageKind === 'hub' && !EX && !pyOpen() && $('#forecastModal').hidden
+        && !(el && /^(INPUT|TEXTAREA)$/.test(el.tagName) && el.value)) location.reload();
+    else showVersionNotice(tags);
+  });
   checkVersion();
   setInterval(checkVersion, 120000);
   /** Все матчи турнира списком (группы, плей-офф, за 3-е место). */
@@ -623,27 +641,31 @@
   $('#dailyCard').addEventListener('click', openDaily);
   $('#duelCard').addEventListener('click', () => tourOpen());
 
-  /** При входе (не в первый раз) — раз в день сводка: итоги недели, кто обогнал, задание дня, вызовы, лига. */
-  async function showDailyRating() {
-    if (viewPrefs().focus) return;                 // режим «Фокус» — без соревнований
-    const key = `egeTrainer.lbShown.${student ? student.sid : ''}`;
-    const today = dayKey(Date.now());
-    let shown = null;
-    try { shown = localStorage.getItem(key); } catch (e) { return; }
+  /** Автоматическая сводка на главной — один раз за неделю лиги на аккаунт. */
+  async function showWeeklyRating() {
+    const sid = student?.sid;
+    const onHub = () => sid && student?.sid === sid && courseShown && pageKind === 'hub' && $('#forecastModal').hidden;
+    if (!onHub() || viewPrefs().focus) return false;
     let d;
-    try { d = await api('leaderboard'); } catch (e) { return; }
+    try { d = await api('leaderboard'); } catch (e) { return false; }
+    if (!onHub() || d.summary_seen) return false;
+    const L = d.boards.league;
+    const key = `egeTrainer.lbShown.${sid}`;
+    // Перенести показ из прежней версии, если он пришёлся на эту же неделю лиги.
+    let oldDay;
+    try { oldDay = localStorage.getItem(key); } catch (e) { /* отметка на сервере работает и без localStorage */ }
+    const age = Date.parse(oldDay) - Date.parse(L.week);
+    try {
+      const claim = await api('leaderboard', { claim_week: L.week, already_seen: age >= 0 && age < 7 * 86400000 });
+      if (!claim.show || !onHub()) return false;
+    } catch (e) { return false; }
+    try { localStorage.setItem(key, L.week); } catch (e) { /* отметка уже сохранена в аккаунте */ }
     LB = d;
     const rb = $('#rankBtn');
     if (rb) rb.outerHTML = rankBtnHtml();
-    const L = d.boards.league;
     const note = overtakeNote(L);
     const passed = /обогнал/.test(note);
     saveLeagueSnap();
-    if (shown === today && !passed) {                         // сводку сегодня уже видел — но про обгон скажем
-      return;
-    }
-    if (!$('#forecastModal').hidden) { if (passed) toast(note.replace(/<[^>]+>/g, ''), 6000); return; }
-    try { localStorage.setItem(key, today); } catch (e) { /* не страшно */ }
     const R = L.result;
     const resKey = `egeTrainer.lgRes.${student ? student.sid : ''}`;
     const showRes = R && readJSON(resKey) !== R.week;
@@ -661,5 +683,6 @@
       ${boardsHtml(d, 'league')}
       <div class="tour-foot"><button type="button" class="btn primary" id="tourGo">К заданиям</button></div>`;
     $('#forecastModal').hidden = false;
+    return true;
   }
 

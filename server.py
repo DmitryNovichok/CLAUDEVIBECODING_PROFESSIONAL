@@ -2180,6 +2180,8 @@ class DB(Transactional):
                     ("teachers", "consent_ts", "REAL"),
                     ("teachers", "consent_ip", "TEXT"),
                     ("teachers", "sounds", "INTEGER DEFAULT 1"),      # 0 — учитель выключил звуки на сайте у своих учеников (урок)
+                    ("students", "rating_summary_week", "TEXT"),
+                    ("solution_history", "assignment_id", "INTEGER"),  # NULL — старый клиент, 0 — обычная тренировка
                     ("students", "login", "TEXT"),                   # логин ученика (кроме ФИО) — для входа
                     ("students", "email", "TEXT"),                   # почта ученика — восстановление пароля
                     ("students", "email_ok", "INTEGER DEFAULT 0"),   # почта подтверждена по ссылке из письма
@@ -2246,6 +2248,7 @@ class DB(Transactional):
                     ("econ_hist", "s_med", "REAL")):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            c.execute("CREATE INDEX IF NOT EXISTS solution_history_work ON solution_history(assignment_id, task_id, student_id, ts)")
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS asg_lab_request ON assignments(lab_request_key) WHERE lab_request_key IS NOT NULL")
             # Preserve already-used principal 2FA across the upgrade, including SMTP outages.
             if not c.execute("SELECT 1 FROM settings WHERE key='main_login_code_migrated'").fetchone():
@@ -4777,20 +4780,40 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             tid = APP.bank.real(str((data or {}).get("task") or qs.get("task") or ""))
             if not tid or tid not in APP.bank.tasks:
                 return self.err(404, "задание не найдено — обновите страницу")
-            if method == "POST":
-                code = str(data.get("code") or "")
-                if len(code) > MAX_SOLUTION:
-                    return self.err(413, "Решение слишком длинное (больше 50 000 символов)")
+            source = data if method == "POST" else qs
+            aid = to_int(source["assignment"]) if "assignment" in source else None
+            if aid is not None and (aid < 0 or str(aid) != str(source["assignment"])):
+                return self.err(400, "Неверный номер работы")
+            code = str(data.get("code") or "") if method == "POST" else ""
+            if len(code) > MAX_SOLUTION:
+                return self.err(413, "Решение слишком длинное (больше 50 000 символов)")
+            with db.transaction() if method == "POST" else db.lock:
                 now = time.time()
-                db.x("INSERT INTO solution_history(student_id, task_id, code, ts) VALUES(?,?,?,?)", (s["id"], tid, code, now))
-                if code.strip():
-                    db.x("""INSERT INTO solutions(student_id, task_id, code, ts) VALUES(?,?,?,?)
-                            ON CONFLICT(student_id, task_id) DO UPDATE SET code=excluded.code, ts=excluded.ts""",
-                         (s["id"], tid, code, now))
+                if aid:
+                    a = db.q("SELECT * FROM assignments WHERE id=? AND class_id=? AND (student_id IS NULL OR student_id=?)",
+                             (aid, s["class_id"], s["id"]), one=True)
+                    if not a or tid not in json.loads(a["tasks"] or "[]"):
+                        return self.err(404, "Задание этой работы не найдено")
+                    run = db.q("SELECT * FROM asg_runs WHERE asg_id=? AND student_id=?", (aid, s["id"]), one=True) if a["strict"] else None
+                    if a["strict"] and not run:
+                        return self.err(409, "Сначала начните самостоятельную")
+                    if method == "POST" and (a["closed"] or (a["due"] and now > a["due"]) or (run and run["finished"])):
+                        return self.err(409, "Работа уже завершена")
+                if method == "POST":
+                    db.x("INSERT INTO solution_history(student_id, task_id, code, ts, assignment_id) VALUES(?,?,?,?,?)",
+                         (s["id"], tid, code, now, aid))
+                    if code.strip():
+                        db.x("""INSERT INTO solutions(student_id, task_id, code, ts) VALUES(?,?,?,?)
+                                ON CONFLICT(student_id, task_id) DO UPDATE SET code=excluded.code, ts=excluded.ts""",
+                             (s["id"], tid, code, now))
+                    else:
+                        db.x("DELETE FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid))
+                elif aid:
+                    r = asg_code(db, a, s["id"], tid, run, legacy=False)
                 else:
-                    db.x("DELETE FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid))
+                    r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid), one=True)
+            if method == "POST":
                 return self.send_json({"ok": True})
-            r = db.q("SELECT code, ts FROM solutions WHERE student_id=? AND task_id=?", (s["id"], tid), one=True)
             return self.send_json({"code": r["code"] if r else "", "ts": r["ts"] if r else None})
 
         if path == "/api/together/image":
@@ -4963,6 +4986,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             s = self.student(data)
             if not s:
                 return self.err(401, "нужно войти")
+            if method == "POST" and "claim_week" in data:
+                week = week_key()
+                if data["claim_week"] != week:
+                    return self.send_json({"show": False})
+                with db.transaction():
+                    claimed = db.conn.execute("""UPDATE students SET rating_summary_week=? WHERE id=?
+                        AND (rating_summary_week IS NULL OR rating_summary_week < ?)""", (week, s["id"], week)).rowcount
+                return self.send_json({"show": bool(claimed) and not data.get("already_seen")})
             league_rollover(db)
             class_rollover(db)
             tid = teacher_of(s)["id"]
@@ -5060,7 +5091,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                                SELECT MAX(week) FROM class_prizes WHERE teacher_id=?) ORDER BY place""", (teacher_of(s)["id"], teacher_of(s)["id"]))
             boards["classes"] = {"list": classes, "prizes": list(CLASS_PRIZES), "min": CLASS_MIN, "ends": week_start() + 7 * 86400,
                                  "last": [dict(r) for r in last]}
-            return self.send_json({"boards": boards, "spectator": spectator})
+            return self.send_json({"boards": boards, "spectator": spectator, "summary_seen": s["rating_summary_week"] == boards["league"]["week"]})
 
         if path in ("/api/daily", "/api/daily/start"):
             # задание дня: одно на всех; рейтинг по времени решения с первой попытки (время считает сервер)
@@ -11335,9 +11366,14 @@ def asg_cutoff(a, run=None):
     return min([time.time()] + ends)
 
 
-def asg_code(db, a, sid, task, run=None):
-    return db.q("""SELECT code, ts FROM solution_history WHERE student_id=? AND task_id=? AND ts>=? AND ts<=?
-                   ORDER BY ts DESC, id DESC LIMIT 1""", (sid, task, a["created"] or 0, asg_cutoff(a, run)), one=True)
+def asg_code(db, a, sid, task, run=None, *, legacy=True):
+    if a["strict"] and not run:
+        return None
+    start = run["started"] if run else a["created"]
+    # Старые записи без метки сохраняются в архиве. В редактор возвращаем только код именно этой работы.
+    return db.q("""SELECT code, ts FROM solution_history WHERE student_id=? AND task_id=? AND ts BETWEEN ? AND ?
+                   AND (assignment_id=? OR (? AND assignment_id IS NULL)) ORDER BY ts DESC, id DESC LIMIT 1""",
+                (sid, task, start or 0, asg_cutoff(a, run), a["id"], legacy), one=True)
 
 
 def practice_score(db, a, sid, real):

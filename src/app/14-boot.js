@@ -40,21 +40,27 @@
       openHub(true);
     } else if (saved && inScope(saved)) {
       const s = P.tasks[saved.id];
-      show({ task: saved, why: { type: s ? 'repeat' : 'new' } });
+      show({ task: saved, why: { type: s ? 'repeat' : 'new' }, resume: true });
     } else {
       next();
     }
     const fresh = !labRequested && !P.log.length && !tourSeen();
     if (fresh) { setTimeout(openTour, 400); promoNext = true; }       // новичку — коротко о том, как всё устроено (потом — акция)
-    // после обновления — истории «Что нового» (один раз), иначе — объявление об акции (раз в день); сводка дня — в другой раз
-    const promo = !labRequested && !fresh && SERVER && student && (padAuto() || storiesAuto() || promoAuto());
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
-      if (!labRequested && !fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
+      if (!labRequested && !fresh) ready.then(() => setTimeout(loginSummary, 300));
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
+    }
+  }
+
+  async function loginSummary() {
+    const sid = student?.sid;
+    if (await showWeeklyRating()) return;
+    if (student?.sid === sid && courseShown && pageKind === 'hub' && $('#forecastModal').hidden) {
+      if (!padAuto() && !storiesAuto()) promoAuto();
     }
   }
 
@@ -109,7 +115,7 @@
   function tourDone() {
     if (!promoNext) return;
     promoNext = false;
-    if (!padAuto() && !storiesAuto()) promoAuto();
+    if (SERVER && student) loginSummary();
   }
   $('#tourBtn').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openTour(); });
 

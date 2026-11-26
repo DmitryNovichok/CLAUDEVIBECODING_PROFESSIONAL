@@ -109,7 +109,7 @@ test('account switch destroys all Python contexts and clears previous pupil outp
     return nodes.get(id);
   };
   const events = [], stopped = [], saved = [];
-  const PY = { worker: { terminate: () => stopped.push('python') }, task: { id: 'task' }, ready: true, running: true };
+  const PY = { worker: { terminate: () => stopped.push('python') }, task: { id: 'task' }, draft: 'work:42:1:task', revision: 1, ready: true, running: true };
   const LAB = { code: 'secret', stdin: 'input', result: { output: 'private' }, context: { files: ['secret'] }, owner: 7 };
   const context = vm.createContext({ PY, LAB, TT: { ops: ['private drawing'], drag: {} },
     clearTimeout: () => {}, $: get, $$: () => [],
@@ -128,10 +128,10 @@ test('account switch destroys all Python contexts and clears previous pupil outp
   const loader = fs.readFileSync('src/app/12l-learning-loader.js', 'utf8');
   vm.runInContext(loader.slice(loader.indexOf('  function resetLearningSession('), loader.indexOf('  function loadLearningSections(')), context);
   const source = fs.readFileSync('src/app/09-python.js', 'utf8');
-  vm.runInContext(source.slice(source.indexOf('  function pyDisposeSession()'), source.indexOf('  function pyFilesOf(')), context);
+  vm.runInContext(source.slice(source.indexOf('  const editorDraft ='), source.indexOf('  function pyFilesOf(')), context);
   context.pyDisposeSession();
   assert.deepEqual(stopped, ['python', 'course', 'lab', 'bugs']);
-  assert.deepEqual(saved, [['task', 'private pupil code']]);
+  assert.deepEqual(saved, [['work:42:1:task', 'private pupil code']]);
   assert.equal(PY.worker, null); assert.equal(PY.task, null); assert.equal(PY.running, false);
   assert.equal(LAB.context, null); assert.equal(LAB.code, ''); assert.equal(LAB.result, null);
   assert.equal(get('#pyCode').value, ''); assert.equal(get('#pyOut').textContent, ''); assert.equal(get('#pyDock').hidden, true);

@@ -17,12 +17,12 @@
       "source": "440cd260d6d4ba8e3648ebb910bc705b5b0ad1a867fe5ba516c80e4b28a4ce60"
     },
     "app-learning.js": {
-      "min": "d3ecd3ab13511a9e15b0ef1eb1200c729a9f168dcc32dae7aec9d7f9ad4fc142",
-      "source": "21be652687462eee87a726b25e25b003d38823fcceca775b7acc82a06de71bd8"
+      "min": "87b8ad99c2dc4c25e9ac59d81cb4d637bd20cff1d9a0daddd4991bea48e92bdd",
+      "source": "0967f0ffa4ca68e9f0ff1fb8390a3392db6a7db0202b2b3c6135c7b2ee41fba4"
     },
     "app.js": {
-      "min": "ebeb70cf2b181046425820638b7b11b71758f2eeb2116d8c79d22526d593ee37",
-      "source": "c04a89f415943abd8d9dc4ec54bb7cf5b4a65fe22106b8cdb0ab26c9b2505cec"
+      "min": "c5cd481c64a69cd45fba77b6c87deb3a8fde6c7513a690c680c9d03cf26f786c",
+      "source": "cffed100fe6325d51fed909ef075cef154f9ef1d6e86046ac1d7ccd15fc8e52b"
     },
     "changelog-loader.js": {
       "min": "f6ff1bf656229129e58839c169750dd49ffbf242b1870a88138c8d4a31a243ae",

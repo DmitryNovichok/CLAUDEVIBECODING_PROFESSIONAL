@@ -2,7 +2,7 @@
   // Настоящий CPython (Pyodide) в отдельном потоке: math, itertools, functools, ipaddress, re, string, collections…
   // Файлы задания лежат рядом с кодом — open('17.txt') работает. Черепашка для №6 рисует на холсте.
   const PY_BTN = '<button type="button" class="icon-btn py-btn" id="pyBtn" title="Решить на Python прямо здесь">Python</button>';
-  const PY = { worker: null, ready: false, running: false, task: null, saveTimer: null, attTimer: null, sent: {} };   // sent: задание → прикреплённый код
+  const PY = { worker: null, ready: false, running: false, task: null, draft: null, revision: 0, attTimer: null, sent: {} };
   const pyOpen = () => !$('#pyDock').hidden;
   const pyTaskNow = () => (courseShown && pageKind === 'pyc' ? PYC_PY
     : (examShown && EX ? byId.get((EX.items[EX.cur] || {}).id) : cur && cur.task)) || null;
@@ -119,16 +119,43 @@
   new MutationObserver(() => { if ($('#cond') && (!MARK.cond || !MARK.cond.isConnected || MARK.cond !== $('#cond'))) markAttach(); })
     .observe(trainerEl, { childList: true });
   const codeKey = id => `egeshka.code.${student ? student.sid : 'local'}.${id}`;
-  function readCode(id) { try { return localStorage.getItem(codeKey(id)); } catch (e) { return null; } }
-  function writeCode(id, code) { try { if (code.trim()) localStorage.setItem(codeKey(id), code); else localStorage.removeItem(codeKey(id)); } catch (e) { /* нет места */ } }
+  // На вкладку нужен только последний незавершённый черновик обычной тренировки.
+  function trainingDraft(tid, resume) {
+    const slot = codeKey('training'), prefix = `training:${tid}:`;
+    const key = prefix + (window.crypto?.randomUUID?.() || Date.now() + '-' + Math.random());
+    try {
+      const old = sessionStorage.getItem(slot);
+      if (resume && old?.startsWith(prefix)) return old;
+      if (old) sessionStorage.removeItem(codeKey(old));
+      sessionStorage.setItem(slot, key);
+    } catch (e) { /* редактор остаётся доступен */ }
+    return key;
+  }
+  const codeStore = id => id.startsWith('training:') ? sessionStorage : localStorage;
+  function readCode(id) { try { return id ? codeStore(id).getItem(codeKey(id)) : null; } catch (e) { return null; } }
+  function writeCode(id, code) {
+    if (!id) return;
+    try {
+      const store = codeStore(id);
+      if (code.trim() || id.startsWith('work:')) store.setItem(codeKey(id), code);
+      else store.removeItem(codeKey(id));
+    } catch (e) { /* нет места */ }
+  }
+  function pyDraftFor(t) {
+    if (!t) return null;
+    if (t.pyc) return t.id;
+    if (examShown && EX) return `exam:${EX.id}:${t.id}`;
+    return cur?.task.id === t.id ? cur.pyDraft : null;
+  }
+  const editorDraft = () => PY.task && (PY.task.pyc ? PY.task.id : PY.draft);
   // Virtual files and output belong to one signed-in pupil. Destroy all Python
   // contexts before switching accounts, including checks running in other views.
   function pyDisposeSession() {
-    clearTimeout(PY.saveTimer); PY.saveTimer = null;
-    if (PY.task && $('#pyCode')) writeCode(PY.task.id, $('#pyCode').value);
+    if (editorDraft() && $('#pyCode').value) writeCode(editorDraft(), $('#pyCode').value);
+    ++PY.revision;
     if (PY.worker) PY.worker.terminate();
     clearTimeout(PY.attTimer);
-    Object.assign(PY, { worker: null, ready: false, running: false, task: null, sent: {} });
+    Object.assign(PY, { worker: null, ready: false, running: false, task: null, draft: null, sent: {} });
     resetLearningSession();
     for (const id of ['pyCode', 'pyIn', 'labCode', 'labStdin']) if ($('#' + id)) $('#' + id).value = '';
     for (const id of ['pyOut', 'pyFiles', 'pyTask', 'labOutput', 'labVariables', 'labStack', 'labTraceCode', 'bugRoot'])
@@ -197,7 +224,7 @@
     if (PY.running) return;
     const t = PY.task;
     const code = $('#pyCode').value;
-    if (t) writeCode(t.id, code);
+    writeCode(editorDraft(), code);
     if (!code.trim()) { setPyStatus('Напишите код', 'bad'); return; }
     ensureWorker();
     $('#pyOut').textContent = '';
@@ -225,9 +252,8 @@
     $('#pyDock').hidden = !open;
     document.body.classList.toggle('py-open', open);
     $$('#pyBtn').forEach(b => b.classList.toggle('on', open));
-    if (!open) { if (PY.task) writeCode(PY.task.id, $('#pyCode').value); return; }
+    if (!open) return;
     ensureWorker();
-    PY.task = null;
     pySync();
     $('#pyCode').focus();
   }
@@ -235,27 +261,47 @@
     if (!pyOpen()) return;
     $$('#pyBtn').forEach(b => b.classList.add('on'));
     const t = pyTaskNow();
-    if (!t || (PY.task && PY.task.id === t.id)) return;
-    if (PY.task) writeCode(PY.task.id, $('#pyCode').value);
+    const draft = pyDraftFor(t);
+    if (PY.task?.id === t?.id && editorDraft() === draft) return;
+    clearTimeout(PY.attTimer);
+    if (PY.running) pyStop();
     PY.task = t;
+    PY.draft = draft;
+    const revision = ++PY.revision;
+    $('#pyIn').value = '';
+    $('#pyCode').value = readCode(draft) ?? pyStarter(t);
+    updateGutter();
+    $('#pyOut').textContent = '';
+    pyStale(false); PY.ran = null;
+    if (PY.ready) setPyStatus('Python готов. Ctrl+Enter — запустить.');
+    $('#pyTurtle').hidden = true;
+    if (!t) {
+      $('#pyTask').textContent = $('#pyFiles').textContent = '';
+      $('#pyAttach').hidden = true;
+      return;
+    }
     pycDockTools(t);
     const files = pyFilesOf(t);
     $('#pyTask').textContent = t.pyc ? t.label : `задание ${numLabel(t.n)}`;
     $('#pyFiles').innerHTML = files.length
       ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ')
       : (t.att || []).length ? 'Файлы этого задания лежат на другом сайте — скачайте их кнопкой под условием.' : '';
-    pyAttState(PY.sent[t.id] != null ? 'ok' : 'wait');
-    $('#pyAttach').hidden = !SERVER || !student || !!t.pyc;     // в курсе программирования код уходит вместе с ответом
-    let code = readCode(t.id);
-    if (code == null && SERVER && student && !t.pyc) {
-      try { const r = await api('solution?task=' + encodeURIComponent(t.id)); if (r.code) { code = r.code; PY.sent[t.id] = r.code; pyAttState('ok'); } } catch (e) { /* нет решения */ }
-      if (!PY.task || PY.task.id !== t.id) return;   // пока ждали, ученик ушёл на другое задание
+    pyAttState(PY.sent[draft] != null ? 'ok' : 'wait');
+    $('#pyAttach').hidden = !SERVER || !student || !!t.pyc;
+    const assignment = !t.pyc && !examShown && cur?.pyAssignment;
+    if (SERVER && student && assignment && readCode(draft) === null) {
+      // На другом устройстве доступно только решение, уже прикреплённое к этой работе.
+      try {
+        const sid = student.sid;
+        const r = await api(`solution?task=${encodeURIComponent(t.id)}&assignment=${assignment}`);
+        if (!r.code || sid !== student?.sid || revision !== PY.revision || editorDraft() !== draft) return;
+        $('#pyCode').value = r.code;
+        writeCode(draft, r.code);
+        PY.sent[draft] = r.code;
+        pyAttState('ok');
+        updateGutter();
+      } catch (e) { /* можно работать с локальным черновиком */ }
     }
-    $('#pyCode').value = code != null ? code : pyStarter(t);
-    updateGutter();
-    $('#pyOut').textContent = '';
-    pyStale(false); PY.ran = null;
-    $('#pyTurtle').hidden = true;
   }
   /** Код поменяли после запуска — вывод ниже ещё от старого кода: приглушаем его и подсказываем перезапустить. */
   function pyStale(on) {
@@ -704,15 +750,14 @@
   $('#pyCode').addEventListener('input', () => {
     updateGutter();
     if (!PY.running && PY.ran != null && $('#pyOut').textContent) pyStale($('#pyCode').value !== PY.ran);
-    clearTimeout(PY.saveTimer);
-    const t = PY.task;
-    PY.saveTimer = setTimeout(() => { if (t) writeCode(t.id, $('#pyCode').value); }, 500);
-    // решение уже прикреплено (ответ проверяли) — правки прикрепятся сами, когда ученик перестанет печатать
+    const t = PY.task, draft = editorDraft(), code = $('#pyCode').value;
+    ++PY.revision;
+    writeCode(draft, code);
     clearTimeout(PY.attTimer);
-    if (t && PY.sent[t.id] != null && $('#pyCode').value !== PY.sent[t.id]) {
+    if (t && PY.sent[draft] != null && code !== PY.sent[draft]) {
       pyAttState('edit');
-      PY.attTimer = setTimeout(() => { if (PY.task === t) autoAttach(t.id); }, 6000);
-    } else if (t && PY.sent[t.id] != null) pyAttState('ok');
+      PY.attTimer = setTimeout(() => { if (editorDraft() === draft) autoAttach(t.id); }, 6000);
+    } else if (t && PY.sent[draft] != null) pyAttState('ok');
   });
   $('#pyCode').addEventListener('scroll', syncScroll);
   // курсор переехал — пересчитать подсветку парной скобки
@@ -728,7 +773,9 @@
     e.target.value = '';
     if (!f) return;
     if (f.size > 200000) { toast('Файл слишком большой'); return; }
-    $('#pyCode').value = await f.text();
+    const revision = PY.revision, code = await f.text();
+    if (revision !== PY.revision) return;
+    $('#pyCode').value = code;
     $('#pyCode').dispatchEvent(new Event('input'));
   });
   /** Подпись вместо кнопки «Прикрепить решение»: решение прикрепляется само при проверке ответа. */
@@ -741,15 +788,18 @@
 
   /** Код из редактора Python к этому заданию — прикрепить как решение (при «Сдать ответ»). true — прикрепили. */
   async function autoAttach(tid) {
-    if (!SERVER || !student || !tid) return false;
-    const code = PY.task && PY.task.id === tid ? $('#pyCode').value : readCode(tid);
+    const task = pyTaskNow(), draft = pyDraftFor(task);
+    if (!SERVER || !student || !draft || task.id !== tid) return false;
+    const code = editorDraft() === draft ? $('#pyCode').value : readCode(draft);
     if (!code || !code.trim()) return false;
-    if (PY.sent[tid] === code) return true;               // то же самое уже прикреплено — не дублируем в истории
+    if (PY.sent[draft] === code) return true;
+    const sid = student.sid;
+    const assignment = (!examShown && cur?.pyAssignment) || 0;
     try {
-      await api('solution', { task: tid, code });
-      PY.sent[tid] = code;
-      if (PY.task && PY.task.id === tid && $('#pyCode').value === code) pyAttState('ok');
-      return true;
+      await api('solution', { task: tid, assignment, code });
+      if (student?.sid !== sid) return false;
+      PY.sent[draft] = code;
+      if (editorDraft() === draft && $('#pyCode').value === code) pyAttState('ok');      return true;
     } catch (e) { return false; }
   }
 

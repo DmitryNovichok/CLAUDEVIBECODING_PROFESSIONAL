@@ -443,7 +443,7 @@
     if (a.result || a.closed) { abandonCurrent(); cur = null; wkDoneScreen(); return; }
     next();
     wkWatch();
-    wkPop('Ответ можно изменить один раз. <b>Прикрепляй решение</b> к каждому: Python → «Прикрепить решение».');
+    wkPop('Ответ можно изменить один раз. Код из окна Python прикрепится, когда ты сдашь ответ.');
   }
   function wkFullscreen() {
     if (!canFs() || document.fullscreenElement) return;
@@ -617,16 +617,16 @@
     const c = cur;
     let hasSol = await autoAttach(cur.task.id);   // код из окна Python прикрепляется сам
     if (cur !== c) return;
-    if (!hasSol) try { hasSol = !!(await api('solution?task=' + encodeURIComponent(cur.task.id))).code; } catch (e) { hasSol = true; }
+    if (!hasSol) try { hasSol = !!(await api(`solution?task=${encodeURIComponent(c.task.id)}&assignment=${a.id}`)).code; } catch (e) { /* нет подтверждения от сервера */ }
     if (cur !== c) return;
     const ans = await wkAsk(cur.changing ? (cur.group ? 'Изменить ответы?' : `Изменить ответ на «${esc(items[0].answer)}»?`)
       : cur.group ? 'Сдать ответы?' : `Сдать ответ «${esc(items[0].answer)}»?`,
       (cur.changing ? 'Это единственное изменение — потом поменять будет нельзя.'
         : `Его можно будет изменить ещё <b>один раз</b>.`) + `${blank ? ` Без ответа вопросов: ${blank}.` : ''}`
-      + (hasSol ? '' : '<br><br><b class="wk-sol-warn">⚠ Решение не прикреплено.</b> Учитель хочет видеть, как ты решал: открой Python, вставь или напиши код и нажми «Прикрепить решение».'),
-      hasSol ? 'Сдать' : 'Сдать без решения', hasSol ? null : '📎 Прикрепить решение');
+      + (hasSol ? '' : '<br><br><b class="wk-sol-warn">⚠ Решение не прикреплено.</b> Учитель хочет видеть, как ты решал: открой Python и напиши код. Он прикрепится при сдаче ответа.'),
+      hasSol ? 'Сдать' : 'Сдать без решения', hasSol ? null : 'Открыть Python');
     if (cur !== c || cur.done) return;
-    if (ans === 'extra') { togglePy(true); toast('Вставь код в окно Python и нажми «Прикрепить решение», затем сдай ответ.', 5000); return; }
+    if (ans === 'extra') { togglePy(true); toast('Напиши код в Python и снова нажми «Сдать ответ».', 5000); return; }
     if (!ans) return;
     setBusy(true);
     let r = null;

@@ -115,6 +115,52 @@ class AuditRegressionTest(unittest.TestCase):
         self.db.x("INSERT INTO attempts(student_id,ts,task_id,score) VALUES(?,?,'b:6',1)", (self.sid, now))
         self.assertEqual(self.score(aid)['score']['tried'], 1)
 
+    def test_weekly_summary_has_one_claim_per_pupil_and_league_week(self):
+        url = '/api/leaderboard'
+        def claim(week):
+            return self.post(url, {'claim_week': week})['show']
+        with mock.patch.object(server, 'week_key', return_value='2026-11-23'):
+            self.assertFalse(claim('2026-11-16'))
+            with ThreadPoolExecutor(2) as pool:
+                self.assertEqual(sorted(pool.map(claim, ['2026-11-23'] * 2)), [False, True])
+            self.assertTrue(self.c.req('GET', url, token=self.token)[1]['summary_seen'])
+        with mock.patch.object(server, 'week_key', return_value='2026-11-30'):
+            self.assertTrue(claim('2026-11-30'))
+            self.assertFalse(claim('2026-11-30'))
+            token, _ = self.student()
+            self.assertFalse(self.post(url, {'claim_week': '2026-11-30', 'already_seen': True}, token)['show'])
+            self.assertFalse(self.post(url, {'claim_week': '2026-11-30'}, token)['show'])
+
+    def test_solution_is_attached_only_to_its_own_work(self):
+        cid, aid = self.work(tasks=['b:5'])
+        task = server.APP.bank.pid('b:5')
+        def solution(code, assignment):
+            return self.c.req('POST', '/api/solution', {'task': task, 'code': code, 'assignment': assignment}, self.token)[0]
+        def attached(a):
+            return self.c.req('GET', f'/api/solution?task={task}&assignment={a}', token=self.token)[1]['code']
+        def count(a):
+            rows = self.c.admin('GET', f'/api/admin/asg/live?id={a}')[1]['rows']
+            return next(row['sol'] for row in rows if row['id'] == self.sid)
+        self.assertEqual(solution('old lesson', 0), 200)
+        self.assertEqual(solution('too early', aid), 409)
+        self.post('/api/asg/start', {'id': aid})
+        other = self.c.admin('POST', '/api/admin/assignment/save',
+                             {'class_id': cid, 'title': 'Вторая работа', 'kind': 'self', 'tasks': ['b:5']})[1]['id']
+        self.post('/api/asg/start', {'id': other})
+        self.assertEqual((attached(aid), count(aid)), ('', 0))
+        self.assertEqual(solution('first work', aid), 200)
+        self.assertEqual(solution('another lesson', 0), 200)
+        self.assertEqual((attached(other), count(other)), ('', 0))
+        self.assertEqual(solution('second work', other), 200)
+        self.post('/api/asg/finish', {'id': aid})
+        self.assertEqual(solution('late', aid), 409)
+        self.assertEqual((attached(aid), count(aid)), ('first work', 1))
+        self.assertEqual((attached(other), count(other)), ('second work', 1))
+        self.assertIn('first work', self.archive(aid))
+        self.assertNotIn('second work', self.archive(aid))
+        outsider, _ = self.student()
+        self.assertEqual(self.c.req('GET', f'/api/solution?task={task}&assignment={aid}', token=outsider)[0], 404)
+
     def test_archive_and_review_keep_submitted_program(self):
         _, aid = self.work(tasks=['b:5'])
         self.post('/api/asg/start', {'id': aid})
