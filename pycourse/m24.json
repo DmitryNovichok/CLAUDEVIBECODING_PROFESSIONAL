@@ -86,7 +86,7 @@
      "stars": 1,
      "ans": "33",
      "sol": "s = open('24.txt').readline().strip()\nbest = cur = 1\nfor i in range(1, len(s)):\n    cur = cur + 1 if s[i] == s[i - 1] else 1\n    best = max(best, cur)\nprint(best)",
-     "sec": 0.04,
+     "sec": 0.06,
      "files": [
       {
        "name": "24.txt",
@@ -102,7 +102,7 @@
      "stars": 1,
      "ans": "37",
      "sol": "s = open('24.txt').readline().strip()\nprint(max(len(p) for p in s.replace('X', ' ').replace('Y', ' ').split()))",
-     "sec": 0.04,
+     "sec": 0.02,
      "files": [
       {
        "name": "24.txt",
@@ -118,7 +118,7 @@
      "stars": 1,
      "ans": "2779 2829",
      "sol": "s = open('24.txt').readline().strip()\nab = s.count('AB')\nbb = sum(1 for i in range(len(s) - 1) if s[i] == s[i + 1] == 'B')\nprint(ab, bb)",
-     "sec": 0.04,
+     "sec": 0.06,
      "hint": "count не считает перекрытия: 'BBB'.count('BB') == 1. Для перекрывающихся — цикл по позициям.",
      "files": [
       {
@@ -135,7 +135,7 @@
      "stars": 1,
      "ans": "A",
      "sol": "s = open('24.txt').readline().strip()\ncnt = {}\nfor i in range(len(s) - 1):\n    if s[i] == 'A':\n        cnt[s[i + 1]] = cnt.get(s[i + 1], 0) + 1\nbest = max(cnt.values())\nprint(min(c for c in cnt if cnt[c] == best))",
-     "sec": 0.03,
+     "sec": 0.05,
      "files": [
       {
        "name": "24.txt",
@@ -199,7 +199,7 @@
      "stars": 1,
      "ans": "673",
      "sol": "s = open('24.txt').readline().strip()\nbest = cur = 1\nfor i in range(1, len(s)):\n    cur = 1 if s[i - 1:i + 1] == 'XZ' else cur + 1\n    best = max(best, cur)\nprint(best)",
-     "sec": 0.07,
+     "sec": 0.05,
      "files": [
       {
        "name": "24.txt",
@@ -215,7 +215,7 @@
      "stars": 1,
      "ans": "13",
      "sol": "s = open('24.txt').readline().strip()\nV = set('AEIOUY')\nbest = cur = 1\nfor i in range(1, len(s)):\n    cur = cur + 1 if (s[i - 1] in V) != (s[i] in V) else 1\n    best = max(best, cur)\nprint(best)",
-     "sec": 0.08,
+     "sec": 0.05,
      "files": [
       {
        "name": "24.txt",
@@ -231,7 +231,7 @@
      "stars": 1,
      "ans": "92",
      "sol": "s = open('24.txt').readline().strip()\nprint(max(len(p) for p in s.split('D') if 'A' in p))",
-     "sec": 0.02,
+     "sec": 0.04,
      "hint": "split('D') — куски без D. Отбираем куски с A.",
      "files": [
       {
@@ -248,7 +248,7 @@
      "stars": 2,
      "ans": "11",
      "sol": "s = open('24.txt').readline().strip()\nnxt = {'X': 'Y', 'Y': 'Z', 'Z': 'X'}\nbest = cur = 1\nfor i in range(1, len(s)):\n    cur = cur + 1 if s[i] == nxt[s[i - 1]] else 1\n    best = max(best, cur)\nprint(best)",
-     "sec": 0.07,
+     "sec": 0.09,
      "files": [
       {
        "name": "24.txt",
@@ -310,7 +310,7 @@
      "stars": 1,
      "ans": "96",
      "sol": "s = open('24.txt').readline().strip()\nleft = cnt = best = 0\nfor right, ch in enumerate(s):\n    cnt += ch == 'E'\n    while cnt > 3:\n        cnt -= s[left] == 'E'\n        left += 1\n    best = max(best, right - left + 1)\nprint(best)",
-     "sec": 0.18,
+     "sec": 0.08,
      "files": [
       {
        "name": "24.txt",
@@ -326,7 +326,7 @@
      "stars": 2,
      "ans": "2341",
      "sol": "s = open('24.txt').readline().strip()\npos = [-1] + [i for i, ch in enumerate(s) if ch == 'W'] + [len(s)]\nK = 90\nprint(max(pos[i + K + 1] - pos[i] - 1 for i in range(len(pos) - K - 1)))",
-     "sec": 0.02,
+     "sec": 0.06,
      "files": [
       {
        "name": "24.txt",
@@ -342,7 +342,7 @@
      "stars": 3,
      "ans": "688",
      "sol": "s = open('24.txt').readline().strip()\npos = [-1] + [i for i, ch in enumerate(s) if ch == 'W'] + [len(s)]\npre = [0]\nfor ch in s:\n    pre.append(pre[-1] + (ch == '0'))\nbest = 0\nK = 20\nfor i in range(len(pos) - K - 1):\n    l, r = pos[i] + 1, pos[i + K + 1] - 1      # самое длинное окно ровно с K буквами W\n    if pre[r + 1] - pre[l] >= 60:\n        best = max(best, r - l + 1)\nprint(best)",
-     "sec": 0.04,
+     "sec": 0.08,
      "hint": "Префиксные суммы pre[i] — сколько нулей до позиции i. Количество нулей в s[l:r+1] = pre[r+1] − pre[l].",
      "files": [
       {
@@ -371,33 +371,32 @@
    ]
   },
   {
-   "title": "Максимум: регулярные выражения",
-   "goal": "re: числа без ведущих нулей, арифметические выражения, сопоставление с каждой позиции",
+   "title": "Применение re к файлу №24",
+   "goal": "Собрать правило, проверить его на короткой строке и найти рекорд в файле.",
    "need": 2,
    "slides": [
     {
      "t": "code",
      "k": "Уровень 4",
      "kc": "t1",
-     "h": "Регулярное выражение",
+     "h": "Переводим условие в две части",
      "ch": "Пример",
-     "cond": "<ul class=\"sl-ul\"><li>[1-9]\\d* — число без ведущих нулей (или просто 0)</li><li>([+*]число)* — «знак и число» сколько угодно раз</li><li>fullmatch — строка целиком подходит под шаблон</li></ul>",
+     "cond": "<p>Здесь используются навыки из «Тренажёра регулярных выражений». Если шаблоны пока непривычны, открой тренажёр с первого уровня.</p><p>Сначала опиши одно число. Это либо одиночный ноль, либо ненулевая цифра с продолжением. Затем добавь повторяемый блок из знака и следующего числа. Одно число тоже выражение. Предскажи ответы для всех пяти строк.</p>",
      "nk": "secret",
-     "code": "import re\ns = '0045+12*7AA300'\nprint(re.findall(r'[1-9]\\d*|0', s))\nprint(re.fullmatch(r'([1-9]\\d*|0)([+*]([1-9]\\d*|0))*', '12*7+0'))",
-     "out": "['0', '0', '45', '12', '7', '300']\n<re.Match object; span=(0, 6), match='12*7+0'>",
+     "code": "import re\n\nnumber = r'(?:0|[1-9][0-9]*)'\nformula = re.compile(number + r'(?:[+*]' + number + r')*')\nfor example in ('0', '07', '12+7*0', '12++7', '12+'):\n    print(example, bool(formula.fullmatch(example)))",
+     "out": "0 True\n07 False\n12+7*0 True\n12++7 False\n12+ False",
      "wide": true
     },
     {
      "t": "code",
      "k": "Уровень 4",
      "kc": "t1",
-     "h": "Самое длинное корректное выражение",
+     "h": "Находим лучший фрагмент и его границы",
      "ch": "Пример",
-     "cond": "<p>findall находит не обязательно самые длинные куски: из «00012» он возьмёт «0», «0», «0», «12». Надёжнее — пробовать начало с каждой позиции: pat.match(s, i) жадно берёт самое длинное выражение от i.</p>",
-     "note": "Выражение заканчивается на число: «12+» без числа после знака — не выражение. Шаблон это учитывает.",
-     "nk": "warn",
-     "code": "import re\ns = open('24.txt').readline().strip()\nnum = r'(?:[1-9]\\d*|0)'\npat = re.compile(num + r'(?:[+*]' + num + r')*')\nbest = 0\nfor i in range(len(s)):\n    if s[i].isdigit():\n        m = pat.match(s, i)\n        if m:\n            best = max(best, m.end() - i)\nprint(best)",
-     "out": "7",
+     "cond": "<p>Проверь, почему у строки 0045+12*7 рекорд начинается с позиции 2. Это 45+12*7 длиной 7. Позицию справа удобно хранить так же, как в срезе Python.</p><p>Сравни число в ответе и сам найденный фрагмент. Если случайно включить последний знак операции, ошибка сразу видна в тексте. Для отладки хватит короткого файла.</p>",
+     "nk": "secret",
+     "code": "import re\n\nwith open('24.txt') as file:\n    text = file.readline().rstrip('\\r\\n')\nnumber = r'(?:0|[1-9][0-9]*)'\nformula = re.compile(number + r'(?:[+*]' + number + r')*')\nleft = right = 0\nfor start in range(len(text)):\n    match = formula.match(text, start)\n    if match and match.end() - start > right - left:\n        left, right = match.span()\nprint(left, right, text[left:right])\nprint(right - left)",
+     "out": "2 9 45+12*7\n7",
      "wide": true,
      "files": [
       {
@@ -406,6 +405,18 @@
        "size": 22
       }
      ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 4",
+     "kc": "t1",
+     "h": "Условие делимости внутри текстовой задачи",
+     "ch": "Пример",
+     "cond": "<p>Выделяем непрерывные блоки цифр с помощью re. Дальше рассуждаем о самом числе. Первый ненулевой символ даёт самую левую допустимую позицию старта многозначной записи. Последняя цифра 0 или 5 — самый правый допустимый конец числа, кратного пяти.</p><p>rfind возвращает индекс последнего вхождения или -1. После прибавления единицы получаем правую границу среза. Проверь отдельно блок 000. В нём есть допустимое однозначное число 0.</p>",
+     "nk": "secret",
+     "code": "import re\n\ntext = 'A0001257B40C000'\nfor match in re.finditer(r'[0-9]+', text):\n    block = match.group()\n    digits = block.lstrip('0')\n    end = max(digits.rfind('0'), digits.rfind('5')) + 1\n    print(block, digits[:end] or 'пусто')",
+     "out": "0001257 125\n40 40\n000 пусто",
+     "wide": true
     }
    ],
    "tasks": [
@@ -416,7 +427,7 @@
      "stars": 3,
      "ans": "25",
      "sol": "import re\ns = open('24.txt').readline().strip()\nnum = r'(?:[1-9]\\d*|0)'\npat = re.compile(num + r'(?:[+*]' + num + r')*')\nbest = 0\nfor i in range(len(s)):\n    if s[i].isdigit():\n        m = pat.match(s, i)\n        if m:\n            best = max(best, m.end() - i)\nprint(best)",
-     "sec": 0.09,
+     "sec": 0.08,
      "files": [
       {
        "name": "24.txt",
@@ -431,8 +442,8 @@
      "cond": "<p>Файл <b>24.txt</b> (тот же формат). Найдите наибольшее число без ведущих нулей, которое является подстрокой строки и делится на 5. В ответ запишите количество цифр в нём.</p>",
      "stars": 3,
      "ans": "18",
-     "sol": "s = open('24.txt').readline().strip()\nbest = 0\nfor block in ''.join(ch if ch.isdigit() else ' ' for ch in s).split():\n    i = 0\n    while i < len(block) and block[i] == '0':\n        i += 1\n    rest = block[i:]\n    for j in range(len(rest), 0, -1):          # самый длинный префикс, оканчивающийся на 0 или 5\n        if rest[j - 1] in '05':\n            best = max(best, j)\n            break\n    if '0' in block[:i + 1]:\n        best = max(best, 1)\nprint(best)",
-     "sec": 0.04,
+     "sol": "import re\nwith open('24.txt') as file:\n    text = file.readline().strip()\nbest = 0\nfor match in re.finditer(r'[0-9]+', text):\n    block = match.group()\n    if '0' in block:\n        best = max(best, 1)\n    digits = block.lstrip('0')\n    end = max(digits.rfind('0'), digits.rfind('5')) + 1\n    best = max(best, end)\nprint(best)",
+     "sec": 0.03,
      "hint": "Внутри блока цифр число начинается с первой ненулевой цифры и должно кончаться на 0 или 5.",
      "files": [
       {

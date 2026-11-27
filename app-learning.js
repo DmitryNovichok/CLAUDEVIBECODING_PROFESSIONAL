@@ -166,6 +166,13 @@ window.EgeLearningSections = function (bridge) {
     box.querySelector('.crs-stage').innerHTML = slideHtml(sl[appState.deckI], appState.deckI);
     if (MARK.on || MARK.strokes.has(`deck:${appState.DECK.n}:${appState.deckI}`)) markAttach();   // рисунок этого слайда
     box.querySelector('.crs-count').textContent = `${appState.deckI + 1} / ${sl.length}`;
+    const chapters = $('#crsChapter');
+    if (chapters) {
+      for (const option of chapters.options) {
+        if (+option.value > appState.deckI) break;
+        chapters.value = option.value;
+      }
+    }
     deckSeen(appState.deckI + 1, sl.length);
     learningRememberSlide();
     box.querySelector('[data-deck="-1"]').disabled = appState.deckI === 0;
@@ -258,6 +265,10 @@ window.EgeLearningSections = function (bridge) {
     if (!current() || !appState.courseShown || appState.pageKind !== null || request !== courseLessonRequest) return;
     const has = lesson && lesson.slides && lesson.slides.length;
     if (has) { appState.DECK = lesson; appState.deckI = Number.isInteger(slide) ? Math.max(0, Math.min(slide, has - 1)) : learningSlide(n); }
+    const workshop = n === 24 ? 'm33' : n === 26 ? 'm26' : null;
+    const chapters = has && workshop ? lesson.slides.flatMap((s, i) =>
+      i === 0 || s.t === 'section' || s.chapter ? [{i, label: s.chapter || s.h}] : []) : [];
+    const start = has ? lesson.slides.findIndex(s => s.startHere) : -1;
     const deck = has ? `<div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
@@ -276,8 +287,13 @@ window.EgeLearningSections = function (bridge) {
       ${learningFormat}
       ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
       <div class="fm-h">1. Теория${has ? ` · ${lesson.slides.length} слайдов` : ''}</div>
+      ${chapters.length ? `<div class="crs-chapters"><label>Раздел теории <select class="inp" id="crsChapter" data-course-chapter>${chapters.map(c =>
+        `<option value="${c.i}">${esc(c.label)}</option>`).join('')}</select></label>
+        ${start >= 0 ? `<button type="button" class="btn" data-slide="${start}">${esc(lesson.slides[start].startLabel || lesson.slides[start].h)}</button>` : ''}</div>` : ''}
       ${deck}
       <div class="fm-h">2. Практика по уровням</div>
+      ${workshop ? `<p><button type="button" class="btn" data-pyc-lv="${workshop}:0">${n === 24 ? 'Практика Python · регулярные выражения' : 'Практика Python · задачи №26'}</button>
+        ${n === 26 ? '<button type="button" class="btn ghost" data-pyc-lv="m35:0">Практикум · журнал событий</button>' : ''}</p>` : ''}
       <div class="crs-sets">${COURSE_SETS.map((st, i) => {
         const a = courseSet(`crs-${n}-${st.key}`), total = a ? a.tasks.length : 0, done = total - asgLeft(a).length;
         return `<div class="crs-set${total && done === total ? ' done' : ''}"><span class="crs-set-ic">${st.icon}</span>
@@ -357,6 +373,12 @@ window.EgeLearningSections = function (bridge) {
     if (!$('#forecastModal').hidden) return;
     if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); deckGo(1); }
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); deckGo(-1); }
+  });
+  trainerEl.addEventListener('change', e => {
+    if (e.target.matches('[data-course-chapter]') && appState.DECK) {
+      appState.deckI = +e.target.value;
+      renderDeck();
+    }
   });
   trainerEl.addEventListener('click', e => {
     if (!appState.courseShown) return;
@@ -472,7 +494,7 @@ window.EgeLearningSections = function (bridge) {
     pycSetAccess(true);
     return true;
   }
-  function pycLock(msg) {
+  function pycLock(msg, onUnlocked = openPyc) {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Программирование</span>';
     if (msg || !appState.PYC_PW) {
       trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><div class="crs-lock-ic">🔒</div>
@@ -500,7 +522,8 @@ window.EgeLearningSections = function (bridge) {
         if (!current()) return;
         pycSetAccess(true);
         toast('Курс открыт 🐍', 2500);
-        openPyc();
+        PYC = null;
+        onUnlocked();
       } catch (err) { if (!current()) return; m.textContent = err.message || 'Не получилось — попробуйте ещё раз'; }
     });
   }
@@ -535,7 +558,11 @@ window.EgeLearningSections = function (bridge) {
     }
     const remembered = learningMemory().pyc;
     const rm = remembered && mods.find(m => m.id === remembered.m);
-    if (rm && remembered.l < rm.open) cont = { m: rm, li: remembered.l };
+    if (rm) {
+      const taskLevel = rm.levels.findIndex(lv => lv.tasks.includes(remembered.task));
+      const li = taskLevel >= 0 ? taskLevel : remembered.l;
+      if (li >= 0 && li < rm.open) cont = { m: rm, li };
+    }
     const card = m => {
       const d = pycModDone(m), t = pycModTotal(m);
       return `<div class="pyc-mod${d === t && t ? ' done' : ''}">
@@ -580,7 +607,11 @@ window.EgeLearningSections = function (bridge) {
       d = await api(`pyc/level?m=${encodeURIComponent(mid)}&l=${li}`);
     } catch (e) {
       if (!current() || request !== pycLevelRequest) return;
-      if (e.status === 403) { if (PYC && PYC.access) { toast(e.message, 4000); return openPyc(); } pycLock(); return; }
+      if (e.status === 403) {
+        if (PYC && PYC.access) { toast(e.message, 4000); return openPyc(); }
+        pycLock('', () => openPycLevel(mid, li, keepScroll, task));
+        return;
+      }
       netError(e); return;
     }
     if (!current() || !appState.courseShown || appState.pageKind !== 'pyc' || request !== pycLevelRequest) return;
@@ -588,11 +619,13 @@ window.EgeLearningSections = function (bridge) {
     PYC_L = d;
     const m = PYC.modules.find(x => x.id === mid) || { levels: [], open: 1 };
     const lv = d.level, has = lv.slides.length;
-    appState.DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
-    if (!keepScroll) appState.deckI = learningSlide(`pyc:${mid}:${li}`);
+    const revisedSlides = mid === 'm33' || mid === 'm26' || (mid === 'm24' && li === 3);
+    const deckKey = `pyc:${mid}:${li}${revisedSlides ? ':v2' : ''}`;
+    appState.DECK = has ? { n: deckKey, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
+    if (!keepScroll) appState.deckI = learningSlide(deckKey);
     const saved = learningMemory().pyc;
     if (task && lv.tasks.some(t => t.id === task && !t.ok)) PYC_FOCUS = task;
-    if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && saved.l === li && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
+    if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
     learningMemory({ pyc: { m: mid, l: li, task: PYC_FOCUS } });
     const done = lv.tasks.filter(t => t.ok).length;
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование · ${esc(pycLabel(d))}</span><span class="scope-stats">уровень ${li + 1} из ${d.levels}</span>`;
@@ -751,7 +784,10 @@ window.EgeLearningSections = function (bridge) {
   }
 
   trainerEl.addEventListener('click', e => {
-    if (!appState.courseShown || appState.pageKind !== 'pyc') return;
+    if (!appState.courseShown) return;
+    const lv = e.target.closest('[data-pyc-lv]');
+    if (lv && !lv.disabled) { const [m, l] = lv.dataset.pycLv.split(':'); openPycLevel(m, +l); return; }
+    if (appState.pageKind !== 'pyc') return;
     const focus = e.target.closest('[data-pyc-focus]');
     if (focus && PYC_L) {
       if (PYC_FOCUS !== focus.dataset.pycFocus) {
@@ -762,8 +798,6 @@ window.EgeLearningSections = function (bridge) {
     }
     const tests = e.target.closest('[data-pyc-tests]');
     if (tests) { pycTestCode(tests.dataset.pycTests, tests); return; }
-    const lv = e.target.closest('[data-pyc-lv]');
-    if (lv && !lv.disabled) { const [m, l] = lv.dataset.pycLv.split(':'); openPycLevel(m, +l); return; }
     if (e.target.closest('[data-pyc-home]')) { openPyc(); return; }
     const py = e.target.closest('[data-pyc-py]');
     if (py) { pycOpenPy(py.dataset.pycPy); return; }
@@ -909,7 +943,16 @@ try:
             spans = [m.span() for m in regex.finditer(text)]
         rows.append(spans)
     print(json.dumps({'rows': rows}))
-except (re.error, ValueError, OverflowError, RecursionError) as exc:
+except re.error as exc:
+    hints = {
+        'unterminated character set': 'Закрой класс символов квадратной скобкой ].',
+        'missing ), unterminated subpattern': 'Проверь, где заканчивается группа, и добавь закрывающую скобку ).',
+        'unbalanced parenthesis': 'Для закрывающей скобки нужна парная открывающая. Для поиска самой скобки поставь перед ней обратную косую черту.',
+        'nothing to repeat': 'Поставь перед знаком повтора символ, класс или группу, которую нужно повторить.',
+        'min repeat greater than max repeat': 'В {m,n} сначала укажи меньшее число, затем большее.'
+    }
+    print(json.dumps({'error': hints.get(exc.msg, exc.msg), 'position': exc.pos}))
+except (ValueError, OverflowError, RecursionError) as exc:
     print(json.dumps({'error': str(exc)}))`;
 
   function pycRegexRanges(text, spans) {
@@ -920,9 +963,9 @@ except (re.error, ValueError, OverflowError, RecursionError) as exc:
       return spans.some(([a, b]) => a <= start && end <= b) ? `<mark>${part}</mark>` : part;
     }).join('');
     const parts = spans.slice(0, 16).map(([a, b]) =>
-      `<code>[${a}:${b}] ${a === b ? '∅' : esc(chars.slice(a, b).join(''))}</code>`);
+      `<code>[${a}:${b}] ${a === b ? 'пустое совпадение' : esc(chars.slice(a, b).join(''))}</code>`);
     if (spans.length > parts.length) parts.push(`… ещё ${spans.length - parts.length}`);
-    return `<samp class="pyc-re-text">${marked || '∅'}</samp>
+    return `<samp class="pyc-re-text">${marked || 'Пустая строка'}</samp>
       <div class="pyc-re-spans">${parts.join(' ') || 'Совпадений нет'}</div>`;
   }
 
@@ -933,12 +976,12 @@ except (re.error, ValueError, OverflowError, RecursionError) as exc:
       <div class="pyc-re-example"><b>Ожидаемые совпадения</b>${pycRegexRanges(example, spec.example_spans)}</div>
       <fieldset><label>Шаблон Python re <small>${method}</small>
         <input class="inp" data-re-pattern maxlength="240" spellcheck="false" autocapitalize="off" required
-          aria-describedby="re-pattern-help" value="${esc(readCode('pyc-re:' + t.id) || '')}"></label>
-        <small id="re-pattern-help">Введи содержимое строки <code>r'…'</code> без кавычек.</small>
+          aria-describedby="re-pattern-help-${esc(t.id)}" value="${esc(readCode('pyc-re:' + t.id) || '')}"></label>
+        <small id="re-pattern-help-${esc(t.id)}">Введи содержимое строки <code>r'…'</code> без кавычек.</small>
         <div class="pyc-re-actions"><button type="submit" class="btn primary">Проверить шаблон</button>
           <button class="btn" type="button" data-re-stop hidden>Остановить</button></div>
         <details class="pyc-more"><summary>Попробовать на своей строке</summary>
-          <label>Строка для поиска<input class="inp" data-re-text maxlength="160" spellcheck="false" autocapitalize="off" value="${esc(example)}"></label>
+          <label>Текст для поиска<textarea class="inp" data-re-text rows="2" maxlength="160" spellcheck="false" autocapitalize="off">${esc(example)}</textarea></label>
           <button class="btn" type="button" data-re-preview>Показать совпадения</button></details>
       </fieldset>
       <div class="pyc-msg" aria-live="polite">${t.ok ? 'Задача зачтена. Можно попробовать другой шаблон.' : ''}</div>
@@ -992,7 +1035,11 @@ except (re.error, ValueError, OverflowError, RecursionError) as exc:
         if (!m.ok || error) { msg.textContent = error.trim().slice(0, 400) || 'Не удалось выполнить поиск.'; return; }
         let r;
         try { r = JSON.parse(output); } catch { msg.textContent = 'Python вернул неполный результат. Повтори проверку.'; return; }
-        if (r.error) { msg.textContent = 'Ошибка шаблона: ' + r.error; return; }
+        if (r.error) {
+          const where = Number.isInteger(r.position) ? ' (позиция ' + r.position + ', считая с 0)' : '';
+          msg.textContent = 'Ошибка шаблона' + where + ': ' + r.error;
+          return;
+        }
         if (preview) {
           const spans = r.rows[0], longest = Math.max(0, ...spans.map(([a, b]) => b - a));
           msg.innerHTML = `<b>Совпадений: ${spans.length}. Максимальная длина: ${longest}.</b>${pycRegexRanges(texts[0], spans)}`;

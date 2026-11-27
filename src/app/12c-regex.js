@@ -18,7 +18,16 @@ try:
             spans = [m.span() for m in regex.finditer(text)]
         rows.append(spans)
     print(json.dumps({'rows': rows}))
-except (re.error, ValueError, OverflowError, RecursionError) as exc:
+except re.error as exc:
+    hints = {
+        'unterminated character set': 'Закрой класс символов квадратной скобкой ].',
+        'missing ), unterminated subpattern': 'Проверь, где заканчивается группа, и добавь закрывающую скобку ).',
+        'unbalanced parenthesis': 'Для закрывающей скобки нужна парная открывающая. Для поиска самой скобки поставь перед ней обратную косую черту.',
+        'nothing to repeat': 'Поставь перед знаком повтора символ, класс или группу, которую нужно повторить.',
+        'min repeat greater than max repeat': 'В {m,n} сначала укажи меньшее число, затем большее.'
+    }
+    print(json.dumps({'error': hints.get(exc.msg, exc.msg), 'position': exc.pos}))
+except (ValueError, OverflowError, RecursionError) as exc:
     print(json.dumps({'error': str(exc)}))`;
 
   function pycRegexRanges(text, spans) {
@@ -29,9 +38,9 @@ except (re.error, ValueError, OverflowError, RecursionError) as exc:
       return spans.some(([a, b]) => a <= start && end <= b) ? `<mark>${part}</mark>` : part;
     }).join('');
     const parts = spans.slice(0, 16).map(([a, b]) =>
-      `<code>[${a}:${b}] ${a === b ? '∅' : esc(chars.slice(a, b).join(''))}</code>`);
+      `<code>[${a}:${b}] ${a === b ? 'пустое совпадение' : esc(chars.slice(a, b).join(''))}</code>`);
     if (spans.length > parts.length) parts.push(`… ещё ${spans.length - parts.length}`);
-    return `<samp class="pyc-re-text">${marked || '∅'}</samp>
+    return `<samp class="pyc-re-text">${marked || 'Пустая строка'}</samp>
       <div class="pyc-re-spans">${parts.join(' ') || 'Совпадений нет'}</div>`;
   }
 
@@ -42,12 +51,12 @@ except (re.error, ValueError, OverflowError, RecursionError) as exc:
       <div class="pyc-re-example"><b>Ожидаемые совпадения</b>${pycRegexRanges(example, spec.example_spans)}</div>
       <fieldset><label>Шаблон Python re <small>${method}</small>
         <input class="inp" data-re-pattern maxlength="240" spellcheck="false" autocapitalize="off" required
-          aria-describedby="re-pattern-help" value="${esc(readCode('pyc-re:' + t.id) || '')}"></label>
-        <small id="re-pattern-help">Введи содержимое строки <code>r'…'</code> без кавычек.</small>
+          aria-describedby="re-pattern-help-${esc(t.id)}" value="${esc(readCode('pyc-re:' + t.id) || '')}"></label>
+        <small id="re-pattern-help-${esc(t.id)}">Введи содержимое строки <code>r'…'</code> без кавычек.</small>
         <div class="pyc-re-actions"><button type="submit" class="btn primary">Проверить шаблон</button>
           <button class="btn" type="button" data-re-stop hidden>Остановить</button></div>
         <details class="pyc-more"><summary>Попробовать на своей строке</summary>
-          <label>Строка для поиска<input class="inp" data-re-text maxlength="160" spellcheck="false" autocapitalize="off" value="${esc(example)}"></label>
+          <label>Текст для поиска<textarea class="inp" data-re-text rows="2" maxlength="160" spellcheck="false" autocapitalize="off">${esc(example)}</textarea></label>
           <button class="btn" type="button" data-re-preview>Показать совпадения</button></details>
       </fieldset>
       <div class="pyc-msg" aria-live="polite">${t.ok ? 'Задача зачтена. Можно попробовать другой шаблон.' : ''}</div>
@@ -101,7 +110,11 @@ except (re.error, ValueError, OverflowError, RecursionError) as exc:
         if (!m.ok || error) { msg.textContent = error.trim().slice(0, 400) || 'Не удалось выполнить поиск.'; return; }
         let r;
         try { r = JSON.parse(output); } catch { msg.textContent = 'Python вернул неполный результат. Повтори проверку.'; return; }
-        if (r.error) { msg.textContent = 'Ошибка шаблона: ' + r.error; return; }
+        if (r.error) {
+          const where = Number.isInteger(r.position) ? ' (позиция ' + r.position + ', считая с 0)' : '';
+          msg.textContent = 'Ошибка шаблона' + where + ': ' + r.error;
+          return;
+        }
         if (preview) {
           const spans = r.rows[0], longest = Math.max(0, ...spans.map(([a, b]) => b - a));
           msg.innerHTML = `<b>Совпадений: ${spans.length}. Максимальная длина: ${longest}.</b>${pycRegexRanges(texts[0], spans)}`;

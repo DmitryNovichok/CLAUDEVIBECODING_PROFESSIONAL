@@ -161,6 +161,13 @@
     box.querySelector('.crs-stage').innerHTML = slideHtml(sl[appState.deckI], appState.deckI);
     if (MARK.on || MARK.strokes.has(`deck:${appState.DECK.n}:${appState.deckI}`)) markAttach();   // рисунок этого слайда
     box.querySelector('.crs-count').textContent = `${appState.deckI + 1} / ${sl.length}`;
+    const chapters = $('#crsChapter');
+    if (chapters) {
+      for (const option of chapters.options) {
+        if (+option.value > appState.deckI) break;
+        chapters.value = option.value;
+      }
+    }
     deckSeen(appState.deckI + 1, sl.length);
     learningRememberSlide();
     box.querySelector('[data-deck="-1"]').disabled = appState.deckI === 0;
@@ -253,6 +260,10 @@
     if (!current() || !appState.courseShown || appState.pageKind !== null || request !== courseLessonRequest) return;
     const has = lesson && lesson.slides && lesson.slides.length;
     if (has) { appState.DECK = lesson; appState.deckI = Number.isInteger(slide) ? Math.max(0, Math.min(slide, has - 1)) : learningSlide(n); }
+    const workshop = n === 24 ? 'm33' : n === 26 ? 'm26' : null;
+    const chapters = has && workshop ? lesson.slides.flatMap((s, i) =>
+      i === 0 || s.t === 'section' || s.chapter ? [{i, label: s.chapter || s.h}] : []) : [];
+    const start = has ? lesson.slides.findIndex(s => s.startHere) : -1;
     const deck = has ? `<div class="crs-deck" id="crsDeck">
         <div class="crs-main"><div class="crs-stage"></div>
           <div class="crs-nav"><button type="button" class="btn ghost" data-deck="-1">← Назад</button><span class="crs-count"></span>
@@ -271,8 +282,13 @@
       ${learningFormat}
       ${[7, 10, 19].includes(n) ? `<div class="learning-return"><button type="button" class="btn" data-learning-lab="${{7:'image',10:'net',19:'game'}[n]}">Исследовать в лаборатории →</button><span>Измени условия, проверь предположение и вернись к этой теме.</span></div>` : ''}
       <div class="fm-h">1. Теория${has ? ` · ${lesson.slides.length} слайдов` : ''}</div>
+      ${chapters.length ? `<div class="crs-chapters"><label>Раздел теории <select class="inp" id="crsChapter" data-course-chapter>${chapters.map(c =>
+        `<option value="${c.i}">${esc(c.label)}</option>`).join('')}</select></label>
+        ${start >= 0 ? `<button type="button" class="btn" data-slide="${start}">${esc(lesson.slides[start].startLabel || lesson.slides[start].h)}</button>` : ''}</div>` : ''}
       ${deck}
       <div class="fm-h">2. Практика по уровням</div>
+      ${workshop ? `<p><button type="button" class="btn" data-pyc-lv="${workshop}:0">${n === 24 ? 'Практика Python · регулярные выражения' : 'Практика Python · задачи №26'}</button>
+        ${n === 26 ? '<button type="button" class="btn ghost" data-pyc-lv="m35:0">Практикум · журнал событий</button>' : ''}</p>` : ''}
       <div class="crs-sets">${COURSE_SETS.map((st, i) => {
         const a = courseSet(`crs-${n}-${st.key}`), total = a ? a.tasks.length : 0, done = total - asgLeft(a).length;
         return `<div class="crs-set${total && done === total ? ' done' : ''}"><span class="crs-set-ic">${st.icon}</span>
@@ -352,6 +368,12 @@
     if (!$('#forecastModal').hidden) return;
     if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); deckGo(1); }
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); deckGo(-1); }
+  });
+  trainerEl.addEventListener('change', e => {
+    if (e.target.matches('[data-course-chapter]') && appState.DECK) {
+      appState.deckI = +e.target.value;
+      renderDeck();
+    }
   });
   trainerEl.addEventListener('click', e => {
     if (!appState.courseShown) return;

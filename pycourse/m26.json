@@ -3,24 +3,35 @@
  "n": 26,
  "title": "Сортировка и жадные алгоритмы",
  "icon": "📦",
- "sub": "Файл с данными: сортировка, жадный выбор, интервалы, очереди",
+ "sub": "От чтения первой строки до отбора участников, расписаний, камер хранения и закупки с приоритетами.",
  "levels": [
   {
-   "title": "База: сортировка и жадность",
-   "goal": "первая строка — параметры, дальше список; sort; набираем, пока помещается",
+   "title": "От первой строки до выбора файлов",
+   "goal": "Прочитай заголовок, отсортируй числа и найди два значения ответа.",
    "need": 2,
    "slides": [
     {
      "t": "title",
      "k": "Программирование для ЕГЭ",
      "h": "Задание 26",
-     "sub": "Данные из файла, сортировка и жадный выбор: что выгоднее взять первым",
+     "sub": "На диске 14 Мбайт. Как разместить побольше файлов и какой самый большой файл можно взять?",
      "chips": [
-      "sort()",
-      "key=",
-      "жадно",
-      "heapq"
+      "прочитать",
+      "упорядочить",
+      "выбрать",
+      "проверить"
      ]
+    },
+    {
+     "t": "code",
+     "k": "Уровень 1",
+     "kc": "t1",
+     "h": "Преврати текст в числа",
+     "ch": "Пример",
+     "cond": "<p>В первой строке 14 означает свободное место, 5 — количество следующих строк. split() разбивает строку по пробелам, int превращает каждую часть в целое число. Сравни два последних вывода. При сортировке строк сначала сравниваются первые символы.</p>",
+     "nk": "secret",
+     "code": "line = '14 5'\nparts = line.split()\nprint(parts)\ncapacity, count = map(int, parts)\nprint(capacity - 3, count)\nprint(sorted(['2', '10']))\nprint(sorted([2, 10]))",
+     "out": "['14', '5']\n11 5\n['10', '2']\n[2, 10]"
     },
     {
      "t": "code",
@@ -35,7 +46,7 @@
      "files": [
       {
        "name": "26.txt",
-       "url": "pyc-data/m26/L1S2/26.txt?v=176893c6",
+       "url": "pyc-data/m26/L1S3/26.txt?v=176893c6",
        "size": 21
       }
      ]
@@ -46,7 +57,7 @@
      "kc": "t1",
      "h": "Жадно: самые маленькие первыми",
      "ch": "Пример",
-     "cond": "<p>Чтобы файлов поместилось как можно больше, берём самые маленькие. Это и есть жадный алгоритм: на каждом шаге — самый выгодный выбор.</p>",
+     "cond": "<p>Если четыре самых маленьких файла вместе тяжелее лимита, любая другая четвёрка весит столько же или больше. Поэтому после первого превышения можно остановиться. При точном заполнении файл помещается.</p>",
      "nk": "secret",
      "code": "f = open('26.txt')\nS, N = map(int, f.readline().split())\na = sorted(int(f.readline()) for _ in range(N))\ntotal = k = 0\nfor x in a:\n    if total + x > S:\n        break\n    total += x\n    k += 1\nprint(k, total)",
      "out": "3 90",
@@ -54,7 +65,7 @@
      "files": [
       {
        "name": "26.txt",
-       "url": "pyc-data/m26/L1S3/26.txt?v=176893c6",
+       "url": "pyc-data/m26/L1S4/26.txt?v=176893c6",
        "size": 21
       }
      ]
@@ -65,29 +76,106 @@
      "kc": "t1",
      "h": "Наибольший последний файл",
      "ch": "Пример",
-     "cond": "<p>Количество не меняется, если заменить самый большой из взятых файлов на файл побольше, лишь бы влез. Освобождаем его место и ищем наибольший файл среди невзятых (и его самого), который помещается.</p>",
+     "cond": "<p>Из размеров 2, 3, 4, 9, 10 на диск объёмом 14 сначала попадают 2, 3, 4. Четвёртый файл уже не влезет. Оставь два самых лёгких файла. Для третьего остаётся 14 − 2 − 3 = 9, поэтому итоговый выбор — 2, 3, 9.</p>",
      "nk": "secret",
-     "code": "f = open('26.txt')\nS, N = map(int, f.readline().split())\na = sorted(int(f.readline()) for _ in range(N))\nk = 0\nwhile k < N and sum(a[:k + 1]) <= S:\n    k += 1\nfree = S - sum(a[:k - 1])            # место без самого большого из взятых\nbest = max(x for x in a[k - 1:] if x <= free)\nprint(k, best)",
-     "out": "3 50",
+     "code": "f = open('26.txt')\nS, N = map(int, f.readline().split())\na = sorted(int(f.readline()) for _ in range(N))\nk = total = 0\nwhile k < N and total + a[k] <= S:\n    total += a[k]\n    k += 1\nbest = 0\nif k:\n    free = S - total + a[k - 1]\n    best = max(x for x in a if x <= free)\nprint(k, best)",
+     "out": "3 9",
      "wide": true,
      "files": [
       {
        "name": "26.txt",
-       "url": "pyc-data/m26/L1S4/26.txt?v=176893c6",
-       "size": 21
+       "url": "pyc-data/m26/L1S5/26.txt?v=55d11859",
+       "size": 16
       }
      ]
     }
    ],
    "tasks": [
     {
+     "id": "m26.read_sizes",
+     "h": "Прочитай маленький архив",
+     "cond": "<p>В первой строке дано число файлов N ≥ 1. В каждой из следующих N строк записан размер одного файла. Выведи суммарный размер и размер самого маленького файла через пробел. При проверке строки поступают через input().</p>",
+     "stars": 2,
+     "ans": "19 2",
+     "sol": "n = int(input())\nsizes = [int(input()) for _ in range(n)]\nprint(sum(sizes), min(sizes))",
+     "sec": 0.02,
+     "practice": {
+      "starter": "n = int(input())\n",
+      "stdin": "3\n10\n2\n7",
+      "graded": true,
+      "cases": [
+       {
+        "input": "3\n10\n2\n7",
+        "output": "19 2"
+       },
+       {
+        "input": "1\n18",
+        "output": "18 18"
+       },
+       {
+        "input": "4\n2\n2\n9\n2",
+        "output": "15 2"
+       },
+       {
+        "input": "3\n90\n100\n11",
+        "output": "201 11"
+       }
+      ]
+     },
+     "hint": "Считай N отдельно. Затем вызови input() ещё N раз."
+    },
+    {
+     "id": "m26.pack_trace",
+     "h": "Пройди по размерам вручную",
+     "cond": "<p>Файлы уже упорядочены, ёмкость диска — 14. Добавляй очередной файл, если он помещается. После каждого шага запиши число выбранных файлов и занятый объём.</p>",
+     "stars": 1,
+     "ans": "1 2\n2 5\n3 9\n3 9\n3 9",
+     "sol": "used = count = 0\nfor size in [2, 3, 4, 9, 10]:\n    if used + size <= 14:\n        used += size\n        count += 1\n    print(count, used)",
+     "sec": 0.02,
+     "worksheet": {
+      "headings": [
+       "Размер"
+      ],
+      "rows": [
+       [
+        2
+       ],
+       [
+        3
+       ],
+       [
+        4
+       ],
+       [
+        9
+       ],
+       [
+        10
+       ]
+      ],
+      "fields": [
+       {
+        "label": "Файлов",
+        "tip": "Счётчик растёт только при добавлении.",
+        "choices": []
+       },
+       {
+        "label": "Занято",
+        "tip": "Складывай размеры выбранных файлов.",
+        "choices": []
+       }
+      ]
+     },
+     "hint": "Первые три файла занимают 9. Сколько места осталось для следующего?"
+    },
+    {
      "id": "m26.disk",
      "h": "Архив на диске",
-     "cond": "<p>В файле <b>26.txt</b>: в первой строке объём свободного места S и количество файлов N, далее размеры файлов. Найдите максимальное количество файлов, которые можно записать, и максимальный размер файла, который может быть записан при таком количестве. В ответе — два числа через пробел.</p>",
+     "cond": "<p>В файле <b>26.txt</b>: в первой строке объём свободного места S и количество файлов N, далее размеры файлов. Найдите максимальное количество файлов, которые можно записать, и максимальный размер файла, который может быть записан при таком количестве. В ответе — два числа через пробел. Если не поместится ни одного файла, выведите 0 0.</p>",
      "stars": 1,
      "ans": "2850 361",
-     "sol": "f = open('26.txt')\nS, N = map(int, f.readline().split())\na = sorted(int(f.readline()) for _ in range(N))\nk = 0\ns = 0\nwhile k < N and s + a[k] <= S:\n    s += a[k]\n    k += 1\nfree = S - (s - a[k - 1])\nprint(k, max(x for x in a[k - 1:] if x <= free))",
-     "sec": 0.02,
+     "sol": "f = open('26.txt')\nS, N = map(int, f.readline().split())\na = sorted(int(f.readline()) for _ in range(N))\nk = 0\ns = 0\nwhile k < N and s + a[k] <= S:\n    s += a[k]\n    k += 1\nbest = 0\nif k:\n    free = S - s + a[k - 1]\n    best = max(x for x in a if x <= free)\nprint(k, best)",
+     "sec": 0.04,
      "files": [
       {
        "name": "26.txt",
@@ -103,7 +191,7 @@
      "stars": 1,
      "ans": "1573 918",
      "sol": "f = open('26.txt')\nS, N = map(int, f.readline().split())\na = sorted(int(f.readline()) for _ in range(N))\nk = s = 0\nwhile k < N and s + a[k] <= S:\n    s += a[k]\n    k += 1\nprint(k, S - s)",
-     "sec": 0.01,
+     "sec": 0.02,
      "files": [
       {
        "name": "26.txt",
@@ -119,7 +207,7 @@
      "stars": 1,
      "ans": "820 2510",
      "sol": "f = open('26.txt')\nS, N = map(int, f.readline().split())\na = sorted((int(f.readline()) for _ in range(N)), reverse=True)\ns = k = 0\nwhile s < S:\n    s += a[k]\n    k += 1\nprint(k, a[k - 1])",
-     "sec": 0.01,
+     "sec": 0.02,
      "hint": "Меньше всего чисел — берём самые большие. Наименьшее из взятых — последнее.",
      "files": [
       {
@@ -132,8 +220,8 @@
    ]
   },
   {
-   "title": "Стандарт: пары и сортировка по ключу",
-   "goal": "кортежи, sort по нескольким полям, поиск в отсортированном",
+   "title": "Строки из двух чисел и правила равенства",
+   "goal": "Сгруппируй места по рядам, сравни соседей и разбери равные результаты.",
    "need": 2,
    "slides": [
     {
@@ -152,17 +240,29 @@
      "t": "code",
      "k": "Уровень 2",
      "kc": "t1",
+     "h": "При равенстве баллов выше меньший номер",
+     "ch": "Пример",
+     "cond": "<p>В каждой записи сначала идёт номер, затем балл. Для ученика №5 ключ равен (−90, 5), для №12 — (−90, 12). Результат задают два сравнения подряд. Проверь, что ученик с номером 21 занимает третью строку.</p>",
+     "nk": "secret",
+     "code": "contestants = [(21, 80), (12, 90), (5, 90)]\nranked = sorted(contestants, key=lambda row: (-row[1], row[0]))\nfor number, score in ranked:\n    print(number, score)",
+     "out": "5 90\n12 90\n21 80",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "k": "Уровень 2",
+     "kc": "t1",
      "h": "Занятые места — свободные рядом",
      "ch": "Пример",
-     "cond": "<p>Отсортированные занятые места: соседние в списке — соседние в зале. Если в одном ряду между двумя занятыми два свободных — нашли пару.</p>",
+     "cond": "<p>Занятые места 1 и 4 ограничивают ровно два свободных места — 2 и 3. Проверяй соседние записи одного ряда. У результатов сравни сначала ряд по убыванию, затем первое свободное место по возрастанию.</p>",
      "nk": "secret",
-     "code": "f = open('26.txt')\nn = int(f.readline())\nbusy = sorted(tuple(map(int, f.readline().split())) for _ in range(n))\nres = []\nfor (r1, s1), (r2, s2) in zip(busy, busy[1:]):\n    if r1 == r2 and s2 - s1 == 3:          # между ними ровно два свободных места\n        res.append((r1, s1 + 1))\nprint(max(res))",
-     "out": "(2, 2)",
+     "code": "f = open('26.txt')\nn = int(f.readline())\nbusy = sorted(tuple(map(int, f.readline().split())) for _ in range(n))\nres = []\nfor (r1, s1), (r2, s2) in zip(busy, busy[1:]):\n    if r1 == r2 and s2 - s1 == 3:          # между ними ровно два свободных места\n        res.append((r1, s1 + 1))\nif res:\n    print(*min(res, key=lambda pair: (-pair[0], pair[1])))",
+     "out": "2 2",
      "wide": true,
      "files": [
       {
        "name": "26.txt",
-       "url": "pyc-data/m26/L2S2/26.txt?v=d499da1c",
+       "url": "pyc-data/m26/L2S3/26.txt?v=d499da1c",
        "size": 22
       }
      ]
@@ -170,13 +270,46 @@
    ],
    "tasks": [
     {
+     "id": "m26.rank_order",
+     "h": "Собери рейтинг из записей",
+     "cond": "<p>Дано N ≥ 1, затем N строк «уникальный номер участника, балл» через пробел. Выведи номера всех участников в порядке убывания балла. При равном балле выше участник с меньшим номером.</p>",
+     "stars": 2,
+     "ans": "5 12 21",
+     "sol": "n = int(input())\nrows = [tuple(map(int, input().split())) for _ in range(n)]\nranked = sorted(rows, key=lambda row: (-row[1], row[0]))\nprint(*(number for number, score in ranked))",
+     "sec": 0.04,
+     "practice": {
+      "starter": "n = int(input())\n",
+      "stdin": "3\n21 80\n12 90\n5 90",
+      "graded": true,
+      "cases": [
+       {
+        "input": "3\n21 80\n12 90\n5 90",
+        "output": "5 12 21"
+       },
+       {
+        "input": "1\n17 0",
+        "output": "17"
+       },
+       {
+        "input": "4\n12 3\n9 3\n20 3\n1 3",
+        "output": "1 9 12 20"
+       },
+       {
+        "input": "4\n1 0\n2 2\n3 1\n4 3",
+        "output": "4 2 3 1"
+       }
+      ]
+     },
+     "hint": "Запиши ключ для каждой строки в первом тесте. У двух претендентов с 90 баллами вторая часть ключа определяет порядок."
+    },
+    {
      "id": "m26.cinema",
      "h": "Два места рядом",
      "cond": "<p>В кинотеатре ряды и места нумеруются с 1. В файле <b>26.txt</b>: в первой строке N — количество занятых мест, далее N строк: номер ряда и номер места. Найдите ряд с наибольшим номером, в котором есть два соседних свободных места, слева и справа от которых места заняты, и наименьший номер места из этой пары. Если в этом ряду таких пар несколько — возьмите пару с наименьшими номерами. Два числа через пробел.</p>",
      "stars": 2,
      "ans": "900 6",
      "sol": "f = open('26.txt')\nn = int(f.readline())\nbusy = sorted(tuple(map(int, f.readline().split())) for _ in range(n))\nbest = None\nfor (r1, s1), (r2, s2) in zip(busy, busy[1:]):\n    if r1 == r2 and s2 - s1 == 3:\n        if best is None or r1 > best[0] or (r1 == best[0] and s1 + 1 < best[1]):\n            best = (r1, s1 + 1)\nprint(*best)",
-     "sec": 0.09,
+     "sec": 0.05,
      "files": [
       {
        "name": "26.txt",
@@ -192,7 +325,7 @@
      "stars": 1,
      "ans": "3253 18",
      "sol": "f = open('26.txt')\nn = int(f.readline())\nbest = {}\nfor _ in range(n):\n    sid, sc = map(int, f.readline().split())\n    best[sid] = max(best.get(sid, 0), sc)\nk = sum(1 for v in best.values() if v >= 80)\ntop = min(best, key=lambda s: (-best[s], s))\nprint(k, top)",
-     "sec": 0.05,
+     "sec": 0.04,
      "files": [
       {
        "name": "26.txt",
@@ -208,7 +341,7 @@
      "stars": 2,
      "ans": "125237",
      "sol": "f = open('26.txt')\nn = int(f.readline())\ncnt = {}\nfor _ in range(n):\n    x = int(f.readline())\n    cnt[x] = cnt.get(x, 0) + 1\nk = 0\nfor x, c in cnt.items():\n    y = 10000 - x\n    if x < y:\n        k += c * cnt.get(y, 0)\n    elif x == y:\n        k += c * (c - 1) // 2\nprint(k)",
-     "sec": 0.03,
+     "sec": 0.04,
      "hint": "Перебор всех пар — 1,25 миллиарда. Считаем, сколько раз встречается каждое число, и для x ищем 10000 − x.",
      "files": [
       {
@@ -221,10 +354,15 @@
    ]
   },
   {
-   "title": "Профи: интервалы и упаковка",
-   "goal": "расписание без пересечений, матрёшки, сортировка по концу",
+   "title": "Интервалы и события во времени",
+   "goal": "Выбери порядок для одного зала или найди число залов, чтобы принять все заявки.",
    "need": 2,
    "slides": [
+    {
+     "t": "text",
+     "h": "Один зал или все заявки?",
+     "html": "<p>Пусть поступили заявки [0, 10), [1, 3), [3, 5), [5, 7). Число справа — момент освобождения. Самое раннее начало даёт одну длинную встречу. Выбор по самому раннему окончанию оставляет время на три короткие.</p><p>Самая ранняя финиширующая встреча закончится не позже первой встречи любого оптимального расписания. Заменив первую на неё, можно сохранить все следующие. Этот аргумент повторяется для оставшихся заявок.</p>"
+    },
     {
      "t": "code",
      "k": "Уровень 3",
@@ -239,7 +377,7 @@
      "files": [
       {
        "name": "26.txt",
-       "url": "pyc-data/m26/L3S1/26.txt?v=704a76ff",
+       "url": "pyc-data/m26/L3S2/26.txt?v=704a76ff",
        "size": 20
       }
      ]
@@ -258,6 +396,89 @@
     }
    ],
    "tasks": [
+    {
+     "id": "m26.hall_trace",
+     "h": "Пройди по заявкам одного зала",
+     "cond": "<p>Заявки уже стоят в порядке окончания. Выбирай встречу, когда зал свободен к её началу. Для каждой строки введи число принятых заявок и момент освобождения зала после решения.</p>",
+     "stars": 1,
+     "ans": "1 3\n1 3\n2 5\n3 7\n3 7",
+     "sol": "end = count = 0\nfor start, stop in [(1, 3), (2, 4), (3, 5), (5, 7), (0, 10)]:\n    if start >= end:\n        count += 1\n        end = stop\n    print(count, end)",
+     "sec": 0.01,
+     "worksheet": {
+      "headings": [
+       "Начало",
+       "Конец"
+      ],
+      "rows": [
+       [
+        1,
+        3
+       ],
+       [
+        2,
+        4
+       ],
+       [
+        3,
+        5
+       ],
+       [
+        5,
+        7
+       ],
+       [
+        0,
+        10
+       ]
+      ],
+      "fields": [
+       {
+        "label": "Принято",
+        "tip": "У отклонённой встречи счётчик прежний.",
+        "choices": []
+       },
+       {
+        "label": "Свободен с",
+        "tip": "Передвинь границу только при принятии встречи.",
+        "choices": []
+       }
+      ]
+     },
+     "hint": "В момент 3 первая встреча завершилась, третья уже может начаться."
+    },
+    {
+     "id": "m26.peak",
+     "h": "Сколько залов занято одновременно?",
+     "cond": "<p>Прими все заявки. В первой строке N ≥ 1, далее N строк «начало конец», 0 ≤ начало < конец. В момент окончания зал уже свободен. Выведи максимальное число одновременно занятых залов.</p>",
+     "stars": 2,
+     "ans": "2",
+     "sol": "n = int(input())\nevents = []\nfor _ in range(n):\n    start, stop = map(int, input().split())\n    events.extend([(start, 1), (stop, -1)])\ncurrent = peak = 0\nfor moment, change in sorted(events):\n    current += change\n    peak = max(peak, current)\nprint(peak)",
+     "sec": 0.02,
+     "practice": {
+      "starter": "n = int(input())\n",
+      "stdin": "3\n0 3\n1 2\n3 4",
+      "graded": true,
+      "cases": [
+       {
+        "input": "3\n0 3\n1 2\n3 4",
+        "output": "2"
+       },
+       {
+        "input": "3\n0 1\n1 2\n2 3",
+        "output": "1"
+       },
+       {
+        "input": "3\n0 5\n0 5\n0 5",
+        "output": "3"
+       },
+       {
+        "input": "4\n3 8\n0 3\n2 5\n5 6",
+        "output": "2"
+       }
+      ]
+     },
+     "hint": "Запиши по два события на встречу. При равном времени сначала освободи залы, затем рассади новых участников."
+    },
     {
      "id": "m26.hall",
      "h": "Конференц-зал",
@@ -311,43 +532,91 @@
    ]
   },
   {
-   "title": "Максимум: очередь и куча",
-   "goal": "heapq: всегда берём ближайшее освобождение; моделирование по времени",
+   "title": "Моделирование и два указателя",
+   "goal": "Выбери кассу для клиента, ячейку для багажа и пару для рейса.",
    "need": 2,
    "slides": [
     {
      "t": "code",
-     "k": "Уровень 4",
      "kc": "t1",
-     "h": "heapq — «кто освободится раньше»",
+     "h": "За какой кассой будет обслужен клиент?",
      "ch": "Пример",
-     "cond": "<p>Куча хранит числа так, что наименьшее всегда сверху (h[0]) и достаётся за время log n. Удобно, когда надо много раз брать «ближайшее событие».</p>",
+     "cond": "<p>В списке храним момент освобождения каждой кассы. Первый клиент идёт к кассе 1, второй к кассе 2. Третий приходит в минуту 2, когда обе заняты. Раньше освободится вторая — в минуту 4. Для небольшого числа касс достаточно просмотреть список при каждом приходе.</p>",
      "nk": "secret",
-     "code": "import heapq\nh = [7, 3, 9]\nheapq.heapify(h)\nprint(heapq.heappop(h), h)\nheapq.heappush(h, 1)\nprint(h[0])",
-     "out": "3 [7, 9]\n1"
+     "code": "clients = [(0, 5), (1, 3), (2, 8)]\nfree_at = [0, 0]\nfor arrival, duration in clients:\n    desk = min(range(len(free_at)), key=lambda i: free_at[i])\n    start = max(free_at[desk], arrival)\n    free_at[desk] = start + duration\n    print(desk + 1, start, free_at)",
+     "out": "1 0 [5, 0]\n2 1 [5, 4]\n2 4 [5, 12]",
+     "wide": true
     },
     {
      "t": "code",
-     "k": "Уровень 4",
      "kc": "t1",
-     "h": "Кассы",
+     "h": "Ячейка с наименьшим номером",
      "ch": "Пример",
-     "cond": "<p>Каждый клиент идёт на кассу, которая освободится раньше всех. Начинает обслуживаться, когда и он пришёл, и касса свободна.</p>",
+     "cond": "<p>Минута выдачи ещё занята, поэтому здесь нужно строгое сравнение. Если ни одна ячейка не подходит, цикл заканчивается без break и срабатывает else. В таком случае багажу отказывают, время освобождения не меняется.</p>",
      "nk": "secret",
-     "code": "import heapq\nclients = [(0, 5), (1, 3), (2, 8), (3, 2), (4, 4)]     # (приход, время обслуживания)\ncash = [0, 0]                                         # когда освободится каждая из двух касс\nfor t, d in clients:\n    free = heapq.heappop(cash)\n    heapq.heappush(cash, max(free, t) + d)\nprint(max(cash))",
-     "out": "12",
+     "code": "ends = [-1, -1]\nfor arrival, pickup in [(1, 5), (2, 3), (3, 7), (4, 8)]:\n    for i in range(len(ends)):\n        if ends[i] < arrival:\n            ends[i] = pickup\n            print(i + 1)\n            break\n    else:\n        print(0)",
+     "out": "1\n2\n0\n2",
      "wide": true
+    },
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Тяжёлый груз и возможный попутчик",
+     "ch": "Пример",
+     "cond": "<p>В рейс помещаются максимум два груза общей массой до 10. Если даже самый лёгкий не помещается с тяжёлым, тяжёлый обязан ехать один. Если помещается, в оптимальном плане его можно поставить вместо более тяжёлого попутчика. После сортировки оба указателя вместе делают не больше N шагов.</p>",
+     "nk": "secret",
+     "code": "weights = sorted([5, 4, 8, 2, 3])\nleft, right = 0, len(weights) - 1\nwhile left <= right:\n    heavy = weights[right]\n    if left < right and weights[left] + heavy <= 10:\n        print(heavy, weights[left])\n        left += 1\n    else:\n        print(heavy)\n    right -= 1",
+     "out": "8 2\n5 3\n4",
+     "wide": true
+    },
+    {
+     "t": "text",
+     "h": "Сколько раз программа просмотрит кассы?",
+     "html": "<p>Поиск кассы среди K моментов освобождения занимает O(K) действий на клиента. Для 8000 покупателей и 7 касс это 56 000 проверок при одном просмотре списка на покупателя. При K ≤ 12 такой подход подходит для всего файла.</p><p>Если число касс растёт вместе с числом покупателей, полный просмотр на каждом шаге становится дорогим. Когда требуется время ближайшего освобождения, его можно поддерживать двоичной кучей: взять минимум, заменить временем окончания и восстановить порядок. При K ≥ 2 это даёт O(N log K) для обработки N приходов. Для задачи с выбором свободной ячейки по номеру требуется учесть и номера ячеек.</p>"
     }
    ],
    "tasks": [
     {
+     "id": "m26.lockers_code",
+     "h": "Разложи багаж",
+     "cond": "<p>В первой строке K и N (от 1 до 12 ячеек, N ≥ 1). Далее в порядке поступления N пар целых минут «приход выдача». Приход ≤ выдачи. Ячейка занята до конца минуты выдачи. Отдай багаж в свободную ячейку с наименьшим номером (нумерация с 1). Если все заняты, заказ пропускается. Выведи число принятых заказов и номер ячейки последнего принятого.</p>",
+     "stars": 2,
+     "ans": "3 2",
+     "sol": "k, n = map(int, input().split())\nends = [-1] * k\ncount = last = 0\nfor _ in range(n):\n    arrival, pickup = map(int, input().split())\n    for i in range(k):\n        if ends[i] < arrival:\n            ends[i] = pickup\n            count += 1\n            last = i + 1\n            break\nprint(count, last)",
+     "sec": 0.02,
+     "practice": {
+      "starter": "k, n = map(int, input().split())\n",
+      "stdin": "2 4\n1 5\n2 3\n3 7\n4 8",
+      "graded": true,
+      "cases": [
+       {
+        "input": "2 4\n1 5\n2 3\n3 7\n4 8",
+        "output": "3 2"
+       },
+       {
+        "input": "1 3\n0 0\n0 1\n1 1",
+        "output": "2 1"
+       },
+       {
+        "input": "2 3\n1 3\n1 2\n5 8",
+        "output": "3 1"
+       },
+       {
+        "input": "3 5\n1 8\n1 7\n1 6\n3 5\n7 7",
+        "output": "4 3"
+       }
+      ]
+     },
+     "hint": "Проверь минуту выдачи. В списке времена, а ответ содержит номер ячейки."
+    },
+    {
      "id": "m26.cash",
      "h": "Кассы",
-     "cond": "<p>В файле <b>26.txt</b>: в первой строке K — количество касс и N — количество покупателей, далее N строк «время_прихода длительность» (покупатели упорядочены по времени прихода). Каждый подходит к кассе, которая освободится раньше всех. Когда будет обслужен последний покупатель и сколько покупателей пришлось ждать (касса освободилась позже их прихода)? Два числа через пробел.</p>",
+     "cond": "<p>В файле <b>26.txt</b> в первой строке K (1 ≤ K ≤ 12) и N — число касс и покупателей. Далее в порядке прихода даны N пар «время прихода, длительность». Каждый выбирает кассу, которая освободится раньше всех. Укажите время, к которому закончат обслуживать всех покупателей, и число покупателей, ожидавших начала обслуживания.</p>",
      "stars": 2,
      "ans": "40042 5893",
-     "sol": "import heapq\nf = open('26.txt')\nK, N = map(int, f.readline().split())\ncash = [0] * K\nwait = 0\nfor _ in range(N):\n    t, d = map(int, f.readline().split())\n    free = heapq.heappop(cash)\n    if free > t:\n        wait += 1\n    heapq.heappush(cash, max(free, t) + d)\nprint(max(cash), wait)",
-     "sec": 0.06,
+     "sol": "f = open('26.txt')\nK, N = map(int, f.readline().split())\nfree_at = [0] * K\nwait = 0\nfor _ in range(N):\n    arrival, duration = map(int, f.readline().split())\n    desk = min(range(len(free_at)), key=lambda i: free_at[i])\n    start = max(arrival, free_at[desk])\n    if start > arrival:\n        wait += 1\n    free_at[desk] = start + duration\nprint(max(free_at), wait)",
+     "sec": 0.04,
      "files": [
       {
        "name": "26.txt",
@@ -363,7 +632,7 @@
      "stars": 2,
      "ans": "33181601",
      "sol": "f = open('26.txt')\nn = int(f.readline())\na = sorted((int(f.readline()) for _ in range(n)), reverse=True)\nprint(sum(x for i, x in enumerate(a) if i % 3 != 2))",
-     "sec": 0.02,
+     "sec": 0.03,
      "hint": "Выгоднее всего группировать по убыванию: три самых дорогих вместе — бесплатен третий по цене, и так далее.",
      "files": [
       {
@@ -380,13 +649,201 @@
      "stars": 3,
      "ans": "10625",
      "sol": "f = open('26.txt')\nW, N = map(int, f.readline().split())\na = sorted(int(f.readline()) for _ in range(N))\ni, j = 0, N - 1\nk = 0\nwhile i <= j:\n    if i < j and a[i] + a[j] <= W:\n        i += 1\n    j -= 1\n    k += 1\nprint(k)",
-     "sec": 0.02,
+     "sec": 0.03,
      "hint": "Два указателя: самый тяжёлый едет всегда; если к нему влезает самый лёгкий — едут вместе.",
      "files": [
       {
        "name": "26.txt",
        "url": "pyc-data/m26/trucks/26.txt?v=37fe7850",
        "size": 78982
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Два условия выбора и граница конкурса",
+   "goal": "Разбери равенства у проходного балла и сравни допустимые закупки по приоритету.",
+   "need": 1,
+   "slides": [
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Кто участвует в дополнительном конкурсе?",
+     "ch": "Пример",
+     "cond": "<p>На двух местах пограничный балл 80: после участника с 92 баллами на одно место претендуют двое. На трёх местах проходной балл тоже равен 80, но места хватает обоим. Пусть H набрали строго больше проходного, E — ровно столько. Если H + E равно числу мест, все прошедшие уже известны.</p>",
+     "nk": "secret",
+     "code": "scores = [73, 92, 80, 75, 80]\nranked = sorted(scores, reverse=True)\nfor places in (2, 3):\n    cutoff = ranked[places - 1]\n    print(places, cutoff, ranked.count(cutoff))",
+     "out": "2 80 2\n3 80 2",
+     "wide": true
+    },
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Сколько стоят первые k самых дешёвых деталей?",
+     "ch": "Пример",
+     "cond": "<p>Первый элемент sums равен нулю. Сумма с индексом 2 — стоимость двух первых цен, 2 + 4 = 6. Построй такую таблицу для каждой категории. Тогда стоимость любого сочетания количеств можно узнать двумя обращениями по индексу.</p>",
+     "nk": "secret",
+     "code": "prices = sorted([7, 2, 4])\nsums = [0]\nfor price in prices:\n    sums.append(sums[-1] + price)\nprint(prices, sums)\nprint(sums[2])",
+     "out": "[2, 4, 7] [0, 2, 6, 13]\n6"
+    },
+    {
+     "t": "code",
+     "kc": "t1",
+     "h": "Сначала количество, затем приоритет, затем остаток",
+     "ch": "Пример",
+     "cond": "<p>Это полный перебор для маленького примера: A стоят 4 и 6, B стоят 2, 3 и 7. Тройка (3, 1, 1) означает три детали, одна из них A, остался 1 рубль. Кортежи сравниваются слева направо. Для большого файла перебирай только a. Для каждого a нужно самое большое доступное b. С ростом a значение b может только уменьшаться.</p>",
+     "nk": "secret",
+     "code": "cost_a = [0, 4, 10]\ncost_b = [0, 2, 5, 12]\nlimit = 10\noptions = []\nfor a in range(len(cost_a)):\n    for b in range(len(cost_b)):\n        spent = cost_a[a] + cost_b[b]\n        if spent <= limit:\n            options.append((a + b, a, limit - spent))\nprint(max(options))",
+     "out": "(3, 1, 1)",
+     "wide": true
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m26.cutoff_code",
+     "h": "Раздели прошедших и претендентов",
+     "cond": "<p>Дано K в первой строке и список итоговых баллов во второй. Мест от 1 до количества участников. Выше балл — выше место. Если всем участникам с проходным баллом хватает мест, выведи K и 0. Иначе выведи число гарантированно прошедших и число участников, претендующих на оставшиеся места.</p>",
+     "stars": 2,
+     "ans": "1 2",
+     "sol": "def admissions(scores, places):\n    ranked = sorted(scores, reverse=True)\n    cutoff = ranked[places - 1]\n    higher = sum(score > cutoff for score in ranked)\n    equal = ranked.count(cutoff)\n    if higher + equal == places:\n        return places, 0\n    return higher, equal\n\nplaces = int(input())\nscores = list(map(int, input().split()))\nprint(*admissions(scores, places))",
+     "sec": 0.02,
+     "practice": {
+      "starter": "places = int(input())\nscores = list(map(int, input().split()))\n",
+      "stdin": "2\n73 92 80 75 80",
+      "graded": true,
+      "cases": [
+       {
+        "input": "2\n73 92 80 75 80",
+        "output": "1 2"
+       },
+       {
+        "input": "3\n73 92 80 75 80",
+        "output": "3 0"
+       },
+       {
+        "input": "2\n5 5 5",
+        "output": "0 3"
+       },
+       {
+        "input": "1\n8",
+        "output": "1 0"
+       },
+       {
+        "input": "3\n7 3 1",
+        "output": "3 0"
+       },
+       {
+        "input": "2\n4 9 9",
+        "output": "2 0"
+       }
+      ]
+     },
+     "hint": "Вычисли балл на позиции K − 1 отсортированного списка. Вспомни случай, когда пограничная группа целиком помещается."
+    },
+    {
+     "id": "m26.purchase_code",
+     "h": "Собери покупку с приоритетом",
+     "cond": "<p>В первой строке N и бюджет. Затем N строк «категория цена», где категория A или B, цена — положительное целое. Каждую деталь можно купить один раз. Нужно купить максимум деталей, среди таких покупок взять больше всего A, затем оставить как можно больше денег. Выведи все три результата в этом порядке.</p>",
+     "stars": 2,
+     "ans": "3 1 1",
+     "sol": "def purchase(goods, budget):\n    prices_a = sorted(price for kind, price in goods if kind == 'A')\n    prices_b = sorted(price for kind, price in goods if kind == 'B')\n    def prefix(prices):\n        sums = [0]\n        for price in prices:\n            sums.append(sums[-1] + price)\n        return sums\n    costs_a = prefix(prices_a)\n    costs_b = prefix(prices_b)\n    b = len(prices_b)\n    best = (0, 0, budget)\n    for a, cost_a in enumerate(costs_a):\n        if cost_a > budget:\n            break\n        while cost_a + costs_b[b] > budget:\n            b -= 1\n        left = budget - cost_a - costs_b[b]\n        best = max(best, (a + b, a, left))\n    return best\n\nn, budget = map(int, input().split())\ngoods = []\nfor _ in range(n):\n    kind, price = input().split()\n    goods.append((kind, int(price)))\nprint(*purchase(goods, budget))",
+     "sec": 0.02,
+     "practice": {
+      "starter": "n, budget = map(int, input().split())\n",
+      "stdin": "5 10\nA 4\nA 6\nB 2\nB 3\nB 7",
+      "graded": true,
+      "cases": [
+       {
+        "input": "5 10\nA 4\nA 6\nB 2\nB 3\nB 7",
+        "output": "3 1 1"
+       },
+       {
+        "input": "4 8\nA 4\nA 4\nB 3\nB 3",
+        "output": "2 2 0"
+       },
+       {
+        "input": "2 0\nB 3\nA 1",
+        "output": "0 0 0"
+       },
+       {
+        "input": "2 7\nB 2\nB 5",
+        "output": "2 0 0"
+       },
+       {
+        "input": "4 100\nA 1\nA 8\nA 2\nA 3",
+        "output": "4 4 86"
+       },
+       {
+        "input": "5 10\nA 4\nA 4\nB 1\nB 1\nB 1",
+        "output": "4 2 0"
+       }
+      ]
+     },
+     "hint": "Для выбранных a и b бери a самых дешёвых A и b самых дешёвых B. Для фиксированного a уменьши b до доступного количества."
+    }
+   ]
+  },
+  {
+   "title": "Самостоятельная работа с файлом",
+   "goal": "Выбери способ решения по условию и сдай ответы для трёх разных файлов.",
+   "need": 2,
+   "slides": [
+    {
+     "t": "text",
+     "h": "Перед запуском программы",
+     "html": "<p>Выпиши смысл первой строки и порядок чисел в ответе. Подбери маленький пример с равенством — у границы конкурса, в момент выдачи багажа или при точном расходе бюджета. Предскажи ответ вручную и только потом проверь код на полном файле.</p>"
+    }
+   ],
+   "tasks": [
+    {
+     "id": "m26.admission_file",
+     "h": "Зачисление по сумме двух оценок",
+     "cond": "<p>В первой строке файла <b>26.txt</b> даны N и число мест K (1 ≤ K ≤ N). Затем идут N строк «уникальный номер, балл за первую работу, балл за вторую работу» через пробел. Участники занимают места по убыванию суммы двух баллов. Равные суммы дают равные права. Если на всех участников с проходным баллом хватает мест, они зачисляются сразу. Если мест недостаточно, все участники с этим баллом проходят дополнительное испытание. Выведи число сразу зачисленных и число участников дополнительного испытания.</p>",
+     "stars": 3,
+     "ans": "108 18",
+     "sol": "def admissions(scores, places):\n    ranked = sorted(scores, reverse=True)\n    cutoff = ranked[places - 1]\n    higher = sum(score > cutoff for score in ranked)\n    equal = ranked.count(cutoff)\n    if higher + equal == places:\n        return places, 0\n    return higher, equal\n\nwith open('26.txt') as file:\n    n, places = map(int, file.readline().split())\n    scores = []\n    for line in file:\n        number, first, second = map(int, line.split())\n        scores.append(first + second)\nprint(*admissions(scores, places))",
+     "sec": 0.01,
+     "hint": "Границу задаёт сумма баллов, стоящая на K-м месте после сортировки.",
+     "files": [
+      {
+       "name": "26.txt",
+       "url": "pyc-data/m26/admission_file/26.txt?v=737763b2",
+       "size": 5144
+      }
+     ]
+    },
+    {
+     "id": "m26.locker_file",
+     "h": "Багаж в камере хранения",
+     "cond": "<p>В первой строке <b>26.txt</b> даны K (1 ≤ K ≤ 12) и N, затем N строк «минута прихода, минута получения». Обработай заказы по возрастанию времени прихода, при равенстве — в порядке строк исходного файла. Выбирай свободную ячейку с наименьшим номером от 1 до K. Ячейка освобождается только в следующую минуту после получения. Пассажир уходит, если места нет. Выведи число принятых заказов и номер ячейки последнего принятого заказа.</p>",
+     "stars": 3,
+     "ans": "226 7",
+     "sol": "with open('26.txt') as file:\n    k, n = map(int, file.readline().split())\n    events = [tuple(map(int, line.split())) for line in file]\nevents.sort(key=lambda event: event[0])\nends = [-1] * k\ncount = last = 0\nfor arrival, pickup in events:\n    for i in range(k):\n        if ends[i] < arrival:\n            ends[i] = pickup\n            count += 1\n            last = i + 1\n            break\nprint(count, last)",
+     "sec": 0.01,
+     "hint": "Сортировка с ключом только по приходу сохраняет исходный порядок у заказов одной минуты. Время получения остаётся занятым.",
+     "files": [
+      {
+       "name": "26.txt",
+       "url": "pyc-data/m26/locker_file/26.txt?v=601bedcc",
+       "size": 4134
+      }
+     ]
+    },
+    {
+     "id": "m26.purchase_file",
+     "h": "Закупка деталей для мастерской",
+     "cond": "<p>В первой строке <b>26.txt</b> даны N и бюджет. Далее N строк «A цена» или «B цена»; каждый экземпляр можно купить один раз. Мастерская покупает как можно больше деталей. Среди наборов максимального размера она выбирает тот, в котором больше всего деталей A, а при равенстве обоих показателей тратит меньше денег. В ответе укажи <b>только число деталей A и оставшуюся сумму</b>.</p>",
+     "stars": 3,
+     "ans": "209 5",
+     "sol": "def purchase(goods, budget):\n    prices_a = sorted(price for kind, price in goods if kind == 'A')\n    prices_b = sorted(price for kind, price in goods if kind == 'B')\n    def prefix(prices):\n        sums = [0]\n        for price in prices:\n            sums.append(sums[-1] + price)\n        return sums\n    costs_a = prefix(prices_a)\n    costs_b = prefix(prices_b)\n    b = len(prices_b)\n    best = (0, 0, budget)\n    for a, cost_a in enumerate(costs_a):\n        if cost_a > budget:\n            break\n        while cost_a + costs_b[b] > budget:\n            b -= 1\n        left = budget - cost_a - costs_b[b]\n        best = max(best, (a + b, a, left))\n    return best\n\nwith open('26.txt') as file:\n    n, budget = map(int, file.readline().split())\n    goods = []\n    for line in file:\n        kind, price = line.split()\n        goods.append((kind, int(price)))\ncount, preferred, left = purchase(goods, budget)\nprint(preferred, left)",
+     "sec": 0.02,
+     "hint": "Удобно сравнивать тройки (общее количество, количество A, остаток). Для ответа возьми последние два значения лучшей тройки.",
+     "files": [
+      {
+       "name": "26.txt",
+       "url": "pyc-data/m26/purchase_file/26.txt?v=d10ee99a",
+       "size": 3553
       }
      ]
     }
