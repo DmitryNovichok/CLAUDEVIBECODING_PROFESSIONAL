@@ -103,7 +103,7 @@
     closeForecast();
     if (go === 'gift') openGifts(undefined, id, 'mine');
     else if (go === 'coins') openGifts(undefined, undefined, 'shop');
-    else if (go === 'support') openSupport('auto');
+    else if (go === 'support') openSupport('auto', id);
     else if (go === 'asg') {
       const a = typeof ASG !== 'undefined' && ASG.find(x => x.id === id);
       if (a && !asgFinished(a) && asgRemaining(a) && !a.strict) setScope('asg', id);

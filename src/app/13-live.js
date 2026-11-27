@@ -140,13 +140,12 @@
       w.outerHTML = boardsHtml(LB, on ? on.dataset.lbtab : 'league');
     }
   }
-  /** Учитель ответил в техподдержке: точка на кнопке, уведомление; окно поддержки открыто и черновика нет — обновить. */
+  /** Учитель ответил в техподдержке: точка на кнопке, уведомление; открытые темы обновляем с сохранением черновика. */
   async function liveSupport() {
     const was = (SUPPORT && SUPPORT.unread) || 0;
     await loadSupport();
     if (SUPPORT && SUPPORT.unread > was) toast('🛟 Пришёл ответ техподдержки — открой «Техподдержку»', 6000);
-    if (!$('#forecastModal').hidden && $('#spForm') && [...$('#forecastBody').querySelectorAll('textarea')].every(t => !t.value.trim())
-      && ![...$('#forecastBody').querySelectorAll('[data-sp-box]')].some(b => b.spImg)) openSupport();
+    await spRefreshHistory();
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden || !LV.dirty.size) return;

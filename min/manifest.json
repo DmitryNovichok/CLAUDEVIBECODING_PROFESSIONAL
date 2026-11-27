@@ -9,8 +9,8 @@
       "source": "016eec5301b0171a4ab3e146b18dc5ccc86f28574bbd44848440688bbe443ef1"
     },
     "admin.js": {
-      "min": "f7a538e65267a5af153b4491fbb955a0a0396128b5a2f066f152879433fe8751",
-      "source": "6bbd31155bea31073be519771564971d1d0be0c782dcca65af63c36537eccae6"
+      "min": "268ba1d98eb9964370cef4df5174d56f4f65c20a86d45d14cde03c3d7d50a247",
+      "source": "dfc4af7e4f9227aa9c31d076762b584973fce12d300ab5290a1197d6d976b0ec"
     },
     "app-exams.js": {
       "min": "e2b96b0e95fcd5c9f63667e42add1d819f4b8af432866d7f92a4dfd1bc4bd279",
@@ -21,8 +21,8 @@
       "source": "7bd8e515b2e0492c9cc72646f973cfa9dc122cc0e5f38027b2744dc9341763c9"
     },
     "app.js": {
-      "min": "c5cd481c64a69cd45fba77b6c87deb3a8fde6c7513a690c680c9d03cf26f786c",
-      "source": "cffed100fe6325d51fed909ef075cef154f9ef1d6e86046ac1d7ccd15fc8e52b"
+      "min": "011be9fe65d52716a7131d63aed19b01f1a7e740a57610f953a4aeb734ecacd0",
+      "source": "01bcaf43ed50f1cadc0ae4a59f4296f6db5bd0834743dc1c8a4d306e26b3fb93"
     },
     "changelog-loader.js": {
       "min": "f6ff1bf656229129e58839c169750dd49ffbf242b1870a88138c8d4a31a243ae",

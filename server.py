@@ -5135,8 +5135,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             if not s:
                 return self.err(401, "нужно войти")
             if path == "/api/support/seen" and method == "POST":
-                db.x("UPDATE support SET seen=1 WHERE student_id=? AND answer IS NOT NULL", (s["id"],))
-                return self.send_json({"ok": True})
+                if "shown" in data:
+                    shown = data["shown"]
+                    if not isinstance(shown, list) or len(shown) > 21:
+                        return self.err(400, "Неверный список обращений")
+                    with db.transaction():
+                        for item in shown:
+                            if isinstance(item, dict):
+                                db.x("UPDATE support SET seen=1 WHERE student_id=? AND id=? AND answered=?",
+                                     (s["id"], to_int(item.get("id")), to_float(item.get("answered"))))
+                else:  # прежний клиент отмечал всю переписку за один запрос
+                    db.x("UPDATE support SET seen=1 WHERE student_id=? AND answer IS NOT NULL", (s["id"],))
+                return self.send_json({"ok": True, **support_unread(db, s["id"])})
             if path == "/api/support/reply" and method == "POST":
                 # продолжить переписку по своему обращению; закрытую тему — только новым обращением
                 p = db.q("SELECT * FROM support WHERE id=? AND student_id=?", (to_int(data.get("id")), s["id"]), one=True)
@@ -5151,10 +5161,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     img = support_img_save(data.get("img"))
                 except ValueError as e:
                     return self.err(400, str(e))
-                db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,?)", (p["id"], time.time(), "student", text, img))
-                db.x("UPDATE support SET status='new' WHERE id=?", (p["id"],))
+                with db.transaction():
+                    writable = db.xn("UPDATE support SET status='new' WHERE id=? AND student_id=? AND status!='closed'",
+                                     (p["id"], s["id"]))
+                    if writable:
+                        db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,?)",
+                             (p["id"], time.time(), "student", text, img))
+                if not writable:
+                    if img:
+                        (support_img_dir() / img).unlink(missing_ok=True)
+                    return self.err(409, "Тема закрыта")
                 LIVE.send([("t", main_teacher()["id"])], "feed")
-                return self.send_json({"ok": True})
+                return self.send_json({"ok": True, **support_history(db, {"id": p["id"]}, student_id=s["id"])})
             if path == "/api/support/img":
                 return self.support_img(qs.get("f"), s["id"])
             if path != "/api/support":
@@ -5178,11 +5196,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                      (s["id"], time.time(), kind, text, task, str(data.get("page") or "")[:120] or None, img))
                 LIVE.send([("t", main_teacher()["id"])], "feed")      # главному учителю — сразу
                 return self.send_json({"ok": True})
-            rows = db.q("SELECT * FROM support WHERE student_id=? ORDER BY id DESC LIMIT 20", (s["id"],))
-            return self.send_json({"kinds": SUPPORT_KINDS, "unread": sum(1 for r in rows if not r["seen"]),
-                                   "items": [{"id": r["id"], "ts": r["ts"], "kind": r["kind"], "text": r["text"], "task": r["task"],
-                                              "status": r["status"], "answer": r["answer"], "answered": r["answered"],
-                                              "seen": bool(r["seen"]), "thread": support_thread(db, r)} for r in rows]})
+            return self.send_json(support_history(db, qs, student_id=s["id"]))
 
         if path == "/api/dev/unlock" and method == "POST":
             # раздел «в разработке» (турнир) — по коду доступа; попыток немного, чтобы код не подбирали
@@ -6672,13 +6686,12 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 "bank": len(APP.bank.tasks) if APP.bank.ensure() else 0,
                 "series": series, "nums": nums, "by_teacher": teachers, "support_kinds": SUPPORT_KINDS,
                 "support_rewards": {k: list(v) for k, v in SUPPORT_REWARDS.items()},
-                "support_given": support_given(db),
-                "support": [dict(r, thread=support_thread(db, r)) for r in db.q("""
-                    SELECT p.*, s.name, COALESCE(t.name, '') AS teacher,
-                           COALESCE((SELECT MAX(ts) FROM support_msgs m WHERE m.support_id = p.id), p.ts) AS last
-                    FROM support p JOIN students s ON s.id = p.student_id
-                    LEFT JOIN teachers t ON t.id = COALESCE(s.teacher_id, ?)
-                    ORDER BY (p.status = 'new') DESC, last DESC LIMIT 200""", (main_id,))]})
+                **support_history(db, qs, main_id=main_id)})
+
+        if path == "/api/admin/support":
+            if not self.T["is_main"]:
+                return self.err(403, "только для главного учителя")
+            return self.send_json(support_history(db, qs, main_id=self.T["id"]))
 
         if path == "/api/admin/support/img":
             if not self.T["is_main"]:
@@ -6716,12 +6729,14 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 last = db.q("SELECT who FROM support_msgs WHERE support_id=? ORDER BY ts DESC, id DESC LIMIT 1", (sid,), one=True)
                 status = "answered" if last and last["who"] == "teacher" else "new"
             if answer:
-                db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,?)", (sid, time.time(), "teacher", answer, img))
-                db.x("UPDATE support SET answer=?, answered=?, status=?, seen=0 WHERE id=?", (answer, time.time(), status, sid))
+                now = time.time()
+                with db.transaction():
+                    db.x("INSERT INTO support_msgs(support_id, ts, who, text, img) VALUES(?,?,?,?,?)", (sid, now, "teacher", answer, img))
+                    db.x("UPDATE support SET answer=?, answered=?, status=?, seen=0 WHERE id=?", (answer, now, status, sid))
             else:
                 db.x("UPDATE support SET status=? WHERE id=?", (status, sid))
             LIVE.send([r["student_id"]], "support")      # ответ появится у ученика сразу
-            return self.send_json({"ok": True})
+            return self.send_json({"ok": True, **support_history(db, {"id": sid}, main_id=self.T["id"])})
 
         if path == "/api/admin/support/reward" and method == "POST":
             # монеты за помощь сайту прямо из обращения: вид награды из SUPPORT_REWARDS (или «своя» сумма), каждый вид — один раз
@@ -6758,7 +6773,8 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(409, "За это обращение такая награда уже начислена")
             LIVE.send([r["student_id"]], "support")
             LIVE.send([r["student_id"]], "gift")              # монеты и уведомление — сразу
-            return self.send_json({"ok": True, "amount": amount, "given": support_given(db).get(str(sid), [])})
+            history = support_history(db, {"id": sid}, main_id=self.T["id"])
+            return self.send_json({"ok": True, "amount": amount, "given": history["support_given"].get(str(sid), []), **history})
 
         if path == "/api/admin/visitors":
             # главный учитель видит, кто сейчас на сайте без входа (Visits); ушёл — пропал
@@ -10706,19 +10722,76 @@ SUPPORT_MAX = 2000
 ACH_CLOCK = time.localtime          # часы для достижений «ночью», «в обед», «пятница 13-е»… (тесты подменяют)
 
 
-def support_given(db):
-    """Обращение → уже начисленные награды [{kind, amount, ts}] (чтобы не начислить дважды)."""
-    out = {}
-    for r in db.q("SELECT support_id, kind, amount, ts FROM support_rewards ORDER BY ts"):
-        out.setdefault(str(r["support_id"]), []).append({"kind": r["kind"], "amount": r["amount"], "ts": r["ts"]})
-    return out
+def support_unread(db, sid):
+    row = db.q("""SELECT COUNT(*) total, COUNT(CASE WHEN kind='idea' THEN 1 END) ideas FROM support
+                  WHERE student_id=? AND seen=0 AND answer IS NOT NULL""", (sid,), one=True)
+    return {"unread": row["total"], "unread_tabs": {"help": row["total"] - row["ideas"], "idea": row["ideas"]}}
 
 
-def support_thread(db, p):
-    """Переписка по обращению: первое сообщение ученика и все ответы по порядку."""
-    return [{"who": "student", "ts": p["ts"], "text": p["text"], "img": p["img"]}] + [
-        {"who": r["who"], "ts": r["ts"], "text": r["text"], "img": r["img"]}
-        for r in db.q("SELECT who, ts, text, img FROM support_msgs WHERE support_id=? ORDER BY ts, id", (p["id"],))]
+def support_history(db, params, *, student_id=None, main_id=None):
+    """Страницы по неизменному ID обращения. Ответ, прочтение и награда не меняют место темы."""
+    pupil = student_id is not None
+    if not pupil and main_id is None:
+        raise ValueError("support history requires an account")
+    limit = 20 if pupil else 200
+    section = params.get("section")
+    if pupil:
+        unread = support_unread(db, student_id)
+        if params.get("summary") == "1":
+            return unread
+        if section == "auto":
+            tabs = unread["unread_tabs"]
+            if tabs["idea"] and not tabs["help"]:
+                section = "idea"
+            elif tabs["help"] and not tabs["idea"]:
+                section = "help"
+            else:
+                section = "idea" if params.get("prefer") == "idea" else "help"
+    filters, args = [], []
+    if pupil:
+        select, source = "p.*", "support p"
+        filters.append("p.student_id=?")
+        args.append(student_id)
+    else:
+        select = "p.*, s.name, COALESCE(t.name, '') AS teacher"
+        source = "support p JOIN students s ON s.id=p.student_id LEFT JOIN teachers t ON t.id=COALESCE(s.teacher_id, ?)"
+        args.append(main_id)
+    if section in ("idea", "help"):
+        filters.append("p.kind='idea'" if section == "idea" else "p.kind IS NOT 'idea'")
+    if pupil and params.get("unread") == "1":
+        filters.append("p.seen=0 AND p.answer IS NOT NULL")
+    if "id" in params:
+        filters.append("p.id=?")
+        args.append(to_int(params["id"]))
+    if "before" in params:
+        filters.append("p.id<?")
+        args.append(to_int(params["before"]))
+    where = (" WHERE " + " AND ".join(filters)) if filters else ""
+    rows = db.q(f"SELECT {select} FROM {source}{where} ORDER BY p.id DESC LIMIT ?", (*args, limit + 1))
+    more = rows[limit - 1]["id"] if len(rows) > limit else None
+    items = []
+    for r in rows[:limit]:
+        item = ({k: r[k] for k in ("id", "ts", "kind", "text", "task", "status", "answer", "answered")} if pupil else dict(r))
+        item["seen"] = bool(r["seen"])
+        item["thread"] = [{"who": "student", "ts": r["ts"], "text": r["text"], "img": r["img"]}]
+        items.append(item)
+    by_id = {item["id"]: item for item in items}
+    given = {}
+    if by_id:
+        marks = ",".join("?" for _ in by_id)
+        for m in db.q(f"SELECT support_id, who, ts, text, img FROM support_msgs WHERE support_id IN ({marks}) ORDER BY support_id, ts, id", tuple(by_id)):
+            by_id[m["support_id"]]["thread"].append({k: m[k] for k in ("who", "ts", "text", "img")})
+        if not pupil:
+            for r in db.q(f"SELECT support_id, kind, amount, ts FROM support_rewards WHERE support_id IN ({marks}) ORDER BY ts", tuple(by_id)):
+                given.setdefault(str(r["support_id"]), []).append({k: r[k] for k in ("kind", "amount", "ts")})
+    if pupil:
+        return {"kinds": SUPPORT_KINDS, "items": items, "next_before": more, "section": section, **unread}
+    for item in items:
+        item["last"] = item["thread"][-1]["ts"]
+    counts = db.q("""SELECT COUNT(CASE WHEN status='new' THEN 1 END) AS fresh, COUNT(CASE WHEN kind='idea' THEN 1 END) AS ideas,
+                     COUNT(CASE WHEN kind='idea' AND status='new' THEN 1 END) AS new_ideas,
+                     COUNT(CASE WHEN status='closed' THEN 1 END) AS closed FROM support""", one=True)
+    return {"support": items, "support_next": more, "support_given": given, "support_counts": dict(counts)}
 
 
 # картинки в техподдержке (скриншот ошибки): браузер пересжимает их в JPEG без метаданных, сервер проверяет,
