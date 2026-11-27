@@ -115,3 +115,29 @@ test('a shop receipt survives a missing acknowledgement and a page reload', asyn
     await shop.stop();
   }
 });
+
+test('owned gift shelf preserves artwork size and shows a separate sale badge on desktop and mobile', async ({page, context}) => {
+  const {origin, market} = fixture;
+  await seedBrowser(context, fixture);
+  const data = await (await context.request.get(origin + '/api/gifts')).json();
+  const dragon = data.mine.find(g => g.id === market.dragon);
+  const listed = await context.request.post(origin + '/api/gifts/list', {
+    headers: {Origin: origin}, data: {id: dragon.id, buy_now: dragon.mk_start + 20},
+  });
+  expect(listed.status()).toBe(200);
+  const selector = '[data-bx-mine="' + dragon.id + '"]';
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({width, height: 900});
+    await page.goto(origin + '/');
+    await page.locator('[data-hub-go="coins"]').click();
+    await page.locator('.bx-tabs [data-bx-tab="shop"]').click();
+    const shelf = page.locator('.bx-shelf ' + selector);
+    await expect(shelf.getByRole('img', {name:'На рынке'})).toBeVisible();
+    const art = shelf.locator('.ug-ic i');
+    await expect(art).toHaveCSS('font-size', '36px');
+    await expect(art).toHaveCSS('position', 'static');
+    await expect(shelf.locator('.ug-s').first()).toHaveCSS('font-size', '10px');
+    await page.locator('.bx-tabs [data-bx-tab="mine"]').click();
+    await expect(page.locator('.bx-mine ' + selector + ' .ug-ic i')).toHaveCSS('font-size', '36px');
+  }
+});

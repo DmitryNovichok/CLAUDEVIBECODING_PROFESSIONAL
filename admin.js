@@ -1580,7 +1580,7 @@
   $('#hwBoxSave').addEventListener('click', () => saveHwChance({ hw_chance: Number(String($('#hwBoxChance').value).replace(',', '.')) }));
   $('#hwBoxReset').addEventListener('click', () => saveHwChance({ hw_chance: 0, reset: true }));
   // ------------------------------------------------------------ экономика: обзор, журнал изменений, кошелёк ученика
-  const ECO_KIND = { gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа', grant: '➕ Начислил учитель', take: '➖ Снял учитель',
+  const ECO_KIND = { mcko: '📋 Награда за МЦКО', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа', grant: '➕ Начислил учитель', take: '➖ Снял учитель',
     teacher_gift: '🎁 Подарок от учителя', work: '🏅 Подарок за труд', removed: '🗑 Удалён учителем',
     mbuy: '🏪 Купил на рынке', msell: '🏪 Продал на рынке', bid: '🔨 Ставка на торгах', bidback: '↩ Ставку вернули', stipend: '🎓 Стипендия из банка', storage: '📦 Плата за хранение', class: '🏆 Битва классов' };
   const ecoGift = g => g ? `${g.i} ${esc(g.t)}${g.uniq ? ` <b>#${g.uniq.n}</b> <span class="eco-rar r-${g.uniq.rar.k}">${esc(g.uniq.rar.t)}</span>` : ''}` : '';
@@ -1968,7 +1968,7 @@
         ${card('Куплено подарков', S.gifts.bought, `за 7 дней ${S.gifts.bought_week}, в подарок одноклассникам ${S.gifts.to_mates}`)}
         ${card('Монет на руках', S.coins.balance, `у ${S.coins.with_coins} из ${S.students} учеников`)}
         ${card('Потрачено монет', S.spent, 'на подарки и улучшения')}
-        ${card('Заработано трудом', S.coins.mined + S.coins.task + S.coins.exam, `за опыт ${S.coins.mined}, бонусы за задания ${S.coins.task}, за варианты и самостоятельные ${S.coins.exam}`)}
+        ${card('Заработано трудом', S.coins.mined + S.coins.task + S.coins.exam + (S.ledger.mcko || 0), `за опыт ${S.coins.mined}, бонусы за задания ${S.coins.task}, за варианты и самостоятельные ${S.coins.exam}, за МЦКО ${S.ledger.mcko || 0}`)}
         ${card('Курс сейчас', `1 ₿ = ${S.rate} XP`, `верно решают ${S.active}; обычно ${S.rate_base}, не дороже ${S.rate_max}`, S.rate > S.rate_base ? '#f57c00' : '')}
         ${card('Продано · сгорело', `${S.gifts.sold} · ${S.gifts.burned}`, `получено за продажи ${S.ledger.sell || 0} ₿`)}
         ${card('Учитель: начислил · снял', `${S.ledger.grant || 0} · ${-(S.ledger.take || 0)}`, `штрафы за спешку ${S.coins.fines} ₿ · операций ${S.deals}`)}
@@ -1985,7 +1985,7 @@
       ${site}<h3 class="adm-h3" style="margin:6px 0 8px">Ваши ученики</h3><div class="adm-cards">
         ${card('Цены и заработок', `×${xfmt(E.idx)} · ×${xfmt(E.earn)}`, `термостат: среднее состояние (кошелёк + подарки) активных учеников сайта — ${E.avg} ₿ при норме ${E.target} ₿`)}
         ${card('Монет на руках', T.balance, `у ${d.with_coins} из ${d.students} ваших учеников`)}
-        ${card('Заработано трудом', T.mined + T.task + T.exam, `за опыт, задания и варианты; курс сейчас 1 ₿ = ${d.rate} XP`)}
+        ${card('Заработано трудом', T.mined + T.task + T.exam + T.mcko, `за опыт, задания, варианты и МЦКО · курс сейчас 1 ₿ = ${d.rate} XP`)}
         ${card('Штрафы за спешку', T.fines, 'решено слишком быстро (быстрее 30 секунд, №24–27 — быстрее 10/5/20/25 минут) — по −1 ₿')}
       </div>
       ${d.charts ? econChartsHtml(d.charts) : ''}
@@ -2007,7 +2007,7 @@
       ${d.rich.length ? `<div class="adm-box"><h3 class="adm-h3">Самые большие кошельки</h3><div class="adm-table-wrap"><table class="adm-table">
         <thead><tr><th>Ученик</th><th class="num">На счёте</th><th class="num">Заработано трудом</th><th class="num">Потрачено</th><th class="num">Штрафы</th></tr></thead>
         <tbody>${d.rich.map(w => `<tr><td><button type="button" class="link-btn eco-name" data-eco-sid="${w.id}">${esc(w.name)}</button><small class="muted"> ${esc(w.cls || '')}</small></td>
-          <td class="num"><b>${w.balance}</b> ₿</td><td class="num">${w.mined + w.exam + w.task}</td><td class="num">${w.gift + w.upgrade}</td><td class="num">${w.fines || '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+          <td class="num"><b>${w.balance}</b> ₿</td><td class="num">${w.mined + w.exam + w.task + w.mcko}</td><td class="num">${w.gift + w.upgrade}</td><td class="num">${w.fines || '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
       <div class="adm-box"><div class="adm-toolbar" style="margin:0 0 8px"><h3 class="adm-h3" style="margin:0">Журнал изменений в профилях</h3>
         <select class="inp" id="econKind" style="max-width:260px"><option value="">Все события</option>${Object.entries(ECO_KIND).map(([k, t]) => `<option value="${k}"${k === kind ? ' selected' : ''}>${t}</option>`).join('')}</select></div>
         <div id="econFeed">${ecoFeedHtml(d.feed.filter(e => !kind || e.kind === kind), true)}</div></div>`;
@@ -2071,7 +2071,7 @@
     const w = d.wallet;
     const wl = (k, v, cls) => `<span class="eco-w"><small>${k}</small><b class="${cls || ''}">${v}</b></span>`;
     $('#giftWallet').innerHTML = `<div class="eco-wallet">${wl('На счёте', w.balance + ' ₿')}${wl('За опыт', '+' + w.mined, 'eco-plus')}
-      ${wl('За задания', '+' + w.task, 'eco-plus')}${wl('За варианты', '+' + w.exam, 'eco-plus')}${wl('Начислено', '+' + w.grant, 'eco-plus')}${wl('Продажи', '+' + w.sell, 'eco-plus')}
+      ${wl('За задания', '+' + w.task, 'eco-plus')}${wl('За варианты', '+' + w.exam, 'eco-plus')}${w.mcko ? wl('За МЦКО', '+' + w.mcko, 'eco-plus') : ''}${wl('Начислено', '+' + w.grant, 'eco-plus')}${wl('Продажи', '+' + w.sell, 'eco-plus')}
       ${wl('Рынок: продал', '+' + w.mkt_in, 'eco-plus')}${wl('Покупки', '−' + w.gift, 'eco-minus')}${wl('Рынок: купил', '−' + w.mkt_out, 'eco-minus')}
       ${wl('Улучшения', '−' + w.upgrade, 'eco-minus')}${wl('Снято', '−' + w.take, 'eco-minus')}${wl('Штрафы', '−' + w.fines, 'eco-minus')}</div>`;
     $('#giftHistory').innerHTML = `<h4 class="eco-h4">История изменений</h4>${ecoFeedHtml(d.feed, false)}`;
@@ -2601,7 +2601,7 @@
             <label>Время, минут<input class="inp" id="mkMin" type="number" min="5" max="240" value="60"></label>
             <label>Попыток<input class="inp" id="mkTries" type="number" min="1" max="10" value="1"></label>
             <label>Принимать до (необязательно)<input class="inp" id="mkCloses" type="datetime-local"></label>
-            <label class="mk-check"><input type="checkbox" id="mkHide"> Не показывать ученику баллы после сдачи</label>
+            <label class="mk-check"><input type="checkbox" id="mkHide"> Открыть баллы и начислить награды позже, вручную</label>
             <button type="button" class="btn primary" data-mk="create">Выдать работу</button>
           </div></details>`
         : '<p class="adm-hint">Сначала создайте класс во вкладке «Классы» — работы выдаются классу.</p>'}
@@ -2612,7 +2612,7 @@
         ${d.works.map(w => `<tr><td class="name"><button type="button" class="link-btn" data-mk-res="${w.id}">${esc(w.title)}</button><small>${mkDate(w.created)} · ${w.minutes} мин${w.tries > 1 ? ` · ${w.tries} попыток` : ''}</small></td>
           <td>${esc(w.cls || '—')}</td><td>${w.mode === 'fixed' ? `№${w.variant} на всех` : 'каждому свой'}</td>
           <td class="num">${w.finished} из ${w.pupils}${w.started > w.finished ? `<small>идут: ${w.started - w.finished}</small>` : ''}</td>
-          <td class="num">${w.avg != null ? `${w.avg} / ${w.max}` : '—'}</td>
+          <td class="num" title="По лучшему результату каждого ученика">${w.avg == null ? '—' : w.mode === 'fixed' ? `${w.avg} / ${w.max}` : `${w.avg_pct}%`}</td>
           <td>${w.open ? '<span class="mk-chip good">открыта</span>' : '<span class="mk-chip">закрыта</span>'}</td>
           <td class="num mk-act"><button type="button" class="btn ghost" data-mk-res="${w.id}">Результаты</button>
             <button type="button" class="link-btn" data-mk-st="${w.id}" data-open="${w.open ? 0 : 1}">${w.open ? 'Закрыть' : 'Открыть'}</button></td></tr>`).join('')}
@@ -2628,7 +2628,7 @@
       title="№${t.type} · ${esc(t.topic)}${t.variant ? ` · вар. ${t.variant}` : ''}\nОтвет: ${esc((t.answer || []).join(', ') || '—')}\nВерно: ${esc((t.key || []).join(', '))}">${t.points}</td>`;
     box.innerHTML = `<div class="mk-res-head"><button type="button" class="link-btn" data-mk-back>← Все работы</button>
         <h3 class="adm-h3">${esc(w.title)} <span class="adm-hint">${esc(w.cls || '')} · ${w.minutes} мин · максимум ${w.max} ${pluralRu(w.max, 'балл', 'балла', 'баллов')}</span></h3>
-        <span class="mk-res-btns"><a class="btn ghost" href="api/admin/mcko/results.csv?id=${w.id}">Скачать CSV</a>
+        <span class="mk-res-btns">${w.show_result ? '' : `<button type="button" class="btn" data-mk-publish="${w.id}">Открыть баллы и начислить награды</button>`}<a class="btn ghost" href="api/admin/mcko/results.csv?id=${w.id}">Скачать CSV</a>
           <button type="button" class="btn ghost" data-mk-st="${w.id}" data-open="${w.open ? 0 : 1}">${w.open ? 'Закрыть приём' : 'Открыть снова'}</button>
           <button type="button" class="link-btn danger" data-mk-del="${w.id}">Удалить работу</button></span></div>
       ${rows.length ? `<div class="adm-table-wrap"><table class="adm-table mk-res"><thead><tr><th>Ученик</th><th>Класс</th><th>Сдано</th><th class="num">Баллы</th>${Array.from({ length: n }, (_, i) => `<th class="num">${i + 1}</th>`).join('')}</tr></thead><tbody>
@@ -2678,9 +2678,16 @@
     catch (err) { off.checked = !off.checked; toast(err.message); }
   });
   $('#mkBody').addEventListener('click', async e => {
-    const b = e.target.closest('[data-mk], [data-mk-res], [data-mk-st], [data-mk-del], [data-mk-back], [data-mk-type], [data-mk-edit], [data-mk-rm]');
+    const b = e.target.closest('[data-mk], [data-mk-res], [data-mk-st], [data-mk-publish], [data-mk-del], [data-mk-back], [data-mk-type], [data-mk-edit], [data-mk-rm]');
     if (!b) return;
     try {
+      if (b.dataset.mkPublish) {
+        const id = +b.dataset.mkPublish;
+        await api('mcko/work/publish', { id });
+        toast('Баллы открыты. Заработанные монеты начислены.');
+        await mkResults(id);
+        return;
+      }
       if (b.dataset.mkRes) { await mkResults(+b.dataset.mkRes); return; }
       if ('mkBack' in b.dataset) { mkOpenWork = null; mkLoad(); return; }
       if (b.dataset.mkType) { mkType = +b.dataset.mkType; mkBank(); return; }
@@ -3620,6 +3627,10 @@
   }
   function journalCell(c, a) {
     if (!c && a.personal) return '<td class="jr-c none" title="этому ученику не выдавалась">—</td>';
+    if (a.kind === 'mcko' && c) {
+      if (c.st === 'done') return `<td class="jr-c" title="Лучший результат, попытка ${c.try}"><b>${c.score}/${c.max}</b><small>${c.pct}%</small></td>`;
+      if (c.st === 'work') return '<td class="jr-c work" title="Выполняет МЦКО">…</td>';
+    }
     if (c && c.lab13) {
       const lab = c.lab13;
       const detail = lab.finished ? `<small>Прогноз ${esc(lab.prediction)} · Модель ${esc(lab.expected)}</small>` : '';
@@ -3657,12 +3668,12 @@
       return `<td class="num jr-foot" title="сдали ${done} из ${S.length}">${m == null ? '' : `<b>${m.toFixed(1).replace('.', ',')}</b><br>`}<small>${done}/${S.length}</small></td>`;
     }).join('');
     box.innerHTML = `<div class="jr-top"><button type="button" class="btn" data-jr-full>${document.body.classList.contains('jr-full') ? 'Свернуть журнал' : 'Развернуть журнал на весь экран'}</button></div>
-      <p class="adm-hint">Оценки за все подборки класса. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
-        Нажмите на название подборки, чтобы открыть её результаты, на имя — карточку ученика.</p>
+      <p class="adm-hint">Оценки за подборки класса и лучшие результаты МЦКО. «·» — не начинал, «…» — решает сейчас, <span class="jr-miss">н/с</span> — срок прошёл, а работа не сделана.
+        Нажмите на название работы, чтобы открыть её результаты, на имя — карточку ученика.</p>
       <div class="dg-actions"><button type="button" class="btn" data-weak>Каждому — по 3 задания на его 3 слабых номера</button>
         <span class="adm-hint">У каждого ученика своя подборка; появится в журнале отдельной колонкой.</span></div>
       <div class="adm-table-wrap jr-wrap"><table class="adm-table jr-table"><thead><tr><th>Ученик</th><th class="jr-h" title="Прогноз балла ЕГЭ: сейчас и изменение за месяц">Прогноз<small>за 30 дней</small></th><th class="jr-h" title="Варианты ЕГЭ, которые ученик решил сам">Вариант ЕГЭ<small>последний</small></th>
-        ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : a.title.startsWith('Персональная') ? '⭐' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" data-jr-asg="${a.id}" title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
+        ${A.map(a => a.personal ? `<th class="jr-h jr-personal" title="${esc(a.title)} — у каждого своя подборка"><span>${a.title.startsWith('Работа') ? '🔧' : a.title.startsWith('Персональная') ? '⭐' : '🎯'} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</span><small>личные · ${fmtDate(a.created)}</small></th>` : `<th class="jr-h"><button type="button" class="jr-asg" ${a.kind === 'mcko' ? `data-jr-mcko="${a.work_id}"` : `data-jr-asg="${a.id}"`} title="${esc(a.title)}">${KIND_ICO[a.kind] || ''} ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</button><small>${a.kind === 'mcko' ? 'МЦКО · ' : ''}${fmtDate(a.created)}${a.due ? ` → ${fmtDate(a.due)}` : ''}</small></th>`).join('')}
         <th class="num">Средняя</th></tr></thead><tbody>${rows}</tbody>
         <tfoot><tr><td class="muted">По классу</td><td></td><td></td>${foot}<td></td></tr></tfoot></table></div>`;
     const w1 = box.querySelector('.jr-wrap');
@@ -4011,6 +4022,13 @@
     }
     const pane = t.closest('#clsTabs [data-pane]');
     if (pane) { showClsPane(pane.dataset.pane); return; }
+    const mckoWork = t.closest('[data-jr-mcko]');
+    if (mckoWork) {
+      mkTab = 'works';
+      mkOpenWork = +mckoWork.dataset.jrMcko;
+      go('mcko');
+      return;
+    }
     const ja = t.closest('[data-jr-asg]');
     if (ja) {
       showClsPane('asg');

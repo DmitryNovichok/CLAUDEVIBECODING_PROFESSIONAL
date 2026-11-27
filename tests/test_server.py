@@ -5830,6 +5830,99 @@ class ServerTest(unittest.TestCase):
         self.admin("POST", "/api/admin/mcko/work/delete", {"id": rid})
         self.admin("POST", "/api/admin/class/delete", {"id": cid})
 
+    def mcko_reward_work(self, name, hidden=False):
+        token = self.login(name)
+        sid = self.req("GET", "/api/me", token=token)[1]["sid"]
+        cid = self.admin("POST", "/api/admin/class/save", {"name": name})[1]["id"]
+        self.admin("POST", "/api/admin/class/members", {"class_id": cid, "students": [sid]})
+        w = self.admin("POST", "/api/admin/mcko/work", {"class_id": cid, "title": "Проверка МЦКО", "mode": "fixed",
+                                                        "variant": 1, "tries": 6, "hide_result": hidden})[1]["id"]
+        return token, sid, cid, w
+
+    def mcko_attempt(self, token, work, correct):
+        start = {"work": work, "last_name": "Учебный", "first_name": "Ученик", "klass": "10"}
+        status, result = self.req("POST", "/api/mcko/start", start, token)
+        self.assertEqual(status, 200, result)
+        run = result["run"]
+        for n in range(1, correct + 1):
+            q = server.mcko.BY_ID[f"inf10-t{n:02d}-v01"]
+            self.assertEqual(self.req("POST", "/api/mcko/save", {"run": run, "q": q["id"], "values": q["key"]}, token)[0], 200)
+        return run
+
+    def test_mcko_rewards_retries_and_journal(self):
+        from concurrent.futures import ThreadPoolExecutor
+        tok, sid, cid, wid = self.mcko_reward_work("Пересдачев Максим")
+        journal_path = f"/api/admin/class/journal?class_id={cid}"
+        before = self.admin("GET", journal_path)[1]["students"][0]
+        wallet = lambda: self.req("GET", "/api/gifts", token=tok)[1]
+        initial = wallet()["coins"]
+        for correct, reward in [(11, 14), (12, 10), (12, 0), (7, 0)]:
+            run = self.mcko_attempt(tok, wid, correct)
+            with ThreadPoolExecutor(2) as pool:
+                results = list(pool.map(lambda _: self.req("POST", "/api/mcko/finish", {"run": run}, tok), range(2)))
+            for status, d in results:
+                self.assertEqual((status, d["score"], d["max"], d["reward_btc"]), (200, correct, 14, reward))
+        money = wallet()
+        self.assertEqual((money["coins"] - initial, money["mcko_coins"], money["exam_coins"]), (24, 24, 0))
+        self.assertCountEqual([r["delta"] for r in money["ledger"] if r["reason"] == "mcko"], [14, 10])
+        w = self.req("GET", "/api/mcko", token=tok)[1]["works"][0]
+        self.assertEqual((w["best"]["score"], w["reward_btc"], w["results"][-1]["score"]), (12, 24, 7))
+        j = self.admin("GET", journal_path)[1]
+        key = f"mcko:{wid}"
+        self.assertEqual([(a["id"], a["kind"]) for a in j["assignments"]], [(key, "mcko")])
+        pupil = j["students"][0]
+        self.assertEqual((pupil["exam"], pupil["fc"], pupil["nums"]), (before["exam"], before["fc"], before["nums"]))
+        self.assertEqual(pupil["cells"][key], {"st": "done", "score": 12, "max": 14, "pct": 86, "try": 2})
+        report = next(w for w in self.admin("GET", "/api/admin/mcko/works")[1]["works"] if w["id"] == wid)
+        self.assertEqual((report["started"], report["finished"], report["avg"]), (1, 1, 12))
+        self.assertEqual(len(self.admin("GET", f"/api/admin/mcko/results?id={wid}")[1]["rows"]), 4)
+
+    def test_mcko_hidden_rewards_publication_and_old_timeout(self):
+        from concurrent.futures import ThreadPoolExecutor
+        db = server.APP.db
+        tok, sid, cid, wid = self.mcko_reward_work("Публикациев Максим", hidden=True)
+        past = self.mcko_attempt(tok, wid, 11)
+        cutoff = float(db.setting("mcko_btc_since"))
+        db.x("UPDATE mcko_runs SET started=?, deadline=? WHERE id=?", (cutoff - 4000, cutoff - 100, past))
+        # An old timed attempt first opened through the teacher report must retain the pupil's name and score.
+        rows = self.admin("GET", f"/api/admin/mcko/results?id={wid}")[1]["rows"]
+        self.assertEqual((rows[0]["reason"], rows[0]["score"], rows[0]["student"]), ("time", 11, "Публикациев Максим"))
+        cell = self.admin("GET", f"/api/admin/class/journal?class_id={cid}")[1]["students"][0]["cells"][f"mcko:{wid}"]
+        self.assertEqual((cell["st"], cell["score"]), ("done", 11))
+        self.assertIsNone(db.q("SELECT reward_base FROM mcko_runs WHERE id=?", (past,), one=True)["reward_base"])
+        run = self.mcko_attempt(tok, wid, 12)
+        hidden = self.req("POST", "/api/mcko/finish", {"run": run}, tok)[1]
+        self.assertTrue({"score", "reward_btc", "rows"}.isdisjoint(hidden))
+        w = self.req("GET", "/api/mcko", token=tok)[1]["works"][0]
+        self.assertEqual((w["best"], w["reward_btc"], w["results"][-1]["score"]), (None, None, None))
+        coins = lambda: self.req("GET", "/api/gifts", token=tok)[1]["mcko_coins"]
+        self.assertEqual(coins(), 0)
+        publish = "/api/admin/mcko/work/publish"
+        self.assertIn(self.req("POST", publish, {"id": wid}, tok)[0], (401, 403))
+        other = self.admin("POST", "/api/admin/teacher/save", {"name": "Другой учитель", "login": "mckoother",
+                                                               "password": "secret77", "invite": "MCKOOTHER"})[1]["id"]
+        self.approve_fixture_teacher(other)
+        status, _, cookie = self.teacher_req("", "POST", "/api/admin/login", {"login": "mckoother", "password": "secret77"})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.teacher_req(cookie.split(";")[0], "POST", publish, {"id": wid})[0], 404)
+        self.assertEqual(coins(), 0)
+        expired = self.mcko_attempt(tok, wid, 12)
+        db.x("UPDATE mcko_runs SET deadline=? WHERE id=?", (time.time() - server.MCKO_GRACE - 0.001, expired))
+        with ThreadPoolExecutor(2) as pool:
+            self.assertEqual(list(pool.map(lambda _: self.admin("POST", publish, {"id": wid})[0], range(2))), [200, 200])
+        self.assertEqual(db.q("SELECT reason FROM mcko_runs WHERE id=?", (expired,), one=True)["reason"], "time")
+        self.assertEqual(coins(), 10)
+        view = self.req("GET", f"/api/mcko/run?run={run}", token=tok)[1]
+        self.assertEqual((view["score"], view["reward_btc"]), (12, 10))
+        self.assertNotIn("reward_btc", self.req("GET", f"/api/mcko/run?run={past}", token=tok)[1])
+        run = self.mcko_attempt(tok, wid, 13)
+        db.x("UPDATE mcko_runs SET deadline=? WHERE id=?", (time.time() - server.MCKO_GRACE - 0.001, run))
+        view = self.req("GET", f"/api/mcko/run?run={run}", token=tok)[1]
+        self.assertEqual((view["reason"], view["score"], view["reward_btc"], coins()), ("time", 14, 24, 34))
+        self.assertEqual(self.admin("POST", publish, {"id": wid})[0], 200)
+        self.admin("POST", "/api/admin/mcko/work/delete", {"id": wid})
+        self.assertEqual(coins(), 34)
+
     def test_mcko_time_limit_and_teacher_bank(self):
         tok = self.login("Временов Тимур")
         sid = self.req("GET", "/api/me", token=tok)[1]["sid"]
