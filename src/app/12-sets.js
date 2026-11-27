@@ -20,8 +20,12 @@
     }
     return a.tasks.filter(id => !done.has(id));
   }
-  function asgFinished(a) { return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final)); }
-  const asgPending = a => !asgFinished(a) && (a.strict || asgLeft(a).length > 0);
+  function asgFinished(a) {
+    if (a.kind === 'lab13') return !!(a.finished || a.closed || (a.due && a.due * 1000 <= Date.now()));
+    return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final));
+  }
+  function asgRemaining(a) { return a.kind === 'lab13' ? Number(!asgFinished(a)) : asgLeft(a).length; }
+  const asgPending = a => !asgFinished(a) && (a.strict || asgRemaining(a) > 0);
   // Срок — первый приоритет; при одинаковом сроке сначала начатая работа.
   function asgOrder(a, b) {
     const started = x => !!(x.started || x.score?.tried || x.done?.length);
@@ -66,7 +70,7 @@
     const say = [];
     for (const a of ASG) {
       if (a.duel || a.course || a.closed) continue;
-      const left = a.strict ? (a.finished ? 0 : a.tasks.length - (a.done || []).length) : asgLeft(a).length;
+      const left = a.strict ? (a.finished ? 0 : a.tasks.length - (a.done || []).length) : asgRemaining(a);
       if (a.personal && !seen['new' + a.id]) {
         seen['new' + a.id] = today;
         say.push(a.personal === 'fix' ? `🔧 Работа над ошибками: ${a.tasks.length} ${plural(a.tasks.length, 'похожее задание', 'похожих задания', 'похожих заданий')} на твои ошибки`
@@ -119,8 +123,9 @@
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = asgFinished;
     const active = list.filter(a => !isDone(a)).sort(asgOrder), done = list.filter(isDone).sort((a, b) => (b.finished || b.closed || b.created || 0) - (a.finished || a.closed || a.created || 0));
-    const left = active.reduce((n, a) => n + asgLeft(a).length, 0);
+    const left = active.reduce((n, a) => n + asgRemaining(a), 0);
     const card = a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (!a.strict) return practiceCard(a);
       const n = (a.done || []).length, total = a.tasks.length, r = a.result;
       const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
@@ -197,11 +202,34 @@
       ${apDates(a, null, sc.final || a.closed)}
       <div class="ap-btns"><button type="button" class="btn ${sc.final || a.closed ? '' : 'primary'}" data-asg="${a.id}">${sc.final || a.closed ? 'Потренироваться' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
   }
+  function labAssignmentCard(a) {
+    const done = asgFinished(a);
+    const status = a.finished ? (a.lab13.correct ? 'Прогноз верный' : 'В прогнозе ошибка')
+      : done ? 'Работа закрыта без ответа' : a.started ? 'Ожидает прогноза' : 'Ещё не начата';
+    const action = a.finished ? 'Посмотреть результат' : a.started ? 'Продолжить' : 'Открыть лабораторию';
+    return `<div data-assignment="${a.id}" class="ap-card${done ? ' done' : a.started ? ' going' : ''}">
+      <div class="ap-main"><div class="ap-top"><span class="ap-ico">${asgIcon(a)}</span><div>
+        <span class="ap-kind">Лаборатория №13 · Подсети IPv4</span>${asgDueBadge(a)}<b>${esc(a.title)}</b>
+        <small>Подсеть ${esc(a.lab13.ip)}/${a.lab13.prefix}</small></div></div><div class="ap-state">${status}</div></div>
+      ${apDates(a, a.finished, done)}
+      ${a.finished || !done ? `<div class="ap-btns"><button type="button" class="btn ${done ? '' : 'primary'}" data-asg="${a.id}">${action}</button></div>` : ''}</div>`;
+  }
+  function syncLabAssignment(state) {
+    const a = ASG.find(item => item.id === state.id && item.kind === 'lab13');
+    if (a && (!a.finished || state.finished)) Object.assign(a, { started: state.started, finished: state.finished, lab13: state });
+    loadAssignments().catch(() => {});
+  }
+  function returnToLabAssignments(done) {
+    asgTab = done ? 'done' : 'active';
+    openAsgPage();
+    loadAssignments().catch(() => {});
+  }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = asgFinished;
     const active = list.filter(a => !isDone(a)).sort(asgOrder), done = list.filter(isDone).sort((a, b) => (b.finished || b.closed || b.created || 0) - (a.finished || a.closed || a.created || 0));
     const doneRows = done.map(a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (!a.strict) return practiceCard(a);
       const r = a.result;
       return `<div class="asg-row done">
@@ -210,6 +238,7 @@
           <button type="button" class="btn" data-review="${a.id}" data-from="asg">Разбор</button>` : ''}</span></div>`;
     }).join('');
     const rows = active.map(a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (a.strict) return wkRowHtml(a);
       const left = asgLeft(a).length, total = a.tasks.length;
       const late = a.due && a.due * 1000 < Date.now() && left;

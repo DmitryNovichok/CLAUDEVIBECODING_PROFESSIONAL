@@ -59,7 +59,7 @@ def build_learning():
     for name in LEARNING_PARTS:
         path = SRC / name
         out += [f"  // ═══════ {path.relative_to(ROOT).as_posix()}\n", path.read_text(encoding='utf-8'), '\n']
-    out.append("  return { openCourse, openLesson, openCourseSet, openPyc, openPycLevel, openLab, openArdGate, pycStopTests, labStop, pycDockTools, resetLearningState, refreshLearningAccess };\n};\n")
+    out.append("  return { openCourse, openLesson, openCourseSet, openPyc, openPycLevel, openLab, openLabAssignment, openArdGate, pycStopTests, labStop, pycDockTools, resetLearningState, refreshLearningAccess };\n};\n")
     return ''.join(out)
 
 

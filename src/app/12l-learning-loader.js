@@ -78,7 +78,7 @@
           if (typeof window.EgeLearningSections !== 'function') throw Error('Раздел не загрузился. Повторите открытие.');
           const sections = window.EgeLearningSections({ $, $$, ARCHIVE, COURSE, COURSE_SETS, COURSE_SET_NOTES, EgePythonWorker, MARK, MARK_BTN, NUM_TOPIC, PY, PY_KW, RULES, SERVER, TASKS, abandonCurrent, api, asgLeft, badgeCls, bdOpen, byId, codeKey, courseSet, esc, highlightPy, htmlWait, isNarrow, leaveExam, loadCourseSets, markAttach, navPush, needHtml, netError, numLabel, numStats, openSetTask, pct, plural, pyOpen, pySync, pycSetAccess, readCode, readJSON, renderMath, renderSidebar, safeHtml, setScope, setSideOpen, toast, toggleBoard, togglePy, trainerEl, visible, writeCode, writeJSON,
             appState: {
-              get student() { return student; }, get P() { return P; },
+              get student() { return student; }, get P() { return P; }, get teacher() { return TEACHER; },
               get courseShown() { return courseShown; }, set courseShown(value) { courseShown = value; },
               get pageKind() { return pageKind; }, set pageKind(value) { pageKind = value; },
               get cur() { return cur; }, set cur(value) { cur = value; },
@@ -94,7 +94,7 @@
               get IM_OK() { return IM_OK; }, set IM_OK(value) { IM_OK = value; },
               get IM_PW() { return IM_PW; }, set IM_PW(value) { IM_PW = value; },
             } });
-          for (const name of ['openCourse', 'openLesson', 'openCourseSet', 'openPyc', 'openPycLevel', 'openLab', 'openArdGate', 'pycStopTests', 'labStop', 'pycDockTools', 'resetLearningState', 'refreshLearningAccess']) {
+          for (const name of ['openCourse', 'openLesson', 'openCourseSet', 'openPyc', 'openPycLevel', 'openLab', 'openLabAssignment', 'openArdGate', 'pycStopTests', 'labStop', 'pycDockTools', 'resetLearningState', 'refreshLearningAccess']) {
             if (typeof sections?.[name] !== 'function') throw Error('Раздел загрузился не полностью. Повторите открытие.');
           }
           learningSections = sections;
@@ -140,5 +140,8 @@
   function openLab(view = '', context) {
     if (view === 'arduino') return openArdGate();
     return openLearningSection('openLab', [view, context], { v: 'lab', tab: view }, 'lab', 'Лаборатория');
+  }
+  function openLabAssignment(id) {
+    return openLearningSection('openLabAssignment', [id, syncLabAssignment, returnToLabAssignments], { v: 'lab13', id }, 'lab13', 'Лаборатория №13');
   }
   function openArdGate() { return openLearningSection('openArdGate', [], { v: 'ardgate' }, 'ardgate', 'Лаборатория Arduino'); }

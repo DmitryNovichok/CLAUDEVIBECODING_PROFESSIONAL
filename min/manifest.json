@@ -1,32 +1,32 @@
 {
   "files": {
     "admin-theme.css": {
-      "min": "733b1f6385e0be2f7629eac8cef7837e07b1c390e139a66434700df893984825",
-      "source": "e82422feefaf692f5a7c2c9b5965d3511ba344c65c42c10e8c4d5aef1a96e18e"
+      "min": "0fa75ec2f8f26bdae537722acb77499a57ca188c5be3665e7b07a6fe778af51e",
+      "source": "7c37a755b9001c66fc0d869ec5f6af2733876170734425772fe400124a70c9f3"
     },
     "admin.css": {
       "min": "2b840f4d99cb194d5168b5a3b46988bad36f63098b9149c7584ed977205cd549",
       "source": "016eec5301b0171a4ab3e146b18dc5ccc86f28574bbd44848440688bbe443ef1"
     },
     "admin.js": {
-      "min": "ae09f966841bebd9bfd03a15983ff1a972ea45792ffcf4ca513b815e7127e4b6",
-      "source": "eb6912ad1730a5fa5cec299e953bd64aefb707570860e23a424328dde3407d61"
+      "min": "8a7553a1315deebbcba669a56cb44f9feb1da9e87b1c4a80efe964c91fdb88e0",
+      "source": "dab94fee8c24789c5f1b8e57356eee2d35dbbc9d53df7914bb093e814fcd314f"
     },
     "app-exams.js": {
       "min": "e2b96b0e95fcd5c9f63667e42add1d819f4b8af432866d7f92a4dfd1bc4bd279",
       "source": "440cd260d6d4ba8e3648ebb910bc705b5b0ad1a867fe5ba516c80e4b28a4ce60"
     },
     "app-learning.js": {
-      "min": "cfb1fc57aa1601d7f87a7ca7308eb8dc0f6889e4b4e51ce793aae3f41b62f827",
-      "source": "25e76f98e5636227ad57d07bbcba69f2d6290e6321286003284771c4668dd070"
+      "min": "a044778673b7abbb885edb304d74db8ece7c74ab63e3c3e5bde41a15ae2fd0b6",
+      "source": "df7533477e3532a76532a50767c885df5ac71f6b66d58e82dafc7a9cc9685506"
     },
     "app.js": {
-      "min": "b3be74beea9ef048a81583ab4014b03ced49f3f597ac16e44e6be998ee10bab3",
-      "source": "08f1a36b518513fd2efc1e95cd4d74a8b0f91796fe8ffe70249c835bd511590a"
+      "min": "74eede587a405781ec2d61b047a36131c7f87ad809f06870606914a6a8122066",
+      "source": "0e83f6fbcf776d365833e632d57e2fd24aa723622131dd6c2893411b621ec984"
     },
     "changelog-loader.js": {
-      "min": "eba8bc302b0c526e226ca7c6bc726c2cea4cd00d31a9248f513199eab652364e",
-      "source": "aba30a621ea2b150c620a9e3850c10978e32f54edc22b58d6a09baffb625a017"
+      "min": "0032d427a490bdb852805786157309fb4e2ec349330d064339d62ae743acc274",
+      "source": "5e8a170e7fd38969da821c2692f0145311407fa53360bec8b8ca291c2982082f"
     },
     "help.css": {
       "min": "a089bb38cfe74322f9b42251f2af07bb01bc4d0211bc647b215d781872853bbe",

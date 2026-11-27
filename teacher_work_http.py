@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping
 import json
 import re
 import time
+import lab13
 
 
 TEACHER_WORK_ROUTES = MappingProxyType({
@@ -33,6 +34,7 @@ TEACHER_WORK_ROUTES = MappingProxyType({
     ('POST', '/api/admin/batch/due'): 'teacher_batch_due',
     ('POST', '/api/admin/batch/delete'): 'teacher_batch_delete',
     ('POST', '/api/admin/assignment/save'): 'teacher_assignment_save',
+    ('POST', '/api/admin/assignment/lab13'): 'teacher_lab13_assign',
     ('POST', '/api/admin/assignment/delete'): 'teacher_assignment_delete',
     ('GET', '/api/admin/asg/all'): 'teacher_asg_all',
     ('POST', '/api/admin/asg/all'): 'teacher_asg_all',
@@ -248,8 +250,13 @@ class TeacherWorkHandlers:
             b["done"] += len(svc.assignment_done(db, a["student_id"], real, a["created"], svc.asg_cutoff(a))) >= len(real) > 0
         for a in db.q("SELECT * FROM assignments WHERE class_id=? AND student_id IS NULL ORDER BY created DESC", (cid,)):
             real = json.loads(a["tasks"] or "[]")
-            prog = [{"id": m["id"], "name": m["name"], "done": len(svc.assignment_done(db, m["id"], real, a["created"], svc.asg_cutoff(a)))}
-                    for m in members]
+            if a["kind"] == "lab13":
+                prog = [dict(r) for r in db.q("""SELECT s.id, s.name, r.started, r.finished, (r.finished IS NOT NULL) AS done
+                                 FROM students s LEFT JOIN asg_runs r ON r.student_id=s.id AND r.asg_id=?
+                                 WHERE s.class_id=? AND COALESCE(s.is_teacher, 0)=0 ORDER BY s.name""", (a["id"], cid))]
+            else:
+                prog = [{"id": m["id"], "name": m["name"], "done": len(svc.assignment_done(db, m["id"], real, a["created"], svc.asg_cutoff(a)))}
+                        for m in members]
             out.append({"id": a["id"], "title": a["title"], "due": a["due"], "created": a["created"],
                         "strict": bool(a["strict"]), "kind": a["kind"] or "self", "closed": a["closed"], "grading": svc.asg_grading(a),
                         "tasks": [{"id": i, "n": (svc.bank.tasks.get(i) or {}).get("n"),
@@ -285,7 +292,7 @@ class TeacherWorkHandlers:
                     cells[a["student_id"]][key] = dict(svc.asg_cell(db, a, a["student_id"], real), asg=a["id"], total=len(svc.asg_items(real)))
                 continue
             cols.append({"id": a["id"], "title": a["title"], "kind": a["kind"] or "self", "created": a["created"],
-                         "due": a["due"], "closed": a["closed"], "total": len(svc.asg_items(real))})
+                         "due": a["due"], "closed": a["closed"], "total": 1 if a["kind"] == "lab13" else len(svc.asg_items(real))})
             for m in members:
                 cells[m["id"]][a["id"]] = svc.asg_cell(db, a, m["id"], real)
         ids = [m["id"] for m in members]
@@ -346,6 +353,8 @@ class TeacherWorkHandlers:
                 db.q("SELECT * FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid)))
         if not rows:
             return self.err(404, "подборка не найдена")
+        if any(a["kind"] == "lab13" for a in rows):
+            return self.err(409, "Тип лабораторной изменить нельзя")
         svc.bank.ensure()
         ended = 0
         for a in rows:
@@ -403,6 +412,32 @@ class TeacherWorkHandlers:
             db.x("DELETE FROM assignments WHERE batch=? AND class_id=? AND student_id IS NOT NULL", (batch, cid))
         return self.send_json({"ok": True})
 
+    def teacher_lab13_assign(self, method, path, qs, data):
+        svc = self.teacher_work_services()
+        db, cid = svc.db, data.get("class_id")
+        if type(cid) is not int or not (0 < cid < 2**63):
+            return self.err(400, "Выберите класс")
+        if not self.sees_class(cid):
+            return self.err(404, "Класс не найден")
+        request_id, due = data.get("request_id"), data.get("due")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[a-zA-Z0-9_.~-]{8,80}", request_id):
+            return self.err(400, "Некорректный идентификатор запроса")
+        if due is not None and (type(due) not in (int, float) or not 0 < due <= 253402300799):
+            return self.err(400, "Проверьте срок сдачи")
+        key = f"{self.T['id']}:{request_id}"
+        previous = db.q("SELECT id,class_id,lab_request_due FROM assignments WHERE lab_request_key=?", (key,), one=True)
+        if previous:
+            if previous["class_id"] != cid or previous["lab_request_due"] != due:
+                return self.err(409, "Этот запрос уже использован для другого назначения")
+            return self.send_json({"ok": True, "id": previous["id"]})
+        now = time.time()
+        if due is not None and due <= now:
+            return self.err(400, "Срок сдачи уже прошёл")
+        aid = db.x("""INSERT INTO assignments(class_id,title,tasks,created,due,strict,kind,lab_request_key,lab_request_due)
+                      VALUES(?,?,'[]',?,?,0,'lab13',?,?)""", (cid, lab13.TITLE, now, due, key, due))
+        self._notify_lab13 = lambda: svc.live_class(db, cid)
+        return self.send_json({"ok": True, "id": aid})
+
     def teacher_assignment_save(self, method, path, qs, data):
         svc = self.teacher_work_services()
         db = svc.db
@@ -410,6 +445,15 @@ class TeacherWorkHandlers:
         cid = svc.to_int(data.get("class_id"))
         if not self.sees_class(cid):
             return self.err(404, "класс не найден")
+        aid = svc.to_int(data.get("id"))
+        if aid:
+            old = db.q("SELECT strict, kind, tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
+            if not old:
+                return self.err(404, "подборка не найдена в этом классе")
+            if old["kind"] == "lab13":
+                return self.err(409, "Состав и тип лабораторной изменить нельзя")
+        if data.get("kind") == "lab13":
+            return self.err(400, "Назначьте лабораторную из раздела лабораторий")
         title = re.sub(r"\s+", " ", str(data.get("title") or "")).strip()[:80]
         if not title:
             return self.err(400, "Введите название подборки")
@@ -424,7 +468,6 @@ class TeacherWorkHandlers:
             return self.err(400, "В подборке нет ни одного задания")
         tasks = tasks[:100]
         due = svc.to_float(data.get("due")) or None
-        aid = svc.to_int(data.get("id"))
         if due and not aid and due < now:
             return self.err(400, "Срок уже прошёл — выберите сегодняшнюю или более позднюю дату")
         kind = data.get("kind") if data.get("kind") in svc.kinds else "self"
@@ -432,11 +475,8 @@ class TeacherWorkHandlers:
         g = data.get("grading") if isinstance(data.get("grading"), dict) else {}
         grading = json.dumps({k: max(0, min(100, svc.to_int(g.get(k, v)))) for k, v in svc.grades.items()})
         if aid:
-            old = db.q("SELECT strict, kind, tasks FROM assignments WHERE id=? AND class_id=?", (aid, cid), one=True)
-            if not old:
-                return self.err(404, "подборка не найдена в этом классе")
             ended = 0
-            if old and old["strict"] and db.q("SELECT 1 FROM asg_runs WHERE asg_id=? LIMIT 1", (aid,), one=True):
+            if old["strict"] and db.q("SELECT 1 FROM asg_runs WHERE asg_id=? LIMIT 1", (aid,), one=True):
                 if json.loads(old["tasks"]) != tasks:
                     return self.err(409, "Самостоятельную уже начали писать — состав заданий менять нельзя")
                 if kind != "self":
@@ -543,6 +583,9 @@ class TeacherWorkHandlers:
                 svc.live_class(db, a["class_id"])
                 return self.send_json({"ok": True})
             db.x("UPDATE assignments SET closed=? WHERE id=?", (now, aid))
+            if a["kind"] == "lab13":
+                svc.live_class(db, a["class_id"])
+                return self.send_json({"ok": True, "finished": 0})
             a = db.q("SELECT * FROM assignments WHERE id=?", (aid,), one=True)
             n = 0
             for r in db.q("SELECT student_id FROM asg_runs WHERE asg_id=? AND finished IS NULL", (aid,)):
@@ -552,6 +595,13 @@ class TeacherWorkHandlers:
                     n += 1
             svc.live_class(db, a["class_id"])
             return self.send_json({"ok": True, "finished": n})
+        if a["kind"] == "lab13":
+            rows = []
+            for m in db.q("SELECT id, name FROM students WHERE class_id=? AND COALESCE(is_teacher, 0)=0 ORDER BY name", (a["class_id"],)):
+                cell = svc.asg_cell(db, a, m["id"], [])
+                rows.append({"id": m["id"], "name": m["name"], "status": cell["st"], "label": cell["label"], "lab13": cell["lab13"]})
+            return self.send_json({"id": aid, "title": a["title"], "kind": "lab13", "closed": a["closed"],
+                                   "due": a["due"], "total": 1, "rows": rows})
         items = svc.asg_items(real)
         # задания работы по порядку — учителю видно, что в подборке и что из этого ученик решил
         item_info = [{"id": k, "n": (svc.bank.tasks.get(k) or {}).get("n")} for k in items]

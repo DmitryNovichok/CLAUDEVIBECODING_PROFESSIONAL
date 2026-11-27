@@ -78,7 +78,7 @@ td.r, th.r { text-align: right; }
     const fc = d.forecast || {}, w = d.week, m = d.month;
     const dlt = fc.now != null && fc.then != null ? fc.now - fc.then : 0;
     const max = Math.max(1, ...d.days.map(x => x.n));
-    const status = x => x.st === 'done' ? `<span class="st ok">сдано</span>` : x.st === 'miss' ? '<span class="st miss">не сдано в срок</span>'
+    const status = x => x.label ? esc(x.label) : x.st === 'done' ? `<span class="st ok">сдано</span>` : x.st === 'miss' ? '<span class="st miss">не сдано в срок</span>'
       : x.st === 'work' ? `<span class="st work">в работе${x.tried != null ? `: ${x.tried} из ${x.total}` : ''}</span>` : '<span class="st none">не начато</span>';
     document.getElementById('out').innerHTML = `
       <h1>${esc(d.name)}</h1>

@@ -244,6 +244,22 @@ var u=localStorage.getItem('egeAdmin.uiTheme');if(u)document.documentElement.dat
       <details class="learn-report" data-learning-report="models">
         <summary>Модели заданий ЕГЭ</summary>
         <div class="learn-report-body">
+          <section class="lab13-assign" aria-labelledby="lab13AssignTitle">
+            <div class="adm-toolbar">
+              <h4 id="lab13AssignTitle">Лаборатория №13 · Маска сети</h4>
+              <button type="button" class="btn" id="lab13AssignOpen" aria-expanded="false" aria-controls="lab13AssignForm">Назначить классу</button>
+            </div>
+            <form id="lab13AssignForm" aria-labelledby="lab13AssignTitle" hidden>
+              <fieldset id="lab13AssignFields" class="adm-toolbar">
+                <label for="lab13AssignClass">Класс<select class="inp" id="lab13AssignClass" required></select></label>
+                <label for="lab13AssignDue">Срок (необязательно)<input class="inp" id="lab13AssignDue" type="date"></label>
+                <button class="btn primary" type="submit" id="lab13AssignSubmit">Выдать работу</button>
+              </fieldset>
+            </form>
+            <span id="lab13AssignStatus" role="status"></span>
+            <button type="button" class="link-btn" id="lab13AssignJournal" hidden>Открыть журнал</button>
+            <button type="button" class="link-btn" id="lab13AssignNewClass" hidden>Создать класс</button>
+          </section>
           <div class="adm-toolbar">
             <input class="inp" id="modelsFind" aria-label="Поиск по ФИО — Модели заданий ЕГЭ" placeholder="Поиск по ФИО">
             <button type="button" class="btn ghost" id="modelsReload">Обновить</button>

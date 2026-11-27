@@ -51,7 +51,7 @@ def _registry():
     # method checks (including the task actions' existing 405 responses).
     add(Access.STUDENT, 'GET POST', '''
         account activity arduino/progress arduino/unlock
-        asg/answer asg/away asg/finish asg/review asg/start asg/state assignments
+        asg/answer asg/away asg/finish asg/review asg/start asg/state asg/lab13/start asg/lab13/answer assignments
         check consent course/lesson course/seen course/sets course/unlock
         daily daily/start dev/unlock
         duel/cancel duel/create duel/find duel/finish duel/rematch duel/respond
@@ -69,6 +69,7 @@ def _registry():
         together/history together/mine
         tour tour/finish tour/join tour/leave tour/start tour/surrender tour/vote
     ''')
+    add(Access.TEACHER, 'POST', 'admin/assignment/lab13')
     add(Access.TEACHER, 'GET POST', '''
         admin/access admin/arduino admin/arduino/student admin/as-student
         admin/asg/all admin/asg/archive admin/asg/close admin/asg/live admin/asg/tasks

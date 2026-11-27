@@ -2628,6 +2628,7 @@
       if (st.v === 'hub') openHub();
       else if (st.v === 'courses' || st.v === 'labs') openLearningDirectory(st.v);
       else if (st.v === 'course') openCourse();
+      else if (st.v === 'lab13') openLabAssignment(st.id);
       else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'mcko') openMcko();
@@ -3006,7 +3007,9 @@
   function setScope(s, asgId) {
     if (!SPECIAL.includes(s)) s = scopeOf(s);
     if (s === 'asg') {
-      if (!asgOf(asgId)) return;
+      const a = asgOf(asgId);
+      if (!a) return;
+      if (a.kind === 'lab13') return openLabAssignment(a.id);
       if (isNarrow()) setSideOpen(false);
       if (!leaveExam()) return;
       ui.scope = 'asg';
@@ -4137,11 +4140,11 @@
   let answerWriteSession = 0;
   if (typeof window !== 'undefined') window.addEventListener?.('egeshka:session-ended', () => { answerWriteSession++; });
   async function api(path, body, method) {
-    if (body && /^(check|reveal|asg\/(answer|finish)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
+    if (body && /^(check|reveal|asg\/(answer|finish|lab13\/answer)|exam|duel\/(finish|surrender)|tour\/(finish|surrender))/.test(path)) localWriteAt = Date.now();
     const headers = { 'Content-Type': 'application/json' };
     if (student) headers['X-Token'] = student.token;
     if (isTemp()) headers['X-Temp'] = '1';
-    const writeId = body && /^(check|asg\/(answer|finish)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
+    const writeId = body && /^(check|asg\/(answer|finish|lab13\/answer)|exam\/(save|finish)|mcko\/(save|finish)|im\/(check|trial\/(save|finish)))$/.test(path) ? ++answerWriteSequence : 0;
     const sessionAtStart = answerWriteSession;
     const notify = state => { if (writeId && sessionAtStart === answerWriteSession && typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') window.dispatchEvent(new CustomEvent('egeshka:answer-save', { detail: { id: writeId, state } })); };
     notify('pending');
@@ -7207,8 +7210,12 @@
     }
     return a.tasks.filter(id => !done.has(id));
   }
-  function asgFinished(a) { return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final)); }
-  const asgPending = a => !asgFinished(a) && (a.strict || asgLeft(a).length > 0);
+  function asgFinished(a) {
+    if (a.kind === 'lab13') return !!(a.finished || a.closed || (a.due && a.due * 1000 <= Date.now()));
+    return !!(a.closed || (a.strict ? a.finished || a.result : a.score && a.score.final));
+  }
+  function asgRemaining(a) { return a.kind === 'lab13' ? Number(!asgFinished(a)) : asgLeft(a).length; }
+  const asgPending = a => !asgFinished(a) && (a.strict || asgRemaining(a) > 0);
   // Срок — первый приоритет; при одинаковом сроке сначала начатая работа.
   function asgOrder(a, b) {
     const started = x => !!(x.started || x.score?.tried || x.done?.length);
@@ -7253,7 +7260,7 @@
     const say = [];
     for (const a of ASG) {
       if (a.duel || a.course || a.closed) continue;
-      const left = a.strict ? (a.finished ? 0 : a.tasks.length - (a.done || []).length) : asgLeft(a).length;
+      const left = a.strict ? (a.finished ? 0 : a.tasks.length - (a.done || []).length) : asgRemaining(a);
       if (a.personal && !seen['new' + a.id]) {
         seen['new' + a.id] = today;
         say.push(a.personal === 'fix' ? `🔧 Работа над ошибками: ${a.tasks.length} ${plural(a.tasks.length, 'похожее задание', 'похожих задания', 'похожих заданий')} на твои ошибки`
@@ -7306,8 +7313,9 @@
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = asgFinished;
     const active = list.filter(a => !isDone(a)).sort(asgOrder), done = list.filter(isDone).sort((a, b) => (b.finished || b.closed || b.created || 0) - (a.finished || a.closed || a.created || 0));
-    const left = active.reduce((n, a) => n + asgLeft(a).length, 0);
+    const left = active.reduce((n, a) => n + asgRemaining(a), 0);
     const card = a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (!a.strict) return practiceCard(a);
       const n = (a.done || []).length, total = a.tasks.length, r = a.result;
       const nums = [...new Set(a.tasks.map(id => (byId.get(id) || {}).n).filter(Boolean))].sort((x, y) => x - y);
@@ -7384,11 +7392,34 @@
       ${apDates(a, null, sc.final || a.closed)}
       <div class="ap-btns"><button type="button" class="btn ${sc.final || a.closed ? '' : 'primary'}" data-asg="${a.id}">${sc.final || a.closed ? 'Потренироваться' : sc.tried ? 'Продолжить' : 'Начать'}</button></div></div>`;
   }
+  function labAssignmentCard(a) {
+    const done = asgFinished(a);
+    const status = a.finished ? (a.lab13.correct ? 'Прогноз верный' : 'В прогнозе ошибка')
+      : done ? 'Работа закрыта без ответа' : a.started ? 'Ожидает прогноза' : 'Ещё не начата';
+    const action = a.finished ? 'Посмотреть результат' : a.started ? 'Продолжить' : 'Открыть лабораторию';
+    return `<div data-assignment="${a.id}" class="ap-card${done ? ' done' : a.started ? ' going' : ''}">
+      <div class="ap-main"><div class="ap-top"><span class="ap-ico">${asgIcon(a)}</span><div>
+        <span class="ap-kind">Лаборатория №13 · Подсети IPv4</span>${asgDueBadge(a)}<b>${esc(a.title)}</b>
+        <small>Подсеть ${esc(a.lab13.ip)}/${a.lab13.prefix}</small></div></div><div class="ap-state">${status}</div></div>
+      ${apDates(a, a.finished, done)}
+      ${a.finished || !done ? `<div class="ap-btns"><button type="button" class="btn ${done ? '' : 'primary'}" data-asg="${a.id}">${action}</button></div>` : ''}</div>`;
+  }
+  function syncLabAssignment(state) {
+    const a = ASG.find(item => item.id === state.id && item.kind === 'lab13');
+    if (a && (!a.finished || state.finished)) Object.assign(a, { started: state.started, finished: state.finished, lab13: state });
+    loadAssignments().catch(() => {});
+  }
+  function returnToLabAssignments(done) {
+    asgTab = done ? 'done' : 'active';
+    openAsgPage();
+    loadAssignments().catch(() => {});
+  }
   function openAssignments() {
     const list = ASG.filter(a => !a.duel && !a.course);
     const isDone = asgFinished;
     const active = list.filter(a => !isDone(a)).sort(asgOrder), done = list.filter(isDone).sort((a, b) => (b.finished || b.closed || b.created || 0) - (a.finished || a.closed || a.created || 0));
     const doneRows = done.map(a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (!a.strict) return practiceCard(a);
       const r = a.result;
       return `<div class="asg-row done">
@@ -7397,6 +7428,7 @@
           <button type="button" class="btn" data-review="${a.id}" data-from="asg">Разбор</button>` : ''}</span></div>`;
     }).join('');
     const rows = active.map(a => {
+      if (a.kind === 'lab13') return labAssignmentCard(a);
       if (a.strict) return wkRowHtml(a);
       const left = asgLeft(a).length, total = a.tasks.length;
       const late = a.due && a.due * 1000 < Date.now() && left;
@@ -9773,7 +9805,7 @@
           if (typeof window.EgeLearningSections !== 'function') throw Error('Раздел не загрузился. Повторите открытие.');
           const sections = window.EgeLearningSections({ $, $$, ARCHIVE, COURSE, COURSE_SETS, COURSE_SET_NOTES, EgePythonWorker, MARK, MARK_BTN, NUM_TOPIC, PY, PY_KW, RULES, SERVER, TASKS, abandonCurrent, api, asgLeft, badgeCls, bdOpen, byId, codeKey, courseSet, esc, highlightPy, htmlWait, isNarrow, leaveExam, loadCourseSets, markAttach, navPush, needHtml, netError, numLabel, numStats, openSetTask, pct, plural, pyOpen, pySync, pycSetAccess, readCode, readJSON, renderMath, renderSidebar, safeHtml, setScope, setSideOpen, toast, toggleBoard, togglePy, trainerEl, visible, writeCode, writeJSON,
             appState: {
-              get student() { return student; }, get P() { return P; },
+              get student() { return student; }, get P() { return P; }, get teacher() { return TEACHER; },
               get courseShown() { return courseShown; }, set courseShown(value) { courseShown = value; },
               get pageKind() { return pageKind; }, set pageKind(value) { pageKind = value; },
               get cur() { return cur; }, set cur(value) { cur = value; },
@@ -9789,7 +9821,7 @@
               get IM_OK() { return IM_OK; }, set IM_OK(value) { IM_OK = value; },
               get IM_PW() { return IM_PW; }, set IM_PW(value) { IM_PW = value; },
             } });
-          for (const name of ['openCourse', 'openLesson', 'openCourseSet', 'openPyc', 'openPycLevel', 'openLab', 'openArdGate', 'pycStopTests', 'labStop', 'pycDockTools', 'resetLearningState', 'refreshLearningAccess']) {
+          for (const name of ['openCourse', 'openLesson', 'openCourseSet', 'openPyc', 'openPycLevel', 'openLab', 'openLabAssignment', 'openArdGate', 'pycStopTests', 'labStop', 'pycDockTools', 'resetLearningState', 'refreshLearningAccess']) {
             if (typeof sections?.[name] !== 'function') throw Error('Раздел загрузился не полностью. Повторите открытие.');
           }
           learningSections = sections;
@@ -9835,6 +9867,9 @@
   function openLab(view = '', context) {
     if (view === 'arduino') return openArdGate();
     return openLearningSection('openLab', [view, context], { v: 'lab', tab: view }, 'lab', 'Лаборатория');
+  }
+  function openLabAssignment(id) {
+    return openLearningSection('openLabAssignment', [id, syncLabAssignment, returnToLabAssignments], { v: 'lab13', id }, 'lab13', 'Лаборатория №13');
   }
   function openArdGate() { return openLearningSection('openArdGate', [], { v: 'ardgate' }, 'ardgate', 'Лаборатория Arduino'); }
   // ═══════ src/app/12m-exam-loader.js
@@ -9915,7 +9950,7 @@
     const now = Date.now() / 1000;
     return ASG.filter(a => !a.duel && !a.course && a.due && !asgFinished(a) && a.due - now < 2 * 86400 && a.due - now > -86400)
       .map(a => {
-        const left = asgLeft(a).length, hrs = Math.round((a.due - now) / 3600);
+        const left = asgRemaining(a), hrs = Math.round((a.due - now) / 3600);
         if (!left) return null;
         const when = hrs <= 0 ? 'срок уже прошёл' : hrs < 24 ? `осталось ${hrs} ${plural(hrs, 'час', 'часа', 'часов')}` : 'срок завтра';
         return { k: 'remind', ts: Date.now() / 1000, ic: '⏰', title: `Не забудь: «${a.title}»`, text: `${when} · нерешённых заданий: ${left}`, go: 'asg', id: a.id, due: a.due };
@@ -10010,7 +10045,7 @@
     else if (go === 'support') openSupport('auto');
     else if (go === 'asg') {
       const a = typeof ASG !== 'undefined' && ASG.find(x => x.id === id);
-      if (a && !asgFinished(a) && asgLeft(a).length && !a.strict) setScope('asg', id);
+      if (a && !asgFinished(a) && asgRemaining(a) && !a.strict) setScope('asg', id);
       else openAssignments();
     }
   });
@@ -10117,7 +10152,8 @@
       const had = new Set(ASG.map(a => a.id));
       loadAssignments().then(() => {
         const fresh = ASG.filter(a => !a.duel && !a.course && !a.personal && !a.closed && !had.has(a.id));
-        if (fresh.length) toast(fresh.length === 1 ? `📚 Учитель выдал подборку «${fresh[0].title}» — она в «Подборках»` : `📚 Учитель выдал подборки: ${fresh.length}`, 6000);
+        if (fresh.length === 1 && fresh[0].kind === 'lab13') toast(`Учитель назначил лабораторию «${fresh[0].title}». Открой её в разделе «Задания от учителя».`, 6000);
+        else if (fresh.length) toast(fresh.length === 1 ? `📚 Учитель выдал подборку «${fresh[0].title}» — она в «Подборках»` : `📚 Учитель выдал подборки: ${fresh.length}`, 6000);
         if (wkLive()) wkRefresh(wkLive());           // пишешь самостоятельную — вдруг учитель её завершил
       }).catch(() => {});
     }
@@ -10188,7 +10224,7 @@
     const nav = $('#mobileNav');
     if (!nav) return;
     nav.hidden = false;
-    const teacher = courseShown && pageKind === 'asg';
+    const teacher = courseShown && (pageKind === 'asg' || pageKind === 'lab13');
     $$('[data-mobile]', nav).forEach(b => {
       const active = b.dataset.mobile === 'teacher' ? teacher : b.dataset.mobile === 'home' ? courseShown && pageKind === 'hub'
         : b.dataset.mobile === 'tasks' && !courseShown && !examShown;
@@ -10301,11 +10337,11 @@
     // 1. Задание от учителя с ближайшим сроком; нет его — тренировка слабых номеров
     const own = ASG.filter(a => !a.duel && !a.course && asgPending(a)).sort(asgOrder)[0];
     if (own) {
-      const left = asgLeft(own).length, total = own.tasks.length;
+      const lab = own.kind === 'lab13', left = asgRemaining(own), total = lab ? 1 : own.tasks.length;
       const late = own.due && own.due * 1000 < Date.now();
       items.push({ key: 'asg:' + own.id, ic: 'asg', title: `Задание от учителя: «${own.title}»`,
         meta: [own.due ? `<span class="${late ? 'hub-late' : 'hub-due'}">${late ? 'срок прошёл' : 'до ' + fmtDay(own.due * 1000)}</span>` : '',
-          left ? `осталось ${left} из ${total}` : 'все ответы внесены — заверши работу', left ? hubMins(left * 3) : ''],
+          lab ? 'Лаборатория №13 · прогноз для подсети' : left ? `осталось ${left} из ${total}` : 'все ответы внесены — заверши работу', left ? hubMins(left * 3) : ''],
         btn: !left && own.strict ? 'Завершить' : own.started || left < total ? 'Продолжить' : 'Начать', go: () => (own.strict ? openAsgPage() : setScope('asg', own.id)) });
     } else {
       const weak = hubWeakNums(2), need = 5, count = hubTodayCount(), done = count >= need;
@@ -10395,14 +10431,14 @@
     const allDone = [...P.log].filter(e => !e.b).length;
     const bad = P.log.filter(e => e.s < 1 && !e.b && !e.k).length;
     const own = ASG.filter(a => !a.duel && !a.course), ownOpen = own.filter(asgPending);
-    const ownLeft = ownOpen.reduce((s, a) => s + asgLeft(a).length, 0);
+    const ownLeft = ownOpen.reduce((s, a) => s + asgRemaining(a), 0);
     const T = [];
     T.push({ k: 'exam', name: 'Вариант ЕГЭ', sub: EX ? 'вариант идёт — время не ждёт' : '27 заданий · 3 ч 55 мин', btn: EX ? 'Продолжить вариант' : 'Начать', hot: !!EX, go: () => $('#examCard').click() });
     if (SERVER && student) T.push({ k: 'daily', name: 'Задание дня', sub: !DAILY?.ready || DAILY_STATE === 'error' ? dailyNotice()
       : DAILY.my_place ? `${DAILY.my_place}-е место` : `№${numLabel(DAILY.n)} · ${DAILY.started ? 'уже заходили' : 'не решено'}`,
       badge: DAILY?.my_place || DAILY?.started ? '' : 'сегодня', btn: !DAILY?.ready || DAILY_STATE === 'error' ? DAILY_STATE === 'error' ? 'Повторить загрузку' : 'Открыть' : DAILY.my_place || DAILY.started ? 'Рейтинг' : 'Решить',
       hot: !!DAILY?.ready && !DAILY.started && DAILY_STATE !== 'error', go: () => openDaily() });
-    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'подборка', 'подборки', 'подборок')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
+    if (vis('asgCard')) T.push({ k: 'asg', name: 'Задания от учителя', sub: ASG_ERROR ? 'не удалось обновить список' : ownOpen.length ? (ownLeft ? `${ownOpen.length} ${plural(ownOpen.length, 'работа', 'работы', 'работ')} · осталось ${ownLeft}` : 'нужно завершить работу') : 'всё решено',
       badge: ownOpen.length ? String(ownOpen.length) : '', btn: 'Открыть', go: () => openAsgPage() });
     if (SERVER && student && !TEACHER) T.push({ k: 'mcko', name: 'МЦКО', sub: 'тренировочные работы от учителя', btn: 'Открыть', go: () => openMcko() });
     if (SERVER && student && (IM_OK || IM_PW)) T.push({ k: 'im', name: 'Интеллектуальный мегаполис', sub: 'ИТ-класс · теория: 10 заданий, 120 минут, 60 баллов',

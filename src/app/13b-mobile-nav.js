@@ -15,7 +15,7 @@
     const nav = $('#mobileNav');
     if (!nav) return;
     nav.hidden = false;
-    const teacher = courseShown && pageKind === 'asg';
+    const teacher = courseShown && (pageKind === 'asg' || pageKind === 'lab13');
     $$('[data-mobile]', nav).forEach(b => {
       const active = b.dataset.mobile === 'teacher' ? teacher : b.dataset.mobile === 'home' ? courseShown && pageKind === 'hub'
         : b.dataset.mobile === 'tasks' && !courseShown && !examShown;

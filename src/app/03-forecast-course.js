@@ -472,6 +472,7 @@
       if (st.v === 'hub') openHub();
       else if (st.v === 'courses' || st.v === 'labs') openLearningDirectory(st.v);
       else if (st.v === 'course') openCourse();
+      else if (st.v === 'lab13') openLabAssignment(st.id);
       else if (st.v === 'lab') openLab(st.tab);
       else if (st.v === 'asgpage') openAsgPage();
       else if (st.v === 'mcko') openMcko();
