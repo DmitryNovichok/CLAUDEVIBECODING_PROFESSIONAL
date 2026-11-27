@@ -2236,6 +2236,8 @@ class DB(Transactional):
                     ("tour_matches", "admin", "TEXT"),                # что сделал учитель вручную
                     ("duels", "surrender", "INTEGER"),                # кто сдался — проиграл сразу
                     ("tour_matches", "surrender", "INTEGER"),
+                    ("mcko_runs", "reward_base", "INTEGER"),           # лучший оплачиваемый уровень после этой попытки
+                    ("mcko_runs", "reward_btc", "INTEGER NOT NULL DEFAULT 0"),
                     ("support", "img", "TEXT"),                       # картинка к обращению (файл в server_data/support_img)
                     ("support_msgs", "img", "TEXT"),
                     ("econ_hist", "med", "REAL"),                     # медиана кошельков, рычаги термостата и банк к концу дня
@@ -2319,6 +2321,7 @@ class DB(Transactional):
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('btc_fast_since', ?)", (str(time.time()),))
             # монеты за вариант ЕГЭ по тестовому баллу — за варианты после этой версии (старые не начисляем разом)
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('exam_btc_since', ?)", (str(time.time()),))
+            c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('mcko_btc_since', ?)", (str(time.time()),))
             # бонус ₿ за решённое задание и за самостоятельную — тоже с первого запуска версии (за прошлое разом не начисляем)
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('task_btc_since', ?)", (str(time.time()),))
             # минимальное время на №24–27 — с первого запуска версии: раньше решённое не пересчитываем
@@ -3920,6 +3923,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             kinds=ASG_KINDS, grades=ASG_GRADES,
             asg_archive_html=asg_archive_html,
             asg_cell=asg_cell,
+            add_mcko_to_journal=add_mcko_to_journal,
             asg_cutoff=asg_cutoff,
             asg_expire=asg_expire,
             asg_finish_run=asg_finish_run,
@@ -4018,14 +4022,17 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                          (s["class_id"] or -1, teacher_of(s)["id"]))
             out = []
             for w in works:
-                runs = [mcko_finish_if_late(db, r) for r in db.q("SELECT * FROM mcko_runs WHERE work_id=? AND student_id=? ORDER BY try_no", (w["id"], s["id"]))]
+                runs = mcko_work_runs(db, w["id"], s["id"])
                 if w["status"] != "open" and not runs:
                     continue
                 active = next((r for r in runs if not r["finished"]), None)
                 last = runs[-1] if runs else None
+                best = mcko_best_runs(runs).get(s["id"]) if w["show_result"] else None
                 out.append({"id": w["id"], "title": w["title"], "minutes": w["minutes"], "tries": w["tries"], "used": len(runs),
                             "open": mcko_work_open(w), "closes": w["closes"], "tasks": mcko_work_size(db, w), "max": mcko_work_max(db, w),
                             "active": active["id"] if active else None, "deadline": active["deadline"] if active else None,
+                            "best": {"run": best["id"], "score": best["score"], "max": best["max"]} if best else None,
+                            "reward_btc": sum(r["reward_btc"] for r in runs) if w["show_result"] else None,
                             "results": [{"run": r["id"], "finished": r["finished"], "score": r["score"] if w["show_result"] else None,
                                          "max": r["max"] if w["show_result"] else None} for r in runs if r["finished"]],
                             "fio": {k: (last or {})[k] if last else "" for k in ("last_name", "first_name", "middle_name", "klass")}})
@@ -4040,7 +4047,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(404, "Работа не найдена")
             clean = lambda k, n: re.sub(r"\s+", " ", str(data.get(k) or "")).strip()[:n]
             fio = {"last_name": clean("last_name", 60), "first_name": clean("first_name", 60), "middle_name": clean("middle_name", 60), "klass": clean("klass", 20)}
-            runs = [mcko_finish_if_late(db, r) for r in db.q("SELECT * FROM mcko_runs WHERE work_id=? AND student_id=? ORDER BY try_no", (w["id"], s["id"]))]
+            runs = mcko_work_runs(db, w["id"], s["id"])
             active = next((r for r in runs if not r["finished"]), None)
             if active:
                 return self.send_json({"run": active["id"]})
@@ -4067,7 +4074,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if not r:
             return self.err(404, "Попытка не найдена")
         r = mcko_finish_if_late(db, r)
+        if not r:
+            return self.err(404, "Попытка не найдена")
         w = db.q("SELECT * FROM mcko_works WHERE id=?", (r["work_id"],), one=True)
+        if not w:
+            return self.err(404, "Работа не найдена")
         if path == "/api/mcko/file" and method == "GET":
             qid = str(qs.get("q") or "")
             if qid not in json.loads(r["qids"]):
@@ -4091,14 +4102,18 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                 return self.err(400, "Неверный ответ")
             vals = [str(v)[:100] for v in vals]
             with db.transaction():
-                cur = json.loads(db.q("SELECT answers FROM mcko_runs WHERE id=?", (r["id"],), one=True)["answers"] or "{}")
+                current = db.q("SELECT answers FROM mcko_runs WHERE id=? AND student_id=? AND finished IS NULL",
+                               (r["id"], s["id"]), one=True)
+                if not current:
+                    return self.err(409, "Работа уже сдана или удалена")
+                cur = json.loads(current["answers"] or "{}")
                 cur[qid] = vals
                 db.x("UPDATE mcko_runs SET answers=? WHERE id=? AND finished IS NULL", (json.dumps(cur, ensure_ascii=False), r["id"]))
             return self.send_json({"ok": True, "saved": sum(1 for v in cur.values() if any(x.strip() for x in v))})
         if path == "/api/mcko/finish" and method == "POST":
             mcko_finish(db, r, "student")
-            r = db.q("SELECT * FROM mcko_runs WHERE id=?", (r["id"],), one=True)
-            return self.send_json(mcko_run_view(db, r, w))
+            r = db.q("SELECT * FROM mcko_runs WHERE id=? AND student_id=? AND started=?", (r["id"], s["id"], r["started"]), one=True)
+            return self.send_json(mcko_run_view(db, r, w)) if r else self.err(404, "Попытка не найдена")
         return self.err(404, "нет такого метода")
 
     def admin_mcko(self, method, path, qs, data):
@@ -4159,10 +4174,11 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             classes = db.q("SELECT id, name FROM classes WHERE COALESCE(teacher_id, ?)=? AND COALESCE(is_demo, 0)=0 ORDER BY name", (main_id, tid))
             works = []
             for w in db.q("SELECT w.*, c.name AS cls FROM mcko_works w LEFT JOIN classes c ON c.id=w.class_id WHERE w.teacher_id=? ORDER BY w.created DESC LIMIT 200", (tid,)):
-                runs = [mcko_finish_if_late(db, r) for r in db.q("SELECT * FROM mcko_runs WHERE work_id=?", (w["id"],))]
-                done = [r for r in runs if r["finished"]]
+                runs = mcko_work_runs(db, w["id"])
+                done = mcko_best_runs(runs).values()
                 works.append(dict(dict(w), open=mcko_work_open(w), started=len({r["student_id"] for r in runs}), finished=len(done),
                                   avg=round(sum(r["score"] or 0 for r in done) / len(done), 1) if done else None, max=mcko_work_max(db, w),
+                                  avg_pct=round(100 * sum(mcko_fraction(r) for r in done) / len(done)) if done else None,
                                   pupils=db.q("SELECT COUNT(*) c FROM students WHERE class_id=? AND COALESCE(is_teacher,0)=0", (w["class_id"],), one=True)["c"]))
             return self.send_json({"works": works, "classes": [dict(c) for c in classes], "variants": mcko.VARIANTS, "max": mcko.MAX_SCORE})
         if path == "/api/admin/mcko/work" and method == "POST":
@@ -4188,15 +4204,33 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
         if path == "/api/admin/mcko/work/status" and method == "POST":
             db.x("UPDATE mcko_works SET status=? WHERE id=?", ("open" if data.get("open") else "closed", w["id"]))
             return self.send_json({"ok": True})
+        if path == "/api/admin/mcko/work/publish" and method == "POST":
+            for run in db.q("SELECT * FROM mcko_runs WHERE work_id=? AND finished IS NULL AND deadline<?",
+                            (w["id"], time.time() - MCKO_GRACE)):
+                mcko_finish(db, run, "time")
+            with db.transaction():
+                opened = db.xn("UPDATE mcko_works SET show_result=1 WHERE id=? AND teacher_id=? AND show_result=0",
+                               (w["id"], tid))
+                if opened:
+                    db.x("""INSERT INTO coins(student_id, ts, delta, reason, note, seen)
+                            SELECT student_id, ?, reward_btc, 'mcko', ?, 0 FROM mcko_runs
+                            WHERE work_id=? AND finished IS NOT NULL AND reward_btc>0""", (time.time(), w["title"], w["id"]))
+            if opened:
+                LIVE.send([r["student_id"] for r in db.q("SELECT DISTINCT student_id FROM mcko_runs WHERE work_id=?", (w["id"],))], "gift")
+            return self.send_json({"ok": True})
         if path == "/api/admin/mcko/work/delete" and method == "POST":
-            db.x("DELETE FROM mcko_runs WHERE work_id=?", (w["id"],))
-            db.x("DELETE FROM mcko_works WHERE id=?", (w["id"],))
+            with db.transaction():
+                db.x("DELETE FROM mcko_runs WHERE work_id=?", (w["id"],))
+                db.x("DELETE FROM mcko_works WHERE id=?", (w["id"],))
             return self.send_json({"ok": True})
         if path in ("/api/admin/mcko/results", "/api/admin/mcko/results.csv") and method == "GET":
             rows = []
             for r in db.q("""SELECT r.*, s.name FROM mcko_runs r JOIN students s ON s.id=r.student_id WHERE r.work_id=?
                              ORDER BY s.name, r.try_no""", (w["id"],)):
+                name = r["name"]
                 r = mcko_finish_if_late(db, r)
+                if not r:
+                    continue
                 ans = json.loads(r["answers"] or "{}")
                 tasks = []
                 for qid in json.loads(r["qids"]):
@@ -4204,7 +4238,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                     got = ans.get(qid) or []
                     tasks.append({"q": qid, "type": q["type"], "variant": q.get("variant"), "topic": q["topic"], "answer": got, "key": q["key"],
                                   "points": mcko.score(q, got) if q["key"] else 0, "max": mcko.max_points(q) if q["key"] else 0})
-                rows.append({"run": r["id"], "student": r["name"], "try": r["try_no"],
+                rows.append({"run": r["id"], "student": name, "try": r["try_no"],
                              "fio": " ".join(x for x in (r["last_name"], r["first_name"], r["middle_name"]) if x), "klass": r["klass"],
                              "started": r["started"], "finished": r["finished"], "deadline": r["deadline"], "reason": r["reason"],
                              "score": r["score"], "max": r["max"], "tasks": tasks})
@@ -4637,7 +4671,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
                              "guide": market_guide(k, None, mv), "demand": dem.get(k, 1.0), "issued": issued.get(k, 0)} for k, i, t, pr in sorted(GIFTS, key=lambda g: g[3])],
                 "box": gift_box_price(db, e), "up_min": min(upgrade_tariff(g[0]) for g in GIFTS), "limited": limited_now(db),
                 "hw": hw_offers(sup_all, market_vals(db)["prices"]), "hw_skins": {k: hw_skins(k) for k in HW_BY}, "hw_all": list(HW_BY),
-                "exam_btc": EXAM_BTC, "exam_coins": g["exam_coins"], "task_coins": g["task_coins"],
+                "exam_btc": EXAM_BTC, "exam_coins": g["exam_coins"], "task_coins": g["task_coins"], "mcko_coins": g["mcko_coins"],
                 "mine": mine[:200], "value": gift_value(mine, e, dem),
                 "supply": {k: {f: x[f] for f in ("cap", "left", "alive", "burned", "up", "live", "own_max")} for k, x in sup_all.items()},
                 "market": market_rows(db, [s["id"]] + [m["id"] for m in mates], s["id"], e, issued, dem),
@@ -6160,7 +6194,7 @@ code{{background:#e9ebf0;padding:1px 6px;border-radius:5px;word-break:break-all}
             where, args = self.student_scope()
             studs = db.q(f"SELECT s.id, s.name, c.name AS cls FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE {where}", args)
             wallets = [dict(econ_wallet(db, r["id"]), id=r["id"], name=r["name"], cls=r["cls"]) for r in studs]
-            keys = ("balance", "mined", "exam", "task", "grant", "sell", "mkt_in", "mkt_out", "take", "gift", "upgrade", "fines",
+            keys = ("balance", "mined", "exam", "mcko", "task", "grant", "sell", "mkt_in", "mkt_out", "take", "gift", "upgrade", "fines",
                     "stipend", "storage")
             tot = {k: sum(w[k] for w in wallets) for k in keys}
             week = {r["reason"]: r["s"] for r in db.q(f"""SELECT c.reason, SUM(c.delta) s FROM coins c JOIN students s ON s.id = c.student_id
@@ -7408,6 +7442,10 @@ def day_end(day):
 TASK_BTC = private_rewards(PRIVATE_CONFIG)
 
 
+def scaled_work_btc(percent, task_count):
+    return exam_btc(percent) * min(27, task_count) // 27
+
+
 def work_btc(items):
     """Бонус за самостоятельную от учителя — как за вариант ЕГЭ. items — [(номер, зачёт 1 / 0.5 / 0)].
     Полный вариант (по заданию на каждый номер 1–27) — по тестовому баллу; работа короче — по проценту решённого
@@ -7418,7 +7456,7 @@ def work_btc(items):
         primary = sum(ege_points(n) if c == 1 else 1 if c == 0.5 else 0 for n, c in items)
         return exam_btc(EGE_SCALE[min(primary, len(EGE_SCALE) - 1)])
     pct = 100 * sum(c for _, c in items) / len(items)
-    return math.floor(exam_btc(pct) * min(1, len(items) / 27))
+    return scaled_work_btc(pct, len(items))
 
 
 FAST_XP_MS = 60000          # верный ответ быстрее минуты с открытия задания…
@@ -9397,7 +9435,7 @@ def econ_wallet(db, sid):
     """Кошелёк ученика: откуда пришли монеты и куда ушли."""
     g = game_summary(db, sid, brief=True)
     led = {r["reason"]: r["s"] for r in db.q("SELECT reason, SUM(delta) s FROM coins WHERE student_id=? GROUP BY reason", (sid,))}
-    return {"balance": g["coins"], "mined": g["mined"], "exam": g["exam_coins"], "task": g["task_coins"],
+    return {"balance": g["coins"], "mined": g["mined"], "exam": g["exam_coins"], "mcko": g["mcko_coins"], "task": g["task_coins"],
             "grant": led.get("grant", 0), "sell": led.get("sell", 0), "mkt_in": led.get("msell", 0), "mkt_out": -led.get("mbuy", 0),
             "take": -led.get("take", 0), "gift": -led.get("gift", 0), "upgrade": -led.get("upgrade", 0),
             "stipend": led.get("stipend", 0), "storage": -led.get("storage", 0),
@@ -9773,7 +9811,7 @@ PROFILE_SHOW_MAX = 4                     # подарков в витрине п
 
 NOTICE_DAYS = 60                         # «Уведомления» — за столько дней
 NOTICE_MAX = 150
-NOTICE_COIN = {"grant", "take", "support", "storage", "stipend", "bidback", "msell", "class", "duel"}
+NOTICE_COIN = {"grant", "take", "support", "storage", "stipend", "bidback", "msell", "class", "duel", "mcko"}
 
 
 def notices_of(db, s):
@@ -9799,7 +9837,7 @@ def notices_of(db, s):
                      "support": ("Спасибо за помощь сайту", "🎁"), "storage": ("Плата за хранение монет", "📦"),
                      "stipend": ("Стипендия из банка рынка", "🎓"), "bidback": ("Ставка вернулась", "🔨"),
                      "msell": ("Твой подарок купили на рынке", "🏪"), "class": ("Битва классов", "🏆"),
-                     "duel": ("Выигрыш в дуэли", "⚔️")}[rs]
+                     "duel": ("Выигрыш в дуэли", "⚔️"), "mcko": ("Награда за МЦКО", "📋")}[rs]
         out.append({"k": "coins", "ts": r["ts"], "ic": ic, "title": title,
                     "text": f"{'+' if d > 0 else '−'}{abs(d)} ₿" + (f" — {note}" if note else ""), "go": "coins", "id": r["id"]})
     for r in db.q("""SELECT m.id, m.ts, m.text, p.id AS pid, p.text AS q FROM support_msgs m JOIN support p ON p.id = m.support_id
@@ -10169,6 +10207,11 @@ def _game_summary(db, sid, brief=False, windows=None):
                        if (APP.bank.tasks.get(k) or {}).get("n")]) * earn_at(db, w["finished"]) * promo_mult(db, w["finished"], "task")
         exam_coins += wb
         earn(wb, w["finished"])
+    # Монеты МЦКО уже входят в баланс через журнал операций. Для рейтинга учитываем день выплаты.
+    mcko_coins = 0
+    for award in db.q("SELECT ts, delta FROM coins WHERE student_id=? AND reason='mcko'", (sid,)):
+        earn(award["delta"], award["ts"])
+        mcko_coins += award["delta"]
     # дни подряд
     run = best = 0
     prev = None
@@ -10215,7 +10258,7 @@ def _game_summary(db, sid, brief=False, windows=None):
     rank = {k: rank_score(xp_of[k], rank_btc[k], len(rank_seen[k]), len(rank_err[k])) for k in rank_win}
     out = {"xp": xp, "week": week, "day": xp_day, "month": xp_month, "fire": fire, "wk": max(0, xp_wk), "win": sums, "rank": rank,
            "fire_bonus": min(FIRE_BONUS_MAX, fire * FIRE_BONUS_PCT) if now >= fire_since else 0, "fire_bonus_max": FIRE_BONUS_MAX,
-           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "coins_raw": coins_raw, "mined": mined, "exam_coins": exam_coins, "task_coins": task_btc, "btc_rate": rate,
+           "freezes": (zr["freezes"] or 0) if zr else 0, "froze": froze, "coins": coins, "coins_raw": coins_raw, "mined": mined, "exam_coins": exam_coins, "task_coins": task_btc, "mcko_coins": mcko_coins, "btc_rate": rate,
            "btc_days": {d: [round(float(btc_days.get(d, 0)), 2), fine_days.get(d, 0)] for d in set(btc_days) | set(fine_days)}, "btc_fast": cnt["btc_fast"], "gift_drop": dropped,
            "cover": {k: v for k, v in cover.items() if k >= (datetime.now().date() - timedelta(days=60)).isoformat()},
            "cheat": cheat,
@@ -12106,25 +12149,107 @@ def mcko_work_open(w):
     return w["status"] == "open" and (not w["closes"] or w["closes"] > time.time())
 
 
+def mcko_fraction(run):
+    return Fraction(run["score"] or 0, run["max"]) if run["max"] else Fraction(0)
+
+
+def mcko_best_runs(runs):
+    best = {}
+    for r in runs:
+        if r["finished"]:
+            sid = r["student_id"]
+            if sid not in best or mcko_fraction(r) > mcko_fraction(best[sid]):
+                best[sid] = r
+    return best
+
+
+def mcko_work_runs(db, wid, sid=None):
+    sql, args = "SELECT * FROM mcko_runs WHERE work_id=?", [wid]
+    if sid is not None:
+        sql += " AND student_id=?"
+        args.append(sid)
+    rows = db.q(sql + " ORDER BY try_no", args)
+    return [r for row in rows if (r := mcko_finish_if_late(db, row)) is not None]
+
+
+def add_mcko_to_journal(db, tid, cid, cols, cells):
+    for w in db.q("SELECT * FROM mcko_works WHERE teacher_id=? AND class_id=? ORDER BY created", (tid, cid)):
+        key = f"mcko:{w['id']}"
+        closed = not mcko_work_open(w)
+        cols.append({"id": key, "work_id": w["id"], "title": w["title"], "kind": "mcko", "created": w["created"],
+                     "due": w["closes"], "closed": closed, "total": mcko_work_size(db, w)})
+        runs = mcko_work_runs(db, w["id"])
+        best = mcko_best_runs(runs)
+        active = {r["student_id"] for r in runs if not r["finished"]}
+        for sid, student_cells in cells.items():
+            if sid in best:
+                r = best[sid]
+                student_cells[key] = {"st": "done", "score": r["score"], "max": r["max"],
+                                      "pct": round(100 * mcko_fraction(r)), "try": r["try_no"]}
+            else:
+                student_cells[key] = {"st": "work" if sid in active else "miss" if closed else "none"}
+
+
+def mcko_reward(db, r, score, qids, finished):
+    """За пересдачу платим только за повышение лучшего уровня этой работы."""
+    if finished < setting_since(db, "mcko_btc_since"):
+        return None, 0
+    previous = db.q("""SELECT score, max, qids, reward_base FROM mcko_runs
+                       WHERE work_id=? AND student_id=? AND finished IS NOT NULL""", (r["work_id"], r["student_id"]))
+    best_fraction, best_base = Fraction(0), 0
+    for old in previous:
+        fraction = mcko_fraction(old)
+        base = old["reward_base"]
+        if base is None:  # старый результат задаёт планку для пересдачи, без выплаты задним числом
+            base = scaled_work_btc(100 * fraction, len(json.loads(old["qids"])))
+        best_fraction, best_base = max(best_fraction, fraction), max(best_base, base)
+    fraction = Fraction(score, r["max"]) if r["max"] else Fraction(0)
+    base = scaled_work_btc(100 * fraction, len(qids))
+    if fraction <= best_fraction or base <= best_base:
+        return best_base, 0
+    multiplier = earn_at(db, finished) * promo_mult(db, finished, "task")
+    return base, math.floor(base * multiplier) - math.floor(best_base * multiplier)
+
+
 def mcko_finish(db, r, reason):
     """Сдать попытку: баллы считает сервер по сохранённым ответам. Повторный вызов ничего не меняет."""
     if r["finished"]:
         return
-    ans = json.loads(r["answers"] or "{}")
-    total = 0
-    for qid in json.loads(r["qids"]):
-        q = mcko_q(db, qid)
-        if q and q["key"]:
-            total += mcko.score(q, ans.get(qid) or [])
-    db.x("UPDATE mcko_runs SET finished=?, reason=?, score=? WHERE id=? AND finished IS NULL",
-         (min(time.time(), r["deadline"] + MCKO_GRACE) if reason == "time" else time.time(), reason, total, r["id"]))
+    with db.transaction():
+        r = db.q("SELECT * FROM mcko_runs WHERE id=? AND student_id=? AND started=? AND finished IS NULL",
+                 (r["id"], r["student_id"], r["started"]), one=True)
+        if not r:
+            return
+        w = db.q("SELECT title, teacher_id, show_result FROM mcko_works WHERE id=?", (r["work_id"],), one=True)
+        if not w:
+            return
+        ans, qids = json.loads(r["answers"] or "{}"), json.loads(r["qids"])
+        total = 0
+        for qid in qids:
+            q = mcko_q(db, qid)
+            if q and q["key"]:
+                total += mcko.score(q, ans.get(qid) or [])
+        now = time.time()
+        if now > r["deadline"] + MCKO_GRACE:
+            now, reason = r["deadline"] + MCKO_GRACE, "time"
+        total = min(total, r["max"] or 0)
+        base, reward = mcko_reward(db, r, total, qids, now)
+        db.x("UPDATE mcko_runs SET finished=?, reason=?, score=?, reward_base=?, reward_btc=? WHERE id=?",
+             (now, reason, total, base, reward, r["id"]))
+        if reward and w["show_result"]:
+            db.x("INSERT INTO coins(student_id, ts, delta, reason, note, seen) VALUES(?,?,?,'mcko',?,0)",
+                 (r["student_id"], now, reward, w["title"]))
+    if reward and w["show_result"]:
+        LIVE.send([r["student_id"]], "gift")
+    LIVE.send([("t", w["teacher_id"])], "feed")
 
 
 def mcko_finish_if_late(db, r):
     """Время вышло — попытка сдаётся сама (при следующем обращении ученика или учителя)."""
     if r and not r["finished"] and time.time() > r["deadline"] + MCKO_GRACE:
         mcko_finish(db, r, "time")
-        return db.q("SELECT * FROM mcko_runs WHERE id=?", (r["id"],), one=True)
+        return db.q("SELECT * FROM mcko_runs WHERE id=? AND student_id=? AND started=?",
+                    (r["id"], r["student_id"], r["started"]), one=True)
     return r
 
 
@@ -12144,6 +12269,8 @@ def mcko_run_view(db, r, w):
     view["answered"] = sum(1 for v in view["answers"].values() if any(str(x).strip() for x in v))
     if r["finished"] and w["show_result"]:
         view["score"] = r["score"]
+        if r["reward_base"] is not None:
+            view["reward_btc"] = r["reward_btc"]
         # протокол: по каждому заданию — есть ли ответ и сколько баллов (без верных ответов)
         rows = []
         for t in tasks:

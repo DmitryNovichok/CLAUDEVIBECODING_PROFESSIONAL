@@ -9,20 +9,20 @@
       "source": "016eec5301b0171a4ab3e146b18dc5ccc86f28574bbd44848440688bbe443ef1"
     },
     "admin.js": {
-      "min": "268ba1d98eb9964370cef4df5174d56f4f65c20a86d45d14cde03c3d7d50a247",
-      "source": "dfc4af7e4f9227aa9c31d076762b584973fce12d300ab5290a1197d6d976b0ec"
+      "min": "1e62f747da81004ace98cb3225eb16f39c45c9f2200d7d03948673270d817b90",
+      "source": "47d1f76cfe2442cc87ab91852872d5844fc721b2a3e14caafb1055873425f765"
     },
     "app-exams.js": {
-      "min": "e2b96b0e95fcd5c9f63667e42add1d819f4b8af432866d7f92a4dfd1bc4bd279",
-      "source": "440cd260d6d4ba8e3648ebb910bc705b5b0ad1a867fe5ba516c80e4b28a4ce60"
+      "min": "e0c018dbd118486f13e4f966949aeb07d28f9479ea702d82e8be212d21377d1c",
+      "source": "7a1305bbcb5943a9a61599393eb2e894811d1596c9e9b0d4459f8ef731648a9f"
     },
     "app-learning.js": {
       "min": "94b86c53331c5b7b2124ccfb6abebdec3759361072e102d8e657a8d1560c7e40",
       "source": "7bd8e515b2e0492c9cc72646f973cfa9dc122cc0e5f38027b2744dc9341763c9"
     },
     "app.js": {
-      "min": "011be9fe65d52716a7131d63aed19b01f1a7e740a57610f953a4aeb734ecacd0",
-      "source": "01bcaf43ed50f1cadc0ae4a59f4296f6db5bd0834743dc1c8a4d306e26b3fb93"
+      "min": "e60d4de27523334064f01b036d2d52e58a5e1ca4f399d9e8870a8dbaefc1400b",
+      "source": "1fd88c09d59807b1d773025242000ab53e135694c8e18f80f93e2f2d90b8a83e"
     },
     "changelog-loader.js": {
       "min": "f6ff1bf656229129e58839c169750dd49ffbf242b1870a88138c8d4a31a243ae",
@@ -61,8 +61,8 @@
       "source": "ca75a0cf9eea2aa34b8931c8cae23376ee37b01fc2367b85c370373fe19e786a"
     },
     "style.css": {
-      "min": "92be8bc812e4cb195d9c3a24cee0c2a17263212db6c3378ed3540c75eeab98e0",
-      "source": "20ef5819a887a2a3d67aabe7c7bbefa3cc530cf3fa58ba0d439e480511dabf39"
+      "min": "c9c7968844b72b941acd1d96d6cf1b3c62248534183c9e9299cc87c82f9b51f8",
+      "source": "b2569557e42d342a56af2d015809be482f7b1103bec484b5de30ce6481aa1521"
     },
     "teacher-gate.css": {
       "min": "4c8ea8a0e559b4c2371a452d12565b0d792847de0d9a0f76801888a25aca3143",

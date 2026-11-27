@@ -91,7 +91,7 @@
           <div class="pg-active-line" aria-hidden="true"></div>
           <div class="pg-gutter" aria-hidden="true"><pre class="pg-lines"></pre></div>
           <div class="pg-text"><div class="pg-paint" aria-hidden="true"><pre class="pg-highlight"></pre></div>
-            <textarea id="pg-source" class="pg-code" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="120000"></textarea></div>
+            <textarea id="pg-source" class="pg-code" aria-description="Tab — отступ, Shift+Tab — убрать отступ, Escape — перейти к панели запуска." wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="120000"></textarea></div>
         </div>
         <div class="pg-dock-bar">
           <div class="pg-dock-tabs" role="tablist" aria-label="Консоль программы">
@@ -401,6 +401,10 @@
       if (e.isComposing || e.defaultPrevented) return;
       if (e.key === 'Escape' && side && (compact || sidebar.contains(e.target))) {
         e.preventDefault(); setSide(''); code.focus({preventScroll:true}); return;
+      }
+      if (e.target === code) {
+        if (indentCode(e)) return;
+        if (e.key === 'Escape') { e.preventDefault(); (busy ? stopButton : runButton).focus(); return; }
       }
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         if (!e.shiftKey && e.code === 'KeyB') {

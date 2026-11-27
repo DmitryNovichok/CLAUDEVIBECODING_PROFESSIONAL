@@ -228,3 +228,44 @@ test('explorer, cross-file search and VS Code shortcuts use the actual drafts', 
   await page.setViewportSize({width:1366,height:820});
   await expect(explorer).toHaveAttribute('aria-expanded','true');
 });
+
+test('Tab and Shift+Tab edit the selected code lines in both playground languages', async ({page, context}) => {
+  await seedBrowser(context, fixture);
+  await page.goto(fixture.origin + '/');
+  await page.locator('.hub-tiles + [data-open-playground]').click();
+  const source = page.locator('#pg-source');
+  for (const lang of ['cpp', 'python']) {
+    await page.locator('[data-pg-lang="' + lang + '"]').click();
+    await source.fill('x');
+    await source.press('End');
+    await source.press('Tab');
+    await expect(source).toBeFocused();
+    await expect(source).toHaveValue('x    ');
+
+    await source.fill('one\ntwo\nthree');
+    await source.evaluate(el => el.setSelectionRange(0, 8, 'backward'));
+    await source.press('Tab');
+    await expect(source).toHaveValue('    one\n    two\nthree');
+    expect(await source.evaluate(el => [el.selectionStart, el.selectionEnd, el.selectionDirection])).toEqual([0, 16, 'backward']);
+    await source.press('Shift+Tab');
+    await expect(source).toHaveValue('one\ntwo\nthree');
+    await source.fill('  first\n\tsecond\nthird');
+    await source.evaluate(el => el.setSelectionRange(1, 15));
+    await source.press('Shift+Tab');
+    await expect(source).toHaveValue('first\nsecond\nthird');
+    await source.evaluate(el => el.setSelectionRange(0, 0));
+    await source.press('Tab');
+    await source.press('Shift+Tab');
+    await expect(source).toHaveValue('first\nsecond\nthird');
+    await source.press('Escape');
+    await expect(page.locator('[data-pg-run]')).toBeFocused();
+  }
+  await page.locator('[data-pg-lang="cpp"]').click();
+  await expect(source).toHaveValue('first\nsecond\nthird');
+  const stdin = page.locator('#pg-stdin');
+  await page.getByRole('tab', {name: 'Ввод', exact: true}).click();
+  await stdin.fill('abc');
+  await stdin.press('Tab');
+  await expect(stdin).not.toBeFocused();
+  await expect(stdin).toHaveValue('abc');
+});

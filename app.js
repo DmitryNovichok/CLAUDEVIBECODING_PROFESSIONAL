@@ -5700,9 +5700,41 @@
       default: return false;
     }
   }
+  // Общая для обоих редакторов команда. Не затрагиваем следующую строку,
+  // если выделение заканчивается сразу за переводом строки.
+  function indentCode(e) {
+    if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return false;
+    e.preventDefault();
+    const ta = e.target, value = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+    const direction = ta.selectionDirection;
+    let from = a, to = b, text = '    ', start = a + 4, end = a + 4;
+    if (a !== b || e.shiftKey) {
+      from = value.slice(0, a).lastIndexOf('\n') + 1;
+      const last = b > a && value[b - 1] === '\n' ? b - 1 : b;
+      const newline = value.indexOf('\n', last);
+      to = newline < 0 ? value.length : newline;
+      let offset = from;
+      start = a; end = b;
+      text = value.slice(from, to).split('\n').map(line => {
+        const removed = e.shiftKey ? (line.match(/^(?: {1,4}|\t)/)?.[0].length || 0) : 0;
+        const shift = pos => e.shiftKey ? -Math.min(removed, Math.max(0, pos - offset)) : (pos > offset ? 4 : 0);
+        start += shift(a); end += shift(b);
+        offset += line.length + 1;
+        return e.shiftKey ? line.slice(removed) : '    ' + line;
+      }).join('\n');
+    }
+    if (ta.maxLength >= 0 && value.length + text.length - (to - from) > ta.maxLength) return true;
+    if (text !== value.slice(from, to)) {
+      ta.setRangeText(text, from, to, 'end');
+      ta.setSelectionRange(start, end, direction);
+      ta.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+    return true;
+  }
+
   // редактор: Tab — 4 пробела, Shift+Tab — убрать отступ, Enter — отступ как у строки выше (+4 после «:»)
   function editKey(e) {
-    if (emacsKey(e)) return;
+    if (emacsKey(e) || indentCode(e)) return;
     const ta = e.target;
     const v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
     const put = (text, from, to, caretA, caretB) => {
@@ -5733,17 +5765,6 @@
         const k = off ? Math.max(ls, a + d) : a + d;
         put(out, ls, le, k);
       } else put(out, ls, le, ls, ls + out.length);
-      return;
-    }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const ls = v.lastIndexOf('\n', a - 1) + 1;
-      if (!e.shiftKey && a === b) { put('    ', a, b); return; }
-      const le = b > a && v[b - 1] === '\n' ? b - 1 : b;
-      const block = v.slice(ls, le);
-      const lines = block.split('\n');
-      const changed = lines.map(l => (e.shiftKey ? l.replace(/^ {1,4}/, '') : '    ' + l)).join('\n');
-      put(changed, ls, le, ls, ls + changed.length);
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -8256,7 +8277,7 @@
       <span class="e">${i}</span><b>₿ ${num(price)}${trend(dem || 1)}</b>${cls === 'box' ? '<small>Случайный</small>' : out(id) ? '<small>распродан</small>' : ''}</button>`;
     return `${who ? `<div class="bx-for">🎁 Подарок для <b>${esc(who)}</b><button type="button" class="bx-x" data-bx-to="" title="Покупать себе">✕</button></div>` : ''}
       ${G.mine.length ? `<div class="bx-sec">🎁 Мои подарки <small>${G.mine.length}</small><button type="button" class="bx-more" data-bx-tab="mine">все →</button></div>
-        <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
+        <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<span class="bx-listed" role="img" aria-label="На рынке">🏪</span>' : ''}</button>`).join('')}</div>` : ''}
       ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
       ${hwGroups(G.hw).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : xs[0].gift.startsWith('vi_') ? ' vi' : ''}"><div class="bx-hw-h">${esc(ev)} <small>${xs.length > 1 ? 'лимитки' : 'лимитка'} · ${hwUntil(xs[0])}</small></div>
@@ -8311,9 +8332,9 @@
   }
   function logTab(G) {
     const why = { grant: '➕ Учитель', take: '➖ Учитель', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
-      mbuy: '🏪 Купил у', msell: '🏪 Продал —', bid: '🔨 Ставка —', bidback: '↩ Вернулась ставка:', storage: '📦 Хранение', stipend: '🎓 Стипендия', duel: '⚔️ Дуэль', class: '🏆 Битва классов' };
+      mbuy: '🏪 Купил у', msell: '🏪 Продал —', bid: '🔨 Ставка —', bidback: '↩ Вернулась ставка:', storage: '📦 Хранение', stipend: '🎓 Стипендия', duel: '⚔️ Дуэль', class: '🏆 Битва классов', mcko: '📋 МЦКО' };
     const sum = [G.task_coins ? `🧩 за задания <b class="xp-plus">+${num(G.task_coins)}</b>` : '', G.exam_coins ? `🎓 за варианты <b class="xp-plus">+${num(G.exam_coins)}</b>` : '',
-      G.fines ? `⏱ штрафы <b class="xp-minus">−${num(G.fines)}</b>` : ''].filter(Boolean);
+      G.mcko_coins ? `📋 за МЦКО <b class="xp-plus">+${num(G.mcko_coins)}</b>` : '', G.fines ? `⏱ штрафы <b class="xp-minus">−${num(G.fines)}</b>` : ''].filter(Boolean);
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts).slice(0, 5)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (['mbuy', 'msell', 'bid', 'bidback'].includes(r.reason) ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
       <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${num(Math.abs(r.delta))}</td></tr>`).join('');
     return `${sum.length ? `<div class="bx-sum">${sum.map(x => `<span>${x}</span>`).join('')}</div>` : ''}
@@ -8728,6 +8749,7 @@
       : c.reason === 'storage' ? `📦 Плата за хранение большой суммы: −${-c.delta} ₿. Монеты выгоднее тратить, чем копить`
       : c.reason === 'stipend' ? `🎓 Стипендия из банка рынка: +${c.delta} ₿ — ${c.note}`
       : c.reason === 'class' ? `🏆 Битва классов: +${c.delta} ₿ — ${c.note}`
+      : c.reason === 'mcko' ? `📋 МЦКО «${c.note}» · +${c.delta} ₿`
       : c.reason === 'support' ? `🎁 Спасибо за помощь сайту: +${c.delta} ₿ — ${c.note}`
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
@@ -11307,7 +11329,7 @@
           <div class="pg-active-line" aria-hidden="true"></div>
           <div class="pg-gutter" aria-hidden="true"><pre class="pg-lines"></pre></div>
           <div class="pg-text"><div class="pg-paint" aria-hidden="true"><pre class="pg-highlight"></pre></div>
-            <textarea id="pg-source" class="pg-code" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="120000"></textarea></div>
+            <textarea id="pg-source" class="pg-code" aria-description="Tab — отступ, Shift+Tab — убрать отступ, Escape — перейти к панели запуска." wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="120000"></textarea></div>
         </div>
         <div class="pg-dock-bar">
           <div class="pg-dock-tabs" role="tablist" aria-label="Консоль программы">
@@ -11617,6 +11639,10 @@
       if (e.isComposing || e.defaultPrevented) return;
       if (e.key === 'Escape' && side && (compact || sidebar.contains(e.target))) {
         e.preventDefault(); setSide(''); code.focus({preventScroll:true}); return;
+      }
+      if (e.target === code) {
+        if (indentCode(e)) return;
+        if (e.key === 'Escape') { e.preventDefault(); (busy ? stopButton : runButton).focus(); return; }
       }
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         if (!e.shiftKey && e.code === 'KeyB') {

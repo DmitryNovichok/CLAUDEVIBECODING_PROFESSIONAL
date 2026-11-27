@@ -28,13 +28,14 @@ window.EgeExamSections = function (bridge) {
     const d = MK.list;
     const card = w => {
       const last = w.results[w.results.length - 1];
+      const best = w.best;
       const st = w.active ? `<span class="mk-st go">идёт · до ${mkFmt(w.deadline)}</span>`
-        : last ? `<span class="mk-st done">сдана${last.score != null ? ` · ${last.score} из ${last.max}` : ''}</span>`
+        : last ? `<span class="mk-st done">сдана${best ? ` · ${w.tries > 1 ? 'лучший результат ' : ''}${best.score} из ${best.max}` : ''}</span>`
           : w.open ? '<span class="mk-st new">новая</span>' : '<span class="mk-st">закрыта</span>';
       const can = w.active || (w.open && w.used < w.tries);
       return `<article class="mk-card"><div><h3>${esc(w.title)}</h3>
-        <p>${w.tasks} ${plural(w.tasks, 'задание', 'задания', 'заданий')} · ${w.minutes} мин · максимум ${w.max} ${plural(w.max, 'балл', 'балла', 'баллов')}${w.closes ? ` · принимается до ${mkFmt(w.closes)}` : ''}${w.tries > 1 ? ` · попыток: ${w.used} из ${w.tries}` : ''}</p></div>
-        ${st}${last && !w.active ? `<button type="button" class="btn" data-mk-proto="${last.run}">Протокол</button>` : ''}${can ? `<button type="button" class="btn primary" data-mk-open="${w.id}">${w.active ? 'Продолжить' : 'Приступить'}</button>` : ''}</article>`;
+        <p>${w.tasks} ${plural(w.tasks, 'задание', 'задания', 'заданий')} · ${w.minutes} мин · максимум ${w.max} ${plural(w.max, 'балл', 'балла', 'баллов')}${w.closes ? ` · принимается до ${mkFmt(w.closes)}` : ''}${w.tries > 1 ? ` · попыток: ${w.used} из ${w.tries}` : ''}${w.reward_btc > 0 ? ` · заработано ${w.reward_btc} ₿` : ''}</p></div>
+        ${st}${last && !w.active ? `<button type="button" class="btn" data-mk-proto="${best ? best.run : last.run}">Протокол</button>` : ''}${can ? `<button type="button" class="btn primary" data-mk-open="${w.id}">${w.active ? 'Продолжить' : 'Приступить'}</button>` : ''}</article>`;
     };
     mkBox().innerHTML = `<header class="mk-head"><h1>МЦКО</h1><p>Тренировочные работы по типам диагностики МЦКО от вашего учителя — в формате компьютерного тестирования. Это тренировка, а не официальная диагностика.</p></header>
       ${d.works.length ? `<div class="mk-list">${d.works.map(card).join('')}</div>`
@@ -127,6 +128,7 @@ window.EgeExamSections = function (bridge) {
         ${r.score != null ? `<div class="mkx-proto-grid"><table class="mkx-res"><thead><tr><th>№ задания</th><th>ответ</th><th>балл за задание</th></tr></thead><tbody>
           ${rows.map(x => `<tr class="${!x.answered ? 'skip' : x.points >= x.max ? 'ok' : x.points ? 'part' : 'bad'}"><td>${x.n}</td><td>${!x.answered ? 'нет ответа' : x.points >= x.max ? 'верно' : x.points ? 'частично' : 'ошибка'}</td><td>${x.points}${x.max > 1 ? ' из ' + x.max : ''}</td></tr>`).join('')}</tbody></table>
           <table class="mkx-total"><tr class="ok"><th>Набрано баллов:</th><td>${r.score}</td></tr><tr><th>Максимум баллов:</th><td>${r.max}</td></tr><tr class="skip"><th>Пропущено ответов:</th><td>${rows.filter(x => !x.answered).length}</td></tr>
+          ${r.reward_btc != null ? `<tr><th>Награда за попытку</th><td>${r.reward_btc} ₿</td></tr>` : ''}
           <tr><td colspan="2" class="mkx-note">Оценка не ставится: это тренировочная работа.</td></tr></table></div>`
           : `<p>Работа сдана. Сохранено ответов: <b>${r.answered}</b> из ${r.tasks.length}. Результат сообщит учитель.</p>`}
         <p class="mkx-act"><button type="button" class="mkx-btn" data-mkx-print>Печать протокола</button><button type="button" class="mkx-btn mkx-primary" data-mkx-exit>К списку работ</button></p></section>`;

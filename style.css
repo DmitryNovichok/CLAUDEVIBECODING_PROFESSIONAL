@@ -2714,7 +2714,7 @@ button.gv-top:hover .ug { transform: translateY(-2px); }
 .bx-x { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 16px; cursor: pointer; }
 .bx-shelf { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: thin; }
 .bx-own { position: relative; flex: none; border: 0; background: none; padding: 0; cursor: pointer; }
-.bx-own i { position: absolute; right: -3px; top: -5px; z-index: 3; font-style: normal; font-size: 14px; }
+.bx-own > .bx-listed { position: absolute; right: -3px; top: -5px; z-index: 3; font-style: normal; font-size: 14px; }
 .bx-own:hover .ug { transform: translateY(-2px); }
 /* плитки подарков разного размера */
 .bx-t { display: inline-grid; flex: none; }

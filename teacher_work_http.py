@@ -60,6 +60,7 @@ class TeacherWorkServices:
     grades: Mapping
     asg_archive_html: Callable
     asg_cell: Callable
+    add_mcko_to_journal: Callable
     asg_cutoff: Callable
     asg_expire: Callable
     asg_finish_run: Callable
@@ -295,6 +296,8 @@ class TeacherWorkHandlers:
                          "due": a["due"], "closed": a["closed"], "total": 1 if a["kind"] == "lab13" else len(svc.asg_items(real))})
             for m in members:
                 cells[m["id"]][a["id"]] = svc.asg_cell(db, a, m["id"], real)
+        svc.add_mcko_to_journal(db, self.T["id"], cid, cols, cells)
+        cols.sort(key=lambda col: col["created"] or 0)
         ids = [m["id"] for m in members]
         nums = {}
         if ids:

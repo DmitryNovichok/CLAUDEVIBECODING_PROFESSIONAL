@@ -518,9 +518,41 @@
       default: return false;
     }
   }
+  // Общая для обоих редакторов команда. Не затрагиваем следующую строку,
+  // если выделение заканчивается сразу за переводом строки.
+  function indentCode(e) {
+    if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return false;
+    e.preventDefault();
+    const ta = e.target, value = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+    const direction = ta.selectionDirection;
+    let from = a, to = b, text = '    ', start = a + 4, end = a + 4;
+    if (a !== b || e.shiftKey) {
+      from = value.slice(0, a).lastIndexOf('\n') + 1;
+      const last = b > a && value[b - 1] === '\n' ? b - 1 : b;
+      const newline = value.indexOf('\n', last);
+      to = newline < 0 ? value.length : newline;
+      let offset = from;
+      start = a; end = b;
+      text = value.slice(from, to).split('\n').map(line => {
+        const removed = e.shiftKey ? (line.match(/^(?: {1,4}|\t)/)?.[0].length || 0) : 0;
+        const shift = pos => e.shiftKey ? -Math.min(removed, Math.max(0, pos - offset)) : (pos > offset ? 4 : 0);
+        start += shift(a); end += shift(b);
+        offset += line.length + 1;
+        return e.shiftKey ? line.slice(removed) : '    ' + line;
+      }).join('\n');
+    }
+    if (ta.maxLength >= 0 && value.length + text.length - (to - from) > ta.maxLength) return true;
+    if (text !== value.slice(from, to)) {
+      ta.setRangeText(text, from, to, 'end');
+      ta.setSelectionRange(start, end, direction);
+      ta.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+    return true;
+  }
+
   // редактор: Tab — 4 пробела, Shift+Tab — убрать отступ, Enter — отступ как у строки выше (+4 после «:»)
   function editKey(e) {
-    if (emacsKey(e)) return;
+    if (emacsKey(e) || indentCode(e)) return;
     const ta = e.target;
     const v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
     const put = (text, from, to, caretA, caretB) => {
@@ -551,17 +583,6 @@
         const k = off ? Math.max(ls, a + d) : a + d;
         put(out, ls, le, k);
       } else put(out, ls, le, ls, ls + out.length);
-      return;
-    }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const ls = v.lastIndexOf('\n', a - 1) + 1;
-      if (!e.shiftKey && a === b) { put('    ', a, b); return; }
-      const le = b > a && v[b - 1] === '\n' ? b - 1 : b;
-      const block = v.slice(ls, le);
-      const lines = block.split('\n');
-      const changed = lines.map(l => (e.shiftKey ? l.replace(/^ {1,4}/, '') : '    ' + l)).join('\n');
-      put(changed, ls, le, ls, ls + changed.length);
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {

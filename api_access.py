@@ -87,7 +87,7 @@ def _registry():
         admin/lab/password admin/logout admin/logout-here
         admin/mcko/bank admin/mcko/file admin/mcko/off admin/mcko/results admin/mcko/results.csv
         admin/mcko/task admin/mcko/task/delete admin/mcko/work admin/mcko/work/delete
-        admin/mcko/work/status admin/mcko/works admin/me admin/offer admin/password admin/promo
+        admin/mcko/work/status admin/mcko/work/publish admin/mcko/works admin/me admin/offer admin/password admin/promo
         admin/pyc admin/pyc/free admin/pyc/password admin/pyc/student admin/renew
         admin/report admin/report/preview admin/security admin/security/end admin/security/recovery
         admin/site-stats admin/solution admin/sounds admin/status admin/steps-off admin/student

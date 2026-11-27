@@ -195,7 +195,7 @@
       <span class="e">${i}</span><b>₿ ${num(price)}${trend(dem || 1)}</b>${cls === 'box' ? '<small>Случайный</small>' : out(id) ? '<small>распродан</small>' : ''}</button>`;
     return `${who ? `<div class="bx-for">🎁 Подарок для <b>${esc(who)}</b><button type="button" class="bx-x" data-bx-to="" title="Покупать себе">✕</button></div>` : ''}
       ${G.mine.length ? `<div class="bx-sec">🎁 Мои подарки <small>${G.mine.length}</small><button type="button" class="bx-more" data-bx-tab="mine">все →</button></div>
-        <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<i>🏪</i>' : ''}</button>`).join('')}</div>` : ''}
+        <div class="bx-shelf">${G.mine.slice(0, 12).map(x => `<button type="button" class="bx-own" data-bx-mine="${x.id}" title="${esc(x.t)}">${gfTile(x, 64)}${x.listed != null ? '<span class="bx-listed" role="img" aria-label="На рынке">🏪</span>' : ''}</button>`).join('')}</div>` : ''}
       ${lim && lim.left ? `<button type="button" class="bx-lim${lim.img ? ' img' : ''}" data-bx-shop="${lim.gift}"><span class="e">${lim.img ? `<img src="${esc(lim.img)}" alt="">` : lim.i}</span><span><b>${esc(lim.label || 'Лимитка недели')} · ${esc(lim.t)}</b>
         <small>осталось ${lim.left} из ${lim.cap} · до ${gfDate(lim.stop).slice(0, 5)}</small></span><span class="bx-price">₿ ${num(lim.price)}</span></button>` : ''}
       ${hwGroups(G.hw).map(([ev, xs]) => `<div class="bx-hw${xs[0].gift.startsWith('sw_') ? ' sw' : xs[0].gift.startsWith('vi_') ? ' vi' : ''}"><div class="bx-hw-h">${esc(ev)} <small>${xs.length > 1 ? 'лимитки' : 'лимитка'} · ${hwUntil(xs[0])}</small></div>
@@ -250,9 +250,9 @@
   }
   function logTab(G) {
     const why = { grant: '➕ Учитель', take: '➖ Учитель', gift: '🎁 Покупка', upgrade: '✨ Улучшение', sell: '💰 Продажа',
-      mbuy: '🏪 Купил у', msell: '🏪 Продал —', bid: '🔨 Ставка —', bidback: '↩ Вернулась ставка:', storage: '📦 Хранение', stipend: '🎓 Стипендия', duel: '⚔️ Дуэль', class: '🏆 Битва классов' };
+      mbuy: '🏪 Купил у', msell: '🏪 Продал —', bid: '🔨 Ставка —', bidback: '↩ Вернулась ставка:', storage: '📦 Хранение', stipend: '🎓 Стипендия', duel: '⚔️ Дуэль', class: '🏆 Битва классов', mcko: '📋 МЦКО' };
     const sum = [G.task_coins ? `🧩 за задания <b class="xp-plus">+${num(G.task_coins)}</b>` : '', G.exam_coins ? `🎓 за варианты <b class="xp-plus">+${num(G.exam_coins)}</b>` : '',
-      G.fines ? `⏱ штрафы <b class="xp-minus">−${num(G.fines)}</b>` : ''].filter(Boolean);
+      G.mcko_coins ? `📋 за МЦКО <b class="xp-plus">+${num(G.mcko_coins)}</b>` : '', G.fines ? `⏱ штрафы <b class="xp-minus">−${num(G.fines)}</b>` : ''].filter(Boolean);
     const rows = G.ledger.map(r => `<tr><td class="fm-muted">${gfDate(r.ts).slice(0, 5)}</td><td>${why[r.reason] || esc(r.reason)}${r.note ? (['mbuy', 'msell', 'bid', 'bidback'].includes(r.reason) ? ` ${esc(r.note)}` : ` <span class="fm-muted">«${esc(r.note)}»</span>`) : ''}</td>
       <td class="num ${r.delta > 0 ? 'xp-plus' : 'xp-minus'}">${r.delta > 0 ? '+' : '−'}${num(Math.abs(r.delta))}</td></tr>`).join('');
     return `${sum.length ? `<div class="bx-sum">${sum.map(x => `<span>${x}</span>`).join('')}</div>` : ''}
@@ -667,6 +667,7 @@
       : c.reason === 'storage' ? `📦 Плата за хранение большой суммы: −${-c.delta} ₿. Монеты выгоднее тратить, чем копить`
       : c.reason === 'stipend' ? `🎓 Стипендия из банка рынка: +${c.delta} ₿ — ${c.note}`
       : c.reason === 'class' ? `🏆 Битва классов: +${c.delta} ₿ — ${c.note}`
+      : c.reason === 'mcko' ? `📋 МЦКО «${c.note}» · +${c.delta} ₿`
       : c.reason === 'support' ? `🎁 Спасибо за помощь сайту: +${c.delta} ₿ — ${c.note}`
       : `${c.delta > 0 ? `➕ Учитель начислил ${c.delta} ₿` : `➖ Учитель снял ${-c.delta} ₿`}${c.note ? ` — «${c.note}»` : ''}`, 6000), 400 + i * 1200));
     api('gifts/seen', { coin_ids: list.map(c => c.id) }).catch(() => {});
