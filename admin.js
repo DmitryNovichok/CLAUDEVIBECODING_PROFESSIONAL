@@ -719,11 +719,21 @@
     funnelDays = +b.dataset.fnDays;
     $('#fnWrap').innerHTML = funnelHtml(SITE_LAST.funnel);
   });
-  let SITE_LAST = null;
-  async function loadSite() {
+  let SITE_LAST = null, spRequest = 0, spOlderLoaded = false;
+  function spBusy() {
+    return spOlderLoaded || !!$('#siteSupport [inert]') ||
+      [...$$('#siteSupport [data-sp]')].some(box => box.spImg || box.querySelector('textarea')?.value.trim());
+  }
+  async function loadSite(background) {
+    const request = ++spRequest;
     let d;
-    try { d = await api('site-stats'); } catch (err) { if (err.status !== 401) $('#siteBody').innerHTML = `<p class="adm-empty">${esc(err.message)}</p>`; return; }
+    try { d = await api('site-stats?section=' + spF); } catch (err) {
+      if (request === spRequest && err.status !== 401) toast(err.message);
+      return;
+    }
+    if (request !== spRequest || (background === true && spBusy())) return;
     SITE_LAST = d;
+    spOlderLoaded = false;
     const n = v => Number(v || 0).toLocaleString('ru-RU');
     const card = (k, v, sub, color) => `<div class="adm-card"><div class="k">${k}</div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
     const maxS = Math.max(1, ...d.series.map(x => Math.max(x.solved, x.visitors, x.active)));
@@ -800,7 +810,7 @@
     if (!e.clipboardData.getData('text')) e.preventDefault();
     spSetImg(box, f);
   });
-  /** Обращения в техподдержку от учеников: новые сверху, ответ виден ученику на сайте. */
+  /** Обращения идут по дате создания. Ответ, награда и закрытие сохраняют место темы. */
   const SP_ST = { new: ['new', 'новое'], answered: ['ans', 'отвечено'], closed: ['closed', 'закрыто'] };
   let spF = 'all';                      // фильтр: all — всё, help — обращения, idea — 💡 пожелания учеников
   /** Монеты за помощь сайту: кнопки наград (каждая — один раз на обращение) и своя сумма. */
@@ -812,13 +822,9 @@
       <div class="sp-rw-own"><input class="inp" type="number" min="1" max="500" placeholder="₿" aria-label="Своя сумма" data-sp-rw-amount>
         <input class="inp" maxlength="80" placeholder="За что (ученик увидит)" aria-label="За что" data-sp-rw-note><button type="button" class="btn ghost" data-sp-rw="custom">Начислить</button></div></details>`;
   }
-  function supportHtml(d) {
-    const list = d.support || [];
-    const fresh = list.filter(x => x.status === 'new').length;
+  function spCard(x, d) {
     const dt = mskTime;
-    const nIdea = list.filter(x => x.kind === 'idea').length, newIdea = list.filter(x => x.kind === 'idea' && x.status === 'new').length;
-    const seg = (k, t, n) => `<button type="button" class="${spF === k ? 'on' : ''}" data-sp-f="${k}">${t}${n ? ` <b>${n}</b>` : ''}</button>`;
-    const items = list.map(x => `<div class="sp-a ${SP_ST[x.status] ? SP_ST[x.status][0] : ''}" data-sp="${x.id}" data-kind="${esc(x.kind || '')}">
+    return `<div class="sp-a ${SP_ST[x.status] ? SP_ST[x.status][0] : ''}" data-sp="${x.id}" data-kind="${esc(x.kind || '')}">
       <div class="sp-a-head"><span class="sp-st">${(SP_ST[x.status] || SP_ST.new)[1]}</span><b>${esc(x.name)}</b>
         <span class="muted">${esc(x.teacher ? 'учитель: ' + x.teacher : '')}</span><span class="muted">${esc((d.support_kinds || {})[x.kind] || '')}</span>
         <span class="muted">${dt(x.ts)}</span>${x.task ? `<span class="muted">задание <button type="button" class="task-link" data-task="${esc(x.task)}"><code>${esc(x.task)}</code></button></span>` : ''}${x.page ? `<span class="muted">раздел: ${esc(x.page)}</span>` : ''}</div>
@@ -831,21 +837,69 @@
         : `<div class="sp-a-form"><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответ ученику (увидит в «Техподдержке» и сможет ответить в этой теме). Скриншот — Ctrl+V или 📎"></textarea>
         <div class="sp-a-btns"><button type="button" class="btn" data-sp-send>Ответить</button><button type="button" class="btn ghost" data-sp-pick title="Приложить картинку — или вставьте скриншот в поле через Ctrl+V">Картинка</button><span class="sp-prev" hidden></span><button type="button" class="btn ghost" data-sp-close title="Ученик больше не сможет писать в эту тему">Закрыть тему</button>
           <button type="button" class="btn ghost danger" data-sp-del>Удалить</button></div></div>`}
-    </div>`).join('');
-    const closed = list.filter(x => x.status === 'closed').length;
+    </div>`;
+  }
+  function spHeading(d) {
+    const {fresh, ideas: nIdea, new_ideas: newIdea, closed} = d.support_counts;
+    const seg = (k, t, n) => `<button type="button" class="${spF === k ? 'on' : ''}" data-sp-f="${k}">${t}${n ? ` <b>${n}</b>` : ''}</button>`;
     return `<h3 class="adm-h3">Обращения в техподдержку ${fresh ? `<span class="sp-badge">${fresh} ${fresh === 1 ? 'новое' : 'новых'}</span>` : ''}
         <span class="adm-hint">от учеников: кнопка «🛟 Техподдержка» на сайте</span>
         ${closed ? `<button type="button" class="btn ghost danger sp-clear" data-sp-clear>Удалить закрытые (${closed})</button>` : ''}</h3>
-      ${nIdea ? `<div class="cs-seg sp-f">${seg('all', 'Все', 0)}${seg('help', '🛟 Обращения', 0)}${seg('idea', '💡 Пожелания', newIdea || nIdea)}</div>` : ''}
-      <div class="sp-admin f-${spF}">${items || '<p class="adm-empty">Обращений пока нет.</p>'}</div>`;
+      ${(nIdea || spF !== 'all') ? `<div class="cs-seg sp-f">${seg('all', 'Все', 0)}${seg('help', '🛟 Обращения', 0)}${seg('idea', '💡 Пожелания', newIdea || nIdea)}</div>` : ''}`;
   }
-  $('#siteBody').addEventListener('click', e => {                     // фильтр обращений: все / обращения / пожелания
-    const f = e.target.closest('[data-sp-f]');
-    if (!f) return;
-    spF = f.dataset.spF;
-    $$('[data-sp-f]').forEach(b => b.classList.toggle('on', b === f));
-    const box = $('.sp-admin');
-    if (box) box.className = `sp-admin f-${spF}`;
+  function spMore(d) {
+    return d.support_next ? '<button type="button" class="btn ghost" data-sp-more>Показать более ранние обращения</button>' : '';
+  }
+  function supportHtml(d) {
+    return `<section id="siteSupport"><div data-sp-heading>${spHeading(d)}</div>
+      <div class="sp-admin">${d.support.map(x => spCard(x, d)).join('') || '<p class="adm-empty">Обращений пока нет.</p>'}</div>
+      <div data-sp-paging>${spMore(d)}</div></section>`;
+  }
+  async function spLoadPage(section, before) {
+    const current = SITE_LAST, request = ++spRequest;
+    let page;
+    try { page = await api('support?section=' + section + (before ? '&before=' + before : '')); }
+    catch (err) { if (request === spRequest && err.status !== 401) toast(err.message); return; }
+    if (current !== SITE_LAST || request !== spRequest) return;
+    spF = section;
+    current.support_counts = page.support_counts;
+    current.support_next = page.support_next;
+    if (before) {
+      spOlderLoaded = true;
+      Object.assign(current.support_given, page.support_given);
+      current.support.push(...page.support);
+      $('#siteSupport .sp-admin').insertAdjacentHTML('beforeend', page.support.map(x => spCard(x, current)).join(''));
+      $('#siteSupport [data-sp-paging]').innerHTML = spMore(current);
+      $('#siteSupport [data-sp-heading]').innerHTML = spHeading(current);
+    } else {
+      spOlderLoaded = false;
+      current.support = page.support;
+      current.support_given = page.support_given;
+      $('#siteSupport').outerHTML = supportHtml(current);
+    }
+  }
+  function spUpdateCard(box, data, keepForm) {
+    const x = data.support[0], d = SITE_LAST;
+    if (!x || !d || !box.isConnected) return;
+    const index = d.support.findIndex(row => row.id === x.id);
+    if (index < 0) return;
+    d.support[index] = x;
+    d.support_counts = data.support_counts;
+    Object.assign(d.support_given, data.support_given);
+    const template = document.createElement('template');
+    template.innerHTML = spCard(x, d);
+    const card = template.content.firstElementChild;
+    if (keepForm && box.querySelector('.sp-a-form') && card.querySelector('.sp-a-form')) {
+      card.querySelector('.sp-a-form').replaceWith(box.querySelector('.sp-a-form'));
+      card.spImg = box.spImg;
+    }
+    box.replaceWith(card);
+    $('#siteSupport [data-sp-heading]').innerHTML = spHeading(d);
+  }
+  $('#siteBody').addEventListener('click', e => {
+    const filter = e.target.closest('[data-sp-f]'), more = e.target.closest('[data-sp-more]');
+    if (filter && filter.dataset.spF !== spF) spLoadPage(filter.dataset.spF);
+    if (more && SITE_LAST?.support_next) spLoadPage(spF, SITE_LAST.support_next);
   });
   $('#siteBody').addEventListener('click', async e => {
     const del = e.target.closest('[data-sp-del]'), clear = e.target.closest('[data-sp-clear]');
@@ -863,10 +917,12 @@
       const amount = kind === 'custom' ? +box.querySelector('[data-sp-rw-amount]').value : 0, note = kind === 'custom' ? box.querySelector('[data-sp-rw-note]').value.trim() : '';
       if (kind === 'custom' && !(amount >= 1 && amount <= 500)) { toast('Сумма — от 1 до 500 ₿'); return; }
       if (!confirm(`Начислить ${kind === 'custom' ? amount + ' ₿' : rw.textContent.trim()} ученику? Он получит уведомление и сообщение в этой теме.`)) return;
-      rw.disabled = true;
-      try { const r = await api('support/reward', { id: +box.dataset.sp, kind, amount, note }); toast(`Начислено +${r.amount} ₿`); }
-      catch (err) { rw.disabled = false; toast(err.message); return; }
-      loadSite();
+      box.inert = true;
+      try {
+        const r = await api('support/reward', { id: +box.dataset.sp, kind, amount, note });
+        spUpdateCard(box, r, true);
+        toast(`Начислено +${r.amount} ₿`);
+      } catch (err) { toast(err.message); } finally { box.inert = false; }
       return;
     }
     const pick = e.target.closest('[data-sp-pick]'), unpick = e.target.closest('.sp-prev-x');
@@ -884,9 +940,12 @@
     const ta = box.querySelector('textarea'), answer = ta ? ta.value.trim() : '';
     if (send && !answer && !box.spImg) { toast('Напишите ответ'); return; }
     if (close && !confirm(answer ? 'Отправить ответ и закрыть тему? Ученик больше не сможет писать в неё.' : 'Закрыть тему? Ученик больше не сможет писать в неё.')) return;
-    try { await api('support/answer', { id: +box.dataset.sp, answer, img: box.spImg || null, close: !!close, reopen: !!reopen }); } catch (err) { toast(err.message); return; }
-    toast(reopen ? 'Тема снова открыта' : close ? 'Тема закрыта' : 'Ответ отправлен');
-    loadSite();
+    box.inert = true;
+    try {
+      const r = await api('support/answer', { id: +box.dataset.sp, answer, img: box.spImg || null, close: !!close, reopen: !!reopen });
+      spUpdateCard(box, r, false);
+      toast(reopen ? 'Тема снова открыта' : close ? 'Тема закрыта' : 'Ответ отправлен');
+    } catch (err) { toast(err.message); } finally { box.inert = false; }
   });
   $('#siteReload').addEventListener('click', loadSite);
 
@@ -4688,8 +4747,7 @@
     evSince = Math.max(evSince, ...fresh.map(e => e.ts));
     feedEv = fresh.concat(feedEv).slice(0, 100);
     // новое обращение — сразу в списке (если вы не пишете ответ: черновик не стираем)
-    if (!first && tab === 'site' && fresh.some(e => e.kind === 'support')
-      && ![...$$('#siteBody [data-sp]')].some(b => b.spImg || (b.querySelector('textarea') && b.querySelector('textarea').value.trim()))) loadSite();
+    if (!first && tab === 'site' && fresh.some(e => e.kind === 'support') && !spBusy()) loadSite(true);
     if (!first) {
       fresh.filter(e => evWarn(e.kind) || e.kind === 'finish' || e.kind === 'exam').slice(0, 3)
         .forEach(e => toast(`${evWarn(e.kind) ? '⚠ ' : e.kind === 'exam' ? '🎯 ' : '📝 '}${e.name}: ${EV_TEXT[e.kind](e)}${e.kind === 'exam' ? '' : ` — «${e.title}»`}`));

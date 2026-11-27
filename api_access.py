@@ -69,6 +69,7 @@ def _registry():
         together/history together/mine
         tour tour/finish tour/join tour/leave tour/start tour/surrender tour/vote
     ''')
+    add(Access.TEACHER, 'GET', 'admin/support')
     add(Access.TEACHER, 'POST', 'admin/assignment/lab13')
     add(Access.TEACHER, 'GET POST', '''
         admin/access admin/arduino admin/arduino/student admin/as-student
