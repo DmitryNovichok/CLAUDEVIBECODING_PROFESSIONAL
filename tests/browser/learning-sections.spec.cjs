@@ -24,66 +24,173 @@ async function openEntry(page, group, entry) {
   await page.locator('[data-learning-entry="' + entry + '"]').click();
 }
 
-test('№24 grades Python re spans, explains a counterexample and opens the exam file', async ({page, context}) => {
+for (const [exam, mid, student] of [[24, 'm33', 'Вводный Регуляр'], [26, 'm26', 'Вводный Алгоритм']]) {
+  test('ЕГЭ №' + exam + ' opens a theory chapter and its programming workshop', async ({page, context}) => {
+    const pupil = await registerPupil(context, student);
+    await seedBrowser(context, fixture, 'pupil', pupil);
+    await post(context, '/api/course/unlock', {password: 'fixture-only-course-password'});
+    await post(context, '/api/pyc/unlock', {password: 'fixture-only-pyc-password'});
+    await page.goto(fixture.origin + '/');
+    await openEntry(page, 'courses', 'course');
+    await page.locator('.crs-lesson[data-lesson="' + exam + '"]').click();
+    const chapters = page.locator('[data-course-chapter]');
+    const lesson = await (await context.request.get(fixture.origin + '/api/course/lesson?n=' + exam)).json();
+    const first = lesson.slides.findIndex(slide => slide.startHere);
+    expect(first).toBeGreaterThanOrEqual(0);
+    await page.locator('.crs-chapters [data-slide="' + first + '"]').click();
+    await expect(chapters).toHaveValue(String(first));
+    await expect(page.locator('.crs-count')).toHaveText((first + 1) + ' / ' + lesson.slides.length);
+    await chapters.selectOption({index: 1});
+    const chapterIndex = Number(await chapters.inputValue());
+    await expect(page.locator('.crs-stage')).toContainText(lesson.slides[chapterIndex].h);
+    await page.locator('[data-pyc-lv="' + mid + ':0"]').click();
+    await expect(page.locator('[data-pyc-task^="' + mid + '."]').first()).toBeVisible();
+    await page.goBack();
+    await expect(chapters).toHaveValue(String(chapterIndex));
+    if (exam === 26) {
+      await page.locator('[data-pyc-lv="m35:0"]').click();
+      await expect(page.locator('[data-pyc-task="m35.order"]')).toBeVisible();
+    }
+  });
+}
+
+test('lesson practice keeps the programming course password gate', async ({page, context}) => {
+  const pupil = await registerPupil(context, 'Раздельный Доступ');
+  await seedBrowser(context, fixture, 'pupil', pupil);
+  await post(context, '/api/course/unlock', {password: 'fixture-only-course-password'});
+  await page.goto(fixture.origin + '/');
+  await openEntry(page, 'courses', 'course');
+  await page.locator('.crs-lesson[data-lesson="24"]').click();
+  await page.locator('[data-pyc-lv="m33:0"]').click();
+  await expect(page.locator('#pycPw')).toBeVisible();
+  expect((await context.request.get(fixture.origin + '/api/pyc/level?m=m33&l=0')).status()).toBe(403);
+  await page.locator('#pycPw').fill('fixture-only-pyc-password');
+  await page.locator('#pycPw').press('Enter');
+  await expect(page.locator('[data-pyc-task="m33.literal"]')).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('[data-course-chapter]')).toBeVisible();
+});
+
+test('№24 starts with literal spans and reaches the independent expression file', async ({page, context}) => {
   const pupil = await registerPupil(context, 'Регулярные Выражения');
   await seedBrowser(context, fixture, 'pupil', pupil);
   await post(context, '/api/pyc/unlock', {password: 'fixture-only-pyc-password'});
   await page.goto(fixture.origin + '/');
   await openEntry(page, 'courses', 'python');
   await page.locator('[data-pyc-lv="m24:0"]').first().click();
-  await page.getByRole('button', {name: 'Открыть тренажёр регулярных выражений'}).click();
-  const form = page.locator('[data-pyc-regex]');
+  await page.locator('.course.lesson [data-pyc-lv="m33:0"]').click();
+  const form = page.locator('[data-pyc-regex="m33.literal"]');
   const input = form.locator('[data-re-pattern]');
   const result = form.locator('.pyc-msg');
   const check = () => form.getByRole('button', {name: 'Проверить шаблон'}).click();
-  // Selecting the task already on screen must keep its form and any check in progress.
+  // Selecting the current task must preserve an unsubmitted pattern.
   const repeatedLevel = '**/api/pyc/level?m=m33&l=0';
   let reloads = 0;
   await page.route(repeatedLevel, route => { reloads++; return route.continue(); });
   await input.fill('[');
-  await page.locator('[data-pyc-focus="m33.digits"][aria-pressed="true"]').click();
+  await page.locator('[data-pyc-focus="m33.literal"][aria-pressed="true"]').click();
   await check();
   await expect(result).toContainText('Ошибка шаблона');
+  await expect(result).toContainText('Закрой класс символов');
+  await expect(result).toContainText('позиция 0');
   expect(reloads).toBe(0);
   await page.unroute(repeatedLevel);
-  await input.fill('[0-9]');
+  await input.fill('AB');
   await check();
   await expect(result).toContainText('Проверь строку 1');
-  await expect(result).toContainText('[1:4] 007');
-  await input.fill(String.raw`\d+`);
+  await expect(result).toContainText('[1:4] ABA');
+  await input.fill('ABA');
   await form.getByText('Попробовать на своей строке').click();
-  await form.locator('[data-re-text]').fill('B😀9A12');
+  await form.locator('[data-re-text]').fill('B😀ABAABA');
   await form.getByRole('button', {name: 'Показать совпадения'}).click();
-  await expect(result).toContainText('[2:3] 9');
-  await expect(result).toContainText('[4:6] 12');
+  await expect(result).toContainText('[2:5] ABA');
+  await expect(result).toContainText('[5:8] ABA');
+  await input.fill('(?m)^ABA');
+  await form.locator('[data-re-text]').fill('B😀ABAABA\nABA');
+  await form.getByRole('button', {name: 'Показать совпадения'}).click();
+  await expect(result).toContainText('Совпадений: 1');
+  await expect(result).toContainText('[9:12] ABA');
   const progress = async () => (await (await context.request.get(fixture.origin + '/api/pyc')).json()).progress;
-  expect((await progress())['m33.digits'].tries).toBe(1);
-  async function solve(key, pattern) {
-    const target = page.locator('[data-pyc-regex="m33.' + key + '"]');
-    if (!await target.count()) await page.locator('[data-pyc-focus="m33.' + key + '"]').click();
-    await target.locator('[data-re-pattern]').fill(pattern);
-    await target.getByRole('button', {name: 'Проверить шаблон'}).click();
-    await expect(page.locator('.pyc-task.ok[data-pyc-task="m33.' + key + '"]')).toBeVisible();
-  }
-  await solve('digits', String.raw`\d+`);
-  await solve('hex', '[A-F0-9]+');
-  await page.locator('[data-pyc-lv="m33:1"]').first().click();
-  await solve('blocks', '(AB)+');
-  await solve('bounded', 'A[0-9]{2,4}B');
-  await solve('overlap', '(?=(ABA))');
-  await page.locator('[data-pyc-lv="m33:2"]').first().click();
+  expect((await progress())['m33.literal'].tries).toBe(1);
+
+  // Use a pupil's solutions instead of reading private answers from the server.
   const num = '(?:[6789][06789]*|0)';
-  await solve('number', num);
-  await solve('expression', num + '(?:[-*]' + num + ')*');
-  await page.locator('[data-pyc-focus="m33.file"]').click();
-  const attachment = await page.locator('.pyc-files a').getAttribute('href');
-  const file = await context.request.get(new URL(attachment, fixture.origin).href);
-  expect(file.ok()).toBe(true);
-  expect((await file.text()).trim()).toMatch(/^[06789*-]{12000}$/);
-  await page.locator('.pyc-ans').fill('80');
-  await page.locator('.pyc-form button').click();
-  await expect(page.locator('.pyc-task.ok[data-pyc-task="m33.file"]')).toBeVisible();
+  const patterns = {
+    literal:'ABA', dot:String.raw`\.`, digits:String.raw`\d+`, hex:'[A-F0-9]+',
+    fragment:'[^#]+', blocks:'(?:AB)+', bounded:'A[0-9]{2,4}B', quoted:'".*?"',
+    number:num, word:String.raw`(?i)\bкот\b`, record:'(?m)^OK$',
+    duplicate:String.raw`([A-Z])\1`, tagged:'(?<=#)[0-9]+', standalone:'(?<![a-zA-Z])OK(?![a-zA-Z])',
+    overlap:'(?=(ABA))', expression:num + '(?:[-*]' + num + ')*',
+  };
+  const programs = {
+    dates: String.raw`print(re.sub(r'\b(\d{4})-(\d{2})-(\d{2})\b', r'\3.\2.\1', input()))`,
+    fields: `print(sum(int(s) for s in re.split(r'[ ,;]+', input()) if s))`,
+    maxrun: `print(max((len(s) for s in re.findall(r'(?:AB)+', input())), default=0))`,
+  };
+  const course = require('../../pycourse/m33.json');
+  for (const [levelIndex, level] of course.levels.entries()) {
+    if (levelIndex) await page.locator('[data-pyc-lv="m33:' + levelIndex + '"]').first().click();
+    for (const task of level.tasks) {
+      const box = page.locator('[data-pyc-task="' + task.id + '"]');
+      if (!await box.count()) await page.locator('[data-pyc-focus="' + task.id + '"]').click();
+      await expect(box).toBeVisible();
+      if (task.regex) {
+        const re = patterns[task.id.slice(4)];
+        expect(re, task.id).toBeTruthy();
+        await box.locator('[data-re-pattern]').fill(re);
+        await box.getByRole('button', {name:'Проверить шаблон'}).click();
+      } else if (task.practice?.graded) {
+        await box.locator('[data-pyc-py]').click();
+        await page.locator('#pyCode').fill('import re\n' + programs[task.id.slice(4)]);
+        await page.locator('#pycDockTests').click();
+        await expect(page.locator('#pycDockStatus')).toContainText('Задача зачтена', {timeout:30000});
+        await page.locator('#pycDockBack').click();
+      } else {
+        expect(task.id).toBe('m33.file');
+        const href = await box.locator('.pyc-files a').getAttribute('href');
+        const file = await context.request.get(new URL(href, fixture.origin).href);
+        expect(file.ok()).toBe(true);
+        expect((await file.text()).trim()).toMatch(/^[06789*-]{12000}$/);
+        await box.locator('.pyc-ans').fill('80');
+        await box.locator('.pyc-form button').click();
+      }
+      await expect(box).toHaveClass(/\bok\b/);
+    }
+  }
   expect((await progress())['m33.file'].ok).toBe(1);
+});
+
+test('№26 opens the next level after reading a file and tracing the disk by hand', async ({page, context}) => {
+  const pupil = await registerPupil(context, 'Начинающий Сортировка');
+  await seedBrowser(context, fixture, 'pupil', pupil);
+  await post(context, '/api/pyc/unlock', {password: 'fixture-only-pyc-password'});
+  await page.goto(fixture.origin + '/');
+  await openEntry(page, 'courses', 'python');
+  await expect(page.locator('[data-pyc-lv="m26:1"]').first()).toBeDisabled();
+  await page.locator('[data-pyc-lv="m26:0"]').first().click();
+  const first = page.locator('[data-pyc-task="m26.read_sizes"]');
+  await first.locator('[data-pyc-py]').click();
+  // A memorized answer must fail the next input. A general solution then unlocks one credit.
+  await page.locator('#pyCode').fill('print(19, 2)');
+  await page.locator('#pycDockTests').click();
+  await expect(page.locator('#pycDockStatus')).toContainText('Получено: 19 2', {timeout:30000});
+  await page.locator('#pyCode').fill('n = int(input())\nfiles = [int(input()) for _ in range(n)]\nprint(sum(files), min(files))');
+  await page.locator('#pycDockTests').click();
+  await expect(page.locator('#pycDockStatus')).toContainText('Задача зачтена', {timeout:30000});
+  await page.locator('#pycDockBack').click();
+  await expect(first).toHaveClass(/\bok\b/);
+  await page.locator('[data-pyc-focus="m26.pack_trace"]').click();
+  const sheet = page.locator('[data-pyc-sheet="m26.pack_trace"]');
+  const rows = [[1, 2], [2, 5], [3, 9], [3, 9], [3, 9]];
+  for (const [i, [count, used]] of rows.entries()) {
+    await sheet.locator('[data-cell]').nth(0).fill(String(count));
+    await sheet.locator('[data-cell]').nth(1).fill(String(used));
+    await sheet.getByRole('button').click();
+    await expect(sheet.locator('[data-checked]')).toHaveCount(i + 1);
+  }
+  await expect(page.locator('[data-pyc-task="m26.pack_trace"]')).toHaveClass(/\bok\b/);
+  await page.locator('[data-pyc-lv="m26:1"]').first().click();
+  await expect(page.locator('[data-pyc-task="m26.rank_order"]')).toBeVisible();
 });
 
 for (const [exam, mid, name] of [[25, 'm34', 'Делители Практикум'], [26, 'm35', 'События Практикум'], [27, 'm36', 'Частицы Практикум']]) {

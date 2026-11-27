@@ -1,10 +1,10 @@
-"""Independent answers for the exam trainers and their two new grading protocols."""
+"""Independent solutions and grading checks for the exam workshops."""
 import json
 import re
 import unittest
 from collections import Counter
 from fractions import Fraction
-from itertools import combinations
+from itertools import accumulate, combinations
 from math import isqrt
 from pathlib import Path
 
@@ -13,7 +13,7 @@ from server import pyc_norm
 
 
 COURSE = Path(__file__).resolve().parents[1] / 'pycourse'
-TASKS = {t['id']: t for mid in ('m34', 'm35', 'm36')
+TASKS = {t['id']: t for mid in ('m26', 'm33', 'm34', 'm35', 'm36')
          for level in json.loads((COURSE / (mid + '.json')).read_text())['levels'] for t in level['tasks']}
 
 
@@ -30,7 +30,7 @@ class ExamWorkshopsTest(unittest.TestCase):
 
     def test_program_outputs_are_graded_beyond_the_worked_example(self):
         for t in TASKS.values():
-            if not t.get('practice'):
+            if not t.get('practice', {}).get('graded'):
                 continue
             cases = t['practice']['cases']
             public = public_practice(t['practice'])['cases']
@@ -40,7 +40,7 @@ class ExamWorkshopsTest(unittest.TestCase):
                 grade(t, {'answer': cases[0]['output']}, pyc_norm)
             outputs = [c['output'] for c in cases]
             self.assertEqual(grade(t, {'outputs': outputs}, pyc_norm), (True, {}))
-            outputs[-1] = ''
+            outputs[-1] += ' extra'
             self.assertEqual(grade(t, {'outputs': outputs}, pyc_norm)[1], {
                 'case_error': {'index': len(cases) - 1, 'expected': cases[-1]['output']}})
 
@@ -58,6 +58,83 @@ class ExamWorkshopsTest(unittest.TestCase):
                     break
         for key, result in [('exam_mask', pairs[:5]), ('exam_primes', primes)]:
             self.assertEqual([list(x) for x in result], [list(map(int, line.split())) for line in TASKS['m34.' + key]['ans'].splitlines()])
+
+    def test_expression_file_uses_the_longest_valid_substring(self):
+        # Parse numbers and operators directly, independently of the course's re pattern.
+        text = (COURSE / 'data/m33/file/24.txt').read_text().strip()
+        best = 0
+        for start in range(len(text)):
+            i = start
+            while i < len(text) and text[i] in '06789':
+                if text[i] == '0':
+                    i += 1
+                else:
+                    while i < len(text) and text[i] in '06789':
+                        i += 1
+                best = max(best, i - start)
+                if i == len(text) or text[i] not in '-*':
+                    break
+                i += 1
+        self.assertEqual(int(TASKS['m33.file']['ans']), best)
+
+    def test_admission_file_admits_whole_score_groups(self):
+        header, *rows = (COURSE / 'data/m26/admission_file/26.txt').read_text().splitlines()
+        n, places = map(int, header.split())
+        self.assertEqual(len(rows), n)
+        groups = Counter(sum(map(int, row.split()[1:])) for row in rows)
+        admitted, contest = 0, 0
+        for score in sorted(groups, reverse=True):
+            if admitted == places:
+                break
+            if groups[score] > places - admitted:
+                contest = groups[score]
+                break
+            admitted += groups[score]
+        self.assertEqual(TASKS['m26.admission_file']['ans'], f'{admitted} {contest}')
+
+    def test_locker_file_processes_equal_arrivals_in_input_order(self):
+        header, *rows = (COURSE / 'data/m26/locker_file/26.txt').read_text().splitlines()
+        lockers, n = map(int, header.split())
+        self.assertEqual(len(rows), n)
+        arrivals = {}
+        for row in rows:
+            arrival, pickup = map(int, row.split())
+            arrivals.setdefault(arrival, []).append(pickup)
+        free = set(range(1, lockers + 1))
+        releases = {}
+        count = last = 0
+        for minute in range(max(arrivals) + 1):
+            free.update(releases.pop(minute, []))
+            for pickup in arrivals.get(minute, []):
+                if free:
+                    last = min(free)
+                    free.remove(last)
+                    releases.setdefault(pickup + 1, []).append(last)
+                    count += 1
+        self.assertEqual(TASKS['m26.locker_file']['ans'], f'{count} {last}')
+
+    def test_purchase_file_and_practice_check_all_three_priorities(self):
+        header, *rows = (COURSE / 'data/m26/purchase_file/26.txt').read_text().splitlines()
+        n, budget = map(int, header.split())
+        self.assertEqual(len(rows), n)
+        prices = [row.split() for row in rows]
+        cost_a, cost_b = [list(accumulate(sorted(int(p) for k, p in prices if k == kind), initial=0))
+                          for kind in ('A', 'B')]
+        _, preferred, left = max((a + b, a, budget - ca - cb)
+                                 for a, ca in enumerate(cost_a) for b, cb in enumerate(cost_b)
+                                 if ca + cb <= budget)
+        self.assertEqual(TASKS['m26.purchase_file']['ans'], f'{preferred} {left}')
+        # On the small exercises we can independently try buying each possible subset.
+        for case in TASKS['m26.purchase_code']['practice']['cases']:
+            header, *rows = case['input'].splitlines()
+            n, budget = map(int, header.split())
+            best = (0, 0, budget)
+            for size in range(1, n + 1):
+                for subset in combinations(rows, size):
+                    left = budget - sum(int(row.split()[1]) for row in subset)
+                    if left >= 0:
+                        best = max(best, (size, sum(row.startswith('A ') for row in subset), left))
+            self.assertEqual(tuple(map(int, case['output'].split())), best)
 
     def test_event_file_and_cutoff(self):
         header, *rows = (COURSE / 'data/m35/file/26.txt').read_text().splitlines()

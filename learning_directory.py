@@ -1,5 +1,6 @@
 """Small, account-scoped summaries for the two student learning directories."""
 import buglab
+from learning_content import course_progress_total
 from learning_catalog import ARDUINO_TOTALS, ARDUINO_TRACKS, LAB_MODELS, PREDICTION_MODELS, TOPICS, TRACE_EXAMPLES, public_catalog
 
 MODEL_LABELS = {m["id"]: m["label"] for m in public_catalog()["labs"]}
@@ -9,12 +10,13 @@ def metric(done, total, started=False, target=None):
     return {"done": done, "total": total, "started": bool(started or done), "target": target}
 
 
-def course_summary(db, sid):
+def course_summary(svc, sid):
     lessons = {t["n"]: t for t in TOPICS if t["n"] == t["lesson_n"] and not t["archive"]}
-    rows = {r["n"]: r for r in db.q(
+    rows = {r["n"]: r for r in svc.db.q(
         "SELECT n, slide, total FROM course_seen WHERE student_id=? ORDER BY ts DESC, n", (sid,))
         if r["n"] in lessons and r["total"] > 0}
-    done = {n for n, r in rows.items() if r["slide"] >= r["total"]}
+    totals = {n: course_progress_total(svc.root, n, row["total"]) for n, row in rows.items()}
+    done = {n for n, r in rows.items() if r["slide"] >= totals[n]}
     n = next((n for n in rows if n not in done), None)
     if n is None:
         n = next((n for n in lessons if n not in done), None)
@@ -24,13 +26,13 @@ def course_summary(db, sid):
         label = "19–21" if n == 19 else str(n)
         target = {"n": n, "slide": slide, "title": f"№{label} · {lessons[n]['title']}"}
         if n in rows:
-            target["title"] += f" · слайд {slide} из {rows[n]['total']}"
+            target["title"] += f" · слайд {slide} из {totals[n]}"
     return metric(len(done), len(lessons), bool(rows), target)
 
 
 def python_summary(svc, s):
     rows = {r["task_id"]: dict(r) for r in svc.db.q(
-        "SELECT task_id, ok, last_ts FROM pyc_progress WHERE student_id=?", (s["id"],))}
+        "SELECT task_id, ok, last_ts, regex_v1 FROM pyc_progress WHERE student_id=?", (s["id"],))}
     done = total = 0
     target = None
     best_rank = None
@@ -116,7 +118,7 @@ def directory(svc, s, group):
     if not s["is_teacher"]:
         if group == "courses":
             if svc.course_open(s):
-                entries["course"] = course_summary(svc.db, s["id"])
+                entries["course"] = course_summary(svc, s["id"])
             if svc.pyc_access(s):
                 entries["python"] = python_summary(svc, s)
         else:

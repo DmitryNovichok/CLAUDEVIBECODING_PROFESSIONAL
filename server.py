@@ -2148,6 +2148,7 @@ class DB(Transactional):
                     ("pyc_progress", "hint_used", "INTEGER DEFAULT 0"),
                     ("pyc_progress", "solution_seen", "INTEGER DEFAULT 0"),
                     ("pyc_progress", "independent", "INTEGER DEFAULT 0"),
+                    ("pyc_progress", "regex_v1", "INTEGER"),
                     ("students", "pyc_free", "INTEGER DEFAULT 0"),    # учитель открыл все уровни курса (без замков)
                     ("gifts", "uniq", "TEXT"),                        # улучшенный подарок: номер, фон, узор, эффект (JSON)
                     ("gifts", "kind", "TEXT"),                        # work — подарок за труд (каждые WORK_GIFT_EVERY решённых)
@@ -2251,6 +2252,9 @@ class DB(Transactional):
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             c.execute("CREATE INDEX IF NOT EXISTS solution_history_work ON solution_history(assignment_id, task_id, student_id, ts)")
+            # Snapshot old regex exercises before the expanded course accepts its first attempt.
+            if c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('pyc_regex_ladder_v2','1')").rowcount:
+                c.execute("UPDATE pyc_progress SET regex_v1=CASE WHEN ok=1 THEN 2 ELSE 1 END WHERE task_id GLOB 'm33.*'")
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS asg_lab_request ON assignments(lab_request_key) WHERE lab_request_key IS NOT NULL")
             # Preserve already-used principal 2FA across the upgrade, including SMTP outages.
             if not c.execute("SELECT 1 FROM settings WHERE key='main_login_code_migrated'").fetchone():
@@ -7676,8 +7680,26 @@ def pyc_access(s):
 
 
 def pyc_solved(db, sid):
-    return {r["task_id"]: {k: r[k] for k in ("ok", "tries", "hint_used", "solution_seen", "independent")}
-            for r in db.q("SELECT task_id, ok, tries, hint_used, solution_seen, independent FROM pyc_progress WHERE student_id=?", (sid,))}
+    fields = ("ok", "tries", "hint_used", "solution_seen", "independent", "regex_v1")
+    return {r["task_id"]: {k: r[k] for k in fields if k != "regex_v1" or r[k] is not None}
+            for r in db.q("SELECT task_id, ok, tries, hint_used, solution_seen, independent, regex_v1 FROM pyc_progress WHERE student_id=?", (sid,))}
+
+
+def pyc_regex_legacy_open(levels, prog):
+    """Locate previously accessible exercises in the expanded regex course by their original IDs."""
+    original = (("m33.digits", "m33.hex"), ("m33.blocks", "m33.bounded", "m33.overlap"),
+                ("m33.number", "m33.expression", "m33.file"))
+    marks = {tid: prog[tid]["regex_v1"] for group in original for tid in group
+             if tid in prog and prog[tid].get("regex_v1")}
+    if not marks:
+        return 1
+    accessible = set(marks)  # also retain tasks attempted in teacher-granted free access
+    for group in original:
+        accessible.update(group)
+        if sum(marks.get(tid) == 2 for tid in group) < 2:
+            break
+    return max((i for i, level in enumerate(levels, 1)
+                if any((t if isinstance(t, str) else t["id"]) in accessible for t in level["tasks"])), default=1)
 
 
 def pyc_open_levels(mod, prog, all_open=False):
@@ -7685,7 +7707,7 @@ def pyc_open_levels(mod, prog, all_open=False):
     lv = mod.get("levels", [])
     if all_open:
         return len(lv)
-    k = 1
+    k = pyc_regex_legacy_open(lv, prog) if mod.get("id") == "m33" else 1
     while k < len(lv):
         prev = lv[k - 1]
         if sum(1 for t in prev["tasks"] if (prog.get(t if isinstance(t, str) else t["id"]) or {}).get("ok")) < prev["need"]:

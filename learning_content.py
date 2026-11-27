@@ -3,7 +3,9 @@
 Полные презентации course/*.json имеют приоритет. Эти разборы закрывают пустые темы.
 Источник соответствия, не источник формулировок примеров: docs/learning-2027.md.
 """
+from functools import lru_cache
 from html import escape
+import json
 from learning_catalog import public_catalog, python_metadata
 
 # title, idea, method, example, solution, answer, common mistake
@@ -89,9 +91,25 @@ GUIDES = {
 }
 
 
+@lru_cache(maxsize=8)
+def _deck_length(path, modified_ns):
+    # mtime в ключе обновляет длину при замене презентации во время работы.
+    return len(json.loads(path.read_text(encoding="utf-8"))["slides"])
+
+
+def course_progress_total(root, n, reported):
+    # Старые вкладки и записи хранят прежний размер расширенных уроков.
+    if n not in (24, 26):
+        return reported
+    path = root / "course" / f"{n}.json"
+    try:
+        return _deck_length(path, path.stat().st_mtime_ns) or reported
+    except (OSError, ValueError, KeyError):
+        return reported
+
+
 def course_coverage(root, tasks=None, include_skills=False):
     """Public metadata only; actual slides and attachments keep their access rules."""
-    import json
     from collections import Counter
     catalog = public_catalog()
     # Counts come from the same loaded bank that the trainer actually serves.

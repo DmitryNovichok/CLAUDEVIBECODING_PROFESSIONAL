@@ -97,6 +97,29 @@ class LearningProgressBoundaryTest(unittest.TestCase):
                         (self.sid if sid is None else sid,), one=True)
         return dict(row) if row else None
 
+    def test_expanded_lessons_keep_old_positions_and_use_current_totals(self):
+        self.unlock('course')
+        path = '/api/learning/directory?group=courses'
+        for n, previous in [(24, 49), (26, 18)]:
+            with self.subTest(n=n):
+                deck = (ROOT / 'course' / f'{n}.json').read_bytes()
+                dest = server.HERE / 'course' / f'{n}.json'
+                dest.parent.mkdir(exist_ok=True)
+                dest.write_bytes(deck)
+                total = len(json.loads(deck)['slides'])
+                self.assertGreater(total, previous)
+                self.db.x('INSERT INTO course_seen(student_id,n,slide,total,ts) VALUES(?,?,?,?,?)',
+                          (self.sid, n, previous, previous, n))
+                card = self.req(path)[1]['entries']['course']
+                self.assertEqual(card['done'], 0)
+                self.assertEqual((card['target']['n'], card['target']['slide']), (n, previous))
+                self.assertIn(f'{previous} из {total}', card['target']['title'])
+                status, _ = self.req('/api/course/seen', {'n': n, 'slide': 1, 'total': previous})
+                self.assertEqual(status, 200)
+                row = self.row('course_seen')
+                self.assertEqual((row['slide'], row['total']), (previous, total))
+                self.db.x('DELETE FROM course_seen WHERE student_id=? AND n=?', (self.sid, n))
+
     def test_directory_counts_real_account_activity_and_suggests_reachable_material(self):
         courses = '/api/learning/directory?group=courses'
         labs = '/api/learning/directory?group=labs'

@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import sqlite3
+import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -14,6 +15,49 @@ from learning_access import set_learning_passwords, PASSWORD_KEYS
 from learning_content import course_guide
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+class RegexLegacyAccessTest(unittest.TestCase):
+    def test_previous_regex_access_survives_renumbering_and_restart(self):
+        index = json.loads((ROOT / "pycourse/index.json").read_text())
+        mod = next(m for m in index if m["id"] == "m33")
+        full_mod = json.loads((ROOT / "pycourse/m33.json").read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "previous.db"
+            old = sqlite3.connect(path)
+            old.execute("""CREATE TABLE pyc_progress(student_id INTEGER, task_id TEXT, ok INTEGER DEFAULT 0,
+                           tries INTEGER DEFAULT 0, first_ts REAL, ok_ts REAL, last_ts REAL, code TEXT,
+                           PRIMARY KEY(student_id, task_id))""")
+            old.executemany("INSERT INTO pyc_progress(student_id,task_id,ok,tries) VALUES(?,?,?,1)", [
+                (1, "m33.digits", 0),
+                (2, "m33.digits", 1), (2, "m33.hex", 1),
+                (3, "m33.digits", 1), (3, "m33.hex", 1), (3, "m33.blocks", 1), (3, "m33.bounded", 1),
+                (4, "m33.file", 0), (5, "m26.old", 1),
+            ])
+            old.commit()
+            old.close()
+            db = server.DB(path)
+            try:
+                for sid, opened, solved in ((1, 2, 0), (2, 6, 2), (3, 7, 4), (4, 7, 0), (5, 1, 1), (6, 1, 0)):
+                    with self.subTest(sid=sid):
+                        progress = server.pyc_solved(db, sid)
+                        self.assertEqual(sum(p["ok"] for p in progress.values()), solved)
+                        for shape in (mod, full_mod):
+                            self.assertEqual(server.pyc_open_levels(shape, progress), opened)
+                self.assertEqual(server.pyc_open_levels({**mod, "id": "m26"}, server.pyc_solved(db, 3)), 1)
+                self.assertNotIn("regex_v1", server.pyc_solved(db, 5)["m26.old"])
+                db.x("UPDATE pyc_progress SET ok=1 WHERE student_id=1 AND task_id='m33.digits'")
+                for sid, tid in ((1, "hex"), (6, "digits"), (6, "hex")):
+                    db.x("INSERT INTO pyc_progress(student_id,task_id,ok) VALUES(?,?,1)", (sid, "m33." + tid))
+            finally:
+                db.conn.close()
+            db = server.DB(path)
+            try:
+                self.assertEqual(server.pyc_solved(db, 1)["m33.digits"]["regex_v1"], 1)
+                self.assertEqual(server.pyc_open_levels(mod, server.pyc_solved(db, 1)), 3)
+                self.assertEqual(server.pyc_open_levels(mod, server.pyc_solved(db, 6)), 1)
+            finally:
+                db.conn.close()
 
 
 class PasswordTest(unittest.TestCase):

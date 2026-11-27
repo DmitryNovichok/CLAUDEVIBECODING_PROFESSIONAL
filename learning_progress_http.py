@@ -21,7 +21,7 @@ import pycourse_grading
 from learning_catalog import LAB_MODELS, PREDICTION_MODELS, TRACE_EXAMPLES
 from learning_directory import directory
 import learning_quality
-from learning_content import course_coverage, course_guide
+from learning_content import course_coverage, course_guide, course_progress_total
 
 LEARNING_PROGRESS_PATHS = frozenset({
     '/api/course/coverage', '/api/course/lesson', '/api/course/sets',
@@ -158,6 +158,9 @@ class LearningProgressHTTPHandlers:
             n, sl, tot = svc.parse_int(data.get("n")), svc.parse_int(data.get("slide")), svc.parse_int(data.get("total"))
             if not (n in kim.ALL_NUMS and sl and 0 < sl <= (tot or 0) <= 200):
                 return self.err(400, "неверные данные")
+            tot = course_progress_total(svc.root, n, tot)
+            if sl > tot:
+                return self.err(400, "неверный номер слайда")
             db.x("""INSERT INTO course_seen(student_id, n, slide, total, ts) VALUES(?,?,?,?,?)
                     ON CONFLICT(student_id, n) DO UPDATE SET slide=MAX(slide, excluded.slide), total=excluded.total, ts=excluded.ts""",
                  (s["id"], n, sl, tot, time.time()))
@@ -363,7 +366,8 @@ class LearningProgressHTTPHandlers:
             mod, li, t = svc.pyc_task(tid)
             if not t:
                 return self.err(404, "нет такой задачи")
-            if li >= svc.pyc_open_levels(mod, prog, free):
+            open_before = svc.pyc_open_levels(mod, prog, free)
+            if li >= open_before:
                 return self.err(403, "Уровень ещё закрыт")
             try:
                 ok, feedback = pycourse_grading.grade(t, data, svc.pyc_norm)
@@ -396,8 +400,7 @@ class LearningProgressHTTPHandlers:
                 out["sol"] = t["sol"]
             if ok:
                 out["ans"] = t["ans"]
-                before = li + 1
-                out["opened"] = svc.pyc_open_levels(mod, prog, free) > before and before < len(mod["levels"])
+                out["opened"] = svc.pyc_open_levels(mod, prog, free) > open_before
                 svc.live_teacher(s)                 # у учителя обновится прогресс курса
             return self.send_json(out)
         return self.err(404, "нет такого метода")

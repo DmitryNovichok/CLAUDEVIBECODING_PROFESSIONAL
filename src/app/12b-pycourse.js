@@ -26,7 +26,7 @@
     pycSetAccess(true);
     return true;
   }
-  function pycLock(msg) {
+  function pycLock(msg, onUnlocked = openPyc) {
     $('#scopeInfo').innerHTML = '<span class="scope-title">Программирование</span>';
     if (msg || !appState.PYC_PW) {
       trainerEl.innerHTML = `<div class="course"><div class="crs-lock"><div class="crs-lock-ic">🔒</div>
@@ -54,7 +54,8 @@
         if (!current()) return;
         pycSetAccess(true);
         toast('Курс открыт 🐍', 2500);
-        openPyc();
+        PYC = null;
+        onUnlocked();
       } catch (err) { if (!current()) return; m.textContent = err.message || 'Не получилось — попробуйте ещё раз'; }
     });
   }
@@ -89,7 +90,11 @@
     }
     const remembered = learningMemory().pyc;
     const rm = remembered && mods.find(m => m.id === remembered.m);
-    if (rm && remembered.l < rm.open) cont = { m: rm, li: remembered.l };
+    if (rm) {
+      const taskLevel = rm.levels.findIndex(lv => lv.tasks.includes(remembered.task));
+      const li = taskLevel >= 0 ? taskLevel : remembered.l;
+      if (li >= 0 && li < rm.open) cont = { m: rm, li };
+    }
     const card = m => {
       const d = pycModDone(m), t = pycModTotal(m);
       return `<div class="pyc-mod${d === t && t ? ' done' : ''}">
@@ -134,7 +139,11 @@
       d = await api(`pyc/level?m=${encodeURIComponent(mid)}&l=${li}`);
     } catch (e) {
       if (!current() || request !== pycLevelRequest) return;
-      if (e.status === 403) { if (PYC && PYC.access) { toast(e.message, 4000); return openPyc(); } pycLock(); return; }
+      if (e.status === 403) {
+        if (PYC && PYC.access) { toast(e.message, 4000); return openPyc(); }
+        pycLock('', () => openPycLevel(mid, li, keepScroll, task));
+        return;
+      }
       netError(e); return;
     }
     if (!current() || !appState.courseShown || appState.pageKind !== 'pyc' || request !== pycLevelRequest) return;
@@ -142,11 +151,13 @@
     PYC_L = d;
     const m = PYC.modules.find(x => x.id === mid) || { levels: [], open: 1 };
     const lv = d.level, has = lv.slides.length;
-    appState.DECK = has ? { n: `pyc:${mid}:${li}`, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
-    if (!keepScroll) appState.deckI = learningSlide(`pyc:${mid}:${li}`);
+    const revisedSlides = mid === 'm33' || mid === 'm26' || (mid === 'm24' && li === 3);
+    const deckKey = `pyc:${mid}:${li}${revisedSlides ? ':v2' : ''}`;
+    appState.DECK = has ? { n: deckKey, label: `${pycLabel(d)} · уровень ${li + 1}`, pyc: true, slides: lv.slides } : null;
+    if (!keepScroll) appState.deckI = learningSlide(deckKey);
     const saved = learningMemory().pyc;
     if (task && lv.tasks.some(t => t.id === task && !t.ok)) PYC_FOCUS = task;
-    if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && saved.l === li && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
+    if (!lv.tasks.some(t => t.id === PYC_FOCUS)) PYC_FOCUS = saved?.m === mid && lv.tasks.some(t => t.id === saved.task) ? saved.task : (lv.tasks.find(t => !t.ok) || lv.tasks[0]).id;
     learningMemory({ pyc: { m: mid, l: li, task: PYC_FOCUS } });
     const done = lv.tasks.filter(t => t.ok).length;
     $('#scopeInfo').innerHTML = `<span class="scope-title">Программирование · ${esc(pycLabel(d))}</span><span class="scope-stats">уровень ${li + 1} из ${d.levels}</span>`;
@@ -305,7 +316,10 @@
   }
 
   trainerEl.addEventListener('click', e => {
-    if (!appState.courseShown || appState.pageKind !== 'pyc') return;
+    if (!appState.courseShown) return;
+    const lv = e.target.closest('[data-pyc-lv]');
+    if (lv && !lv.disabled) { const [m, l] = lv.dataset.pycLv.split(':'); openPycLevel(m, +l); return; }
+    if (appState.pageKind !== 'pyc') return;
     const focus = e.target.closest('[data-pyc-focus]');
     if (focus && PYC_L) {
       if (PYC_FOCUS !== focus.dataset.pycFocus) {
@@ -316,8 +330,6 @@
     }
     const tests = e.target.closest('[data-pyc-tests]');
     if (tests) { pycTestCode(tests.dataset.pycTests, tests); return; }
-    const lv = e.target.closest('[data-pyc-lv]');
-    if (lv && !lv.disabled) { const [m, l] = lv.dataset.pycLv.split(':'); openPycLevel(m, +l); return; }
     if (e.target.closest('[data-pyc-home]')) { openPyc(); return; }
     const py = e.target.closest('[data-pyc-py]');
     if (py) { pycOpenPy(py.dataset.pycPy); return; }
