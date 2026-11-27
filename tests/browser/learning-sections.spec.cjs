@@ -116,7 +116,7 @@ test('№24 starts with literal spans and reaches the independent expression fil
   // Use a pupil's solutions instead of reading private answers from the server.
   const num = '(?:[6789][06789]*|0)';
   const patterns = {
-    literal:'ABA', dot:String.raw`\.`, digits:String.raw`\d+`, hex:'[A-F0-9]+',
+    literal:'ABA', dot:String.raw`\.`, digits:'[0-9]+', hex:'[A-F0-9]+',
     fragment:'[^#]+', blocks:'(?:AB)+', bounded:'A[0-9]{2,4}B', quoted:'".*?"',
     number:num, word:String.raw`(?i)\bкот\b`, record:'(?m)^OK$',
     duplicate:String.raw`([A-Z])\1`, tagged:'(?<=#)[0-9]+', standalone:'(?<![a-zA-Z])OK(?![a-zA-Z])',
@@ -137,6 +137,11 @@ test('№24 starts with literal spans and reaches the independent expression fil
       if (task.regex) {
         const re = patterns[task.id.slice(4)];
         expect(re, task.id).toBeTruthy();
+        if (task.id === 'm33.digits') {
+          await box.locator('[data-re-pattern]').fill(String.raw`\d+`);
+          await box.getByRole('button', {name:'Проверить шаблон'}).click();
+          await expect(box.locator('.pyc-msg')).toContainText('Проверь строку');
+        }
         await box.locator('[data-re-pattern]').fill(re);
         await box.getByRole('button', {name:'Проверить шаблон'}).click();
       } else if (task.practice?.graded) {
