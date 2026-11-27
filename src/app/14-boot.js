@@ -40,21 +40,27 @@
       openHub(true);
     } else if (saved && inScope(saved)) {
       const s = P.tasks[saved.id];
-      show({ task: saved, why: { type: s ? 'repeat' : 'new' } });
+      show({ task: saved, why: { type: s ? 'repeat' : 'new' }, resume: true });
     } else {
       next();
     }
     const fresh = !labRequested && !P.log.length && !tourSeen();
     if (fresh) { setTimeout(openTour, 400); promoNext = true; }       // новичку — коротко о том, как всё устроено (потом — акция)
-    // после обновления — истории «Что нового» (один раз), иначе — объявление об акции (раз в день); сводка дня — в другой раз
-    const promo = !labRequested && !fresh && SERVER && student && (padAuto() || storiesAuto() || promoAuto());
     if (SERVER && student) {
       const ready = Promise.all([loadDaily(), loadDuels()]);
       liveStart();                                                     // живые обновления: одно соединение на браузер
       loadSupport();
       setTimeout(() => togCheck(true), 1200);                         // учитель ждёт в общем сеансе?
-      if (!labRequested && !fresh && !promo) ready.then(() => setTimeout(showDailyRating, 300));   // уже знакомым — сводка, раз в день
+      if (!labRequested && !fresh) ready.then(() => setTimeout(loginSummary, 300));
       setTimeout(loadRating, 900);                                     // место в лиге — на кнопку вверху
+    }
+  }
+
+  async function loginSummary() {
+    const sid = student?.sid;
+    if (await showWeeklyRating()) return;
+    if (student?.sid === sid && courseShown && pageKind === 'hub' && $('#forecastModal').hidden) {
+      if (!padAuto() && !storiesAuto()) promoAuto();
     }
   }
 
@@ -109,22 +115,32 @@
   function tourDone() {
     if (!promoNext) return;
     promoNext = false;
-    if (!padAuto() && !storiesAuto()) promoAuto();
+    if (SERVER && student) loginSummary();
   }
   $('#tourBtn').addEventListener('click', () => { if (isNarrow()) setSideOpen(false); openTour(); });
 
   // ------------------------------------------------------------ техподдержка: обращение уходит главному учителю, ответ — здесь
-  let SUPPORT = { items: [], kinds: {}, unread: 0 };
+  let SUPPORT = { unread: 0 };
+  let spRequest = 0;
   // время в техподдержке — московское, где бы ни был ученик и его часовой пояс
   const MSK_FMT = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const mskTime = sec => MSK_FMT.format(new Date(sec * 1000)).replace(',', '') + ' МСК';
   const SP_STATUS = { new: ['chip', 'ждёт ответа'], answered: ['chip good', 'есть ответ'], closed: ['chip', 'закрыто'] };
+  function spBadge(d) {
+    SUPPORT = { unread: d.unread };
+    $('#supportBtn').hidden = false;
+    $('#supportDot').hidden = !d.unread;
+    for (const button of $$('#forecastBody [data-sp-tab]')) {
+      button.querySelector('.sp-tab-dot').hidden = !d.unread_tabs[button.dataset.spTab];
+    }
+  }
   async function loadSupport() {
-    const b = $('#supportBtn');
-    if (!SERVER || !student) { if (b) b.hidden = true; return; }
-    try { SUPPORT = await api('support'); } catch (e) { return; }
-    b.hidden = false;
-    $('#supportDot').hidden = !SUPPORT.unread;
+    const sid = student?.sid;
+    if (!SERVER || !sid) { $('#supportBtn').hidden = true; return; }
+    try {
+      const d = await api('support?summary=1');
+      if (student?.sid === sid) spBadge(d);
+    } catch (e) { /* следующий запрос обновит счётчик */ }
   }
   // картинки в техподдержке: скриншот ошибки — кнопкой 📎 или вставкой Ctrl+V в поле
   const SP_IMG = new Map();                          // имя файла на сервере → blob-ссылка (картинку отдают только автору)
@@ -193,31 +209,100 @@
   const SP_PICK = '<button type="button" class="btn ghost sp-pick" data-sp-pick title="Прикрепить картинку — или вставь скриншот в поле через Ctrl+V">📎 Картинка</button><span class="sp-prev" hidden></span>';
   // две вкладки: «🛟 Обращения» (ошибка, не работает, вопрос) и «💡 Пожелания» (свои идеи для сайта, kind = idea)
   let spTab = 'help';
-  const spIdea = x => x.kind === 'idea';
-  const spNew = x => x.answer && !x.seen;
   const SUPPORT_ICON = '<svg class="support-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.6 3.6m5.6 5.6 3.6 3.6m0-12.8-3.6 3.6m-5.6 5.6-3.6 3.6"/></svg>';
-  /** tab: 'help' | 'idea' | 'auto' (кнопка «Техподдержка»: новый ответ только в пожеланиях — сразу туда); иначе — та же вкладка. */
-  async function openSupport(tab) {
+  function spItemHtml(x, idea, kinds) {
+    const st = SP_STATUS[x.status] || SP_STATUS.new;
+    const thread = (x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map(m => m.who === 'teacher'
+      ? `<div class="sp-ans"><b>Учитель · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`
+      : `<div class="sp-msg"><b>Ты · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`).join('');
+    return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}" data-sp="${x.id}" tabindex="-1"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
+      ${idea ? `<span>${mskTime(x.ts)}</span>` : `<span>${esc(kinds[x.kind] || '')}</span>`}${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
+      <div class="sp-thread">${thread}</div>
+      ${x.status === 'closed' ? '<p class="sp-closed">Тема закрыта. Если вопрос остался — напиши новое обращение выше.</p>'
+        : `<div class="sp-reply" data-sp-box><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
+        <div class="sp-row">${SP_PICK}<button type="button" class="btn" data-sp-reply>Отправить</button></div></div>`}</div>`;
+  }
+  async function spMarkShown(items) {
+    const sid = student?.sid;
+    const shown = items.filter(x => x.answer && !x.seen).map(x => ({id: x.id, answered: x.answered}));
+    if (!sid || !shown.length) return;
+    try {
+      const d = await api('support/seen', {shown});
+      if (student?.sid === sid) spBadge(d);
+    } catch (e) { /* непрочитанное останется отмеченным */ }
+  }
+  // Обновляем только затронутые темы. Ученик может продолжать печатать ответ и листать историю.
+  function spPutItems(list, data, where, keepDraft = true) {
+    const shown = [];
+    for (const x of data.items) {
+      const old = list.querySelector(`[data-sp="${x.id}"]`);
+      // Ответ на прежний запрос может прийти уже после нового сообщения.
+      if (old && old.querySelector('.sp-thread').childElementCount > x.thread.length) continue;
+      shown.push(x);
+      const template = document.createElement('template');
+      template.innerHTML = spItemHtml(x, x.kind === 'idea', data.kinds);
+      const card = template.content.firstElementChild;
+      const reply = card.querySelector('[data-sp-box]'), prev = old?.querySelector('[data-sp-box]');
+      if (prev && reply && keepDraft) {
+        old.className = card.className;
+        old.querySelector('.sp-head').replaceWith(card.querySelector('.sp-head'));
+        old.querySelector('.sp-thread').replaceWith(card.querySelector('.sp-thread'));
+        spLoadImgs(old);
+      } else {
+        if (reply) spAttach(reply);
+        if (old) old.replaceWith(card); else list.insertAdjacentElement(where, card);
+        spLoadImgs(card);
+      }
+    }
+    spMarkShown(shown);
+  }
+  async function spRefreshHistory(onlyUnread = false) {
+    const list = $('#forecastBody .sp-list');
+    if (!list || $('#forecastModal').hidden) return;
+    try {
+      const d = await api('support?section=' + spTab + (onlyUnread ? '&unread=1' : ''));
+      if (!list.isConnected || $('#forecastModal').hidden) return;
+      const shownUnread = d.items.filter(x => x.answer && !x.seen).length;
+      d.items.reverse();
+      spPutItems(list, d, 'afterbegin');
+      if (!onlyUnread && d.unread_tabs[spTab] > shownUnread) await spRefreshHistory(true);
+    } catch (e) { /* история остаётся на экране */ }
+  }
+  /** Из уведомления открываем указанную тему, в том числе из давней переписки. */
+  async function openSupport(tab, ticketId) {
+    if (!SERVER || !student) return;
     if (isNarrow()) setSideOpen(false);
-    await loadSupport();
-    if (tab === 'auto') spTab = SUPPORT.items.some(x => spIdea(x) && spNew(x)) && !SUPPORT.items.some(x => !spIdea(x) && spNew(x)) ? 'idea' : 'help';
-    else if (tab === 'help' || tab === 'idea') spTab = tab;
+    const sid = student.sid, request = ++spRequest, key = 'egeshka.support.tab.' + sid;
+    const prefer = readJSON(key) === 'idea' ? 'idea' : 'help';
+    const modal = $('#forecastModal'), body = $('#forecastBody');
+    body.innerHTML = '<p class="fm-note" data-sp-loading>Загружаю переписку…</p>';
+    modal.hidden = false;
+    const loading = body.firstElementChild;
+    const current = () => request === spRequest && student?.sid === sid && loading.isConnected && !modal.hidden;
+    let d, target;
+    try {
+      if (ticketId) {
+        const single = await api('support?id=' + encodeURIComponent(ticketId));
+        if (!current()) return;
+        target = single.items[0];
+        if (target) tab = target.kind === 'idea' ? 'idea' : 'help';
+        else toast('Обращение больше недоступно');
+      }
+      d = await api('support?section=' + (tab || spTab) + '&prefer=' + prefer);
+    } catch (e) {
+      if (current()) loading.textContent = 'Не удалось загрузить переписку. Открой техподдержку ещё раз.';
+      return;
+    }
+    if (!current()) return;
+    spTab = d.section;
+    writeJSON(key, spTab);
     const idea = spTab === 'idea';
     const t = !idea && cur && cur.task && !courseShown ? cur.task : null;
-    const kinds = Object.entries(SUPPORT.kinds || {}).filter(([k]) => k !== 'idea').map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
-    const dot = ideas => (SUPPORT.items.some(x => spIdea(x) === ideas && spNew(x)) ? '<i class="sp-tab-dot"></i>' : '');
-    const list = SUPPORT.items.filter(x => spIdea(x) === idea).map(x => {
-      const st = SP_STATUS[x.status] || SP_STATUS.new;
-      const thread = (x.thread || [{ who: 'student', ts: x.ts, text: x.text }]).map(m => m.who === 'teacher'
-        ? `<div class="sp-ans"><b>Учитель · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`
-        : `<div class="sp-msg"><b>Ты · ${mskTime(m.ts)}</b>${esc(m.text)}${spImgHtml(m.img)}</div>`).join('');
-      return `<div class="sp-item${x.answer && !x.seen ? ' unread' : ''}" data-sp="${x.id}"><div class="sp-head"><span class="${st[0]}">${st[1]}</span>
-        ${idea ? `<span>${mskTime(x.ts)}</span>` : `<span>${esc((SUPPORT.kinds || {})[x.kind] || '')}</span>`}${x.task ? `<span>задание ${esc(x.task)}</span>` : ''}</div>
-        <div class="sp-thread">${thread}</div>
-        ${x.status === 'closed' ? '<p class="sp-closed">Тема закрыта. Если вопрос остался — напиши новое обращение выше.</p>'
-          : `<div class="sp-reply" data-sp-box><textarea class="inp" rows="2" maxlength="2000" placeholder="Ответить в этой теме"></textarea>
-          <div class="sp-row">${SP_PICK}<button type="button" class="btn" data-sp-reply>Отправить</button></div></div>`}</div>`;
-    }).join('');
+    const kinds = Object.entries(d.kinds).filter(([k]) => k !== 'idea').map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
+    const dot = '<i class="sp-tab-dot" hidden></i>';
+    const items = d.items.slice();
+    if (target && !items.some(x => x.id === target.id)) items.unshift(target);
+
     const amounts = new Map((RULES.support_rewards || []).map(([kind, , , amount]) => [kind, amount]));
     const rewardLabels = idea
       ? [['idea', 'За полезную идею'], ['ux', 'За предложение по удобству интерфейса'], ['done', 'Бонус за реализацию идеи']]
@@ -241,25 +326,32 @@
       </form>`;
     $('#forecastBody').innerHTML = `<h2 class="fm-title">${SUPPORT_ICON} Техподдержка</h2>
       <div class="sp-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected="${!idea}" class="${idea ? '' : 'on'}" data-sp-tab="help">${SUPPORT_ICON} Обращения${dot(false)}</button>
-        <button type="button" role="tab" aria-selected="${idea}" class="${idea ? 'on' : ''}" data-sp-tab="idea">💡 Пожелания${dot(true)}</button>
+        <button type="button" role="tab" aria-selected="${!idea}" class="${idea ? '' : 'on'}" data-sp-tab="help">${SUPPORT_ICON} Обращения${dot}</button>
+        <button type="button" role="tab" aria-selected="${idea}" class="${idea ? 'on' : ''}" data-sp-tab="idea">💡 Пожелания${dot}</button>
       </div>
       ${rewardText ? `<p class="fm-note sp-reward">🎁 ${rewardText}. <button type="button" class="link-btn" data-pad-open>За что и сколько</button></p>` : ''}
       ${form}
-      ${list ? `<h3 class="fm-sub">${idea ? 'Мои пожелания' : 'Мои обращения'}</h3><div class="sp-list">${list}</div>` : ''}`;
-    $('#forecastModal').hidden = false;
+      <h3 class="fm-sub">${idea ? 'Мои пожелания' : 'Мои обращения'}</h3><div class="sp-list"></div>
+      <button type="button" class="btn ghost" data-sp-more ${d.next_before ? '' : 'hidden'}>Показать более ранние обращения</button>`;
     if (t) $('#spKind').value = 'task';
-    $('#forecastBody').querySelectorAll('[data-sp-box]').forEach(spAttach);
-    spLoadImgs($('#forecastBody'));
-    $('#forecastBody').querySelectorAll('[data-sp-reply]').forEach(b => b.addEventListener('click', async () => {
-      const box = b.closest('[data-sp]'), rep = box.querySelector('[data-sp-box]'), text = rep.querySelector('textarea').value.trim();
-      if (!text && !rep.spImg) { toast('Напиши сообщение'); return; }
-      b.disabled = true;
-      try { await api('support/reply', { id: +box.dataset.sp, text, img: rep.spImg || null }); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); b.disabled = false; return; }
-      toast('Сообщение отправлено', 2500);
-      rep.querySelector('textarea').value = ''; rep.spImg = null;
-      openSupport();
-    }));
+    spAttach($('#spForm'));
+    const list = body.querySelector('.sp-list');
+    spBadge(d);
+    spPutItems(list, {...d, items}, 'beforeend');
+    const more = body.querySelector('[data-sp-more]');
+    let before = d.next_before;
+    more.addEventListener('click', async () => {
+      more.disabled = true;
+      try {
+        const page = await api('support?section=' + spTab + '&before=' + before);
+        if (!more.isConnected || modal.hidden) return;
+        spPutItems(list, page, 'beforeend');
+        before = page.next_before;
+        more.hidden = !before;
+      } catch (e) { toast('Не удалось загрузить историю'); } finally { more.disabled = false; }
+    });
+    if (target) list.querySelector(`[data-sp="${target.id}"]`)?.focus();
+    if (d.unread_tabs[spTab] > items.filter(x => x.answer && !x.seen).length) spRefreshHistory(true);
     $('#spForm').addEventListener('submit', async e => {
       e.preventDefault();
       const btn = e.target.querySelector('[type=submit]');
@@ -268,11 +360,23 @@
       btn.disabled = true;                              // двойной клик — одно обращение
       try { await api('support', body); } catch (err) { toast(err.message || 'Не получилось отправить', 3500); btn.disabled = false; return; }
       toast(idea ? 'Пожелание отправлено учителю — ответ появится здесь' : 'Обращение отправлено — ответ появится в «Техподдержке»', 3500);
-      $('#spText').value = ''; $('#spForm').spImg = null;
-      openSupport();
+      if (btn.isConnected && !modal.hidden) openSupport();
     });
-    if (SUPPORT.unread) { try { await api('support/seen', {}); } catch (e) { /* не страшно */ } SUPPORT.unread = 0; $('#supportDot').hidden = true; }
   }
+  $('#forecastBody').addEventListener('click', async e => {
+    const button = e.target.closest('[data-sp-reply]');
+    if (!button) return;
+    const box = button.closest('[data-sp]'), rep = button.closest('[data-sp-box]'), list = box.parentNode;
+    const text = rep.querySelector('textarea').value.trim();
+    if (!text && !rep.spImg) { toast('Напиши сообщение'); return; }
+    button.disabled = true;
+    try {
+      const d = await api('support/reply', { id: +box.dataset.sp, text, img: rep.spImg || null });
+      if (list.isConnected) spPutItems(list, d, 'afterbegin', false);
+      toast('Сообщение отправлено', 2500);
+    } catch (err) { toast(err.message || 'Не получилось отправить', 3500); }
+    finally { button.disabled = false; }
+  });
   $('#supportBtn').addEventListener('click', () => openSupport('auto'));
   $('#forecastBody').addEventListener('click', e => {                 // вкладки техподдержки
     const b = e.target.closest('[data-sp-tab]');

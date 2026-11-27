@@ -1918,6 +1918,7 @@ class ServerTest(unittest.TestCase):
                       VALUES('Учитель Наград', 'nagrteach', 'x', 'NAGR77', 0, ?, 'n@example.ru', 1, 'approved')""", (time.time(),))
         db.x("INSERT INTO admin_sessions(token, expires, teacher_id) VALUES('nagr-session', ?, ?)", (time.time() + 3600, tid))
         self.assertEqual(self.teacher_req("egeadm=nagr-session", "POST", "/api/admin/support/reward", {"id": x["id"], "kind": "bug"})[0], 403)
+        self.assertEqual(self.teacher_req("egeadm=nagr-session", "GET", "/api/admin/support")[0], 403)
         db.x("DELETE FROM admin_sessions WHERE teacher_id=?", (tid,))
         db.x("DELETE FROM teachers WHERE id=?", (tid,))
         server.delete_student(db, sid)
@@ -1955,6 +1956,79 @@ class ServerTest(unittest.TestCase):
         self.assertEqual({r["kind"]: r["amount"] for r in given[str(old)]}, {"idea": 50, "done": 100})
         self.assertEqual({r["kind"]: r["amount"] for r in given[str(idea)]}, {"idea": 250, "done": 100})
         server.delete_student(db, sid)
+
+    def test_support_history_after_reply_and_reward(self):
+        db = server.APP.db
+        token, other = self.login("Архивов Михаил"), self.login("Архивова Анна")
+        sid = self.req("GET", "/api/me", token=token)[1]["sid"]
+        self.addCleanup(server.delete_student, db, sid)
+
+        def ticket(kind, text):
+            self.assertEqual(self.req("POST", "/api/support", {"kind": kind, "text": text}, token)[0], 200)
+            return self.req("GET", "/api/support", token=token)[1]["items"][0]["id"]
+
+        old = ticket("bug", "Давнее обращение с ошибкой")
+        idea = ticket("idea", "Пожелание ученика")
+        with db.transaction():
+            db.conn.executemany("INSERT INTO support(student_id,ts,kind,text) VALUES(?,?,'bug',?)",
+                                [(sid, time.time(), f"Следующее обращение {i}") for i in range(202)])
+        fresh = ticket("bug", "Новое обращение с ошибкой")
+        admin_url = "/api/admin/support"
+        self.assertEqual(self.admin("GET", admin_url + "?section=help")[1]["support"][0]["id"], fresh)
+        for issue in (old, fresh, idea):
+            st, result = self.admin("POST", admin_url + "/answer", {"id": issue, "answer": "Исправили ошибку"})
+            self.assertEqual(st, 200, result)
+            before_award = result["support"][0]["answered"]
+            st, award = self.admin("POST", admin_url + "/reward", {"id": issue, "kind": "bug"})
+            self.assertEqual(st, 200, award)
+            self.assertEqual(award["support"][0]["id"], issue)
+            self.assertIn("Начислено +250 ₿", award["support"][0]["thread"][-1]["text"])
+        # Ответ и награда не перемещают свежую тему за сотни необработанных.
+        first = self.admin("GET", "/api/admin/site-stats?section=help")[1]
+        self.assertEqual(len(first["support"]), 200)
+        self.assertEqual(first["support"][0]["id"], fresh)
+        second = self.admin("GET", f"{admin_url}?section=help&before={first['support_next']}")[1]
+        saved = next(x for x in second["support"] if x["id"] == old)
+        self.assertEqual([m["text"] for m in saved["thread"][:2]], ["Давнее обращение с ошибкой", "Исправили ошибку"])
+        self.assertIn("Начислено +250 ₿", saved["thread"][2]["text"])
+        self.assertEqual([r["amount"] for r in second["support_given"][str(old)]], [250])
+        self.assertFalse({x["id"] for x in first["support"]} & {x["id"] for x in second["support"]})
+        self.assertIn(idea, [x["id"] for x in self.admin("GET", admin_url + "?section=idea")[1]["support"]])
+
+        def history(query, owner=token):
+            status, data = self.req("GET", "/api/support?" + query, token=owner)
+            self.assertEqual(status, 200, data)
+            return data
+
+        self.assertEqual(history("summary=1")["unread_tabs"], {"help": 2, "idea": 1})
+        self.assertEqual(history("section=idea")["items"][0]["id"], idea)
+        self.assertEqual(history(f"id={old}", other)["items"], [])
+        self.assertEqual(history("section=help&unread=1")["items"][-1]["id"], old)
+        # Прочтение предыдущей редакции не скрывает новую награду.
+        seen = self.req("POST", "/api/support/seen", {"shown": [{"id": idea, "answered": before_award}]}, token)[1]
+        self.assertEqual(seen["unread"], 3)
+        revision = history(f"id={idea}")["items"][0]["answered"]
+        seen = self.req("POST", "/api/support/seen", {"shown": [{"id": idea, "answered": revision}]}, token)[1]
+        self.assertEqual(seen["unread_tabs"], {"help": 2, "idea": 0})
+        self.assertEqual(history("section=auto&prefer=idea")["section"], "help")
+
+        found = []
+        page = history("section=help")
+        while True:
+            found.extend(x["id"] for x in page["items"])
+            if not page["next_before"]:
+                break
+            self.assertLessEqual(len(found), 204)
+            page = history(f"section=help&before={page['next_before']}")
+        self.assertEqual(len(set(found)), 204)
+        self.assertEqual(found, sorted(set(found), reverse=True))
+        self.assertEqual((found[0], found[-1]), (fresh, old))
+        self.admin("POST", admin_url + "/answer", {"id": old, "close": True})
+        item = history(f"id={old}")["items"][0]
+        self.assertEqual((item["status"], item["thread"]), ("closed", saved["thread"]))
+        self.assertEqual(self.admin("POST", admin_url + "/reward", {"id": old, "kind": "bug"})[0], 409)
+        self.assertEqual(db.q("SELECT SUM(delta) AS paid FROM coins WHERE student_id=? AND reason='support'",
+                              (sid,), one=True)["paid"], 750)
 
     def test_support_ticket_flow(self):
         tok = self.login("Поддержкин Павел")

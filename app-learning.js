@@ -343,7 +343,6 @@ window.EgeLearningSections = function (bridge) {
     if (appState.DECK.pyc && pyOpen()) pySync(); else togglePy(true);
     const ta = $('#pyCode');
     ta.value = code;
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
     $('#pyTask').textContent = appState.DECK.pyc ? appState.DECK.label + ' · пример' : `курс · №${appState.DECK.n}`;
     if (!appState.DECK.pyc) {                      // урок курса: файлы данных слайда кладём рядом с кодом — open('24.txt') работает
       const files = (sl.blocks ? (sl.blocks[k || 0] || {}).files : null) || sl.files || [];
@@ -351,6 +350,7 @@ window.EgeLearningSections = function (bridge) {
         att: files.map(f => ({ name: f.name, href: f.url })) } : null;
       $('#pyFiles').innerHTML = files.length ? 'Файлы рядом с кодом: ' + files.map(f => `<code>open('${esc(f.name)}')</code>`).join(' ') : '';
     }
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
   }
   document.addEventListener('keydown', e => {
     if (!appState.courseShown || !appState.DECK || !$('#crsDeck') || e.target.closest('input, textarea, select')) return;
@@ -753,7 +753,13 @@ window.EgeLearningSections = function (bridge) {
   trainerEl.addEventListener('click', e => {
     if (!appState.courseShown || appState.pageKind !== 'pyc') return;
     const focus = e.target.closest('[data-pyc-focus]');
-    if (focus && PYC_L) { PYC_FOCUS = focus.dataset.pycFocus; openPycLevel(PYC_L.id, PYC_L.l, true); return; }
+    if (focus && PYC_L) {
+      if (PYC_FOCUS !== focus.dataset.pycFocus) {
+        PYC_FOCUS = focus.dataset.pycFocus;
+        openPycLevel(PYC_L.id, PYC_L.l, true);
+      }
+      return;
+    }
     const tests = e.target.closest('[data-pyc-tests]');
     if (tests) { pycTestCode(tests.dataset.pycTests, tests); return; }
     const lv = e.target.closest('[data-pyc-lv]');

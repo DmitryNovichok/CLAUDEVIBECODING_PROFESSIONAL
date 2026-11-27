@@ -96,6 +96,26 @@ test('teacher invitation and assignment reach a new pupil, survive reload and pr
       expect(profile.body.name).toBe(pupilName);
     });
 
+    await test.step('An ordinary solution stays in history but a repeat starts with empty Python', async () => {
+      await pupil.locator('[data-hub-n="5"]').click();
+      await pupil.locator('#pyBtn').click();
+      await pupil.locator('#pyCode').fill('print("ordinary lesson")');
+      await pupil.locator('#answerInputs input').fill('12');
+      const sent = posted(pupil, '/api/solution');
+      await pupil.locator('#checkBtn').click();
+      const attachment = await sent;
+      expect(attachment.status()).toBe(200);
+      expect(attachment.request().postDataJSON().assignment).toBe(0);
+      await expect(pupil.locator('#feedback')).toContainText('Верно!');
+      // Browser data from before attempt-specific drafts must also be ignored.
+      await pupil.evaluate(({sid, task}) => localStorage.setItem('egeshka.code.' + sid + '.' + task, 'print("old draft")'),
+        {sid: pupilId, task: fixture.task});
+      await pupil.reload();
+      await pupil.locator('[data-hub-n="5"]').click();
+      await pupil.locator('#pyBtn').click();
+      await expect(pupil.locator('#pyCode')).toHaveValue('');
+    });
+
     await test.step('Teacher puts the invited pupil into the class and issues real work', async () => {
       await teacher.locator('#tabs [data-tab="students"]').click();
       const row = teacher.locator(`#studentsTable tr[data-id="${pupilId}"]`);
@@ -141,6 +161,19 @@ test('teacher invitation and assignment reach a new pupil, survive reload and pr
       await pupil.locator('#wkStart').click();
       expect((await starting).status()).toBe(200);
       await expect(pupil.locator('#cond')).toContainText('Пять');
+      const opening = pupil.waitForResponse(response => new URL(response.url()).pathname === '/api/solution'
+        && new URL(response.url()).searchParams.get('assignment') === String(assignmentId));
+      await pupil.locator('#pyBtn').click();
+      expect((await (await opening).json()).code).toBe('');
+      await expect(pupil.locator('#pyCode')).toHaveValue('');
+      await pupil.locator('#pyCode').fill('print("current work")');
+      await pupil.reload();
+      await pupil.locator('[data-tile-key="asg"]').click();
+      await pupil.locator(`[data-assignment="${assignmentId}"] [data-asg]`).click();
+      await pupil.locator('#pyBtn').click();
+      await expect(pupil.locator('#pyCode')).toHaveValue('print("current work")');
+      await pupil.locator('#pyCode').fill('');
+      await pupil.locator('#pyClose').click();
       await pupil.locator('#answerInputs input').fill('12');
 
       const held = new Promise(resolve => { releaseAnswer = resolve; });

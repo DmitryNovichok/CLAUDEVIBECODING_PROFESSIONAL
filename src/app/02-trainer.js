@@ -1362,8 +1362,16 @@
     }
     const revKey = pick.why.type === 'review' ? pick.why.r.key : topicKey(t0);
     const rv = P.reviews[revKey];
+    const a = pick.why.type === 'asg' && pick.why.a;
+    let work = a && !a.course && !a.duel ? a : null;
+    if (work && !work.strict) {
+      const state = pkState(t0.id, pkFirst(work));
+      if (state && state[0] !== 'pend') work = null;    // новый разбор уже оценённой задачи
+    }
     cur = {
       task: t0, why: pick.why, attempt: 0, answers: [], done: false, started: Date.now(),
+      pyAssignment: work ? work.id : 0,
+      pyDraft: work ? `work:${work.id}:${work.started || work.created}:${t0.id}` : trainingDraft(t0.id, pick.resume),
       revKey, revDue: !!(rv && isDue(rv, Date.now())),
       group: !!t0.parts,
       shape: t0.parts ? null : shapeOf(t0),

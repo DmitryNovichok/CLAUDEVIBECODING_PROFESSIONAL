@@ -224,3 +224,145 @@ for (const width of [375, 1366]) {
     }
   });
 }
+
+test('automatic league summary is shared across browsers; the league still opens manually', async ({browser}) => {
+  const pupil = fixture.participants[0];
+  for (const first of [true, false]) {
+    const context = await browser.newContext();
+    try {
+      await context.addCookies([{name: 'egest', value: pupil.token, url: fixture.origin}]);
+      await context.addInitScript(sid => {
+        if (window !== window.top) return;
+        for (const prefix of ['egeshka.tour.v1.', 'egeshka.pad.rewards-2026-11.', 'egeshka.stories.labs-lessons-2026-11.'])
+          localStorage.setItem(prefix + sid, '1');
+      }, pupil.sid);
+      const page = await context.newPage();
+      const ranking = page.waitForResponse(r => new URL(r.url()).pathname === '/api/leaderboard' && r.request().method() === 'GET');
+      await page.goto(fixture.origin);
+      expect((await (await ranking).json()).summary_seen).toBe(!first);
+      if (first) {
+        await expect(page.locator('#forecastBody')).toContainText('Привет! Вот что нового');
+        await page.locator('#tourGo').click();
+      } else {
+        await expect(page.locator('#forecastModal')).toBeHidden();
+        await page.locator('[data-hub-go="league"]').click();
+        await expect(page.locator('#forecastBody .fm-title')).toHaveText('Рейтинг');
+      }
+    } finally { await context.close(); }
+  }
+});
+
+test('version notice expires over Python and the update button dismisses it before reload', async ({page, context}) => {
+  await seedBrowser(context, fixture);
+  // Advance only the two-minute release check. The notice itself uses its real timeout.
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    const interval = window.setInterval;
+    window.setInterval = function(callback, ms, ...args) {
+      if (ms === 120000) window.pollRelease = callback;
+      return interval.call(this, callback, ms, ...args);
+    };
+  });
+  let build = 'one', broken = false;
+  await page.route(/\/(app\.js|style\.css|changelog\.js)(\?|$)/, route => {
+    if (route.request().method() !== 'HEAD') return route.continue();
+    return route.fulfill({status: broken ? 503 : 200, headers: broken ? {} : {ETag: '"' + build + '"'}, body: ''});
+  });
+  await page.goto(fixture.origin);
+  await page.locator('[data-hub-n="5"]').click();
+  await page.locator('#pyBtn').click();
+  await page.locator('#pyCode').fill('print(42)');
+  const poll = () => page.evaluate(() => window.pollRelease());
+  const bar = page.locator('.ver-bar');
+  broken = true;
+  await poll();
+  await expect(bar).toHaveCount(0);
+  broken = false;
+  build = 'two';
+  await poll();
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveCount(0, {timeout: 4500});
+  await expect(page.locator('#pyCode')).toHaveValue('print(42)');
+  await poll();
+  await expect(bar).toHaveCount(0);
+  build = 'three';
+  await poll();
+  await expect(bar).toBeVisible();
+  // Inspect the old document on its way out, before a new page can hide a persistent bar.
+  await page.evaluate(() => addEventListener('pagehide', () =>
+    sessionStorage.setItem('test.noticeStillPresent', String(!!document.querySelector('.ver-bar'))), {once: true}));
+  await Promise.all([page.waitForEvent('domcontentloaded'), bar.getByRole('button', {name: 'Обновить'}).click()]);
+  expect(await page.evaluate(() => sessionStorage.getItem('test.noticeStillPresent'))).toBe('false');
+  await expect(bar).toHaveCount(0);
+});
+
+test('support keeps the conversation after an answer, reward and reload for both accounts', async ({page, context, browser}) => {
+  const registration = await context.request.post(fixture.origin + '/api/login', {data: {
+    mode: 'register', consent: true, code: '1234', name: 'Ученик Поддержки', new_password: 'fixture-password'
+  }});
+  expect(registration.ok()).toBe(true);
+  const pupil = await registration.json();
+  await seedBrowser(context, fixture, 'pupil', pupil);
+  const staff = await browser.newContext();
+  try {
+    await seedBrowser(staff, fixture, 'teacher', fixture.principal);
+    await page.goto(fixture.origin);
+    const open = () => page.locator('#hubSupport:visible, #supportBtn:visible').first().click();
+    await open();
+    await page.locator('#spKind').selectOption('bug');
+    const question = 'После запуска пустое окно вывода';
+    await page.locator('#spText').fill(question);
+    await page.locator('#spForm [type=submit]').click();
+    const mine = page.locator('.sp-item').filter({hasText: question});
+    await expect(mine).toBeVisible();
+    const id = await mine.getAttribute('data-sp');
+    const teacher = await staff.newPage();
+    teacher.on('dialog', dialog => dialog.accept());
+    await teacher.goto(fixture.origin + '/admin');
+    const tab = teacher.locator('[data-tab="site"]');
+    await tab.click();
+    const card = teacher.locator('.sp-a[data-sp="' + id + '"]');
+    await expect(card).toContainText(question);
+    const answer = 'Исправили вывод, проверь ещё раз';
+    await card.locator('textarea').fill(answer);
+    await card.locator('[data-sp-send]').click();
+    await expect(card.locator('.sp-a-ans')).toHaveText(new RegExp(answer));
+    await card.locator('textarea').fill('Черновик уточнения');
+    await card.locator('summary').click();
+    await card.locator('[data-sp-rw="bug"]').click();
+    await expect(card.locator('[data-sp-rw="bug"]')).toBeDisabled();
+    await expect(card.locator('textarea')).toHaveValue('Черновик уточнения');
+    await expect(card).toContainText('Начислено +250 ₿');
+    await teacher.reload();
+    await tab.click();
+    await expect(card).toContainText(answer);
+    await expect(card).toContainText('Начислено +250 ₿');
+    await expect(card.locator('[data-sp-rw="bug"]')).toBeDisabled();
+
+    await page.reload();
+    await open();
+    await expect(mine.locator('.sp-thread > *')).toHaveCount(3);
+    await expect(mine).toContainText(answer);
+    await expect(mine).toContainText('Начислено +250 ₿');
+    // Убираем прочитанную тему со стартовой страницы архива.
+    for (let i = 0; i < 21; i++) {
+      const res = await context.request.post(fixture.origin + '/api/support',
+        {headers: {'X-Token': pupil.token}, data: {kind:'bug', text:'Следующая тема ' + i}});
+      expect(res.ok()).toBe(true);
+    }
+    await page.reload();
+    await open();
+    await expect(page.locator('.sp-item')).toHaveCount(20);
+    await expect(mine).toHaveCount(0);
+    await page.locator('#forecastBody [data-sp-more]').click();
+    await expect(mine).toContainText(answer);
+    await expect(mine).toContainText('Начислено +250 ₿');
+    await page.locator('#forecastModal .fm-close').click();
+    await page.locator('#bellBtn').click();
+    await page.locator('[data-nt-go="support"][data-nt-id="' + id + '"]').first().click();
+    await expect(mine).toBeFocused();
+    await expect(mine).toContainText(answer);
+  } finally {
+    await staff.close();
+  }
+});
