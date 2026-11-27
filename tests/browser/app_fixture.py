@@ -99,6 +99,9 @@ def main():
         token = helper.login('Учебный Ученик')
         status, pupil = helper.req('GET', '/api/me', token=token)
         assert status == 200
+        db.x('UPDATE teachers SET consent_ver=? WHERE is_main=1', (server.LEGAL_VERSION,))
+        status, main_teacher = helper.admin('GET', '/api/admin/me')
+        assert status == 200 and main_teacher['is_main']
         market = seed_market(helper, db, pupil['sid']) if os.environ.get('EGE_SYNTHETIC_MARKET') == '1' else None
         # Real entitlement checks still run; this synthetic pupil can open learning UI.
         db.setting('course_pw', server.hash_pw('fixture-only-course-password'))
@@ -123,7 +126,8 @@ def main():
         server.SITE_URL = origin
         # No real SMTP or external requests exist in this fixture.
         server.smtp_conf = lambda: None
-    print(json.dumps({'origin': origin, 'teachers': teachers, 'student': {'token': token, 'sid': pupil['sid']},
+    print(json.dumps({'origin': origin, 'teachers': teachers, 'principal': {'cookie': 'admtest', 'id': main_teacher['id']},
+                      'student': {'token': token, 'sid': pupil['sid']},
                       # Teacher bank routes use canonical IDs; pupil routes expose opaque IDs.
                       'task': server.APP.bank.pid('b:5'), 'teacherTask': 'b:5', 'participants': participants,
                       'together': {'id': lesson['id']}, 'taskCount': len(fixtures.BANK['tasks']), 'market': market}), flush=True)

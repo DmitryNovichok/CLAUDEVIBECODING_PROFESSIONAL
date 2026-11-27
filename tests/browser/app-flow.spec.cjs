@@ -295,3 +295,74 @@ test('version notice expires over Python and the update button dismisses it befo
   expect(await page.evaluate(() => sessionStorage.getItem('test.noticeStillPresent'))).toBe('false');
   await expect(bar).toHaveCount(0);
 });
+
+test('support keeps the conversation after an answer, reward and reload for both accounts', async ({page, context, browser}) => {
+  const registration = await context.request.post(fixture.origin + '/api/login', {data: {
+    mode: 'register', consent: true, code: '1234', name: 'Ученик Поддержки', new_password: 'fixture-password'
+  }});
+  expect(registration.ok()).toBe(true);
+  const pupil = await registration.json();
+  await seedBrowser(context, fixture, 'pupil', pupil);
+  const staff = await browser.newContext();
+  try {
+    await seedBrowser(staff, fixture, 'teacher', fixture.principal);
+    await page.goto(fixture.origin);
+    const open = () => page.locator('#hubSupport:visible, #supportBtn:visible').first().click();
+    await open();
+    await page.locator('#spKind').selectOption('bug');
+    const question = 'После запуска пустое окно вывода';
+    await page.locator('#spText').fill(question);
+    await page.locator('#spForm [type=submit]').click();
+    const mine = page.locator('.sp-item').filter({hasText: question});
+    await expect(mine).toBeVisible();
+    const id = await mine.getAttribute('data-sp');
+    const teacher = await staff.newPage();
+    teacher.on('dialog', dialog => dialog.accept());
+    await teacher.goto(fixture.origin + '/admin');
+    const tab = teacher.locator('[data-tab="site"]');
+    await tab.click();
+    const card = teacher.locator('.sp-a[data-sp="' + id + '"]');
+    await expect(card).toContainText(question);
+    const answer = 'Исправили вывод, проверь ещё раз';
+    await card.locator('textarea').fill(answer);
+    await card.locator('[data-sp-send]').click();
+    await expect(card.locator('.sp-a-ans')).toHaveText(new RegExp(answer));
+    await card.locator('textarea').fill('Черновик уточнения');
+    await card.locator('summary').click();
+    await card.locator('[data-sp-rw="bug"]').click();
+    await expect(card.locator('[data-sp-rw="bug"]')).toBeDisabled();
+    await expect(card.locator('textarea')).toHaveValue('Черновик уточнения');
+    await expect(card).toContainText('Начислено +250 ₿');
+    await teacher.reload();
+    await tab.click();
+    await expect(card).toContainText(answer);
+    await expect(card).toContainText('Начислено +250 ₿');
+    await expect(card.locator('[data-sp-rw="bug"]')).toBeDisabled();
+
+    await page.reload();
+    await open();
+    await expect(mine.locator('.sp-thread > *')).toHaveCount(3);
+    await expect(mine).toContainText(answer);
+    await expect(mine).toContainText('Начислено +250 ₿');
+    // Убираем прочитанную тему со стартовой страницы архива.
+    for (let i = 0; i < 21; i++) {
+      const res = await context.request.post(fixture.origin + '/api/support',
+        {headers: {'X-Token': pupil.token}, data: {kind:'bug', text:'Следующая тема ' + i}});
+      expect(res.ok()).toBe(true);
+    }
+    await page.reload();
+    await open();
+    await expect(page.locator('.sp-item')).toHaveCount(20);
+    await expect(mine).toHaveCount(0);
+    await page.locator('#forecastBody [data-sp-more]').click();
+    await expect(mine).toContainText(answer);
+    await expect(mine).toContainText('Начислено +250 ₿');
+    await page.locator('#forecastModal .fm-close').click();
+    await page.locator('#bellBtn').click();
+    await page.locator('[data-nt-go="support"][data-nt-id="' + id + '"]').first().click();
+    await expect(mine).toBeFocused();
+    await expect(mine).toContainText(answer);
+  } finally {
+    await staff.close();
+  }
+});
